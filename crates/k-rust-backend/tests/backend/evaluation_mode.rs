@@ -370,3 +370,66 @@ fn an_open_outcome_of_a_partial_symbol_is_of_unknown_definedness_outside_an_exec
         Predicate::True
     );
 }
+
+/// GAP K2: partial and `total` symbols hooked at scoped sites (`ordChar`, `String2Int`) and at a
+/// universal one (`chrChar`).
+const OUTSIDE_BOTTOMS: &str = r#"[]
+module MAIN
+  sort SortK{} []
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+  hooked-symbol ord{}(SortString{}) : SortInt{} [function{}(), hook{}("STRING.ord")]
+  hooked-symbol totalOrd{}(SortString{}) : SortInt{}
+    [function{}(), total{}(), hook{}("STRING.ord")]
+  hooked-symbol s2i{}(SortString{}) : SortInt{} [function{}(), hook{}("STRING.string2int")]
+  hooked-symbol chr{}(SortInt{}) : SortString{} [function{}(), hook{}("STRING.chr")]
+endmodule []"#;
+
+/// GAP K2: where a partial hook's description covers only some arguments, `\bottom` and every
+/// value are models outside them, so the `\ceil` of `ordChar("ab")` and `String2Int("x")` is
+/// neither true nor false outside an execution, and false in one, which takes k-rust's
+/// `\bottom`. At a `total` symbol the application is defined on every route: `\bottom` is no
+/// model there. `chrChar(-1)` is `\bottom` in every model (no character has that number), on
+/// every route. Before K2 every route took the `\bottom`.
+#[test]
+fn a_bottom_outside_a_described_domain_is_of_unknown_definedness_outside_an_execution() {
+    let syntax = parse_definition(OUTSIDE_BOTTOMS).expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let string = |value: &str| format!(r#"\dv{{SortString{{}}}}("{value}")"#);
+    let scoped = [
+        format!("ord{{}}({})", string("ab")),
+        format!("s2i{{}}({})", string("x")),
+    ];
+    for source in &scoped {
+        let proof = definedness(&definition, source, EvaluationMode::Proof);
+        assert!(
+            !matches!(proof, Predicate::True | Predicate::False),
+            "{source}: {proof:?}"
+        );
+        assert_eq!(
+            definedness(&definition, source, EvaluationMode::Execution),
+            Predicate::False,
+            "{source}"
+        );
+    }
+    let total = format!("totalOrd{{}}({})", string("ab"));
+    let universal = r#"chr{}(\dv{SortInt{}}("-1"))"#;
+    for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
+        assert_eq!(
+            definedness(&definition, &total, mode),
+            Predicate::True,
+            "{mode:?}"
+        );
+        assert_eq!(
+            definedness(&definition, universal, mode),
+            Predicate::False,
+            "{mode:?}"
+        );
+        assert_eq!(
+            definedness(&definition, &format!("ord{{}}({})", string("a")), mode),
+            Predicate::True,
+            "{mode:?}"
+        );
+    }
+}

@@ -18,6 +18,7 @@
 //! - `set2list`, `list2set`: `O(n)` and `O(n log n)`, the size of the result.
 //! - `choice`: the first stored element, one descent of the tree, `O(log n)`.
 
+use super::Undefinedness;
 use std::sync::Arc;
 
 use num_bigint::BigInt;
@@ -46,7 +47,7 @@ pub(super) fn evaluate(
     if arguments.iter().any(|argument| {
         !argument.attributes().ceil_free() && argument.repeated_set_element().is_some()
     }) {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let result = match hook {
         "SET.concat" => return concat(arguments, result),
@@ -94,7 +95,7 @@ fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     Ok(match (elements.len(), rest) {
-        (0, None) => BuiltinResult::Bottom,
+        (0, None) => BuiltinResult::Bottom(Undefinedness::Stated),
         (1, None) => BuiltinResult::Value(
             elements
                 .get(0)
@@ -153,7 +154,7 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     // of `n` and `m` elements, rather than a pass over both.
     let united = left_elements.union(right_elements);
     if united.summary().collision {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     Ok(into
         .build_from(
@@ -710,13 +711,13 @@ mod tests {
     fn concat_of_sets_sharing_an_element_is_bottom() {
         assert_eq!(
             concat(&[set(&["a", "b"]), set(&["b", "c"])], into(&sets())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         let rest = Term::variable(Variable::new("REST", Sort::simple("SortSet")));
         let left = Term::set(set_definition(), vec![item("a")], Some(rest));
         assert_eq!(
             concat(&[left, set(&["a"])], into(&sets())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         assert_eq!(
             concat(&[set(&["a"]), set(&["b"])], into(&sets())),
@@ -736,7 +737,7 @@ mod tests {
         ] {
             assert_eq!(
                 evaluate(hook, &arguments, None, into(&lists())),
-                Ok(BuiltinResult::Bottom),
+                Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
                 "{hook}"
             );
         }
@@ -991,11 +992,11 @@ mod tests {
         }
         assert_eq!(
             hook("SET.concat", &[base.clone(), numbers(&[8])]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
         assert_eq!(
             hook("SET.concat", &[numbers(&[2 * ELEMENTS]), base]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
     }
 
@@ -1157,7 +1158,10 @@ mod tests {
 
     #[test]
     fn choice_of_the_empty_collection_is_bottom() {
-        assert_eq!(choice_of(set(&[])), BuiltinResult::Bottom);
+        assert_eq!(
+            choice_of(set(&[])),
+            BuiltinResult::Bottom(Undefinedness::Stated)
+        );
     }
 
     /// A set of one element has that element, which every admitted choice gives, also when it is

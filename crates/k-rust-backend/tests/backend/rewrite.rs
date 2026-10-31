@@ -471,8 +471,12 @@ fn list_update_patterns_rewrite_only_when_the_selected_element_agrees() {
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let list = r#"listConcat{}(listItem{}(\dv{SortInt{}}("0")), listConcat{}(listItem{}(\dv{SortInt{}}("1")), listItem{}(\dv{SortInt{}}("2"))))"#;
 
-    // The update is a pattern, not a mutation: the three agreeing values match;
-    // a different value or an invalid index leaves the original state stuck.
+    // The update is a pattern, not a mutation: the three agreeing values match. A different
+    // value or an invalid index is the update of no base list at one of its indices, and an
+    // update outside the indices of its base list is class `outside-domain` (GAP K2): an
+    // execution takes k-rust's `\bottom` there and leaves the original state stuck, while
+    // every other evaluation does not refute the match, since in some model the update of a
+    // shorter base list is the subject.
     for (index, value, applies) in [
         (0, 0, true),
         (1, 1, true),
@@ -490,15 +494,29 @@ fn list_update_patterns_rewrite_only_when_the_selected_element_agrees() {
             ),
             constraints: Vec::new(),
         };
-        let result = rewrite_step(&definition, &subject, &mut FreshCounter::default());
+        let result = |evaluation| {
+            k_rust_backend::evaluation::with_evaluation(evaluation, || {
+                rewrite_step(&definition, &subject, &mut FreshCounter::default())
+            })
+        };
         if applies {
+            let result = result(k_rust_backend::evaluation::EvaluationMode::Proof);
             let RewriteResult::Finished(applied) = result else {
                 panic!("({index}, {value}) should rewrite: {result:?}");
             };
             assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
             assert!(applied.pattern.constraints.is_empty());
         } else {
-            assert_eq!(result, RewriteResult::Stuck(subject), "({index}, {value})");
+            assert_eq!(
+                result(k_rust_backend::evaluation::EvaluationMode::Execution),
+                RewriteResult::Stuck(subject.clone()),
+                "({index}, {value})"
+            );
+            assert_ne!(
+                result(k_rust_backend::evaluation::EvaluationMode::Proof),
+                RewriteResult::Stuck(subject),
+                "({index}, {value})"
+            );
         }
     }
 }

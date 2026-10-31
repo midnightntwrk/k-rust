@@ -1842,7 +1842,8 @@ fn observation_domain_routes_a_fixed_list_access_stays_feasible() {
 }
 
 /// `range(L, 2, 0)` is defined where `size(L) >= 2`: an off-by-one `size(L) >= 3` would
-/// contradict `size(L) <=Int 2`.
+/// contradict `size(L) <=Int 2`. Past the end it is class `outside-domain` (GAP K2): the
+/// negative run `ldrop(ListItem(1))` is an execution, which takes k-rust's `\bottom` (marked).
 #[test]
 fn observation_domain_routes_a_fixed_list_drop_stays_feasible() {
     assert_route("ldrop", "L:SortList{}", &two_items(), Some(&list_item(1)));

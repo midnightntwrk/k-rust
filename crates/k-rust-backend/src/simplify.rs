@@ -3220,7 +3220,7 @@ fn uncomputed_refusal(
     let outcome = match evaluate_builtin(term, definition)?.map_err(SimplificationError::Builtin)? {
         BuiltinResult::NotApplicable => None,
         BuiltinResult::Unsupported(reason) => Some(reason),
-        BuiltinResult::Value(_) | BuiltinResult::Bottom | BuiltinResult::Effect(_) => {
+        BuiltinResult::Value(_) | BuiltinResult::Bottom(_) | BuiltinResult::Effect(_) => {
             return Ok(None);
         }
     };
@@ -6702,7 +6702,7 @@ fn simplify_root(
             };
             let outcome = match builtin {
                 BuiltinResult::Value(result) => HookOutcome::Value(result),
-                BuiltinResult::Bottom => HookOutcome::Bottom,
+                BuiltinResult::Bottom(_) => HookOutcome::Bottom,
                 BuiltinResult::Effect(effect) => {
                     HookOutcome::Effect(builtin_effect_result(definition, term, &effect)?, effect)
                 }

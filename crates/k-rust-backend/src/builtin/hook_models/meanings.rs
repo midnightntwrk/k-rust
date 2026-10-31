@@ -360,7 +360,7 @@ fn failures(definition: &BackendDefinition, hook: &str) -> (usize, Vec<String>) 
                     .expect("a builtin value evaluates")
                     .expect("a builtin value is defined"),
             ),
-            Ok(Ok(BuiltinResult::Bottom)) => None,
+            Ok(Ok(BuiltinResult::Bottom(_))) => None,
             Ok(_) => continue,
             Err(stop) => {
                 stop.into_cause();

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
 use k_rust_backend::{
     definition::BackendDefinition,
     matching::*,
@@ -124,6 +125,12 @@ fn list_update_pattern(index: Term, value: Term, hooked: bool) -> Term {
     )
 }
 
+/// Updating a list at one of its indices preserves its length and fixes the selected element,
+/// whatever the base list, so no such update is the subject. An update outside the indices of
+/// the base list is class `outside-domain` (GAP K2), `\bottom` in some models and any list in
+/// others, so in a model where the update of a shorter base list is the subject, the pattern
+/// matches it: only an execution, which takes k-rust's `\bottom` there, refutes the match (and
+/// marks the pick); every other evaluation leaves it undecided.
 #[test]
 fn list_update_matching_rejects_impossible_results() {
     let subject = Term::list(
@@ -131,7 +138,6 @@ fn list_update_matching_rejects_impossible_results() {
         vec![domain_value(sort(), "a"), domain_value(sort(), "b")],
         None,
     );
-    // Updating preserves length and fixes the selected element, regardless of the base list.
     for index in ["0", "-1", "2", "184467440737095516160"] {
         let pattern = list_update_pattern(
             domain_value(Sort::simple("SortInt"), index),
@@ -139,11 +145,17 @@ fn list_update_matching_rejects_impossible_results() {
             true,
         );
         for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            let result = |evaluation| {
+                with_evaluation(evaluation, || {
+                    match_terms(mode, &SortGraph::default(), &pattern, &subject)
+                })
+            };
             assert!(
-                matches!(
-                    match_terms(mode, &SortGraph::default(), &pattern, &subject),
-                    MatchResult::Failed(_)
-                ),
+                matches!(result(EvaluationMode::Execution), MatchResult::Failed(_)),
+                "{mode:?}, index {index}"
+            );
+            assert!(
+                !matches!(result(EvaluationMode::Proof), MatchResult::Failed(_)),
                 "{mode:?}, index {index}"
             );
         }

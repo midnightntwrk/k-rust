@@ -116,8 +116,10 @@ pub enum Predicate {
     /// discards, or any operand while the deciding operand is not a literal).
     ///
     /// It means exactly what `Ceil(t)` means, and is printed as `\ceil(t)`. It differs in how it
-    /// is decided: it is created only by the backend's `deferred_obligations`, never passed to
-    /// `ceil_term` or to the term simplifier, and no definition equation is applied to any part
+    /// is decided: it is created only by the backend's `deferred_obligations` and, as the part of
+    /// a list drop's domain that no evaluation outside an execution decides, by the list
+    /// observation catalog (`observation::lists::domain`); it is never passed to `ceil_term` or
+    /// to the term simplifier, and no definition equation is applied to any part
     /// of `t` beyond one bounded step; only the predicate simplifier decides it, by these steps
     /// (folding by pure builtin hooks on literals, ceil equations whose instantiated condition
     /// those hooks decide or whose instance over hook arithmetic is stated in its place, the key

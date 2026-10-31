@@ -23,6 +23,7 @@
 //! - `keys`, `keys_list`, `values`: `O(n)`, the size of the result.
 //! - `choice`: the first stored entry, one descent of the tree, `O(log n)`.
 
+use super::Undefinedness;
 use std::borrow::Cow;
 
 use num_bigint::BigInt;
@@ -53,7 +54,7 @@ pub(super) fn evaluate(
         .iter()
         .any(|argument| !argument.attributes().ceil_free() && argument.repeated_map_key().is_some())
     {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let result = match hook {
         "MAP.element" => element(arguments, result),
@@ -136,7 +137,7 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     // and `m` entries, rather than a comparison of every pair of keys.
     let united = left_entries.union(right_entries);
     if united.summary().collision {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     Ok(into
         .build_from(
@@ -170,7 +171,7 @@ fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     Ok(match (entries.len(), rest) {
-        (0, None) => BuiltinResult::Bottom,
+        (0, None) => BuiltinResult::Bottom(Undefinedness::Stated),
         (1, None) => {
             let (key, _) = entries.get(0).expect("a one-binding map's entry");
             BuiltinResult::Value(key.clone())
@@ -598,7 +599,7 @@ fn lookup(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<BuiltinRe
     };
     Ok(match binding(sorts, key, definition, entries, rest) {
         Binding::Bound(value) => BuiltinResult::Value(value.clone()),
-        Binding::Unbound => BuiltinResult::Bottom,
+        Binding::Unbound => BuiltinResult::Bottom(Undefinedness::Stated),
         Binding::Undecided => BuiltinResult::NotApplicable,
     })
 }
@@ -1062,7 +1063,7 @@ mod tests {
             super::super::evaluate_hook("MAP.lookup", &[map.clone(), b])
                 .unwrap()
                 .unwrap(),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
         assert_eq!(
             super::super::evaluate_hook("MAP.lookup", &[map, a])
@@ -1174,9 +1175,10 @@ mod tests {
                 let case = format!("size {size}, key {probe}");
                 assert_eq!(
                     hook("MAP.lookup", &[map.clone(), probed.clone()]),
-                    bound
-                        .clone()
-                        .map_or(BuiltinResult::Bottom, BuiltinResult::Value),
+                    bound.clone().map_or(
+                        BuiltinResult::Bottom(Undefinedness::Stated),
+                        BuiltinResult::Value
+                    ),
                     "{case}"
                 );
                 assert_eq!(
@@ -1332,7 +1334,7 @@ mod tests {
         );
         assert_eq!(
             hook("MAP.lookup", &[symbolic_values, key("15")]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
 
         ground[7].1 = value("1");
@@ -1570,11 +1572,11 @@ mod tests {
 
         assert_eq!(
             lookup(&[left.clone(), key("missing")], None),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         assert_eq!(
             concat(&[left, right], undeclared()),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
     }
 
@@ -1595,7 +1597,7 @@ mod tests {
         for map in [same, different] {
             assert_eq!(
                 evaluate("MAP.size", std::slice::from_ref(&map), None, undeclared()),
-                Ok(BuiltinResult::Bottom)
+                Ok(BuiltinResult::Bottom(Undefinedness::Stated))
             );
             assert_eq!(
                 evaluate(
@@ -1604,13 +1606,13 @@ mod tests {
                     None,
                     undeclared()
                 ),
-                Ok(BuiltinResult::Bottom)
+                Ok(BuiltinResult::Bottom(Undefinedness::Stated))
             );
         }
         let single = Term::map(definition, vec![(key("a"), value("one"))], None);
         assert_eq!(
             evaluate("MAP.concat", &[single.clone(), single], None, undeclared()),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
     }
 
@@ -1763,11 +1765,11 @@ mod tests {
         }
         assert_eq!(
             hook("MAP.concat", &[map.clone(), one(8)]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
         assert_eq!(
             hook("MAP.concat", &[one(2 * ENTRIES), map]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
     }
 
@@ -1830,7 +1832,7 @@ mod tests {
     fn choice_of_the_empty_collection_is_bottom() {
         assert_eq!(
             choice_of(Term::map(definition("SortMap"), Vec::new(), None)),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
     }
 

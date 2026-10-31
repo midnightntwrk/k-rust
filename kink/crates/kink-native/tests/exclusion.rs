@@ -190,6 +190,15 @@ fn k_rust_backend() -> PathBuf {
 /// judgement, so the census reads every hook it read before and no definition-level status moves.
 /// A run that reads a K1 value carries its mark and is excluded by its list
 /// (`implementation-chosen-value`) as for every class.
+///
+/// GAP K2 (ticket K2): `chosen_value` gains one arm, `outside-domain` for an evaluator's
+/// `\bottom` labelled `Undescribed` (a site where the hook's description covers only some
+/// arguments), naming the nine hooks that have such a site, listed in [`K_RUST_GAP_K2_HOOKS`]
+/// with `STRING.base2string`, already a hook of the census list, left out. The arm fires on a
+/// `\bottom` only, so it adds hooks and narrows nothing: every hook the classifier returned
+/// `Some` for before it still does on the same outcomes. As for K1, the census is not widened
+/// (none of the eight is a census hook, before or after), so no definition-level status moves; a
+/// run that reaches one of these `\bottom`s is marked and excluded by its list.
 #[test]
 fn implementation_chosen_hooks_are_k_rusts() {
     let backend = k_rust_backend();
@@ -205,7 +214,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
     );
     let nan = function(&float, "nan_sign");
     let zeros = function(&float, "signed_zeros");
-    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K1; a changed text needs the
+    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K2; a changed text needs the
     // hook list re-derived from it.
     let digests = [
         ("chosen_value", chosen),
@@ -220,7 +229,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         [
             (
                 "chosen_value",
-                "551df79a4a72f6edc0113faefa56e9698b75642b734a5d3e524ee8f54a5cd6c7".to_owned()
+                "1cff404285e2e81d1f952b5f8c85d1105e8ba2ed049ff08b19856ea7239062a0".to_owned()
             ),
             (
                 "float::mixed_destination",
@@ -248,7 +257,11 @@ fn implementation_chosen_hooks_are_k_rusts() {
         "{chosen}"
     );
     let mut hooks = arm_hooks(chosen);
-    assert_eq!(hooks.len(), 8 + K_RUST_GAP_K1_HOOKS.len(), "{chosen}");
+    assert_eq!(
+        hooks.len(),
+        8 + K_RUST_GAP_K1_HOOKS.len() + K_RUST_GAP_K2_HOOKS.len(),
+        "{chosen}"
+    );
     assert!(mixed.contains("BinaryOperation::of(hook)?"), "{mixed}");
     let operations = arm_hooks(of);
     assert_eq!(operations.len(), 6, "{operations:?}");
@@ -263,13 +276,23 @@ fn implementation_chosen_hooks_are_k_rusts() {
     let k_rust = K_RUST_IMPLEMENTATION_CHOSEN_HOOKS
         .iter()
         .chain(&K_RUST_GAP_K1_HOOKS)
+        .chain(&K_RUST_GAP_K2_HOOKS)
         .map(|hook| (*hook).to_owned())
         .collect::<BTreeSet<_>>();
     assert_eq!(hooks, k_rust);
     assert_eq!(
         hooks.len(),
-        K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.len() + K_RUST_GAP_K1_HOOKS.len()
+        K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.len()
+            + K_RUST_GAP_K1_HOOKS.len()
+            + K_RUST_GAP_K2_HOOKS.len()
     );
+    // GAP K2: none of its hooks is a census hook.
+    for hook in K_RUST_GAP_K2_HOOKS {
+        assert!(
+            !census_hook(hook),
+            "{hook}: K2 moves no hook into the census"
+        );
+    }
     // GAP K1: the census reads exactly the K1 hooks it read before, the byte conversions and the
     // undocumented crypto hooks; the Float conversions and roots were never census hooks.
     for hook in K_RUST_GAP_K1_HOOKS {
@@ -330,6 +353,20 @@ const K_RUST_GAP_K1_HOOKS: [&str; 25] = [
     "FLOAT.floor",
     "FLOAT.ceil",
     "FLOAT.trunc",
+];
+
+/// The hooks GAP K2 added to k-rust's `chosen_value` (its `outside-domain` `\bottom`s), beside
+/// `STRING.base2string`, which its `letter-case` arm already named; the census has not adopted
+/// them (`implementation_chosen_hooks_are_k_rusts`).
+const K_RUST_GAP_K2_HOOKS: [&str; 8] = [
+    "BYTES.decodeBytes",
+    "STRING.ord",
+    "STRING.string2int",
+    "STRING.string2base",
+    "STRING.string2token",
+    "LIST.update",
+    "LIST.range",
+    "LIST.updateAll",
 ];
 
 /// `IMPLEMENTATION_CHOSEN_HOOKS` at k-rust 501f18b9 (K-in-K2 main 71ab7d0), in its order then.

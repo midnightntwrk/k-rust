@@ -93,7 +93,7 @@ fn emitted_integer_readings_agree_with_native_signed_hook_values() {
                 {
                     crate::builtin::BuiltinResult::Value(value) => read_int(&value).unwrap(),
                     other @ (crate::builtin::BuiltinResult::NotApplicable
-                    | crate::builtin::BuiltinResult::Bottom
+                    | crate::builtin::BuiltinResult::Bottom(_)
                     | crate::builtin::BuiltinResult::Effect(_)
                     | crate::builtin::BuiltinResult::Unsupported(_)) => {
                         panic!("{hook} {x} {amount}: {other:?}")

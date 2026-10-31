@@ -369,17 +369,34 @@ impl Operations {
             }));
         }
         let value = if let Some((base, count)) = self.tail_parts(input) {
-            match hook {
-                "LIST.get" => self.get(base.clone(), count.checked_add(offset)?)?,
-                "LIST.range" => self.tail(base.clone(), count.checked_add(offset)?)?,
-                "LIST.size" => self.scalar(
-                    "INT.sub",
-                    "-",
-                    vec![self.size(base.clone())?, Term::int(count)],
-                    Sort::builtin(BuiltinSort::Int),
-                )?,
+            // `range(base, count, 0)` is the drop of `count` items only where `base` holds that
+            // many: past the end it is class `outside-domain`, `\bottom` in some models and any
+            // list in others, and no law below holds of it. A drop of a drop is one drop only
+            // where `base` holds both counts: past the end the two applications are each some
+            // list, not one. So each law is read under the length it needs, and otherwise the
+            // application is its own reading.
+            let (value, needed) = match hook {
+                "LIST.get" => (self.get(base.clone(), count.checked_add(offset)?)?, count),
+                "LIST.range" => {
+                    let needed = count.checked_add(offset)?;
+                    (self.tail(base.clone(), needed)?, needed)
+                }
+                "LIST.size" => (
+                    self.scalar(
+                        "INT.sub",
+                        "-",
+                        vec![self.size(base.clone())?, Term::int(count)],
+                        Sort::builtin(BuiltinSort::Int),
+                    )?,
+                    count,
+                ),
                 _ => return None,
-            }
+            };
+            return Some(Arc::new(Reading::If {
+                test: self.length_at_least(base.clone(), needed)?,
+                yes: Arc::new(Reading::Leaf(value)),
+                no: Arc::new(Reading::Leaf(term.clone())),
+            }));
         } else if let TermKind::List {
             definition: collection,
             heads,
@@ -546,22 +563,31 @@ impl BackendDefinition {
 /// The canonical caller retains every original strict operand's domain.
 ///
 /// On a defined `L` and for `i >= 0`, `L[i]` is defined exactly when `i < size(L)`
-/// (a negative index counts from the end, so it is not admitted here),
-/// and `range(L, k, 0)` exactly when `0 <= k <= size(L)`.
-/// For the nonnegative literals admitted here, `size(L) >=Int i + 1` and `size(L) >=Int k` are therefore exactly their definedness
-/// (kink27 R2-DOMAIN-ROUTES).
+/// (a negative index counts from the end, so it is not admitted here): past the end the
+/// description excludes every value. For the nonnegative literals admitted here,
+/// `size(L) >=Int i + 1` is therefore exactly its definedness (kink27 R2-DOMAIN-ROUTES).
+/// `range(L, k, 0)` is defined where `0 <= k <= size(L)`, and past the end it is class
+/// `outside-domain` (GAP K2): `\bottom` in some models and a list in others, so its definedness
+/// there is unknown. Its domain is `size(L) >=Int k` or that unknown, the deferred atom
+/// `Predicate::Defined` of the application, which no evaluation outside an execution decides
+/// for a list past the end, and which, unlike its `\ceil`, the walk never expands again.
 pub(crate) fn domain(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let TermKind::Application { arguments, .. } = term.kind() else {
         return None;
     };
     let input = arguments.first()?;
     let ops = definition.list_operations(&input.sort())?;
-    let (list, count) = if let Some((list, index)) = ops.get_parts(term) {
-        (list, index + 1)
-    } else {
-        ops.tail_parts(term)?
-    };
-    Some(vec![ops.length_at_least(list.clone(), count)?])
+    if let Some((list, index)) = ops.get_parts(term) {
+        return Some(vec![ops.length_at_least(list.clone(), index + 1)?]);
+    }
+    let (list, count) = ops.tail_parts(term)?;
+    Some(vec![Predicate::Or(
+        vec![
+            ops.length_at_least(list.clone(), count)?,
+            Predicate::Defined(term.clone()),
+        ]
+        .into(),
+    )])
 }
 
 #[cfg(test)]
@@ -898,6 +924,81 @@ mod tests {
                 .unwrap(),
             Validity::Valid
         );
+    }
+
+    /// GAP K2: `range(L, k, 0)` past the end of `L` is class `outside-domain`, `\bottom` in some
+    /// models and a list in others. With `size(L) = 1` the solver proves neither that
+    /// `range(L, 2, 0)` is undefined nor that it is defined, and reads no drop law of it: not its
+    /// size (`size(L) - 2`, below zero), and not that a drop of a drop past the end is the one
+    /// drop. Before K2 its domain was exactly `size(L) >= 2`, so all four were valid (the last
+    /// two vacuously). In range, the laws and the definedness hold.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_drop_past_the_end_has_no_law_and_no_known_definedness() {
+        use crate::{
+            smt::{SmtSolver, Validity, Z3Solver},
+            substitution::Substitution,
+        };
+        let definition = load(SOURCE);
+        let ops = definition
+            .list_operations(&Sort::simple("SortList"))
+            .unwrap();
+        let list = term(&definition, "L:SortList{}");
+        let past = ops.tail(list.clone(), 2).unwrap();
+        let twice = ops.tail(ops.tail(list.clone(), 1).unwrap(), 1).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let validity = |known: &[Predicate], checked: Predicate| {
+            solver
+                .check_predicates(known, &Substitution::new(), &[checked])
+                .unwrap()
+                .unwrap()
+        };
+        let short = [Predicate::Equals(
+            ops.size(list.clone()).unwrap(),
+            Term::int(1),
+        )];
+        let implies = |antecedent: Predicate, consequent: Predicate| {
+            Predicate::Implies(Arc::new(antecedent), Arc::new(consequent))
+        };
+        for checked in [
+            Predicate::Not(Arc::new(Predicate::Ceil(past.clone()))),
+            Predicate::Ceil(past.clone()),
+            implies(
+                Predicate::Ceil(past.clone()),
+                Predicate::Equals(ops.size(past.clone()).unwrap(), Term::int(-1)),
+            ),
+            implies(
+                Predicate::Ceil(twice.clone()),
+                Predicate::Equals(twice.clone(), past.clone()),
+            ),
+        ] {
+            assert_ne!(
+                validity(&short, checked.clone()),
+                Validity::Valid,
+                "{checked:?}"
+            );
+        }
+        let long = [ops.length_at_least(list.clone(), 2).unwrap()];
+        for checked in [
+            Predicate::Ceil(past.clone()),
+            Predicate::Equals(twice, past.clone()),
+            Predicate::Equals(
+                ops.size(past).unwrap(),
+                ops.scalar(
+                    "INT.sub",
+                    "-",
+                    vec![ops.size(list).unwrap(), Term::int(2)],
+                    Sort::builtin(BuiltinSort::Int),
+                )
+                .unwrap(),
+            ),
+        ] {
+            assert_eq!(
+                validity(&long, checked.clone()),
+                Validity::Valid,
+                "{checked:?}"
+            );
+        }
     }
 
     #[cfg(feature = "z3")]

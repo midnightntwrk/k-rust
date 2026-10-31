@@ -9,8 +9,8 @@ use k_rust_domain::float::{
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
-    int_term, read_int,
+    BuiltinError, BuiltinResult, HookResult, Undefinedness, UnsupportedHookReason, bool_term,
+    expect_arity, int_term, read_int,
 };
 use crate::{
     choice_sampling,
@@ -741,7 +741,7 @@ fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
 fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 3)?;
     let format = match read_format(&arguments[1], &arguments[2]) {
-        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom),
+        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
         FormatArguments::Symbolic => None,
         FormatArguments::Format(format) => Some(format),
     };
@@ -766,7 +766,7 @@ fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
 fn int_to_float(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 3)?;
     let format = match read_format(&arguments[1], &arguments[2]) {
-        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom),
+        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
         FormatArguments::Symbolic => return Ok(BuiltinResult::NotApplicable),
         FormatArguments::Format(format) => format,
     };
@@ -824,7 +824,7 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
 fn maximum_value(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let format = match read_format(&arguments[0], &arguments[1]) {
-        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom),
+        FormatArguments::NoFormat => return Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
         FormatArguments::Symbolic => return Ok(BuiltinResult::NotApplicable),
         FormatArguments::Format(format) => format,
     };

@@ -1,5 +1,6 @@
 //! Deterministic `STRING` hooks: per-call operations on strings.
 
+use super::Undefinedness;
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
@@ -289,12 +290,17 @@ fn string_to_base(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Scoped (GAP K2), both sites: "This radix can be anywhere between 2 and 36" bounds the
+    // inputs the conversion is described for, and the text describes the `String` it reads by
+    // the digits of the radix; a radix outside the bounds, or a text off that syntax, is an
+    // input the description does not cover, and nothing there excludes a value.
     let Some(base) = read_base(&base) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
-    Ok(parse_integer(value, base)
-        .map(int_term)
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    Ok(parse_integer(value, base).map(int_term).map_or(
+        BuiltinResult::Bottom(Undefinedness::Undescribed),
+        BuiltinResult::Value,
+    ))
 }
 
 /// An optional sign followed by one or more digits of `radix`, in either case. The integer
@@ -328,8 +334,10 @@ fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Scoped (GAP K2): "This radix can be anywhere between 2 and 36" bounds the inputs the
+    // conversion is described for; outside them the text says nothing.
     let Some(base) = read_base(&base) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
     if let Some(seed) = choice_sampling::seed() {
         // The letter case the seed chooses, one per model: digits and the sign read the same in
@@ -354,9 +362,13 @@ fn string_to_int(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(parse_integer(value, 10)
-        .map(int_term)
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    // Scoped (GAP K2): "The String will be represented in the syntax of the `INT` module"
+    // describes the strings the conversion reads; a text off that syntax is an input the
+    // description does not cover, and nothing there excludes a value.
+    Ok(parse_integer(value, 10).map(int_term).map_or(
+        BuiltinResult::Bottom(Undefinedness::Undescribed),
+        BuiltinResult::Value,
+    ))
 }
 
 fn int_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -382,8 +394,10 @@ fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Universal (GAP D1): the conversion is between a character and "an integer", every
+    // integer, and no character has the number of a non-code-point.
     let Some(value) = value.to_u32().filter(|value| *value <= 0x10ffff) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     Ok(char::from_u32(value).map_or_else(
         || {
@@ -405,9 +419,14 @@ fn ord(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Scoped (GAP K2): the conversion is "between a character (as represented by a string
+    // containing a single code point) and an integer", which qualifies the string it reads; a
+    // string of another length is an input the description does not cover. `chrChar` differs:
+    // its integer is unqualified, so the description covers every integer and no character has
+    // the number of a non-code-point, which leaves `\bottom` determined there.
     let mut characters = value.chars();
     let (Some(character), None) = (characters.next(), characters.next()) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
     Ok(BuiltinResult::Value(int_term(BigInt::from(u32::from(
         character,
@@ -474,7 +493,13 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
                 defined: true,
             })
         } else {
-            BuiltinResult::Bottom
+            // Scoped (GAP K2): the text describes the conversion only at `Id` ("Convert a
+            // `String` to an `Id` with the specified name", `domains.md`, "Program identifiers")
+            // and `KVar`, sorts whose tokens are every text, so it reads a text that names an
+            // element of the sort; a text that names none, at a sort whose kind restricts its
+            // texts, is an input the description does not cover, and nothing there excludes a
+            // value.
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
         })
     };
     let Some(kind) = facts.domain_kind(result_sort) else {
@@ -816,7 +841,7 @@ mod tests {
         );
         assert_eq!(
             evaluate("STRING.string2int", vec![string_term("4x")]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
         );
     }
 
@@ -832,7 +857,7 @@ mod tests {
         );
         assert_eq!(
             evaluate("STRING.ord", vec![string_term("ab")]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
         );
     }
 
@@ -910,11 +935,11 @@ mod tests {
         }
         assert_eq!(
             evaluate("STRING.chr", vec![int_term((-1).into())]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
         assert_eq!(
             evaluate("STRING.chr", vec![int_term(0x110000.into())]),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
         assert_eq!(
             evaluate("STRING.chr", vec![int_term(0x1f980.into())]),
@@ -941,7 +966,7 @@ mod tests {
         for text in ["\u{ff}\u{fe}", "\u{ff}a", ""] {
             assert_eq!(
                 evaluate("STRING.ord", vec![string_term(text)]),
-                BuiltinResult::Bottom,
+                BuiltinResult::Bottom(Undefinedness::Undescribed),
                 "ordChar({text:?})"
             );
         }
@@ -1092,7 +1117,8 @@ mod tests {
     }
 
     /// The radix "can be anywhere between 2 and 36" (`domains.md`), and both hooks are partial:
-    /// outside that range the conversion is undefined, in both directions.
+    /// outside that range the description covers no conversion, in either direction, and the
+    /// evaluator's answer is `\bottom`, one model's (`Undescribed`; GAP K2).
     #[test]
     fn bases_outside_two_through_thirty_six_are_undefined() {
         for (hook, value) in [
@@ -1102,7 +1128,7 @@ mod tests {
             for base in [-2_i64, 0, 1, 37, 1 << 40] {
                 assert_eq!(
                     evaluate(hook, vec![value.clone(), int_term(base.into())]),
-                    BuiltinResult::Bottom,
+                    BuiltinResult::Bottom(Undefinedness::Undescribed),
                     "{hook} base {base}"
                 );
             }
@@ -1136,10 +1162,20 @@ mod tests {
             BuiltinResult::Value(int_term(255.into()))
         );
         for text in ["1_0", "1_", "_1", "-_1", "", "+", "-", "+-1", " 1", "1e3"] {
-            assert_eq!(to_int(text), BuiltinResult::Bottom, "{text:?}");
+            assert_eq!(
+                to_int(text),
+                BuiltinResult::Bottom(Undefinedness::Undescribed),
+                "{text:?}"
+            );
         }
-        assert_eq!(to_base("f_f", 16), BuiltinResult::Bottom);
-        assert_eq!(to_base("12", 2), BuiltinResult::Bottom);
+        assert_eq!(
+            to_base("f_f", 16),
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
+        );
+        assert_eq!(
+            to_base("12", 2),
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
+        );
         // A radix numeral carries the sign of `String2Int`'s syntax, so that `String2Base` reads
         // back every `Base2String`, negative ones included.
         assert_eq!(
@@ -1151,7 +1187,11 @@ mod tests {
             BuiltinResult::Value(int_term((-35).into()))
         );
         for text in ["+", "-", "+-1", "--1", "1-"] {
-            assert_eq!(to_base(text, 16), BuiltinResult::Bottom, "{text:?}");
+            assert_eq!(
+                to_base(text, 16),
+                BuiltinResult::Bottom(Undefinedness::Undescribed),
+                "{text:?}"
+            );
         }
     }
 }

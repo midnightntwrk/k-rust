@@ -24,6 +24,7 @@
 //! width argument (`Term::domain_value_of`), so the hooks read the residue from that text and
 //! write their results in it, from the residue itself (`Term::mint_of_residue`).
 
+use super::Undefinedness;
 use std::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
@@ -330,7 +331,7 @@ fn unsigned_division(
         return Ok(BuiltinResult::NotApplicable);
     };
     if right.residue.is_zero() {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     Ok(BuiltinResult::Value(word_term(
         &left.sort,
@@ -351,7 +352,7 @@ fn signed_division(
         return Ok(BuiltinResult::NotApplicable);
     };
     if right.residue.is_zero() {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     // A negative quotient or remainder needs a negative operand, whose residue has `W` bits, so
     // the bound is at least `2W` and its wrap is always computed; `wrap` checks it all the same.

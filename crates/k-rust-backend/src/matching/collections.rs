@@ -58,8 +58,8 @@ use crate::{
     definition::BackendDefinition,
     substitution::{Substitution, substitute},
     term::{
-        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, Sort, Sorts, SymbolType,
-        Term, TermKind, Variable, chunked::Item,
+        CollectionMetadata, FunctionType, Items, ListDefinition, MapDefinition, Name, Sort, Sorts,
+        SymbolType, Term, TermKind, Variable, chunked::Item,
     },
     unification::{MatchUnification, unify_from},
 };
@@ -2615,9 +2615,17 @@ impl ClosedMapImplicationProblem<'_> {
     }
 }
 
-/// Every result of `LIST.update(L, I, V)` is a fixed point of updating at `I` with `V`.
-/// Reuse the hook to refute a concrete result with a conflicting element or an out-of-range index.
-/// This necessary condition is independent of `L`; satisfying it does not solve for the base list.
+/// Every result of `LIST.update(L, I, V)` at an index of `L` is a fixed point of updating at `I`
+/// with `V`. Reuse the hook to refute a concrete result with a conflicting element or an
+/// out-of-range index. This necessary condition is independent of `L`; satisfying it does not
+/// solve for the base list.
+///
+/// It holds only where every `L` the pattern ranges over is updated at one of its indices:
+/// outside them the update is class `outside-domain` (`L[I <- V]` past the end is `\bottom` in
+/// some models and any list in others), so in a model where the update of a shorter `L` is the
+/// subject, the pattern matches it. Only an execution takes k-rust's `\bottom` there, so the
+/// refutation is made only in one, and it rests on that pick, which it marks; every other
+/// evaluation leaves the match undecided.
 pub(super) fn list_update_cannot_match(pattern: &Term, subject: &Term) -> bool {
     let TermKind::Application {
         symbol, arguments, ..
@@ -2635,12 +2643,19 @@ pub(super) fn list_update_cannot_match(pattern: &Term, subject: &Term) -> bool {
     let [_, index, value] = arguments.as_slice() else {
         return false;
     };
+    // At a `total` symbol the update outside the indices of `L` is some list, which no
+    // evaluation takes, so the pattern may match any list.
+    if crate::evaluation::current() != crate::evaluation::EvaluationMode::Execution
+        || symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+    {
+        return false;
+    }
     // false only declines to refute the match; a stop is minted again by the caller's next poll.
-    match evaluate_hook(
+    let refuted = match evaluate_hook(
         "LIST.update",
         &[subject.clone(), index.clone(), value.clone()],
     ) {
-        Ok(Ok(BuiltinResult::Bottom)) => true,
+        Ok(Ok(BuiltinResult::Bottom(_))) => true,
         Ok(Ok(BuiltinResult::Value(updated))) => {
             updated.attributes().constructor_like && updated != *subject
         }
@@ -2649,7 +2664,16 @@ pub(super) fn list_update_cannot_match(pattern: &Term, subject: &Term) -> bool {
             stop.forgo_refinement();
             false
         }
+    };
+    if refuted {
+        crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(
+            crate::builtin::ChosenValue::new(
+                "LIST.update".into(),
+                crate::builtin::ChosenClass::OutsideDomain,
+            ),
+        ));
     }
+    refuted
 }
 
 pub(super) enum PairRemainder {

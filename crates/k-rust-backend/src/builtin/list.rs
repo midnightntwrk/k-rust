@@ -14,6 +14,7 @@
 //! - `make`: a bulk load of the `n` copies, `O(n)`; `in`: a scan, `O(n)` (no summary orders the
 //!   items of a list by value).
 
+use super::Undefinedness;
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
@@ -167,8 +168,11 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let TermKind::List { heads, rest, .. } = list.kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Universal (GAP D1), every `\bottom` here: "an element of a list by its integer offset" is
+    // an element of the list at that offset, for every integer, and past either end the list has
+    // none.
     if heads.is_empty() && rest.is_none() {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let Some(index_value) = read_int(index) else {
         expect_sort("LIST.get", index, &Sort::builtin(BuiltinSort::Int))?;
@@ -181,7 +185,7 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
             .map(BuiltinResult::Value)
             .unwrap_or_else(|| {
                 if rest.is_none() {
-                    BuiltinResult::Bottom
+                    BuiltinResult::Bottom(Undefinedness::Stated)
                 } else {
                     BuiltinResult::NotApplicable
                 }
@@ -189,7 +193,7 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
     }
     let Some(distance) = (-index_value).to_usize() else {
         return Ok(if rest.is_none() {
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         } else {
             BuiltinResult::NotApplicable
         });
@@ -205,7 +209,7 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
         .map(BuiltinResult::Value)
         .unwrap_or_else(|| {
             if rest.is_none() {
-                BuiltinResult::Bottom
+                BuiltinResult::Bottom(Undefinedness::Stated)
             } else {
                 BuiltinResult::NotApplicable
             }
@@ -279,8 +283,10 @@ fn make(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinR
     let Some(value) = into.element(value.clone()) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Universal (GAP D1): "a list with `length` elements" characterises the result on every
+    // length, and no list has a negative number of elements.
     if length.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let concrete_length = match bounded_list_length(&length) {
         Ok(length) => length,
@@ -338,8 +344,13 @@ fn range(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builtin
     let Some(into) = result.list(Some(definition)) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Scoped (GAP K2), every `\bottom` below: "removing `fromFront` elements from the front of
+    // the list and `fromBack` elements from the back" describes removing counts the list holds;
+    // a negative count, or more elements than the list has, is not described. The text states no
+    // result length and says nothing there, so it excludes no value (removing every element
+    // there is, say, gives one).
     if front.sign() == Sign::Minus || back.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
     let front = front.to_usize();
     let back = back.to_usize();
@@ -347,13 +358,13 @@ fn range(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builtin
     let range = match rest {
         None => {
             let (Some(front), Some(back)) = (front, back) else {
-                return Ok(BuiltinResult::Bottom);
+                return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
             };
             let Some(end) = heads.len().checked_sub(back) else {
-                return Ok(BuiltinResult::Bottom);
+                return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
             };
             if front > end {
-                return Ok(BuiltinResult::Bottom);
+                return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
             }
             let (range, _) = heads.split_at(front).1.split_at(end - front);
             into.items(&range, from)
@@ -419,19 +430,23 @@ fn update(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     let Some(into) = result.list(Some(definition)) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Scoped (GAP K2): "a new `List` with a new value at a particular index" describes the
+    // update at an index of the list; a negative index or one past the end is no position of
+    // it, and the text says nothing there. It does not exclude a value: a list holding the new
+    // value at that index exists (the list extended to it, say).
     if index.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
     let Some(index) = index.to_usize() else {
         return Ok(if rest.is_none() {
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
         } else {
             BuiltinResult::NotApplicable
         });
     };
     if index >= heads.len() {
         return Ok(if rest.is_none() {
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
         } else {
             BuiltinResult::NotApplicable
         });
@@ -485,17 +500,21 @@ fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Bu
     let Some(into) = result.list(Some(definition)) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Scoped (GAP K2), every `\bottom` here: past the end, "Having `index + N > K` yields an
+    // exception", which names no value (the text writes `#False` or `#Bottom` where it means
+    // undefinedness), and a negative index is no position of `dest`, at which the text, as for
+    // `L[I <- V]`, describes nothing; with an empty `src` its words even give `dest` itself.
     if index.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
     let Some(index) = index.to_usize() else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
     let Some(end) = index.checked_add(updates.len()) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
     if end > original.len() {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
     let from = &definition.element_sort;
     let (Some(original), Some(updates)) = (into.items(original, from), into.items(updates, from))
@@ -882,28 +901,34 @@ mod tests {
         assert_eq!(concat(&[left, right], into(&items())), Ok(None));
     }
 
+    /// `L[I]` past the end and `makeList` of a negative length are `\bottom` in every model;
+    /// `L[I <- V]`, `updateList` and `range` out of range are outside the inputs their
+    /// descriptions cover, where the evaluator's `\bottom` is one model's (GAP K2).
     #[test]
     fn partial_list_hooks_return_bottom_for_undefined_inputs() {
         let definition = definition();
         let list = Term::list(definition.clone(), vec![item("a"), item("b")], None);
         let replacement = Term::list(definition, vec![item("x"), item("y")], None);
 
-        assert_eq!(get(&[list.clone(), integer(2)]), Ok(BuiltinResult::Bottom));
+        assert_eq!(
+            get(&[list.clone(), integer(2)]),
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+        );
         assert_eq!(
             update(&[list.clone(), integer(-1), item("x")], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             update_all(&[list.clone(), integer(1), replacement], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             range(&[list, integer(2), integer(1)], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             make(&[integer(-1), item("x")], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
     }
 
@@ -993,19 +1018,19 @@ mod tests {
 
         assert_eq!(
             get(&[list.clone(), index.clone()]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         assert_eq!(
             range(&[list.clone(), index.clone(), integer(0)], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             update(&[list.clone(), index.clone(), item("x")], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             update_all(&[list, index, replacement], into(&items())),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
     }
 }

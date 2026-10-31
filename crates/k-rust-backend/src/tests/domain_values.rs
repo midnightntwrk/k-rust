@@ -2,6 +2,7 @@
 //! denotes, with the kind its sort's hook gives in the loaded definition, and builds no text that
 //! names no element of its sort.
 
+use crate::builtin::Undefinedness;
 use indoc::indoc;
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
@@ -83,6 +84,24 @@ fn evaluated(definition: &BackendDefinition, pattern: &str) -> BuiltinResult {
         .unwrap_or_else(|error| panic!("{pattern}: {error:?}"))
 }
 
+/// That `pattern`'s application is class `outside-domain` with k-rust's `\bottom` (GAP K2): an
+/// execution takes the `\bottom`, and every other evaluation leaves the application unevaluated
+/// with its definedness unknown.
+fn assert_outside_domain_bottom(definition: &BackendDefinition, pattern: &str) {
+    assert!(
+        matches!(
+            evaluated(definition, pattern),
+            BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: false, .. })
+        ),
+        "{pattern}"
+    );
+    assert_eq!(
+        with_evaluation(EvaluationMode::Execution, || evaluated(definition, pattern)),
+        BuiltinResult::Bottom(Undefinedness::Undescribed),
+        "{pattern}"
+    );
+}
+
 fn string_to(symbol: &str, text: &str) -> String {
     format!(r#"{symbol}{{}}(\dv{{SortString{{}}}}("{text}"))"#)
 }
@@ -126,7 +145,7 @@ fn string_to_token_reads_its_text_by_the_hook_of_its_result_sort() {
 
 /// A text that names no element of the result sort has no value the definition gives: a
 /// `total` declaration has a value the definition does not determine, and a partial one is
-/// undefined there.
+/// class `outside-domain`, whose `\bottom` only an execution takes.
 #[test]
 fn string_to_token_of_a_text_that_names_no_element_has_no_value() {
     let definition = load(DEFINITION);
@@ -145,10 +164,7 @@ fn string_to_token_of_a_text_that_names_no_element_has_no_value() {
             "{symbol}({text:?}): {result:?}"
         );
     }
-    assert_eq!(
-        evaluated(&definition, &string_to("LblString2MyIntPartial", "abc")),
-        BuiltinResult::Bottom
-    );
+    assert_outside_domain_bottom(&definition, &string_to("LblString2MyIntPartial", "abc"));
 }
 
 /// A text beyond a bound of k-rust names an element that k-rust declines to compute: it is the
@@ -341,7 +357,8 @@ fn a_renamed_kvar_token_is_a_token_of_its_own_sort() {
 }
 
 /// At a sort named `SortBytes` whose payload is one byte per code point, a code point above
-/// U+00FF names no byte of the `Bytes` kind, so a partial `String2Token` there is undefined; at
+/// U+00FF names no byte of the `Bytes` kind, so a partial `String2Token` there is outside its
+/// description (`\bottom` in an execution, of unknown definedness elsewhere); at
 /// such a sort declared without the hook, a token sort, the text names a token that the payload
 /// encoding cannot hold, and the application is not decided, never undefined.
 #[test]
@@ -358,14 +375,11 @@ fn a_code_point_beyond_a_byte_at_sort_bytes_is_undefined_only_for_the_bytes_kind
         )
     };
     let application = string_to("LblString2Bytes", "\\u0101");
-    assert_eq!(
-        evaluated(
-            &load(&source(
-                r#"hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]"#
-            )),
-            &application
-        ),
-        BuiltinResult::Bottom
+    assert_outside_domain_bottom(
+        &load(&source(
+            r#"hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]"#,
+        )),
+        &application,
     );
     assert_eq!(
         evaluated(
@@ -378,7 +392,8 @@ fn a_code_point_beyond_a_byte_at_sort_bytes_is_undefined_only_for_the_bytes_kind
 
 /// A machine-integer result sort whose width argument is a sort variable has a width that is
 /// not known yet, so `String2Token` there is not decided; a closed sort hooked `MINT.MInt` that
-/// names no width has no literal, so a partial declaration there is undefined.
+/// names no width has no literal, so a partial declaration there is outside its description
+/// (`\bottom` in an execution, of unknown definedness elsewhere).
 #[test]
 fn string_to_token_at_a_machine_integer_sort_of_unknown_width_is_not_decided() {
     let definition = load(indoc! {r#"
@@ -407,9 +422,15 @@ fn string_to_token_at_a_machine_integer_sort_of_unknown_width_is_not_decided() {
         outcome(&application(Sort::variable("S"))),
         BuiltinResult::NotApplicable
     );
-    assert_eq!(
+    assert!(matches!(
         outcome(&application(Sort::simple("SortFoo"))),
-        BuiltinResult::Bottom
+        BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: false, .. })
+    ));
+    assert_eq!(
+        with_evaluation(EvaluationMode::Execution, || outcome(&application(
+            Sort::simple("SortFoo")
+        ))),
+        BuiltinResult::Bottom(Undefinedness::Undescribed)
     );
 }
 
@@ -600,12 +621,9 @@ fn string_to_float_beyond_a_bound_is_too_large_whatever_its_totality() {
         evaluated(&definition, &string_to("LblString2Float", "inf")),
         BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })
     ));
-    assert_eq!(
-        evaluated(
-            &definition,
-            &string_to("LblString2FloatPartial", "1.0p0x11")
-        ),
-        BuiltinResult::Bottom
+    assert_outside_domain_bottom(
+        &definition,
+        &string_to("LblString2FloatPartial", "1.0p0x11"),
     );
     for symbol in ["LblString2Float", "LblString2FloatPartial"] {
         for text in ["0.1p99999999999x8", "1.0p1x8", "1.0p8x1"] {
@@ -993,7 +1011,11 @@ fn evaluate_declared_agrees_with_the_entry() {
                     (_, BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. })) => {
                         "not determined"
                     }
-                    (_, BuiltinResult::Bottom) => "undefined",
+                    (_, BuiltinResult::Bottom(Undefinedness::Stated)) => "undefined",
+                    (
+                        EvaluationMode::Execution,
+                        BuiltinResult::Bottom(Undefinedness::Undescribed),
+                    ) => "undefined only in an execution",
                     (
                         _,
                         BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {

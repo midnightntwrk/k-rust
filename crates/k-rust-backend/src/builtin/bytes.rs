@@ -1,5 +1,6 @@
 //! Deterministic `BYTES` hooks: per-call operations on byte strings.
 
+use super::Undefinedness;
 use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};
 
@@ -105,9 +106,16 @@ fn decode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
         "UTF-32BE" => decode_utf32(&bytes, Endianness::Big),
         _ => return Ok(BuiltinResult::NotApplicable),
     };
-    Ok(decoded
-        .map(string_term)
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    // Scoped (GAP K2): "You can encode/decode between Bytes and String using `UTF-8`, ..."
+    // describes the decoding that the named encoding defines, and the encodings define it on
+    // the sequences they produce. A sequence no string encodes to is outside it, and the text
+    // says nothing there: it does not write `#False` or `#Bottom`, as it does where it means
+    // undefinedness, and decoders of these encodings commonly give a value there (U+FFFD for
+    // each ill-formed subsequence), so the description excludes no value either.
+    Ok(decoded.map(string_term).map_or(
+        BuiltinResult::Bottom(Undefinedness::Undescribed),
+        BuiltinResult::Value,
+    ))
 }
 
 fn encode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -137,13 +145,13 @@ fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = index else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     let Some(value) = read_byte(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some((slot, value)) = bytes.get_mut(index).zip(value) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     *slot = value;
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
@@ -158,7 +166,7 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(value) = index.and_then(|index| bytes.get(index)) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     Ok(BuiltinResult::Value(int_term(BigInt::from(*value))))
 }
@@ -175,7 +183,7 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
         .zip(end)
         .and_then(|(start, end)| bytes.get(start..end))
     else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     Ok(BuiltinResult::Value(bytes_term(slice)))
 }
@@ -193,16 +201,16 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = index else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     let Some(replacement) = read_bytes(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(end) = index.checked_add(replacement.len()) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     let Some(destination) = bytes.get_mut(index..end) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     destination.copy_from_slice(&replacement);
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
@@ -224,7 +232,7 @@ fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<Buil
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(value) = value.filter(|_| length.sign() != Sign::Minus) else {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     // Padding to a length the input already reaches leaves it as it is: the result is the
     // argument, which the run already holds, so the application allocates nothing and no cap
@@ -604,7 +612,10 @@ mod tests {
             substring(&[bytes.clone(), integer(1), integer(3)]),
             Ok(BuiltinResult::Value(bytes_term(&[0x7f, 0xff])))
         );
-        assert_eq!(get(&[bytes, integer(3)]), Ok(BuiltinResult::Bottom));
+        assert_eq!(
+            get(&[bytes, integer(3)]),
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+        );
     }
 
     /// An index the hook cannot read may be valid on some instances and invalid on others, so
@@ -641,11 +652,11 @@ mod tests {
         }
         assert_eq!(
             evaluate("BYTES.get", &[bytes.clone(), integer(-1)]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         assert_eq!(
             evaluate("BYTES.substr", &[bytes, integer(2), integer(1)]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
     }
 
@@ -657,19 +668,19 @@ mod tests {
         for value in [-1, 256] {
             assert_eq!(
                 update(&[bytes.clone(), integer(0), integer(value)]),
-                Ok(BuiltinResult::Bottom)
+                Ok(BuiltinResult::Bottom(Undefinedness::Stated))
             );
             for left in [false, true] {
                 assert_eq!(
                     pad(&[bytes.clone(), integer(4), integer(value)], left),
-                    Ok(BuiltinResult::Bottom)
+                    Ok(BuiltinResult::Bottom(Undefinedness::Stated))
                 );
             }
         }
         for left in [false, true] {
             assert_eq!(
                 pad(&[bytes.clone(), integer(-1), integer(0)], left),
-                Ok(BuiltinResult::Bottom)
+                Ok(BuiltinResult::Bottom(Undefinedness::Stated))
             );
             assert_eq!(
                 pad(&[bytes.clone(), integer(1), integer(0)], left),
@@ -686,7 +697,7 @@ mod tests {
     fn replace_at_past_the_end_is_bottom() {
         assert_eq!(
             replace_at(&[bytes_term(b"abc"), integer(2), bytes_term(b"xyz")]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         assert_eq!(
             replace_at(&[bytes_term(b"abc"), integer(1), bytes_term(b"")]),
@@ -694,7 +705,7 @@ mod tests {
         );
         assert_eq!(
             replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"x")]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
         );
         // An empty replacement range is inside `abc` at 0 to 3, and not after it.
         assert_eq!(
@@ -704,7 +715,7 @@ mod tests {
         for index in [4, 100] {
             assert_eq!(
                 replace_at(&[bytes_term(b"abc"), integer(index), bytes_term(b"")]),
-                Ok(BuiltinResult::Bottom),
+                Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
                 "replaceAtBytes(abc, {index}, .Bytes)"
             );
         }
@@ -1148,11 +1159,11 @@ mod tests {
     fn rejects_invalid_unicode_sequences() {
         assert_eq!(
             decode_bytes(&[string_term("UTF-8"), bytes_term(&[0xff])]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             decode_bytes(&[string_term("UTF-16LE"), bytes_term(&[0x00])]),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
     }
 }

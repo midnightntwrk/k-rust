@@ -776,7 +776,7 @@ fn fold(
                 Folded::Term(node)
             }
             Ok(BuiltinResult::Value(value)) => Folded::Term(value),
-            Ok(BuiltinResult::Bottom) => Folded::Bottom(node),
+            Ok(BuiltinResult::Bottom(_)) => Folded::Bottom(node),
             Ok(BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_)) if values => {
                 match step_value(definition, &node)? {
                     Some(value) => Folded::Term(value),

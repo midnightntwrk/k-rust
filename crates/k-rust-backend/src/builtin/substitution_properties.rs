@@ -899,7 +899,7 @@ fn check_case(signature: &Signature, case: &Case, tally: &mut Tally) -> Result<(
             }
             tally.not_applicable += 1;
         }
-        BuiltinResult::Bottom => {
+        BuiltinResult::Bottom(_) => {
             if blocked || why.bottom.is_empty() {
                 return Err(format!("\\bottom without a reason ({why:?})"));
             }
@@ -1021,7 +1021,7 @@ fn collapse(m: &M) -> M {
 fn kind(result: &BuiltinResult) -> &'static str {
     match result {
         BuiltinResult::Value(_) => "value",
-        BuiltinResult::Bottom => "bottom",
+        BuiltinResult::Bottom(_) => "bottom",
         BuiltinResult::NotApplicable => "not applicable",
         _ => "unsupported",
     }
@@ -1081,7 +1081,7 @@ fn and_idempotence() {
             // Two copies of `R` in one set (map keys) make it `\bottom`; with `\and(R, R)` the
             // copies are no longer the same term, and the value returned is a collection that
             // repeats an element once `\and(R, R)` is read as `R`: it denotes no value either.
-            (BuiltinResult::Bottom, BuiltinResult::Value(doubled))
+            (BuiltinResult::Bottom(_), BuiltinResult::Value(doubled))
                 if syntactic_repeat(&sorted(&collapse(&signature.model(doubled)?))) => {}
             (plain, doubled) if kind(plain) == kind(doubled) => {}
             (plain, doubled) => {

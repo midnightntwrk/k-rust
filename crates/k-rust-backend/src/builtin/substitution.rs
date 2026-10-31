@@ -35,6 +35,7 @@
 //! and every traversal copies it verbatim without descending into its arguments. The sort fact is
 //! the least fixpoint in [`KVarSorts::of`], computed once per definition.
 
+use super::Undefinedness;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -345,7 +346,7 @@ fn subst_one(
         )? {
             SubstituteOutcome::Value(term) => BuiltinResult::Value(term),
             SubstituteOutcome::NotApplicable => BuiltinResult::NotApplicable,
-            SubstituteOutcome::Bottom => BuiltinResult::Bottom,
+            SubstituteOutcome::Bottom => BuiltinResult::Bottom(Undefinedness::Stated),
         },
     )
 }
@@ -1570,7 +1571,7 @@ mod tests {
         // `\and(x, y)` denotes no value (distinct tokens); `x := y` must not make it `y`.
         assert_eq!(
             run(Term::and(exp_var("x"), exp_var("y")), kvar("y"), kvar("x")),
-            BuiltinResult::Bottom
+            BuiltinResult::Bottom(Undefinedness::Stated)
         );
         // With an opaque `Int` the sides share a value for no instance before the substitution
         // and for `N = M` after it, so the call has no value it could return.
@@ -1662,7 +1663,10 @@ mod tests {
             None,
         );
 
-        assert_eq!(run(map, kvar("y"), kvar("x")), BuiltinResult::Bottom);
+        assert_eq!(
+            run(map, kvar("y"), kvar("x")),
+            BuiltinResult::Bottom(Undefinedness::Stated)
+        );
     }
 
     #[test]
@@ -1678,7 +1682,10 @@ mod tests {
         });
         let set = Term::set(definition, vec![exp_var("x"), exp_var("y")], None);
 
-        assert_eq!(run(set, kvar("y"), kvar("x")), BuiltinResult::Bottom);
+        assert_eq!(
+            run(set, kvar("y"), kvar("x")),
+            BuiltinResult::Bottom(Undefinedness::Stated)
+        );
     }
 
     #[test]

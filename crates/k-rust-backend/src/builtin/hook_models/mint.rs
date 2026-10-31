@@ -6,6 +6,7 @@
 //! (signed readings by sign extension) for the others, so it shares no formula with the
 //! evaluator, which reduces arbitrary-precision integers modulo `2^W`.
 
+use crate::builtin::Undefinedness;
 use std::sync::Arc;
 
 use num_bigint::{BigInt, Sign};
@@ -761,7 +762,7 @@ fn width_zero_divisions_are_undefined_and_shifts_are_zero() {
     for hook in ["MINT.udiv", "MINT.urem", "MINT.sdiv", "MINT.srem"] {
         assert_eq!(
             evaluate(hook, &arguments),
-            Ok(BuiltinResult::Bottom),
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
             "{hook}"
         );
     }

@@ -106,9 +106,35 @@ pub enum BuiltinError {
 pub enum BuiltinResult {
     NotApplicable,
     Value(Term),
-    Bottom,
+    /// The evaluator's `\bottom`, with what makes it one ([`Undefinedness`]).
+    Bottom(Undefinedness),
     Effect(BuiltinEffect),
     Unsupported(UnsupportedHookReason),
+}
+
+/// Why an evaluator answers `\bottom` for an application.
+///
+/// A partial hook's description fixes its value on the arguments it describes. Where the text
+/// states the undefinedness (`#False`, `#Bottom`, "not total" with the inputs named), or where
+/// the description characterises the value on every argument of its sorts and no element
+/// satisfies it there (a negative power of an integer other than 1 or -1, a key of the empty
+/// map), every model that gave a value would contradict the text, so `\bottom` is the
+/// application's value in every model ([`Stated`](Self::Stated)). Where the description covers
+/// only some arguments, it says nothing of the others (`domains.md`:14-17: some functions are
+/// "not defined on all possible input values", without naming them), so `\bottom` and every
+/// value of the result sort are models, and the evaluator's `\bottom` is one model's choice
+/// ([`Undescribed`](Self::Undescribed)), class `outside-domain` ([`chosen_value`]): an execution
+/// takes it and marks it, every other evaluation leaves the application unevaluated with its
+/// definedness unknown, and at a `total` symbol, where `\bottom` is no model, it is left
+/// unevaluated as a defined value on every route. Each evaluator site that answers
+/// `Undescribed` states why its description is scoped. The BN128 hooks answer `Stated`: every
+/// outcome of theirs, `\bottom` included, is class `curve` by its hook, whatever the label.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Undefinedness {
+    /// `\bottom` in every model of the definition.
+    Stated,
+    /// `\bottom` is one of the models; every value of the result sort is another.
+    Undescribed,
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -419,11 +445,12 @@ pub enum ChosenClass {
     /// (`krypto.md`:95) names no curve parameters, so which pairs are points, and every sum,
     /// product and pairing, are a model's.
     Curve,
-    /// A value of a hook where its description gives none and does not exclude every value
-    /// (`\bottom` and every value are models): `ecdsaRecover` and `ecdsaPubKey` outside their
-    /// documented inputs, `rootFloat` outside a positive finite value and a positive degree, and
-    /// `floorFloat`, `ceilFloat` and `truncFloat` of a NaN or an infinity, or of a non-integer
-    /// whose rounding is a zero (which zero is not said).
+    /// An outcome of a hook where its description gives none and does not exclude every value
+    /// (`\bottom` and every value are models): the values of `ecdsaRecover` and `ecdsaPubKey`
+    /// outside their documented inputs, of `rootFloat` outside a positive finite value and a
+    /// positive degree, and of `floorFloat`, `ceilFloat` and `truncFloat` of a NaN or an
+    /// infinity, or of a non-integer whose rounding is a zero (which zero is not said); and the
+    /// evaluators' `\bottom` at their scoped sites ([`Undefinedness::Undescribed`]).
     OutsideDomain,
 }
 
@@ -546,15 +573,15 @@ pub enum HookOutcome<'a> {
     Unknown,
     /// The evaluator's value.
     Value(&'a Term),
-    /// The evaluator's `\bottom`.
-    Bottom,
+    /// The evaluator's `\bottom`, with what makes it one.
+    Bottom(Undefinedness),
 }
 
 impl<'a> HookOutcome<'a> {
     fn value(self) -> Option<&'a Term> {
         match self {
             Self::Value(value) => Some(value),
-            Self::Unknown | Self::Bottom => None,
+            Self::Unknown | Self::Bottom(_) => None,
         }
     }
 }
@@ -566,7 +593,8 @@ impl<'a> HookOutcome<'a> {
 /// says whether the applied symbol is declared `total`, which gives [`ChosenValue::defined`]. The
 /// fold and the evaluation entry read it; a class that needs the value (`LetterCase`,
 /// `ReadCount`, `HexCase`, `OutsideDomain` of the ECDSA hooks, `rootFloat`) does not fire without
-/// it. Of a `\bottom` outcome only the BN128 hooks' is classified (`Curve`).
+/// it. Of a `\bottom` outcome only the BN128 hooks' (`Curve`) and an
+/// [`Undescribed`](Undefinedness::Undescribed) one (`OutsideDomain`) are classified.
 ///
 /// - `Order`: `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose
 ///   keys are all constructor-like, and `Set2List(S)` of a closed set of two or more
@@ -602,7 +630,13 @@ impl<'a> HookOutcome<'a> {
 ///   gives exactly outside the documented inputs (`krypto::is_failure_value`); `rootFloat`
 ///   outside a positive finite value and a positive degree (`float::root_open`); `floorFloat`,
 ///   `ceilFloat` and `truncFloat` of a NaN, an infinity or a non-integer rounding to a zero
-///   (`float::integral_open`).
+///   (`float::integral_open`); and the evaluator's `\bottom` at a site where the description
+///   covers only some arguments ([`Undefinedness::Undescribed`]): `decodeBytes` of a sequence
+///   the encoding does not decode, `ordChar` of a string that is not one code point,
+///   `String2Int` and `String2Base` of a text off the radix's syntax, `String2Base` and
+///   `Base2String` in a radix outside `2..36`, a partial `String2Token` of a text that names no
+///   element, `L[I <- V]` and `range` out of range, and `updateList` at a negative index or past
+///   the end.
 /// - `FloatRounding`: `Int2Float` of an integer the format does not hold or of 0, `roundFloat`
 ///   of a value the destination does not hold, `Float2Int` at a tie (`float::rounds`), and
 ///   `rootFloat` of a positive finite value whose root is no float (`float::root_open`).
@@ -637,8 +671,23 @@ pub fn chosen_value(
                 true,
             ));
         }
-        // Of the other hooks' `\bottom` none is classified here.
-        _ if matches!(outcome, HookOutcome::Bottom) => None,
+        // The scoped sites, each argued at its evaluator: the description covers only some
+        // arguments, so `\bottom` is one model's answer outside them.
+        "BYTES.decodeBytes"
+        | "STRING.ord"
+        | "STRING.string2int"
+        | "STRING.string2base"
+        | "STRING.base2string"
+        | "STRING.string2token"
+        | "LIST.update"
+        | "LIST.range"
+        | "LIST.updateAll"
+            if matches!(outcome, HookOutcome::Bottom(Undefinedness::Undescribed)) =>
+        {
+            Some(ChosenClass::OutsideDomain)
+        }
+        // Every other `\bottom` is the application's value in every model.
+        _ if matches!(outcome, HookOutcome::Bottom(_)) => None,
         "MAP.keys_list" | "MAP.values" => {
             fires(ChosenClass::Order, map::lists_several_items(arguments))
         }
@@ -896,11 +945,40 @@ fn evaluate_composed(
     if let BuiltinResult::Value(value) = &result {
         debug_assert_value_of_sort(hook, value, result_sort);
     }
+    // An evaluator's `\bottom` outside the arguments its hook's description covers is one model's
+    // answer, beside every value of the result sort. A `total` declaration states that the
+    // application has a value in every model, which excludes `\bottom`, and the text names
+    // none: the application is defined and its value unknown on every route, with no pick to
+    // take or mark, as `String2Token` of a text that names no element is at a `total` symbol.
+    if total && result == BuiltinResult::Bottom(Undefinedness::Undescribed) {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::Unspecified {
+                detail: format!(
+                    "{hook} outside the arguments its description covers, declared total: a \
+                     value the definition does not determine"
+                ),
+                defined: true,
+            },
+        ));
+    }
     let outcome = match &result {
         BuiltinResult::Value(value) => Some(HookOutcome::Value(value)),
-        BuiltinResult::Bottom => Some(HookOutcome::Bottom),
+        BuiltinResult::Bottom(undefinedness) => Some(HookOutcome::Bottom(*undefinedness)),
         _ => None,
     };
+    // Every scoped site's hook is named in `chosen_value`, so its `\bottom` is never taken as
+    // determined.
+    debug_assert!(
+        result != BuiltinResult::Bottom(Undefinedness::Undescribed)
+            || chosen_value(
+                hook,
+                arguments,
+                HookOutcome::Bottom(Undefinedness::Undescribed),
+                total
+            )
+            .is_some_and(|chosen| chosen.class == ChosenClass::OutsideDomain),
+        "{hook}: an undescribed \\bottom that chosen_value does not classify"
+    );
     if let Some(outcome) = outcome
         && let Some(chosen) = chosen_value(hook, arguments, outcome, total)
     {
@@ -1660,9 +1738,10 @@ fn int_partial_binary(
     let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(operation(left, right)
-        .map(int_term)
-        .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
+    Ok(operation(left, right).map(int_term).map_or(
+        BuiltinResult::Bottom(Undefinedness::Stated),
+        BuiltinResult::Value,
+    ))
 }
 
 fn truncating_division(left: BigInt, right: BigInt) -> Option<BigInt> {
@@ -1915,7 +1994,7 @@ fn int_pow_within(arguments: &[Term], floor: u64) -> HookResult<BuiltinResult> {
         })));
     }
     if exponent.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     if exponent.is_zero() {
         return Ok(BuiltinResult::Value(int_term(BigInt::one())));
@@ -1974,14 +2053,14 @@ fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     if modulus.is_zero() {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let modulus = modulus.abs();
     // `A ^%Int B C` is `(A ^Int B) mod C`. For a negative exponent the power is an integer only
     // for a base of 1 or -1 (`int_pow_within`), and otherwise undefined, and so is the remainder.
     if exponent.sign() == Sign::Minus {
         if !base.magnitude().is_one() {
-            return Ok(BuiltinResult::Bottom);
+            return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
         }
         let odd = (&exponent & BigInt::one()).is_one();
         let power = if base.sign() == Sign::Minus && odd {
@@ -2035,7 +2114,7 @@ fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     if value <= BigInt::zero() {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     Ok(BuiltinResult::Value(int_term(BigInt::from(
         value.bits() - 1,
@@ -2060,7 +2139,7 @@ fn int_shift_within(
     };
     // Shifting by a negative quantity is undefined (`#False` in `domains.md`) for both shifts.
     if amount.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let shifts_left = !right;
     let limit = result_size_limit(floor, value.bits().saturating_add(amount.bits()));
@@ -2148,7 +2227,7 @@ fn int_bit_range(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     if index.sign() == Sign::Minus || length.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let shifted = floor_shift(&value, &index);
     let range = length.to_u64().unwrap_or(u64::MAX);
@@ -2197,7 +2276,7 @@ fn int_sign_extend_bit_range(arguments: &[Term]) -> HookResult<BuiltinResult> {
         return Ok(BuiltinResult::NotApplicable);
     };
     if index.sign() == Sign::Minus || length.sign() != Sign::Plus {
-        return Ok(BuiltinResult::Bottom);
+        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     }
     let shifted = floor_shift(&value, &index);
     let range = length.to_u64().unwrap_or(u64::MAX);
@@ -2983,7 +3062,7 @@ mod tests {
                 "INT.pow",
                 &[int_term(BigInt::from(2)), int_term(BigInt::from(-1))],
             ),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
     }
 
@@ -3056,7 +3135,10 @@ mod tests {
                 "{base} ^%Int {exponent} {modulus}"
             );
         }
-        assert_eq!(powmod(2, 3, 0), Ok(Ok(BuiltinResult::Bottom)));
+        assert_eq!(
+            powmod(2, 3, 0),
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
+        );
     }
 
     /// From one-word arguments, a result of exactly `MAX_INT_RESULT_BITS` bits is computed and
@@ -3243,7 +3325,7 @@ mod tests {
                             int_term(BigInt::from(amount))
                         ],
                     ),
-                    Ok(Ok(BuiltinResult::Bottom)),
+                    Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))),
                     "{value} {hook} {amount}"
                 );
             }
@@ -3252,7 +3334,7 @@ mod tests {
                     hook,
                     &[int_term(BigInt::one()), int_term(-(BigInt::one() << 70u32))]
                 ),
-                Ok(Ok(BuiltinResult::Bottom)),
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))),
                 "{hook} by -2^70"
             );
         }
@@ -3315,7 +3397,7 @@ mod tests {
                 .collect::<Option<Vec<_>>>()?;
             match evaluate_hook(hook, &operands) {
                 Ok(Ok(BuiltinResult::Value(value))) => Some(read_int(&value).unwrap()),
-                Ok(Ok(BuiltinResult::Bottom)) => None,
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))) => None,
                 other => panic!("{hook} on {operands:?}: {other:?}"),
             }
         };
@@ -3323,7 +3405,7 @@ mod tests {
             let arguments = arguments.map(|argument| int_term(argument.clone()));
             match evaluate_hook(hook, &arguments) {
                 Ok(Ok(BuiltinResult::Value(value))) => Some(read_int(&value).unwrap()),
-                Ok(Ok(BuiltinResult::Bottom)) => None,
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))) => None,
                 other => panic!("{hook} on {arguments:?}: {other:?}"),
             }
         };
@@ -3429,7 +3511,7 @@ mod tests {
         );
         assert_eq!(
             evaluate("INT.bitRange", -1, -1),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
     }
 
@@ -4086,7 +4168,7 @@ mod tests {
         for (hook, arguments) in undefined {
             assert_eq!(
                 evaluate_hook(hook, &arguments),
-                Ok(Ok(BuiltinResult::Bottom)),
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))),
                 "{}",
                 case(hook, &arguments)
             );
@@ -4287,34 +4369,34 @@ mod tests {
     fn undefined_integer_operations_are_bottom() {
         assert_eq!(
             evaluate_int("INT.ediv", &[1, 0]),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
         assert_eq!(
             evaluate_int("INT.pow", &[2, -1]),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
         assert_eq!(
             evaluate_int("INT.pow", &[0, -1]),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
         assert_eq!(
             evaluate_int("INT.pow", &[-3, -2]),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
         assert_eq!(
             evaluate_int("INT.log2", &[0]),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
         assert_eq!(
             evaluate_int("INT.powmod", &[2, -1, 4]),
-            Ok(Ok(BuiltinResult::Bottom))
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated)))
         );
         // `(A ^Int B) mod C` has no value where `A ^Int B` has none, even where A is invertible
         // modulo C.
         for (base, exponent, modulus) in [(3, -1, 7), (2, -1, 7), (-2, -3, 7), (0, -1, 5)] {
             assert_eq!(
                 evaluate_int("INT.powmod", &[base, exponent, modulus]),
-                Ok(Ok(BuiltinResult::Bottom)),
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))),
                 "{base} ^%Int {exponent} {modulus}"
             );
         }
@@ -5113,6 +5195,57 @@ mod tests {
         }
     }
 
+    /// GAP K2: an evaluator's `\bottom` at a scoped site is `outside-domain`, of open definedness
+    /// at a partial symbol and defined at a `total` one; a `\bottom` the text determines is no
+    /// class, at those hooks too.
+    #[test]
+    fn an_undescribed_bottom_is_outside_domain_and_a_stated_one_is_no_class() {
+        let undescribed = HookOutcome::Bottom(Undefinedness::Undescribed);
+        for hook in [
+            "BYTES.decodeBytes",
+            "STRING.ord",
+            "STRING.string2int",
+            "STRING.string2base",
+            "STRING.base2string",
+            "STRING.string2token",
+            "LIST.update",
+            "LIST.range",
+            "LIST.updateAll",
+        ] {
+            let chosen = chosen_value(hook, &[], undescribed, false).unwrap();
+            assert_eq!(chosen.class, ChosenClass::OutsideDomain, "{hook}");
+            assert!(!chosen.defined && chosen.withheld_in_proof, "{hook}");
+            assert!(chosen_value(hook, &[], undescribed, true).unwrap().defined);
+            assert_eq!(
+                chosen_value(hook, &[], HookOutcome::Bottom(Undefinedness::Stated), false),
+                None,
+                "{hook}"
+            );
+        }
+        for (hook, arguments) in [
+            ("STRING.ord", vec![Term::string("ab")]),
+            ("STRING.string2int", vec![Term::string("x")]),
+            ("STRING.base2string", vec![Term::int(1), Term::int(1)]),
+        ] {
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))),
+                "{hook}"
+            );
+        }
+        for (hook, arguments) in [
+            ("STRING.chr", vec![Term::int(-1)]),
+            ("INT.tdiv", vec![Term::int(1), Term::int(0)]),
+            ("INT.pow", vec![Term::int(2), Term::int(-1)]),
+        ] {
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::Bottom(Undefinedness::Stated))),
+                "{hook}"
+            );
+        }
+    }
+
     /// GAP K1: every BN128 outcome is `curve`, `\bottom` included; at a partial symbol its
     /// definedness is open (a pair is a point on some curves only) except for the two
     /// `isValidPoint` checks, whose description gives a Bool for every argument. No other hook's
@@ -5122,7 +5255,7 @@ mod tests {
         let point = Term::int(0);
         for hook in ["KRYPTO.bn128add", "KRYPTO.bn128mul", "KRYPTO.bn128ate"] {
             for outcome in [
-                HookOutcome::Bottom,
+                HookOutcome::Bottom(Undefinedness::Stated),
                 HookOutcome::Value(&point),
                 HookOutcome::Unknown,
             ] {
@@ -5142,7 +5275,7 @@ mod tests {
             chosen_value(
                 "BYTES.string2bytes",
                 &[Term::string("a")],
-                HookOutcome::Bottom,
+                HookOutcome::Bottom(Undefinedness::Stated),
                 false
             ),
             None
@@ -5151,7 +5284,7 @@ mod tests {
             chosen_value(
                 "FLOAT.round",
                 &[float_term("0.1"), Term::int(0), Term::int(8)],
-                HookOutcome::Bottom,
+                HookOutcome::Bottom(Undefinedness::Stated),
                 false
             ),
             None

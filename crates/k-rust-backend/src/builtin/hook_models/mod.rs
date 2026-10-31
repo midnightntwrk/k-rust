@@ -640,7 +640,7 @@ fn admits(expect: &Expect, actual: Option<&Val>) -> bool {
 fn outcome(result: &BuiltinResult, env: &Env) -> Result<Option<Option<Val>>, String> {
     match result {
         BuiltinResult::Value(term) => Ok(Some(decode(term, env))),
-        BuiltinResult::Bottom => Ok(Some(None)),
+        BuiltinResult::Bottom(_) => Ok(Some(None)),
         BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => Ok(None),
         BuiltinResult::Effect(effect) => Err(format!("unexpected effect {effect:?}")),
     }

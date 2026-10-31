@@ -13700,6 +13700,16 @@ fn order_claim_verdicts(
     definition_module: &str,
     spec: &str,
 ) -> (BTreeMap<String, String>, String) {
+    claim_verdicts_with(source, definition_module, spec, &[])
+}
+
+/// [`order_claim_verdicts`] with `options` added to the `kprove` command.
+fn claim_verdicts_with(
+    source: &str,
+    definition_module: &str,
+    spec: &str,
+    options: &[&str],
+) -> (BTreeMap<String, String>, String) {
     let (root, definition) = fixture();
     fs::write(&definition, source).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -13711,6 +13721,7 @@ fn order_claim_verdicts(
             "--definition-module",
             definition_module,
         ])
+        .args(options)
         .stdin(Stdio::null())
         .output()
         .unwrap();
@@ -14317,6 +14328,103 @@ endmodule
             "{claim}: {output}"
         );
     }
+}
+
+/// A partial hook whose description covers only some arguments says nothing of the others, so
+/// `\bottom` and every value of its sort are models there (class `outside-domain`): no claim is
+/// proven from k-rust's `\bottom`. Each `owise` claim holds only in the models that take the
+/// application as undefined, and stays undecided at every scoped site (`L[I <- V]` past the end, `range`, `updateList` past the end
+/// and at a negative index, `ordChar`, `String2Int` and `String2Base` off their syntax, either
+/// radix hook outside `2..36`, `decodeBytes` of an invalid sequence, a partial `String2Token`
+/// naming no element). So do the claims that hold only vacuously, from a `requires` that holds
+/// such an application, even under `--allow-vacuous`. The controls stay proven: an in-range
+/// update, and the sites whose description excludes every value (`L[I]` past the end,
+/// `makeList` of a negative length, `chrChar` of a non-code-point) or whose undefinedness the
+/// text states (`/Int` by zero), where `\bottom` is determined. The claim that `gu(L, 5)`
+/// reaches some result (`upd-some`) holds in every model, the yes one where the update has a
+/// value and the `owise` one where it has none, and is proven along both branches: the proof
+/// neither uses the undefinedness nor assumes a value.
+#[test]
+fn kprove_proves_nothing_from_a_hook_outside_its_described_domain() {
+    let source = format!(
+        r#"{}
+module OUTSIDE-SPEC
+  imports OUTSIDE
+  claim [upd-owise]: <k> gu(ListItem(1), 5) => no </k>
+  claim [upd-negative]: <k> gu(ListItem(1), -1) => no </k>
+  claim [upd-some]: <k> gu(ListItem(1), 5) => ?_R:Res </k>
+  claim [rng-owise]: <k> gr(ListItem(1), 2) => no </k>
+  claim [ul-owise]: <k> ga(ListItem(1), 1) => no </k>
+  claim [ul-negative]: <k> ga(ListItem(1), -1) => no </k>
+  claim [ord-owise]: <k> go("ab") => no </k>
+  claim [s2i-owise]: <k> gi("x") => no </k>
+  claim [s2base-owise]: <k> gb("12", 2) => no </k>
+  claim [s2base-radix]: <k> gb("1", 37) => no </k>
+  claim [b2s-radix]: <k> gs(1, 1) => no </k>
+  claim [dec-owise]: <k> gd(b"\xff") => no </k>
+  claim [tok-owise]: <k> gt("x") => no </k>
+  claim [upd-in-range]: <k> gu(ListItem(1), 0) => yes </k>
+  claim [get-owise]: <k> ge(ListItem(1), 5) => no </k>
+  claim [make-owise]: <k> gm(-1) => no </k>
+  claim [chr-owise]: <k> gc(-1) => no </k>
+  claim [div-owise]: <k> gz(0) => no </k>
+endmodule
+"#,
+        include_str!("fixtures/outside-domain.k")
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "OUTSIDE", "OUTSIDE-SPEC");
+    for claim in [
+        "upd-owise",
+        "upd-negative",
+        "rng-owise",
+        "ul-owise",
+        "ul-negative",
+        "ord-owise",
+        "s2i-owise",
+        "s2base-owise",
+        "s2base-radix",
+        "b2s-radix",
+        "dec-owise",
+        "tok-owise",
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    for claim in [
+        "upd-some",
+        "upd-in-range",
+        "get-owise",
+        "make-owise",
+        "chr-owise",
+        "div-owise",
+    ] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    let vacuous = format!(
+        r#"{}
+module VACUOUS-SPEC
+  imports OUTSIDE
+  claim [vac-upd]: <k> gu(ListItem(1), 0) => no </k> requires ok(ListItem(1) [ 5 <- 0 ])
+  claim [vac-rng]: <k> gu(ListItem(1), 0) => no </k> requires ok(range(ListItem(1), 2, 0))
+  claim [vac-ord]: <k> gu(ListItem(1), 0) => no </k> requires ok(ordChar("ab"))
+  claim [vac-get]: <k> gu(ListItem(1), 0) => no </k> requires ok(ListItem(1) [ 5 ])
+endmodule
+"#,
+        include_str!("fixtures/outside-domain.k")
+    );
+    let (verdicts, output) =
+        claim_verdicts_with(&vacuous, "OUTSIDE", "VACUOUS-SPEC", &["--allow-vacuous"]);
+    for claim in ["vac-upd", "vac-rng", "vac-ord"] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    assert_eq!(
+        claim_verdict(&verdicts, "vac-get", &output),
+        "proven",
+        "vac-get: {output}"
+    );
 }
 
 /// A Float operation over a binary32 and a binary64 operand is defined whatever format its result

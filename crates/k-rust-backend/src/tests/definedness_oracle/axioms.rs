@@ -911,7 +911,7 @@ fn left_value(backend: &BackendDefinition, instance: &Term, run: &mut Run) -> (O
             Some(Ok(Ok(BuiltinResult::Value(value)))) if claimed_value(&value) => {
                 Some(Outcome::Value(value))
             }
-            Some(Ok(Ok(BuiltinResult::Bottom))) => Some(Outcome::Bottom),
+            Some(Ok(Ok(BuiltinResult::Bottom(_)))) => Some(Outcome::Bottom),
             Some(Err(stop)) => {
                 stop.into_cause();
                 STOPPED.set(true);

@@ -421,6 +421,113 @@ fn a_discarded_operand_whose_definedness_is_an_outcome_k_rust_picks_is_marked() 
     assert_marked(DISCARDED_GAP, r#"zs("a")"#, &[]);
 }
 
+const OUTSIDE_BOTTOM: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  imports BYTES
+  imports LIST
+  imports MAP
+  imports K-EQUAL
+  syntax Int ::= String2PInt(String) [function, hook(STRING.string2token)]
+  syntax Pgm ::= upd(Int) | rng(Int) | ul(Int) | ord(String) | s2i(String) | s2b(String, Int)
+               | b2s(Int, Int) | dec(Bytes) | tok(String) | get(Int) | make(Int) | chr(Int)
+               | pow(Int) | "cho" | div(Int) | skip(Int) | st(Int, Int, List) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule upd(I) => done(ListItem(1) [ I <- 0 ])
+  rule rng(I) => done(range(ListItem(1), I, 0))
+  rule ul(I) => done(updateList(ListItem(1), I, ListItem(0)))
+  rule ord(S) => done(ordChar(S))
+  rule s2i(S) => done(String2Int(S))
+  rule s2b(S, B) => done(String2Base(S, B))
+  rule b2s(I, B) => done(Base2String(I, B))
+  rule dec(B) => done(decodeBytes("UTF-8", B))
+  rule tok(S) => done(String2PInt(S))
+  rule get(I) => done(ListItem(1) [ I ])
+  rule make(N) => done(makeList(N, 0))
+  rule chr(N) => done(chrChar(N))
+  rule pow(E) => done(2 ^Int E)
+  rule cho => done(choice(.Map))
+  rule div(N) => done(1 /Int N)
+  rule skip(I) => done(#if true #then 1 #else size(ListItem(1) [ I <- 0 ]) #fi)
+  rule st(I, V, _ [ I <- V ]) => done(0)
+endmodule
+"#;
+
+/// A partial hook outside the inputs its description covers has no value the text gives and
+/// does not exclude one: `\bottom` and every value of its sort are models (class
+/// `outside-domain`). k-rust's answer there is `\bottom`, which an execution takes and marks, so
+/// the step that writes it is undefined and its leaf, the unstepped state, carries the mark; an
+/// operand a decided `#if` discards is checked for definedness only, which is the pick itself, so
+/// it marks too (`skip(5)`). In range every hook is determined and unmarked. Where the
+/// description excludes every value (`L[I]` past the end, `makeList` of a negative length,
+/// `chrChar` of a non-code-point, a negative power of 2, `choice` of the empty map) or the text
+/// states the undefinedness (`/Int` by zero), `\bottom` is determined and unmarked. A rule
+/// whose left-hand side matches a list update (`st`) applies to a list that holds the value at
+/// the index (`st(0, 1, ListItem(1))`, unmarked); its match against any other list fails only
+/// because k-rust's update outside the indices of a shorter base list is `\bottom`, a pick
+/// (`st(0, 2, ..)`, `st(5, 0, ..)`, marked): the update of no base list at one of its indices is
+/// that list.
+#[test]
+fn a_bottom_outside_a_described_domain_is_marked_and_a_determined_one_is_not() {
+    let outside = |hook: &str| [mark(hook, "outside-domain")];
+    assert_marked(OUTSIDE_BOTTOM, "upd(5)", &outside("LIST.update"));
+    assert_marked(OUTSIDE_BOTTOM, "upd(-1)", &outside("LIST.update"));
+    assert_marked(OUTSIDE_BOTTOM, "upd(0)", &[]);
+    assert_marked(OUTSIDE_BOTTOM, "rng(2)", &outside("LIST.range"));
+    assert_marked(OUTSIDE_BOTTOM, "rng(-1)", &outside("LIST.range"));
+    assert_marked(OUTSIDE_BOTTOM, "rng(1)", &[]);
+    assert_marked(OUTSIDE_BOTTOM, "ul(1)", &outside("LIST.updateAll"));
+    assert_marked(OUTSIDE_BOTTOM, "ul(-1)", &outside("LIST.updateAll"));
+    assert_marked(OUTSIDE_BOTTOM, "ul(0)", &[]);
+    assert_marked(OUTSIDE_BOTTOM, r#"ord("ab")"#, &outside("STRING.ord"));
+    assert_marked(OUTSIDE_BOTTOM, r#"ord("a")"#, &[]);
+    assert_marked(OUTSIDE_BOTTOM, r#"s2i("x")"#, &outside("STRING.string2int"));
+    assert_marked(OUTSIDE_BOTTOM, r#"s2i("-7")"#, &[]);
+    assert_marked(
+        OUTSIDE_BOTTOM,
+        r#"s2b("12", 2)"#,
+        &outside("STRING.string2base"),
+    );
+    assert_marked(
+        OUTSIDE_BOTTOM,
+        r#"s2b("1", 37)"#,
+        &outside("STRING.string2base"),
+    );
+    assert_marked(OUTSIDE_BOTTOM, r#"s2b("ff", 16)"#, &[]);
+    assert_marked(OUTSIDE_BOTTOM, "b2s(1, 1)", &outside("STRING.base2string"));
+    assert_marked(OUTSIDE_BOTTOM, "b2s(9, 10)", &[]);
+    assert_marked(
+        OUTSIDE_BOTTOM,
+        r#"dec(b"\xff")"#,
+        &outside("BYTES.decodeBytes"),
+    );
+    assert_marked(OUTSIDE_BOTTOM, r#"dec(b"a")"#, &[]);
+    assert_marked(
+        OUTSIDE_BOTTOM,
+        r#"tok("x")"#,
+        &outside("STRING.string2token"),
+    );
+    assert_marked(OUTSIDE_BOTTOM, r#"tok("7")"#, &[]);
+    assert_marked(OUTSIDE_BOTTOM, "skip(5)", &outside("LIST.update"));
+    assert_marked(OUTSIDE_BOTTOM, "skip(0)", &[]);
+    assert_marked(OUTSIDE_BOTTOM, "st(0, 1, ListItem(1))", &[]);
+    assert_marked(
+        OUTSIDE_BOTTOM,
+        "st(0, 2, ListItem(1))",
+        &outside("LIST.update"),
+    );
+    assert_marked(
+        OUTSIDE_BOTTOM,
+        "st(5, 0, ListItem(1))",
+        &outside("LIST.update"),
+    );
+    for determined in ["get(5)", "make(-1)", "chr(-1)", "pow(-1)", "cho", "div(0)"] {
+        assert_marked(OUTSIDE_BOTTOM, determined, &[]);
+    }
+}
+
 const CONDITIONS: &str = r#"
 module MAIN
   imports INT
