@@ -268,3 +268,50 @@ fn dui(k::term![More::Dui(x)]: Term<Stmt>) -> Term<Stmt> {
         dui(lf) => hold(wrap ( lf )) ~> .K"]]
     .assert_eq(&runs(source, &["dus(vv)", "rus(vv)", "dus(go)", "dui(lf)"]));
 }
+
+/// A later clause's subject matches a parametric constructor's application by its instance, and
+/// a binding an earlier clause placed at its binder's sort as what it places (NT-22 review M1):
+/// `mk(vv, go)` expands to the pair at `Stmt` over `vv` injected into `Stmt`, which the subject
+/// `pick(Pair::<Stmt>(vv, y))` matches, as it matches the program's own `pick(pair(vv, go))`,
+/// before the catch-all `pick(w)` is tried; `mk(go, go)` falls to the catch-all.
+#[test]
+fn a_static_subject_matches_a_placed_binding_by_its_instance() {
+    let source = "
+/// A parametric pair, whose turbofish names its instance.
+#[k::constructor(sort = S, syntax = \"pair({a}, {b})\")]
+pub struct Pair<S: ?Sized> {
+    pub a: Term<S>,
+    pub b: Term<S>,
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum More {
+    #[k::syntax(\"mk({a}, {b})\")] #[k::desugar] Mk { a: Stmt, b: Stmt },
+    #[k::syntax(\"pick({a})\")] #[k::desugar] Pick { a: Stmt },
+}
+
+#[k::desugar]
+fn mk(k::term![More::Mk(x, z)]: Term<Stmt>) -> Term<Stmt> {
+    More::Pick(Pair::<dyn StmtSort>(x, z))
+}
+
+#[k::desugar]
+fn pick_vv(k::term![More::Pick(Pair::<dyn StmtSort>(Val::Vv(), y))]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Got(1)
+}
+
+#[k::desugar]
+fn pick_any(k::term![More::Pick(w)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Got(2)
+}
+";
+    expect_test::expect![[r"
+        mk(vv, go) => got(1) ~> .K
+        pick(pair(vv, go)) => got(1) ~> .K
+        mk(go, go) => got(2) ~> .K"]]
+    .assert_eq(&runs(
+        source,
+        &["mk(vv, go)", "pick(pair(vv, go))", "mk(go, go)"],
+    ));
+}

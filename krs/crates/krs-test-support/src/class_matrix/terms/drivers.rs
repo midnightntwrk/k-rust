@@ -95,8 +95,9 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
 /// before the sentence), and an equation's call leaves `Probe` unevaluated. A static clause's
 /// counter run is a program its subject does not match, whose expansion therefore leaves the
 /// case's production unexpanded ([`Status::Unexpanded`]); and a program writing a token subject's
-/// value in another spelling ([`second_spelling`]) is the same term, which the clause must expand
-/// too (finding NT-14-2: static expansion matched a token by its text).
+/// value in another spelling ([`second_spellings`]) is the same term, which the clause must expand
+/// too (finding NT-14-2: static expansion matched a token by its text), while a spelling of a
+/// neighbouring value ([`neighbour_values`]: another float format, the other zero) is not.
 pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
     if matches!(
         (slot.form, slot.position, slot.opener),
@@ -174,7 +175,10 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             Some(run)
         })
         .collect::<Vec<_>>();
-    if let Some(second) = spelling.witness.as_ref().ok().and_then(second_spelling) {
+    let Ok(witness) = spelling.witness.as_ref() else {
+        return runs;
+    };
+    for second in second_spellings(witness) {
         runs.push(Run {
             program: format!("{}(1, {second})", command.terminal()),
             variables: Vec::new(),
@@ -184,7 +188,71 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             status: Status::Liveness,
         });
     }
+    for other in neighbour_values(witness) {
+        runs.push(Run {
+            program: format!("{}(1, {other})", command.terminal()),
+            variables: Vec::new(),
+            depth: 0,
+            steps: 0,
+            cells: Vec::new(),
+            status: Status::Unexpanded,
+        });
+    }
     runs
+}
+
+/// The program spellings of the builtin token `witness`'s value other than the one K7 writes
+/// ([`second_spelling`]), and for a binary64 `Float` written with a fraction also its value in
+/// exponent form (`15e-1`), with the binary64 suffix `d` (`1.5d`) and with binary64's
+/// precision and exponent range spelled out (`1.5p53x11`): every one the same term, which the
+/// clause must expand.
+fn second_spellings(witness: &Ground) -> Vec<String> {
+    let mut spellings = second_spelling(witness).into_iter().collect::<Vec<_>>();
+    if let Some((sign, whole, fraction)) = decimal_float(witness) {
+        let digits = format!("{whole}{fraction}");
+        spellings.push(format!("{sign}{digits}e-{}", fraction.len()));
+        spellings.push(format!("{sign}{whole}.{fraction}d"));
+        spellings.push(format!("{sign}{whole}.{fraction}p53x11"));
+    }
+    spellings
+}
+
+/// Spellings of values next to the builtin token `witness`'s, which name other values: for a
+/// binary64 `Float` written with a fraction, the same digits in binary32 (`1.5f`), and at zero
+/// the zero of the other sign (`-0.0` beside `0.0`): a float's format and its sign at zero are
+/// part of its value, so the clause must leave each unexpanded.
+fn neighbour_values(witness: &Ground) -> Vec<String> {
+    let Some((sign, whole, fraction)) = decimal_float(witness) else {
+        return Vec::new();
+    };
+    let mut values = vec![format!("{sign}{whole}.{fraction}f")];
+    if format!("{whole}{fraction}")
+        .bytes()
+        .all(|byte| byte == b'0')
+    {
+        let other = if sign.is_empty() { "-" } else { "" };
+        values.push(format!("{other}{whole}.{fraction}"));
+    }
+    values
+}
+
+/// The sign, whole digits and fraction digits of a `Float` witness K7 writes as a plain
+/// decimal with a fraction (`-2.25`); `None` for any other term or spelling.
+fn decimal_float(witness: &Ground) -> Option<(&str, &str, &str)> {
+    let Ground::Float(text) = witness else {
+        return None;
+    };
+    let (sign, unsigned) = text
+        .strip_prefix('-')
+        .map_or(("", text.as_str()), |rest| ("-", rest));
+    let (whole, fraction) = unsigned.split_once('.')?;
+    (!whole.is_empty()
+        && !fraction.is_empty()
+        && whole
+            .bytes()
+            .chain(fraction.bytes())
+            .all(|byte| byte.is_ascii_digit()))
+    .then_some((sign, whole, fraction))
 }
 
 /// A program spelling of the builtin token `witness` other than the one K7 writes
