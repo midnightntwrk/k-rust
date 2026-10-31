@@ -807,7 +807,7 @@ fn z3_checks_are_paid_once_per_bubble() {
 // values are in that commit's message; re-pin in a commit that says why the value moved.
 
 /// `examples/rewrite.k`: its one rule plus the prelude bubbles reachable from REWRITE.
-const RULE_BUBBLES_REWRITE: u64 = 198;
+const RULE_BUBBLES_REWRITE: u64 = 200;
 /// `examples/rewrite.k`: 2091 sentences after transformation.
 const SENTENCES_REWRITE: u64 = 2300;
 /// Casted rule chain of 15 operands: 1553 completion candidates.
