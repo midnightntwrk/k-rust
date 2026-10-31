@@ -10,7 +10,7 @@
     "krs-builtin-int-sign-unsigned": "a1b724f11e7a58c236d6651b21645d08f23b31e991dc814fe60c44350bed7448",
     "krs-builtin-strings": "acd3d4df499c5de0289e99945fa5e7ee4809c84c497c51eb9c9de76e14809b35",
     "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
-    "krs-builtin-floats": "247813e120a0f4d665c42058912a85f9845c16408ebdc443880a86b659b4adbf",
+    "krs-builtin-floats": "2476a850526be080392f09f2543368c1fee181f9367694d73c1ea1dcb56931ee",
     "krs-builtin-float-java-only": "b34aeb0d65e6aac48bc1abbe4bd9b867dad43a9e6586b5b6cdbfe1e4663fed7a",
     "krs-builtin-io": "3d4211cbd0ecd1fc80ee084d908ac6a11595155d24e05f1ee25cc68bdeabccc2",
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
@@ -48,7 +48,7 @@
       "definition.k": "c7b491e039779303526aa124568af4a6c9bd7dabbe9adbfc5a5ead90ca1e5d9d"
     },
     "krs-builtin-floats": {
-      "definition.k": "87082db296b6f2156726dd46c56f8cba01654228e641d5d447f6317df765ff0f"
+      "definition.k": "e85fd3b20c1ea6aa1bf639badfff407222f6135467ff71a08f5198badcba4f75"
     },
     "krs-builtin-float-java-only": {
       "definition.k": "0e30d56cd5343e9455d388e8214940ad127bfdcbf9ea8af0e6d5cd314c0ee694"
@@ -82,7 +82,7 @@
     "krs-builtin-int-sign-unsigned": "bc174a335b2a197d4e30737115c79b18fa87b5328d6838c624f5f1f96e069dac",
     "krs-builtin-strings": "8fe3b65c03a33c2bd6763b200ebf341f5cf79c6db98ee3746e163d56257d9f98",
     "krs-builtin-k-equal": "b9dc984602c7c1597ee7104cc1dbdad4d03d33ca2143b9b608b2e70014074882",
-    "krs-builtin-floats": "7cc2e7ab714a0449742834d55d18759b28100d4ab4ddda648c7483a122252d6a",
+    "krs-builtin-floats": "5ccea2043b91a5df79fa0e2166e4c838481614969b4b1535e71b5648dd904f35",
     "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
     "krs-builtin-io": "d50fea08cdfb05ddd456ab327f80ab6d7d9b4617f271e0576a0d8a17314868eb",
     "krs-builtin-raw-k": "984aad681509c939aae58ee90ab08c95a869b904a308ec9beaa05df57eeb7273",
@@ -90,7 +90,7 @@
     "krs-builtin-sort-tests": "966373419178da806675a6cd969527d02884ac2808abb8921b20f8d8175cbc79",
     "krs-builtin-io-hooks": "4a8795baf1ec25696c66279f90cb86974ab0ca13d254c0afc0621c805b301792",
     "krs-builtin-io-log": "9db45bc1999daf6fb76fe1e886b96ef9cf0247764c6d4fef2b6c1fb7f5b740c2",
-    "krs-builtin-floats-outputs": "9120cb250c4e357003d3937ac8a70c0716dde418f146fb3a97e6e984827fc67a"
+    "krs-builtin-floats-outputs": "5a28bac97df88478a0436db910e214abb9590c9724f04ba189bbb86ea9f0130f"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -1156,7 +1156,9 @@
       "ord": [],
       "ord-latin-1": [],
       "chr-latin-1": [],
-      "from-string-latin-1": [],
+      "from-string-latin-1": [
+        "BYTES.string2bytes byte-encoding"
+      ],
       "from-int": [],
       "to-int": [],
       "from-bool": [],
@@ -1164,8 +1166,13 @@
       "eq": [],
       "lt": [],
       "not-lt": [],
-      "from-string": [],
-      "to-string": [],
+      "from-string": [
+        "BYTES.string2bytes byte-encoding"
+      ],
+      "to-string": [
+        "BYTES.bytes2string byte-encoding",
+        "BYTES.string2bytes byte-encoding"
+      ],
       "match-literal": [],
       "match-latin-1": []
     },
@@ -1182,30 +1189,63 @@
       "signed-zero-ieee-eq": [],
       "signed-zero-term-eq": [],
       "signed-zero-neg": [],
-      "infinite": [],
+      "infinite": [
+        "Infinity literal"
+      ],
       "finite": [],
       "ordered-nan": [],
-      "ordered-infinity": [],
+      "ordered-infinity": [
+        "-Infinity literal"
+      ],
       "sqrt": [],
       "rounding": [],
-      "to-int-tie-down": [],
-      "to-int-tie-up": [],
-      "to-int-tie-negative": [],
+      "to-int-tie-down": [
+        "FLOAT.float2int float-rounding"
+      ],
+      "to-int-tie-up": [
+        "FLOAT.float2int float-rounding"
+      ],
+      "to-int-tie-negative": [
+        "FLOAT.float2int float-rounding"
+      ],
       "from-int": [],
-      "from-int-binary32": [],
-      "round-binary32": [],
+      "from-int-binary32": [
+        "FLOAT.int2float float-rounding"
+      ],
+      "round-binary32": [
+        "FLOAT.round float-rounding"
+      ],
       "max-value": [],
       "format-binary32": [],
       "format-binary64": [],
       "format-binary64-suffix": [],
-      "match-literal": [],
-      "match-binary32": [],
-      "match-infinity": [],
-      "match-negative-infinity": [],
-      "match-negative-zero": [],
+      "match-literal": [
+        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
+        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
+      ],
+      "match-binary32": [
+        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
+        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
+      ],
+      "match-infinity": [
+        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
+        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal",
+        "Infinity literal"
+      ],
+      "match-negative-infinity": [
+        "-Infinity literal",
+        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
+        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
+      ],
+      "match-negative-zero": [
+        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
+        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
+      ],
       "negate-binary64": [],
       "negate-binary32": [],
-      "negate-infinity": [],
+      "negate-infinity": [
+        "-Infinity literal"
+      ],
       "negate-nan-binary32": [],
       "negate-zero": [],
       "negate-subnormal": []
@@ -1213,7 +1253,9 @@
     "krs-builtin-floats-outputs": {
       "negate-binary64": [],
       "negate-binary32": [],
-      "negate-infinity": [],
+      "negate-infinity": [
+        "-Infinity literal"
+      ],
       "negate-nan-binary32": [],
       "negate-zero": [],
       "negate-subnormal": [],
@@ -1245,7 +1287,9 @@
       "double": []
     },
     "krs-builtin-raw-hook": {
-      "keccak-abc": []
+      "keccak-abc": [
+        "KRYPTO.keccak256 hex-case"
+      ]
     }
   }
 }
