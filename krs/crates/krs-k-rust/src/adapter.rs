@@ -290,8 +290,9 @@ pub fn adapt_spec_definition(
     adapter.adapt(ir)
 }
 
-/// Adapt Definition IR as compiled for `backend`, omitting every claim when
-/// [`Backend::proves_claims`] is false. Sentence indices and origin mappings
+/// Adapt Definition IR as compiled for `backend`, omitting every claim, and every
+/// function lifted out of one (NT-15), when [`Backend::proves_claims`] is false.
+/// Sentence indices and origin mappings
 /// describe the adapted modules, so they stay consistent with the omission.
 ///
 /// # Errors
@@ -404,6 +405,12 @@ impl<'a> Adapter<'a> {
         for sentence in module.sentences() {
             if !self.keep_claims && !module.is_spec() && is_claim(sentence) {
                 self.omitted_claims += 1;
+                continue;
+            }
+            // A function lifted out of a claim (NT-15) is the claim's alone: a definition
+            // without claims declares none, so an executable build is the same with or without
+            // the claim.
+            if !self.keep_claims && !module.is_spec() && sentence.is_lifted_from_claim() {
                 continue;
             }
             let sentence_index = local_sentences.len();

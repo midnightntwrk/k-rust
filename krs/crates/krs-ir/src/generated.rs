@@ -163,8 +163,8 @@ pub fn local_function_ids(
     index: usize,
 ) -> Result<LocalFunctionIds, GeneratedProductionIdError> {
     let disambiguator = format!(
-        "krs-local-function-v1:{}:{}:{}:{index}",
-        lower_hex(host.item_kind().to_string().as_bytes()),
+        "{}{}:{}:{index}",
+        local_function_prefix(host.item_kind()),
         lower_hex(host.item_name().as_bytes()),
         lower_hex(host.disambiguator().as_bytes())
     );
@@ -189,4 +189,23 @@ pub fn local_function_ids(
         otherwise: equation(format!("{disambiguator}:otherwise"))?,
         production,
     })
+}
+
+/// Whether `id` is the production or an equation of a function lifted out of a claim
+/// ([`local_function_ids`] of a host whose namespace is the claim's): a function no sentence but
+/// that claim applies, which a definition without the claim does not hold.
+#[must_use]
+pub fn lifted_from_claim(id: &StableItemId) -> bool {
+    matches!(id.item_kind(), ItemKind::Constructor | ItemKind::Equation)
+        && id
+            .disambiguator()
+            .starts_with(&local_function_prefix(ItemKind::Claim))
+}
+
+/// The start of the disambiguator of every function lifted out of a host of kind `kind`.
+fn local_function_prefix(kind: ItemKind) -> String {
+    format!(
+        "krs-local-function-v1:{}:",
+        lower_hex(kind.to_string().as_bytes())
+    )
 }

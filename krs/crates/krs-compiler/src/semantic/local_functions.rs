@@ -15,8 +15,10 @@
 //! its sentence, declared in the sentence's module, and writes the application `f(x1, .., xn)`
 //! where the construct stood. For a static clause and a claim written beside the definition, that
 //! module is the definition's: K takes no syntax declaration in a proof module, so a claim's
-//! function cannot be declared beside the claim in the generated `-SPEC` module. (A claim in an
-//! author spec module puts its functions there, which no prover takes: finding NT-15-1.) The
+//! function cannot be declared beside the claim in the generated `-SPEC` module, and a claim in
+//! an author spec module that holds a construct is refused for now (finding NT-15-1: no module
+//! the spec module imports is chosen to declare its function). A build that leaves claims out
+//! leaves their functions out too ([`krs_ir::lifted_from_claim`]). The
 //! function is `pub` and `internal`: no program writes it, so it is no program syntax, and a
 //! claim's spec module, which imports the definition, sees it.
 //!
@@ -76,6 +78,14 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
     if !module.rules().iter().any(holds_local_function) {
         return Ok(module);
     }
+    if module.is_spec()
+        && let Some(claim) = module
+            .rules()
+            .iter()
+            .find(|rule| holds_local_function(rule))
+    {
+        return Err(in_proof_module(&module, claim));
+    }
     let mut productions = module.productions().to_vec();
     let mut rules = Vec::with_capacity(module.rules().len());
     for rule in module.rules() {
@@ -96,6 +106,54 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
         rules.extend(lifter.equations);
     }
     Ok(module.with_productions(productions).with_rules(rules))
+}
+
+/// The refusal of `claim`, a claim of the author spec module `module` that holds a `let` block or
+/// `k::matches!`, at its first such construct (finding NT-15-1): the function it would be lifted
+/// into is a syntax declaration, which a proof module may not hold, and which no definition
+/// module the spec module imports is chosen to hold yet.
+fn in_proof_module(module: &SemanticModule, claim: &SemanticRule) -> DescriptorLoweringError {
+    let mut first = None;
+    let _ = claim.try_map_terms(&mut |term| {
+        if first.is_none() {
+            first = outermost_local_function(term).cloned();
+        }
+        Ok::<_, std::convert::Infallible>(term.clone())
+    });
+    let matches = first
+        .as_ref()
+        .is_some_and(|term| matches!(term.kind(), IrTermKind::Matches { .. }));
+    let what = if matches {
+        "`k::matches!` (K's :=K)"
+    } else {
+        "a `let` block (K's #let)"
+    };
+    DescriptorLoweringError::LocalFunctionInProofModule {
+        item: Box::new(claim.id().clone()),
+        reason: format!(
+            "{what} in a claim is lifted into a function of its own, since no prover lowers it in a claim, and that function is a syntax declaration, which a proof module such as the spec module `{}` may not hold; define the function in the definition and apply it here, or write the claim in a `k::claims!` block beside the definition, whose lifted functions the definition declares",
+            module.id().as_str()
+        ),
+        matches,
+        range: first
+            .as_ref()
+            .and_then(|term| term.origin().origin().exact_authored_range())
+            .map(Box::new),
+    }
+}
+
+/// The first outermost `let` block or `k::matches!` of `term`, in [`SemanticTerm::children`]'s
+/// order.
+fn outermost_local_function(term: &SemanticTerm) -> Option<&SemanticTerm> {
+    if matches!(
+        term.kind(),
+        IrTermKind::Let { .. } | IrTermKind::Matches { .. }
+    ) {
+        return Some(term);
+    }
+    term.children()
+        .into_iter()
+        .find_map(outermost_local_function)
 }
 
 /// Whether `rule` is a host whose terms hold a `let` block or `k::matches!`.

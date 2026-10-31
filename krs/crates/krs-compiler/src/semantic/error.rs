@@ -487,6 +487,19 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending statement or name.
         range: Option<Box<SourceRange>>,
     },
+    /// A `let` block or `k::matches!` in a claim written in an author spec
+    /// module (NT-15-1): the function KRS lifts it into would be a syntax
+    /// declaration in a proof module, which no prover takes.
+    LocalFunctionInProofModule {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Whether the construct is a `k::matches!` rather than a `let` block.
+        matches: bool,
+        /// Sole exact authored range of the construct.
+        range: Option<Box<SourceRange>>,
+    },
     /// A matching-logic predicate (KF-039) is in the condition of a
     /// transition or equation.
     MlPlacement {
@@ -1022,6 +1035,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::LocalFunctionInProofModule {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidMlPredicate {
                 range: $named_range,
                 item: $named_item,
@@ -1483,6 +1501,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
+            | Self::LocalFunctionInProofModule { reason, .. }
             | Self::InvalidMlPredicate { reason, .. }
             | Self::InvalidLocalRewrite { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
@@ -1581,6 +1600,12 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
+            Self::LocalFunctionInProofModule { matches: true, .. } => {
+                codes::expand::MATCHES_OUTSIDE_CONDITION
+            }
+            Self::LocalFunctionInProofModule { matches: false, .. } => {
+                codes::expand::LET_OUTSIDE_TERM
+            }
             Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,
             Self::InvalidLocalRewrite { .. } => codes::analysis::INVALID_LOCAL_REWRITE,
             Self::InvalidFunctionContext { .. } => codes::analysis::INVALID_FUNCTION_CONTEXT,

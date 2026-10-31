@@ -1045,6 +1045,15 @@ pub enum DefinitionSentence {
 }
 
 impl DefinitionSentence {
+    /// Whether this is the production or an equation of a function KRS lifted out of a claim's
+    /// `let` block or `k::matches!` (NT-15), as the item its origin names records
+    /// ([`krs_ir::lifted_from_claim`]): a sentence only that claim applies, which a definition
+    /// built without claims leaves out with them.
+    #[must_use]
+    pub fn is_lifted_from_claim(&self) -> bool {
+        sentence_item(self.origin()).is_some_and(krs_ir::lifted_from_claim)
+    }
+
     /// Returns the mandatory sentence origin.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {

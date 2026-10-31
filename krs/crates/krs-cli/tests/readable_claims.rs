@@ -1254,3 +1254,113 @@ fn a_claim_proves_with_let_and_matches_in_its_states_and_conditions() {
         expanded_claim(&expanded, "twice")
     ));
 }
+
+/// A function lifted out of a claim is the claim's alone, so an executable build, which leaves
+/// claims out, leaves it out too (NT-15): `krs build --backend llvm` writes the same files for a
+/// package with the claims of [`LOCAL_CLAIMS`] as for the package without them.
+#[test]
+fn a_claim_s_local_functions_leave_the_executable_build_as_it_is() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let built = |root: &str, claims: &str| {
+        let manifest = package(
+            &temporary.path().join(root),
+            "claim-locals",
+            "ORG-KRS-CLAIM-LOCALS",
+            &format!("{}{claims}", local_machine()),
+        );
+        let output = manifest.with_file_name("built");
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &manifest,
+            "build",
+            &["--backend", "llvm", "--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{stderr}");
+        let mut files = fs::read_dir(&output)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                (
+                    path.file_name().unwrap().to_string_lossy().into_owned(),
+                    fs::read(&path).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        files.sort();
+        (files, stdout)
+    };
+    let (without, _) = built("without", "");
+    let (with, stdout) = built("with", LOCAL_CLAIMS);
+    assert!(stdout.contains("omitted 11 claims"), "{stdout}");
+    assert_eq!(
+        with.iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        without
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+    );
+    for ((name, with), (_, without)) in with.iter().zip(&without) {
+        assert!(with == without, "{name} differs with the claims");
+    }
+}
+
+/// A claim written in an author spec module holds no `let` block or `k::matches!` for now
+/// (finding NT-15-1): the function KRS lifts one into is a syntax declaration, which a proof module
+/// may not hold, and no module the spec module imports is chosen to hold it yet. The refusal is
+/// at the construct, with the repairs: a function the definition defines, or the claim in a
+/// `k::claims!` block beside the definition.
+#[test]
+fn a_spec_module_claim_refuses_let_and_matches() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let refusals = [
+        (
+            "matches",
+            "#[k::requires(k::matches!(n, 0))]\n        tests: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) + n };",
+        ),
+        (
+            "let",
+            "ends: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: { let m = bytes::length(p); m } };",
+        ),
+    ]
+    .map(|(name, claim)| {
+        let manifest = package(
+            temporary.path(),
+            &format!("spec-{name}"),
+            "ORG-KRS-SPEC-LOCALS",
+            &format!(
+                "{}#[k::spec_module(name = \"LOCALS-SPEC\", imports = [crate])]\nmod locals_spec {{\n    use super::*;\n\n    k::claims! {{\n        for Machine;\n        use Op::*;\n\n        #[k::claim(all_paths)]\n        {claim}\n    }}\n}}\n",
+                local_machine()
+            ),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{stderr}");
+        assert!(!stderr.contains("internal error"), "{stderr}");
+        (
+            name,
+            stderr
+                .lines()
+                .skip_while(|line| !line.starts_with("error["))
+                .take(5)
+                .map(|line| line.replace(temporary.path().to_str().unwrap(), "TMP"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "matches",
+                "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) in a claim is lifted into a function of its own, since no prover lowers it in a claim, and that function is a syntax declaration, which a proof module such as the spec module `LOCALS-SPEC` may not hold; define the function in the definition and apply it here, or write the claim in a `k::claims!` block beside the definition, whose lifted functions the definition declares\n  --> TMP/spec-matches/src/lib.rs:48:23\n   |\n48 |         #[k::requires(k::matches!(n, 0))]\n   |                       ^^^^^^^^^^^^^^^^^",
+            ),
+            (
+                "let",
+                "error[krs::expand::let-outside-term]: a `let` block (K's #let) in a claim is lifted into a function of its own, since no prover lowers it in a claim, and that function is a syntax declaration, which a proof module such as the spec module `LOCALS-SPEC` may not hold; define the function in the definition and apply it here, or write the claim in a `k::claims!` block beside the definition, whose lifted functions the definition declares\n  --> TMP/spec-let/src/lib.rs:48:80\n   |\n48 |         ends: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: { let m = bytes::length(p); m } };\n   |                                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&refusals);
+}
