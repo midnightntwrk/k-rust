@@ -6314,22 +6314,6 @@ finding = "NT-12-6"
 deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit()"
 
 
-# NT-12-7 (K7): an initializer map whose key is the program, `env: k::map![pgm -> 1, 0 -> 2]` (and
-# the update calls it denotes): KRS emits `<env> .Map [ $PGM:Stmt <- 1 ] [ 0 <- 2 ] </env>`, and the
-# run starts with the cell holding the K sequence `(0 |-> 2 go |-> 1) ~> .K`, not the map, so a rule
-# reading `env` as a map never meets one. A ground map's cell (`k::map![0 -> 1]`) starts as the map.
-# Probe: the same machine with `env: Map` initialized `k::map![pgm -> 1, 0 -> 2]`, `krs run
-# --depth 0 --output kore` shows `<env>(kseq(inj{Map, KItem}(..), dotk))`.
-
-["k7/init/env/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
-finding = "NT-12-7"
-deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = k[map{0 -> 2, Cmd::Go() -> 1}], frame.ret = 0, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0"
-
-["k7/init/env/k::map![pgm -> 1, 0 -> 2]"]
-finding = "NT-12-7"
-deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = k[map{0 -> 2, Cmd::Go() -> 1}], frame.ret = 0, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0"
-
-
 # K8 (NT-13): the attribute axis's cases (`attrs/..`), the terms slots writing NT-9-1's key, and
 # the advice check's verdicts (`k8/..`), grouped by finding. A `k8/` entry of a case whose K2
 # entry is pending above belongs to that entry's finding (the refusal it reads is that finding's).

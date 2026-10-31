@@ -1157,6 +1157,109 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
     }));
 }
 
+/// A map cell keyed by the program reads `$PGM` but is no computation cell: K gives a main
+/// cell's content the sort `K`, so marking it main would start it as the sequence `map ~> .K`
+/// rather than the map (NT-12-7). Only the computation cell that holds `$PGM` is the main cell.
+#[test]
+fn only_the_computation_cell_that_holds_the_program_is_the_main_cell() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let k = SymbolId::new("schema9.cell.k").unwrap();
+    let env = SymbolId::new("schema9.cell.env").unwrap();
+    let program = semantic_id("program");
+    let value_sort = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
+    let read = |key| DefinitionTerm::variable(node(key), value_sort.clone(), program.clone());
+    let sequence = DefinitionTerm::k_sequence(
+        node("schema9.configuration.initializer.sequence"),
+        value_sort.clone(),
+        vec![read("schema9.configuration.initializer.program")],
+    );
+    let map = DefinitionTerm::map(
+        node("schema9.configuration.initializer.env"),
+        MapOperands::Update {
+            map: DefinitionTerm::map(
+                node("schema9.configuration.initializer.env.empty"),
+                MapOperands::Empty,
+            ),
+            key: read("schema9.configuration.initializer.env.key"),
+            value: DefinitionTerm::token(
+                node("schema9.configuration.initializer.env.value"),
+                DefinitionSortRef::int(),
+                "1",
+            )
+            .unwrap(),
+        },
+    );
+    let fixed = FixedConfiguration::new(
+        node("schema9.configuration"),
+        semantic_id("configuration.machine"),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                node("schema9.configuration.cell.k"),
+                k.clone(),
+                "k",
+                Vec::new(),
+                DefinitionSortRef::k_sequence(),
+            )
+            .unwrap(),
+            FixedCell::leaf(
+                node("schema9.configuration.cell.env"),
+                env.clone(),
+                "env",
+                Vec::new(),
+                DefinitionSortRef::map(),
+            )
+            .unwrap(),
+        ],
+        node("schema9.configuration.initializer"),
+        semantic_id("initializer.machine"),
+        vec![
+            FixedConfigurationVariable::new(
+                node("schema9.configuration.variable.program"),
+                program.clone(),
+                "PGM",
+                value_sort.clone(),
+                true,
+            )
+            .unwrap(),
+        ],
+        vec![
+            FixedInitializerCell::term(
+                node("schema9.configuration.initializer.cell.k"),
+                k,
+                sequence,
+            ),
+            FixedInitializerCell::term(
+                node("schema9.configuration.initializer.cell.env"),
+                env,
+                map,
+            ),
+        ],
+    )
+    .unwrap();
+    let native = adapter.configuration(&fixed, MODULE, 0).unwrap();
+    let Sentence::Configuration { body, .. } = native else {
+        panic!("fixed configuration must remain native")
+    };
+    let mut main_cells = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, arguments } = term
+            && label.name == "#configCell"
+            && let [Term::Token { token: name, .. }, properties, ..] = arguments.as_slice()
+        {
+            let mut main = false;
+            properties.visit_preorder(&mut |property| {
+                main |= matches!(property, Term::Token { token, .. } if token == "maincell");
+            });
+            if main {
+                main_cells.push(name.clone());
+            }
+        }
+    });
+    assert_eq!(main_cells, ["k"]);
+}
+
 fn nested_cell_definition(parent: &SymbolId, left: &SymbolId, right: &SymbolId) -> DefinitionIr {
     let children = [(left.clone(), "left", "1"), (right.clone(), "right", "2")];
     let configuration = FixedConfiguration::new(

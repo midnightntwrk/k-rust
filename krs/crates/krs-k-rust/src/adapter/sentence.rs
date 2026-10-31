@@ -630,12 +630,20 @@ impl Adapter<'_> {
                 });
             }
         };
-        // The main cell is the leaf that holds `$PGM`, also below a nested
-        // cell such as a collection instance (KF-023).
-        let is_main = matches!(cell.content(), FixedCellContent::Term { .. })
-            && variables.iter().any(|variable| {
-                variable.is_main() && initializer_contains_variable(initializer, variable.id())
-            });
+        // The main cell is the computation cell that holds `$PGM`, also below a
+        // nested cell such as a collection instance (KF-023). K gives a main
+        // cell's content the sort `K`, the computation cell's own sort, so a
+        // cell of another sort that reads `$PGM` (a map keyed by the program)
+        // keeps its declared sort and is not the main cell.
+        let is_main = matches!(
+            cell.content(),
+            FixedCellContent::Term {
+                sort: DefinitionSortRef::Builtin(BuiltinSort::KSequence),
+                ..
+            }
+        ) && variables.iter().any(|variable| {
+            variable.is_main() && initializer_contains_variable(initializer, variable.id())
+        });
         let properties = native_cell_properties(cell.attributes(), is_main);
         Ok(native_config_cell(cell.name(), properties, contents))
     }
