@@ -19,7 +19,13 @@
 //! (`trivial`) is no end: its configuration is reached and exists, and the path to it is real,
 //! but it is not stuck, since a rule applies to it and shuts out the lower priorities, and it has
 //! no successor ("Undefined steps in proofs"); the run's outcome there is undefinedness, which is
-//! no configuration (`krun` prints `\bottom`, "Trivial rule results"). A clean undefined step is
+//! no configuration (`krun` prints `\bottom`, "Trivial rule results"). That no rule gives the
+//! configuration a defined successor rests on constructors and collections being distinct normal
+//! forms (the step refutes rules by a constructor or collection mismatch), which is the
+//! definition's meaning only when it has data (`CaseResult::definition_data`: its full
+//! critical-pair check reports no finding the campaign's assumed names leave unassumed);
+//! otherwise an equation the evaluator never applies may equate what the step told apart, and a
+//! refuted rule may give a defined end. A clean undefined step of a definition with data is
 //! a decided fact (this path's outcome is undefined) and keeps a side complete, but contributes
 //! no configuration to its set: a mutant whose every path takes an undefined step has the empty
 //! set of ends. Leaving undefinedness out of the compared sets only gives kills up (a mutant that
@@ -633,7 +639,8 @@ pub(crate) fn needs_all_paths(
 /// ([`CaseResult::run_facts_off_leaves`]), and every leaf is a clean `stuck` leaf or an
 /// undefined step (`trivial`) whose only unclean reason is its halt (a decided, ceil-free
 /// configuration with no diagnostic, so that the step's undefinedness is decided, not resting
-/// on a mark or a refuted claim). The set holds the `stuck` leaves' configurations only, each
+/// on a mark or a refuted claim) in a definition with data ([`CaseResult::definition_data`], the
+/// module documentation, "What an end is"). The set holds the `stuck` leaves' configurations only, each
 /// with its `<generatedCounter>` content erased ([`counter_erased`]; the module documentation,
 /// "Comparison"): an undefined step's leaf holds a configuration that is not stuck and has no
 /// successor, and the path's outcome there is undefinedness, no configuration (the module
@@ -661,11 +668,12 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<Cow<'_, KorePattern>>> 
         && !result.leaves.is_empty();
     // An initial state shown to have no instance ([`no_instance`]) is a complete run with no end
     // when that is decided ([`decided_absence`]).
+    let has_data = result.definition_data == Some(true);
     let complete = |leaf: &LeafReport| {
         if absent {
             decided_absence(leaf)
         } else {
-            complete_leaf(leaf)
+            complete_leaf(leaf, has_data)
         }
     };
     if !run_clean || !result.leaves.iter().all(complete) {
@@ -697,14 +705,18 @@ fn decided_absence(leaf: &LeafReport) -> bool {
 }
 
 /// Whether a leaf may be part of a complete run (condition 1): a clean `stuck` leaf (an end) or
-/// a clean undefined step (no end).
-fn complete_leaf(leaf: &LeafReport) -> bool {
+/// a clean undefined step (no end) of a definition with data (`has_data`,
+/// [`CaseResult::definition_data`]; the module documentation, "What an end is").
+fn complete_leaf(leaf: &LeafReport, has_data: bool) -> bool {
     match leaf.halt {
         HaltReasonOutput::Stuck => leaf.is_clean(),
-        HaltReasonOutput::Trivial => leaf
-            .unclean
-            .iter()
-            .all(|reason| *reason == UncleanReason::Halt),
+        HaltReasonOutput::Trivial => {
+            has_data
+                && leaf
+                    .unclean
+                    .iter()
+                    .all(|reason| *reason == UncleanReason::Halt)
+        }
         _ => false,
     }
 }
@@ -902,6 +914,7 @@ mod tests {
             load_records: Vec::new(),
             safety_limit_hit: false,
             failure: None,
+            definition_data: Some(true),
         }
     }
 
@@ -1417,6 +1430,55 @@ mod tests {
             explained(&coin_baseline(), &sides[0], PathMode::AllPaths),
             (OutcomeClass::Hit, None)
         );
+    }
+
+    /// kink27 FUZZ-DIFF-UNDEF-NODATA: a clean undefined step keeps a side complete only in a
+    /// definition with data. Its claim that no rule gives its configuration a defined successor
+    /// rests on constructors and collections being distinct normal forms, which is the meaning of
+    /// a definition without data (`CaseResult::definition_data`) only if it has data, so such a
+    /// side does not show its set of ends: an added end is no kill against such a baseline, and a
+    /// removed end none against such a mutant.
+    #[test]
+    fn a_clean_undefined_step_of_a_definition_without_data_leaves_a_side_incomplete() {
+        let mutant = result(vec![natural(config(5, 0), Some(true))]);
+        for definition_data in [Some(false), None] {
+            let side = |leaves| CaseResult {
+                definition_data,
+                ..result(leaves)
+            };
+            for leaves in [
+                vec![undefined(config(6, 0))],
+                vec![natural(config(3, 0), Some(true)), undefined(config(6, 0))],
+            ] {
+                let side = side(leaves);
+                assert!(complete_ends(&side).is_none(), "{side:?}");
+                assert_eq!(
+                    reasons::incomplete(&side),
+                    Some(UnjudgedReason::DefinitionNotConfluent),
+                    "{side:?}"
+                );
+                assert_eq!(
+                    explained(&side, &mutant, PathMode::OnePath),
+                    (
+                        OutcomeClass::BaselineIncomplete,
+                        Some(UnjudgedReason::DefinitionNotConfluent)
+                    ),
+                    "{side:?}"
+                );
+            }
+            let all_undefined = side(vec![undefined(config(6, 0))]);
+            assert_ne!(
+                explained(&coin_baseline(), &all_undefined, PathMode::AllPaths).0,
+                OutcomeClass::Hit,
+                "{definition_data:?}"
+            );
+        }
+        // A side of ends alone does not read it: each end carries its own data judgement.
+        let ends = CaseResult {
+            definition_data: Some(false),
+            ..result(vec![natural(config(3, 0), Some(true))])
+        };
+        assert!(complete_ends(&ends).is_some());
     }
 
     // ---- conditions 2, 4, 5 per mutant leaf

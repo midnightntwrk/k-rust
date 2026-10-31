@@ -188,7 +188,10 @@ pub enum UnjudgedReason {
     /// or the mutant) has no data: its full critical-pair check reports a pair it does not join,
     /// an equation the evaluator does not apply to every subject it describes, or a violated
     /// precondition (`k_rust_backend::data_term`), so no end of it is data. Chosen in place of
-    /// the not-data reasons below whenever a side's definition has no data. A campaign whose
+    /// the not-data reasons below whenever a side's definition has no data. Also why a
+    /// differential side whose run takes an undefined step is incomplete when its definition has
+    /// no data (`CaseResult::definition_data`): that no rule gives the step's configuration a
+    /// defined successor is then not shown. A campaign whose
     /// definition has no data ends `not-comparable` before its first case (the report's
     /// `definition-findings` list the findings), so no campaign counts a case under it.
     DefinitionNotConfluent,
@@ -679,6 +682,16 @@ pub(crate) fn incomplete(result: &CaseResult) -> Option<UnjudgedReason> {
     for leaf in &result.leaves {
         reasons.extend(incomplete_leaf(leaf));
     }
+    // An undefined step keeps a side complete only in a definition with data
+    // (`CaseResult::definition_data`, `target::differential`, "What an end is").
+    if result.definition_data != Some(true)
+        && result
+            .leaves
+            .iter()
+            .any(|leaf| leaf.halt == HaltReasonOutput::Trivial)
+    {
+        reasons.push(UnjudgedReason::DefinitionNotConfluent);
+    }
     reasons.into_iter().min()
 }
 
@@ -1066,6 +1079,7 @@ mod tests {
             failure: None,
             run_facts_off_leaves: false,
             hooks: crate::exec::RunHooks::default(),
+            definition_data: Some(true),
         };
         assert_eq!(
             incomplete(&result(HaltReasonOutput::Cancelled, false)),

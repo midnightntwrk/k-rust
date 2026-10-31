@@ -2186,6 +2186,7 @@ fn a_state_the_backend_refuses_is_recognized_on_either_side() {
             crate::report::CrashStage::Execute,
         )),
         run_facts_off_leaves: false,
+        definition_data: None,
         hooks: crate::exec::RunHooks::default(),
     };
     assert!(super::live::refused(&result(FailureCause::StateRefused)));

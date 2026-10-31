@@ -188,13 +188,24 @@ pub fn build_identity() -> String {
 /// alone, so the goldens keep their case sequences and digests.
 ///
 /// Version 9 (kink27 FUZZ-UNDEF-P3): the comparable judgement (P3) reads the data judgement of
-/// ends only; an undefined step, which is no end and whose term is never compared, needs only to
-/// be decided and to exist (P2), as the differential judge's complete run already required.
-/// Under `comparable-end` a hit whose program's run ends some path in an undefined step from a
-/// configuration that exists but is not data moves from `unsupported`
+/// ends, and of the definition on undefined steps. An undefined step, which is no end and whose
+/// term is never compared, is judged by the existence of its pre-step configuration: it needs
+/// to be decided and to exist (P2), and its claim that no rule gives that configuration a
+/// defined successor rests on constructors and collections being distinct normal forms, which is
+/// the definition's meaning only when the definition has data (its full critical-pair check
+/// reports no finding the campaign's assumed names leave unassumed). So P3 refuses a decided
+/// undefined step of a definition without data, under the existing `end-not-data`: on an
+/// undefined step, `end-not-data` means that the definition has no data. Under `comparable-end`
+/// a hit whose program's run ends some path in an undefined step from a configuration that
+/// exists but is not data, in a definition with data, moves from `unsupported`
 /// (`end-not-comparable:end-not-data`) to a hit, which the proposers read and which ends the
-/// campaign. No golden campaign sets `comparable`, so the fingerprints are re-pinned with the
-/// same digests.
+/// campaign. The differential judge's complete run counts an undefined step only in a
+/// definition with data likewise (kink27 FUZZ-DIFF-UNDEF-NODATA): a side whose run takes one in a
+/// definition without data is incomplete (`definition-not-confluent`) instead of complete. A
+/// campaign whose differential definitions lack data already ends `not-comparable` before its
+/// first case, and every compared end must be data in both definitions, so no reported class of
+/// a differential campaign moves. No golden campaign sets `comparable`, so the fingerprints are
+/// re-pinned with the same digests.
 pub const ENGINE_VERSION: u32 = 9;
 
 #[cfg(test)]

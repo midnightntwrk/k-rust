@@ -373,6 +373,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
         stack_stops: 0,
         smt_unknowns: 0,
         run_allowance_refusals: 0,
+        definition_data: Some(true),
         load_records: Vec::new(),
         safety_limit_hit: false,
         failure: None,

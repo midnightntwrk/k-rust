@@ -54,9 +54,11 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 /// cases, classes and condition records are unchanged. Version 8 (round 4, FZ-ENGINE-R4: a
 /// differential mutant's refusal and absence, `covered` on committed transitions, ends naming
 /// undeclared symbols) moves no golden campaign either, so every fingerprint is re-pinned with
-/// the same digest. Version 9 (kink27 FUZZ-UNDEF-P3: the comparable judgement's P3 reads ends
-/// only) moves no golden campaign either, since none sets `comparable`, so every fingerprint is
-/// re-pinned with the same digest.
+/// the same digest. Version 9 (kink27 FUZZ-UNDEF-P3: the comparable judgement's P3 reads the
+/// data judgement of ends, and of the definition on undefined steps; the differential judge's
+/// complete run counts an undefined step only in a definition with data) moves no golden
+/// campaign either, since none sets `comparable` and every differential golden's definitions
+/// have data, so every fingerprint is re-pinned with the same digest.
 const PINNED: Option<(u32, &str)> = Some((
     9,
     "ed2751abb407d6d93e71ecc4f9a1b35448ec00c213637182796ad268c4440bcf",

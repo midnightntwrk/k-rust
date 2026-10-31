@@ -572,6 +572,87 @@ fn data_end_is_judged_when_asked() {
     assert_eq!(only_leaf(&result).data_end, None);
 }
 
+/// The comparable judgement of real all-paths runs whose every leaf is an undefined step
+/// (kink27 FUZZ-UNDEF-P3), with the data judgement the run of every path asks for:
+/// - UX `go(1)` steps from a ground configuration without a path condition that exists (`g` is
+///   total), in a definition with data: comparable, with the empty set of ends;
+/// - UX `hgo(1)` steps from states whose path condition records the definedness of the partial
+///   `h(1)`: not decided, so refused `undecided-state` (P2);
+/// - `unapplied.k`'s `go(1)` steps from a decided configuration that exists, in a definition
+///   without data: that no rule gives a defined successor rests on constructors and collections
+///   being distinct normal forms, which is that definition's meaning only when it has data, so
+///   refused `end-not-data` (P3).
+#[test]
+fn an_undefined_step_is_comparable_when_decided_existing_and_of_a_definition_with_data() {
+    use super::comparable::end_conditions;
+    let options = CaseOptions {
+        paths: PathMode::AllPaths,
+        ..CaseOptions::default()
+    };
+    let needs = TargetNeeds {
+        data_end: true,
+        ..TargetNeeds::default()
+    };
+    let run = |compiled: &Compiled, text: &str| {
+        let result = compiled.run_with(text, &options, &needs, &[]);
+        assert!(result.failure.is_none(), "{text}: {:?}", result.failure);
+        assert!(
+            !result.leaves.is_empty()
+                && result
+                    .leaves
+                    .iter()
+                    .all(|leaf| leaf.halt == HaltReasonOutput::Trivial),
+            "{text}: {result:#?}"
+        );
+        end_conditions(&result)
+    };
+    let undefined = support::COMPARABLE_UNDEFINED.compiled();
+    assert_eq!(run(undefined, "go(1)"), []);
+    let partial = run(undefined, "hgo(1)");
+    assert!(
+        partial.contains(&ComparableCondition::UndecidedState),
+        "{partial:?}"
+    );
+    assert_eq!(
+        run(support::COMPARABLE_UNAPPLIED.compiled(), "go(1)"),
+        [ComparableCondition::EndNotData]
+    );
+}
+
+/// A differential side whose every path takes an undefined step shows the empty set of ends only
+/// in a definition with data (kink27 FUZZ-DIFF-UNDEF-NODATA): UX `go(1)` is complete, and
+/// `unapplied.k`'s `go(1)`, whose definition has no data, is not, for that reason. Both sides of
+/// a differential pair ask for the data judgement.
+#[test]
+fn an_undefined_step_completes_a_differential_side_only_in_a_definition_with_data() {
+    let options = CaseOptions {
+        paths: PathMode::AllPaths,
+        ..CaseOptions::default()
+    };
+    let needs = TargetNeeds {
+        data_end: true,
+        ..TargetNeeds::default()
+    };
+    let undefined =
+        support::COMPARABLE_UNDEFINED
+            .compiled()
+            .run_with("go(1)", &options, &needs, &[]);
+    assert_eq!(
+        super::reasons::incomplete(&undefined),
+        None,
+        "{undefined:#?}"
+    );
+    let unapplied =
+        support::COMPARABLE_UNAPPLIED
+            .compiled()
+            .run_with("go(1)", &options, &needs, &[]);
+    assert_eq!(
+        super::reasons::incomplete(&unapplied),
+        Some(UnjudgedReason::DefinitionNotConfluent),
+        "{unapplied:#?}"
+    );
+}
+
 #[test]
 fn a_normal_end_pattern_that_does_not_compile_is_refused() {
     let options = CaseOptions {
@@ -836,6 +917,7 @@ fn result(leaves: Vec<LeafReport>) -> CaseResult {
         failure: None,
         run_facts_off_leaves: false,
         hooks: crate::exec::RunHooks::default(),
+        definition_data: Some(true),
     }
 }
 

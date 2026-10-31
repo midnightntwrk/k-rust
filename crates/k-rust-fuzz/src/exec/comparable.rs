@@ -3,8 +3,8 @@
 //!
 //! kink compares a program's ends only when its all-paths run is *comparable*: complete (every
 //! leaf an end or an undefined step, no bound, stop or timeout), decided, every end's term a
-//! value (an undefined step's configuration need only exist), with no diagnostic of any kind on
-//! any leaf (`kink-native` `bridge.rs`, a diagnosed leaf is `BackendLimit`), and no stack stop, chosen value, contradicted claim, allowance
+//! value (an undefined step's configuration need only exist, in a definition with data), with
+//! no diagnostic of any kind on any leaf (`kink-native` `bridge.rs`, a diagnosed leaf is `BackendLimit`), and no stack stop, chosen value, contradicted claim, allowance
 //! refusal or unsupported hook in the run or the definition's load. kink's query confirms a pattern hit only on a match with no
 //! diagnostic on the match or on the matching state, whose facts include those of converging
 //! paths its search absorbed, on a state with no term-level `\and`.
@@ -20,7 +20,13 @@
 //!   denote themselves and differ from every other value (an irreducible application such as
 //!   `g(3)` may equal another term in another theory of `g`). An undefined step is no end, its
 //!   term is never compared, and P2 already asks that its configuration be decided and exist
-//!   (`ground_defined`), as the differential judge's complete run does. kink judges P3 by its
+//!   (`ground_defined`). Its claim that no rule gives that configuration a defined successor
+//!   rests on constructors and collections being distinct normal forms, which is the
+//!   definition's meaning only when the definition has data
+//!   ([`super::CaseResult::definition_data`]: its full critical-pair check reports no finding
+//!   the campaign's assumed names leave unassumed); so P3 refuses a decided undefined step of a
+//!   definition without data, as the differential judge's complete run does. On an undefined
+//!   step, `end-not-data` thus means that the definition has no data. kink judges P3 by its
 //!   own TV-01, which reaches the fuzz through kink (FZ-COMPARABLE-B). Its refusals include those of the differential
 //!   judge's complete run (`target::differential`), except the fuzz's own judgements of a leaf
 //!   (a target's undecided match, an undecided natural end), which are no k-rust facts.
@@ -174,7 +180,10 @@ pub enum ComparableCondition {
     /// ([`super::LeafReport::data_end`]): it may not denote itself, or may equal another value,
     /// so it cannot be compared by its term. It comes after the diagnostics, which often say why
     /// an application stayed unevaluated. Every end of a definition whose full critical-pair
-    /// check reports a finding is not data.
+    /// check reports a finding is not data. Also a decided undefined step (`trivial`) of a
+    /// definition without data ([`super::CaseResult::definition_data`]), whose term is never
+    /// compared: on an undefined step it means that the definition has no data, so its claim
+    /// that no rule gives its configuration a defined successor is not shown.
     EndNotData,
     /// P8: the solver answered `unknown` in the run or in a leaf's matching. Not a kink
     /// condition; the fuzz's determinism contract refuses it.
@@ -259,8 +268,9 @@ impl ComparableCondition {
 /// `result` fails, sorted, each once; empty when `result` is a comparable run of every path.
 /// `result` must be an all-paths run without terminal rules for the answer to be about the
 /// program: a one-path run or one stopped by the target's rule is not the program's run. P3 reads
-/// each decided end's [`super::LeafReport::data_end`], so `result` must carry the data
-/// judgement; a decided end without one counts as not data.
+/// each decided end's [`super::LeafReport::data_end`] and, when a decided undefined step is
+/// among the leaves, [`CaseResult::definition_data`], so `result` must carry the data
+/// judgement; a decided end or undefined step without it counts as not data.
 #[must_use]
 pub fn end_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
     use ComparableCondition as C;
@@ -285,7 +295,7 @@ pub fn end_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
         conditions.extend(halt_condition(leaf.halt));
         conditions.extend(leaf.unclean.iter().filter_map(unclean_condition));
         conditions.extend(leaf.diagnostics.iter().map(|kind| kind.condition()));
-        if not_data(leaf) {
+        if not_data(leaf) || step_without_data(result, leaf) {
             conditions.push(C::EndNotData);
         }
     }
@@ -347,19 +357,33 @@ pub fn query_conditions(result: &CaseResult, term_conjunction: bool) -> Vec<Comp
     conditions
 }
 
-/// P3 on `leaf`: it is an end (`stuck`) whose state was decided (it internalized, with no
-/// constraint and no variable; otherwise P2 names it) and whose term is not shown to be data. An
-/// undefined step (`trivial`) is no end and its term is never compared: it needs only to be
-/// decided and to exist, which P2 reads on every leaf.
+/// P3 on `leaf`: it is an end (`stuck`) whose state was decided ([`decided`]) and whose term is
+/// not shown to be data. An undefined step (`trivial`) is no end and its term is never compared
+/// ([`step_without_data`]).
 fn not_data(leaf: &super::LeafReport) -> bool {
-    matches!(leaf.halt, HaltReasonOutput::Stuck)
-        && !leaf.unclean.iter().any(|reason| {
-            matches!(
-                reason,
-                UncleanReason::Undecided | UncleanReason::Internalization(_)
-            )
-        })
-        && leaf.data_end != Some(true)
+    matches!(leaf.halt, HaltReasonOutput::Stuck) && decided(leaf) && leaf.data_end != Some(true)
+}
+
+/// P3 on `leaf`, an undefined step of `result`: it is decided ([`decided`]), and its definition
+/// is not shown to have data ([`CaseResult::definition_data`]). An undefined step is judged by
+/// the existence of its pre-step configuration, which P2 reads on every leaf; its claim that no
+/// rule gives that configuration a defined successor rests on constructors and collections being
+/// distinct normal forms, which is the definition's meaning only when it has data.
+fn step_without_data(result: &CaseResult, leaf: &super::LeafReport) -> bool {
+    matches!(leaf.halt, HaltReasonOutput::Trivial)
+        && decided(leaf)
+        && result.definition_data != Some(true)
+}
+
+/// Whether `leaf`'s state was decided: it internalized, with no constraint and no variable
+/// (otherwise P2 names it).
+fn decided(leaf: &super::LeafReport) -> bool {
+    !leaf.unclean.iter().any(|reason| {
+        matches!(
+            reason,
+            UncleanReason::Undecided | UncleanReason::Internalization(_)
+        )
+    })
 }
 
 /// The conditions a leaf's halt fails: none for an end (`stuck`) or an undefined step
@@ -474,6 +498,7 @@ mod tests {
             failure: None,
             run_facts_off_leaves: false,
             hooks: crate::exec::RunHooks::default(),
+            definition_data: Some(true),
         }
     }
 
@@ -680,6 +705,41 @@ mod tests {
                 [C::UndecidedState],
                 "{data_end:?}"
             );
+        }
+    }
+
+    /// P3 (kink27 FUZZ-UNDEF-P3 fix round 1): a decided undefined step's claim that no rule gives
+    /// its configuration a defined successor rests on constructors and collections being distinct
+    /// normal forms, which is the definition's meaning only when it has data, so a decided
+    /// undefined step of a definition without data, or not shown to have data, is refused
+    /// `end-not-data`; an undecided one is named by P2 alone.
+    #[test]
+    fn an_undefined_step_of_a_definition_without_data_refuses_comparability() {
+        for definition_data in [Some(false), None] {
+            let step = || leaf(HaltReasonOutput::Trivial, vec![UncleanReason::Halt]);
+            let run = CaseResult {
+                definition_data,
+                ..result(vec![step()])
+            };
+            assert_eq!(end_conditions(&run), [C::EndNotData], "{definition_data:?}");
+            let mut undecided = step();
+            undecided.unclean.push(UncleanReason::Undecided);
+            let run = CaseResult {
+                definition_data,
+                ..result(vec![undecided])
+            };
+            assert_eq!(
+                end_conditions(&run),
+                [C::UndecidedState],
+                "{definition_data:?}"
+            );
+            // An end is judged by its own data judgement alone, which `is_data` never makes
+            // `true` in a definition without data.
+            let run = CaseResult {
+                definition_data,
+                ..result(vec![end()])
+            };
+            assert_eq!(end_conditions(&run), [], "{definition_data:?}");
         }
     }
 

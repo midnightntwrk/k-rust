@@ -1230,6 +1230,23 @@ fixture!(
         program!("comparable/both.pgm"),
     ]
 );
+// Undefined steps (kink27 FUZZ-UNDEF-P3): from configurations of a definition with data, and
+// from one of a definition without data.
+fixture!(
+    COMPARABLE_UNDEFINED,
+    "comparable/undefined.k",
+    "UX",
+    &[
+        program!("comparable/undefined-go.pgm"),
+        program!("comparable/undefined-hgo.pgm"),
+    ]
+);
+fixture!(
+    COMPARABLE_UNAPPLIED,
+    "comparable/unapplied.k",
+    "UC",
+    &[program!("comparable/unapplied-go.pgm")]
+);
 
 /// One named program and what its all-paths run says about comparability (FZ-COMPARABLE-A,
 /// P7-ADDENDUM section 4, conditions P1 to P5): `conditions` are the report names of

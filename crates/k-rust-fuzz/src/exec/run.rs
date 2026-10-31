@@ -740,6 +740,12 @@ impl Executor {
         Ok(self.data_heads.as_ref().expect("computed just above"))
     }
 
+    /// Whether this executor's definition has data under the campaign's assumed names
+    /// ([`CaseResult::definition_data`]); a main module that does not load has none.
+    pub(crate) fn has_data(&mut self) -> bool {
+        self.data_heads().is_ok_and(DataHeads::confluent)
+    }
+
     /// The data heads, when already computed.
     pub(crate) fn computed_data_heads(&self) -> Option<&DataHeads> {
         self.data_heads.as_ref()
@@ -1286,6 +1292,7 @@ impl Judge<'_> {
             failure: None,
             run_facts_off_leaves,
             hooks: RunHooks::of_result(result),
+            definition_data: self.data_heads.map(DataHeads::confluent),
         })
     }
 
@@ -1877,6 +1884,7 @@ fn failed_result(failure: CaseFailure, load_stack_stops: usize) -> CaseResult {
         failure: Some(failure),
         run_facts_off_leaves: false,
         hooks: RunHooks::default(),
+        definition_data: None,
     }
 }
 

@@ -6,7 +6,8 @@
 //! kink's own rules.
 //!
 //! - A rule or pattern hit is judged against the witness program's run of every path
-//!   ([`end_conditions`], with k-rust's data judgement of every end for P3).
+//!   ([`end_conditions`], with k-rust's data judgement of every end, and of the definition when
+//!   a path takes an undefined step, for P3).
 //!   When the hit case ran every path with no terminal rule (a run that stops at the target's
 //!   rule is not the program's run), that run is the case's own, and the judgement is made in
 //!   the case ([`ResolvedTarget::judge_comparable`]): it adds no execution, and the case's run
@@ -247,15 +248,25 @@ fn comparability(
 }
 
 /// [`end_conditions`] of `result`, with the data judgement made on `executor` for every end the
-/// run did not judge (a case whose target reads no data end), so that P3 is read on every one.
+/// run did not judge (a case whose target reads no data end), and whether the definition has
+/// data ([`CaseResult::definition_data`]) when the run did not judge it and some leaf is an
+/// undefined step, so that P3 is read on every end and undefined step.
 fn conditions_here(executor: &mut Executor, result: &CaseResult) -> Vec<ComparableCondition> {
     let unjudged = |leaf: &crate::exec::LeafReport| {
         leaf.data_end.is_none() && matches!(leaf.halt, HaltReasonOutput::Stuck)
     };
-    if !result.leaves.iter().any(unjudged) {
+    let definition_unjudged = result.definition_data.is_none()
+        && result
+            .leaves
+            .iter()
+            .any(|leaf| leaf.halt == HaltReasonOutput::Trivial);
+    if !definition_unjudged && !result.leaves.iter().any(unjudged) {
         return end_conditions(result);
     }
     let mut judged = result.clone();
+    if definition_unjudged {
+        judged.definition_data = Some(executor.has_data());
+    }
     for leaf in &mut judged.leaves {
         if unjudged(leaf) {
             leaf.data_end = Some(executor.is_data_here(&leaf.state));

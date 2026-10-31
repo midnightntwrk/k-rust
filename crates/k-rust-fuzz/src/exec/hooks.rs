@@ -323,6 +323,7 @@ mod tests {
             failure: None,
             run_facts_off_leaves: false,
             hooks,
+            definition_data: Some(true),
         }
     }
 

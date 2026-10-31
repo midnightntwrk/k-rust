@@ -548,6 +548,21 @@ pub struct CaseResult {
     pub run_facts_off_leaves: bool,
     /// The hooks the run's own facts name, which no leaf's carry (UNNAMED-HOOK, [`RunHooks`]).
     pub hooks: RunHooks,
+    /// When the run asked for the data judgement ([`LeafReport::data_end`]): whether the
+    /// definition it ran on has data under the campaign's assumed names, i.e. its full
+    /// critical-pair check reports no finding those names leave unassumed
+    /// (`k_rust_backend::data_term::DataHeads::confluent`). `None` otherwise.
+    ///
+    /// An undefined step (a `trivial` leaf) is judged by the existence of its pre-step
+    /// configuration, and its claim that no rule gives that configuration a defined successor
+    /// (a rule applies, the lower priorities are shut out, and every candidate successor is
+    /// undefined) rests on constructors and collections being distinct normal forms: it refutes
+    /// a rule by a constructor or collection mismatch. That is the definition's meaning only when
+    /// it has data; otherwise an equation the evaluator never applies may equate the terms it
+    /// told apart, and a rule it refuted may apply. So an undefined step counts toward a
+    /// complete run (`target::differential`) or a comparable one
+    /// ([`comparable::end_conditions`]) only when this is `Some(true)`.
+    pub definition_data: Option<bool>,
 }
 
 impl CaseResult {

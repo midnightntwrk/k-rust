@@ -290,6 +290,67 @@ fn a_hit_whose_end_is_not_data_is_not_comparable() {
     }
 }
 
+/// The witness of a campaign on `program` of `fixture` as written, for the rule `label`, with
+/// and without `comparable-end`, on all paths.
+fn undefined_step_campaigns(
+    fixture: &'static support::Fixture,
+    program: &str,
+    label: &str,
+) -> (FuzzReport, FuzzReport) {
+    let campaign = |target| {
+        spec(
+            fixture,
+            program,
+            Vec::new(),
+            target,
+            options(PathMode::AllPaths),
+        )
+    };
+    (
+        run(campaign(plain(fired(label))), 1),
+        run(campaign(comparable(plain(fired(label)))), 1),
+    )
+}
+
+/// `go(1)` takes an undefined step from `<k> step(1) </k> <log> g(1) </log> <out> 0 </out>`:
+/// ground, with no path condition, and existing (`g` is total), though `g(1)` is no value. An
+/// undefined step is no end and its term is never compared, and the definition has data, so the
+/// run is comparable with the empty set of ends (kink27 FUZZ-UNDEF-P3).
+#[test]
+fn an_undefined_step_from_a_configuration_that_exists_is_comparable() {
+    let (off, on) = undefined_step_campaigns(
+        &support::COMPARABLE_UNDEFINED,
+        "comparable/undefined-go.pgm",
+        "go",
+    );
+    assert!(witness_found(&off), "{}", json(&off));
+    assert_eq!(
+        witness_comparable(&off),
+        json!({"holds": true, "reasons": []})
+    );
+    assert!(witness_found(&on), "{}", json(&on));
+}
+
+/// `go(1)` takes a decided undefined step from a configuration that exists, in a definition
+/// without data (`unapplied.k`, an equation between two `List` constructions the evaluator never
+/// applies): that no rule gives a defined successor rests on constructors and collections being
+/// distinct normal forms, which is the definition's meaning only when it has data, so the run is
+/// refused `end-not-data` (kink27 FUZZ-UNDEF-P3 review, finding 1).
+#[test]
+fn an_undefined_step_of_a_definition_without_data_is_not_comparable() {
+    let (off, on) = undefined_step_campaigns(
+        &support::COMPARABLE_UNAPPLIED,
+        "comparable/unapplied-go.pgm",
+        "go",
+    );
+    assert!(witness_found(&off), "{}", json(&off));
+    assert_eq!(
+        witness_comparable(&off),
+        json!({"holds": false, "reasons": ["end-not-data"]})
+    );
+    refused_for(&on, "end-not-comparable:end-not-data");
+}
+
 /// Without `comparable-end`, the run of every path that judges a one-path witness is not part
 /// of the hit case (INT9 review S2): a clock that stops it does not put the case outside the
 /// determinism contract. The judgement names the clock, so it says that it may not repeat.
