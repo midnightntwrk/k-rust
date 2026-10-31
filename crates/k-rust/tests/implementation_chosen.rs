@@ -373,6 +373,54 @@ fn conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are
     );
 }
 
+const DISCARDED_GAP: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  imports STRING
+  imports BYTES
+  imports K-EQUAL
+  syntax G1Point ::= g1(Int, Int)
+  syntax Bytes ::= ECDSARecover(Bytes, Int, Bytes, Bytes) [function, hook(KRYPTO.ecdsaRecover)]
+  syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
+  syntax Pgm ::= zr(Int) | zb(Int, Int) | zs(String) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule zr(V) => done(#if true #then 1 #else lengthBytes(ECDSARecover(b"", V, b"", b"")) #fi)
+  rule zb(X, Y) => done(#if true #then g1(0, 0) #else BN128Add(g1(0, 0), g1(X, Y)) #fi)
+  rule zs(S) => done(#if true #then 1 #else lengthBytes(String2Bytes(S)) #fi)
+endmodule
+"#;
+
+/// The operand a decided `#if` discards is only checked for definedness (a `suspend`ed
+/// evaluation). At a partial symbol the definedness of an `outside-domain` or `curve` outcome is
+/// itself k-rust's pick: `\bottom` and every value of the sort are models of the failed recovery
+/// (k-rust's value is the empty `Bytes`), and every BN128 outcome, a point sum's value or k-rust's
+/// `\bottom` of a non-point, is one outcome of the curve among others. Where k-rust's outcome is a
+/// value, the leaf's result rests on the pick that the operand is defined, so it is marked
+/// (`zr(29)`, `zb(1, 2)`); where it is `\bottom` (`zb(1, 3)`), the `#if` is undefined, the step
+/// is undefined and its leaf, the unstepped state, is marked. The control `String2Bytes` is
+/// `total`: its operand is defined in every model, the definedness check reads no pick, and the
+/// leaf is unmarked although the value itself is open (`byte-encoding`).
+#[test]
+fn a_discarded_operand_whose_definedness_is_an_outcome_k_rust_picks_is_marked() {
+    assert_marked(
+        DISCARDED_GAP,
+        "zr(29)",
+        &[mark("KRYPTO.ecdsaRecover", "outside-domain")],
+    );
+    assert_marked(
+        DISCARDED_GAP,
+        "zb(1, 2)",
+        &[mark("KRYPTO.bn128add", "curve")],
+    );
+    assert_marked(
+        DISCARDED_GAP,
+        "zb(1, 3)",
+        &[mark("KRYPTO.bn128add", "curve")],
+    );
+    assert_marked(DISCARDED_GAP, r#"zs("a")"#, &[]);
+}
+
 const CONDITIONS: &str = r#"
 module MAIN
   imports INT
