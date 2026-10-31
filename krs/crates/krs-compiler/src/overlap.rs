@@ -579,7 +579,16 @@ impl<'graph> Unifier<'graph> {
                     sort: right_sort,
                     value: right_value,
                 },
-            ) => left_value == right_value && self.graph.compatible(&left_sort, &right_sort),
+            ) => {
+                self.graph.compatible(&left_sort, &right_sort)
+                    && (left_value == right_value
+                        || left_sort == right_sort
+                            && crate::token_values::same_token(
+                                &left_sort,
+                                &left_value,
+                                &right_value,
+                            ))
+            }
             (
                 Pattern::Map {
                     sort: left_sort,
@@ -1735,7 +1744,10 @@ impl Unifier<'_> {
                     sort: right_sort,
                     value: right_value,
                 },
-            ) => left_sort == right_sort && left_value == right_value,
+            ) => {
+                left_sort == right_sort
+                    && crate::token_values::same_token(left_sort, left_value, right_value)
+            }
             (Pattern::KSequence { items: left, .. }, Pattern::KSequence { items: right, .. }) => {
                 all(left, right)
             }
@@ -2845,6 +2857,27 @@ mod tests {
             token("true", BuiltinSort::Bool),
             token("false", BuiltinSort::Bool)
         ));
+    }
+
+    /// Two spellings of one value are one term, as program expansion and the backends read
+    /// them: `1.5` and `1.50` overlap, `1.5` and binary32 `1.5f` do not, nor `0.0` and `-0.0`.
+    #[test]
+    fn tokens_of_one_value_overlap_whatever_their_spelling() {
+        let graph = SortGraph::default_with_builtins();
+        for (left, right, sort, overlap) in [
+            ("1.5", "1.50", BuiltinSort::Float, true),
+            ("1.5", "15e-1", BuiltinSort::Float, true),
+            ("1.5", "1.5f", BuiltinSort::Float, false),
+            ("0.0", "-0.0", BuiltinSort::Float, false),
+            ("1", "01", BuiltinSort::Int, true),
+            ("\"a\"", "\"\\x61\"", BuiltinSort::String, true),
+        ] {
+            assert_eq!(
+                Unifier::new(&graph).unify(token(left, sort), token(right, sort)),
+                overlap,
+                "{left} {right}"
+            );
+        }
     }
 
     #[test]

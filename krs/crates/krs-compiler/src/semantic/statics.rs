@@ -52,6 +52,7 @@ use super::catalog::semantic_is_subsort;
 use super::error::DescriptorLoweringError;
 use super::overload::sort_name;
 use crate::partition::production_display_name;
+use crate::token_values::{same_token, token_key};
 
 /// The most static applications KRS expands in one clause's subject, counting
 /// each recursive step: a recursive production's ground expansion that has not
@@ -902,7 +903,7 @@ impl<'m> Expansion<'_, 'm, '_> {
             }
             IrTermKind::Token { value } => match term.kind() {
                 IrTermKind::Token { value: written } => {
-                    if value == written && pattern.sort() == term.sort() {
+                    if pattern.sort() == term.sort() && same_token(pattern.sort(), value, written) {
                         Match::Yes
                     } else {
                         Match::No
@@ -1147,9 +1148,26 @@ fn occurrences(term: &SemanticTerm, variable: &SemanticId) -> usize {
 }
 
 /// Whether two terms are the same term, wherever each was written.
+/// Whether `left` and `right` are one term: the same nodes wherever they come from, each pair of
+/// tokens denoting one value ([`same_token`]).
 fn same(left: &SemanticTerm, right: &SemanticTerm) -> bool {
     let origin = left.origin().clone();
-    left.map_origins(&mut |_| origin.clone()) == right.map_origins(&mut |_| origin.clone())
+    let compared = |term: &SemanticTerm| valued_tokens(term).map_origins(&mut |_| origin.clone());
+    compared(left) == compared(right)
+}
+
+/// `term` with each token's text replaced by the key of the value it denotes ([`token_key`]),
+/// so that two terms are equal as values exactly when these are equal as nodes.
+fn valued_tokens(term: &SemanticTerm) -> SemanticTerm {
+    match term.kind() {
+        IrTermKind::Token { value } => term.with_kind(IrTermKind::Token {
+            value: token_key(term.sort(), value),
+        }),
+        _ => map_children(term, &mut |child| {
+            Ok::<_, std::convert::Infallible>(valued_tokens(child))
+        })
+        .unwrap_or_else(|never| match never {}),
+    }
 }
 
 fn same_bindings(

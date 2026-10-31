@@ -1422,6 +1422,7 @@ name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "k-rust",
  "krs-compiler",
  "krs-diagnostic",
  "krs-ir",

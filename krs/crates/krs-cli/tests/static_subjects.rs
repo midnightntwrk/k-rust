@@ -420,6 +420,60 @@ fn a_static_application_below_a_subject_root_is_written_expanded() {
     );
 }
 
+/// A token below a subject's root is matched by the value it denotes, as program expansion
+/// matches it (NT-22 review M2): `fl(1.50)` is `fl(1.5)`, which its one clause expands to
+/// `tag(1)`, so the clause written `pick(fl(1.50), box(9))` is written `pick(tag(1), box(9))`
+/// and applies to a program's `fl(1.5)`, `fl(1.50)` and `fl(15e-1)` (the binary32 `fl(1.5f)`
+/// is another value, which no clause matches); `digit(01)` is `digit(1)`.
+#[test]
+fn a_token_below_a_subject_root_is_matched_by_its_value() {
+    let source = r#"
+#[k::constructors(sort = Value, result = KResult)]
+#[rustfmt::skip]
+pub enum Fl {
+    #[k::syntax("fl({a})")] #[k::desugar] Fl { a: k::builtin::Float },
+}
+
+#[k::desugar]
+fn fl_one(k::term![Fl::Fl(1.5)]: Term<Value>) -> Term<Value> {
+    Data::Tag(1)
+}
+
+#[k::desugar]
+fn spelled(k::term![Sugar::Pick(Fl::Fl(1.50), Data::Box(9))]: Term<Value>) -> Term<Value> {
+    Data::Red()
+}
+
+#[k::desugar]
+fn padded(k::term![Sugar::Pick(Sugar::Digit(01), Data::Box(8))]: Term<Value>) -> Term<Value> {
+    Data::Red()
+}
+
+#[k::alias]
+fn whole(k::term![Al::Whole(a)]: Term<Value>) -> Term<Value> {
+    Data::One(a)
+}
+"#;
+    let (k, printed) = emitted_and_run(
+        &format!("{NEST}{source}"),
+        &[
+            "pick(fl(1.5), box(9))",
+            "pick(fl(1.50), box(9))",
+            "pick(fl(15e-1), box(9))",
+            "pick(digit(1), box(8))",
+        ],
+    );
+    expect_test::expect![[r"
+        rule pick ( box ( 1 ) , box ( 8 ) ) => red [label(krsRule_DIGEST)]
+        rule pick ( tag ( 1 ) , box ( 9 ) ) => red [label(krsRule_DIGEST)]
+        rule fl ( 1.5 ) => tag ( 1 ) [label(krsRule_DIGEST)]
+        pick(fl(1.5), box(9)) => red ~> .K
+        pick(fl(1.50), box(9)) => red ~> .K
+        pick(fl(15e-1), box(9)) => red ~> .K
+        pick(digit(1), box(8)) => red ~> .K"]]
+    .assert_eq(&[rules(&k, &["pick", "fl"]), printed.join("\n")].join("\n"));
+}
+
 /// An alias whose subject holds a literal prints back only the terms its clause's result matches
 /// with that literal (NT-14-1): with `whole(box(1)) => tag(1)` and `whole(box(2)) => tag(2)`,
 /// `tag(1)` and `tag(2)` print as their own clause's subject, and `tag(3)`, which no clause
