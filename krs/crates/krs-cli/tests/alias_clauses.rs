@@ -822,6 +822,13 @@ pub enum Rv {
     #[k::syntax("lt({a})")] #[k::alias] Lt { a: Value },
     #[k::syntax("ft({a}, {b})")] Ft { a: Int, b: k::builtin::Float },
     #[k::syntax("fz({a}, {b})")] #[k::alias] Fz { a: Int, b: KItem },
+    #[k::syntax("named({a})")] Named { a: k::builtin::Id },
+    #[k::syntax("xd({a}, {b})")] #[k::alias] Xd { a: Int, b: KItem },
+}
+
+#[k::alias]
+fn xd(k::term![Rv::Xd(x, k::id!("$x"))]: Term<Value>) -> Term<Value> {
+    Rv::Fl(x, false)
 }
 
 #[k::alias]
@@ -946,7 +953,8 @@ fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
 /// argument no equation decides (`noset(red)`, `nomap(red)`, `noval(red)`, `size(red)`), and it
 /// prints expanded, as the state holds it. A subject's token is judged by the text a reversal
 /// prints, the clause's own `1.5` (a run prints the floats it holds as `0.15000000000000000e1`),
-/// which reads back as that `Float`, so `fz` prints backwards.
+/// which reads back as that `Float`, so `fz` prints backwards; the `Id` `$x` lexes in no program,
+/// so `xd` does not.
 #[test]
 fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
     let target = shared_fixture_target();
@@ -965,6 +973,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         "make(12)",
         "prj(noval(red))",
         "box(5)",
+        "fl(5, false)",
     ]
     .map(|program| {
         let file = manifest.with_file_name("program.txt");
@@ -994,6 +1003,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         make(10) => tag(#lambdaX__ ( noval ( zero() ) )) ~> .K
         make(12) => elems(SetItem ( 12 )) ~> .K
         prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K
-        box(5) => fz(5, 1.5) ~> .K"]]
+        box(5) => fz(5, 1.5) ~> .K
+        fl(5, false) => fl(5, false) ~> .K"]]
     .assert_eq(&printed);
 }

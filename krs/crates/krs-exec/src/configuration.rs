@@ -695,7 +695,7 @@ endmodule
         assert_eq!(read("SortInt{}", "$x"), None);
         assert_eq!(read("S", "1"), None);
         assert_eq!(read("SortInt{SortInt{}}", "1"), None);
-        assert_eq!(read("SortInt'Zzzz'{}", "1"), None);
+        assert_eq!(read("SortInt''{}", "1"), None);
         assert_eq!(
             read("SortInt{}", "1").as_deref(),
             Some(r#"\dv{SortInt{}}("1")"#)
