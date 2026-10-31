@@ -643,6 +643,41 @@ impl Buffered {
         self.0.is_empty()
     }
 
+    /// [`Self::commit`] a copy of the held emissions, with their original positions, keeping
+    /// the buffer for a later [`Self::replay`].
+    pub(crate) fn commit_copy(&self) {
+        if self.0.is_empty() {
+            return;
+        }
+        SINK.with(|sink| {
+            if let Some(sink) = sink.borrow_mut().as_mut() {
+                for emission in &self.0 {
+                    sink.record(emission.clone());
+                }
+            }
+        });
+    }
+
+    /// Record a copy of the held emissions in the current collector as if the work that emitted
+    /// them ran again now: each takes the next position in the thread's emission order, as a
+    /// fresh emission does. The buffer is kept, for a later replay.
+    pub(crate) fn replay(&self) {
+        if self.0.is_empty() {
+            return;
+        }
+        SINK.with(|sink| {
+            if let Some(sink) = sink.borrow_mut().as_mut() {
+                for emission in &self.0 {
+                    let position = NEXT_POSITION.with(|next| next.replace(next.get() + 1));
+                    sink.record(Emission {
+                        position,
+                        ..emission.clone()
+                    });
+                }
+            }
+        });
+    }
+
     /// The held emissions of an attempt that was passed over, whose `subject` its node keeps:
     /// [`Self::commit`] them, each now explaining `subject`.
     ///

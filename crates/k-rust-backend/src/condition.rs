@@ -161,6 +161,12 @@ impl InstantiatedCondition {
         Self(substitute_predicates(&self.0, renaming))
     }
 
+    /// The instantiated predicates as written: what an evaluation of the condition reads of the
+    /// instance, for a memo of its outcome (`simplify::ConditionMemo`). Read only.
+    pub(crate) fn as_written(&self) -> &[Predicate] {
+        &self.0
+    }
+
     /// The instance as one conjunction, as written, for a diagnostic that names a refuted
     /// condition (a refuted `ensures`). It is reported, never simplified or decided.
     pub(crate) fn report(&self) -> Predicate {
@@ -278,6 +284,12 @@ impl InstantiatedCondition {
 thread_local! {
     /// Set while `InstantiatedCondition::simplify` redoes a condition on the general path.
     static GENERAL_CONDITION_PATH: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this thread is redoing a condition on the general path
+/// (`InstantiatedCondition::simplify`), which every condition nested in it then takes too.
+pub(crate) fn on_general_condition_path() -> bool {
+    GENERAL_CONDITION_PATH.with(Cell::get)
 }
 
 /// `predicates` under `bindings`, followed by `ceil_term` of each value bound to an element

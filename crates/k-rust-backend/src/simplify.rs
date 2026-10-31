@@ -672,6 +672,51 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
     subterms
 }
 
+/// Keep in `expanded`, the `ceil_term` expansion of the definedness atom `atom` (a `\ceil` or an
+/// absence) being simplified under `assumptions`, only the members that are still obligations
+/// there; `true` when `atom` itself holds under them, so the expansion is not needed.
+///
+/// A member the assumptions contain holds. So does a `\ceil` (or definedness atom) of a term
+/// the assumptions state defined (`known_defined_subterms`: every application is strict, so a
+/// defined term has defined subterms), and `atom` itself when it is such a `\ceil`. The further
+/// pass over the expansion's conjunction (`simplify_predicate_on_stack`) receives these same
+/// assumptions as its known predicates and drops those members for that reason, so they must be
+/// dropped here too: otherwise an expansion that adds only such members beside the opaque `atom`
+/// leaves that pass with `atom` alone under the same assumptions, which is this simplification
+/// again, and the two recur without end. KEVM's `#parseByteStack` of an unevaluated
+/// `Keccak256(B)` reaches `\ceil(findString(Keccak256(B), "0x", 0))` under a known
+/// `lengthString(replace(Keccak256(B), ..)) <Int 2`: `\ceil(Keccak256(B))` is such a member.
+///
+/// The known-defined terms are read only when a member besides `atom` remains after the
+/// contained ones are dropped, the case that would take the further pass.
+fn expansion_obligations(
+    definition: &BackendDefinition,
+    expanded: &mut Vec<Predicate>,
+    atom: &Predicate,
+    assumptions: &PredicateAssumptions<'_>,
+) -> bool {
+    expanded.retain(|predicate| !assumptions.contains(predicate));
+    if expanded.iter().all(|predicate| predicate == atom) {
+        return false;
+    }
+    let known = known_defined_subterms(definition, assumptions.terms.predicates);
+    let holds = |predicate: &Predicate| match predicate {
+        Predicate::Ceil(subject) => known.contains(subject),
+        // As in `simplify_predicates_with_budget`: a deferred atom over an impure application
+        // goes to its own arm, which raises the unsupported-hook outcome.
+        Predicate::Defined(subject) => {
+            known.contains(subject)
+                && crate::deferred::impure_outcome(definition, subject).is_none()
+        }
+        _ => false,
+    };
+    if holds(atom) {
+        return true;
+    }
+    expanded.retain(|predicate| !holds(predicate));
+    false
+}
+
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
 /// axioms make valid, and collapse the constraints to `\bottom` when the solver refutes one.
 ///
@@ -1811,6 +1856,285 @@ fn evaluate_equation_condition(
     // themselves is the `\ceil(t)` factor, which is carried rather than decided, so it is taken
     // as known and not restated as a requires.
     let bound_definedness = matched.bindings().as_known();
+    let scope = ConditionMemo::enter();
+    let key = scope.nested.then(|| {
+        ConditionMemoKey::new(
+            definition,
+            rule_id,
+            anchor,
+            requires.as_written(),
+            bound_definedness,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
+    });
+    let key = key.flatten();
+    if let Some(key) = &key
+        && let Some(outcome) = ConditionMemo::served(key)
+    {
+        return Ok(outcome);
+    }
+    let facts_from = crate::path_facts::marker();
+    let ((verdict, emissions), stack_stops) = stop::counting_stack_stops(|| {
+        diagnostic::buffer(|| {
+            decide_equation_condition(
+                definition,
+                rule,
+                unbound_result,
+                rule_variables,
+                anchor,
+                requires,
+                matched,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        })
+    });
+    emissions.commit_copy();
+    // A refinement inside that ran out of native stack was dismissed, and its outcome kept
+    // coarser than a decision with more stack left would reach: such a verdict is not kept.
+    if let Some(key) = key
+        && stack_stops == 0
+        && let Ok(verdict) = &verdict
+    {
+        ConditionMemo::record(key, verdict, facts_from, emissions);
+    }
+    verdict
+}
+
+/// The equation-condition verdicts reached while a scope is open on this thread (the outermost
+/// [`evaluate_equation_condition`], or a proof: [`condition_memo_scope`]), kept while it is
+/// open so that a condition met again under the same inputs is not decided again; at the
+/// outermost evaluation outside a proof nothing is kept, since nothing could be served.
+///
+/// Simplifying a rule condition simplifies its terms, which tries their equations and decides
+/// their conditions; each such decision simplifies those conditions in turn, under the enclosing
+/// conditions as known predicates, and the predicate simplifier revisits a conjunct in each of
+/// its rounds and in each definedness obligation that names it. A nested condition is thus met
+/// many times with the same inputs, and a condition left undecided at each level is decided again
+/// at every one of those meetings: on a string an evaluation cannot read (KEVM's `#parseByteStack`
+/// of a digest k-rust does not compute in a proof, or of any symbolic string), the work grows by
+/// a factor at every level of nesting (`replaceAll`, `countAllOccurrences`, `#alignHexString`).
+///
+/// A verdict is a function of what its decision reads: the definition, the instance (the rule, its anchor, the
+/// instantiated `requires` and the binding obligations), the known predicates, the options, the
+/// rule conditions active against re-entry, the solver, and the two modes of this thread that
+/// change how a condition is simplified (the general condition path and stated ceil
+/// conditions); [`ConditionMemoKey`] holds each of them. A verdict met again under an equal key is
+/// the verdict a new decision would reach, so serving it changes no result. Only `Refuted` and
+/// `Indeterminate` are kept: `Satisfied` holds the instance, which the caller uses, and is cheap
+/// to reach again. A stop or a failure is never kept, nor a verdict whose decision dismissed a
+/// stop for lack of native stack (`stop::counting_stack_stops`), which depends on the depth it ran
+/// at. Serving a verdict notes again the path
+/// facts its decision noted and emits again the diagnostics it emitted, as a new decision would.
+///
+/// Nothing is kept in an execution, whose evaluation may read and advance a console, nor while
+/// an attempt on an `Unspecified` application is open or a lineage on one is recording what its
+/// evaluation reads (`UnspecifiedEvaluation`, `UnspecifiedValues`): what such a decision reads of
+/// the open attempts is not in the key. The verdicts go when the outermost scope closes.
+#[derive(Default)]
+struct ConditionMemo {
+    depth: usize,
+    verdicts: FxHashMap<ConditionMemoKey, MemoVerdict>,
+}
+
+thread_local! {
+    static CONDITION_MEMO: RefCell<ConditionMemo> = RefCell::new(ConditionMemo::default());
+}
+
+/// The most verdicts [`ConditionMemo`] holds at once; reaching it clears the memo.
+const CONDITION_MEMO_CAPACITY: usize = 1 << 16;
+
+#[cfg(test)]
+thread_local! {
+    static CONDITION_MEMO_OFF: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Run `action` with no verdict kept or served ([`ConditionMemo`]), for a test that probes the
+/// solver queries a decision makes: a served verdict makes none.
+#[cfg(test)]
+pub(crate) fn without_condition_memo<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CONDITION_MEMO_OFF.set(self.0);
+        }
+    }
+    let _restore = Restore(CONDITION_MEMO_OFF.replace(true));
+    action()
+}
+
+/// An open scope of the memo on this thread: an [`evaluate_equation_condition`], or a proof
+/// ([`condition_memo_scope`]).
+pub(crate) struct ConditionMemoScope {
+    /// Whether another scope encloses this one.
+    nested: bool,
+}
+
+/// Keep the verdicts of the equation conditions decided while the scope is open
+/// ([`ConditionMemo`]): a proof opens one, so that a condition decided again under the same
+/// inputs elsewhere in the proof (another step, state, rule condition, remainder or implication
+/// check) is served too. Where the path condition differs, the known predicates do, and they are
+/// in the key; a term carried unevaluated from step to step meets its conditions again under the
+/// same ones at every step whose new constraints it is not under.
+pub(crate) fn condition_memo_scope() -> ConditionMemoScope {
+    ConditionMemo::enter()
+}
+
+impl Drop for ConditionMemoScope {
+    fn drop(&mut self) {
+        CONDITION_MEMO.with_borrow_mut(|memo| {
+            memo.depth -= 1;
+            if memo.depth == 0 {
+                memo.verdicts.clear();
+            }
+        });
+    }
+}
+
+/// A kept verdict, with the path facts its decision noted and the diagnostics it emitted.
+struct MemoVerdict {
+    /// `None` for `Refuted`.
+    indeterminate: Option<ConditionIndeterminacy>,
+    facts: crate::path_facts::FactSet,
+    emissions: diagnostic::Buffered,
+}
+
+impl ConditionMemo {
+    fn enter() -> ConditionMemoScope {
+        CONDITION_MEMO.with_borrow_mut(|memo| {
+            memo.depth += 1;
+            ConditionMemoScope {
+                nested: memo.depth > 1,
+            }
+        })
+    }
+
+    fn served(key: &ConditionMemoKey) -> Option<EquationCondition> {
+        CONDITION_MEMO.with_borrow(|memo| {
+            let verdict = memo.verdicts.get(key)?;
+            crate::path_facts::replay(&verdict.facts);
+            verdict.emissions.replay();
+            Some(match &verdict.indeterminate {
+                None => EquationCondition::Refuted,
+                Some(reason) => EquationCondition::Indeterminate(reason.clone()),
+            })
+        })
+    }
+
+    fn record(
+        key: ConditionMemoKey,
+        verdict: &EquationCondition,
+        facts_from: crate::path_facts::Marker,
+        emissions: diagnostic::Buffered,
+    ) {
+        let indeterminate = match verdict {
+            EquationCondition::Satisfied(_) => return,
+            EquationCondition::Refuted => None,
+            EquationCondition::Indeterminate(reason) => Some(reason.clone()),
+        };
+        let facts = if crate::path_facts::noted_since(facts_from) {
+            crate::path_facts::since(facts_from)
+        } else {
+            crate::path_facts::FactSet::new()
+        };
+        CONDITION_MEMO.with_borrow_mut(|memo| {
+            // A bound on the memory the verdicts hold, not on what is served: a cleared memo
+            // decides again what it no longer holds.
+            if memo.verdicts.len() >= CONDITION_MEMO_CAPACITY {
+                memo.verdicts.clear();
+            }
+            memo.verdicts.insert(
+                key,
+                MemoVerdict {
+                    indeterminate,
+                    facts,
+                    emissions,
+                },
+            );
+        });
+    }
+}
+
+/// Everything a nested equation-condition decision reads ([`ConditionMemo`]).
+#[derive(Eq, Hash, PartialEq)]
+struct ConditionMemoKey {
+    definition: usize,
+    rule_id: String,
+    anchor: Option<Term>,
+    requires: Vec<Predicate>,
+    bindings: Vec<Predicate>,
+    known: Vec<Predicate>,
+    max_iterations: usize,
+    keep_partial: bool,
+    active: BTreeSet<ConditionKey>,
+    solver: usize,
+    general_path: bool,
+    stated_ceil_conditions: bool,
+}
+
+impl ConditionMemoKey {
+    /// The key of a decision now, or `None` where nothing is kept ([`ConditionMemo`]).
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        definition: &BackendDefinition,
+        rule_id: &str,
+        anchor: Option<&Term>,
+        requires: &[Predicate],
+        bindings: &[Predicate],
+        known: &[Predicate],
+        options: SimplificationOptions,
+        active: &BTreeSet<ConditionKey>,
+        solver: &dyn SmtSolver,
+    ) -> Option<Self> {
+        #[cfg(test)]
+        if CONDITION_MEMO_OFF.get() {
+            return None;
+        }
+        if crate::evaluation::current() == crate::evaluation::EvaluationMode::Execution
+            || UnspecifiedEvaluation::any_open()
+            || UNSPECIFIED_VALUES.with_borrow(|table| table.scopes > 0)
+        {
+            return None;
+        }
+        Some(Self {
+            definition: std::ptr::from_ref(definition).addr(),
+            rule_id: rule_id.to_owned(),
+            anchor: anchor.cloned(),
+            requires: requires.to_vec(),
+            bindings: bindings.to_vec(),
+            known: known.to_vec(),
+            max_iterations: options.max_iterations,
+            keep_partial: options.budget == BudgetPolicy::KeepPartial,
+            active: active.clone(),
+            solver: solver_address(solver),
+            general_path: crate::condition::on_general_condition_path(),
+            stated_ceil_conditions: crate::definedness::ceil_conditions_stated(),
+        })
+    }
+}
+
+/// [`evaluate_equation_condition`]'s decision itself.
+#[allow(clippy::too_many_arguments)]
+fn decide_equation_condition(
+    definition: &BackendDefinition,
+    rule: &RuleAttributes,
+    unbound_result: &[String],
+    rule_variables: &BTreeSet<Variable>,
+    anchor: Option<&Term>,
+    requires: crate::condition::InstantiatedCondition,
+    matched: crate::condition::MatchedEquation,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationCondition> {
+    let rule_id = rule.unique_id.as_str();
+    let bound_definedness = matched.bindings().as_known();
     let definedness_known = if bound_definedness.is_empty() {
         None
     } else {
@@ -2387,8 +2711,14 @@ fn simplify_predicate_on_stack(
             let mut expanded =
                 ceil_term(definition, &simplified.term).map_err(SimplificationError::from)?;
             // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
-            // add child ceils already supplied by the surrounding conjunction.
-            expanded.retain(|predicate| !assumptions.contains(predicate));
+            // add child ceils already supplied by the surrounding conjunction, nor those the
+            // assumptions already state ([`expansion_obligations`]).
+            if expansion_obligations(definition, &mut expanded, &unchanged, assumptions) {
+                return Ok(with_simplification_constraints(
+                    simplified.conditions.into_predicates(),
+                    Predicate::True,
+                ));
+            }
             if expanded.as_slice() == [unchanged.clone()] {
                 // A listing only an execution evaluates (`crate::evaluation`) is defined exactly
                 // when its collection is: a closed map with distinct constructor-like keys is
@@ -2498,8 +2828,15 @@ fn simplify_predicate_on_stack(
                 _ => unreachable!("an absence is an atom or the ceil of its joined set"),
             };
             let mut expanded = ceil_term(definition, joined).map_err(SimplificationError::from)?;
-            // As for `\ceil` above: an opaque atom remains a conjunct of its expansion.
-            expanded.retain(|predicate| !assumptions.contains(predicate));
+            // As for `\ceil` above: an opaque atom remains a conjunct of its expansion. An
+            // absence is no `\ceil` or definedness atom, so it never holds as a known-defined
+            // term does.
+            if expansion_obligations(definition, &mut expanded, &simplified, assumptions) {
+                return Ok(with_simplification_constraints(
+                    constraints,
+                    Predicate::True,
+                ));
+            }
             if expanded.as_slice() == std::slice::from_ref(&simplified) {
                 with_simplification_constraints(constraints, simplified)
             } else {

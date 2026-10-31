@@ -1040,6 +1040,12 @@ thread_local! {
     static STATED_CEIL_CONDITIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Whether this thread's definedness analysis takes ceil conditions as stated
+/// ([`with_stated_ceil_conditions`]).
+pub(crate) fn ceil_conditions_stated() -> bool {
+    STATED_CEIL_CONDITIONS.with(std::cell::Cell::get)
+}
+
 /// Run `body` with this thread's definedness analysis taking every ceil condition as stated:
 /// the instantiated right-hand side of a ceil equation, and the instantiated `requires` that
 /// [`value_production_ceil_equations`] decides, are used as they are instead of simplified, so

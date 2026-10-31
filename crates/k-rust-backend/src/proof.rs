@@ -282,6 +282,8 @@ pub fn prove_claim(
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
+    // The proof's equation-condition verdicts, kept until it ends (`simplify::ConditionMemo`).
+    let _condition_memo = crate::simplify::condition_memo_scope();
     let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
     if let Some(reason) = &claim.unstated {
         return Err(ProofError::UnstatedDefinedness(reason.clone()));
@@ -5671,46 +5673,53 @@ mod tests {
                 ProofLeafOutcome::BreadthBound,
             ),
         ];
-        for (name, definition, options, decided) in cases {
-            let claim = claim_with_label(definition, "refined");
-            let uncancelled = CancelAtQuery::new(crate::stop::CancellationToken::new(), usize::MAX);
-            let complete = prove_claim(definition, claim, options, &uncancelled).unwrap();
-            assert_eq!(complete.stopped, None, "{name}: {complete:#?}");
-            assert!(
-                !complete.leaves.is_empty()
-                    && complete.leaves.iter().all(|leaf| leaf.outcome == decided),
-                "{name}: {complete:#?}"
-            );
-            let queries = uncancelled
-                .queries
-                .load(std::sync::atomic::Ordering::SeqCst);
-            // Cancel at every query the proof makes, so that some cancellation arrives while a
-            // leaf whose outcome is decided is being refined.
-            let mut cancelled_after_a_decision = 0;
-            for at in 1..=queries {
-                let token = crate::stop::CancellationToken::new();
-                let solver = CancelAtQuery::new(token.clone(), at);
-                let result = token
-                    .scope(|| prove_claim(definition, claim, options, &solver))
-                    .unwrap();
-                // The stop is named once, by the result, whether states remain or not; a leaf
-                // keeps the outcome decided before the cancellation arrived.
-                assert_eq!(
-                    result.stopped,
-                    Some(StopCause::Cancelled),
-                    "{name}, cancelled at query {at}: {result:#?}"
-                );
+        // The probe is a solver query made while a decided leaf is refined. Refining the leaf
+        // decides again the conditions its step decided, under the same inputs, which the
+        // proof's memo serves without a query (`simplify::ConditionMemo`); without it, they
+        // are queried again, and a cancellation can arrive there.
+        crate::simplify::without_condition_memo(|| {
+            for (name, definition, options, decided) in cases {
+                let claim = claim_with_label(definition, "refined");
+                let uncancelled =
+                    CancelAtQuery::new(crate::stop::CancellationToken::new(), usize::MAX);
+                let complete = prove_claim(definition, claim, options, &uncancelled).unwrap();
+                assert_eq!(complete.stopped, None, "{name}: {complete:#?}");
                 assert!(
-                    result.leaves.iter().all(|leaf| leaf.outcome == decided),
-                    "{name}, cancelled at query {at}: {result:#?}"
+                    !complete.leaves.is_empty()
+                        && complete.leaves.iter().all(|leaf| leaf.outcome == decided),
+                    "{name}: {complete:#?}"
                 );
-                assert_ne!(result.status, ProofStatus::Proven, "{name}: {result:#?}");
-                if !result.leaves.is_empty() {
-                    cancelled_after_a_decision += 1;
+                let queries = uncancelled
+                    .queries
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                // Cancel at every query the proof makes, so that some cancellation arrives while a
+                // leaf whose outcome is decided is being refined.
+                let mut cancelled_after_a_decision = 0;
+                for at in 1..=queries {
+                    let token = crate::stop::CancellationToken::new();
+                    let solver = CancelAtQuery::new(token.clone(), at);
+                    let result = token
+                        .scope(|| prove_claim(definition, claim, options, &solver))
+                        .unwrap();
+                    // The stop is named once, by the result, whether states remain or not; a leaf
+                    // keeps the outcome decided before the cancellation arrived.
+                    assert_eq!(
+                        result.stopped,
+                        Some(StopCause::Cancelled),
+                        "{name}, cancelled at query {at}: {result:#?}"
+                    );
+                    assert!(
+                        result.leaves.iter().all(|leaf| leaf.outcome == decided),
+                        "{name}, cancelled at query {at}: {result:#?}"
+                    );
+                    assert_ne!(result.status, ProofStatus::Proven, "{name}: {result:#?}");
+                    if !result.leaves.is_empty() {
+                        cancelled_after_a_decision += 1;
+                    }
                 }
+                assert!(cancelled_after_a_decision > 0, "{name}: {queries} queries");
             }
-            assert!(cancelled_after_a_decision > 0, "{name}: {queries} queries");
-        }
+        });
     }
 
     /// `pair(Int, Int)` with `f(Z) = Z` only under `Z >Int 0`, so that simplifying `f(X)` asks the

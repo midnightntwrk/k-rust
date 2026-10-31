@@ -2742,6 +2742,91 @@ fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+/// KEVM's `#parseByteStack` of a digest no evaluation reads (`fixtures/hex-parse-unread.k`) ends,
+/// keeps the parse unevaluated, and does a bounded amount of work, counted in definedness
+/// discharges (`--trace-aggregate`), not in time.
+///
+/// The argument is a symbolic `Keccak256(B)` or `Keccak256(String2Bytes("execute()"))`, which a
+/// proof leaves unevaluated (byte-encoding: no text fixes the encoding), the shape KEVM's
+/// `#abiCallData` reaches. Two faults made this diverge. The predicate simplifier expanded
+/// `\ceil(findString(Keccak256(B), "0x", 0))` (`findString` and `Keccak256` are partial) to
+/// itself beside `\ceil(Keccak256(B))`, which the known `lengthString(replace(Keccak256(B), ..))
+/// <Int 2` already states (its term is defined there), so the pass over that conjunction dropped
+/// it and was left with the same `\ceil` under the same assumptions: the recursion exhausted the
+/// native stack, at the base too for the symbolic digest. And a condition nested in conditions
+/// (`#alignHexString`'s `modInt` lemma, `replace`, `countAllOccurrences`) was decided again at
+/// every meeting with the same inputs, about ten times per level: 283,584 discharges for the
+/// withheld digest with the first fault fixed. With both fixed the counts are 10,824 and 22,185.
+#[test]
+fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
+    let (root, _) = fixture();
+    let source = root.join("hex-parse-unread.k");
+    fs::write(&source, include_str!("fixtures/hex-parse-unread.k")).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &source,
+        &[
+            "--main-module",
+            "HEXS",
+            "--syntax-module",
+            "HEXS",
+            "--hook-namespaces",
+            "KRYPTO",
+        ],
+        &compiled,
+    );
+    let keccak = "LblKeccak256'LParUndsRParUnds'HEXS'Unds'String'Unds'Bytes{}";
+    let withheld = format!(
+        r#"{keccak}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{{}}(\dv{{SortString{{}}}}("execute()")))"#
+    );
+    for (name, digest) in [
+        ("symbolic", format!("{keccak}(VarB:SortBytes{{}})")),
+        ("withheld", withheld),
+    ] {
+        let pattern = root.join(format!("{name}.kore"));
+        fs::write(&pattern, format!("LblparseByteStack{{}}({digest})")).unwrap();
+        let aggregate = root.join(format!("{name}.json"));
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kore-simplify")
+            .arg(compiled.join("definition.kore"))
+            .args(["--module", "HEXS", "--pattern"])
+            .arg(&pattern)
+            .arg("--trace-aggregate")
+            .arg(&aggregate)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let simplified = String::from_utf8(output.stdout).unwrap();
+        // The parse stays unevaluated, and so does the withheld conversion it holds.
+        assert!(
+            simplified.contains("LblparseHexBytesAux{}"),
+            "{name}: {simplified}"
+        );
+        if name == "withheld" {
+            assert!(simplified.contains("LblString2Bytes"), "{simplified}");
+        }
+        let document: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&aggregate).unwrap()).unwrap();
+        let discharges = document["algorithms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "backend.definedness.discharge")
+            .and_then(|entry| entry["count"].as_u64())
+            .unwrap_or(0);
+        assert!(
+            discharges <= 50_000,
+            "{name}: {discharges} definedness discharges"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A sort named `SortInt` declared without the hook `INT.Int` is still the integers, as the SMT
 /// translation and the INT hooks read it: its literal `07` is `7`, and `X = 07` contradicts
 /// `X =/= 7`.
