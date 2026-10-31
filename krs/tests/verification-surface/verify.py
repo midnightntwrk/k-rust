@@ -148,7 +148,7 @@ simplification not rooted at `ml::equals` or `ml::ceil`, one whose types
 disagree, and a predicate subject on a transition.
 
 Map cells with symbolic keys (NT-9): `cell-maps` has an `env` map cell and
-six claims whose keys are variables: `sym-one` rewrites the entry of a key
+seven claims whose keys are variables: `sym-one` rewrites the entry of a key
 in a map that holds it alone, `sym-two` in one that also holds a second key,
 `set-get` reads back the map a rule's result wrote, and `unmatched-keys`
 writes two keys the empty start map does not hold, so its emitted end map is
@@ -157,14 +157,18 @@ the update chain `.Map [ A:Int <- 10 ] [ B:Int <- 11 ]`. `moved-one` and
 at the key it matched and then the old value at `b`, a key it did not match,
 over the rest of the map, bound on the left only (`<env> A:Int |-> V:Int
 Rest:Map => Rest:Map [ A:Int <- 10 ] [ B:Int <- V:Int ] </env>`); the rest is
-empty in `moved-one` and the symbolic `Rest:Map` in `moved-rest`. Every claim
+empty in `moved-one` and the symbolic `Rest:Map` in `moved-rest`.
+`moved-anon` steps `movea(a, b)`, whose rule writes the same entries over a
+rest it leaves anonymous (`..`), bound on the left only to the name the
+compiler generates for it (`Krs_MapRest0:Map`, pinned in `definition.k`), so
+both routes execute that binding. Every claim
 is proved natively (`krs prove`) and by Java `kprove --claims` on the emitted
 files. Each has a negative control, `<label>-false`, with an end state no path
 reaches (`sym-one` ending with 11, `sym-two` writing `b` too, `set-get`
 reading back 11, `unmatched-keys` with 11 at `a`, the `moved` claims with
 their two entries in the other order, wrong only where `b` is `a`): neither
 route may prove it, as the `conc` and ablation fixtures pin a claim that
-fails. `krs prove` disproves `set-get-false` and reports the five others
+fails. `krs prove` disproves `set-get-false` and reports the six others
 `indeterminate`.
 
 Set collections selected by computed instances (NT-10): `set-instance-claims`
@@ -407,9 +411,11 @@ LESSON_SPEC_FRAGMENT = (
 
 CELL_MAPS = Fixture(MANIFEST, "krs-verification-surface-cell-maps")
 CELL_MAPS_SPEC = "KRS-CELL-MAPS-SPEC"
-CELL_MAPS_CLAIMS = ("sym-one", "sym-two", "set-get", "unmatched-keys", "moved-one", "moved-rest")
+CELL_MAPS_CLAIMS = (
+    "sym-one", "sym-two", "set-get", "unmatched-keys", "moved-one", "moved-rest", "moved-anon",
+)
 # Each claim with a false end state: neither route may prove it. `krs prove` disproves the
-# concrete `got(11)` (stuck at `got(10)`); on the five end maps it ends with a leaf whose
+# concrete `got(11)` (stuck at `got(10)`); on the six end maps it ends with a leaf whose
 # condition, a negated equality of terms over the symbolic keys, it cannot decide, and reports
 # `indeterminate`.
 CELL_MAPS_STATUSES = {
@@ -420,6 +426,7 @@ CELL_MAPS_STATUSES = {
     "unmatched-keys-false": "indeterminate",
     "moved-one-false": "indeterminate",
     "moved-rest-false": "indeterminate",
+    "moved-anon-false": "indeterminate",
 }
 # The `<env>` cell of each claim as emitted: the keys a claim names stay symbolic,
 # and keys the start map does not hold are written as the update chain, over the
@@ -431,6 +438,10 @@ CELL_MAPS_FRAGMENTS = (
     "    <env> .Map => .Map [ A:Int <- 10 ] [ B:Int <- 11 ] </env>\n",
     "    <env> A:Int |-> 0 => .Map [ A:Int <- 10 ] [ B:Int <- 0 ] </env>\n",
     "    <env> A:Int |-> 0 Rest:Map => Rest:Map [ A:Int <- 10 ] [ B:Int <- 0 ] </env>\n",
+)
+# The `movea` rule as emitted: its anonymous rest bound on the left only, to a generated name.
+CELL_MAPS_RULE_FRAGMENTS = (
+    "    <env> A:Int |-> V:Int Krs_MapRest0:Map => Krs_MapRest0:Map [ A:Int <- 10 ] [ B:Int <- V:Int ] </env>\n",
 )
 
 SET_INSTANCE_CLAIMS = Fixture(MANIFEST, "krs-verification-surface-set-instance-claims")
@@ -1401,6 +1412,10 @@ def verify_cell_maps(harness: FixtureGate, fixture: Fixture) -> None:
     for fragment in CELL_MAPS_FRAGMENTS:
         if fragment not in spec:
             raise GateError(f"{fixture.package}: emitted spec.k omits:\n{fragment}")
+    definition = emitted.source.read_text(encoding="utf-8")
+    for fragment in CELL_MAPS_RULE_FRAGMENTS:
+        if fragment not in definition:
+            raise GateError(f"{fixture.package}: emitted definition.k omits:\n{fragment}")
     native = native_trusted_proof(harness, fixture, CELL_MAPS_SPEC)
     if native["statuses"] != CELL_MAPS_STATUSES or native["exit"] != 1 or native["warnings"]:
         raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
