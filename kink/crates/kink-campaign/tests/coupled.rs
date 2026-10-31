@@ -3726,9 +3726,10 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
 /// - `A1` (`tb02float.k`, whose own rules apply only `FLOAT.int2float`): the guard `V ==Float 1.0`
 ///   holds on the one value the test reaches, `1.0p53x11`, so the mutant takes the baseline's
 ///   step and Survives.
-/// - `A2` and `M1` (Z3 profile): the respelled literal names the baseline's element, so the
-///   mutant loads to the baseline's backend definition and Survives (M1 by k-rust's MInt reading,
-///   kink README premise P-M1). Without Z3 the MInt fixture is not loadable.
+/// - `A2` and `M1` (Z3 profile): the respelled literal names the baseline's element, so the mutant
+///   loads to the baseline's backend definition and Survives (M1 determined: `01` is the integer 1,
+///   in range for width 8, domains.md 2880-2882 and 2889). Without Z3 the MInt fixture is not
+///   loadable.
 /// - R3-ADMIT-FLOAT fix round 1: the census refuses the `t12probe.k` rows before any run, so
 ///   they exercise no canonicalization; `census_free_float_spelling_routes_are_not_killed` runs
 ///   F6, F8, F9, F11, F12 and V5b on census-free rows of `floatzero.k`.
@@ -9673,19 +9674,23 @@ mod kink_tier {
     }
 
     /// R3-ADMIT-FLOAT fix round 1: the TB-03 routes whose `t12probe.k` rows the census refuses
-    /// (that fixture applies `+Float` and `/Float`), on census-free rows of `floatzero.k` that
-    /// reach their values through `Int2Float`, `rootFloat` and `^Int` only. Each mutant respells
-    /// a literal to another spelling of the element it names, or writes `==K` for `==Float` where
-    /// both sides are one element, so each row runs and Survives, with the baseline's one
-    /// comparison agreeing: the signed-zero respelling (F6), the NaN (F8; one NaN per format,
-    /// premise P-F3), the infinity (F9; 2^1024 rounds to the infinity, premise P-F1's overflow),
-    /// `==K` for `==Float` (F11), a literal in a function equation compared with `==K` (F12), and
-    /// two literals of one value compared with `==K` in a function (V5b). Each route has a
-    /// control that names another element (`NaNf`, the binary32 NaN; `-Infinity`; `2.0`) and is
-    /// killed, so the baseline's test does reach the literal's rule (F6's control is
-    /// `float_literal_spellings_are_compared_by_value`'s `0.0f`). The F8 control's kill rests on
-    /// premise P-F4 (an even root of a negative value is NaN) and the F9 control's on P-F1 (2^1024
-    /// overflows to the infinity). Every row is measured before the first assertion.
+    /// (that fixture applies `String2Bytes`), on census-free rows of `floatzero.k` that reach their
+    /// values through exact `Int2Float` conversions and one-format `/Float` and `-Float`. Each
+    /// mutant respells a literal to another spelling of the element it names, or writes `==K` for
+    /// `==Float` where both sides are one element, so each row runs and Survives, with the
+    /// baseline's one comparison agreeing: the signed-zero respelling (F6), the NaN (F8; one NaN
+    /// per format, premise P-F3), the infinity (F9), `==K` for `==Float` (F11), a literal in a
+    /// function equation compared with `==K` (F12), and two literals of one value compared with
+    /// `==K` in a function (V5b). Each route has a control that names another element (`NaNf`, the
+    /// binary32 NaN; `-Infinity`; `2.0`) and is killed, so the baseline's test does reach the
+    /// literal's rule (F6's control is `float_literal_spellings_are_compared_by_value`'s `0.0f`).
+    /// kink27 GK-0: F8 reaches the NaN as `0.0 /Float 0.0` from `nans(0)` and F9 the infinity as
+    /// `1.0 /Float (1.0 -Float 1.0)` from `infs(1)`, values the `smt-hook`s of `/Float` and
+    /// `-Float` fix (domains.md 1568, 1572), where they went through `rootFloat` of a negative
+    /// value and an overflowing `Int2Float`, which no text fixes. The F8 control's kill rests on
+    /// one NaN per format (premise P-F3: the quotient is the NaN `NaN` names); the F9 control's on
+    /// the `Infinity` lexeme naming the positive infinity (P-F1). Every row is measured before the
+    /// first assertion.
     #[test]
     #[ignore = "kink"]
     fn census_free_float_spelling_routes_are_not_killed() {
@@ -9695,14 +9700,14 @@ mod kink_tier {
             let baseline = validator.baseline();
             let routes = [
                 ("F6", "point", R("0.0", "0e+00p53x11"), "start", 0, true),
-                ("F8", "nanp", R("NaN", "NaNp53x11"), "nans", -1, true),
-                ("F8-control", "nanp", R("NaN", "NaNf"), "nans", -1, false),
+                ("F8", "nanp", R("NaN", "NaNp53x11"), "nans", 0, true),
+                ("F8-control", "nanp", R("NaN", "NaNf"), "nans", 0, false),
                 (
                     "F9",
                     "infp",
                     R("Infinity", "Infinityp53x11"),
                     "infs",
-                    1024,
+                    1,
                     true,
                 ),
                 (
@@ -9710,7 +9715,7 @@ mod kink_tier {
                     "infp",
                     R("Infinity", "-Infinity"),
                     "infs",
-                    1024,
+                    1,
                     false,
                 ),
                 ("F11", "eqp", Eq("_==K_"), "eqs", 1, true),

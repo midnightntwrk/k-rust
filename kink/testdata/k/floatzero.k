@@ -7,10 +7,11 @@
 // are equally near.
 //
 // R3-ADMIT-FLOAT fix round 1 (TB-03 without the census): the rows below reach NaN, Infinity,
-// `==K`, a function equation and the route V5b through `Int2Float`, `rootFloat` and `^Int` only,
-// so no rule applies a hook the census reads and each respelling of one element runs. kompile
-// folds `fold`'s `0.1 +Float 0.2` into a literal, so no `FLOAT.add` application is left;
-// FLOATMIXED's sum of a binary32 and a binary64 literal is not folded, and the census excludes it.
+// `==K`, a function equation and the route V5b through exact `Int2Float` conversions and (since
+// kink27 GK-0) one-format `/Float` and `-Float`, whose values their `smt-hook`s fix (domains.md
+// 1568, 1572), so no rule applies a hook the census reads and no run takes a value k-rust marks.
+// kompile folds `fold`'s `0.1 +Float 0.2` into a literal, so no `FLOAT.add` application is left;
+// FLOATMIXED's sum of a binary32 and a binary64 literal is not folded, and its run is marked.
 module FLOATZERO-SYNTAX
   imports INT-SYNTAX
   imports FLOAT-SYNTAX
@@ -46,12 +47,12 @@ module FLOATZERO
   rule [start]: start(I) => chk(Int2Float(I, 53, 11))
   rule [point]: chk(0.0) => done(7)
   rule [pointow]: chk(_) => done(0) [owise]
-  // F8: the binary64 NaN, an even root of a negative value.
-  rule [nans]: nans(I) => nanc(rootFloat(Int2Float(I, 53, 11), 2))
+  // F8: the binary64 NaN, the quotient of two zeros (`fp.div`, domains.md 1568).
+  rule [nans]: nans(I) => nanc(Int2Float(I, 53, 11) /Float Int2Float(I, 53, 11))
   rule [nanp]: nanc(NaN) => done(7)
   rule [nanow]: nanc(_) => done(0) [owise]
-  // F9: the binary64 infinity, 2^I beyond the largest finite value.
-  rule [infs]: infs(I) => infc(Int2Float(2 ^Int I, 53, 11))
+  // F9: the binary64 infinity, 1.0 over `1.0 -Float 1.0`, which is +0.0 (`fp.div`, `fp.sub`).
+  rule [infs]: infs(I) => infc(Int2Float(I, 53, 11) /Float (Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11)))
   rule [infp]: infc(Infinity) => done(7)
   rule [infow]: infc(_) => done(0) [owise]
   // F11: `==Float` against a literal (the mutant writes `==K`).
