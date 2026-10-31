@@ -140,11 +140,11 @@ impl BinaryOperation {
 ///
 /// `domains.md` names no format for such an operation's result. IEEE 754 defines an operation as
 /// its exact result rounded once to a destination format and leaves the destination of operands
-/// of two formats to the language; k-rust's reading, applied only in an execution, takes the
-/// operand format that contains the other, binary64 (the destination IEEE 754-2008 10.3 gives
-/// under `preferredWidthNone`): every binary32 value, subnormals, infinities, signed zeros and
-/// NaN included, is a binary64 value, so the binary32 operand widens exactly and the result is
-/// rounded once.
+/// of two formats to the language, so the result is open (class `float-destination`); k-rust's
+/// pick, applied only in an execution, which marks it, takes the operand format that contains
+/// the other, binary64 (the destination IEEE 754-2008 10.3 gives under `preferredWidthNone`):
+/// every binary32 value, subnormals, infinities, signed zeros and NaN included, is a binary64
+/// value, so the binary32 operand widens exactly and the result is rounded once.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MixedPair {
     left: KFloat,
@@ -166,13 +166,13 @@ impl MixedPair {
         (self.left.as_f64(), self.right.as_f64())
     }
 
-    /// Why the definition leaves `hook`'s value on this pair to a reading, for the
-    /// unevaluated application outside an execution.
+    /// Why the definition leaves `hook`'s value on this pair open, for the unevaluated
+    /// application outside an execution.
     pub(crate) fn detail(self, hook: &str) -> String {
         format!(
             "{hook} of a Float of precision {} with {} exponent bits and one of precision {} with \
              {} exponent bits rounds to a result format domains.md does not name; k-rust's \
-             reading, binary64, applies only in an execution",
+             pick, binary64, applies only in an execution",
             self.left.precision(),
             self.left.exponent_bits(),
             self.right.precision(),
@@ -204,16 +204,16 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
 /// argument is a NaN of any format; `None` otherwise.
 ///
 /// `signFloat` is "the value of the sign bit" of a `Float`, a value of an IEEE-like format, in
-/// which every value, a NaN included, has a sign bit. k-rust reads every spelling of `NaN` in one
-/// format as the one NaN of that format, as the canonical text stores it (payloads are not
-/// modelled); the literal syntax writes one unsigned `NaN` lexeme per format beside signed zeros
-/// and infinities, and `Float2String` round-trips every `Float` through that syntax, which that
-/// reading makes one NaN per format. The description does not say which sign bit that NaN has,
-/// so only the sign bit is open: it gives the application a
-/// Bool value in every model, whatever its declaration says, but which one the definition does
-/// not determine (class `nan-sign`): the evaluator's `false` is k-rust's reading, applied only
-/// in an execution (`super::implementation_chosen`). The argument is read exactly as the
-/// evaluator reads it.
+/// which every value, a NaN included, has a sign bit. A format has one NaN, which every spelling
+/// of `NaN` in that format names, as the canonical text stores it (payloads are not modelled):
+/// the literal syntax writes one unsigned `NaN` lexeme per format beside signed zeros and
+/// infinities, and `Float2String` round-trips every `Float` through that syntax, so every NaN of
+/// a format is that lexeme's value (determined; `docs/compatibility.md`, "Backend scope"). The
+/// description does not say which sign bit that NaN has, so only the sign bit is open: it gives
+/// the application a Bool value in every model, whatever its declaration says, but which one the
+/// definition does not determine (class `nan-sign`): the evaluator's `false` is k-rust's pick,
+/// applied only in an execution, which marks it (`super::implementation_chosen`). The argument
+/// is read exactly as the evaluator reads it.
 pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
     if hook != "FLOAT.sign" {
         return None;
@@ -227,7 +227,7 @@ pub(crate) fn nan_sign(hook: &str, arguments: &[Term]) -> Option<String> {
         Ok(None) | Err(_) => false,
     };
     nan.then(|| {
-        "FLOAT.sign of a NaN reads a sign bit the NaN literal is not given; k-rust's reading, \
+        "FLOAT.sign of a NaN reads a sign bit the NaN literal is not given; k-rust's pick, \
          false, applies only in an execution"
             .into()
     })
@@ -557,7 +557,7 @@ impl KFloat {
 
     /// The exact result of `operation` rounded once to nearest, ties to even, in the destination
     /// format: the operands' format when they share one, and otherwise the operand format that
-    /// contains the other, binary64 ([`MixedPair`]). The second is k-rust's reading, which the
+    /// contains the other, binary64 ([`MixedPair`]). The second is k-rust's pick, which the
     /// root evaluation outside an execution withholds (`super::implementation_chosen`); under a
     /// `choice_sampling` seed the destination is the one the seed chooses, binary32 or binary64,
     /// either of which a model of the definition may take (class `float-destination`).

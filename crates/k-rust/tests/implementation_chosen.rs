@@ -2117,7 +2117,9 @@ endmodule
     /// The items of a `Set` or `Map` literal perform their effects in k-rust's order of the item
     /// terms, whatever their source order (`aa(..)` before `zz(..)`, so `aa` reads `A`, 65);
     /// `List` items, like the arguments of an application, left to right (the second item reads
-    /// `B`, 66). Nothing is marked: the order is k-rust's stated reading.
+    /// `B`, 66). Nothing is marked: the order is not a value but k-rust's order of console effects,
+    /// which no evaluation withholds (`docs/compatibility.md`, "Conditionals and Boolean
+    /// connectives are strict").
     #[test]
     fn collection_items_perform_their_effects_in_the_documented_order() {
         let found = ["pSet", "pSetRev", "pMap", "pMapRev", "pList", "pListRev"]

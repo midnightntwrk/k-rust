@@ -507,9 +507,9 @@ export interface ExecutionResult {
    * absent when none (docs/compatibility.md, "Implementation-chosen hook values"). It includes
    * the values read by work that ended on no reported leaf (a vanished candidate, a state a
    * `state-set` merge absorbed). When absent, every model of the definition that agrees with the
-   * request's inputs and k-rust's stated readings gives the run the same leaves. In a run with
-   * `maxWork` or `maxBreadth` every leaf carries every value listed here, and so does, under
-   * `state-set`, every leaf a leaf of another halt class may stand for in the final merge (a
+   * request's inputs and k-rust's order of console effects gives the run the same leaves. In a
+   * run with `maxWork` or `maxBreadth` every leaf carries every value listed here, and so does,
+   * under `state-set`, every leaf a leaf of another halt class may stand for in the final merge (a
    * `depth-bound` or other unexplored or undecided leaf, and with `terminalRules` a `stuck` or
    * `terminal` one).
    */
@@ -575,7 +575,7 @@ export type ContradictedClaim =
  * and assumed nothing but true: for `total`, no constraint of the state; for
  * `preserves-definedness`, every constraint of the step simplified to true, so its `requires` was
  * decided), so the claim is false at that input in every model that agrees with the request's
- * inputs (on the I/O route, the console state too) and with k-rust's stated readings; a
+ * inputs (on the I/O route, the console state too) and with k-rust's order of console effects; a
  * non-ground record shows nothing. `observedIn`: whether the definition's
  * load or this run observed it; a leaf's records are always 'run'.
  */
@@ -1033,7 +1033,7 @@ export interface SearchResult {
   /**
    * Every distinct value the definition leaves open that the search read, in first-read order;
    * absent when none. When absent, every model of the definition that agrees with the request's
-   * inputs and k-rust's stated readings gives the same results, entries and end.
+   * inputs and k-rust's order of console effects gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
   /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
@@ -1055,7 +1055,7 @@ export interface PathSearchResult {
   /**
    * Every distinct value the definition leaves open that the search read, in first-read order;
    * absent when none. When absent, every model of the definition that agrees with the request's
-   * inputs and k-rust's stated readings gives the same results, entries and end.
+   * inputs and k-rust's order of console effects gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
   /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
@@ -1085,7 +1085,7 @@ export interface PatternSearchResult {
   /**
    * Every distinct value the definition leaves open that the search read, in first-read order;
    * absent when none. When absent, every model of the definition that agrees with the request's
-   * inputs and k-rust's stated readings gives the same results, entries and end.
+   * inputs and k-rust's order of console effects gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
   /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
@@ -1115,7 +1115,7 @@ export interface PathPatternSearchResult {
   /**
    * Every distinct value the definition leaves open that the search read, in first-read order;
    * absent when none. When absent, every model of the definition that agrees with the request's
-   * inputs and k-rust's stated readings gives the same results, entries and end.
+   * inputs and k-rust's order of console effects gives the same results, entries and end.
    */
   implementationChosenValues?: ChosenValue[]
   /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */

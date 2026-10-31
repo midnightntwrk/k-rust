@@ -239,8 +239,11 @@ fn implementation_chosen_hooks_are_k_rusts() {
     );
     let nan = function(&float, "nan_sign");
     let zeros = function(&float, "signed_zeros");
-    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K2 fix round 2; a changed
-    // text needs the hook list re-derived from it.
+    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K2 fix round 2,
+    // `float::nan_sign`'s at GAP K6 (c17041cf -> f7e3a96f: only its reason string changed,
+    // "k-rust's reading, false" to "k-rust's pick, false", so it classifies the same hook on the
+    // same arguments and the list derived from it is unchanged); a changed text needs the hook
+    // list re-derived from it.
     let digests = [
         ("chosen_value", chosen),
         ("float::mixed_destination", mixed),
@@ -266,7 +269,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
             ),
             (
                 "float::nan_sign",
-                "c17041cfd7ea611ad2def7d98277f9204f00e410c066beb4ac6d7bc93c2f285a".to_owned()
+                "f7e3a96f5d8dc29cbfc5cc41ba43f23a173225448e6758d0604d21dd4ae3c25b".to_owned()
             ),
             (
                 "float::signed_zeros",

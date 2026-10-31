@@ -1038,9 +1038,9 @@ pub struct ExecutionResult {
     /// no reported leaf, such as a candidate that vanished, a state a state-set merge absorbed,
     /// or a state whose successors were all absorbed. Empty exactly when no evaluation of the
     /// run took a value the definition leaves open: then every model of the definition that
-    /// agrees with the request's inputs and k-rust's stated readings gives the run the same
-    /// leaves. An evaluation that only decided a definedness every model gives alike does not
-    /// count.
+    /// agrees with the request's inputs and k-rust's order of console effects gives the run the
+    /// same leaves. An evaluation that only decided a definedness every model gives alike does
+    /// not count.
     pub implementation_chosen_values: Vec<crate::builtin::ChosenValue>,
     /// Every distinct contradicted claim the run observed, in the order the run first noted it
     /// (`crate::path_facts::ContradictedClaim`), and those the load of its definition observed

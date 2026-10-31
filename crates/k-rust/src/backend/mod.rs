@@ -659,9 +659,10 @@ pub struct ExecutionResult<K = Value> {
     /// leaves' paths (`BackendDiagnosticOutput::ImplementationChosenValue`) and those of work
     /// that ended on no reported leaf: a candidate that vanished, a state a `state-set` merge
     /// absorbed, a state whose successors were all absorbed. When it is empty, every model of the
-    /// definition that agrees with the request's inputs and k-rust's stated readings gives the
-    /// run the same leaves. In a run that sets `maxWork` or `maxBreadth` every leaf carries every
-    /// mark of this list, since where those bounds cut the run rests on the work of every path.
+    /// definition that agrees with the request's inputs and k-rust's order of console effects gives
+    /// the run the same leaves. In a run that sets `maxWork` or `maxBreadth` every leaf carries
+    /// every mark of this list, since where those bounds cut the run rests on the work of every
+    /// path.
     /// Under `state-set` so does every leaf a leaf of another halt class may stand for in the
     /// final merge (a `depth-bound` or other unexplored or undecided leaf, and with
     /// `terminalRules` a `stuck` or `terminal` one), since the leaf it is merged into may come

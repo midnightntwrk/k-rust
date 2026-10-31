@@ -743,6 +743,14 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// one keeps its residue reading. (5) The fold writes no infinite result and reads no literal of
 /// the class, so it writes a subset of the values it wrote. So no unmarked run reads a literal
 /// whose element is open, and every value the fold writes is one it wrote before.
+///
+/// GAP K6 re-pin (ticket K6, the documentation sweep): the Float literal paragraph of Domain
+/// values (0c0ab74d -> e144923d) no longer states two of k-rust's picks as facts of the format:
+/// overflow to the infinity of the sign is now said of the arithmetic hooks, whose `smt-hook`s fix
+/// it, with a literal past the threshold class `literal`, and the element of an `Infinity` lexeme
+/// is k-rust's, class `literal`; the paragraph's first sentence already classified both, so the
+/// element k-rust builds, the marks and the canonical texts are unchanged, and admission reads
+/// the same.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -810,7 +818,7 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Domain values",
                 "A `Float` literal names a rational number",
-                "0c0ab74d018d2c0f6e66e3be42bc36ad2eb584ee9683a0a7d5a6950664bfbfdb",
+                "e144923d010bf81757386401f6937c75b90554c399c02b92deae0a558448175b",
             ),
             passage(
                 "## Constant folding",

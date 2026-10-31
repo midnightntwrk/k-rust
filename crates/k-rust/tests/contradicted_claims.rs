@@ -1133,9 +1133,11 @@ endmodule
 "#;
 
 /// `krun`'s warning says what a record shows. A ground record is a refutation of the claim at
-/// that input, so the definition is inconsistent there under k-rust's stated readings; a
-/// non-ground one (`rz(X)`, through `tz(_) => 10 /Int 0`) holds at each instance of a state that
-/// may have none, so it is worded as contradicted only. A record of the load says so.
+/// that input, so the definition is inconsistent there under k-rust's order of console effects
+/// (the one order it fixes that is not a value; every open value it reads is a mark, which makes
+/// the record not ground); a non-ground one (`rz(X)`, through `tz(_) => 10 /Int 0`) holds at each
+/// instance of a state that may have none, so it is worded as contradicted only. A record of the
+/// load says so.
 #[test]
 fn the_warning_says_what_a_record_shows() {
     use k_rust::backend::execution::contradicted_claim_message;
@@ -1166,8 +1168,9 @@ fn the_warning_says_what_a_record_shows() {
     let [ground] = <[String; 1]>::try_from(messages(CONTRADICTIONS, "r(0)", false)).unwrap();
     assert!(
         ground.contains("is contradicted on this input")
-            && ground
-                .contains("so the definition is inconsistent here under k-rust's stated readings")
+            && ground.contains(
+                "so the definition is inconsistent here under k-rust's order of console effects"
+            )
             && ground.ends_with("(observed by rule MAIN.r)"),
         "{ground}"
     );
@@ -1431,7 +1434,7 @@ endmodule
                 && message.contains("is contradicted on this input: its result ")
                 && message.contains("is undefined at Lbl'UndsSlsh'Int'Unds'{}")
                 && message.contains(
-                    "so the definition is inconsistent here under k-rust's stated readings",
+                    "so the definition is inconsistent here under k-rust's order of console effects",
                 )
                 && message.ends_with("(observed by rule MAIN.pd)"),
             "{message}"

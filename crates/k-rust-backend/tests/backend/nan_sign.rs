@@ -1,7 +1,8 @@
-//! `signFloat` is "the value of the sign bit", and a format has one NaN by k-rust's reading
-//! (every spelling of `NaN` in one format names it), whose sign bit `domains.md` does not give:
-//! the hook is total, so `signFloat`
-//! of a NaN has a Bool value in every model, but which one the definition leaves open. Inside an
+//! `signFloat` is "the value of the sign bit", and a format has one NaN, which every spelling of
+//! `NaN` in one format names (determined by `Float2String`'s round trip through the one `NaN`
+//! lexeme per format), whose sign bit `domains.md` does not give: the hook is total, so
+//! `signFloat` of a NaN has a Bool value in every model, but which one the definition leaves
+//! open (class `nan-sign`). Inside an
 //! execution (`EvaluationMode::Execution`) k-rust answers `false`; outside one the application
 //! stays unevaluated as a defined value, so that no proof verdict reads that choice. Every other
 //! sign is determined and evaluated in every mode.

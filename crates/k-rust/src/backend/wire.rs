@@ -197,9 +197,9 @@ impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
 /// `preserves-definedness`, every constraint of the step simplified to `\top`, so its `requires`
 /// was decided rather than carried): a ground record shows that the claim is false at that input
 /// in every model that agrees with the request's inputs (on the I/O route, the console state too)
-/// and with k-rust's stated readings; a non-ground one rests on something that may not hold in
-/// every model, and shows nothing. `observedIn` says
-/// whether the definition's load or this run observed it; a leaf's records are always `run`.
+/// and with k-rust's order of console effects; a non-ground one rests on something that may not
+/// hold in every model, and shows nothing. `observedIn` says whether the definition's load or
+/// this run observed it; a leaf's records are always `run`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -717,20 +717,19 @@ pub enum BackendDiagnosticOutput<K = Value> {
     },
     /// The path read a value of `hook` the definition leaves open, of class `class` (the names
     /// of [`ChosenValueOutput`](super::ChosenValueOutput)): in another model of the definition
-    /// that agrees with the request's inputs and k-rust's stated readings this leaf may differ
-    /// or be absent (`BackendDiagnostic::ImplementationChosenValue`). A leaf without one is, on
-    /// its own recorded path, a leaf in every such model (under `state-set`, its configuration
-    /// and halt, not its depth and trace); a search result or witness without one is reached in
-    /// every such model. It is a path fact: it stays on the paths that depend on the work that
-    /// found it whatever became of that work (an attempt that did not apply, a refuted
-    /// alternative, an undone attempt, a duplicate dropped for the kept state), and it never
-    /// causes or prevents a `state-set` merge. Where a halt rests on how many candidates survive
+    /// that agrees with the request's inputs and k-rust's order of console effects this leaf may
+    /// differ or be absent (`BackendDiagnostic::ImplementationChosenValue`). A leaf without one
+    /// is, on its own recorded path, a leaf in every such model (under `state-set`, its
+    /// configuration and halt, not its depth and trace); a search result or witness without one
+    /// is reached in every such model. It is a path fact: it stays on the paths that depend on the
+    /// work that found it whatever became of that work (an attempt that did not apply, a refuted
+    /// alternative, an undone attempt, a duplicate dropped for the kept state), and it never causes
+    /// or prevents a `state-set` merge. Where a halt rests on how many candidates survive
     /// (`stopAtBranch`; with `cutPointRules` or `terminalRules`, a state one of whose candidates is
     /// such a rule) every candidate's marks are on the state's path. A leaf carries all the run's
-    /// marks in a run with `maxWork` or `maxBreadth`, and under `state-set` when a leaf of
-    /// another halt class may stand for it (a `depth-bound` or other unexplored or undecided
-    /// leaf, and with `terminalRules` a `stuck` or `terminal` one) (docs/compatibility.md, "Marks
-    /// in executions").
+    /// marks in a run with `maxWork` or `maxBreadth`, and under `state-set` when a leaf of another
+    /// halt class may stand for it (a `depth-bound` or other unexplored or undecided leaf, and with
+    /// `terminalRules` a `stuck` or `terminal` one) (docs/compatibility.md, "Marks in executions").
     ImplementationChosenValue {
         hook: String,
         class: String,
@@ -1040,7 +1039,7 @@ pub struct SearchResponse<K = Value> {
     /// Every distinct value the definition leaves open that the search read, in first-read order
     /// (as for [`ExecutionResult::implementation_chosen_values`](super::ExecutionResult)); absent
     /// when empty. When absent, every model of the definition that agrees with the request's
-    /// inputs and k-rust's stated readings gives the same results, entries and end
+    /// inputs and k-rust's order of console effects gives the same results, entries and end
     /// (docs/compatibility.md, "Marks in executions").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<super::ChosenValueOutput>,

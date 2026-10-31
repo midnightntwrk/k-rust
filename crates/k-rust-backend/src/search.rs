@@ -453,8 +453,8 @@ pub struct SearchResult {
     /// work on no reported path, such as a candidate that vanished, the step that decided
     /// whether a state at the result bound may expand, or a match. Empty exactly when no
     /// evaluation of the search took such a value: then every model of the definition that
-    /// agrees with the request's inputs and k-rust's stated readings gives the same results,
-    /// entries and end.
+    /// agrees with the request's inputs and k-rust's order of console effects gives the same
+    /// results, entries and end.
     pub implementation_chosen_values: Vec<ChosenValue>,
     /// Every distinct contradicted claim the search observed and those the load of its
     /// definition observed, first, in first-observed order, as for

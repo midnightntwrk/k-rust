@@ -1,5 +1,5 @@
 //! The binary32 destination of a Float operation over a binary32 and a binary64 operand, the
-//! value another model of the definition gives where k-rust's reading takes binary64
+//! value another model of the definition gives where k-rust's pick takes binary64
 //! (`super::MixedPair`), for the test-only chooser (`crate::choice_sampling`).
 //!
 //! IEEE 754 defines an operation as its exact result rounded once to the destination format. The

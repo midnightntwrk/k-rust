@@ -2,10 +2,13 @@
 //! in its format. Built only with the test feature `mpfr-oracle`, which links MPFR through `rug`
 //! (CI enables it); no other build of this crate depends on MPFR.
 //!
-//! A literal of the format `pNxM` denotes its decimal rounded to nearest, ties to even, at `N`
-//! bits of precision and then into the format's exponent range with subnormals, as IEEE 754
-//! rounds (`domains.md`). MPFR computes that value correctly rounded at any precision, with the
-//! range and subnormals imposed from the rounding direction (`clamp_exp`, `subnormalize_round`).
+//! k-rust's element of a literal of the format `pNxM` is its decimal rounded to nearest, ties to
+//! even, at `N` bits of precision and then into the format's exponent range with subnormals, as
+//! IEEE 754 rounds: `domains.md` fixes "nearest", and where that leaves the element open (a tie,
+//! an overflow, a rounded zero's sign) the literal is class `literal` and this is k-rust's pick
+//! (`docs/compatibility.md`, "Domain values"). MPFR computes that value correctly rounded at any
+//! precision, with the range and subnormals imposed from the rounding direction (`clamp_exp`,
+//! `subnormalize_round`).
 //! The backend's canonicalizer (`canonical_float_text`) is an implementation of its own, in
 //! exact rational arithmetic, so a difference between the value its text denotes and MPFR's is a
 //! defect on one side.

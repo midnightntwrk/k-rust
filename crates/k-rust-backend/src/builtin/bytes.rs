@@ -63,13 +63,14 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 /// `String2Bytes` is the inverse of `Bytes2String`: each code point `b` in `0..=255` maps to the
-/// byte `b`. That is k-rust's stated reading of `domains.md`'s "the resulting value is a copy of
-/// the original" over the strings the module supports, those of the initial 256 code points: a
-/// copy keeps each item, and on those strings every item on either side is a number in
-/// `0..=255`, so both `total` conversions are total and mutually inverse there (`encodeBytes` and
-/// `decodeBytes`, which name their encoding, are the conversions that encode). The hook is
-/// `total`, so on a string holding a code point above 255, which is the copy of no byte
-/// sequence, its value is not given by the definition and the application is left unevaluated.
+/// byte `b`. That is k-rust's pick, not a value the text fixes: `domains.md` names no encoding
+/// for the pair (it bounds the time and makes the result a copy independent of later mutation,
+/// and warns that encodings may change), so every evaluated application is open, class
+/// `byte-encoding`, which an execution takes and marks and every other evaluation leaves
+/// unevaluated (`super::chosen_value`; `encodeBytes` and `decodeBytes`, which name their
+/// encoding, are determined on valid input). The hook is `total`, so on a string holding a code
+/// point above 255, which this pick maps to no byte sequence, the application is left
+/// unevaluated on every route.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let Some(value) = super::string::read_string(&arguments[0]) else {
@@ -1158,7 +1159,7 @@ mod tests {
         );
     }
 
-    /// Under the byte-per-code-point reading of the pair (k-rust's stated reading; see
+    /// Under k-rust's pick for the pair, one byte per code point (open, class `byte-encoding`; see
     /// `string_to_bytes`), every code point up to 255 is the byte of the same number, and a
     /// string with a code point above 255 has no byte sequence `Bytes2String` maps to it.
     #[test]
