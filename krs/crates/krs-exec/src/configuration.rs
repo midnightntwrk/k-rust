@@ -3,7 +3,7 @@
 //! A program parser has no K sequence syntax, so a `K`-sorted cell expectation (`trap ~> .Instrs`) is read by a ground K-value parser ([`ProgramParser::for_ground_values`]): the main module's program grammar plus exactly `.K`, `K ~> K`, and a K bracket.
 
 use k_rust::{
-    definition::{AttributeKey, Definition, Sentence},
+    definition::{AttributeKey, Attributes, Definition, Sentence},
     inner::{PresentedProgram, ProgramParser},
     kast::Sort as KastSort,
     kompile::{
@@ -58,16 +58,29 @@ impl From<ConfigurationError> for AssemblyError {
 /// names no production. The syntax module, which parses programs, is left as it is: there a
 /// predicate's name, `isInt`, would be a keyword, which an identifier token spelled the same
 /// could no longer be.
+///
+/// Only the helpers are taken. The passes also state facts of the compiled theory on sentences
+/// the frontend already has: the projection pass marks a Map cell collection's key projection
+/// (`RowCellMapKey`) `total` when the collection's instance cell is the only generator of its
+/// sort. The main module keeps the frontend's own sentences as they are, as every other module
+/// does, so such an attribute is not taken: a program is typed and converted by the productions'
+/// syntax, sorts and labels, and `total` changes none of them.
 fn with_sort_helpers(frontend: &Definition) -> Result<Definition, Box<dyn Error>> {
     let generated = k_rust::kompile::generate_sort_projections(
         &k_rust::kompile::generate_sort_predicate_syntax(frontend)?,
     )?;
     let mut helpers = Vec::new();
     for (module, with) in frontend.modules.iter().zip(&generated.modules) {
-        // Each pass appends what it generates to a module's own sentences.
+        // Each pass appends what it generates after a module's own sentences, which it keeps in
+        // place, up to the attributes it adds to them.
         let own = module.local_sentences.len();
         if module.name != with.name
-            || with.local_sentences.get(..own) != Some(&module.local_sentences[..])
+            || with.local_sentences.len() < own
+            || !module
+                .local_sentences
+                .iter()
+                .zip(&with.local_sentences)
+                .all(|(own, with)| same_up_to_attributes(own, with))
         {
             return Err(format!("sort helper generation changed module `{}`", module.name).into());
         }
@@ -87,6 +100,16 @@ fn with_sort_helpers(frontend: &Definition) -> Result<Definition, Box<dyn Error>
         .ok_or_else(|| format!("the frontend definition has no main module `{main_module}`"))?;
     main.local_sentences.extend(helpers);
     Ok(output)
+}
+
+/// Whether `with` is the sentence `own` with at most its attributes changed.
+fn same_up_to_attributes(own: &Sentence, with: &Sentence) -> bool {
+    own == with || {
+        let [mut own, mut with] = [own.clone(), with.clone()];
+        *own.attributes_mut() = Attributes::default();
+        *with.attributes_mut() = Attributes::default();
+        own == with
+    }
 }
 
 /// Whether `sentence` is a generated sort predicate (`isS`) or sort projection (`project:S`), or
@@ -522,7 +545,11 @@ impl Configuration {
 #[cfg(test)]
 mod tests {
     use super::Configuration;
-    use k_rust::{kast::Sort, names::BuiltinSort};
+    use k_rust::{
+        definition::{Definition, Sentence},
+        kast::Sort,
+        names::BuiltinSort,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -649,6 +676,72 @@ endmodule
             BTreeMap::from([("PGM".to_owned(), Sort::builtin(BuiltinSort::K))]),
         )
         .unwrap();
+        let configured = configuration
+            .configure(json!({"PGM": "run"}).as_object().unwrap())
+            .unwrap();
+        let pattern = configured["pattern"].as_str().unwrap();
+        assert!(pattern.contains("Lblrun{}()"), "{pattern}");
+    }
+
+    /// The instance cell of the Map collection `row` is the only generator of its sort, so the
+    /// compiled definition marks the collection's key projection `RowCellMapKey` total, an
+    /// attribute on a production the frontend already declares. The program grammar is the
+    /// frontend's with the sort helpers added: the definition loads, the key projection is the
+    /// frontend's own, and `isInt` is declared in the main module.
+    #[test]
+    fn a_map_cell_collection_whose_key_projection_is_total_loads() {
+        let parsed = k_rust::outer::parse(
+            "rows.k",
+            r#"
+module MAIN
+  imports INT
+  imports MAP
+  imports BASIC-K
+  syntax Pgm ::= "run" [symbol(run)]
+  configuration <k> $PGM:Pgm </k>
+                <rows> <row multiplicity="*" type="Map"> <id> 0 </id> <v> 0 </v> </row> </rows>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([("PGM".to_owned(), Sort::new("Pgm"))]),
+        )
+        .unwrap();
+        let main = |definition: &Definition| {
+            definition
+                .modules
+                .iter()
+                .find(|module| module.name == definition.main_module)
+                .unwrap()
+                .local_sentences
+                .clone()
+        };
+        let label = |sentence: &Sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            _ => None,
+        };
+        let program = main(configuration.grammar.program.definition());
+        let frontend = main(loaded.definition());
+        let key = |sentences: &[std::sync::Arc<Sentence>]| {
+            sentences
+                .iter()
+                .find(|sentence| label(sentence).as_deref() == Some("RowCellMapKey"))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(key(&program), key(&frontend));
+        assert!(
+            program
+                .iter()
+                .any(|sentence| label(sentence).as_deref() == Some("isInt")),
+        );
         let configured = configuration
             .configure(json!({"PGM": "run"}).as_object().unwrap())
             .unwrap();
