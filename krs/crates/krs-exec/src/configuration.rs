@@ -438,6 +438,33 @@ impl Configuration {
         Ok(self.assembler.finish()?)
     }
 
+    /// Whether `printed`, the printed text of `token` (`\dv{S}(..)`), reads back as `token` at a
+    /// position of sort `position`: parsed there alone with the syntax module's grammar, the one a
+    /// program is read with, and its aliases expanded, it is `token`. The scanner reads a token
+    /// whatever the parse expects there, so the text alone reads as it does inside a printed term.
+    /// A position whose sort has parameters is not judged (`true`).
+    pub(crate) fn reads_back_token(
+        &mut self,
+        position: &Sort,
+        printed: &str,
+        token: &Pattern,
+    ) -> bool {
+        let Sort::Application { name, arguments } = position else {
+            return true;
+        };
+        let Some(kast) = name
+            .strip_prefix("Sort")
+            .filter(|_| arguments.is_empty())
+            .map(|name| KastSort::new(krs_unparse::decode_kore(name)))
+            .filter(|kast| encode_kore_sort(kast) == *position)
+        else {
+            return true;
+        };
+        let module = self.syntax_module.clone();
+        self.parse_surface(&module, &kast, printed, false)
+            .is_ok_and(|(value, _)| without_injection(&value) == token)
+    }
+
     /// Parse program text at `sort` with the syntax module's grammar, as `kast --sort` does.
     ///
     /// # Errors
@@ -539,6 +566,18 @@ impl Configuration {
             .ground_value_parser
             .as_ref()
             .expect("parser was built above"))
+    }
+}
+
+/// `pattern` without the injection at its root, if it has one.
+fn without_injection(pattern: &Pattern) -> &Pattern {
+    match pattern {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == "inj" && arguments.len() == 1 =>
+        {
+            &arguments[0]
+        }
+        _ => pattern,
     }
 }
 

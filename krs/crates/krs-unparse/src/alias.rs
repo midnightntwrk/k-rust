@@ -93,7 +93,7 @@ impl<'a> Reverser<'a> {
         }
         let term = Node::App(applied);
         for (index, rule) in self.macros.iter().enumerate() {
-            if rule.one_way || rule.right.as_app().is_none() {
+            if !rule.reversible() {
                 continue;
             }
             if !rule.recursive && applied_rules.contains(&index) {

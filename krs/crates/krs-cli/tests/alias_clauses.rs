@@ -5,9 +5,9 @@
 //! list's anonymous rest) and a name the result does not use have no value there, and the printed
 //! alias would not denote the printed value. Each is refused at the construct, or at the name,
 //! with a message that says what would print and points to `#[k::desugar]`, which runs one way.
-//! What the result computes is admitted: a concrete printed value holds no unevaluated
-//! application, so the reverse does not fire on it, and a symbolic one holds the very application
-//! the clause expands to, so the printed alias denotes it.
+//! What the result computes is admitted, and runs forward only: a printed value that equals the
+//! result's value is no term the author wrote the alias for, so it prints expanded. So does a term
+//! through a clause whose subject's token would read back as another term.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -690,4 +690,92 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
         .collect::<Vec<_>>()
         .join("\n"),
     );
+}
+
+const FORWARD_ONLY: &str = r#"
+#[k::token(regex = r"w[a-z]*")]
+pub struct Word(pub String);
+
+#[k::constructors(sort = Value, result = KResult)]
+#[rustfmt::skip]
+pub enum Fw {
+    #[k::syntax("three()")] #[k::alias] Three(),
+    #[k::syntax("sized({a})")] #[k::alias] Sized { a: Int },
+    #[k::syntax("worded({a}, {b})")] #[k::alias] Worded { a: Int, b: KItem },
+    #[k::syntax("named({a})")] Named { a: k::builtin::Id },
+}
+
+#[k::alias]
+fn three(k::term![Fw::Three()]: Term<Value>) -> Term<Value> {
+    Data::Tag(1 + 2)
+}
+
+#[k::alias]
+fn sized(k::term![Fw::Sized(a)]: Term<Value>) -> Term<Value> {
+    Data::Pair(a, Size(Data::Red()))
+}
+
+#[k::alias]
+fn worded(k::term![Fw::Worded(x, k::lexeme!(Word, "word"))]: Term<Value>) -> Term<Value> {
+    Data::Box(x)
+}
+
+#[k::alias]
+fn pairs(k::term![Al::Pairs(7, y)]: Term<Value>) -> Term<Value> {
+    Data::Mk(y, y)
+}
+"#;
+
+/// Printing writes a term through an alias clause only where the alias is a term the author
+/// wrote for it and reads back as it. A clause whose written result computes is not reversed:
+/// `three() => tag(1 + 2)` reaches `macros.kore` folded, as `tag(3)`, and printing every `tag(3)`
+/// as `three()` would name an expression for a value that merely equals it (on main `tag(3)`
+/// printed `three()`); a stuck application of the result's function is not printed through it
+/// either (`pair(1, size(zero()))`, `red` printing as the preamble's `zero()`; on main `sized(1)`). A clause whose subject writes a token that
+/// reads back as another term is not reversed: `word`, a `Word`, reads back as an `Id` where a
+/// `KItem` stands, so `worded(5, word)` (main's print of `box(5)`) would read back as an
+/// application its clause does not expand. A clause of a constructed result whose token reads
+/// back (`7`) is: `mk(5, 5)` prints `pairs(7, 5)`. The program `worded(5, word)`, main's print read
+/// back, does not expand.
+#[test]
+fn printing_reverses_only_a_constructed_result_through_tokens_that_read_back() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), &format!("{OTHER_CLAUSES}{FORWARD_ONLY}"));
+    let printed = [
+        "tag(3)",
+        "sized(1)",
+        "box(5)",
+        "mk(5, 5)",
+        "worded(5, word)",
+    ]
+    .map(|program| {
+        let file = manifest.with_file_name("program.txt");
+        fs::write(&file, program).unwrap();
+        let (_, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+        let state = stdout
+            .lines()
+            .skip_while(|line| line.trim() != "<k>")
+            .skip(1)
+            .take_while(|line| line.trim() != "</k>")
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if state.is_empty() {
+            let refusal = stderr
+                .lines()
+                .find(|line| line.starts_with("error"))
+                .unwrap_or_else(|| panic!("{program}: {stdout}\n{stderr}"));
+            format!("{program} fails: {refusal}")
+        } else {
+            format!("{program} => {state}")
+        }
+    })
+    .join("\n");
+    expect_test::expect![[r"
+        tag(3) => tag(3) ~> .K
+        sized(1) => pair(1, size ( zero() )) ~> .K
+        box(5) => box(5) ~> .K
+        mk(5, 5) => pairs(7, 5) ~> .K
+        worded(5, word) fails: error[krs::exec::backend]: invalid executable state: invalid executable input: macro or alias symbol 'LblfwWorded' survived expansion"]].assert_eq(&printed);
 }

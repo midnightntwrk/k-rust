@@ -178,6 +178,53 @@ pub struct Printed {
     pub warnings: Vec<Warning>,
 }
 
+/// An alias clause a printer reverses ([`Unparser::reversed_clauses`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReversedClause {
+    /// The rule's `label`.
+    pub label: Option<String>,
+    /// The tokens its left-hand side writes, which a reversal prints as they are.
+    pub tokens: Vec<SubjectToken>,
+}
+
+/// A token an alias clause's left-hand side writes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubjectToken {
+    /// The sort of the position it stands at: the target of the injection around it, or its own.
+    pub position: k_rust::kore::ast::Sort,
+    /// The token, `\dv{S}("..")`.
+    pub token: Pattern,
+    /// The token as this printer writes it.
+    pub printed: String,
+}
+
+/// The tokens below `node` with the sort of the position each stands at, `position` being the
+/// target of the injection `node` stands under, if any.
+fn subject_tokens<'n>(
+    node: &'n Node,
+    position: Option<&'n k_rust::kore::ast::Sort>,
+    found: &mut Vec<(&'n k_rust::kore::ast::Sort, &'n Node)>,
+) {
+    let Node::App(app) = node else {
+        return;
+    };
+    if app.sym.name == "\\dv" {
+        if let Some(sort) = position.or_else(|| app.sym.formals.first()) {
+            found.push((sort, node));
+        }
+        return;
+    }
+    // A conjunction's conjuncts stand at its position; an injection's argument at its target.
+    let inner = match app.sym.name.as_str() {
+        "\\and" => position,
+        "inj" => app.sym.formals.get(1),
+        _ => None,
+    };
+    for argument in &app.args {
+        subject_tokens(argument, inner, found);
+    }
+}
+
 /// A failure to build an [`Unparser`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnparseError(String);
@@ -233,6 +280,59 @@ impl Unparser {
             rule.left
                 .as_app()
                 .is_none_or(|app| keep(app.sym.name.as_str()))
+        });
+        printer
+    }
+
+    /// The alias clauses this printer reverses, in `macros.kore` order: each `alias` or
+    /// `alias-rec` axiom whose right-hand side is an application.
+    #[must_use]
+    pub fn reversed_clauses(&self) -> Vec<ReversedClause> {
+        self.macros
+            .iter()
+            .filter(|rule| rule.reversible())
+            .map(|rule| {
+                let mut tokens = Vec::new();
+                subject_tokens(&rule.left, None, &mut tokens);
+                ReversedClause {
+                    label: rule.label.clone(),
+                    tokens: tokens
+                        .into_iter()
+                        .filter_map(|(position, token)| {
+                            let pattern = to_pattern(token)?;
+                            let printed = self
+                                .print_kore(
+                                    &pattern,
+                                    &Options {
+                                        reverse_aliases: false,
+                                        ..Options::default()
+                                    },
+                                )
+                                .text;
+                            Some(SubjectToken {
+                                position: position.clone(),
+                                token: pattern,
+                                printed,
+                            })
+                        })
+                        .collect(),
+                }
+            })
+            .collect()
+    }
+
+    /// This printer without reversing the alias clauses whose `label` `forward_only` admits: they
+    /// still expand where a program or a rule writes them, but a printed term is never written
+    /// through them.
+    #[must_use]
+    pub fn without_reversing(&self, forward_only: impl Fn(&str) -> bool) -> Self {
+        let mut printer = self.clone();
+        printer.macros.retain(|rule| {
+            !rule.reversible()
+                || rule
+                    .label
+                    .as_deref()
+                    .is_none_or(|label| !forward_only(label))
         });
         printer
     }

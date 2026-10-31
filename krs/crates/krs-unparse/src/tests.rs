@@ -318,6 +318,53 @@ fn a_reversal_fires_only_where_the_clause_matches_with_its_literals() {
     assert_eq!(print("Lblg{}(Lbla{}())"), "g ( a )");
 }
 
+/// The printer lists each alias clause it reverses with its label and the tokens its subject
+/// writes, each at the position it stands at, printed; a clause it is told not to reverse prints
+/// nothing backwards, and the others still do.
+#[test]
+fn a_clause_kept_forward_only_is_not_reversed_and_the_others_are() {
+    let macros = ["1", "2"]
+        .iter()
+        .map(|literal| {
+            format!(
+                "axiom{{R}} \\equals{{SortExp{{}}, R}}(Lblf{{}}(\\and{{SortExp{{}}}}(\\dv{{SortExp{{}}}}(\"{literal}\"), VarX:SortExp{{}})), Lblg{{}}(VarX:SortExp{{}})) [alias'Kywd'{{}}(), label{{}}(\"clause{literal}\")]"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let unparser = Unparser::from_kore(SYNTHETIC, &macros).expect("synthetic KORE");
+    let listed = |unparser: &Unparser| {
+        unparser
+            .reversed_clauses()
+            .iter()
+            .map(|clause| {
+                let tokens = clause
+                    .tokens
+                    .iter()
+                    .map(|token| format!("{} at {}", token.printed, token.position))
+                    .collect::<Vec<_>>();
+                format!("{:?}: {}", clause.label, tokens.join(", "))
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        listed(&unparser),
+        [
+            "Some(\"clause1\"): 1 at SortExp{}",
+            "Some(\"clause2\"): 2 at SortExp{}"
+        ]
+    );
+    let forward_only = unparser.without_reversing(|label| label == "clause1");
+    let print = |term: &str| {
+        forward_only
+            .print_kore(&pattern(term), &Options::default())
+            .text
+    };
+    assert_eq!(print("Lblg{}(\\dv{SortExp{}}(\"1\"))"), "g ( 1 )");
+    assert_eq!(print("Lblg{}(\\dv{SortExp{}}(\"2\"))"), "f ( 2 )");
+    assert_eq!(listed(&forward_only), ["Some(\"clause2\"): 2 at SortExp{}"]);
+}
+
 /// A conjunct whose variable the result's match leaves unbound takes the term the bound
 /// conjuncts determine, so the printed application expands back to the matched term.
 #[test]

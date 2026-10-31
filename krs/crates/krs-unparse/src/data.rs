@@ -105,6 +105,17 @@ pub(crate) struct Macro {
     pub one_way: bool,
     /// `macro-rec` or `alias-rec`: may apply repeatedly on one path.
     pub recursive: bool,
+    /// The rule's `label`, which names the clause it was emitted from.
+    pub label: Option<String>,
+}
+
+impl Macro {
+    /// Whether printing may reverse it: an `alias` or `alias-rec` axiom whose right-hand side
+    /// is an application. A right-hand side that is a variable names no head and matches every
+    /// term ([`crate::alias`]).
+    pub fn reversible(&self) -> bool {
+        !self.one_way && self.right.as_app().is_some()
+    }
 }
 
 /// Everything `pretty_print_data` holds, plus the symbol declarations and overloads.
@@ -404,6 +415,7 @@ impl PrintData {
                     right,
                     one_way: has(attributes, "macro") || has(attributes, "macro-rec"),
                     recursive: has(attributes, "macro-rec") || has(attributes, "alias-rec"),
+                    label: attribute_string(attributes, "label"),
                 })
             })
             .collect()

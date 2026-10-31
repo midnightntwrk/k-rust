@@ -21,6 +21,7 @@ mod configuration;
 mod console;
 mod origin;
 mod report;
+mod reversal;
 mod stage;
 mod values;
 mod view;
@@ -581,13 +582,18 @@ impl Semantics {
 
         let main_module = frontend_definition.main_module.clone();
         let variables = config_variables(&configuration_variables);
-        let configuration = timings.try_span("exec.configuration", |_| {
+        let mut configuration = timings.try_span("exec.configuration", |_| {
             Configuration::new(&frontend_definition, configuration_variables)
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let unparser = timings.try_span("exec.unparser", |_| {
             krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
                 .map(|unparser| unparser.with_program_grammar(&frontend_definition))
+                .map(|unparser| {
+                    let forward_only =
+                        reversal::forward_only(definition, &unparser, &mut configuration);
+                    unparser.without_reversing(|label| forward_only.contains(label))
+                })
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let mut backend = timings.try_span("exec.backend", |_| {
