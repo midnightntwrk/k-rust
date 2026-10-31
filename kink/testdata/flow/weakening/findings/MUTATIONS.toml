@@ -1,0 +1,11 @@
+# kink-flow mutation list for the weakening-with-findings fixture (kink27 R5-WEAKENING fix round
+# 2): one narrowing of an equation of h, a weakening, on a baseline with an unassumed finding.
+
+[[mutation]]
+id = "h-small-narrow"
+note = "conjoins a term to the requires of an equation of h; no equation of h ranks after it"
+
+  [[mutation.edit]]
+  rule = "h-small"
+  find = "I <=Int 10"
+  replace = "I <=Int 10 andBool I >Int 0"

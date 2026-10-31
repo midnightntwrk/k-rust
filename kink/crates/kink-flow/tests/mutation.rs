@@ -1328,3 +1328,113 @@ fn weakening_is_decided_from_the_edit_alone() {
         );
     }
 }
+
+/// The conjunction test's specification (fix round 2): `&&&` is a `function` hooked `BOOL.and`
+/// with no macro-like attribute, and `s` has two guarded equations; `{rules}` adds rules to it.
+fn conjunction_spec(test: &str, rules: &str) -> Spec {
+    let dir = scratch(test);
+    write(
+        &dir.join("conj.k"),
+        &format!(
+            r#"module CONJ-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Val ::= v(Int) [symbol(v)]
+  syntax Prog ::= runs(Int) [symbol(runs)]
+  syntax Val ::= s(Int) [function, total, symbol(s)]
+  syntax Bool ::= Bool "&&&" Bool [function, hook(BOOL.and), symbol(andand)]
+endmodule
+
+module CONJ
+  imports CONJ-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Prog </k>
+  rule [runs]: <k> runs(I) => s(I) </k>
+  rule [s-big]: s(I) => v(I) requires I >Int 10
+  rule [s-small]: s(I) => v(I +Int 1) requires I <=Int 10
+{rules}endmodule
+"#
+        ),
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"conj.k\"\nmain_module = \"CONJ\"\nsyntax_module = \"CONJ-SYNTAX\"\n",
+    );
+    Spec::at(&dir.join("FLOW.toml"))
+}
+
+/// kink27 R5-WEAKENING fix round 2 (re-review nit 1): a label hooked `BOOL.and` is a conjunction
+/// only when no rule outside the builtin catalog is headed by it. A user rule headed by the label
+/// is an axiom about it that the hook need not satisfy, so conjoining a term through it does not
+/// narrow a `requires` in every model. `&&&` here is not macro-like, so only its rule can refuse
+/// it; a user lemma headed by `_andBool_` refuses `andBool` the same way. The label without a
+/// user rule is a conjunction (the control): appending ` <label> true` narrows both guards of `s`.
+#[test]
+fn a_conjunction_label_heading_a_user_rule_is_no_conjunction() {
+    use kink_patch::{ClaimSupport, WeakeningKind};
+    let conjoin = |label: &str| {
+        format!(
+            "[[mutation.edit]]\nrule = \"s-big\"\nfind = \"I >Int 10\"\nreplace = \"I >Int 10 {label} true\"\n\
+             [[mutation.edit]]\nrule = \"s-small\"\nfind = \"I <=Int 10\"\nreplace = \"I <=Int 10 {label} true\"\n"
+        )
+    };
+    let cases = [
+        ("no-user-rule", "", true, true),
+        (
+            "andand-lemma",
+            "  rule [andand-lemma]: A &&& true => A [simplification]\n",
+            false,
+            true,
+        ),
+        (
+            "andbool-lemma",
+            "  rule [andbool-lemma]: B andBool true => B [simplification]\n",
+            true,
+            false,
+        ),
+    ];
+    for (test, rules, andand, andbool) in cases {
+        let spec = conjunction_spec(&format!("conjunction-{test}"), rules);
+        let baseline = &spec.loaded.baseline;
+        let support = ClaimSupport::new(baseline);
+        for (label, conjunction) in [("&&&", andand), ("andBool", andbool)] {
+            let resolved = spec
+                .resolve_edits(&conjoin(label))
+                .unwrap_or_else(|e| panic!("{test} {label}: {e}"));
+            let weakening = support.weakening(baseline, &resolved.patch);
+            if conjunction {
+                let found = weakening
+                    .unwrap_or_else(|| panic!("{test}: {label} true narrows both guards"))
+                    .equations
+                    .iter()
+                    .map(|weakened| {
+                        (
+                            spec.sentence(&weakened.at)
+                                .attributes()
+                                .string(AttributeKey::Label)
+                                .unwrap()
+                                .to_owned(),
+                            weakened.kind,
+                            weakened.head.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let narrowed = |rule: &str| {
+                    (
+                        format!("CONJ.{rule}"),
+                        WeakeningKind::Narrowed,
+                        Some("s".to_owned()),
+                    )
+                };
+                assert_eq!(
+                    found,
+                    [narrowed("s-big"), narrowed("s-small")],
+                    "{test} {label}"
+                );
+            } else {
+                assert_eq!(weakening, None, "{test}: {label} is no conjunction");
+            }
+        }
+    }
+}

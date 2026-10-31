@@ -1503,4 +1503,58 @@ note = "requires and right-hand side"
             assert_eq!(mutation(&again, id), mutation(&document, id), "{id}");
         }
     }
+
+    /// kink27 R5-WEAKENING fix round 2 (`testdata/flow/weakening/findings`): the baseline's
+    /// equations `k-one` and `k-two` give `k(1)` two values, a finding no `[spec] assume_joined`
+    /// names. A narrowing of `h` on it is a weakening, but it is `unknown` with reason
+    /// `baseline-findings`, not `unkillable`: the weakening argument reads the baseline's normal
+    /// forms as a model, which the unassumed finding puts in doubt, so the baseline-findings
+    /// verdict is decided first. With the finding named as a premise the same mutation is
+    /// `unkillable` with reason `weakening`, so the finding is what decides the first verdict.
+    #[test]
+    #[ignore = "kink"]
+    fn a_weakening_on_a_baseline_with_findings_is_baseline_findings() {
+        let dir = fixture("weakening/findings", "weakening-findings");
+        let manifest = dir.join("FLOW.toml");
+        let mutations = dir.join("MUTATIONS.toml");
+        let weakened = |row: &Value| {
+            let weakening = row["weakening"].as_array().unwrap();
+            assert_eq!(weakening.len(), 1, "{row:#}");
+            assert_eq!(weakening[0]["label"], "WEAKF.h-small");
+            assert_eq!(weakening[0]["head"], "h");
+            assert_eq!(weakening[0]["kind"], "narrowed");
+        };
+        let (document, ok) = search(&manifest, &mutations, &[]);
+        assert!(ok, "{document:#}");
+        let row = mutation(&document, "h-small-narrow");
+        assert_eq!(row["status"], "unknown", "{row:#}");
+        assert_eq!(row["reason"], "baseline-findings");
+        assert_eq!(row["killer"], Value::Null);
+        assert_eq!(row["calls"], json!([]));
+        assert_eq!(row["executed"], json!([]));
+        weakened(row);
+        let finding = "findings.k:19:3,findings.k:20:3@root";
+        let findings = row["findings"].as_array().unwrap();
+        assert_eq!(findings.len(), 1, "{row:#}");
+        assert_eq!(findings[0]["name"], finding);
+        assert_eq!(findings[0]["assumed"], false);
+        assert_eq!(document["counts"]["unknown"], 1);
+        assert_eq!(document["counts"]["unkillable"], 0);
+
+        // The finding named as a premise: the weakening decides.
+        let text = fs::read_to_string(&manifest).unwrap().replacen(
+            "[spec]\n",
+            &format!("[spec]\nassume_joined = [{finding:?}]\n"),
+            1,
+        );
+        fs::write(&manifest, text).unwrap();
+        let (document, ok) = search(&manifest, &mutations, &[]);
+        assert!(ok, "{document:#}");
+        let row = mutation(&document, "h-small-narrow");
+        assert_eq!(row["status"], "unkillable", "{row:#}");
+        assert_eq!(row["reason"], "weakening");
+        assert_eq!(row["calls"], json!([]));
+        weakened(row);
+        assert_eq!(document["counts"]["unkillable"], 1);
+    }
 }

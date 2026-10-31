@@ -1,0 +1,10 @@
+# kink-flow corpus manifest for a weakening on a baseline with a finding (kink27 R5-WEAKENING fix
+# round 2): the baseline-findings verdict is decided before the weakening one.
+[spec]
+entry = "findings.k"
+main_module = "WEAKF"
+syntax_module = "WEAKF-SYNTAX"
+
+[[program]]
+id = "h5"
+text = "runh(5)"
