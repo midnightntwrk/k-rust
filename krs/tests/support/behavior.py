@@ -16,6 +16,9 @@ unbounded, bounded to one result, and bounded to the leaf's depth, search must f
 bounded to zero results it must find none;
 bounded to one step less, it must find exactly the state that execution reaches at that bound, which is not the leaf's state.
 The single state search retains under its own name must meet the case's expectations.
+A native case also reports the sorted open values (`<hook> <class>`) that k-rust marked in any of its runs and searches
+(`krs_gate.chosen_values`); the gate pins them per case beside the outcome, and an empty list is a pin too.
+The Java route has no such marks.
 """
 
 from __future__ import annotations
@@ -169,25 +172,35 @@ def native_corpus(
     gate: Path, definition_ir: Path, module: str,
     cases: list[Mapping[str, Any]], variables: Variables, corpus: Mapping[str, Any], *,
     definition_kore_sha256: str, jobs: int = 1,
-) -> list[dict[str, Any]]:
-    """Run selected native cases with one loaded session per worker."""
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """Run selected native cases with one loaded session per worker.
+
+    Return the ordered outcomes and, by case id, the sorted open values each case's runs read.
+    """
 
     if jobs < 1:
         raise GateError("jobs must be at least one")
 
-    def run_batch(batch: list[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, dict[str, Any]]]:
+    Checked = tuple[int, dict[str, Any], list[str]]
+
+    def run_batch(batch: list[tuple[int, Mapping[str, Any]]]) -> list[Checked]:
         with krs_gate.Session(gate) as session:
             session.load(definition_ir, module, definition_kore_sha256=definition_kore_sha256)
-            return [(index, native_case(session, case, variables, corpus)) for index, case in batch]
+            return [
+                (index, native_case(session, case, variables, corpus), session.take_chosen_values())
+                for index, case in batch
+            ]
 
     indexed = list(enumerate(cases))
     batches = [indexed[offset::jobs] for offset in range(min(jobs, len(indexed)))]
     if len(batches) == 1:
-        return [outcome for _, outcome in run_batch(batches[0])]
-    with ThreadPoolExecutor(max_workers=len(batches)) as pool:
-        completed = pool.map(run_batch, batches)
-        ordered = sorted((item for batch in completed for item in batch), key=lambda item: item[0])
-    return [outcome for _, outcome in ordered]
+        ordered = run_batch(batches[0])
+    else:
+        with ThreadPoolExecutor(max_workers=len(batches)) as pool:
+            completed = pool.map(run_batch, batches)
+            ordered = sorted((item for batch in completed for item in batch), key=lambda item: item[0])
+    outcomes = [outcome for _, outcome, _ in ordered]
+    return outcomes, {str(outcome["id"]): chosen for _, outcome, chosen in ordered}
 
 
 def java_case(

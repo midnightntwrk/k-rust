@@ -689,6 +689,13 @@ def native_states(harness: FixtureGate, fixture: Fixture, program: Path) -> list
     return sorted(states, key=lambda state: json.dumps(state, sort_keys=True))
 
 
+def native_chosen_values(harness: FixtureGate, fixture: Fixture, program: Path) -> list[str]:
+    """The sorted open values (`<hook> <class>`) k-rust marked in the native search of `program`."""
+
+    report = json.loads(harness.run_command(fixture, "search", "--output", "json", program))
+    return sorted(krs_gate.chosen_values(report["search"]))
+
+
 def native_claim(harness: FixtureGate, fixture: Fixture, module: str, label: str) -> dict[str, Any]:
     process = harness._krs(fixture, "prove", "--spec-module", module, "--claim", label, check=False)
     text = process.stdout
@@ -847,6 +854,10 @@ def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> No
         programs[name] = directory / f"{name}.pgm"
         programs[name].write_text(text + "\n", encoding="utf-8")
     native = {name: native_states(harness, fixture, path) for name, path in programs.items()}
+    harness.pins.expect(
+        ("implementation_chosen", fixture.package),
+        {name: native_chosen_values(harness, fixture, path) for name, path in programs.items()},
+    )
     java, java_proofs, java_llvm = java_route(harness, emitted, programs, claim=claim)
     if java_llvm != JAVA_LLVM_REJECTION:
         raise GateError(f"{fixture.package}: Java kompile --backend llvm reported {java_llvm!r}")

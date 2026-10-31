@@ -1,7 +1,7 @@
 //! The `krs-exec/1` report shapes shared by `--output json` and the browser JSON ABI.
 
 use k_rust::{
-    backend::HaltReasonOutput,
+    backend::{ChosenValueOutput, HaltReasonOutput},
     kast::{Term as KastTerm, json as kast_json, printer::Printer},
     kore::{ast::Pattern, walk},
     names::WellKnownSymbol,
@@ -324,6 +324,12 @@ pub struct RunReport {
     /// to standard error.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<String>,
+    /// Every value the definition leaves open that the run read, as k-rust marks it
+    /// (`ExecutionResult::implementation_chosen_values`, k-rust's `docs/compatibility.md`,
+    /// "Implementation-chosen hook values"), distinct and in the order the run first read it;
+    /// omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<ChosenValueOutput>,
 }
 
 /// One final state of a search.
@@ -348,6 +354,11 @@ pub struct SearchReport {
     /// `krun --search` prints each to standard error.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<String>,
+    /// Every value the definition leaves open that the search read, as k-rust marks it
+    /// (`SearchResponse::implementation_chosen_values`), distinct and in first-read order;
+    /// omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<ChosenValueOutput>,
 }
 
 /// K's reachability modality.

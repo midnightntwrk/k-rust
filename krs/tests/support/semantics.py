@@ -391,21 +391,29 @@ def native_behavior(
     corpus: Mapping[str, Any],
     environment: Mapping[str, str],
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Execute the corpus, pin its digest, and return its ordered outcomes."""
+    """Execute the corpus, pin its digest, and return its ordered outcomes.
+
+    Beside the digest, `implementation_chosen` pins, by case id, the sorted open values
+    (`<hook> <class>`) k-rust marked in the case's runs: every case has an entry, an empty list
+    when no run read an open value, so a k-rust change that marks a run differs at exactly
+    that case.
+    """
 
     behavior = corpus.get("behavior")
     if not isinstance(behavior, list) or not behavior:
         raise GateError("behavior corpus is empty")
     with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-outcomes-", dir=scratch_root()) as temporary:
         outcomes_path = Path(temporary) / "outcomes.json"
+        chosen_path = Path(temporary) / "chosen-values.json"
         result = run(
             [sys.executable, port.here / "native.py", gate, definition_ir, port.module,
              port.corpus_path, "--definition-kore-sha256", definition_kore_sha256,
-             "--outcomes", outcomes_path],
+             "--outcomes", outcomes_path, "--chosen-values", chosen_path],
             environment=environment,
             timeout=900,
         )
         outcomes = json.loads(outcomes_path.read_text(encoding="utf-8"))
+        chosen = json.loads(chosen_path.read_text(encoding="utf-8"))
     summary = _NATIVE_SUMMARY.match(result.stdout.strip())
     if (
         summary is None
@@ -421,6 +429,10 @@ def native_behavior(
         raise GateError("native outcomes differ from the ordered corpus")
     if json_sha256(outcomes) != summary.group(3):
         raise GateError("native outcome list differs from its reported digest")
+    ids = [str(case.get("id")) for case in behavior]
+    if not isinstance(chosen, dict) or sorted(chosen) != sorted(ids):
+        raise GateError("native implementation-chosen values do not cover exactly the corpus cases")
+    pins.expect("implementation_chosen", {case_id: chosen[case_id] for case_id in ids})
     return len(behavior), outcomes
 
 

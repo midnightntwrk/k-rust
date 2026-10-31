@@ -250,6 +250,84 @@ fn the_status_line_prints_the_head_of_k_in_the_notation_of_the_result() {
     );
 }
 
+/// One step from `count` lists the keys of a two-entry map: the listing order is open
+/// (`order`), so the run reads a value k-rust picks and marks.
+const KEYS: &str = r#"
+use krs::KResult;
+use krs::builtin::{Int, KSequence, Map, list, map};
+
+krs::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[krs::constructors(sort = Exp, result = KResult)]
+pub enum Case {
+    #[krs::syntax("count")]
+    Count(),
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub m: Map<Int, Int>,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init() -> Self {
+        Self {
+            k: krs::k![Case::Count()],
+            m: krs::map![1 -> 10, 2 -> 20],
+        }
+    }
+}
+
+krs::rules! {
+    for Machine;
+    use Case::*;
+
+    count: {
+        k: [Count(), ..],
+        m: m,
+    } => {
+        k: [list::size(map::keys_list(m)), ..],
+    };
+}
+"#;
+
+#[test]
+fn run_and_search_reports_list_the_open_values_the_run_read() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let marks = serde_json::json!([{"hook": "MAP.keys_list", "class": "order"}]);
+
+    let manifest = materialize(temporary.path(), KEYS);
+    let run = krs(target.path(), &manifest, "run", &["--output", "json"]);
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert_eq!(json(&run)["run"]["implementation_chosen_values"], marks);
+    let search = krs(target.path(), &manifest, "search", &["--output", "json"]);
+    assert_eq!(search.status.code(), Some(0), "{}", stderr(&search));
+    assert_eq!(
+        json(&search)["search"]["implementation_chosen_values"],
+        marks
+    );
+
+    // A run that reads no open value has no list.
+    let other = temp_dir();
+    let manifest = materialize(other.path(), WRAP);
+    let run = krs(target.path(), &manifest, "run", &["--output", "json"]);
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        json(&run)["run"]
+            .get("implementation_chosen_values")
+            .is_none()
+    );
+}
+
 #[test]
 fn claims_prove_and_disprove_with_suggestions_for_unknown_labels() {
     let target = shared_fixture_target();

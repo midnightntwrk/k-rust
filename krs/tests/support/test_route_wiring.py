@@ -7,6 +7,7 @@ from dataclasses import replace
 import importlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -23,18 +24,59 @@ class RouteWiringTests(unittest.TestCase):
         with ExitStack() as patches:
             factory = patches.enter_context(mock.patch.object(behavior.krs_gate, "Session"))
             session = factory.return_value.__enter__.return_value
+            session.take_chosen_values.return_value = []
             patches.enter_context(mock.patch.object(
                 behavior, "native_case", side_effect=lambda _, case, __, ___: dict(case),
             ))
-            outcomes = behavior.native_corpus(
+            outcomes, chosen = behavior.native_corpus(
                 Path("gate"), Path("definition-ir.json"), "MAIN", cases, mock.Mock(), {"behavior": cases},
                 definition_kore_sha256="digest", jobs=2,
             )
         self.assertEqual(outcomes, cases)
+        self.assertEqual(chosen, {"one": [], "two": []})
         self.assertEqual(
             session.load.call_args_list,
             [mock.call(Path("definition-ir.json"), "MAIN", definition_kore_sha256="digest")] * 2,
         )
+
+    def test_native_behavior_pins_each_cases_open_values(self) -> None:
+        verifier = importlib.import_module("kwasm.verify")
+        cases = [{"id": "two"}, {"id": "one"}]
+        outcomes = [{"id": "two"}, {"id": "one"}]
+        chosen = {"one": [], "two": ["MAP.keys_list order"]}
+
+        def native(argv: list[object], **_: object) -> mock.Mock:
+            arguments = [str(argument) for argument in argv]
+            Path(arguments[arguments.index("--outcomes") + 1]).write_text(json.dumps(outcomes), encoding="utf-8")
+            Path(arguments[arguments.index("--chosen-values") + 1]).write_text(json.dumps(chosen), encoding="utf-8")
+            digest = semantics.json_sha256(outcomes)
+            return mock.Mock(stdout=f"PASS native KWasm behavior: 2 executions; sha256={digest}\n")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = Path(temporary) / "pins.toml"
+            ledger.write_text(f'schema = 1\nbehavior_sha256 = "{semantics.json_sha256(outcomes)}"\n', encoding="utf-8")
+
+            def behave(pins: semantics.Ledger) -> None:
+                with mock.patch.object(semantics, "run", side_effect=native):
+                    semantics.native_behavior(
+                        verifier.PORT, Path("gate"), Path("ir"), "digest", pins, {"behavior": cases}, {},
+                    )
+
+            # A ledger without the table is an error, not an empty set.
+            with self.assertRaisesRegex(semantics.GateError, "no pin implementation_chosen"):
+                behave(semantics.Ledger(ledger))
+            recorded = semantics.Ledger(ledger, record=True)
+            behave(recorded)
+            recorded.write()
+            pinned = semantics.Ledger(ledger)
+            self.assertEqual(list(pinned["implementation_chosen"].items()), [("two", ["MAP.keys_list order"]), ("one", [])])
+            behave(pinned)
+            chosen = {"one": ["MAP.keys_list order"], "two": ["MAP.keys_list order"]}
+            with self.assertRaisesRegex(semantics.GateError, "implementation_chosen differs from its pin at one"):
+                behave(semantics.Ledger(ledger))
+            chosen = {"two": []}
+            with self.assertRaisesRegex(semantics.GateError, "do not cover exactly the corpus cases"):
+                behave(semantics.Ledger(ledger))
 
     def test_java_reference_uses_shared_expectations(self) -> None:
         verifier = importlib.import_module("kwasm.verify")

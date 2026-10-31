@@ -942,6 +942,8 @@ def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifac
         "cli_sha256": cli_digests,
     }
     context.pins.expect(("native_run", "expected"), observed)
+    # By execution case, the open values k-rust marked in its runs and searches; every case is pinned.
+    context.pins.expect(("native_run", "implementation_chosen"), dict(summary.chosen_values))
 
     outcomes = table(context.pins.get("proof_outcomes"), "pins.proof_outcomes")
     divergences = table(context.pins.get("native_proof_divergences", {}), "pins.native_proof_divergences")

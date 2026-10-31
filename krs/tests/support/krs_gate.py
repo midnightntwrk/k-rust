@@ -167,8 +167,29 @@ def ir_queries(
         return [session.ir_query(artifacts, query) for query in queries]
 
 
+def chosen_values(result: Mapping[str, Any]) -> set[str]:
+    """The open values a k-rust run or search read, as k-rust marks them, each spelled `<hook> <class>`.
+
+    A raw `execute` or `search` response lists them as `implementationChosenValues`, a `krs-exec/1`
+    report as `implementation_chosen_values`; both omit an empty list.
+    """
+
+    marks = result.get("implementationChosenValues", result.get("implementation_chosen_values", []))
+    if not isinstance(marks, list) or any(
+        not isinstance(mark, dict) or not isinstance(mark.get("hook"), str) or not isinstance(mark.get("class"), str)
+        for mark in marks
+    ):
+        raise GateError(f"malformed implementation-chosen values: {marks!r}")
+    return {f"{mark['hook']} {mark['class']}" for mark in marks}
+
+
 class Session:
-    """Exchange requests with a gate session, serializing concurrent callers."""
+    """Exchange requests with a gate session, serializing concurrent callers.
+
+    Every `execute`, `search`, `exec.run`, and `exec.search` response adds the open values its run
+    read (`chosen_values`) to the session's set, which `take_chosen_values` returns and empties;
+    a caller that pins them per case uses the session from one thread.
+    """
 
     def __init__(self, krs_gate: Path, *, environment: Mapping[str, str] | None = None) -> None:
         self._krs_gate = krs_gate
@@ -178,6 +199,7 @@ class Session:
         self._next_id = 1
         self._reported_exit = False
         self._request_lock = threading.Lock()
+        self._chosen_values: set[str] = set()
 
     def __enter__(self) -> Session:
         if self._process is not None:
@@ -343,15 +365,26 @@ class Session:
 
         return self.request("configure", variables=dict(variables))
 
+    def _run(self, operation: str, **fields: Any) -> Any:
+        result = self.request(operation, **fields)
+        self._chosen_values |= chosen_values(result)
+        return result
+
+    def take_chosen_values(self) -> list[str]:
+        """The sorted open values every run and search since the last call read; empties the set."""
+
+        taken, self._chosen_values = sorted(self._chosen_values), set()
+        return taken
+
     def execute(self, pattern: str, **options: Any) -> dict[str, Any]:
         """Execute an opaque KORE pattern and return the serialized result."""
 
-        return self.request("execute", pattern=pattern, **options)
+        return self._run("execute", pattern=pattern, **options)
 
     def search(self, pattern: str, **options: Any) -> dict[str, Any]:
         """Search final states from an opaque KORE pattern and return the result."""
 
-        return self.request("search", pattern=pattern, **options)
+        return self._run("search", pattern=pattern, **options)
 
     def read(self, text: str, keep: str) -> dict[str, Any]:
         """Retain a Java KORE result under a session state name."""
@@ -423,7 +456,7 @@ class Session:
         fields: dict[str, Any] = {}
         if print_style is not None:
             fields["print"] = print_style
-        return self.request(
+        return self._run(
             "exec.run", program=program, program_name=program_name,
             variables=dict(variables or {}), depth=depth, trace=trace, **fields,
         )
@@ -453,7 +486,7 @@ class Session:
     ) -> dict[str, Any]:
         """Search surface inputs through krs-exec, as `krs search` does, and return its search report."""
 
-        return self.request(
+        return self._run(
             "exec.search", program=program, program_name=program_name,
             variables=dict(variables or {}), mode=mode, depth=depth, max_solutions=max_solutions,
         )

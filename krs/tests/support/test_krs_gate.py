@@ -34,6 +34,12 @@ for line in sys.stdin:
         }}
     elif mode == "load_digest" and request["operation"] == "definition.load":
         response = {"id": request["id"], "result": {"module": "MAIN", "definition_kore_sha256": "abc123"}}
+    elif mode == "marked" and request["operation"] in ("execute", "search", "exec.run", "exec.search"):
+        if request["operation"].startswith("exec."):
+            key, marks = "implementation_chosen_values", [{"hook": "MAP.keys_list", "class": "order"}]
+        else:
+            key, marks = "implementationChosenValues", request["marks"]
+        response = {"id": request["id"], "result": {key: marks} if marks else {}}
     elif request["operation"] == "kore.digest" and mode == "normal":
         response = {"id": request["id"], "result": {"sha256": "abc123"}}
     elif mode == "error":
@@ -206,6 +212,31 @@ class ClientTests(unittest.TestCase):
             [searched["request_id"], observed["request_id"], unbounded["request_id"]],
             ["1", "2", "3"],
         )
+
+    def test_runs_and_searches_collect_the_open_values_they_read_until_taken(self) -> None:
+        order = {"hook": "MAP.keys_list", "class": "order"}
+        case = {"hook": "STRING.base2string", "class": "letter-case"}
+        with patch.dict("os.environ", {"KRS_TEST_GATE_MODE": "marked"}):
+            with krs_gate.Session(self.binary) as session:
+                self.assertEqual(session.take_chosen_values(), [])
+                session.execute("opaque pattern", keep="case", marks=[case])
+                session.search("opaque pattern", marks=[order, case])
+                session.request("execute", pattern="unrecorded", marks=[{"hook": "X", "class": "item"}])
+                self.assertEqual(session.take_chosen_values(), ["MAP.keys_list order", "STRING.base2string letter-case"])
+                session.execute("opaque pattern", marks=[])
+                self.assertEqual(session.take_chosen_values(), [])
+                session.exec_run(program="p")
+                session.exec_search(program="p")
+                self.assertEqual(session.take_chosen_values(), ["MAP.keys_list order"])
+
+    def test_chosen_values_read_both_spellings_and_reject_malformed_marks(self) -> None:
+        mark = {"hook": "MAP.keys_list", "class": "order"}
+        self.assertEqual(krs_gate.chosen_values({}), set())
+        self.assertEqual(krs_gate.chosen_values({"implementationChosenValues": [mark]}), {"MAP.keys_list order"})
+        self.assertEqual(krs_gate.chosen_values({"implementation_chosen_values": [mark]}), {"MAP.keys_list order"})
+        for malformed in ({"implementationChosenValues": {}}, {"implementation_chosen_values": [{"hook": "H"}]}):
+            with self.assertRaises(GateError):
+                krs_gate.chosen_values(malformed)
 
     def test_early_exit_reports_stderr(self) -> None:
         with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "exit"}) as session:

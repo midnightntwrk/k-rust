@@ -18,6 +18,11 @@ partial-function abort (krun exit 113 with an unevaluated function in the
 computation) and a native `#Bottom` both normalize to `undefined`. A native run
 that ends in several leaves is `branches:` followed by their sorted reasons.
 
+Each program the native route runs also pins, as `implementation_chosen.<package>.<program>`,
+the sorted open values (`<hook> <class>`) k-rust marked in its runs and searches
+(`krs_gate.chosen_values`); every such program has an entry, an empty list when no run read an
+open value. The Java route has no marks.
+
 A fixture may pin a named divergence in its ledger's `known_divergences` table,
 with the native and Java outcomes recorded separately. The gate fails closed when
 either side changes, and when a pinned divergence disappears.
@@ -300,63 +305,19 @@ class FixtureGate:
         return observed
 
     def _native_outcomes(self, emitted: Emitted, programs: Sequence[Program]) -> dict[str, dict[str, Any]]:
+        """Each program's native outcome; pins `implementation_chosen.<package>` for the programs it runs."""
+
         outcomes: dict[str, dict[str, Any]] = {}
+        chosen: dict[str, list[str]] = {}
         with krs_gate.Session(self.gate, environment=self.environment) as session:
             session.load(emitted.definition_ir, emitted.main_module)
             for program in programs:
-                try:
-                    pattern = session.configure({"PGM": program.text, **dict(program.variables)})["pattern"]
-                except GateError:
-                    outcomes[program.name] = {"parse": REJECTED, "run": None}
-                    continue
-                if program.run is None:
-                    outcomes[program.name] = {"parse": ACCEPTED, "run": None}
-                    if program.search is not None:
-                        outcomes[program.name]["search"] = _native_search(session, program, pattern)
-                    continue
-                try:
-                    leaves = session.execute(pattern).get("leaves") or []
-                except GateError as error:
-                    # k-rust refuses some states outright, such as one that
-                    # still holds a macro symbol (by contract: k-rust
-                    # `docs/compatibility.md`, "Macro applications that survive
-                    # expansion"); such an outcome can only be a pinned divergence.
-                    refusal = re.sub(r"^gate request \d+ failed: ", "", str(error))
-                    outcomes[program.name] = {"parse": ACCEPTED, "run": "refused: " + refusal}
-                    continue
-                # Undefined: no leaf, a `#Bottom` leaf, or only leaves without a
-                # defined state (`vacuous`: the configuration is `\bottom`;
-                # `trivial`: a step's result is `\bottom`).
-                if (
-                    not leaves
-                    or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves)
-                    or all(leaf.get("reason") in ("vacuous", "trivial") for leaf in leaves)
+                outcomes[program.name] = _native_outcome(session, program)
+                if outcomes[program.name]["parse"] == ACCEPTED and (
+                    program.run is not None or program.search is not None
                 ):
-                    outcomes[program.name] = {"parse": ACCEPTED, "run": UNDEFINED}
-                    continue
-                if len(leaves) > 1:
-                    # A branching run has no single final computation cell.
-                    reasons = sorted(str(leaf.get("reason", "")) for leaf in leaves)
-                    outcomes[program.name] = {"parse": ACCEPTED, "run": "branches: " + ", ".join(reasons)}
-                    continue
-                session.execute(pattern, keep=program.name)
-                try:
-                    if program.run == ".K":
-                        session.expect(program.name, "k", text=".K")
-                    else:
-                        session.expect(program.name, "k", head=program.run)
-                    actual = program.run
-                except GateError as error:
-                    # The session's request counter is not part of the outcome.
-                    actual = "differs: " + re.sub(r"^gate request \d+ failed: ", "", str(error))
-                outcomes[program.name] = {"parse": ACCEPTED, "run": actual}
-                if program.cells:
-                    printed = session.exec_run(
-                        program=program.text, variables=dict(program.variables), print_style="pretty",
-                    )["printed"]["text"]
-                    outcomes[program.name]["cells"] = printed_cells(printed, program.cells)
-                if program.search is not None:
-                    outcomes[program.name]["search"] = _native_search(session, program, pattern)
+                    chosen[program.name] = session.take_chosen_values()
+        self.pins.expect(("implementation_chosen", emitted.fixture.package), chosen)
         return outcomes
 
     def _attribute_text(self, emitted: Emitted) -> Path:
@@ -557,6 +518,61 @@ def java_run_outcome(process: subprocess.CompletedProcess[str]) -> str:
     cell = re.sub(r"\s+", " ", match.group(1)).strip()
     cell = re.sub(r"\s*~>\s*\.K$", "", cell)
     return ".K" if cell in ("", ".K") else cell
+
+
+def _native_outcome(session: krs_gate.Session, program: Program) -> dict[str, Any]:
+    """Configure, run, and check one program on the native route."""
+
+    try:
+        pattern = session.configure({"PGM": program.text, **dict(program.variables)})["pattern"]
+    except GateError:
+        return {"parse": REJECTED, "run": None}
+    if program.run is None:
+        outcome: dict[str, Any] = {"parse": ACCEPTED, "run": None}
+        if program.search is not None:
+            outcome["search"] = _native_search(session, program, pattern)
+        return outcome
+    try:
+        leaves = session.execute(pattern).get("leaves") or []
+    except GateError as error:
+        # k-rust refuses some states outright, such as one that
+        # still holds a macro symbol (by contract: k-rust
+        # `docs/compatibility.md`, "Macro applications that survive
+        # expansion"); such an outcome can only be a pinned divergence.
+        refusal = re.sub(r"^gate request \d+ failed: ", "", str(error))
+        return {"parse": ACCEPTED, "run": "refused: " + refusal}
+    # Undefined: no leaf, a `#Bottom` leaf, or only leaves without a
+    # defined state (`vacuous`: the configuration is `\bottom`;
+    # `trivial`: a step's result is `\bottom`).
+    if (
+        not leaves
+        or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves)
+        or all(leaf.get("reason") in ("vacuous", "trivial") for leaf in leaves)
+    ):
+        return {"parse": ACCEPTED, "run": UNDEFINED}
+    if len(leaves) > 1:
+        # A branching run has no single final computation cell.
+        reasons = sorted(str(leaf.get("reason", "")) for leaf in leaves)
+        return {"parse": ACCEPTED, "run": "branches: " + ", ".join(reasons)}
+    session.execute(pattern, keep=program.name)
+    try:
+        if program.run == ".K":
+            session.expect(program.name, "k", text=".K")
+        else:
+            session.expect(program.name, "k", head=program.run)
+        actual = program.run
+    except GateError as error:
+        # The session's request counter is not part of the outcome.
+        actual = "differs: " + re.sub(r"^gate request \d+ failed: ", "", str(error))
+    outcome = {"parse": ACCEPTED, "run": actual}
+    if program.cells:
+        printed = session.exec_run(
+            program=program.text, variables=dict(program.variables), print_style="pretty",
+        )["printed"]["text"]
+        outcome["cells"] = printed_cells(printed, program.cells)
+    if program.search is not None:
+        outcome["search"] = _native_search(session, program, pattern)
+    return outcome
 
 
 def _native_search(session: krs_gate.Session, program: Program, pattern: str) -> list[str]:

@@ -88,6 +88,10 @@ def main() -> int:
     parser.add_argument("--definition-kore-sha256", required=True)
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--outcomes", type=Path, help="write ordered behavior outcomes as JSON")
+    parser.add_argument(
+        "--chosen-values", type=Path,
+        help="write, by case id, the sorted open values k-rust marked in the case's runs as JSON",
+    )
     arguments = parser.parse_args()
     corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
@@ -100,7 +104,7 @@ def main() -> int:
         if missing:
             raise GateError(f"unknown behavior cases: {', '.join(missing)}")
         cases = [case for case in cases if case.get("id") in requested]
-    outcomes = behavior.native_corpus(
+    outcomes, chosen = behavior.native_corpus(
         arguments.krs_gate,
         arguments.definition,
         arguments.module,
@@ -113,6 +117,8 @@ def main() -> int:
     digest = json_sha256(outcomes)
     if arguments.outcomes is not None:
         arguments.outcomes.write_text(canonical_json(outcomes) + "\n", encoding="utf-8")
+    if arguments.chosen_values is not None:
+        arguments.chosen_values.write_text(canonical_json(chosen) + "\n", encoding="utf-8")
     print(f"PASS native KEVM behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 

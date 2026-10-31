@@ -6,7 +6,7 @@ use crate::{
     pattern::{self, PatternContext},
 };
 use k_rust::{
-    backend::{Backend, ExecuteRequest, ProveRequest, SearchRequest},
+    backend::{Backend, ChosenValueOutput, ExecuteRequest, ProveRequest, SearchRequest},
     kore::{
         ast::Pattern,
         json as kore_json,
@@ -88,11 +88,23 @@ fn execute(
                 })
             })
             .collect::<Vec<_>>();
-        json!({"modality": result.modality, "leaves": leaves})
+        with_marks(
+            json!({"modality": result.modality, "leaves": leaves}),
+            &result.implementation_chosen_values,
+        )
     } else {
         serde_json::to_value(result)?
     };
     Ok((output, retained))
+}
+
+/// A retaining response's summary with the open values the run or search read
+/// (`implementationChosenValues`), spelled as the full response spells them: omitted when empty.
+fn with_marks(mut summary: Value, marks: &[ChosenValueOutput]) -> Value {
+    if !marks.is_empty() {
+        summary["implementationChosenValues"] = json!(marks);
+    }
+    summary
 }
 
 /// A claim whose left-hand side is a disjunction is proven one disjunct per backend request; it
@@ -172,7 +184,10 @@ fn search(backend: &mut Backend, request: &Value) -> Result<SearchOutcome, Box<d
             retained.push(kore_json::from_str(&source)?);
         }
         return Ok((
-            json!({"modality": result.modality, "states": result.states.len()}),
+            with_marks(
+                json!({"modality": result.modality, "states": result.states.len()}),
+                &result.implementation_chosen_values,
+            ),
             Some(retained),
         ));
     }
@@ -187,7 +202,10 @@ fn search(backend: &mut Backend, request: &Value) -> Result<SearchOutcome, Box<d
         let source = serde_json::to_string(&result.states[0].state)?;
         let retained = kore_json::from_str(&source)?;
         Ok((
-            json!({"modality": result.modality, "states": result.states.len()}),
+            with_marks(
+                json!({"modality": result.modality, "states": result.states.len()}),
+                &result.implementation_chosen_values,
+            ),
             Some(vec![retained]),
         ))
     } else {
@@ -829,7 +847,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, float_text, search};
+    use super::{Session, execute, float_text, search};
     use k_rust::{
         backend::{Backend, BackendOptions},
         kore::parser::parse_pattern,
@@ -869,6 +887,55 @@ mod tests {
                 ) [label{}("right")]
             endmodule []"#;
         Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
+    }
+
+    /// One step from `initial` to `done` of `base2string(255, 16)`: its letter digits' case is
+    /// open (`letter-case`), so the step reads a value k-rust picks and marks.
+    fn marked_backend() -> Backend {
+        let definition = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                sort SortState{} []
+                hooked-symbol Lblbase2string{}(SortInt{}, SortInt{}) : SortString{}
+                    [function{}(), hook{}("STRING.base2string")]
+                symbol initial{}() : SortState{} [constructor{}()]
+                symbol done{}(SortString{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                    done{}(Lblbase2string{}(\dv{SortInt{}}("255"), \dv{SortInt{}}("16")))
+                ) [label{}("hex")]
+            endmodule []"#;
+        Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn retaining_responses_keep_the_open_values_the_run_read() {
+        let marks = json!([{"hook": "STRING.base2string", "class": "letter-case"}]);
+        let mut backend = marked_backend();
+        let request = json!({"id": "run", "operation": "execute", "pattern": "initial{}()"});
+        let (full, _) = execute(&mut backend, &request).unwrap();
+        assert_eq!(full["implementationChosenValues"], marks);
+        let mut keep = request.clone();
+        keep["keep"] = json!("case");
+        let (kept, retained) = execute(&mut backend, &keep).unwrap();
+        assert!(retained.is_some());
+        assert_eq!(kept["implementationChosenValues"], marks);
+        for (key, value) in [("keep", "search"), ("keep_each", "search#")] {
+            let (result, _) = search(
+                &mut backend,
+                &json!({"id": "search", "operation": "search", "pattern": "initial{}()", key: value}),
+            )
+            .unwrap();
+            assert_eq!(result["implementationChosenValues"], marks, "{key}");
+        }
+        // An unmarked run's retaining response has no list, as its full response has none.
+        let (kept, _) = execute(
+            &mut search_backend(),
+            &json!({"id": "run", "operation": "execute", "pattern": "left{}()", "keep": "case"}),
+        )
+        .unwrap();
+        assert!(kept.get("implementationChosenValues").is_none());
     }
 
     #[test]

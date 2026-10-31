@@ -54,7 +54,7 @@ use krs_k_rust::{
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
-pub use k_rust::backend::BackendError;
+pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
@@ -1013,7 +1013,11 @@ impl Semantics {
         let mut request = ExecuteRequest::new(state.0.clone());
         request.strategy = ExecutionStrategy::Any;
         request.max_depth = options.depth;
-        let ExecutionResult { leaves, .. } = self.backend.execute(request)?;
+        let ExecutionResult {
+            leaves,
+            implementation_chosen_values,
+            ..
+        } = self.backend.execute(request)?;
         let leaf = one_path(leaves)?;
         let trace = if options.trace {
             self.steps(&leaf.trace)
@@ -1040,6 +1044,7 @@ impl Semantics {
             stdout,
             exit_code,
             log: log_lines(&leaf.effects),
+            implementation_chosen_values,
         })
     }
 
@@ -1103,6 +1108,7 @@ impl Semantics {
             complete,
             solutions,
             log: log_lines(&response.effects),
+            implementation_chosen_values: response.implementation_chosen_values,
         })
     }
 

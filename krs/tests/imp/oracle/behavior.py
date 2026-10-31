@@ -137,6 +137,8 @@ class NativeSummary:
     evidence_sha256: str
     reports: Mapping[str, Mapping[str, Any]]
     """The `krs-exec/1` run report of every complete execution case, by case name."""
+    chosen_values: Mapping[str, list[str]]
+    """By execution case name, the sorted open values (`<hook> <class>`) k-rust marked in its runs and searches."""
 
 
 def _without_address_space_limit(live: bool) -> tuple[str, ...]:
@@ -571,6 +573,8 @@ def compare_native(
     and each depth state with strategy `any`, and each bounded search as a set.
     Each result is normalized with the actual route's term policy and must
     equal the Java evidence `compare_behavior` returned for the same case.
+    The summary also reports, by case, the open values k-rust marked in the
+    case's runs and searches, which the gate pins (an empty list included).
     Failure cases stay Java-only: they exercise the LLVM backend's hook abort.
 
     Builtin collections are canonicalized on both sides by the gate's
@@ -595,6 +599,7 @@ def compare_native(
 
     native: dict[str, Any] = {"execution": {}, "search": {}, "pretty": {}, "program": {}}
     reports: dict[str, Mapping[str, Any]] = {}
+    chosen_values: dict[str, list[str]] = {}
     depth_count = 0
     search_count = 0
     with krs_gate.Session(gate, environment=z3_environment()) as session:
@@ -680,6 +685,7 @@ def compare_native(
                     )
                 native["search"][key] = {"complete": report["complete"], "solutions": len(states)}
                 search_count += 1
+            chosen_values[case.name] = session.take_chosen_values()
     return NativeSummary(
         execution_count=len(native["execution"]) - depth_count,
         depth_state_count=depth_count,
@@ -688,6 +694,7 @@ def compare_native(
         program_count=len(native["program"]),
         evidence_sha256=json_sha256(native),
         reports=reports,
+        chosen_values=chosen_values,
     )
 
 

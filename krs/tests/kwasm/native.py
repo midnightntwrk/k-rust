@@ -28,18 +28,21 @@ def main() -> int:
     parser.add_argument("--definition-kore-sha256", required=True)
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--outcomes", type=Path)
+    parser.add_argument("--chosen-values", type=Path)
     arguments = parser.parse_args()
     corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
     if not isinstance(cases, list) or not cases:
         raise GateError("behavior corpus is empty")
-    outcomes = behavior.native_corpus(
+    outcomes, chosen = behavior.native_corpus(
         arguments.krs_gate, arguments.definition, arguments.module, cases, configuration_variables, corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
     )
     digest = json_sha256(outcomes)
     if arguments.outcomes is not None:
         arguments.outcomes.write_text(canonical_json(outcomes) + "\n", encoding="utf-8")
+    if arguments.chosen_values is not None:
+        arguments.chosen_values.write_text(canonical_json(chosen) + "\n", encoding="utf-8")
     print(f"PASS native KWasm behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 
