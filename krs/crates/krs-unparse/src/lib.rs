@@ -40,7 +40,10 @@ mod format;
 mod node;
 mod program;
 
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use k_rust::kore::{
     ast::{Definition, Pattern, Sentence},
@@ -321,20 +324,37 @@ impl Unparser {
             .collect()
     }
 
-    /// This printer without reversing the alias clauses whose `label` `forward_only` admits: they
-    /// still expand where a program or a rule writes them, but a printed term is never written
-    /// through them.
+    /// This printer reversing only the alias clauses whose `label` `reversed` admits: every other
+    /// axiom, one without a label included, still expands where a program or a rule writes it,
+    /// but a printed term is never written through it.
     #[must_use]
-    pub fn without_reversing(&self, forward_only: impl Fn(&str) -> bool) -> Self {
+    pub fn reversing_only(&self, reversed: impl Fn(&str) -> bool) -> Self {
         let mut printer = self.clone();
-        printer.macros.retain(|rule| {
-            !rule.reversible()
-                || rule
-                    .label
-                    .as_deref()
-                    .is_none_or(|label| !forward_only(label))
-        });
+        for rule in &mut printer.macros {
+            rule.forward_only = !rule.label.as_deref().is_some_and(&reversed);
+        }
         printer
+    }
+
+    /// This printer reversing every `alias` and `alias-rec` axiom whose right-hand side is an
+    /// application, as [`Unparser::from_kore`] builds it: what [`Unparser::reversing_only`] kept
+    /// forward only is reversed again.
+    #[must_use]
+    pub fn reversing_every_alias(&self) -> Self {
+        let mut printer = self.clone();
+        for rule in &mut printer.macros {
+            rule.forward_only = false;
+        }
+        printer
+    }
+
+    /// The labels of the axioms of `macros.kore`, each the clause it was emitted from.
+    #[must_use]
+    pub fn clause_labels(&self) -> BTreeSet<&str> {
+        self.macros
+            .iter()
+            .filter_map(|rule| rule.label.as_deref())
+            .collect()
     }
 
     /// The declared argument sorts of the symbol `name` (its KORE name), as `syntaxDefinition.kore`

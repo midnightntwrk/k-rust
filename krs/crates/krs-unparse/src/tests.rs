@@ -319,15 +319,21 @@ fn a_reversal_fires_only_where_the_clause_matches_with_its_literals() {
 }
 
 /// The printer lists each alias clause it reverses with its label and the tokens its subject
-/// writes, each at the position it stands at, printed; a clause it is told not to reverse prints
-/// nothing backwards, and the others still do.
+/// writes, each at the position it stands at, printed. Told which clauses to reverse, it reverses
+/// only those: a clause whose label it is not given, or an axiom with no label, prints nothing
+/// backwards; reversing every alias again restores them.
 #[test]
-fn a_clause_kept_forward_only_is_not_reversed_and_the_others_are() {
-    let macros = ["1", "2"]
+fn only_the_clauses_named_reversed_print_backwards() {
+    let macros = [("1", " label{}(\"clause1\")"), ("2", " label{}(\"clause2\")"), ("3", "")]
         .iter()
-        .map(|literal| {
+        .map(|(literal, label)| {
+            let label = if label.is_empty() {
+                String::new()
+            } else {
+                format!(",{label}")
+            };
             format!(
-                "axiom{{R}} \\equals{{SortExp{{}}, R}}(Lblf{{}}(\\and{{SortExp{{}}}}(\\dv{{SortExp{{}}}}(\"{literal}\"), VarX:SortExp{{}})), Lblg{{}}(VarX:SortExp{{}})) [alias'Kywd'{{}}(), label{{}}(\"clause{literal}\")]"
+                "axiom{{R}} \\equals{{SortExp{{}}, R}}(Lblf{{}}(\\and{{SortExp{{}}}}(\\dv{{SortExp{{}}}}(\"{literal}\"), VarX:SortExp{{}})), Lblg{{}}(VarX:SortExp{{}})) [alias'Kywd'{{}}(){label}]"
             )
         })
         .collect::<Vec<_>>()
@@ -351,18 +357,32 @@ fn a_clause_kept_forward_only_is_not_reversed_and_the_others_are() {
         listed(&unparser),
         [
             "Some(\"clause1\"): 1 at SortExp{}",
-            "Some(\"clause2\"): 2 at SortExp{}"
+            "Some(\"clause2\"): 2 at SortExp{}",
+            "None: 3 at SortExp{}"
         ]
     );
-    let forward_only = unparser.without_reversing(|label| label == "clause1");
-    let print = |term: &str| {
-        forward_only
-            .print_kore(&pattern(term), &Options::default())
-            .text
+    assert_eq!(
+        unparser.clause_labels().into_iter().collect::<Vec<_>>(),
+        ["clause1", "clause2"]
+    );
+    let printed = |printer: &Unparser| {
+        ["1", "2", "3"].map(|literal| {
+            printer
+                .print_kore(
+                    &pattern(&format!("Lblg{{}}(\\dv{{SortExp{{}}}}(\"{literal}\"))")),
+                    &Options::default(),
+                )
+                .text
+        })
     };
-    assert_eq!(print("Lblg{}(\\dv{SortExp{}}(\"1\"))"), "g ( 1 )");
-    assert_eq!(print("Lblg{}(\\dv{SortExp{}}(\"2\"))"), "f ( 2 )");
-    assert_eq!(listed(&forward_only), ["Some(\"clause2\"): 2 at SortExp{}"]);
+    assert_eq!(printed(&unparser), ["f ( 1 )", "f ( 2 )", "f ( 3 )"]);
+    let reversing = unparser.reversing_only(|label| label == "clause2" || label == "unknown");
+    assert_eq!(printed(&reversing), ["g ( 1 )", "f ( 2 )", "g ( 3 )"]);
+    assert_eq!(listed(&reversing), ["Some(\"clause2\"): 2 at SortExp{}"]);
+    assert_eq!(
+        printed(&reversing.reversing_every_alias()),
+        ["f ( 1 )", "f ( 2 )", "f ( 3 )"]
+    );
 }
 
 /// A conjunct whose variable the result's match leaves unbound takes the term the bound

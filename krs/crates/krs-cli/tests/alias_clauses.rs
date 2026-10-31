@@ -779,3 +779,210 @@ fn printing_reverses_only_a_constructed_result_through_tokens_that_read_back() {
         mk(5, 5) => pairs(7, 5) ~> .K
         worded(5, word) fails: error[krs::exec::backend]: invalid executable state: invalid executable input: macro or alias symbol 'LblfwWorded' survived expansion"]].assert_eq(&printed);
 }
+
+const CONSTRUCTS: &str = r#"
+use k::builtin::Map;
+
+#[k::alias]
+fn pairs(k::term![Al::Pairs(x, y)]: Term<Value>) -> Term<Value> {
+    Data::Pair(x, y)
+}
+
+#[k::function(partial, sort = Set, syntax = "noset({a})")]
+pub struct NoSet {
+    pub a: Term<KItem>,
+}
+
+#[k::function(partial, sort = Map, syntax = "nomap({a})")]
+pub struct NoMap {
+    pub a: Term<KItem>,
+}
+
+#[k::function(partial, sort = Value, syntax = "noval({a})")]
+pub struct NoVal {
+    pub a: Term<KItem>,
+}
+
+#[k::constructors(sort = Value, result = KResult)]
+#[rustfmt::skip]
+pub enum Rv {
+    #[k::syntax("make({a})")] Make { a: Int },
+    #[k::syntax("bm({a}, {b})")] Bm { a: KItem, b: Map },
+    #[k::syntax("fl({a}, {b})")] Fl { a: Int, b: Bool },
+    #[k::syntax("lc({a}, {b})")] #[k::alias] Lc { a: List, b: List },
+    #[k::syntax("lr({a}, {b})")] #[k::alias] Lr { a: Int, b: List },
+    #[k::syntax("le()")] #[k::alias] Le(),
+    #[k::syntax("si({a})")] #[k::alias] Si { a: Int },
+    #[k::syntax("se()")] #[k::alias] Se(),
+    #[k::syntax("su({a})")] #[k::alias] Su { a: Set },
+    #[k::syntax("me()")] #[k::alias] Me(),
+    #[k::syntax("mu({a})")] #[k::alias] Mu { a: Map },
+    #[k::syntax("prj({a})")] #[k::alias] Prj { a: Value },
+    #[k::syntax("mt({a})")] #[k::alias] Mt { a: Int },
+    #[k::syntax("lt({a})")] #[k::alias] Lt { a: Value },
+}
+
+#[k::alias]
+fn lc(k::term![Rv::Lc(a, b)]: Term<Value>) -> Term<Value> {
+    Data::Two(1, k::builtin::list::concat(a, b))
+}
+
+#[k::alias]
+fn lr(k::term![Rv::Lr(x, b)]: Term<Value>) -> Term<Value> {
+    Data::Two(2, [x, ..b])
+}
+
+#[k::alias]
+fn le(k::term![Rv::Le()]: Term<Value>) -> Term<Value> {
+    Data::Two(12, [])
+}
+
+#[k::alias]
+fn si(k::term![Rv::Si(x)]: Term<Value>) -> Term<Value> {
+    Data::Bs(3, set::item(x))
+}
+
+#[k::alias]
+fn se(k::term![Rv::Se()]: Term<Value>) -> Term<Value> {
+    Data::Bs(4, set::empty())
+}
+
+#[k::alias]
+fn su(k::term![Rv::Su(s)]: Term<Value>) -> Term<Value> {
+    Data::Bs(5, set![1, ..s])
+}
+
+#[k::alias]
+fn me(k::term![Rv::Me()]: Term<Value>) -> Term<Value> {
+    Rv::Bm(6, k::map![])
+}
+
+#[k::alias]
+fn mu(k::term![Rv::Mu(m)]: Term<Value>) -> Term<Value> {
+    Rv::Bm(7, k::map![1 -> 2, ..m])
+}
+
+#[k::alias]
+fn prj(k::term![Rv::Prj(x)]: Term<Value>) -> Term<Value> {
+    Data::Tag(k::project!(Int, x))
+}
+
+#[k::alias]
+fn mt(k::term![Rv::Mt(x)]: Term<Value>) -> Term<Value> {
+    Rv::Fl(9, k::matches!(x, 3))
+}
+
+#[k::alias]
+fn lt(k::term![Rv::Lt(x)]: Term<Value>) -> Term<Value> {
+    Data::Tag({ let Data::Box(y) = x; y })
+}
+
+#[k::rule]
+fn make1(k::term![Rv::Make(1)]: Term<Value>) -> Term<Value> {
+    Data::Two(1, [5, 6, 7])
+}
+
+#[k::rule]
+fn make2(k::term![Rv::Make(2)]: Term<Value>) -> Term<Value> {
+    Data::Two(2, [5, 6, 7])
+}
+
+#[k::rule]
+fn make3(k::term![Rv::Make(3)]: Term<Value>) -> Term<Value> {
+    Data::Bs(3, set::item(5))
+}
+
+#[k::rule]
+fn make4(k::term![Rv::Make(4)]: Term<Value>) -> Term<Value> {
+    Data::Bs(4, set::empty())
+}
+
+#[k::rule]
+fn make6(k::term![Rv::Make(6)]: Term<Value>) -> Term<Value> {
+    Rv::Bm(6, k::map![])
+}
+
+#[k::rule]
+fn make5(k::term![Rv::Make(5)]: Term<Value>) -> Term<Value> {
+    Rv::Su(NoSet(Data::Red()))
+}
+
+#[k::rule]
+fn make7(k::term![Rv::Make(7)]: Term<Value>) -> Term<Value> {
+    Rv::Mu(NoMap(Data::Red()))
+}
+
+#[k::rule]
+fn make9(k::term![Rv::Make(9)]: Term<Value>) -> Term<Value> {
+    Rv::Mt(Size(Data::Red()))
+}
+
+#[k::rule]
+fn make10(k::term![Rv::Make(10)]: Term<Value>) -> Term<Value> {
+    Rv::Lt(NoVal(Data::Red()))
+}
+
+#[k::rule]
+fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
+    Data::Two(12, [])
+}
+"#;
+
+/// Each construct an alias result writes, by whether it constructs: a list's items and unit, a
+/// concatenation of them and at most one named list, and a set's or map's unit and singleton
+/// write the very term a state holds, so the clause prints backwards (`lr`, `si`, `se`, `me`, and
+/// `two(12, .List)` through the first of `elems`, `items` and `le`). A concatenation of two named
+/// lists (`lc`) computes: `[5, 6, 7]` is the concatenation of four splits, and the one printed
+/// would come from how the list nests, not from a term the author wrote. So do a set union
+/// (`su`), a map update (`mu`), a projection (`prj`), `k::matches!` (`mt`) and `let` (`lt`):
+/// where the program writes the alias, the state holds the result's own application, stuck on an
+/// argument no equation decides (`noset(red)`, `nomap(red)`, `red`, `size(red)`), and it prints
+/// expanded, as the state holds it.
+#[test]
+fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), &format!("{OTHER_CLAUSES}{CONSTRUCTS}"));
+    let printed = [
+        "make(1)",
+        "make(2)",
+        "make(3)",
+        "make(4)",
+        "make(5)",
+        "make(6)",
+        "make(7)",
+        "make(9)",
+        "make(10)",
+        "make(12)",
+        "prj(noval(red))",
+    ]
+    .map(|program| {
+        let file = manifest.with_file_name("program.txt");
+        fs::write(&file, program).unwrap();
+        let (_, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+        let state = stdout
+            .lines()
+            .skip_while(|line| line.trim() != "<k>")
+            .skip(1)
+            .take_while(|line| line.trim() != "</k>")
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(!state.is_empty(), "{program}: {stdout}\n{stderr}");
+        format!("{program} => {state}")
+    })
+    .join("\n");
+    expect_test::expect![[r"
+        make(1) => two(1, ListItem ( 5 ) ListItem ( 6 ) ListItem ( 7 )) ~> .K
+        make(2) => lr(5, ListItem ( 6 ) ListItem ( 7 )) ~> .K
+        make(3) => si(5) ~> .K
+        make(4) => se() ~> .K
+        make(5) => bs(5, noset ( zero() ) |Set SetItem ( 1 )) ~> .K
+        make(6) => me() ~> .K
+        make(7) => bm(7, nomap ( zero() ) [ 1 <- 2 ]) ~> .K
+        make(9) => fl(9, #lambdaX__2 ( size ( zero() ) )) ~> .K
+        make(10) => tag(#lambdaX__ ( noval ( zero() ) )) ~> .K
+        make(12) => elems(SetItem ( 12 )) ~> .K
+        prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K"]]
+    .assert_eq(&printed);
+}

@@ -107,14 +107,17 @@ pub(crate) struct Macro {
     pub recursive: bool,
     /// The rule's `label`, which names the clause it was emitted from.
     pub label: Option<String>,
+    /// Kept forward only by [`crate::Unparser::reversing_only`]: it expands, but prints nothing
+    /// backwards.
+    pub forward_only: bool,
 }
 
 impl Macro {
-    /// Whether printing may reverse it: an `alias` or `alias-rec` axiom whose right-hand side
-    /// is an application. A right-hand side that is a variable names no head and matches every
-    /// term ([`crate::alias`]).
+    /// Whether printing may reverse it: an `alias` or `alias-rec` axiom not kept forward only,
+    /// whose right-hand side is an application. A right-hand side that is a variable names no
+    /// head and matches every term ([`crate::alias`]).
     pub fn reversible(&self) -> bool {
-        !self.one_way && self.right.as_app().is_some()
+        !self.one_way && !self.forward_only && self.right.as_app().is_some()
     }
 }
 
@@ -416,6 +419,7 @@ impl PrintData {
                     one_way: has(attributes, "macro") || has(attributes, "macro-rec"),
                     recursive: has(attributes, "macro-rec") || has(attributes, "alias-rec"),
                     label: attribute_string(attributes, "label"),
+                    forward_only: false,
                 })
             })
             .collect()

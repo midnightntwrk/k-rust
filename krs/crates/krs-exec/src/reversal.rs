@@ -2,23 +2,42 @@
 //!
 //! A reversal prints a term as the alias application a clause's subject writes, and is right
 //! only where that application is a term the author wrote for the state, and reads back as it.
-//! `macros.kore` cannot tell either, so the printer is told which clauses run forward only:
+//! `macros.kore` cannot tell either, so the printer is told which clauses it reverses, and
+//! reverses no other axiom: one whose label names no alias clause of the definition, or none at
+//! all, prints expanded. A clause is reversed when its written result constructs and every token
+//! its subject writes reads back as itself; every other clause runs forward only:
 //!
 //! - **A clause whose written result computes** (a function's application, an operator, a sort
-//!   test or projection, a collection operation but writing a list's elements or a collection's
-//!   unit or singleton, `let`, `k::matches!`). Its axiom states
-//!   the result after compilation, where an application on ground arguments is already its value
-//!   (`three() => tag(1 + 2)` reaches `macros.kore` as `three() = tag(3)`), so reversing it would
-//!   print every `tag(3)`, however the run computed it, as `three()`: an alias the author wrote
-//!   for an expression, printed for a value that merely equals it. In a pattern the alias still
-//!   means that value. A result built only of constructors, tokens, names, lists' elements and
-//!   collections' units and singletons is the very term a matched state holds, so its clause is reversed.
+//!   test or projection, `let`, `k::matches!`, or a collection operation that does not write one
+//!   term: anything but a collection's unit, a singleton, and a list's concatenation of items,
+//!   units and at most one named list). Its axiom states the result after compilation, where an
+//!   application on ground arguments is already its value (`three() => tag(1 + 2)` reaches
+//!   `macros.kore` as `three() = tag(3)`), so reversing it would print every `tag(3)`, however
+//!   the run computed it, as `three()`: an alias the author wrote for an expression, printed for a
+//!   value that merely equals it. In a pattern the alias still means that value. A result built
+//!   only of constructors, tokens, names and those collection terms is the very term a matched
+//!   state holds, so its clause is reversed.
+//! - **A list concatenation whose split the term does not determine.** A list's items and units
+//!   fix their own places, so a concatenation of them and at most one named list gives that list
+//!   exactly the elements the others leave: `[x, ..rest]` matches `[5, 6, 7]` only with `x = 5`
+//!   and `rest = [6, 7]`. With two named lists, `lc(a, b) => two(1, list::concat(a, b))`, the
+//!   printed value `two(1, [5, 6, 7])` is the concatenation of four splits, and the one printed
+//!   (`lc(ListItem(5), ListItem(6) ListItem(7))`) would come from how the backend's list happens
+//!   to nest, not from anything the author wrote. A set's or a map's parts have no order, so even
+//!   two items split a value by choice (`set![x, y]` binds `x` to either element): beyond its
+//!   unit and singleton, a set or map term computes.
 //! - **A clause whose subject writes a token that does not read back as itself** where it stands:
 //!   printed, a token is its text, and the text may be another sort's token at that position
 //!   (`word`, a `Word`, read as an `Id` where a `KItem` stands) or no token at all (`$x`).
 //!   The printed alias would then read back as another application, which its clause does not
 //!   expand. Whether the text reads back is the grammar's answer, so each token is parsed at its
-//!   position with the grammar a printed term is read back with, a program's.
+//!   position with the grammar a printed term is read back with, a program's
+//!   ([`Configuration::reads_back_token`]), and compared by the value it denotes, as a program's
+//!   expansion matches a token. Each token is judged alone, not inside the printed application:
+//!   the two differ only where a token sort's regex can take in what is printed after the token
+//!   (a `)`, a `,`, or the next argument's text), so that the scanner reads a longer token in
+//!   context. Such a clause is reversed though its print may not read back; judging the whole
+//!   printed subject would need its arguments, which only a print has.
 //!
 //! Such a clause still expands wherever a program or a rule writes it; a term it would have
 //! printed prints expanded, which is the state as it is.
@@ -33,33 +52,42 @@ use krs_ir_levels::{
 
 use crate::configuration::Configuration;
 
-/// The labels of the alias clauses printing does not reverse: those whose written result
-/// computes, and those whose subject writes a token `configuration` does not read back as
-/// itself where it stands.
-pub(crate) fn forward_only(
+/// The labels of the alias clauses printing reverses: those whose written result constructs and
+/// whose subject writes only tokens `configuration` reads back as themselves where they stand.
+pub(crate) fn reversed(
     definition: &DefinitionIr,
     unparser: &krs_unparse::Unparser,
     configuration: &mut Configuration,
 ) -> BTreeSet<String> {
-    let mut labels = computing_clauses(definition);
-    for clause in unparser.reversed_clauses() {
-        let Some(label) = clause.label else {
-            continue;
-        };
-        if labels.contains(&label) {
-            continue;
-        }
-        if clause.tokens.iter().any(|token| {
-            !configuration.reads_back_token(&token.position, &token.printed, &token.token)
-        }) {
-            labels.insert(label);
-        }
-    }
-    labels
+    let (constructing, computing) = alias_clauses(definition);
+    debug_assert!(
+        {
+            let emitted = unparser.clause_labels();
+            computing
+                .iter()
+                .all(|label| emitted.contains(label.as_str()))
+        },
+        "an alias clause whose result computes has no axiom in macros.kore: {computing:?}"
+    );
+    unparser
+        .reversed_clauses()
+        .into_iter()
+        .filter_map(|clause| {
+            let label = clause.label.filter(|label| constructing.contains(label))?;
+            clause
+                .tokens
+                .iter()
+                .all(|token| {
+                    configuration.reads_back_token(&token.position, &token.printed, &token.token)
+                })
+                .then_some(label)
+        })
+        .collect()
 }
 
-/// The labels of the alias clauses whose written result computes.
-fn computing_clauses(definition: &DefinitionIr) -> BTreeSet<String> {
+/// The labels of the definition's alias clauses: those whose written result constructs, and
+/// those whose written result computes.
+fn alias_clauses(definition: &DefinitionIr) -> (BTreeSet<String>, BTreeSet<String>) {
     let sentences = || {
         definition
             .modules()
@@ -80,29 +108,43 @@ fn computing_clauses(definition: &DefinitionIr) -> BTreeSet<String> {
         .collect::<BTreeSet<_>>();
     sentences()
         .filter_map(|sentence| match sentence {
-            DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Alias => rule
-                .body()
-                .filter(|body| computes(body.to(), &functions))
-                .map(|_| rule.label().emitted_name().to_owned()),
+            DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Alias => {
+                rule.body().map(|body| {
+                    (
+                        rule.label().emitted_name().to_owned(),
+                        computes(body.to(), &functions),
+                    )
+                })
+            }
             _ => None,
         })
-        .collect()
+        .fold(
+            (BTreeSet::new(), BTreeSet::new()),
+            |(mut constructing, mut computing), (label, computes)| {
+                if computes {
+                    computing.insert(label);
+                } else {
+                    constructing.insert(label);
+                }
+                (constructing, computing)
+            },
+        )
 }
 
 /// Whether `term` holds a construct that computes: an application of a function, of a builtin
 /// operation that is one, or of a generated sort test or projection; a collection operation
-/// other than writing a list's elements in order or a collection's unit or singleton (a set's
-/// concatenation is the union of its parts, a map of several entries their join); `let`; or
-/// `k::matches!`.
+/// other than a collection's unit or singleton, or a list's concatenation whose split is
+/// determined ([`named_lists`]); `let`; or `k::matches!`.
 fn computes(term: &DefinitionTerm, functions: &BTreeSet<SymbolId>) -> bool {
     let here = match term.kind() {
         DefinitionTermKind::Application { application, .. } => {
             applies_function(application, functions)
         }
-        DefinitionTermKind::List(operands) => !matches!(
-            **operands,
-            ListOperands::Empty | ListOperands::Item { .. } | ListOperands::Concat { .. }
-        ),
+        DefinitionTermKind::List(operands) => match **operands {
+            ListOperands::Empty | ListOperands::Item { .. } => false,
+            ListOperands::Concat { .. } => named_lists(term).is_none_or(|named| named > 1),
+            _ => true,
+        },
         DefinitionTermKind::Set(operands) => {
             !matches!(**operands, SetOperands::Empty | SetOperands::Item { .. })
         }
@@ -124,6 +166,22 @@ fn computes(term: &DefinitionTerm, functions: &BTreeSet<SymbolId>) -> bool {
         .children()
         .into_iter()
         .any(|child| computes(child, functions))
+}
+
+/// How many named lists the list concatenation `term` joins, its nested concatenations
+/// flattened, beside its items and units; `None` where an operand is any other term, whose
+/// elements the concatenation cannot place. A concatenation of items, units and one named list
+/// gives that list exactly the elements the others leave, so a value it matches splits one way.
+fn named_lists(term: &DefinitionTerm) -> Option<usize> {
+    match term.kind() {
+        DefinitionTermKind::Variable { .. } => Some(1),
+        DefinitionTermKind::List(operands) => match &**operands {
+            ListOperands::Empty | ListOperands::Item { .. } => Some(0),
+            ListOperands::Concat { left, right } => Some(named_lists(left)? + named_lists(right)?),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn applies_function(

@@ -440,9 +440,14 @@ impl Configuration {
 
     /// Whether `printed`, the printed text of `token` (`\dv{S}(..)`), reads back as `token` at a
     /// position of sort `position`: parsed there alone with the syntax module's grammar, the one a
-    /// program is read with, and its aliases expanded, it is `token`. The scanner reads a token
-    /// whatever the parse expects there, so the text alone reads as it does inside a printed term.
-    /// A position whose sort has parameters is not judged (`true`).
+    /// program is read with, and its aliases expanded, it is `token`. A `\dv` holds the domain
+    /// value the token's text denotes, so the comparison is of values: `b"a\x22b"` reads back as
+    /// the token printed `b"a\"b"`. The scanner reads a token whatever the parse expects there,
+    /// so the text alone reads as it does inside a printed term, unless the token sort's regex
+    /// can take in what is printed after it ([`crate::reversal`]).
+    ///
+    /// What cannot be judged does not read back: a position whose sort has parameters, which
+    /// no `--sort` names, and one whose KORE name is not the encoding of a K sort's name.
     pub(crate) fn reads_back_token(
         &mut self,
         position: &Sort,
@@ -450,7 +455,7 @@ impl Configuration {
         token: &Pattern,
     ) -> bool {
         let Sort::Application { name, arguments } = position else {
-            return true;
+            return false;
         };
         let Some(kast) = name
             .strip_prefix("Sort")
@@ -458,7 +463,7 @@ impl Configuration {
             .map(|name| KastSort::new(krs_unparse::decode_kore(name)))
             .filter(|kast| encode_kore_sort(kast) == *position)
         else {
-            return true;
+            return false;
         };
         let module = self.syntax_module.clone();
         self.parse_surface(&module, &kast, printed, false)
@@ -584,6 +589,7 @@ fn without_injection(pattern: &Pattern) -> &Pattern {
 #[cfg(test)]
 mod tests {
     use super::Configuration;
+    use k_rust::kore::ast::Pattern;
     use k_rust::{
         definition::{Definition, Sentence},
         kast::Sort,
@@ -636,6 +642,78 @@ endmodule
                 r#"kseq{{}}(inj{{SortItem{{}}, SortKItem{{}}}}(Lblf{{}}(\dv{{SortString{{}}}}("~>"))), {a})"#
             )
         );
+    }
+
+    /// A token reads back where its printed text, parsed alone at its position with the program
+    /// grammar, is the same domain value: a byte string whose escape differs from the clause's
+    /// does, and a `Word` at its own sort does. A position that cannot be judged does not: a sort
+    /// variable, a sort with parameters, and a KORE name that encodes no K sort's name.
+    #[test]
+    fn a_token_reads_back_only_where_its_value_parses_at_a_position_that_can_be_judged() {
+        let parsed = k_rust::outer::parse(
+            "tokens.k",
+            r#"
+module MAIN
+  imports INT
+  imports BYTES
+  imports BASIC-K
+  syntax Word ::= r"w[a-z]*" [token]
+  syntax Item ::= w(Word) [symbol(w)]
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([("PGM".to_owned(), Sort::builtin(BuiltinSort::K))]),
+        )
+        .unwrap();
+        let sort = |text: &str| match &k_rust::kore::parser::parse_pattern(&format!(
+            r#"\dv{{{text}}}("1")"#
+        ))
+        .unwrap()
+        {
+            Pattern::DomainValue { sort, .. } => sort.clone(),
+            other => panic!("{other}"),
+        };
+        let mut reads_back = |position: &str, printed: &str, token: &str| {
+            configuration.reads_back_token(
+                &sort(position),
+                printed,
+                &k_rust::kore::parser::parse_pattern(token).unwrap(),
+            )
+        };
+        assert!(reads_back(
+            "SortBytes{}",
+            r#"b"a\"b""#,
+            r#"\dv{SortBytes{}}("a\"b")"#
+        ));
+        assert!(reads_back(
+            "SortWord{}",
+            "word",
+            r#"\dv{SortWord{}}("word")"#
+        ));
+        assert!(!reads_back(
+            "SortWord{}",
+            "wa",
+            r#"\dv{SortWord{}}("word")"#
+        ));
+        assert!(!reads_back("S", "1", r#"\dv{SortInt{}}("1")"#));
+        assert!(!reads_back(
+            "SortInt{SortInt{}}",
+            "1",
+            r#"\dv{SortInt{}}("1")"#
+        ));
+        assert!(!reads_back(
+            "SortInt'Zzzz'{}",
+            "1",
+            r#"\dv{SortInt{}}("1")"#
+        ));
+        assert!(reads_back("SortInt{}", "1", r#"\dv{SortInt{}}("1")"#));
     }
 
     #[test]

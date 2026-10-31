@@ -590,9 +590,8 @@ impl Semantics {
             krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
                 .map(|unparser| unparser.with_program_grammar(&frontend_definition))
                 .map(|unparser| {
-                    let forward_only =
-                        reversal::forward_only(definition, &unparser, &mut configuration);
-                    unparser.without_reversing(|label| forward_only.contains(label))
+                    let reversed = reversal::reversed(definition, &unparser, &mut configuration);
+                    unparser.reversing_only(|label| reversed.contains(label))
                 })
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
