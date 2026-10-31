@@ -19,7 +19,7 @@ name_core() {
   case $1 in
     kimp|kimp-d2) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
     simple) echo KSimple ;; freekey) echo FreeKey ;; symcoll) echo SymColl ;; alias) echo KAlias ;;
-    kterm-ar) echo KTerm ;; overload) echo KOverload ;;
+    kterm-ar) echo KTerm ;; overload) echo KOverload ;; indlemma) echo IndLemma ;;
     *) return 1 ;;
   esac
 }
@@ -80,6 +80,9 @@ gen_core() {
     alias) libs_fixture_args "$1" ;;
     # the fixture of function equations over an overloaded list (tests/fixtures/overload)
     overload) libs_fixture_args "$1" ;;
+    # the fixture of an author's lemmas that hold by induction (tests/fixtures/indlemma); `mu` is
+    # called by no rule
+    indlemma) libs_fixture_args "$1"; GEN_ARGS+=(--extra-fns mu) ;;
     # recursive functions whose termination measures the generator synthesizes (demos/k/term),
     # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
@@ -219,6 +222,9 @@ gate_core() {
   runs lib symcoll && lib symcoll SymColl
   # the fixture of alias patterns (`P #as X`) in equations and owise competitors
   runs lib alias && lib alias KAlias
+  # the fixture of an author's lemmas about recursive functions, each proved by induction
+  # (`k2l_eqn_ind`, EQ-21), none open
+  runs lib indlemma && lib indlemma IndLemma
   # the fixture of equations over an overloaded list, matched modulo its overload axioms
   if runs lib overload && lib overload KOverload; then
     # the evaluator (CT-4a): heartbeats per command and each theorem against its frozen statement,

@@ -1088,4 +1088,214 @@ elab "k2l_absurd" : tactic => withMainContext do
     s.restore
   throwError "k2l_absurd: no hypothesis refutes the goal"
 
+/-! ## An author's lemma about a recursive function, by induction (EQ-21)
+
+A simplification such as `mu(app(A, B)) => mu(A) +Int mu(B)`, or `mu(C) >=Int 0 => true`, about a
+function `mu` that recurses on its argument, holds by induction on that argument: the function's
+equations at each constructor, the lemma itself at each strict part. `k2l_eqn_ind x` is that proof:
+strong induction on `sizeOf x` (the sorts are mutual, and a strict part may be reached through
+another sort, the body of a loop statement in a statement list), cases on `x` as far as its
+arguments of other sorts go, the hypothesis at every part of `x`'s sort, the proved equations
+(`@[k2l_equation]`) of the functions the goal calls, cases on their values, and arithmetic. -/
+
+/-- The sort of a term of type `t`: its tag in the arity-indexed family, or its inductive type in
+the one type per sort encoding; none for a type of the toolchain or the prelude (a builtin
+carrier, which is not cased). -/
+def k2lSortKey (t : Expr) : MetaM (Option Name) := do
+  let t ← whnfR (← instantiateMVars t)
+  let .const n _ := t.getAppFn | return none
+  let env ← getEnv
+  if isFamilyName env n then
+    let .const tag _ := (← whnfD t.appArg!).getAppFn | return none
+    return some tag
+  let some (.inductInfo _) := env.find? n | return none
+  let some m := env.getModuleIdxFor? n | return none
+  let mod := env.header.moduleNames[m.toNat]!
+  if [`Init, `Std, `Lean, `Lake, `KPrelude].any (·.isPrefixOf mod) then return none
+  return some n
+
+/-- Cases on `x` (`familyCases`), then on each argument of a sort that no case on the path has
+split (`seen`, which starts with the induction's sort: its parts are where the hypothesis
+applies). The arguments are renamed `k2l_f<i>` first, so each is found again after an earlier
+argument's case has replaced the context. -/
+partial def k2lIndCases (g : MVarId) (x : FVarId) (seen : List Name) (ctr : IO.Ref Nat) :
+    MetaM (List MVarId) := do
+  let mut out := []
+  for (g1, args) in ← familyCases g x do
+    let mut g0 := g1
+    let mut names := #[]
+    for a in args do
+      let .fvar fv := a | continue
+      let i ← ctr.modifyGet fun i => (i, i + 1)
+      let nm := Name.mkSimple s!"k2l_f{i}"
+      g0 ← g0.rename fv nm
+      names := names.push nm
+    let mut gs := [g0]
+    for nm in names do
+      let mut gs' := []
+      for g' in gs do
+        let some d := (← g'.getDecl).lctx.findFromUserName? nm | gs' := gs' ++ [g']; continue
+        match ← g'.withContext (k2lSortKey d.type) with
+        | some m =>
+          if seen.contains m then gs' := gs' ++ [g']
+          else gs' := gs' ++ (← k2lIndCases g' d.fvarId (m :: seen) ctr)
+        | none => gs' := gs' ++ [g']
+      gs := gs'
+    out := out ++ gs
+  return out
+
+/-- The hypothesis `ih : ∀ m, m < B → ∀ x, … → sizeOf x = m → P x` at every local `y` of type `T`
+that is smaller than `B` (`P y`, under the premises about `y`), and `ih` cleared. -/
+def k2lAddIHs (ih : FVarId) (T : Expr) : TacticM Unit := withMainContext do
+  let ihTy ← instantiateMVars (← ih.getType)
+  let bound ← forallTelescopeReducing ihTy fun xs _ => do return (← inferType xs[1]!).appArg!
+  let mut facts := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.fvarId == ih then continue
+    unless ← isDefEq (← instantiateMVars d.type) T do continue
+    let y := d.toExpr
+    let sz ← mkAppM ``SizeOf.sizeOf #[y]
+    let lt ← mkFreshExprMVar (← mkAppM ``LT.lt #[sz, bound])
+    try
+      unless (← evalTacticAt (← `(tactic| (simp <;> omega))) lt.mvarId!).isEmpty do continue
+    catch _ => continue
+    let inst := mkApp (mkAppN (.fvar ih) #[sz, lt]) y
+    let p ← forallTelescope (← inferType inst) fun zs _ => do
+      let pre := zs.pop
+      mkLambdaFVars pre (mkApp (mkAppN inst pre) (← mkEqRefl sz))
+    facts := facts.push p
+  let mut g ← getMainGoal
+  for p in facts do
+    let g' ← g.assert `k2l_ih (← inferType p) p
+    let (_, g'') ← g'.intro1P
+    g := g''
+  replaceMainGoal [← g.tryClear ih]
+
+/-- `k2l_ind_cases x`: strong induction on `sizeOf x`, cases on `x` (`k2lIndCases`), and at each
+case the hypothesis at every part of `x`'s sort (`k2lAddIHs`). -/
+elab "k2l_ind_cases " x:ident : tactic => do
+  let T ← withMainContext do instantiateMVars (← (← getFVarId x).getType)
+  let n := x.getId
+  evalTactic (← `(tactic| induction k2l_h : sizeOf $x using Nat.strongRecOn generalizing $x:ident))
+  -- the case's context ends with the bound `n`, the hypothesis, `x` and `sizeOf x = n`: the
+  -- hypothesis is renamed `k2l_ih` and the equation substituted (by position, as the names the
+  -- quotation gives are hygienic)
+  liftMetaTactic fun g => do
+    let ds := (← g.getDecl).lctx.decls.toList.filterMap id |>.filter (!·.isImplementationDetail)
+    let some h := ds.getLast? | throwError "k2l_ind_cases: no equation"
+    let some ih := ds.find? fun d => d.type.isForall && d.userName.hasMacroScopes
+      | throwError "k2l_ind_cases: no hypothesis"
+    let g ← g.rename ih.fvarId `k2l_ih
+    return [← subst g h.fvarId]
+  let ctr ← IO.mkRef 0
+  let seen := (← withMainContext (k2lSortKey T)).toList
+  let mut out := []
+  for g in ← getGoals do
+    let some d := (← g.getDecl).lctx.findFromUserName? n | throwError "k2l_ind_cases: {n} lost"
+    for g' in ← k2lIndCases g d.fvarId seen ctr do
+      setGoals [g']
+      let some ih := (← g'.getDecl).lctx.findFromUserName? `k2l_ih | throwError "k2l_ind_cases: no hypothesis"
+      k2lAddIHs ih.fvarId T
+      out := out ++ (← getGoals)
+  setGoals out
+
+/-- `k2l_eqns_simp`: rewrite the goal and the hypotheses with the proved equations
+(`@[k2l_equation]`) of every function they call; fails when none applies. -/
+elab "k2l_eqns_simp" : tactic => withMainContext do
+  let env ← getEnv
+  let mut fs : NameSet := {}
+  let mut es := #[← instantiateMVars (← getMainTarget)]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do es := es.push (← instantiateMVars d.type)
+  for e in es do
+    for c in e.getUsedConstants do
+      unless (equationsOf env c).isEmpty do fs := fs.insert c
+  let mut lemmas : Array (TSyntax `Lean.Parser.Tactic.simpLemma) := #[]
+  for f in fs do
+    for t in equationsOf env f do
+      lemmas := lemmas.push (← `(Lean.Parser.Tactic.simpLemma| $(mkIdent t):ident))
+  if lemmas.isEmpty then throwError "k2l_eqns_simp: no proved equation of a function called"
+  evalTactic (← `(tactic| simp only [$lemmas,*] at *))
+
+/-- The cases of `k2l_split_ifs` on `g`. -/
+partial def k2lSplitIfs (g : MVarId) (ctr : IO.Ref Nat) : TacticM (List MVarId) := do
+  let tgt ← g.withContext do instantiateMVars (← g.getType)
+  let some c := tgt.find? fun e => e.isAppOfArity ``ite 5 && !(e.getArg! 1).hasLooseBVars
+    | return [g]
+  let i ← ctr.modifyGet fun i => (i, i + 1)
+  let hn := Name.mkSimple s!"k2l_c{i}"
+  let (gt, gf) ← g.byCases (c.getArg! 1) hn
+  let mut out := []
+  for g' in [gt.mvarId, gf.mvarId] do
+    setGoals [g']
+    evalTactic (← `(tactic| simp only [$(mkIdent hn):ident, ite_true, ite_false, not_false_eq_true]))
+    for g'' in ← getGoals do out := out ++ (← k2lSplitIfs g'' ctr)
+  return out
+
+/-- `k2l_split_ifs`: case on the condition of each `if` of the goal (a hook such as `maxInt`
+unfolds to one), the `if` decided in each case; fails when the goal has none. -/
+elab "k2l_split_ifs" : tactic => do
+  let g ← getMainGoal
+  let gs ← k2lSplitIfs g (← IO.mkRef 0)
+  if gs == [g] then throwError "k2l_split_ifs: no if in the goal"
+  replaceMainGoal gs
+
+/-- `k2l_mul_sign`: for each product `a * b` of integers in the goal or a hypothesis (neither
+factor a literal) whose two factors `k2l_int_omega` bounds below by zero, the fact `0 ≤ a * b`.
+`omega` reads a product of two variables as an atom and knows nothing of its sign. Fails when it
+adds no fact. -/
+elab "k2l_mul_sign" : tactic => withMainContext do
+  let cands ← IO.mkRef (#[] : Array (Expr × Expr))
+  let collect (e : Expr) : MetaM Unit := e.forEach fun s => do
+    unless s.isAppOfArity ``HMul.hMul 6 do return
+    let a := s.getArg! 4
+    let b := s.getArg! 5
+    if a.hasLooseBVars || b.hasLooseBVars || a.int?.isSome || b.int?.isSome then return
+    unless (← whnfR (s.getArg! 0)).isConstOf ``Int do return
+    unless (← cands.get).contains (a, b) do cands.modify (·.push (a, b))
+  collect (← instantiateMVars (← getMainTarget))
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do collect (← instantiateMVars d.type)
+  let zero := toExpr (0 : Int)
+  let le (e : Expr) := mkApp4 (.const ``LE.le [0]) (.const ``Int []) (.const ``Int.instLEInt []) zero e
+  let mut g ← getMainGoal
+  let mut n := 0
+  for (a, b) in ← cands.get do
+    let pa ← mkFreshExprMVar (le a)
+    let pb ← mkFreshExprMVar (le b)
+    try
+      unless (← evalTacticAt (← `(tactic| k2l_int_omega)) pa.mvarId!).isEmpty do continue
+      unless (← evalTacticAt (← `(tactic| k2l_int_omega)) pb.mvarId!).isEmpty do continue
+    catch _ => continue
+    let p := mkApp4 (.const ``Int.mul_nonneg []) a b pa pb
+    let g' ← g.assert (Name.mkSimple s!"k2l_mul{n}") (← inferType p) p
+    let (_, g'') ← g'.intro1P
+    g := g''
+    n := n + 1
+  replaceMainGoal [g]
+  if n == 0 then throwError "k2l_mul_sign: no product of factors bounded below by zero"
+
+/-- `k2l_int_arith`: integer arithmetic past `omega`'s fragment: each `if` of the goal split
+(`k2l_split_ifs`), the sign of each product of nonnegative factors (`k2l_mul_sign`), then
+`k2l_int_omega`, else `grind`. -/
+macro "k2l_int_arith" : tactic => `(tactic| (
+  (try k2l_split_ifs) <;> (try k2l_mul_sign) <;> first | k2l_int_omega | grind))
+
+/-- The closing steps of `k2l_eqn_ind`, after the cases and the hypotheses. -/
+macro "k2l_eqn_ind_close" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
+  all_goals (try k2l_eqns_simp)
+  all_goals (try simp only [Option.bind] at *)
+  all_goals (repeat' (k2l_case_call <;> (try k2l_eqns_simp) <;> try simp only [Option.bind] at *))
+  all_goals (try simp_all [k2l_eq, $xs,*])
+  all_goals first | rfl | k2l_int_arith))
+
+/-- `k2l_eqn_ind x [xs]`: the lemma by induction on `x` (`k2l_ind_cases`, `k2l_eqn_ind_close`),
+with the module's budget counted from its start, and a timeout an ordinary failure, so that
+`first` goes on to the next variable. -/
+elab "k2l_eqn_ind " x:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
+  withCurrHeartbeats do
+    tryCatchRuntimeEx
+      (evalTactic (← `(tactic| (k2l_ind_cases $x; k2l_eqn_ind_close [$xs,*]))))
+      fun e => do if e.isRuntime then throwError "k2l_eqn_ind: the budget is exceeded" else throw e
+
 end KPrelude

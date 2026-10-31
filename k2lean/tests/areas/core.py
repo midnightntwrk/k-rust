@@ -11,6 +11,7 @@ LIBS = {
     "symcoll": {"ns": "SymColl", "tier": "light"},
     "alias": {"ns": "KAlias", "tier": "light"},
     "overload": {"ns": "KOverload", "tier": "light"},
+    "indlemma": {"ns": "IndLemma", "tier": "light"},
     "simple": {"ns": "KSimple", "tier": "heavy"},
     "kterm-ar": {"ns": "KTerm", "tier": "light"},
 }

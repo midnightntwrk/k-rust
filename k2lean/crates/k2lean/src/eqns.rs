@@ -42,6 +42,10 @@ pub struct Stated {
     /// The proof by its own row of the generated cascade, for an equation of a function without
     /// overload variants (whose rows are then its equations, in order).
     pub row: Option<RowProof>,
+    /// The variables a simplification's proof may induct on (EQ-21), each with a library function
+    /// it is an argument of (`K.f`): a variable of a recursive sort, in binder order. The proof
+    /// tries induction on one only when that function is recursive.
+    pub induct: Vec<(String, String)>,
 }
 
 /// An equation `N` of a generated function `f` as a row of `f`'s cascade (`KPrelude.Tactic`, "An
@@ -220,6 +224,7 @@ pub fn equation_theorems(
                     simp_with: vec![],
                     normalizers: normalizers.clone(),
                     row,
+                    induct: vec![],
                 }),
                 Err(err) => eprintln!("note: {what} not stated: {err}"),
             }
@@ -324,17 +329,72 @@ fn simpl_binders(lw: &mut Lower, pats: &[&P]) -> Result<Simpl, String> {
     for (k, h) in wf.enumerate() {
         text.push_str(&format!("\n    (hwf{k} : {h})"));
     }
+    let mut induct = Vec::new();
+    for p in pats {
+        induct_candidates(lw, p, &mut induct);
+    }
+    let order: Vec<&String> = binders.iter().map(|(n, _)| n).collect();
+    induct.sort_by_key(|(v, _)| order.iter().position(|n| *n == v));
     Ok(Simpl {
         binders: text,
         case_first: opts.into_iter().map(|(n, _)| n).collect(),
+        induct,
     })
 }
 
-/// A simplification's binders and premises (`simpl_binders`), and the `Option` binders its
-/// proof cases first.
+/// A simplification's binders and premises (`simpl_binders`), the `Option` binders its proof
+/// cases first, and the variables it may induct on.
 struct Simpl {
     binders: String,
     case_first: Vec<String>,
+    induct: Vec<(String, String)>,
+}
+
+/// Whether a value of `sort` can contain another value of `sort`: a plain sort one of whose
+/// constructors has an argument that reaches it (through other sorts too: a loop statement's
+/// body, a statement list inside a statement).
+fn recursive_sort(m: &Model, sort: &str) -> bool {
+    let Some(info) = m.sorts.get(sort) else {
+        return false;
+    };
+    let to = BTreeSet::from([sort.to_string()]);
+    matches!(info.kind, crate::model::Kind::Plain)
+        && info.own.iter().any(|c| {
+            m.ctors
+                .get(c)
+                .is_some_and(|ci| ci.args.iter().any(|a| crate::normal::reaches(m, a, &to)))
+        })
+}
+
+/// The variables of `p` of a recursive sort that are arguments of a library function (`K.f`),
+/// each with the function: where a lemma about the function may need induction on the variable
+/// (EQ-21).
+fn induct_candidates(lw: &Lower, p: &P, out: &mut Vec<(String, String)>) {
+    match p {
+        P::App(f, _, args) => {
+            if let Some(sig) = lw.fns.get(f).filter(|g| g.lean.starts_with("K.")) {
+                for a in args {
+                    let P::Var(v, vs) = a else { continue };
+                    let (Some(n), Some(sort)) = (lw.vars.get(v), vs.name()) else {
+                        continue;
+                    };
+                    let c = (n.clone(), sig.lean.clone());
+                    if recursive_sort(lw.m, sort) && !out.contains(&c) {
+                        out.push(c);
+                    }
+                }
+            }
+            args.iter().for_each(|a| induct_candidates(lw, a, out))
+        }
+        P::And(_, args) | P::Or(_, args) => args.iter().for_each(|a| induct_candidates(lw, a, out)),
+        P::Not(_, a) | P::Ceil(_, _, a) | P::Floor(_, _, a) => induct_candidates(lw, a, out),
+        P::Equals(_, _, a, b) | P::In(_, _, a, b) | P::Implies(_, a, b) | P::Iff(_, a, b) => {
+            induct_candidates(lw, a, out);
+            induct_candidates(lw, b, out);
+        }
+        P::Exists(_, _, _, b) | P::Forall(_, _, _, b) => induct_candidates(lw, b, out),
+        _ => {}
+    }
 }
 
 /// The simp sets a simplification's proof also uses: the collection laws (`k2l_hook`,
@@ -680,7 +740,12 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                 .unwrap_or_default()
         );
         match state_simpl(m, fns, &a.pattern) {
-            Ok((st, Simpl { case_first, .. })) => {
+            Ok((
+                st,
+                Simpl {
+                    case_first, induct, ..
+                },
+            )) => {
                 // named by the rule's `UNIQUE'Unds'ID` (a digest of the rule), so that a name does not
                 // depend on where the rule is in the definition; a definition can contain one rule
                 // twice (KEVM's `int-simplification.k` restates `domains.md`'s `A modInt B => A`,
@@ -704,6 +769,7 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                     nf: vec![],
                     statement: st,
                     row: None,
+                    induct,
                 })
             }
             Err(err) => eprintln!("note: {what} not stated: {err}"),
@@ -1083,6 +1149,18 @@ fn rec_of(s: &Stated, recursive: &BTreeSet<String>) -> Option<String> {
         .cloned()
 }
 
+/// The variables a simplification's proof tries induction on (EQ-21): its candidates that are an
+/// argument of a recursive function, each once, in binder order.
+fn induct_vars<'a>(s: &'a Stated, recursive: &BTreeSet<String>) -> Vec<&'a str> {
+    let mut out: Vec<&str> = Vec::new();
+    for (v, f) in &s.induct {
+        if recursive.contains(f) && !out.contains(&v.as_str()) {
+            out.push(v);
+        }
+    }
+    out
+}
+
 fn rec_fns(stated: &[Stated], recursive: &BTreeSet<String>) -> BTreeSet<String> {
     stated.iter().filter_map(|s| rec_of(s, recursive)).collect()
 }
@@ -1349,6 +1427,11 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
                 if owise {
                     alts.push_str(&format!("\n  | ({first}{eqn_o} [{own}])"));
                 }
+                // last, induction on a variable a recursive function recurses on (EQ-21), each
+                // in a budget of its own
+                for v in induct_vars(s, recursive) {
+                    alts.push_str(&format!("\n  | k2l_eqn_ind {v} [{own}]"));
+                }
                 // after a row route, the other proofs get the budget they had without it: the
                 // heartbeats the row route spent before failing are not theirs to lose
                 let row = row_route(s, defs);
@@ -1573,6 +1656,7 @@ mod tests {
             normalizers: vec![],
             nf: vec![],
             row: None,
+            induct: vec![],
         }
     }
 
@@ -1624,6 +1708,53 @@ mod tests {
                 &[],
             ),
         ]
+    }
+
+    /// A simplification about a recursive function gets induction last, on each variable of a
+    /// recursive sort that the function takes, in binder order (EQ-21); without a recursive
+    /// function, none.
+    #[test]
+    fn a_lemma_about_a_recursive_function_gets_induction_last() {
+        let def = crate::funcs::tests::fixture("indlemma");
+        let (m, g) = crate::funcs::tests::generated(&def);
+        assert!(recursive_sort(&m, "SortStmts") && recursive_sort(&m, "SortCode"));
+        assert!(!recursive_sort(&m, "SortInt") && !recursive_sort(&m, "SortBool"));
+        let st = simplification_theorems(&def, &m, &g.fns);
+        let assoc = st
+            .iter()
+            .find(|s| {
+                s.statement
+                    .contains("(A : SortStmts) (B : SortStmts) (C : SortStmts)")
+            })
+            .expect("the associativity of app");
+        let app = assoc.induct[0].1.clone();
+        assert!(
+            app.starts_with("K.«app") && g.recursive.contains(&app),
+            "{app}"
+        );
+        let vars: Vec<&str> = assoc.induct.iter().map(|(v, _)| v.as_str()).collect();
+        assert_eq!(vars, ["A", "B", "C"]);
+        let o = emit(
+            "N",
+            std::slice::from_ref(assoc),
+            &BTreeSet::new(),
+            &g.unfold,
+            &g.recursive,
+        );
+        let (c, a) = (
+            o.find("k2l_eqn_c [").unwrap(),
+            o.find("k2l_eqn_ind A [").unwrap(),
+        );
+        assert!(c < a && a < o.find("k2l_eqn_ind B [").unwrap(), "{o}");
+        assert!(o.contains("\n  | k2l_eqn_ind C []\n"), "{o}");
+        let o = emit(
+            "N",
+            std::slice::from_ref(assoc),
+            &BTreeSet::new(),
+            &g.unfold,
+            &BTreeSet::new(),
+        );
+        assert!(!o.contains("k2l_eqn_ind"), "{o}");
     }
 
     #[test]
