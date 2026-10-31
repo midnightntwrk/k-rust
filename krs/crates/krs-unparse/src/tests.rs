@@ -280,6 +280,69 @@ fn reversal_can_be_disabled() {
     assert_eq!(printed.text, "f ( g ( g ( a ) ) )");
 }
 
+/// The macro axioms of `alias` clauses `f(LITERAL) => g(LITERAL)`, one per literal, as KRS
+/// emits a subterm the subject shares with the result: the subject's literal conjoined with the
+/// variable the result names it by.
+fn literal_clauses(literals: &[&str]) -> Unparser {
+    let macros = literals
+        .iter()
+        .map(|literal| {
+            format!(
+                "axiom{{R}} \\equals{{SortExp{{}}, R}}(Lblf{{}}(\\and{{SortExp{{}}}}(\\dv{{SortExp{{}}}}(\"{literal}\"), VarX:SortExp{{}})), Lblg{{}}(VarX:SortExp{{}})) [alias'Kywd'{{}}()]"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Unparser::from_kore(SYNTHETIC, &macros).expect("synthetic KORE")
+}
+
+/// A reversal fires only where the term at a conjunction matches every conjunct: `g(1)` and
+/// `g(2)` each print as their own clause's subject, and `g(3)` and `g(a)`, which no clause's
+/// result matches with its literal, print as they are, never as `f(1 #And 3)`.
+#[test]
+fn a_reversal_fires_only_where_the_clause_matches_with_its_literals() {
+    let unparser = literal_clauses(&["1", "2"]);
+    let print = |term: &str| {
+        unparser
+            .print_kore(&pattern(term), &Options::default())
+            .text
+    };
+    let value = |literal: &str| format!("Lblg{{}}(\\dv{{SortExp{{}}}}(\"{literal}\"))");
+    assert_eq!(print(&value("1")), "f ( 1 )");
+    assert_eq!(print(&value("2")), "f ( 2 )");
+    assert_eq!(print(&value("3")), "g ( 3 )");
+    assert_eq!(print("Lblg{}(Lbla{}())"), "g ( a )");
+}
+
+/// A conjunct whose variable the result's match leaves unbound takes the term the bound
+/// conjuncts determine, so the printed application expands back to the matched term.
+#[test]
+fn a_conjunct_the_result_does_not_bind_takes_the_bound_conjuncts_term() {
+    let unparser = synthetic(
+        "Lblf{}(\\and{SortExp{}}(VarY:SortExp{}, VarX:SortExp{})), Lblg{}(VarX:SortExp{})",
+        "alias'Kywd'{}()",
+    );
+    let printed = unparser.print_kore(&pattern("Lblg{}(Lbla{}())"), &Options::default());
+    assert_eq!(printed.text, "f ( a )");
+}
+
+/// An alias whose subject holds its whole result, `f(g(x)) => g(x)`, reaches `macros.kore` with
+/// the result a variable conjoined in the subject, `f(\and(g(X), V)) = V`; that right side matches
+/// every term, and the term reversed holds the term again, so it is not reversed: printing ends,
+/// and prints the term as it is.
+#[test]
+fn an_alias_whose_result_is_a_variable_is_not_reversed() {
+    on_large_stack(|| {
+        // The second axiom makes `g` a head that reversal tries.
+        let macros = format!(
+            "axiom{{R}} \\equals{{SortExp{{}}, R}}(Lblf{{}}(\\and{{SortExp{{}}}}(Lblg{{}}(VarX:SortExp{{}}), VarV:SortExp{{}})), VarV:SortExp{{}}) [alias'Kywd'{{}}()]\naxiom{{R}} \\equals{{SortExp{{}}, R}}({F_OF_X}, Lblg{{}}(Lblg{{}}(VarX:SortExp{{}}))) [alias'Kywd'{{}}()]"
+        );
+        let unparser = Unparser::from_kore(SYNTHETIC, &macros).expect("synthetic KORE");
+        let printed = unparser.print_kore(&pattern("Lblg{}(Lbla{}())"), &Options::default());
+        assert_eq!(printed.text, "g ( a )");
+    });
+}
+
 #[test]
 fn an_unbounded_recursive_reversal_is_reported_not_looped() {
     on_large_stack(|| {

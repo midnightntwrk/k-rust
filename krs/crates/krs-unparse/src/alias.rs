@@ -2,9 +2,15 @@
 //!
 //! Every application whose symbol heads the right-hand side of a macro axiom is matched, after its
 //! arguments are expanded, against each `alias` and `alias-rec` axiom's right-hand side in
-//! `macros.kore` order; the first match is replaced by the left-hand side, which is expanded again.
-//! A non-recursive alias applies at most once on one such chain; `macro` and `macro-rec` axioms are
-//! never reversed (K's macros are one-way).
+//! `macros.kore` order; the first match whose left-hand side denotes one term under the match is
+//! replaced by that term, which is expanded again. A non-recursive alias applies at most once on
+//! one such chain; `macro` and `macro-rec` axioms are never reversed (K's macros are one-way).
+//!
+//! A left-hand side may conjoin patterns at a position (`\and(\dv("1"), V)`, a subterm the
+//! subject shares with the result, bound by name): the term there must match every conjunct,
+//! so a reversal whose match gives the conjuncts different values (`V` is `3`) is no reversal
+//! of the term, and the next axiom is tried. So a printed alias application expands back to the
+//! term it replaced.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -63,27 +69,31 @@ impl<'a> Reverser<'a> {
             return applied;
         }
         for (index, rule) in self.macros.iter().enumerate() {
-            if rule.one_way {
+            // A right side that is a variable (`cC(x, hold(x) #as W) => W`) matches every term,
+            // and its left side holds the term it matched, so reversing it would print the term
+            // inside a larger one without end; it is not reversed.
+            if rule.one_way || rule.right.as_app().is_none() {
+                continue;
+            }
+            if !rule.recursive && applied_rules.contains(&index) {
                 continue;
             }
             let mut substitution = Substitution::new();
-            if matches(self.data, &rule.right, &applied, &mut substitution)
-                && (rule.recursive || !applied_rules.contains(&index))
-            {
-                if depth >= REVERSAL_BOUND {
-                    self.exceeded.get_or_insert_with(|| app.sym.name.clone());
-                    return applied;
-                }
-                let saved = applied_rules.clone();
-                applied_rules.insert(index);
-                let result = self.expand_with(
-                    &substitute(&rule.left, &substitution),
-                    applied_rules,
-                    depth + 1,
-                );
-                *applied_rules = saved;
-                return result;
+            if !matches(self.data, &rule.right, &applied, &mut substitution) {
+                continue;
             }
+            let Some(reversed) = substitute(self.data, &rule.left, &mut substitution) else {
+                continue;
+            };
+            if depth >= REVERSAL_BOUND {
+                self.exceeded.get_or_insert_with(|| app.sym.name.clone());
+                return applied;
+            }
+            let saved = applied_rules.clone();
+            applied_rules.insert(index);
+            let result = self.expand_with(&reversed, applied_rules, depth + 1);
+            *applied_rules = saved;
+            return result;
         }
         applied
     }
@@ -106,6 +116,10 @@ fn matches(
             true
         }
         Node::Str(text) => matches!(subject, Node::Str(other) if other == text),
+        Node::App(pattern_app) if is_conjunction(pattern_app) => pattern_app
+            .args
+            .iter()
+            .all(|conjunct| matches(data, conjunct, subject, substitution)),
         Node::App(pattern_app) => {
             let Node::App(subject_app) = subject else {
                 return false;
@@ -209,36 +223,75 @@ fn mismatched_symbols(
     )
 }
 
-/// `kore_pattern::substitute`: replace variables, leaving the binder of `\exists` and `\forall` alone.
-fn substitute(node: &Node, substitution: &Substitution) -> Node {
+/// Whether `app` is a conjunction of patterns, `\and{S}(P, Q, ..)`: a term matches it when it
+/// matches every conjunct.
+fn is_conjunction(app: &App) -> bool {
+    app.sym.name == "\\and" && !app.args.is_empty()
+}
+
+/// Whether every variable of `node` is bound by `substitution`.
+fn bound(node: &Node, substitution: &Substitution) -> bool {
     match node {
-        Node::Var { name, .. } => substitution
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| node.clone()),
-        Node::Str(_) => node.clone(),
+        Node::Var { name, .. } => substitution.contains_key(name),
+        Node::Str(_) => true,
+        Node::App(app) => app
+            .args
+            .iter()
+            .all(|argument| bound(argument, substitution)),
+    }
+}
+
+/// The left-hand side `node` of a reversed axiom under `substitution`, the match of its
+/// right-hand side: each variable replaced, leaving the binder of `\exists` and `\forall`
+/// alone, and each conjunction replaced by the one term that matches every conjunct.
+///
+/// That term is the value of the first conjunct whose variables the substitution binds; matching
+/// each conjunct against it binds the others' variables, or fails where two conjuncts differ
+/// (`\and(\dv("1"), V)` with `V` bound to `\dv("3")`). `None` when a conjunction has no such term,
+/// so that no term the reversal could print expands to the matched one.
+fn substitute(data: &PrintData, node: &Node, substitution: &mut Substitution) -> Option<Node> {
+    match node {
+        Node::Var { name, .. } => Some(
+            substitution
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| node.clone()),
+        ),
+        Node::Str(_) => Some(node.clone()),
         Node::App(app) => {
             if app.args.is_empty() {
-                return node.clone();
+                return Some(node.clone());
+            }
+            if is_conjunction(app) {
+                let determined = app
+                    .args
+                    .iter()
+                    .find(|conjunct| bound(conjunct, substitution))?;
+                let term = substitute(data, determined, substitution)?;
+                return app
+                    .args
+                    .iter()
+                    .all(|conjunct| matches(data, conjunct, &term, substitution))
+                    .then_some(term);
             }
             if matches!(app.sym.name.as_str(), "\\forall" | "\\exists")
                 && let [Node::Var { name, .. }, body] = app.args.as_slice()
             {
                 let mut inner = substitution.clone();
                 inner.remove(name);
-                return Node::App(App {
+                return Some(Node::App(App {
                     sym: app.sym.clone(),
-                    args: vec![app.args[0].clone(), substitute(body, &inner)],
-                });
+                    args: vec![app.args[0].clone(), substitute(data, body, &mut inner)?],
+                }));
             }
-            Node::App(App {
+            Some(Node::App(App {
                 sym: app.sym.clone(),
                 args: app
                     .args
                     .iter()
-                    .map(|argument| substitute(argument, substitution))
-                    .collect(),
-            })
+                    .map(|argument| substitute(data, argument, substitution))
+                    .collect::<Option<_>>()?,
+            }))
         }
     }
 }

@@ -420,23 +420,26 @@ fn a_static_application_below_a_subject_root_is_written_expanded() {
     );
 }
 
-/// Finding NT-14-1, the printer's: an alias whose subject holds a literal prints any term of its
-/// result's head as a conjunction of the literals of its production's such aliases, a term no
-/// clause matched included (with `whole(box(1)) => tag(1)` and `whole(box(2)) => tag(2)`,
-/// `tag(3)` prints `whole(box(1 #And 3))`), where it should print the term itself. The expansion
-/// is not the cause: the clauses here are written without a static application.
+/// An alias whose subject holds a literal prints back only the terms its clause's result matches
+/// with that literal (NT-14-1): with `whole(box(1)) => tag(1)` and `whole(box(2)) => tag(2)`,
+/// `tag(1)` and `tag(2)` print as their own clause's subject, and `tag(3)`, which no clause
+/// matches, prints as it is, never as `whole(box(1 #And 3))`. The clauses are written without a
+/// static application, so only the printer decides it.
 #[test]
-#[ignore = "finding NT-14-1: the printer reverses an alias whose subject holds a literal on terms it does not match"]
 fn an_alias_whose_subject_holds_a_literal_prints_only_what_it_matches() {
     let (_, printed) = emitted_and_run(
         &format!(
             "{NEST}{OTHER_CLAUSES}#[k::alias]\nfn whole_one(k::term![Al::Whole(Data::Box(1))]: Term<Value>) -> Term<Value> {{\n    Data::Tag(1)\n}}\n\n#[k::alias]\nfn whole_two(k::term![Al::Whole(Data::Box(2))]: Term<Value>) -> Term<Value> {{\n    Data::Tag(2)\n}}\n"
         ),
-        &["tag(1)", "tag(3)"],
+        &["tag(1)", "tag(2)", "tag(3)"],
     );
     assert_eq!(
         printed,
-        ["tag(1) => whole(box(1)) ~> .K", "tag(3) => tag(3) ~> .K"]
+        [
+            "tag(1) => whole(box(1)) ~> .K",
+            "tag(2) => whole(box(2)) ~> .K",
+            "tag(3) => tag(3) ~> .K"
+        ]
     );
 }
 
