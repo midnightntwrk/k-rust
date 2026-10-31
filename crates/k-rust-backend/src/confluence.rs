@@ -1214,7 +1214,9 @@ pub enum UnjoinedReason {
     UnmodelledHook(Name),
     /// The equation holds this literal, as written, whose element the definition leaves open
     /// (`crate::literal`, class `literal`): no overlap of the equation is refuted or joined on
-    /// that element, so it is paired with no equation; yet it is an axiom.
+    /// that element, so it is paired with no equation; yet it is an axiom. Only an equation the
+    /// evaluator applies as written has this reason: one that also holds an application below
+    /// its root or an unbound right-hand side variable is reported by that reason instead.
     OpenLiteral(String),
 }
 
@@ -2825,9 +2827,25 @@ fn check_pass(
     let mut unjoined = equations
         .iter()
         .filter_map(|equation| {
-            let reason = if let Some(literal) =
-                equation.rule.computed_attributes.open_literals.first()
+            // An equation the evaluator never applies as written is reported as such first,
+            // whether or not it also holds an open literal: no execution applies it either, so
+            // `OpenLiteral` (reported only where it withdraws a claim, as one an execution
+            // applies) would hide it. Seeding does not depend on the reason: every pair listed
+            // here seeds its equation, and the joins and the overload branch below read
+            // `open_literals` directly.
+            let never_applied = if equation
+                .rule
+                .computed_attributes
+                .unbound_result_variables
+                .is_empty()
             {
+                computed_below_root(&equation.rule.lhs).map(UnjoinedReason::ComputedBelowRoot)
+            } else {
+                Some(UnjoinedReason::UnboundResultVariables)
+            };
+            let reason = if let Some(reason) = never_applied {
+                reason
+            } else if let Some(literal) = equation.rule.computed_attributes.open_literals.first() {
                 // The literal is not apart from any value, so no overlap of the equation is
                 // refuted or joined on its element: the equation is joined with nothing.
                 //
@@ -2845,15 +2863,8 @@ fn check_pass(
                 // such pair would give
                 // (`an_open_literal_taints_the_equations_its_element_may_overlap`).
                 UnjoinedReason::OpenLiteral(literal.to_string())
-            } else if equation
-                .rule
-                .computed_attributes
-                .unbound_result_variables
-                .is_empty()
-            {
-                computed_below_root(&equation.rule.lhs).map(UnjoinedReason::ComputedBelowRoot)?
             } else {
-                UnjoinedReason::UnboundResultVariables
+                return None;
             };
             Some(UnjoinedPair {
                 first: Arc::clone(&equation.rule),

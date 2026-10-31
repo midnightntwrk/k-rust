@@ -2521,6 +2521,61 @@ mod value_claim_finding_tests {
         assert!(!finding.message.contains("never applied"), "{finding:?}");
     }
 
+    /// GAP K3 fix round 2: `f(g(1.0e400)) = 1` (`open`) holds an open literal and an application
+    /// of the function `g` below its root, beside the control `f2(g(2.0)) = 1` (`control`); no
+    /// equation head, so neither withdraws a claim.
+    const OPEN_LITERAL_BELOW_ROOT: &str = r#"[] module MAIN
+        hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        symbol g{}(SortFloat{}) : SortInt{} [function{}(), total{}()]
+        symbol f{}(SortInt{}) : SortInt{} [function{}()]
+        symbol f2{}(SortInt{}) : SortInt{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortFloat{}, R}(X0:SortFloat{}, X:SortFloat{}), \top{R}())),
+            \equals{SortInt{}, R}(g{}(X0:SortFloat{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+        ) [UNIQUE'Unds'ID{}("g-id")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, g{}(\dv{SortFloat{}}("1.0e400"))), \top{R}())),
+            \equals{SortInt{}, R}(f{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
+        ) [UNIQUE'Unds'ID{}("open")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, g{}(\dv{SortFloat{}}("2.0"))), \top{R}())),
+            \equals{SortInt{}, R}(f2{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
+        ) [UNIQUE'Unds'ID{}("control")]
+    endmodule []"#;
+
+    /// GAP K3 fix round 2: an equation that holds an open literal and that no execution applies
+    /// (its argument pattern `g(1.0e400)` never matches the value `g` computes) is named as never
+    /// applied to that value, like its control without the literal, and not as one an execution
+    /// applies and marks.
+    #[test]
+    fn an_equation_holding_an_open_literal_below_a_computed_application_is_named_as_never_applied()
+    {
+        use super::value_claim_findings;
+        let syntax = k_rust_kore::kore::parser::parse_definition(OPEN_LITERAL_BELOW_ROOT)
+            .expect("the definition parses");
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN")
+                .expect("the definition internalizes");
+        let mut findings = value_claim_findings(&definition)
+            .into_iter()
+            .map(|finding| (finding.first.unwrap_or_default(), finding.message))
+            .collect::<Vec<_>>();
+        findings.sort();
+        let never = |id: &str| {
+            format!(
+                "the equation {id} is applied only where its argument spells the application, never to the value it computes (the left-hand side holds an application of `g` below its root, which the evaluator never rewrites to it)"
+            )
+        };
+        assert_eq!(
+            findings,
+            [
+                ("control".to_owned(), never("control")),
+                ("open".to_owned(), never("open")),
+            ]
+        );
+    }
+
     /// No equation head: a declared function `gg` with two equations at `gg(z)`, one of which
     /// reaches the overloaded `fE` (over `fN`), whose certificates the pair withdraws.
     const OVERLOADED_ONLY: &str = r#"[] module MAIN
