@@ -3,7 +3,7 @@
 //! A program parser has no K sequence syntax, so a `K`-sorted cell expectation (`trap ~> .Instrs`) is read by a ground K-value parser ([`ProgramParser::for_ground_values`]): the main module's program grammar plus exactly `.K`, `K ~> K`, and a K bracket.
 
 use k_rust::{
-    definition::{Definition, Sentence},
+    definition::{AttributeKey, Definition, Sentence},
     inner::{PresentedProgram, ProgramParser},
     kast::Sort as KastSort,
     kompile::{
@@ -46,19 +46,77 @@ impl From<ConfigurationError> for AssemblyError {
     }
 }
 
-/// `frontend` with the sort predicates `isS` and projections `project:S` (and the field projections) that the compiled definition generates for its sorts: the symbols a rule's `k::is!`, `k::project!` and projected collection lookup apply.
+/// `frontend` with the sort predicates `isS` and projections `project:S` the compiled definition
+/// generates for its sorts, declared in the main module only: the symbols a rule's `k::is!`,
+/// `k::project!` and projected collection lookup apply.
 ///
-/// A program's expansion writes an alias's or a desugar's result into the program, and the expanded program is typed and converted to KORE over the program grammar.
-/// The result holds these symbols exactly where the same term in a rule's result does, and the expanded program then evaluates as that rule's result would, so the grammar names them as the compiled definition does; without them the expansion of `cn(1)` under `cn(x) => pair(x, isInt(x))` names no production.
-/// Their productions take a `K` argument, so a program's own text reaches them only where the syntax module parses a `K` term.
+/// A program's expansion writes an alias's or a desugar's result into the program, and the
+/// expanded program is typed and converted to KORE in the main module. The result holds these
+/// symbols exactly where the same term in a rule's result does, and the expanded program then
+/// evaluates as that rule's result would, so the main module names them as the compiled
+/// definition does; without them the expansion of `cn(1)` under `cn(x) => pair(x, isInt(x))`
+/// names no production. The syntax module, which parses programs, is left as it is: there a
+/// predicate's name, `isInt`, would be a keyword, which an identifier token spelled the same
+/// could no longer be.
 fn with_sort_helpers(frontend: &Definition) -> Result<Definition, Box<dyn Error>> {
-    let predicates = k_rust::kompile::generate_sort_predicate_syntax(frontend)?;
-    Ok(k_rust::kompile::generate_sort_projections(&predicates)?)
+    let generated = k_rust::kompile::generate_sort_projections(
+        &k_rust::kompile::generate_sort_predicate_syntax(frontend)?,
+    )?;
+    let mut helpers = Vec::new();
+    for (module, with) in frontend.modules.iter().zip(&generated.modules) {
+        // Each pass appends what it generates to a module's own sentences.
+        let own = module.local_sentences.len();
+        if module.name != with.name
+            || with.local_sentences.get(..own) != Some(&module.local_sentences[..])
+        {
+            return Err(format!("sort helper generation changed module `{}`", module.name).into());
+        }
+        helpers.extend(
+            with.local_sentences[own..]
+                .iter()
+                .filter(|sentence| is_sort_helper(sentence))
+                .cloned(),
+        );
+    }
+    let mut output = frontend.clone();
+    let main_module = output.main_module.clone();
+    let main = output
+        .modules
+        .iter_mut()
+        .find(|module| module.name == main_module)
+        .ok_or_else(|| format!("the frontend definition has no main module `{main_module}`"))?;
+    main.local_sentences.extend(helpers);
+    Ok(output)
+}
+
+/// Whether `sentence` is a generated sort predicate (`isS`) or sort projection (`project:S`), or
+/// the `Bool` token sort a predicate's result needs; the field projections, which a program value
+/// may apply too, are the program grammar's own ([`ProgramGrammar::new`]).
+fn is_sort_helper(sentence: &Sentence) -> bool {
+    match sentence {
+        Sentence::Production {
+            label: Some(label),
+            attributes,
+            ..
+        } => {
+            attributes.has(AttributeKey::Predicate)
+                || label
+                    .name
+                    .strip_prefix("project:")
+                    .is_some_and(|sort| !sort.contains(':'))
+        }
+        Sentence::SyntaxSort { .. } => true,
+        _ => false,
+    }
 }
 
 /// The program grammar and declared variable sorts that every configuration of one loaded definition is assembled against.
 struct Grammar {
+    /// The grammar programs and values are typed, expanded and converted with, and the
+    /// assembler's: [`with_sort_helpers`] of the frontend definition.
     program: ProgramGrammar,
+    /// The grammar this module's own parsers read text with: the frontend definition's.
+    parsing: ProgramGrammar,
     variables: BTreeMap<String, KastSort>,
 }
 
@@ -80,7 +138,7 @@ impl Configuration {
     /// Prepare the program grammar, configuration parser modules, and macros once per session.
     ///
     /// The grammar is leaked so that the assembler, which borrows it, can live in the session: a session loads one definition, once, for the life of its process.
-    /// It is read over the frontend definition with the sort predicates and projections the definition generates ([`with_sort_helpers`]).
+    /// Values are typed over the frontend definition with the sort predicates and projections the definition generates in its main module ([`with_sort_helpers`]); text is parsed over the frontend definition.
     ///
     /// # Errors
     ///
@@ -92,6 +150,7 @@ impl Configuration {
         let main_module = frontend_definition.main_module.clone();
         let grammar: &'static Grammar = Box::leak(Box::new(Grammar {
             program: ProgramGrammar::new(&with_sort_helpers(frontend_definition)?)?,
+            parsing: ProgramGrammar::new(frontend_definition)?,
             variables: configuration_variables,
         }));
         let resolved = grammar.program.resolved();
@@ -412,7 +471,7 @@ impl Configuration {
     /// Every sort visible to the program grammar, by name.
     #[must_use]
     pub fn program_sorts(&self) -> BTreeSet<String> {
-        let resolved = self.grammar.program.resolved();
+        let resolved = self.grammar.parsing.resolved();
         let Some(module) = resolved.module_id(&self.syntax_module) else {
             return BTreeSet::new();
         };
@@ -429,7 +488,7 @@ impl Configuration {
     }
 
     fn parser(&mut self, parser_module: &str) -> Result<&ProgramParser, Box<dyn Error>> {
-        let resolved = self.grammar.program.resolved();
+        let resolved = self.grammar.parsing.resolved();
         if resolved.module_id(parser_module).is_none() {
             return Err(format!("parser module `{parser_module}` was not found").into());
         }
@@ -449,7 +508,7 @@ impl Configuration {
     fn ground_value_parser(&mut self) -> Result<&ProgramParser, Box<dyn Error>> {
         if self.ground_value_parser.is_none() {
             self.ground_value_parser = Some(ProgramParser::for_ground_values(
-                self.grammar.program.resolved(),
+                self.grammar.parsing.resolved(),
                 &self.main_module,
             )?);
         }
