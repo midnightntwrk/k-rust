@@ -1147,6 +1147,13 @@ pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Whether this thread is inside a [`suspend`]ed evaluation, where a chosen value defined in
+/// every model is not noted (`crate::choice_sampling::taken` follows the same rule).
+#[cfg(feature = "choice-sampling")]
+pub(crate) fn suspended() -> bool {
+    STATE.with_borrow(|state| state.suspended)
+}
+
 /// Run `action`, work that decides nothing in the run, with the thread's notes set aside: it
 /// runs with no collection, no run record and no rule scope open, so what it notes goes
 /// nowhere and is stamped nowhere ([`since`], [`noted_since`] and the claim records' ground test

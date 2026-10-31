@@ -274,12 +274,13 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     };
     // Under a `choice_sampling` seed a replacement up to the end takes the model the seed
     // chooses: `#False` read literally (`\bottom`, which is `outside-domain` at its scoped site
-    // and which the seed may in turn replace by a value of the sort) or the replaced `DEST`.
+    // and which the seed may in turn replace by a value of the sort) or the replaced `DEST`. A
+    // `total` declaration excludes `\bottom`, so there the seed takes the replaced `DEST`.
     if index + replacement.len() == bytes.len()
         && let Some(seed) = choice_sampling::seed()
     {
         choice_sampling::taken(super::ChosenClass::OutsideDomain);
-        if choice_sampling::bit(seed) {
+        if choice_sampling::bit(seed) && !choice_sampling::declared_total() {
             return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
         }
     }

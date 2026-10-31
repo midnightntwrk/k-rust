@@ -496,6 +496,12 @@ impl ChosenClass {
     pub fn may_be_undefined(self) -> bool {
         matches!(self, Self::Curve | Self::OutsideDomain | Self::Literal)
     }
+
+    /// Whether an application whose value is of this class is defined in every model, its symbol
+    /// declared `total` exactly when `total` holds ([`ChosenValue::defined`]).
+    pub(crate) fn defined_in_every_model(self, total: bool) -> bool {
+        total || !self.may_be_undefined()
+    }
 }
 
 /// An evaluated hook application whose value is one of several the definition admits.
@@ -541,7 +547,7 @@ impl ChosenValue {
                 class,
                 ChosenClass::ReadCount | ChosenClass::FreshAssociation
             ),
-            defined: total || !class.may_be_undefined(),
+            defined: class.defined_in_every_model(total),
         }
     }
 
@@ -916,6 +922,7 @@ fn evaluate_composed(
     loaded: Loaded<'_>,
     mode: Option<EvaluationMode>,
 ) -> HookResult<BuiltinResult> {
+    let _application = choice_sampling::Application::enter(total);
     // The hooks' readers take an argument for a builtin value by its sort's name: a domain value
     // of `SortFloat` for a Float, one of `SortMInt{Sort8{}}` for an 8-bit pattern, and
     // `bitwidthMInt` takes 8 for any term of that sort. That is the element the argument denotes
@@ -1294,6 +1301,7 @@ fn evaluate_hook_with_context(
     execution: Option<&mut ExecutionEvaluationContext>,
     total: bool,
 ) -> HookResult<BuiltinResult> {
+    let _application = choice_sampling::Application::enter(total);
     crate::stop::check()?;
     match hook {
         "INT.ediv" => return int_partial_binary(hook, arguments, euclidean_division),

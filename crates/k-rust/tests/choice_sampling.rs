@@ -140,6 +140,29 @@ module MAIN
 endmodule
 "#;
 
+/// Open values inside an operand a decided `#if` discards, whose definedness alone is read (a
+/// `suspend`ed evaluation, `k_rust_backend::path_facts`): `String2Bytes` (`byte-encoding`,
+/// defined in every model), a failed `ECDSARecover` (`outside-domain` at a partial symbol, which
+/// a model may leave undefined), and `replaceAtBytes` up to the end at a symbol `RA` declared
+/// `total` (`outside-domain`, but defined in every model by the declaration), discarded (`rs`)
+/// and as a step's result (`ra`).
+const SUSPENDED: &str = r#"
+module MAIN
+  imports INT
+  imports STRING
+  imports BYTES
+  imports K-EQUAL
+  syntax Bytes ::= ECDSARecover(Bytes, Int, Bytes, Bytes) [function, hook(KRYPTO.ecdsaRecover)]
+                 | RA(Bytes, Int, Bytes) [function, total, hook(BYTES.replaceAt)]
+  syntax Pgm ::= sb(String) | sr(Int) | rs(Int) | ra(Int) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule sb(S) => done(#if true #then 1 #else lengthBytes(String2Bytes(S)) #fi)
+  rule sr(V) => done(#if true #then 1 #else lengthBytes(ECDSARecover(b"", V, b"", b"")) #fi)
+  rule rs(I) => done(#if true #then 1 #else lengthBytes(RA(b"\x01\x02\x03", I, b"\x00\x00")) #fi)
+  rule ra(I) => done(RA(b"\x01\x02\x03", I, b"\x00\x00"))
+endmodule
+"#;
+
 /// The classes and sites the chooser leaves at k-rust's value, each with its reason
 /// (`k_rust_backend::choice_sampling`): every BN128 outcome (`curve`: no other curve is
 /// implemented), a literal's element (`literal`: fixed when the definition is loaded), and
@@ -437,4 +460,50 @@ fn exempt_classes_are_marked_and_no_seed_takes_another_value_of_them() {
             );
         }
     }
+}
+
+/// A value taken where only the application's definedness is read (an operand a decided `#if`
+/// discards) is counted exactly where its mark is noted. Where every model defines the
+/// application (`String2Bytes`; `replaceAtBytes` at a `total` symbol) the value does not reach
+/// the run's result, the mark is dropped, and the chooser counts no value taken, so an unmarked
+/// run takes none. Where a model may leave it undefined (a failed `ECDSARecover` at a partial
+/// symbol) the definedness read is the pick: the run is marked and the value is counted. A
+/// `total` symbol's application up to the end is a step's result (`ra(1)`): the declaration
+/// excludes `\bottom`, so no seed takes it, the run is unchanged and stays marked.
+#[test]
+fn a_value_taken_where_only_definedness_is_read_is_counted_as_its_mark_is() {
+    let cases = [
+        (program("byte-encoding", SUSPENDED, r#"sb("\xe9")"#), false),
+        (program("outside-domain", SUSPENDED, "sr(29)"), true),
+        (program("outside-domain", SUSPENDED, "rs(1)"), false),
+        (program("outside-domain", SUSPENDED, "ra(1)"), true),
+    ];
+    let mut failures = Vec::new();
+    for (case, marked) in &cases {
+        let context = format!("{} ({})", case.program, case.class);
+        let default = run(case, None);
+        assert!(!default.leaves.is_empty(), "{context}: {default:#?}");
+        if default.classes.contains(case.class) != *marked {
+            failures.push(format!(
+                "{context}: default marked != {marked}: {default:?}"
+            ));
+        }
+        for seed in SEEDS {
+            let (seeded, choices) = run_counting(case, Some(seed));
+            if seeded != default {
+                failures.push(format!(
+                    "{context}: seed {seed} changes the run (leaves changed: {}, classes {:?})",
+                    seeded.leaves != default.leaves,
+                    seeded.classes
+                ));
+            }
+            if choices.run.contains_key(case.class) != *marked {
+                failures.push(format!(
+                    "{context}: seed {seed} takes a value != {marked}: {:?}",
+                    choices.run
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

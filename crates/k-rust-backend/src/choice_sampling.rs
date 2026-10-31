@@ -50,6 +50,55 @@ thread_local! {
     /// Per class name, the open values a site took under a seed on this thread since the last
     /// [`take_counts`].
     static TAKEN: RefCell<BTreeMap<&'static str, u64>> = const { RefCell::new(BTreeMap::new()) };
+    /// Whether the symbol of the innermost hook application under evaluation on this thread is
+    /// declared `total` ([`Application`]).
+    static TOTAL: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The evaluation of one hook application, whose symbol is declared `total` exactly when
+/// `total` holds, for as long as the value lives: a site reads the declaration through
+/// [`declared_total`] and [`taken`]. Nothing without the feature `choice-sampling`.
+pub(crate) struct Application {
+    #[cfg(feature = "choice-sampling")]
+    enclosing: bool,
+}
+
+impl Application {
+    #[inline(always)]
+    pub(crate) fn enter(total: bool) -> Self {
+        #[cfg(feature = "choice-sampling")]
+        {
+            Self {
+                enclosing: TOTAL.replace(total),
+            }
+        }
+        #[cfg(not(feature = "choice-sampling"))]
+        {
+            let _ = total;
+            Self {}
+        }
+    }
+}
+
+#[cfg(feature = "choice-sampling")]
+impl Drop for Application {
+    fn drop(&mut self) {
+        TOTAL.set(self.enclosing);
+    }
+}
+
+/// Whether the symbol of the hook application under evaluation is declared `total`
+/// ([`Application`]); `false` outside one, and always without the feature `choice-sampling`.
+#[inline(always)]
+pub(crate) fn declared_total() -> bool {
+    #[cfg(feature = "choice-sampling")]
+    {
+        TOTAL.get()
+    }
+    #[cfg(not(feature = "choice-sampling"))]
+    {
+        false
+    }
 }
 
 /// Run `action` with every site computing an implementation-chosen value on this thread taking
@@ -90,10 +139,23 @@ pub(crate) fn seed() -> Option<u64> {
 /// Count one value of `class` that a site took under the seed: the site's own condition, under
 /// which the definition leaves the value open, held, and the seed chose the value, whichever it
 /// chose (k-rust's own included). Nothing without the feature `choice-sampling`.
+///
+/// A value is counted where its mark is noted. Inside a `suspend`ed evaluation, which reads only
+/// whether the application is defined (`crate::path_facts::suspend`), a value of an application
+/// every model defines (`ChosenClass::defined_in_every_model`, at the declaration
+/// [`declared_total`] reads) decides nothing that depends on which value was taken, so it does
+/// not reach the run's result and neither its mark nor its count is kept: an unmarked run then
+/// takes no value. One whose definedness is open (`curve`, `outside-domain` at a partial symbol)
+/// is the pick that evaluation reads, so it is marked and counted.
 #[inline(always)]
 pub(crate) fn taken(class: ChosenClass) {
     #[cfg(feature = "choice-sampling")]
-    TAKEN.with_borrow_mut(|taken| *taken.entry(class.name()).or_default() += 1);
+    {
+        if class.defined_in_every_model(declared_total()) && crate::path_facts::suspended() {
+            return;
+        }
+        TAKEN.with_borrow_mut(|taken| *taken.entry(class.name()).or_default() += 1);
+    }
     #[cfg(not(feature = "choice-sampling"))]
     let _ = class;
 }
