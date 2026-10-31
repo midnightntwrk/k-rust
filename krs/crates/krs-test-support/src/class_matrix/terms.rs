@@ -772,8 +772,8 @@ fn spellings() -> Vec<Spelling> {
             "k::fragment![crate::Frame { ret: 1 }]",
             &[node(C::Fragment, &[]), node(C::Literal, &[FragmentField])],
         )
-        .unmatched("a cell fragment, which no term of a KItem position is")
-        .no_term("a cell fragment, which no term of a KItem position is"),
+        .unmatched("a cell's value, which a program writes no syntax for")
+        .unstated("a cell's value, which the generator's ground terms do not write"),
         spelling(
             "k::is!(Int, x)",
             &[

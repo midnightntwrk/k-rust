@@ -57,7 +57,7 @@ fn every_spelling_states_its_witness_and_its_value_or_why_not() {
 
 const MISSING: &[&str] = &[
     "no value: Size is partial and the base gives it no equation, so the definition names no value of its application: terms Size(x)",
-    "no value: a cell fragment, which no term of a KItem position is: terms k::fragment![crate::Frame { ret: 1 }]",
+    "no value: a cell's value, which the generator's ground terms do not write: terms k::fragment![crate::Frame { ret: 1 }]",
     "no value: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "no value: a pattern, which names or tests a term and builds none: terms _ | terms y @ Cmd::Hold(_) | terms Cmd::Go() | Cmd::Hold(_) | terms Cmd::Pair { a: x, .. } | terms [x, ..] | terms Cmd::Tw(y @ Cmd::Hold(x)) | terms Cmd::Pair(1 | 2, 3 | 4)",
     "no value: an anonymous variable, which names no value: terms k::anonymous!(Int, \"_V\")",
@@ -66,7 +66,7 @@ const MISSING: &[&str] = &[
     "no value: the let's pattern does not match x = 1: terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x }",
     "no value: the update's base, x = 1, is no Pair: terms Cmd::Pair { a: x, ..x }",
     "no value: x = 1 is no Bool: terms x && true | terms x || true",
-    "no witness: a cell fragment, which no term of a KItem position is: terms k::fragment![crate::Frame { ret: 1 }]",
+    "no witness: a cell's value, which a program writes no syntax for: terms k::fragment![crate::Frame { ret: 1 }]",
     "no witness: a computed term, which no evaluated term is: terms k::builtin::int::add(1, 2) | terms Size(x) | terms k::or_bool!(true, false) | terms k::is!(Int, x) | terms k::project!(Int, x) | terms k::matches!(x, Cmd::Hold(_)) | terms { let y = x; y } | terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms Cmd::Pair { a: x, ..x } | terms x + 1 | terms x & 1 | terms x << 1 | terms x < 1 | terms x == 1 | terms x && true | terms x || true | terms !(x < 1) | terms -(x + 1) | terms x.add::<Int>(1) | terms k::builtin::int::add(x, 1) | terms k::map![x -> 1] | terms map![x -> 1] | notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x) | notation k::builtin::list::item(x)[0] | notation k::builtin::list::get(k::builtin::list::item(x), 0) | notation k::builtin::map::empty().update(x, 1) | notation k::builtin::map::update(k::builtin::map::empty(), x, 1) | notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x)) | notation k::builtin::set::item(x).to_list() | notation k::builtin::set::to_list(k::builtin::set::item(x)) | notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty()) | notation map![x -> 1, 2 -> 3] | notation k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3) | notation map![x -> 1, ..k::builtin::map::empty()] | notation map![0 -> 1] | notation k::builtin::map::update(k::builtin::map::empty(), 0, 1) | notation set![x, 1] | notation k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1)) | notation set![x, ..k::builtin::set::empty()] | notation k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
     "no witness: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "no witness: its expansion depends on what a program writes, or there is none: terms Cmd::Dn(x) | terms Cmd::Tw(_) | terms Cmd::Dn(2) | terms Cmd::Lp(0) | terms Cmd::Pb(Cmd::Go())",
@@ -157,7 +157,7 @@ const STATUSES: &[&str] = &[
     "3 no driver: the function the case declares for the solver has no driver command",
     "674 no driver: the readable, claim and `cells!` families read cells the machine and typed bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "5 no value: Size is partial and the base gives it no equation, so the definition names no value of its application",
-    "33 no value: a cell fragment, which no term of a KItem position is",
+    "5 no value: a cell's value, which the generator's ground terms do not write",
     "107 no value: a matching-logic predicate, which only a prover reads",
     "170 no value: a pattern, which names or tests a term and builds none",
     "34 no value: an anonymous variable, which names no value",
@@ -185,7 +185,7 @@ const STATUSES: &[&str] = &[
     "194 no value: the let's pattern does not match x = 1",
     "28 no value: the update's base, x = 1, is no Pair",
     "56 no value: x = 1 is no Bool",
-    "43 no witness: a cell fragment, which no term of a KItem position is",
+    "43 no witness: a cell's value, which a program writes no syntax for",
     "1748 no witness: a computed term, which no evaluated term is",
     "43 no witness: a matching-logic predicate, which only a prover reads",
     "4 no witness: a program writes $x only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
@@ -198,10 +198,10 @@ const STATUSES: &[&str] = &[
     "20 no witness: its expansion depends on what a program writes, or there is none",
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
-    "3 no witness: the program would hold a value the generator does not state",
+    "6 no witness: the program would hold a value the generator does not state",
     "1144 runs a counter-witness",
-    "1592 runs, liveness",
-    "2517 runs, value",
+    "1616 runs, liveness",
+    "2518 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern
@@ -918,11 +918,12 @@ fn every_term_collection_spelling_follows_the_rule() {
 }
 
 /// The twin check's pairs ([`class_matrix::twins`]): every case at a desugar's or an alias's
-/// result has its twin at a `#[k::rule]` fn's result, the same construct at the same openings, and
-/// K7 runs both or neither, so the check compares every pair K7 runs. The pairs neither runs are
-/// those whose construct has no value under `x` = 1, by reason; their count is pinned.
+/// result has its twin at a `#[k::rule]` fn's result, the same construct at the same openings,
+/// and both have the twin check's runs ([`class_matrix::twin_runs`]) on every witness the static
+/// case binds, whatever K7's plans state: the check compares the pairs no plan runs too, by how
+/// their runs end. The runs' programs are pinned for one pair of each form.
 #[test]
-fn every_static_result_has_a_rule_twin_that_k7_runs_alike() {
+fn every_static_result_has_a_rule_twin_with_runs_on_each_witness() {
     let cases = class_matrix::cases();
     let twins = class_matrix::twins(&cases);
     let paired = twins
@@ -944,41 +945,59 @@ fn every_static_result_has_a_rule_twin_that_k7_runs_alike() {
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
     assert_eq!(unpaired, Vec::<&str>::new());
-    let mut uncompared = BTreeMap::<String, usize>::new();
+    assert_eq!(twins.len(), 306);
     for (case, twin) in &twins {
-        match (&case.k7, &twin.k7) {
-            (K7::Run(run), K7::Run(rule)) => assert_eq!(
-                run.status, rule.status,
-                "{} and its twin {} check alike",
-                case.id, twin.id
-            ),
-            (K7::Skip(skip), K7::Skip(rule)) => {
-                assert_eq!(skip.reason, rule.reason, "{}", case.id);
-                *uncompared.entry(skip.reason.clone()).or_default() += 1;
-            }
-            _ => panic!("K7 runs one of {} and its twin {}", case.id, twin.id),
-        }
+        let witnesses = |case: &Case| {
+            class_matrix::twin_runs(case)
+                .into_iter()
+                .map(|(witness, _)| witness)
+                .collect::<Vec<_>>()
+        };
+        let (own, rule) = (witnesses(case), witnesses(twin));
+        assert!(
+            !own.is_empty() && own.iter().all(|witness| rule.contains(witness)),
+            "{}: {own:?}, its twin {}: {rule:?}",
+            case.id,
+            twin.id
+        );
     }
-    let uncompared = uncompared
-        .iter()
-        .map(|(reason, count)| format!("{count}: {reason}"))
-        .collect::<Vec<_>>();
-    let uncompared = uncompared.iter().map(String::as_str).collect::<Vec<_>>();
+    let programs = |id: &str| {
+        class_matrix::twin_runs(&term_case(&cases, id))
+            .into_iter()
+            .map(|(witness, run)| format!("{witness}: {} ({} steps)", run.program, run.steps))
+            .collect::<Vec<_>>()
+    };
+    let rule = term_case(&cases, "terms/rule/result/x");
+    let name = rule
+        .command()
+        .expect("a rule case has a command")
+        .terminal();
     assert_eq!(
-        (twins.len(), uncompared.as_slice()),
-        (306, TWINS_UNCOMPARED),
-        "{uncompared:#?}"
+        programs("terms/rule/result/x"),
+        [
+            format!("1: {name}(1, 0) (1 steps)"),
+            format!("go: {name}(go, 0) (1 steps)")
+        ]
+    );
+    let alias = term_case(&cases, "terms/alias/result/x");
+    let name = alias
+        .command()
+        .expect("an alias case has a command")
+        .terminal();
+    assert_eq!(
+        programs("terms/alias/result/x"),
+        [
+            format!("1: {name}(1) (0 steps)"),
+            format!("go: {name}(go) (0 steps)")
+        ]
+    );
+    let ground = term_case(&cases, "terms/alias/result-root-ground/1");
+    let name = ground
+        .command()
+        .expect("an alias case has a command")
+        .terminal();
+    assert_eq!(
+        programs("terms/alias/result-root-ground/1"),
+        [format!("1: {name} (0 steps)")]
     );
 }
-
-/// The twin pairs K7 runs neither of, by the reason both plans give, with their counts.
-const TWINS_UNCOMPARED: &[&str] = &[
-    "4: a cell fragment, which no term of a KItem position is",
-    "4: a matching-logic predicate, which only a prover reads",
-    "20: a pattern, which names or tests a term and builds none",
-    "4: an anonymous variable, which names no value",
-    "8: the empty map has no entry at 1",
-    "8: the let's pattern does not match x = 1",
-    "4: the update's base, x = 1, is no Pair",
-    "8: x = 1 is no Bool",
-];

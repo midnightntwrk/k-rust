@@ -779,11 +779,12 @@ pub fn run_readings(case: &Case) -> Option<Result<Vec<Reading>, &'static str>> {
 ///
 /// A static clause's result is the term a program's expansion writes in place of the clause's
 /// production, which then evaluates as the same term in a rule's result does. So where both a
-/// rule's result and a static clause's result hold one spelling on one base, both runs build one
-/// value on the same witness (`x` = 1), whether or not the generator states it: K7 judges each
-/// case against what its plan states, and a construct whose static result is lowered otherwise
-/// shows only where its plan states a value the static run misses; the twin check states the
-/// class once, for every construct, stated or not.
+/// rule's result and a static clause's result hold one spelling on one base, both runs end alike
+/// on each witness ([`TWIN_WITNESSES`]): both build one term, compared as the state holds it
+/// (its instances and injections included, which the plans' values leave out), or neither has a
+/// value. K7 judges each case against what its plan states, so a construct whose static result is
+/// lowered or read otherwise shows only where its plan states a value the static run misses; the
+/// twin check states the class once, for every construct, stated or not.
 ///
 /// The pairs: each case of a term family at a desugar's or an alias's result (its root, ground or
 /// not, or a constructor's argument there), with the case of the same family, the same openings
@@ -819,27 +820,58 @@ pub fn twins<'c>(cases: impl IntoIterator<Item = &'c Case>) -> Vec<(&'c Case, &'
         .collect()
 }
 
-/// The value a twin's run built at its result's hole ([`twins`]), from the cells its run ended
-/// with: the computation's one item where the hole is the result's root, and that item's last
-/// field where the hole is a constructor's argument there (`Cmd::Hold(HOLE)` in a rule's and a
-/// desugar's result, `Cmd::Pair(x, HOLE)` in an alias's); `None` for cells of another shape.
+/// The terms the twin check binds the result's `x` to: `1`, an `Int`, the plans' witness; and
+/// `go`, a `Stmt`, a term of a user sort strictly below `x`'s `KItem`, where a program's term and
+/// the clause's binder differ in sort: where a parametric application's instance follows from
+/// `x`, or a clause matches `x` by its sort, the two readings part there.
+pub const TWIN_WITNESSES: [&str; 2] = ["1", "go"];
+
+/// The twin check's runs of a case of a pair ([`twins`]), one per witness ([`TWIN_WITNESSES`]):
+/// the case's command applied with `x` bound to the witness (none for a ground alias, whose
+/// command takes no field), run for the steps the case's sentence takes (one for a rule, none for
+/// a static clause, which acts as the program is read). The runs state no cells: the check
+/// compares the twins' ends with each other.
 #[must_use]
-pub fn twin_value(case: &Case, cells: &[(String, k7::Ground)]) -> Option<k7::Ground> {
-    let root = case.term.as_ref()?.path.is_empty();
-    let [item] = cells.iter().find_map(|(cell, value)| match value {
-        k7::Ground::Seq(items) if cell == "k" => Some(items.as_slice()),
-        _ => None,
-    })?
-    else {
-        return None;
+pub fn twin_runs(case: &Case) -> Vec<(&'static str, k7::Run)> {
+    let (Some(term), Some(command)) = (case.term.as_ref(), case.command()) else {
+        return Vec::new();
     };
-    if root {
-        return Some(item.clone());
+    if term.position.slot != positions::Slot::Result
+        || !matches!(
+            term.position.form,
+            positions::Form::RuleFn | positions::Form::Alias | positions::Form::Desugar
+        )
+    {
+        return Vec::new();
     }
-    match item {
-        k7::Ground::Ctor { fields, .. } => fields.last().cloned(),
-        _ => None,
-    }
+    let steps = u64::from(term.position.form == positions::Form::RuleFn);
+    let terminal = command.terminal();
+    let witnesses: &[&'static str] = if command.arity == 0 {
+        &["1"]
+    } else {
+        &TWIN_WITNESSES
+    };
+    witnesses
+        .iter()
+        .map(|witness| {
+            let program = match command.arity {
+                0 => terminal.clone(),
+                1 => format!("{terminal}({witness})"),
+                _ => format!("{terminal}({witness}, 0)"),
+            };
+            (
+                *witness,
+                k7::Run {
+                    program,
+                    variables: Vec::new(),
+                    depth: steps,
+                    steps,
+                    cells: Vec::new(),
+                    status: k7::Status::Liveness,
+                },
+            )
+        })
+        .collect()
 }
 
 /// What a spelling of the term families matches and denotes, as K7 reads it ([`k7`]).

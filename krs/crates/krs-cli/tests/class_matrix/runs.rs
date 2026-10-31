@@ -22,10 +22,8 @@ use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 /// K7's verdict on one run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Ran {
-    /// The run showed what the plan states, with the cells it read (none for a static clause's
-    /// counter run, which ends before a state), which the twin check compares
-    /// ([`krs_test_support::class_matrix::twins`]).
-    Conforms(Status, Vec<(String, Ground)>),
+    /// The run showed what the plan states.
+    Conforms(Status),
     /// It did not: what it showed instead.
     Deviates(String),
 }
@@ -35,7 +33,7 @@ impl Ran {
     #[must_use]
     pub fn signature(&self) -> String {
         match self {
-            Self::Conforms(status, _) => format!("applied as stated ({})", status.name()),
+            Self::Conforms(status) => format!("applied as stated ({})", status.name()),
             Self::Deviates(observed) => observed.clone(),
         }
     }
@@ -63,7 +61,7 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
         Err(deviation)
             if run.status == Status::Unexpanded && deviation.contains("survived expansion") =>
         {
-            return Ran::Conforms(Status::Unexpanded, Vec::new());
+            return Ran::Conforms(Status::Unexpanded);
         }
         Ok(report) => report,
         Err(deviation) => return Ran::Deviates(deviation),
@@ -247,6 +245,91 @@ fn k_sort(sort: &KoreSort) -> Option<String> {
     }
 }
 
+/// How a twin check's run ([`krs_test_support::class_matrix::twin_runs`]) of `run` ended, within
+/// `limit`: `builds T`, where it took its steps and `T` is the term at its result's hole as the
+/// state holds it, in KORE, its instances and injections included (the computation's first item,
+/// or where `root` is false that item's last argument); `has no value`, where the result it
+/// reached is undefined; `does not apply`, where the sentence's subject does not match the
+/// program (a rule that takes no step; a static clause whose production survives the program's
+/// expansion, which `krs run` refuses to execute); or what else it showed. Twins compare these
+/// texts.
+pub fn twin_end(semantics: &mut Semantics, run: &Run, root: bool, limit: Duration) -> String {
+    let inputs = ConfigInputs {
+        program: Some(ProgramInput {
+            name: "program".to_owned(),
+            text: run.program.clone(),
+        }),
+        variables: run
+            .variables
+            .iter()
+            .map(|(name, text)| (name.clone(), text.as_str().into()))
+            .collect(),
+        stdin: None,
+    };
+    let report = match bounded(semantics, &inputs, run.depth, limit) {
+        Ok(report) => report,
+        Err(deviation) if deviation.contains("survived expansion") => {
+            return "does not apply".to_owned();
+        }
+        Err(deviation) => return deviation,
+    };
+    if report.steps < run.steps && report.halt == Halt::Undefined {
+        return "has no value".to_owned();
+    }
+    if report.steps == 0 && run.steps > 0 && report.halt == Halt::Stuck {
+        return "does not apply".to_owned();
+    }
+    if report.steps != run.steps {
+        return format!(
+            "stops after {} of {} steps, {}",
+            report.steps,
+            run.steps,
+            report.halt.as_str()
+        );
+    }
+    let views = match semantics.views(&report.state) {
+        Ok(views) => views,
+        Err(error) => return format!("failed: the state does not decode: {error}"),
+    };
+    let view = match views.as_slice() {
+        [View::State(view)] => view,
+        [View::Bottom] => return "has no value".to_owned(),
+        _ => return format!("{} states", views.len()),
+    };
+    match view.content("k") {
+        Ok(content) => hole(content, root).map_or_else(
+            || format!("no hole in `{content}`"),
+            |term| format!("builds {term}"),
+        ),
+        Err(error) => format!("no computation cell: {error}"),
+    }
+}
+
+/// The term at a result's hole in the computation cell's content `k`: its first item, or where
+/// `root` is false that item's last argument, below the item's own injection into `KItem`.
+fn hole(k: &Pattern, root: bool) -> Option<&Pattern> {
+    let Pattern::Application { symbol, arguments } = k else {
+        return None;
+    };
+    let ("kseq", [item, _]) = (symbol.name.as_str(), arguments.as_slice()) else {
+        return None;
+    };
+    if root {
+        return Some(item);
+    }
+    let mut term = item;
+    while let Pattern::Application { symbol, arguments } = term
+        && symbol.name.as_str() == "inj"
+        && let [argument] = arguments.as_slice()
+    {
+        term = argument;
+    }
+    match term {
+        Pattern::Application { arguments, .. } => arguments.last(),
+        _ => None,
+    }
+}
+
 /// Configure `inputs` and run the state within `depth` steps, both within `limit`: the program's
 /// parse and expansion and the run are one request of the backend's, cancelled from a watchdog
 /// thread at the limit. The report, or the deviation.
@@ -327,13 +410,7 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
         .iter()
         .all(|(_, expected, value)| expected.agrees(value))
     {
-        Ran::Conforms(
-            run.status,
-            observed
-                .iter()
-                .map(|(cell, _, value)| ((*cell).clone(), value.clone()))
-                .collect(),
-        )
+        Ran::Conforms(run.status)
     } else {
         let expected = show(|(cell, expected, _)| format!("{cell} = {expected}"));
         Ran::Deviates(format!(

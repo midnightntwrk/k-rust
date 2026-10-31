@@ -349,16 +349,21 @@ the descriptors of the base and its own. A case is judged by
   the term a program's expansion writes in place of the clause's production, which then evaluates
   as the same term in a rule's result does. So each case at a desugar's or an alias's result (its
   root, ground or not, or a constructor's argument there) has a twin, the case of the same family,
-  openings and construct at a `#[k::rule]` fn's result, and where K7 ran both and the twin's run
-  conforms, the static case's run must build the twin's value at the hole (the computation's item,
-  or that item's last field: `hold(v)`, `pair(1, v)`), whatever the generator states: K7 judges
-  each case against its own plan, so a construct whose static result is lowered or read otherwise
-  shows there only where its plan states a value the static run misses (NT-12-1 and NT-12-2 each
-  needed one), and a `liveness` plan (`Size(x)`) shows nothing; the twin check states the class
-  once. A static run that deviates is a disagreement too. `cargo test -p krs-test-support --test
-  k7 every_static_result_has_a_rule_twin_that_k7_runs_alike` checks that every static result case
-  has its twin and that K7 runs both or neither, and pins the pairs neither runs by reason (a
-  construct with no value at `x` = 1).
+  openings and construct at a `#[k::rule]` fn's result, and both are run by the check itself
+  (`class_matrix::twin_runs`), whatever K7's plans state, on each witness of the result's `x`
+  (`TWIN_WITNESSES`): `1`, the plans' witness, and `go`, a term of a user sort strictly below `x`'s
+  `KItem`, where a program's term and the clause's binder differ in sort. Each run ends as
+  `builds T`, `T` the term at the hole as the state holds it, in KORE, instances and injections
+  included (the computation's item, or that item's last argument: `hold(v)`, `pair(1, v)`),
+  `has no value`, `does not apply` (a rule that takes no step, a static production that survives
+  the program's expansion), or what else it showed, and the static case's ends must be its
+  twin's. K7 judges each case against its own plan, so a construct whose static result is lowered
+  or read otherwise shows there only where its plan states a value the static run misses
+  (NT-12-1 and NT-12-2 each needed one), a `liveness` plan (`Size(x)`) shows nothing, and an
+  instance or an injection, which plans' values leave out, never; the twin check states the class
+  once. `cargo test -p krs-test-support --test k7
+  every_static_result_has_a_rule_twin_with_runs_on_each_witness` checks that every static result
+  case has its twin and that both have the runs.
 
   K7 runs on K6's compile, so it costs its programs' runs (a few milliseconds each) and the
   checks apart: on 2026-10-30, 1,489 programs in the `terms` shard took 9.5 s of worker time and 2

@@ -942,7 +942,7 @@ fn k6(shard: &mut Shard, judged: &Judged) {
 fn k7(shard: &mut Shard, judged: &Judged) {
     if let Some(ran) = &judged.ran {
         let misses = match ran {
-            Ran::Conforms(..) => Vec::new(),
+            Ran::Conforms(_) => Vec::new(),
             Ran::Deviates(_) => {
                 vec!["the run does not show what the case's sentence denotes".to_owned()]
             }
@@ -951,46 +951,63 @@ fn k7(shard: &mut Shard, judged: &Judged) {
     }
 }
 
-/// K7's twin check ([`class_matrix::twins`]): a static clause's result case whose run K7 made
-/// builds the value its twin at a `#[k::rule]` fn's result built, where the twin's run conforms
-/// (otherwise K7 reports the twin). A run of the static case that deviates is a disagreement:
-/// its twin's value is the meaning the same term has in a rule's result.
+/// K7's twin check ([`class_matrix::twins`]): each run of a static clause's result case, one per
+/// witness ([`class_matrix::twin_runs`]), ends as the same run of its twin at a `#[k::rule]` fn's
+/// result does: both build the same term at the hole, instances and injections included, or
+/// neither has a value. A run the twin made and the case did not, or the other way round, is a
+/// disagreement too; a pair neither of whose cases K6 accepted is not judged.
 fn twins(shard: &mut Shard, judged: &[Judged], by_id: &BTreeMap<&str, &Case>) {
-    let ran = judged
+    let ends = judged
         .iter()
-        .filter_map(|judged| Some((judged.id.as_str(), judged.ran.as_ref()?)))
+        .filter(|judged| !judged.twin_ends.is_empty())
+        .map(|judged| (judged.id.as_str(), &judged.twin_ends))
         .collect::<BTreeMap<_, _>>();
     for (case, twin) in class_matrix::twins(by_id.values().copied()) {
-        let (Some(ran), Some(Ran::Conforms(_, cells))) =
-            (ran.get(case.id.as_str()), ran.get(twin.id.as_str()))
+        let (Some(observed), Some(expected)) =
+            (ends.get(case.id.as_str()), ends.get(twin.id.as_str()))
         else {
             continue;
         };
-        let Some(expected) = class_matrix::twin_value(twin, cells) else {
-            continue;
-        };
-        let observed = match ran {
-            Ran::Conforms(_, cells) => class_matrix::twin_value(case, cells)
-                .ok_or_else(|| "no value at its hole".to_owned()),
-            Ran::Deviates(deviation) => Err(deviation.clone()),
-        };
-        let misses = if observed.as_ref() == Ok(&expected) {
-            Vec::new()
+        let differing = observed
+            .iter()
+            .filter(|(witness, end)| {
+                expected
+                    .iter()
+                    .find(|(other, _)| other == witness)
+                    .is_none_or(|(_, other)| other != end)
+            })
+            .collect::<Vec<_>>();
+        let misses = differing
+            .iter()
+            .map(|(witness, _)| {
+                let rule = expected
+                    .iter()
+                    .find(|(other, _)| other == witness)
+                    .map_or("no run", |(_, end)| end.as_str());
+                format!(
+                    "at x = {witness}, the same term at a rule's result, `{}`, {rule}",
+                    twin.id
+                )
+            })
+            .collect::<Vec<_>>();
+        let signature = observed
+            .iter()
+            .map(|(witness, end)| format!("x = {witness}: {end}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let signature = if misses.is_empty() {
+            signature
         } else {
-            vec![format!(
-                "the same term at a rule's result, `{}`, builds {expected}",
-                twin.id
-            )]
-        };
-        shard.add(
-            "twin",
-            &case.id,
             format!(
-                "{}, where its rule twin builds {expected}",
-                observed.map_or_else(|deviation| deviation, |value| value.to_string())
-            ),
-            misses,
-        );
+                "{signature}; its rule twin: {}",
+                expected
+                    .iter()
+                    .map(|(witness, end)| format!("x = {witness}: {end}"))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )
+        };
+        shard.add("twin", &case.id, signature, misses);
     }
 }
 

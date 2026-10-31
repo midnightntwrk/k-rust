@@ -252,6 +252,16 @@ impl<'t> StateView<'t> {
     /// Returns a [`CellError`] for an unknown path, a group or repeated cell, a path through
     /// an absent optional cell, or content that is no term of the definition.
     pub fn value(&self, path: &str) -> Result<Value, CellError> {
+        Ok(self.index.decode(self.content(path)?)?)
+    }
+
+    /// The content of the leaf cell at `path` as the state holds it, its injections and
+    /// instances included: [`Self::value`] before it is decoded.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::value`], but for content that is no term of the definition.
+    pub fn content(&self, path: &str) -> Result<&'t Pattern, CellError> {
         let located = self.locate(path, false)?;
         if !located.node.children.is_empty() {
             return Err(CellError::Kind {
@@ -262,18 +272,15 @@ impl<'t> StateView<'t> {
         let term = located.term.ok_or_else(|| CellError::Absent {
             path: path.to_owned(),
         })?;
-        let content = match term {
+        match term {
             Pattern::Application { arguments, .. } => match arguments.as_slice() {
-                [content] => content,
-                _ => {
-                    return Err(CellError::Decode(ValueError::Malformed(format!(
-                        "{term} is not a leaf cell"
-                    ))));
-                }
+                [content] => Ok(content),
+                _ => Err(CellError::Decode(ValueError::Malformed(format!(
+                    "{term} is not a leaf cell"
+                )))),
             },
             _ => unreachable!("cells are found by their head"),
-        };
-        Ok(self.index.decode(content)?)
+        }
     }
 
     /// The group cell at `path` as a view whose paths start below it.

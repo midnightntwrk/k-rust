@@ -62,7 +62,7 @@ use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::{Base, Case, Packaging, Placed, render};
 
 use crate::closure::{Closure, additions, compare, sentences};
-use crate::runs::{Ran, run_case};
+use crate::runs::{Ran, run_case, twin_end};
 
 /// The source file every case is written in.
 pub const SOURCE_FILE: &str = "src/lib.rs";
@@ -105,6 +105,9 @@ pub struct Judged {
     pub native: Option<Native>,
     /// K7's verdict, for a case K6 accepted and K7 has a plan for, when the run runs it.
     pub ran: Option<Ran>,
+    /// How the twin check's runs of the case ended, by witness
+    /// ([`krs_test_support::class_matrix::twin_runs`]), for a case K6 accepted, when K7 runs.
+    pub twin_ends: Vec<(&'static str, String)>,
 }
 
 /// How a run judges its accepted cases by K6.
@@ -295,6 +298,7 @@ struct NativeRun<'a> {
 #[derive(Default)]
 struct Runs {
     ran: Mutex<BTreeMap<String, Ran>>,
+    twin_ends: Mutex<BTreeMap<String, Vec<(&'static str, String)>>>,
     left: Mutex<Vec<String>>,
 }
 
@@ -303,6 +307,7 @@ struct Runs {
 struct Verdicts {
     native: BTreeMap<String, Native>,
     ran: BTreeMap<String, Ran>,
+    twin_ends: BTreeMap<String, Vec<(&'static str, String)>>,
 }
 
 /// Collect `source` alone, as a package in the directory `name` of the scratch, with a target of
@@ -467,6 +472,7 @@ impl Worker<'_> {
         for judged in judged {
             judged.native = verdicts.native.remove(&judged.id);
             judged.ran = verdicts.ran.remove(&judged.id);
+            judged.twin_ends = verdicts.twin_ends.remove(&judged.id).unwrap_or_default();
         }
     }
 
@@ -594,12 +600,45 @@ impl Worker<'_> {
             return;
         };
         for (index, placed) in cases.iter().enumerate() {
-            let K7::Run(plan) = &placed.case.k7 else {
-                continue;
-            };
             let own = placed.case.command().map(|command| command.name.as_str());
             let started = Instant::now();
             let mut panicked = false;
+            let twin_runs = krs_test_support::class_matrix::twin_runs(placed.case);
+            if !twin_runs.is_empty() {
+                let root = placed
+                    .case
+                    .term
+                    .as_ref()
+                    .is_some_and(|term| term.path.is_empty());
+                let ends = twin_runs
+                    .iter()
+                    .map(|(witness, twin)| {
+                        let end = catch_unwind(AssertUnwindSafe(|| {
+                            twin_end(semantics, twin, root, limit)
+                        }))
+                        .unwrap_or_else(|panic| {
+                            panicked = true;
+                            format!("panic: {}", panic_message(&*panic))
+                        });
+                        (*witness, end)
+                    })
+                    .collect();
+                runs.twin_ends
+                    .lock()
+                    .expect("the runs are not poisoned")
+                    .insert(placed.case.id.clone(), ends);
+            }
+            let K7::Run(plan) = &placed.case.k7 else {
+                if panicked {
+                    runs.left.lock().expect("the runs are not poisoned").extend(
+                        cases[index + 1..]
+                            .iter()
+                            .map(|placed| placed.case.id.clone()),
+                    );
+                    return;
+                }
+                continue;
+            };
             let mut once = |plan| {
                 catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit, own)))
                     .unwrap_or_else(|panic| {
@@ -609,7 +648,7 @@ impl Worker<'_> {
             };
             let mut verdict = once(plan);
             for counter in &placed.case.k7_counters {
-                if !matches!(verdict, Ran::Conforms(..)) {
+                if !matches!(verdict, Ran::Conforms(_)) {
                     break;
                 }
                 if let Ran::Deviates(deviation) = once(counter) {
@@ -649,6 +688,11 @@ impl Worker<'_> {
     ) {
         out.ran
             .extend(runs.ran.into_inner().expect("the runs are not poisoned"));
+        out.twin_ends.extend(
+            runs.twin_ends
+                .into_inner()
+                .expect("the runs are not poisoned"),
+        );
         let left = runs.left.into_inner().expect("the runs are not poisoned");
         for placed in cases.iter().filter(|placed| left.contains(&placed.case.id)) {
             self.run_on(collected, all, &[*placed], out);
@@ -724,7 +768,10 @@ impl Worker<'_> {
                     Err(panic) => format!("panic: {}", panic_message(&*panic)),
                     Ok(Ok(_)) => unreachable!("an accepted check is matched above"),
                 };
-                for placed in &runnable {
+                for placed in runnable
+                    .iter()
+                    .filter(|placed| matches!(placed.case.k7, K7::Run(_)))
+                {
                     out.ran.insert(
                         placed.case.id.clone(),
                         Ran::Deviates(format!(
@@ -1058,6 +1105,7 @@ fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
         closure: None,
         native: None,
         ran: None,
+        twin_ends: Vec::new(),
     }
 }
 
@@ -1068,7 +1116,10 @@ fn runnable<'p, 'a>(cases: &[&'p Placed<'a>], run: NativeRun<'_>) -> Vec<&'p Pla
     }
     cases
         .iter()
-        .filter(|placed| matches!(placed.case.k7, K7::Run(_)))
+        .filter(|placed| {
+            matches!(placed.case.k7, K7::Run(_))
+                || !krs_test_support::class_matrix::twin_runs(placed.case).is_empty()
+        })
         .copied()
         .collect()
 }
