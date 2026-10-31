@@ -680,11 +680,14 @@ fn check_verdict(
             .flat_map(|(backend, refusal)| route_limited(refusal, backend, &capable))
             .collect(),
     };
-    // A capable route's refusal is the verdict; the limited routes' refusals stay reported.
+    // A capable route's refusal is the verdict; the limited routes' refusals stay reported. Only
+    // where two routes are capable does a refusal name the other as one to judge apart: a route
+    // that lacks a feature is no route to judge the definition on.
+    let several_capable = several && capable.len() > 1;
     let mut warnings = measurement
         .timings
         .try_span("check.routes", |timings| {
-            judge_routes(prepared, &capable, several, visit, timings)
+            judge_routes(prepared, &capable, several_capable, visit, timings)
         })
         .map_err(|error| error.warned(limited.clone()))?;
     extend_unique(&mut warnings, limited);
