@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Recompile the generator's K fixtures with krust and rewrite the snapshot files.
 # Each fixture is a directory NAME/ with NAME.k (main module NAME in upper case, syntax module
-# NAME-SYNTAX), the compiled definition.kore and runtime.json, the initial configurations of its
+# NAME-SYNTAX), the compiled definition.kore and runtime.json, its syntax definition
+# syntaxDefinition.kore (the symbols' concrete syntax, by which `k2lean relate` pairs the symbols of
+# two definitions; definition.kore carries none), the initial configurations of its
 # witness programs (witnesses/NAME.kore beside each program), and, for the snapshot fixtures,
 # expected/, the Lean project that `k2lean gen` writes for it
 # (k2lean/crates/k2lean/tests/snapshots.rs compares a fresh generation with it).
@@ -24,7 +26,7 @@ F=$(cd "$(dirname "$0")" && pwd)
 R=$(cd "$F/../../.." && pwd)
 KRUST=${KRUST:-$R/target/release/krust}
 K_BUILTIN=${K_BUILTIN:-$R/k/result/include/kframework/builtin}
-kc() { # FILE.k MODULE OUTDIR: krust's definition.kore and runtime.json of FILE.k into OUTDIR
+kc() { # FILE.k MODULE OUTDIR: krust's definition.kore, runtime.json and syntaxDefinition.kore of FILE.k into OUTDIR
   mkdir -p "$3"
   "$KRUST" kcompile "$1" --main-module "$2" --syntax-module "$2-SYNTAX" \
     --output-directory "$3/out" --builtin-directory "$K_BUILTIN"
@@ -36,9 +38,9 @@ kc() { # FILE.k MODULE OUTDIR: krust's definition.kore and runtime.json of FILE.
     sort=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["configuration_variables"]["PGM"])' "$3/out/runtime.json")
     "$KRUST" krun --definition "$3/out" --depth 0 --sort "$sort" "$p" > "${p%.*}.kore"
   done
-  mv "$3/out/definition.kore" "$3/out/runtime.json" "$3/"
+  mv "$3/out/definition.kore" "$3/out/runtime.json" "$3/out/syntaxDefinition.kore" "$3/"
   rm -rf "$3/out"
-  sed -i "s|Source($F/|Source(k2lean/tests/fixtures/|g" "$3/definition.kore" "$3/runtime.json"
+  sed -i "s|Source($F/|Source(k2lean/tests/fixtures/|g" "$3/definition.kore" "$3/runtime.json" "$3/syntaxDefinition.kore"
 }
 if [ "${1:-}" != --bless ]; then
   [ -x "$KRUST" ] || { echo "regen.sh: needs krust at $KRUST (set KRUST)" >&2; exit 2; }

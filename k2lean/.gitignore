@@ -83,6 +83,7 @@ lake-manifest.json
 /demos/TwoParamConf/TwoParamConf/Views.lean
 /demos/TwoParamConf/TwoParamConf/Slots.lean
 /demos/TwoParamConf/confluence.toml
+/demos/HandoffSeqRel/HandoffSeqRel/Tr.lean
 /demos/TwoParamInst/TwoParamInst/Tr.lean
 /demos/TwoParamInst/TwoParamInst/Back.lean
 /demos/TwoParamInst/tr.toml

@@ -97,7 +97,7 @@ libs_relate() {
   ka=$(kore_dir kimp)
   for a in $LIBS_AREAS; do declare -F "relate_$a" > /dev/null && "relate_$a" "$ns" && { found=1; break; }; done
   [ -n "$found" ] || { echo "libs_relate: unknown demo $ns" >&2; return 2; }
-  # the syntax definitions name the concrete syntax of symbols; the fixtures have none
+  # the syntax definitions name the concrete syntax of symbols (kompile's and the fixtures')
   local sa=() sb=()
   [ -f "$ka/syntaxDefinition.kore" ] && sa=(--syntax-a "$ka/syntaxDefinition.kore")
   [ -f "$kd/syntaxDefinition.kore" ] && sb=(--syntax-b "$kd/syntaxDefinition.kore")

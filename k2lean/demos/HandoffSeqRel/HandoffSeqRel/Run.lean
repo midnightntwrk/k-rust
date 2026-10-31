@@ -106,7 +106,7 @@ theorem fresh_resume {f : Procs} {Q N S S' : Int} {l : List Claim} (l₀ : f Q =
 creations and turns that the bindings it starts from allow. -/
 theorem claims_of_run {s t : HandoffSeq.SortGeneratedTopCell} (h : Star HandoffSeq.Step s t) (ht : Done t) :
     ∀ {P f g}, SAt s P f g →
-      (pclaims (trPgm P)).Nodup ∧ ∀ x ∈ pclaims (trPgm P), Fresh f x := by
+      (pclaims (tr_SortPgm P)).Nodup ∧ ∀ x ∈ pclaims (tr_SortPgm P), Fresh f x := by
   induction h with
   | refl s => intro P f g hs; exact (not_done hs ht).elim
   | step st rest ih =>
@@ -114,21 +114,21 @@ theorem claims_of_run {s t : HandoffSeq.SortGeneratedTopCell} (h : Star HandoffS
     obtain ⟨sp, sv, c, rfl, hp, hv⟩ := hs
     cases st with
     | new Q S P₁ _ _ _ sp' hr =>
-      simp only [trPgm_cons, trInstr, pclaims, iclaims, List.singleton_append]
+      simp only [k2l_tr, pclaims, iclaims, List.singleton_append]
       exact fresh_new (rep_none pkS_inj hp (concat_element_iff.1 hr).2.1)
         (ih ht ⟨sp', sv, c, rfl, rep_insert pkS_inj hp hr, hv⟩)
     | «resume-lit» Q N V P₁ _ D3 _ D2 S r9 sp' r4 sv' hm hr hr_3 hr_5 hr_7 =>
-      simp only [trPgm_cons, trInstr, pclaims, iclaims, List.singleton_append]
+      simp only [k2l_tr, pclaims, iclaims, List.singleton_append]
       exact fresh_resume (rep_some pkS_inj pvS_inj hp (lookup_of_concat_element hm))
         (ih ht ⟨sp', sv', c, rfl, rep_rebind pkS_inj hp hm hr_3, rep_insert (a := (Q, N)) vkS_inj hv hr_7⟩)
     | «resume-oid» Q N I P₁ _ _ _ D2 S D3 V r9 sp' r10 x sv' hm hm_6 hr hr_9 hr_11 hr_13 hr_15 =>
-      simp only [trPgm_cons, trInstr, pclaims, iclaims, List.singleton_append]
+      simp only [k2l_tr, pclaims, iclaims, List.singleton_append]
       exact fresh_resume (rep_some pkS_inj pvS_inj hp (lookup_of_concat_element hm))
         (ih ht ⟨sp', sv', c, rfl, rep_rebind pkS_inj hp hm hr_9, rep_insert2 (a := (Q, N)) vkS_inj hv hm_6 hr_13 hr_15⟩)
-    | nil => simp [trPgm_nil, pclaims]
+    | nil => simp [k2l_tr, pclaims]
 
 /-- Both definitions start from the script `P` with no process and no value. -/
-theorem sim_init (P : HandoffSeq.SortPgm) : Rel (HandoffSeq.init P) (Handoff.init (trPgm P)) :=
+theorem sim_init (P : HandoffSeq.SortPgm) : Rel (HandoffSeq.init P) (Handoff.init (tr_SortPgm P)) :=
   .inl ⟨P, fun _ => none, fun _ => none, ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩,
     ⟨0, unit, unit, _, Int.le_refl 0, by rw [← element_eq_update]; rfl, rep_unit, rep_unit⟩⟩
 
@@ -138,14 +138,14 @@ theorem sim_init (P : HandoffSeq.SortPgm) : Rel (HandoffSeq.init P) (Handoff.ini
 same bindings. -/
 theorem run_exists {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s) :
-    ∃ r, Star Handoff.Step (Handoff.init (trPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r :=
+    ∃ r, Star Handoff.Step (Handoff.init (tr_SortPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r :=
   Forward.result_of sim (fun _ _ => sim_end) (sim_init P) hs hd
 
 /-- A script that runs to its end in its order is well-formed: its initial configuration in
 `handoff` satisfies `wf`. -/
 theorem invariant_of_run {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s) :
-    Handoff.Invariant (Handoff.init (trPgm P)) :=
+    Handoff.Invariant (Handoff.init (tr_SortPgm P)) :=
   HandoffConf.invariant_init (claims_of_run hs hd ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩).1
 
 /-- **The script's result is the one every ready order gives.** If `handoffseq` runs the script `P`
@@ -153,7 +153,7 @@ to its end, then every run of `handoff` from `P` to a terminal configuration lea
 ends with the same processes and values: the same bindings of `<procs>` and `<vals>`. -/
 theorem result_unique {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     {r : Handoff.SortGeneratedTopCell} (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s)
-    (hr : Star Handoff.Step (Handoff.init (trPgm P)) r) (ht : Terminal Handoff.Step r) : Fin s r :=
+    (hr : Star Handoff.Step (Handoff.init (tr_SortPgm P)) r) (ht : Terminal Handoff.Step r) : Fin s r :=
   Forward.result_unique_of sim (fun _ _ => sim_end) (fun _ _ => terminal_unique (invariant_of_run hs hd))
     (sim_init P) hs hd hr ht
 

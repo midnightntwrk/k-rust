@@ -57,6 +57,15 @@ gen_confluence() {
 # `NS/Views.lean` and `NS/Slots.lean`, and with every pair of rules a slot in `NS/Pairs/`; SimpleConf: the views of
 # SIMPLE's rules by thread, `NS/Views.lean`, and its slots, `NS/Slots.lean`, with SIMPLE's pairs of
 # rules counted) and its report `NS/confluence.toml` (or OUT for SimpleConf).
+# HandoffSeqRel: `Tr.lean`, the script of handoffseq translated to handoff's (`--roots`; the two
+# syntax modules differ in name, so the symbols pair by the fixtures' syntax definitions)
+relate_confluence() {
+  case $1 in
+    HandoffSeqRel) na=HandoffSeq ka=$(libs_fixture handoffseq) nb=Handoff kd=$(libs_fixture handoff)
+      extra=(--roots SortPgm) ;;
+    *) return 1 ;;
+  esac
+}
 # simple_witnesses DIR: SIMPLE's witness programs, each beside its initial configuration (krust's
 # `krun --depth 0`): `div-nondet`, whose division's strict operands have effects.
 simple_witnesses() {
@@ -173,7 +182,8 @@ gate_confluence() {
     scaffold confluence-HandoffConf libs_confluence HandoffConf
     dbuild_slots HandoffConf
   fi
-  # the script run in its order (the fixture handoffseq) into handoff, the simulation by hand: a run
+  # the script run in its order (the fixture handoffseq) into handoff, the script's translation
+  # generated (`relate --roots SortPgm`), the simulation by hand: a run
   # of handoffseq to the script's end is a run of handoff, so every terminal run of handoff ends where
   # it does (`HandoffSeqRel.result_unique` by `KPrelude.Forward.result_unique_of`, through
   # HandoffConf's `terminal_unique`, built just above); with HandoffConf's `terminates` (the work left
@@ -181,6 +191,7 @@ gate_confluence() {
   if runs demo HandoffSeqRel; then
     phase "build HandoffSeqRel"
     partlib handoffseq HandoffSeq.Rules
+    rel HandoffSeqRel
     dbuild HandoffSeqRel
   fi
   # the views by worker of the fixture drf, whose workers each write one cell: two runs of the

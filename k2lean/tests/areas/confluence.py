@@ -29,10 +29,13 @@ DEMOS = {
                                                  "demos/HandoffConf/HandoffConf/Slots.lean",
                                                  "demos/HandoffConf/confluence.toml"],
                     "slots": {"prefixes": ["join."]}},
-    # the same script run in its order into it, the simulation by hand, composed by the prelude's
+    # the same script run in its order into it, its translation generated (`relate --roots`), the
+    # simulation by hand, composed by the prelude's
     # `KPrelude.Forward` (`HandoffSeqRel.result_unique`), and every order ends there
     # (`HandoffSeqRel.transaction`, with HandoffConf's `terminates`); built against HandoffConf's phase
-    "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq"]},
+    "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq",
+                                                   "demos/HandoffSeqRel/HandoffSeqRel/Tr.lean",
+                                                   "demos/HandoffSeqRel/correspondence.toml"]},
     # workers writing one cell: the slot of two writes refuted by two runs of a program, and every
     # slot generic under the data-race freedom `drfOk` (`DrfConf.Legal`)
     "DrfConf": {"tier": "light", "sources": ["generated/drf",

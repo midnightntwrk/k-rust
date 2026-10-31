@@ -27,8 +27,8 @@ to its end, some run of `handoff` from `P` reaches a terminal configuration `r` 
 and the bindings of that run, and every run of `handoff` from `P` ends, in `r`. -/
 theorem transaction {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s) :
-    ∃ r, Star Handoff.Step (Handoff.init (trPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r ∧
-      Ends.Every Handoff.Step (Handoff.init (trPgm P)) (· = r) := by
+    ∃ r, Star Handoff.Step (Handoff.init (tr_SortPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r ∧
+      Ends.Every Handoff.Step (Handoff.init (tr_SortPgm P)) (· = r) := by
   obtain ⟨r, hr, ht, hf⟩ := run_exists hs hd
   exact ⟨r, hr, ht, hf, Ends.every_of (HandoffConf.terminates _) fun b hb hbt =>
     HandoffConf.terminal_unique (invariant_of_run hs hd) hb hbt hr ht⟩

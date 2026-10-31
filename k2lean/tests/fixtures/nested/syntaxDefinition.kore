@@ -1,0 +1,2708 @@
+[
+  topCellInitializer{}(LblinitGeneratedTopCell{}()),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}(
+    "Source(k2lean/tests/fixtures/nested/nested.k)"
+  )
+]
+module BASIC-K
+  sort SortK{} []
+  sort SortKItem{} []
+endmodule []
+module KSEQ
+  import BASIC-K []
+  symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+  symbol dotk{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+  symbol append{}(SortK{}, SortK{}) : SortK{} [function{}(), functional{}()]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, dotk{}()),
+          \and{R}(\in{SortK{}, R}(X1:SortK{}, TAIL:SortK{}), \top{R}())
+        )
+      ),
+      \equals{SortK{}, R}(
+        append{}(X0:SortK{}, X1:SortK{}),
+        \and{SortK{}}(TAIL:SortK{}, \top{SortK{}}())
+      )
+    )
+    []
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(K:SortKItem{}, KS:SortK{})),
+          \and{R}(\in{SortK{}, R}(X1:SortK{}, TAIL:SortK{}), \top{R}())
+        )
+      ),
+      \equals{SortK{}, R}(
+        append{}(X0:SortK{}, X1:SortK{}),
+        \and{SortK{}}(kseq{}(K:SortKItem{}, append{}(KS:SortK{}, TAIL:SortK{})), \top{SortK{}}())
+      )
+    )
+    []
+endmodule []
+module INJ
+  symbol inj{From, To}(From) : To [sortInjection{}()]
+  axiom{S1, S2, S3, R}
+    \equals{S3, R}(inj{S2, S3}(inj{S1, S2}(T:S1)), inj{S1, S3}(T:S1))
+    [simplification{}()]
+endmodule []
+module K
+  import KSEQ []
+  import INJ []
+  alias weakExistsFinally{A}(A) : A where weakExistsFinally{A}(@X:A) := @X:A []
+  alias weakAlwaysFinally{A}(A) : A where weakAlwaysFinally{A}(@X:A) := @X:A []
+  alias allPathGlobally{A}(A) : A where allPathGlobally{A}(@X:A) := @X:A []
+endmodule []
+module NESTED
+  import K []
+  hooked-sort SortBool{}
+  [
+    hasDomainValues{}(),
+    hook{}("BOOL.Bool"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1088,3,1088,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    )
+  ]
+  sort SortCmd{} []
+  sort SortGeneratedCounterCell{} []
+  sort SortGeneratedTopCell{} []
+  sort SortGeneratedTopCellFragment{} []
+  sort SortGidCell{} []
+  sort SortGidCellOpt{} []
+  sort SortGroupCell{} []
+  sort SortGroupCellFragment{} []
+  hooked-sort SortGroupCellMap{}
+  [
+    concat{}(Lbl'Unds'GroupCellMap'Unds'{}()),
+    element{}(LblGroupCellMapItem{}()),
+    hook{}("MAP.Map"),
+    unit{}(Lbl'Stop'GroupCellMap{}())
+  ]
+  sort SortGroupsCell{} []
+  sort SortGroupsCellFragment{} []
+  sort SortGroupsCellOpt{} []
+  hooked-sort SortInt{}
+  [
+    hasDomainValues{}(),
+    hook{}("INT.Int"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1209,3,1209,29)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    )
+  ]
+  sort SortKCell{} []
+  sort SortKCellOpt{} []
+  sort SortKConfigVar{}
+  [
+    hasDomainValues{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,28)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/kast.md)"
+    ),
+    token{}()
+  ]
+  hooked-sort SortList{}
+  [
+    concat{}(Lbl'Unds'List'Unds'{}()),
+    element{}(LblListItem{}()),
+    hook{}("LIST.List"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(914,3,914,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    unit{}(Lbl'Stop'List{}()),
+    update{}(LblList'Coln'set{}())
+  ]
+  hooked-sort SortMInt{SortS0}
+  [
+    hasDomainValues{}(),
+    hook{}("MINT.MInt"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2888,3,2888,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    )
+  ]
+  hooked-sort SortMap{}
+  [
+    concat{}(Lbl'Unds'Map'Unds'{}()),
+    element{}(Lbl'UndsPipe'-'-GT-Unds'{}()),
+    hook{}("MAP.Map"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(218,3,218,29)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    unit{}(Lbl'Stop'Map{}())
+  ]
+  sort SortMemberCell{} []
+  sort SortMemberCellFragment{} []
+  hooked-sort SortMemberCellMap{}
+  [
+    concat{}(Lbl'Unds'MemberCellMap'Unds'{}()),
+    element{}(LblMemberCellMapItem{}()),
+    hook{}("MAP.Map"),
+    unit{}(Lbl'Stop'MemberCellMap{}())
+  ]
+  sort SortMembersCell{} []
+  sort SortMembersCellFragment{} []
+  sort SortMembersCellOpt{} []
+  sort SortMidCell{} []
+  sort SortMidCellOpt{} []
+  sort SortNat{} []
+  hooked-sort SortSet{}
+  [
+    concat{}(Lbl'Unds'Set'Unds'{}()),
+    element{}(LblSetItem{}()),
+    hook{}("SET.Set"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(700,3,700,29)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    unit{}(Lbl'Stop'Set{}())
+  ]
+  sort SortVCell{} []
+  sort SortVCellOpt{} []
+  symbol LblisK{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisK%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisBool{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisBool%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisKItem{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisKItem%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'Bool{}(SortK{}) : SortBool{}
+  [
+    format{}("%cproject:Bool%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'K{}(SortK{}) : SortK{}
+  [
+    format{}("%cproject:K%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'KItem{}(SortK{}) : SortKItem{}
+  [
+    format{}("%cproject:KItem%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol LblisKConfigVar{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisKConfigVar%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol LblnotBool'Unds'{}(SortBool{}) : SortBool{}
+  [
+    format{}("%cnotBool%r %1"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.not"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1120,19,1120,131)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(
+      Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(),
+      Lbl'UndsEqlsEqls'Bool'Unds'{}(),
+      Lbl'Unds'andBool'Unds'{}(),
+      Lbl'Unds'andThenBool'Unds'{}(),
+      Lbl'Unds'impliesBool'Unds'{}(),
+      Lbl'Unds'orBool'Unds'{}(),
+      Lbl'Unds'orElseBool'Unds'{}(),
+      Lbl'Unds'xorBool'Unds'{}()
+    ),
+    right{}(),
+    smt-hook{}("not"),
+    symbol'Kywd'{}("notBool_"),
+    terminals{}("10"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'andBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    format{}("%1 %candBool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.and"),
+    left{}(Lbl'Unds'andBool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1121,19,1121,138)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    right{}(),
+    smt-hook{}("and"),
+    symbol'Kywd'{}("_andBool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'andThenBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    format{}("%1 %candThenBool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.andThen"),
+    left{}(Lbl'Unds'andThenBool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1122,19,1122,146)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    right{}(),
+    smt-hook{}("and"),
+    symbol'Kywd'{}("_andThenBool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'xorBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    format{}("%1 %cxorBool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.xor"),
+    left{}(Lbl'Unds'xorBool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1123,19,1123,138)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    right{}(),
+    smt-hook{}("xor"),
+    symbol'Kywd'{}("_xorBool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'orBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    format{}("%1 %corBool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.or"),
+    left{}(Lbl'Unds'orBool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1124,19,1124,135)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    right{}(),
+    smt-hook{}("or"),
+    symbol'Kywd'{}("_orBool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'orElseBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    format{}("%1 %corElseBool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.orElse"),
+    left{}(Lbl'Unds'orElseBool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1125,19,1125,143)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    right{}(),
+    smt-hook{}("or"),
+    symbol'Kywd'{}("_orElseBool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'impliesBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    format{}("%1 %cimpliesBool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.implies"),
+    left{}(Lbl'Unds'impliesBool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1126,19,1126,145)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    right{}(),
+    smt-hook{}("=>"),
+    symbol'Kywd'{}("_impliesBool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'UndsEqlsEqls'Bool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    comm{}(),
+    format{}("%1 %c==Bool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.eq"),
+    left{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1128,19,1128,118)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    smt-hook{}("="),
+    symbol'Kywd'{}("_==Bool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(SortBool{}, SortBool{}) : SortBool{}
+  [
+    comm{}(),
+    format{}("%1 %c=/=Bool%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("BOOL.ne"),
+    left{}(Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(), Lbl'UndsEqlsEqls'Bool'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1129,19,1129,126)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    smt-hook{}("distinct"),
+    symbol'Kywd'{}("_=/=Bool_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  symbol LblisInt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisInt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'Int{}(SortK{}) : SortInt{}
+  [
+    format{}("%cproject:Int%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  hooked-symbol Lbl'Unds'List'Unds'{}(SortList{}, SortList{}) : SortList{}
+  [
+    assoc{}(),
+    element{}(LblListItem{}()),
+    format{}("%1%n%2"),
+    function{}(),
+    functional{}(),
+    hook{}("LIST.concat"),
+    left{}(Lbl'Unds'List'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(930,19,930,198)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    smtlib{}("smt_seq_concat"),
+    symbol'Kywd'{}("_List_"),
+    terminals{}("00"),
+    total{}(),
+    unit{}(Lbl'Stop'List{}()),
+    update{}(LblList'Coln'set{}())
+  ]
+  hooked-symbol Lbl'Stop'List{}() : SortList{}
+  [
+    format{}("%c.List%r"),
+    function{}(),
+    functional{}(),
+    hook{}("LIST.unit"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(938,19,938,113)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    smtlib{}("smt_seq_nil"),
+    symbol'Kywd'{}(".List"),
+    terminals{}("1"),
+    total{}()
+  ]
+  hooked-symbol LblListItem{}(SortKItem{}) : SortList{}
+  [
+    format{}("%cListItem%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("LIST.element"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(946,19,946,124)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    smtlib{}("smt_seq_elem"),
+    symbol'Kywd'{}("ListItem"),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol LblpushList{}(SortKItem{}, SortList{}) : SortList{}
+  [
+    format{}("%cpushList%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("LIST.push"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(954,19,954,99)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("pushList"),
+    terminals{}("110101"),
+    total{}()
+  ]
+  hooked-symbol LblList'Coln'get{}(SortList{}, SortInt{}) : SortKItem{}
+  [
+    format{}("%1 %c[%r %2 %c]%r"),
+    function{}(),
+    hook{}("LIST.get"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(968,20,968,91)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("List:get"),
+    terminals{}("0101")
+  ]
+  hooked-symbol LblList'Coln'getMInt{SortWidth}(SortList{}, SortMInt{SortWidth}) : SortKItem{}
+  [
+    format{}("%1 %c[%r %2 %c]%r"),
+    function{}(),
+    hook{}("LIST.getMInt"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(969,28,969,105)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("List:getMInt"),
+    terminals{}("0101")
+  ]
+  hooked-symbol LblList'Coln'set{}(SortList{}, SortInt{}, SortKItem{}) : SortList{}
+  [
+    format{}("%1 %c[%r %2 %c<-%r %3 %c]%r"),
+    function{}(),
+    hook{}("LIST.update"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(978,19,978,108)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("List:set"),
+    terminals{}("010101")
+  ]
+  hooked-symbol LblList'Coln'setMInt{SortWidth}(SortList{}, SortMInt{SortWidth}, SortKItem{}) : SortList{}
+  [
+    format{}("%1 %c[%r %2 %c<-%r %3 %c]%r"),
+    function{}(),
+    hook{}("LIST.updateMInt"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(979,27,979,132)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("List:setMInt"),
+    terminals{}("010101")
+  ]
+  hooked-symbol LblmakeList'LParUndsCommUndsRParUnds'LIST'Unds'List'Unds'Int'Unds'KItem{}(
+    SortInt{},
+    SortKItem{}
+  ) : SortList{}
+  [
+    format{}("%cmakeList%r %c(%r... length: %1 %c,%r value: %2 %c)%r"),
+    function{}(),
+    hook{}("LIST.make"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(988,19,988,82)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  hooked-symbol LblupdateList'LParUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'List{}(
+    SortList{},
+    SortInt{},
+    SortList{}
+  ) : SortList{}
+  [
+    format{}("%cupdateList%r %c(%r... dest: %1 %c,%r index: %2 %c,%r src: %3 %c)%r"),
+    function{}(),
+    hook{}("LIST.updateAll"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(998,19,998,97)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("11010101")
+  ]
+  hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(
+    SortList{},
+    SortInt{},
+    SortInt{},
+    SortKItem{}
+  ) : SortList{}
+  [
+    format{}("%cfillList%r %c(%r %1 %c,%r %2 %c,%r %3 %c,%r %4 %c)%r"),
+    function{}(),
+    hook{}("LIST.fill"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101010101")
+  ]
+  hooked-symbol LblList'Coln'range{}(SortList{}, SortInt{}, SortInt{}) : SortList{}
+  [
+    format{}("%crange%r %c(%r %1 %c,%r %2 %c,%r %3 %c)%r"),
+    function{}(),
+    hook{}("LIST.range"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1017,19,1017,112)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("List:range"),
+    terminals{}("11010101")
+  ]
+  hooked-symbol Lbl'Unds'inList'Unds'{}(SortKItem{}, SortList{}) : SortBool{}
+  [
+    format{}("%1 %cin%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("LIST.in"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1026,19,1026,97)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_inList_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol LblsizeList{}(SortList{}) : SortInt{}
+  [
+    format{}("%csize%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("LIST.size"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1039,18,1039,116)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    smtlib{}("smt_seq_len"),
+    symbol'Kywd'{}("sizeList"),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol LblsizeMInt{SortWidth}(SortList{}) : SortMInt{SortWidth}
+  [
+    format{}("%csize%r %c(%r %1 %c)%r"),
+    function{}(),
+    hook{}("LIST.sizeMInt"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1040,34,1040,94)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("sizeMInt"),
+    terminals{}("1101")
+  ]
+  symbol LblisList{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisList%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'List{}(SortK{}) : SortList{}
+  [
+    format{}("%cproject:List%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lbl'Hash'KConfigValue{}(SortK{}) : SortKItem{}
+  [
+    constructor{}(),
+    format{}("%c#KConfigValue%r %c(%r %1 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("#KConfigValue"),
+    terminals{}("1101")
+  ]
+  symbol Lbl'Hash'unboxKConfigValue{}(SortKItem{}) : SortK{}
+  [
+    format{}("%c#unboxKConfigValue%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("#unboxKConfigValue"),
+    terminals{}("1101")
+  ]
+  hooked-symbol Lbl'Unds'Set'Unds'{}(SortSet{}, SortSet{}) : SortSet{}
+  [
+    assoc{}(),
+    comm{}(),
+    element{}(LblSetItem{}()),
+    format{}("%1%n%2"),
+    function{}(),
+    hook{}("SET.concat"),
+    idem{}(),
+    left{}(Lbl'Unds'Set'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(721,18,721,157)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_Set_"),
+    terminals{}("00"),
+    unit{}(Lbl'Stop'Set{}())
+  ]
+  hooked-symbol Lbl'Stop'Set{}() : SortSet{}
+  [
+    format{}("%c.Set%r"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.unit"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(729,18,729,90)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}(".Set"),
+    terminals{}("1"),
+    total{}()
+  ]
+  hooked-symbol LblSetItem{}(SortKItem{}) : SortSet{}
+  [
+    format{}("%cSetItem%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.element"),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(737,18,737,111)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("SetItem"),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{}
+  [
+    comm{}(),
+    format{}("%1 %c|Set%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.union"),
+    left{}(Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol LblintersectSet'LParUndsCommUndsRParUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(
+    SortSet{},
+    SortSet{}
+  ) : SortSet{}
+  [
+    comm{}(),
+    format{}("%cintersectSet%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.intersection"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(759,18,759,90)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
+  hooked-symbol LblSet'Coln'difference{}(SortSet{}, SortSet{}) : SortSet{}
+  [
+    format{}("%1 %c-Set%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.difference"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(769,18,769,106)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Set:difference"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol LblSet'Coln'in{}(SortKItem{}, SortSet{}) : SortBool{}
+  [
+    format{}("%1 %cin%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.in"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(777,19,777,94)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Set:in"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds-LT-Eqls'Set'UndsUnds'SET'Unds'Bool'Unds'Set'Unds'Set{}(
+    SortSet{},
+    SortSet{}
+  ) : SortBool{}
+  [
+    format{}("%1 %c<=Set%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.inclusion"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(786,19,786,81)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol Lblsize'LParUndsRParUnds'SET'Unds'Int'Unds'Set{}(SortSet{}) : SortInt{}
+  [
+    format{}("%csize%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("SET.size"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(794,18,794,76)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol LblSet'Coln'choice{}(SortSet{}) : SortKItem{}
+  [
+    format{}("%cchoice%r %c(%r %1 %c)%r"),
+    function{}(),
+    hook{}("SET.choice"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(804,20,804,95)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Set:choice"),
+    terminals{}("1101")
+  ]
+  symbol LblisSet{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisSet%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'Set{}(SortK{}) : SortSet{}
+  [
+    format{}("%cproject:Set%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  hooked-symbol Lbl'Unds'Map'Unds'{}(SortMap{}, SortMap{}) : SortMap{}
+  [
+    assoc{}(),
+    comm{}(),
+    element{}(Lbl'UndsPipe'-'-GT-Unds'{}()),
+    format{}("%1%n%2"),
+    function{}(),
+    hook{}("MAP.concat"),
+    left{}(Lbl'Unds'Map'Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(240,18,240,165)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_Map_"),
+    terminals{}("00"),
+    unit{}(Lbl'Stop'Map{}())
+  ]
+  hooked-symbol Lbl'Stop'Map{}() : SortMap{}
+  [
+    format{}("%c.Map%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.unit"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(248,18,248,96)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}(".Map"),
+    terminals{}("1"),
+    total{}()
+  ]
+  hooked-symbol Lbl'UndsPipe'-'-GT-Unds'{}(SortKItem{}, SortKItem{}) : SortMap{}
+  [
+    format{}("%1 %c|->%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.element"),
+    injective{}(),
+    left{}(Lbl'UndsPipe'-'-GT-Unds'{}()),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(257,18,257,119)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(Lbl'Stop'Map{}(), Lbl'Unds'Map'Unds'{}()),
+    right{}(Lbl'UndsPipe'-'-GT-Unds'{}()),
+    symbol'Kywd'{}("_|->_"),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol LblMap'Coln'lookup{}(SortMap{}, SortKItem{}) : SortKItem{}
+  [
+    format{}("%1 %c[%r %2 %c]%r"),
+    function{}(),
+    hook{}("MAP.lookup"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(271,20,271,105)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Map:lookup"),
+    terminals{}("0101")
+  ]
+  hooked-symbol LblMap'Coln'lookupOrDefault{}(SortMap{}, SortKItem{}, SortKItem{}) : SortKItem{}
+  [
+    format{}("%1 %c[%r %2 %c]%r %corDefault%r %3"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.lookupOrDefault"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(281,20,281,134)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Map:lookupOrDefault"),
+    terminals{}("010110"),
+    total{}()
+  ]
+  hooked-symbol LblMap'Coln'update{}(SortMap{}, SortKItem{}, SortKItem{}) : SortMap{}
+  [
+    format{}("%1 %c[%r %2 %c<-%r %3 %c]%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.update"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(290,18,290,132)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Map:update"),
+    terminals{}("010101"),
+    total{}()
+  ]
+  hooked-symbol Lbl'UndsLSqBUnds-LT-'-undef'RSqB'{}(SortMap{}, SortKItem{}) : SortMap{}
+  [
+    format{}("%1 %c[%r %2 %c<-%r %cundef%r %c]%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.remove"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(299,18,299,109)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("_[_<-undef]"),
+    terminals{}("010111"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map{}(SortMap{}, SortMap{}) : SortMap{}
+  [
+    format{}("%1 %c-Map%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.difference"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(311,18,311,88)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map{}(
+    SortMap{},
+    SortMap{}
+  ) : SortMap{}
+  [
+    format{}("%cupdateMap%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.updateAll"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(324,18,324,87)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
+  hooked-symbol LblremoveAll'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Set{}(
+    SortMap{},
+    SortSet{}
+  ) : SortMap{}
+  [
+    format{}("%cremoveAll%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.removeAll"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(333,18,333,87)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
+  hooked-symbol Lblkeys'LParUndsRParUnds'MAP'Unds'Set'Unds'Map{}(SortMap{}) : SortSet{}
+  [
+    format{}("%ckeys%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.keys"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(341,18,341,82)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map{}(SortMap{}) : SortList{}
+  [
+    format{}("%ckeys_list%r %c(%r %1 %c)%r"),
+    function{}(),
+    hook{}("MAP.keys_list"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(349,19,349,80)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  hooked-symbol Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(
+    SortKItem{},
+    SortMap{}
+  ) : SortBool{}
+  [
+    format{}("%1 %cin_keys%r %c(%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.in_keys"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(357,19,357,89)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("01101"),
+    total{}()
+  ]
+  hooked-symbol Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map{}(SortMap{}) : SortList{}
+  [
+    format{}("%cvalues%r %c(%r %1 %c)%r"),
+    function{}(),
+    hook{}("MAP.values"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(365,19,365,77)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  hooked-symbol LblsizeMap{}(SortMap{}) : SortInt{}
+  [
+    format{}("%csize%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.size"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(373,18,373,99)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("sizeMap"),
+    terminals{}("1101"),
+    total{}()
+  ]
+  hooked-symbol Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map{}(
+    SortMap{},
+    SortMap{}
+  ) : SortBool{}
+  [
+    format{}("%1 %c<=Map%r %2"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.inclusion"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(383,19,383,87)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("010"),
+    total{}()
+  ]
+  hooked-symbol LblMap'Coln'choice{}(SortMap{}) : SortKItem{}
+  [
+    format{}("%cchoice%r %c(%r %1 %c)%r"),
+    function{}(),
+    hook{}("MAP.choice"),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(393,20,393,101)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"
+    ),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("Map:choice"),
+    terminals{}("1101")
+  ]
+  symbol LblisMap{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMap%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'Map{}(SortK{}) : SortMap{}
+  [
+    format{}("%cproject:Map%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblz'Unds'NESTED-SYNTAX'Unds'Nat{}() : SortNat{}
+  [
+    constructor{}(),
+    format{}("%cz%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,21)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol Lbls'LParUndsRParUnds'NESTED-SYNTAX'Unds'Nat'Unds'Nat{}(SortNat{}) : SortNat{}
+  [
+    constructor{}(),
+    format{}("%cs%r %c(%r %1 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,24,8,30)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblbump'LParUndsCommUndsRParUnds'NESTED-SYNTAX'Unds'Cmd'Unds'Nat'Unds'Nat{}(
+    SortNat{},
+    SortNat{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    format{}("%cbump%r %c(%r %1 %c,%r %2 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  symbol Lblreset'LParUndsCommUndsRParUnds'NESTED-SYNTAX'Unds'Cmd'Unds'Nat'Unds'Nat{}(
+    SortNat{},
+    SortNat{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    format{}("%creset%r %c(%r %1 %c,%r %2 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,18,10,33)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  symbol Lblgroup'LParUndsRParUnds'NESTED-SYNTAX'Unds'Cmd'Unds'Nat{}(SortNat{}) : SortCmd{}
+  [
+    constructor{}(),
+    format{}("%cgroup%r %c(%r %1 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,18,11,28)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblmember'LParUndsCommUndsRParUnds'NESTED-SYNTAX'Unds'Cmd'Unds'Nat'Unds'Nat{}(
+    SortNat{},
+    SortNat{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    format{}("%cmember%r %c(%r %1 %c,%r %2 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  symbol Lblmove'LParUndsCommUndsCommUndsRParUnds'NESTED-SYNTAX'Unds'Cmd'Unds'Nat'Unds'Nat'Unds'Nat{}(
+    SortNat{},
+    SortNat{},
+    SortNat{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    format{}("%cmove%r %c(%r %1 %c,%r %2 %c,%r %3 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,18,13,37)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("11010101")
+  ]
+  symbol Lblseq'LParUndsCommUndsRParUnds'NESTED-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+    SortCmd{},
+    SortCmd{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    format{}("%cseq%r %c(%r %1 %c,%r %2 %c)%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,18,14,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  symbol LblisCmd{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisCmd%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisNat{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisNat%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'Cmd{}(SortK{}) : SortCmd{}
+  [
+    format{}("%cproject:Cmd%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'Nat{}(SortK{}) : SortNat{}
+  [
+    format{}("%cproject:Nat%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lbleven'LParUndsRParUnds'NESTED'Unds'Bool'Unds'Nat{}(SortNat{}) : SortBool{}
+  [
+    format{}("%ceven%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,19,35,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<k>%r%i%n%1%d%n%c</k>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitKCell{}(SortMap{}) : SortKCell{}
+  [
+    format{}("%cinitKCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lbl'-LT-'gid'-GT-'{}(SortNat{}) : SortGidCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<gid>%r%i%n%1%d%n%c</gid>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitGidCell{}() : SortGidCell{}
+  [
+    format{}("%cinitGidCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'mid'-GT-'{}(SortNat{}) : SortMidCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<mid>%r%i%n%1%d%n%c</mid>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitMidCell{}() : SortMidCell{}
+  [
+    format{}("%cinitMidCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'v'-GT-'{}(SortNat{}) : SortVCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<v>%r%i%n%1%d%n%c</v>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitVCell{}() : SortVCell{}
+  [
+    format{}("%cinitVCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'member'-GT-'{}(SortMidCell{}, SortVCell{}) : SortMemberCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<member>%r%i%n%1%n%2%d%n%c</member>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1001")
+  ]
+  symbol LblinitMemberCell{}() : SortMemberCellMap{}
+  [
+    format{}("%cinitMemberCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol LblnoMidCell{}() : SortMidCellOpt{}
+  [
+    constructor{}(),
+    format{}("%cnoMidCell%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol LblnoVCell{}() : SortVCellOpt{}
+  [
+    constructor{}(),
+    format{}("%cnoVCell%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol Lbl'-LT-'member'-GT-'-fragment{}(SortMidCellOpt{}, SortVCellOpt{}) : SortMemberCellFragment{}
+  [
+    constructor{}(),
+    format{}("%c<member>-fragment%r %1 %2 %c</member>-fragment%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1001")
+  ]
+  hooked-symbol LblMemberCellMapItem{}(SortMidCell{}, SortMemberCell{}) : SortMemberCellMap{}
+  [
+    format{}("%2"),
+    function{}(),
+    hook{}("MAP.element"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  hooked-symbol Lbl'Stop'MemberCellMap{}() : SortMemberCellMap{}
+  [
+    format{}("%c.MemberCellMap%r"),
+    function{}(),
+    hook{}("MAP.unit"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  hooked-symbol Lbl'Unds'MemberCellMap'Unds'{}(SortMemberCellMap{}, SortMemberCellMap{}) : SortMemberCellMap{}
+  [
+    assoc{}(),
+    comm{}(),
+    element{}(LblMemberCellMapItem{}()),
+    format{}("%1 %2"),
+    function{}(),
+    hook{}("MAP.concat"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("00"),
+    unit{}(Lbl'Stop'MemberCellMap{}())
+  ]
+  hooked-symbol LblMemberCellMap'Coln'in'Unds'keys{}(SortMidCell{}, SortMemberCellMap{}) : SortBool{}
+  [
+    format{}("%1 %cin_keys%r %c(%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.in_keys"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("01101"),
+    total{}()
+  ]
+  symbol LblMemberCellMapKey{}(SortMemberCell{}) : SortMidCell{}
+  [
+    format{}("%cMemberCellMapKey%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'members'-GT-'{}(SortMemberCellMap{}) : SortMembersCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<members>%r%i%n%1%d%n%c</members>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitMembersCell{}() : SortMembersCell{}
+  [
+    format{}("%cinitMembersCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'members'-GT-'-fragment{}(SortMemberCellMap{}) : SortMembersCellFragment{}
+  [
+    constructor{}(),
+    format{}("%c<members>-fragment%r %1 %c</members>-fragment%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol Lbl'-LT-'group'-GT-'{}(SortGidCell{}, SortMembersCell{}) : SortGroupCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<group>%r%i%n%1%n%2%d%n%c</group>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1001")
+  ]
+  symbol LblinitGroupCell{}() : SortGroupCellMap{}
+  [
+    format{}("%cinitGroupCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol LblnoGidCell{}() : SortGidCellOpt{}
+  [
+    constructor{}(),
+    format{}("%cnoGidCell%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol LblnoMembersCell{}() : SortMembersCellOpt{}
+  [
+    constructor{}(),
+    format{}("%cnoMembersCell%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol Lbl'-LT-'group'-GT-'-fragment{}(SortGidCellOpt{}, SortMembersCellOpt{}) : SortGroupCellFragment{}
+  [
+    constructor{}(),
+    format{}("%c<group>-fragment%r %1 %2 %c</group>-fragment%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1001")
+  ]
+  hooked-symbol LblGroupCellMapItem{}(SortGidCell{}, SortGroupCell{}) : SortGroupCellMap{}
+  [
+    format{}("%2"),
+    function{}(),
+    hook{}("MAP.element"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101")
+  ]
+  hooked-symbol Lbl'Stop'GroupCellMap{}() : SortGroupCellMap{}
+  [
+    format{}("%c.GroupCellMap%r"),
+    function{}(),
+    hook{}("MAP.unit"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  hooked-symbol Lbl'Unds'GroupCellMap'Unds'{}(SortGroupCellMap{}, SortGroupCellMap{}) : SortGroupCellMap{}
+  [
+    assoc{}(),
+    comm{}(),
+    element{}(LblGroupCellMapItem{}()),
+    format{}("%1 %2"),
+    function{}(),
+    hook{}("MAP.concat"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("00"),
+    unit{}(Lbl'Stop'GroupCellMap{}())
+  ]
+  hooked-symbol LblGroupCellMap'Coln'in'Unds'keys{}(SortGidCell{}, SortGroupCellMap{}) : SortBool{}
+  [
+    format{}("%1 %cin_keys%r %c(%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    hook{}("MAP.in_keys"),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("01101"),
+    total{}()
+  ]
+  symbol LblGroupCellMapKey{}(SortGroupCell{}) : SortGidCell{}
+  [
+    format{}("%cGroupCellMapKey%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'groups'-GT-'{}(SortGroupCellMap{}) : SortGroupsCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<groups>%r%i%n%1%d%n%c</groups>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitGroupsCell{}() : SortGroupsCell{}
+  [
+    format{}("%cinitGroupsCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol Lbl'-LT-'groups'-GT-'-fragment{}(SortGroupCellMap{}) : SortGroupsCellFragment{}
+  [
+    constructor{}(),
+    format{}("%c<groups>-fragment%r %1 %c</groups>-fragment%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol Lbl'-LT-'generatedTop'-GT-'{}(SortKCell{}, SortGroupsCell{}, SortGeneratedCounterCell{}) : SortGeneratedTopCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<generatedTop>%r%i%n%1%n%2%d%n%c</generatedTop>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,33,14)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/nested/nested.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("10001")
+  ]
+  symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{}
+  [
+    format{}("%cinitGeneratedTopCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol LblnoKCell{}() : SortKCellOpt{}
+  [
+    constructor{}(),
+    format{}("%cnoKCell%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol LblnoGroupsCell{}() : SortGroupsCellOpt{}
+  [
+    constructor{}(),
+    format{}("%cnoGroupsCell%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1")
+  ]
+  symbol Lbl'-LT-'generatedTop'-GT-'-fragment{}(SortKCellOpt{}, SortGroupsCellOpt{}) : SortGeneratedTopCellFragment{}
+  [
+    constructor{}(),
+    format{}("%c<generatedTop>-fragment%r %1 %2 %c</generatedTop>-fragment%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1001")
+  ]
+  symbol LblisGeneratedTopCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGeneratedTopCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGeneratedTopCellFragment{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGeneratedTopCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGidCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGidCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGidCellOpt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGidCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGroupCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGroupCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGroupCellFragment{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGroupCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGroupCellMap{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGroupCellMap%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGroupsCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGroupsCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGroupsCellFragment{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGroupsCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisGroupsCellOpt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGroupsCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisKCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisKCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisKCellOpt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisKCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMemberCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMemberCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMemberCellFragment{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMemberCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMemberCellMap{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMemberCellMap%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMembersCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMembersCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMembersCellFragment{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMembersCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMembersCellOpt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMembersCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMidCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMidCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisMidCellOpt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisMidCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisVCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisVCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblisVCellOpt{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisVCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'GeneratedTopCell{}(SortK{}) : SortGeneratedTopCell{}
+  [
+    format{}("%cproject:GeneratedTopCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GeneratedTopCellFragment{}(SortK{}) : SortGeneratedTopCellFragment{}
+  [
+    format{}("%cproject:GeneratedTopCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GidCell{}(SortK{}) : SortGidCell{}
+  [
+    format{}("%cproject:GidCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GidCellOpt{}(SortK{}) : SortGidCellOpt{}
+  [
+    format{}("%cproject:GidCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GroupCell{}(SortK{}) : SortGroupCell{}
+  [
+    format{}("%cproject:GroupCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GroupCellFragment{}(SortK{}) : SortGroupCellFragment{}
+  [
+    format{}("%cproject:GroupCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GroupCellMap{}(SortK{}) : SortGroupCellMap{}
+  [
+    format{}("%cproject:GroupCellMap%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GroupsCell{}(SortK{}) : SortGroupsCell{}
+  [
+    format{}("%cproject:GroupsCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GroupsCellFragment{}(SortK{}) : SortGroupsCellFragment{}
+  [
+    format{}("%cproject:GroupsCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'GroupsCellOpt{}(SortK{}) : SortGroupsCellOpt{}
+  [
+    format{}("%cproject:GroupsCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'KCell{}(SortK{}) : SortKCell{}
+  [
+    format{}("%cproject:KCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'KCellOpt{}(SortK{}) : SortKCellOpt{}
+  [
+    format{}("%cproject:KCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MemberCell{}(SortK{}) : SortMemberCell{}
+  [
+    format{}("%cproject:MemberCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MemberCellFragment{}(SortK{}) : SortMemberCellFragment{}
+  [
+    format{}("%cproject:MemberCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MemberCellMap{}(SortK{}) : SortMemberCellMap{}
+  [
+    format{}("%cproject:MemberCellMap%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MembersCell{}(SortK{}) : SortMembersCell{}
+  [
+    format{}("%cproject:MembersCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MembersCellFragment{}(SortK{}) : SortMembersCellFragment{}
+  [
+    format{}("%cproject:MembersCellFragment%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MembersCellOpt{}(SortK{}) : SortMembersCellOpt{}
+  [
+    format{}("%cproject:MembersCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MidCell{}(SortK{}) : SortMidCell{}
+  [
+    format{}("%cproject:MidCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'MidCellOpt{}(SortK{}) : SortMidCellOpt{}
+  [
+    format{}("%cproject:MidCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'VCell{}(SortK{}) : SortVCell{}
+  [
+    format{}("%cproject:VCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lblproject'Coln'VCellOpt{}(SortK{}) : SortVCellOpt{}
+  [
+    format{}("%cproject:VCellOpt%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{}
+  [
+    format{}("%cgetGeneratedCounterCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  symbol Lbl'-LT-'generatedCounter'-GT-'{}(SortInt{}) : SortGeneratedCounterCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    format{}("%c<generatedCounter>%r%i%n%1%d%n%c</generatedCounter>%r"),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("101")
+  ]
+  symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{}
+  [
+    format{}("%cinitGeneratedCounterCell%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1"),
+    total{}()
+  ]
+  symbol LblisGeneratedCounterCell{}(SortK{}) : SortBool{}
+  [
+    format{}("%cisGeneratedCounterCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblproject'Coln'GeneratedCounterCell{}(SortK{}) : SortGeneratedCounterCell{}
+  [
+    format{}("%cproject:GeneratedCounterCell%r %c(%r %1 %c)%r"),
+    function{}(),
+    left{}(),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101")
+  ]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortBool{}, SortKItem{}}(From:SortBool{}))
+    )
+    [subsort{SortBool{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortKConfigVar{}, SortKItem{}}(From:SortKConfigVar{})
+      )
+    )
+    [subsort{SortKConfigVar{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortInt{}, SortKItem{}}(From:SortInt{}))
+    )
+    [subsort{SortInt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortList{}, SortKItem{}}(From:SortList{}))
+    )
+    [subsort{SortList{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortSet{}, SortKItem{}}(From:SortSet{}))
+    )
+    [subsort{SortSet{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortMap{}, SortKItem{}}(From:SortMap{}))
+    )
+    [subsort{SortMap{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortCmd{}, SortKItem{}}(From:SortCmd{}))
+    )
+    [subsort{SortCmd{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortNat{}, SortKItem{}}(From:SortNat{}))
+    )
+    [subsort{SortNat{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortMidCellOpt{},
+      \equals{SortMidCellOpt{}, R}(
+        Val:SortMidCellOpt{},
+        inj{SortMidCell{}, SortMidCellOpt{}}(From:SortMidCell{})
+      )
+    )
+    [subsort{SortMidCell{}, SortMidCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortVCellOpt{},
+      \equals{SortVCellOpt{}, R}(
+        Val:SortVCellOpt{},
+        inj{SortVCell{}, SortVCellOpt{}}(From:SortVCell{})
+      )
+    )
+    [subsort{SortVCell{}, SortVCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortMemberCellMap{},
+      \equals{SortMemberCellMap{}, R}(
+        Val:SortMemberCellMap{},
+        inj{SortMemberCell{}, SortMemberCellMap{}}(From:SortMemberCell{})
+      )
+    )
+    [subsort{SortMemberCell{}, SortMemberCellMap{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortGidCellOpt{},
+      \equals{SortGidCellOpt{}, R}(
+        Val:SortGidCellOpt{},
+        inj{SortGidCell{}, SortGidCellOpt{}}(From:SortGidCell{})
+      )
+    )
+    [subsort{SortGidCell{}, SortGidCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortMembersCellOpt{},
+      \equals{SortMembersCellOpt{}, R}(
+        Val:SortMembersCellOpt{},
+        inj{SortMembersCell{}, SortMembersCellOpt{}}(From:SortMembersCell{})
+      )
+    )
+    [subsort{SortMembersCell{}, SortMembersCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortGroupCellMap{},
+      \equals{SortGroupCellMap{}, R}(
+        Val:SortGroupCellMap{},
+        inj{SortGroupCell{}, SortGroupCellMap{}}(From:SortGroupCell{})
+      )
+    )
+    [subsort{SortGroupCell{}, SortGroupCellMap{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKCellOpt{},
+      \equals{SortKCellOpt{}, R}(
+        Val:SortKCellOpt{},
+        inj{SortKCell{}, SortKCellOpt{}}(From:SortKCell{})
+      )
+    )
+    [subsort{SortKCell{}, SortKCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortGroupsCellOpt{},
+      \equals{SortGroupsCellOpt{}, R}(
+        Val:SortGroupsCellOpt{},
+        inj{SortGroupsCell{}, SortGroupsCellOpt{}}(From:SortGroupsCell{})
+      )
+    )
+    [subsort{SortGroupsCell{}, SortGroupsCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGeneratedTopCell{}, SortKItem{}}(From:SortGeneratedTopCell{})
+      )
+    )
+    [subsort{SortGeneratedTopCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGeneratedTopCellFragment{}, SortKItem{}}(From:SortGeneratedTopCellFragment{})
+      )
+    )
+    [subsort{SortGeneratedTopCellFragment{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortGidCell{}, SortKItem{}}(From:SortGidCell{}))
+    )
+    [subsort{SortGidCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGidCellOpt{}, SortKItem{}}(From:SortGidCellOpt{})
+      )
+    )
+    [subsort{SortGidCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGroupCell{}, SortKItem{}}(From:SortGroupCell{})
+      )
+    )
+    [subsort{SortGroupCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGroupCellFragment{}, SortKItem{}}(From:SortGroupCellFragment{})
+      )
+    )
+    [subsort{SortGroupCellFragment{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGroupCellMap{}, SortKItem{}}(From:SortGroupCellMap{})
+      )
+    )
+    [subsort{SortGroupCellMap{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGroupsCell{}, SortKItem{}}(From:SortGroupsCell{})
+      )
+    )
+    [subsort{SortGroupsCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGroupsCellFragment{}, SortKItem{}}(From:SortGroupsCellFragment{})
+      )
+    )
+    [subsort{SortGroupsCellFragment{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGroupsCellOpt{}, SortKItem{}}(From:SortGroupsCellOpt{})
+      )
+    )
+    [subsort{SortGroupsCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortKCell{}, SortKItem{}}(From:SortKCell{}))
+    )
+    [subsort{SortKCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortKCellOpt{}, SortKItem{}}(From:SortKCellOpt{})
+      )
+    )
+    [subsort{SortKCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMemberCell{}, SortKItem{}}(From:SortMemberCell{})
+      )
+    )
+    [subsort{SortMemberCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMemberCellFragment{}, SortKItem{}}(From:SortMemberCellFragment{})
+      )
+    )
+    [subsort{SortMemberCellFragment{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMemberCellMap{}, SortKItem{}}(From:SortMemberCellMap{})
+      )
+    )
+    [subsort{SortMemberCellMap{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMembersCell{}, SortKItem{}}(From:SortMembersCell{})
+      )
+    )
+    [subsort{SortMembersCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMembersCellFragment{}, SortKItem{}}(From:SortMembersCellFragment{})
+      )
+    )
+    [subsort{SortMembersCellFragment{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMembersCellOpt{}, SortKItem{}}(From:SortMembersCellOpt{})
+      )
+    )
+    [subsort{SortMembersCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortMidCell{}, SortKItem{}}(From:SortMidCell{}))
+    )
+    [subsort{SortMidCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortMidCellOpt{}, SortKItem{}}(From:SortMidCellOpt{})
+      )
+    )
+    [subsort{SortMidCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortVCell{}, SortKItem{}}(From:SortVCell{}))
+    )
+    [subsort{SortVCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortVCellOpt{}, SortKItem{}}(From:SortVCellOpt{})
+      )
+    )
+    [subsort{SortVCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortGeneratedCounterCell{}, SortKItem{}}(From:SortGeneratedCounterCell{})
+      )
+    )
+    [subsort{SortGeneratedCounterCell{}, SortKItem{}}()]
+endmodule []
