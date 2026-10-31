@@ -56,6 +56,7 @@ Equation source order is not the priority value.
 A static alias is a reversible static clause associated with alias syntax.
 It is distinct from an equation subtype and from a transition.
 Being reversible, its subject is built when a result is printed, from what its result matched, so the subject holds no `_`, `name @ pattern`, `A | B`, open record or anonymous list rest, and every name it binds is one the result uses; as in a desugar's subject, it holds no collection of two or more parts ([desugar and recursive aliases](/reference/language#desugar-and-recursive-aliases)); `#[k::desugar]` expands one way.
+Its result, as a desugar's, is the term a program's expansion writes, which then evaluates as the same term in a rule's result does, so it is a term of the production's sort or of a sort below it (`krs::analysis::invalid-term` otherwise); a parametric constructor at an explicit instance does not yet keep the instance there ([desugar and recursive aliases](/reference/language#desugar-and-recursive-aliases)).
 
 `#[k::context_alias]` names a reusable evaluation context with one distinguished `here` site.
 The `Double` constructor selects that named context through `seqstrict(using = operand_eval)`.
