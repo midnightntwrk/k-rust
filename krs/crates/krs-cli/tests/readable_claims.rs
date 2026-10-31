@@ -971,10 +971,7 @@ fn a_readable_claim_holds_a_bytes_literal() {
     );
     let spec = emitted_spec(target.path(), &readable);
     assert_eq!(spec, emitted_spec(target.path(), &reference));
-    assert!(
-        spec.contains(r#"<program> b"\x60\x00" </program>"#),
-        "{spec}"
-    );
+    assert!(spec.contains(r#"<program> b"`\x00" </program>"#), "{spec}");
     expect_test::expect![[r#"
         [
             "ORG-KRS-BYTES-SPEC.loads: proven",
@@ -1078,7 +1075,7 @@ fn a_readable_claim_reads_islands_inside_list_elements() {
     let spec = emitted_spec(target.path(), &native);
     assert_eq!(spec, emitted_spec(target.path(), &wrapped));
     assert!(
-        spec.contains(r#"<stack> ListItem(tag ( b"\x79\x7a" )) ListItem(_N:Int) </stack>"#),
+        spec.contains(r#"<stack> ListItem(tag ( b"yz" )) ListItem(_N:Int) </stack>"#),
         "{spec}"
     );
     expect_test::expect![[r#"

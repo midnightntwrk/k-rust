@@ -221,13 +221,13 @@ fn rules_match_and_build_bytes_and_id_literals() {
     assert!(success, "{stderr}");
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
     for expected in [
-        r#"<stack> S:List => ListItem(tag ( b"\x7f\x45\x4c\x46" )) S:List </stack>"#,
+        r#"<stack> S:List => ListItem(tag ( b"\x7fELF" )) S:List </stack>"#,
         r#"<stack> ListItem(tag ( b"\x01" )) S:List => S:List </stack>"#,
         r#"<stack> S:List => ListItem(named ( #token("$main","Id") )) S:List </stack>"#,
-        r#"<stack> ListItem(tag ( b"\x7f\x45\x4c\x46" )) S:List => ListItem(tag ( b"\x01" )) S:List </stack>"#,
-        r#"rule isElf ( b"\x7f\x45\x4c\x46" ) => 1"#,
+        r#"<stack> ListItem(tag ( b"\x7fELF" )) S:List => ListItem(tag ( b"\x01" )) S:List </stack>"#,
+        r#"rule isElf ( b"\x7fELF" ) => 1"#,
         r#"rule kind ( b"\x01" ) => 5"#,
-        r#"rule next ( b"\x7f\x45\x4c\x46" ) => b"\x00\x00""#,
+        r#"rule next ( b"\x7fELF" ) => b"\x00\x00""#,
     ] {
         assert!(k.contains(expected), "{expected}\n{k}");
     }

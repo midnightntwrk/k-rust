@@ -396,7 +396,8 @@ k::rules! {{
     };
     let named = definition(&named_manifest);
     assert_eq!(named, definition(&inline_manifest));
-    let entry = r#"named ( #token("$main","Id") , #token("b\"\x61\x62\"","Bytes") , #token("word","Word") )"#;
+    let entry =
+        r#"named ( #token("$main","Id") , #token("b\"ab\"","Bytes") , #token("word","Word") )"#;
     assert_eq!(named.matches(entry).count(), 2, "{named}");
 }
 
