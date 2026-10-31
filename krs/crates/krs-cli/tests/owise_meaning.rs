@@ -5,12 +5,17 @@
 //! that is a statement about every argument, symbolic ones included, so it is emitted as
 //! `owise` itself, never as the rank 200 that orders it: both the emitted K and the native
 //! KORE carry `owise`, and the native `owise` axiom holds the condition that no other equation
-//! of its function applies. A written priority of 200 or more beside an `owise` sentence would
-//! order the two against what `owise` states, so it is refused.
+//! of its function applies. An `owise` sentence comes after every other sentence that applies,
+//! and the emitted `owise` attribute fixes no rank against priorities 200 to 254, so an equation
+//! at such a priority beside an `owise` equation of its function, or a transition at one that
+//! can apply where an `owise` transition does, has no single order with it and is refused.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use krs_compiler::testing::assert_lowering_contract;
+use krs_ir::SentenceKind;
+use krs_ir_levels::{DefinitionSentence, SemanticTheory};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 const PREAMBLE: &str = r#"
@@ -79,6 +84,24 @@ fn is_one(k::term![IsOne(value)]: Term<Bool>) -> Term<Bool> {
 #[k::requires(int::eq(value, 1))]
 fn pick_one(k::term![ExpSyntax::Pick { value }]: Term<Exp>) -> Term<Exp> {
     1
+}
+
+#[k::rule(label = "toss-one")]
+#[k::requires(int::eq(value, 1))]
+fn toss_one(
+    value: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Toss(value), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(1, ..tail), ..state }
+}
+
+/// A configuration rule, which the emitter writes apart from a term rule.
+#[k::rule(owise, label = "toss-other")]
+fn toss_other(
+    value: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Toss(value), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(0, ..tail), ..state }
 }
 
 #[k::claim(all_paths, label = "one-reaches-one")]
@@ -180,8 +203,17 @@ fn owise_is_emitted_as_itself_on_both_routes() {
         owise,
         [
             "rule isOne ( _ ) => false [owise",
-            "rule pick ( _ ) => 0 [owise"
-        ]
+            "rule pick ( _ ) => 0 [owise",
+            "[owise]"
+        ],
+        "{k}"
+    );
+    // The configuration rule's attributes close its sentence on a line of their own.
+    assert!(
+        k.contains(
+            "rule [toss-other]:\n    <k> toss ( Value:Int ) ~> Tail:K => 0 ~> Tail:K </k>\n    [owise]\n"
+        ),
+        "{k}"
     );
     assert!(!k.contains("priority("), "{k}");
 
@@ -197,9 +229,11 @@ fn owise_is_emitted_as_itself_on_both_routes() {
     // The builtin modules have `owise` equations of their own; these are the package's.
     let owise = axioms_with(&kore, "owise{}()")
         .into_iter()
-        .filter(|axiom| axiom.contains("isOne") || axiom.contains("pick-other"))
+        .filter(|axiom| {
+            axiom.contains("isOne") || axiom.contains("pick-other") || axiom.contains("toss-other")
+        })
         .collect::<Vec<_>>();
-    assert_eq!(owise.len(), 2, "{owise:#?}");
+    assert_eq!(owise.len(), 3, "{owise:#?}");
     let equation = owise
         .iter()
         .find(|axiom| axiom.contains("\\equals"))
@@ -211,9 +245,22 @@ fn owise_is_emitted_as_itself_on_both_routes() {
     assert!(
         axioms_with(&kore, "priority{}(\"200\")")
             .iter()
-            .all(|axiom| !axiom.contains("isOne") && !axiom.contains("pick")),
+            .all(|axiom| ["isOne", "pick", "toss"]
+                .iter()
+                .all(|name| !axiom.contains(name))),
         "an `owise` sentence carries the rank 200"
     );
+}
+
+/// `krs prove` of the package: the status line of each claim.
+fn statuses(target: &Path, manifest: &Path) -> Vec<String> {
+    let (success, stdout, stderr) = krs(target, manifest, "prove", &[]);
+    assert!(!success, "{stdout}\n{stderr}");
+    stdout
+        .lines()
+        .filter(|line| line.starts_with("ORG-KRS-OWISE-SPEC."))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Over a symbolic argument the `owise` equation gives `false` only where `V =/=Int 1` is
@@ -224,20 +271,93 @@ fn owise_decides_a_claim_over_a_symbolic_argument() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(temporary.path(), SIBLINGS);
-    let (success, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
-    assert!(!success, "{stdout}\n{stderr}");
-    let statuses = stdout
-        .lines()
-        .filter(|line| line.starts_with("ORG-KRS-OWISE-SPEC."))
-        .collect::<Vec<_>>();
     assert_eq!(
-        statuses,
+        statuses(target.path(), &manifest),
         [
             "ORG-KRS-OWISE-SPEC.one-reaches-one: proven",
             "ORG-KRS-OWISE-SPEC.one-reaches-two: failed"
-        ],
-        "{stdout}"
+        ]
     );
+}
+
+/// A written `priority = 200` shares its value with `owise`, so only the `owise` origin the
+/// semantic lowering writes tells them apart. Lowering Semantic IR to Definition IR keeps it on
+/// every `owise` equation and transition, configuration rules included, and on no written
+/// priority, and the emitted K states each accordingly.
+#[test]
+fn definition_ir_tells_owise_from_a_written_priority_200() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // `isTwo` has no `owise` equation, so written priorities of 200 or more are accepted on it.
+    let source = format!(
+        "{SIBLINGS}{}",
+        r#"
+#[k::function(total, sort = Bool, syntax = "isTwo({value})")]
+pub struct IsTwo {
+    pub value: Term<Int>,
+}
+
+#[k::requires(int::eq(value, 2))]
+#[k::equation(priority = 200)]
+fn is_two(k::term![IsTwo(value)]: Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::equation(priority = 210)]
+fn is_not_two(k::term![IsTwo(_)]: Term<Bool>) -> Term<Bool> {
+    false
+}
+"#
+    );
+    let manifest = package(temporary.path(), &source);
+    // `go` meets no `owise` transition, so a written 200 on it is accepted.
+    let library = manifest.with_file_name("src/lib.rs");
+    let text = fs::read_to_string(&library).unwrap();
+    let text = text.replacen(
+        "#[k::rule(label = \"go\")]",
+        "#[k::rule(priority = 200, label = \"go\")]",
+        1,
+    );
+    fs::write(&library, text).unwrap();
+    let emitted = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", emitted.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let theory: SemanticTheory =
+        serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();
+    let (lowered, _) = assert_lowering_contract(&theory);
+    let mut priorities = lowered
+        .definition()
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Rule(rule) => rule
+                .priority()
+                .map(|priority| (rule.kind(), priority.value(), priority.is_owise())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    priorities.sort();
+    assert_eq!(
+        priorities,
+        [
+            (SentenceKind::Transition, 200, false),
+            (SentenceKind::Transition, 200, true),
+            (SentenceKind::Transition, 200, true),
+            (SentenceKind::Equation, 200, false),
+            (SentenceKind::Equation, 200, true),
+            (SentenceKind::Equation, 210, false),
+        ]
+    );
+    let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
+    assert_eq!(k.matches("priority(200)").count(), 2, "{k}");
+    assert_eq!(k.matches("priority(210)").count(), 1, "{k}");
+    assert_eq!(k.matches("owise").count(), 3, "{k}");
 }
 
 /// `krs check` of the package: its `error[..]` headlines with the locations they point at and
@@ -257,16 +377,18 @@ fn check(target: &Path, manifest: &Path) -> Vec<String> {
 }
 
 /// An equation at priority 200 or more beside an `owise` equation of its function is refused,
-/// and so is a transition at such a priority that can apply where an `owise` transition does;
-/// one that cannot is never ordered against it and is accepted.
+/// and so is a transition at such a priority that can apply where an `owise` transition does:
+/// `owise` comes after every other sentence that applies, and the emitted `owise` attribute fixes
+/// no rank against priorities 200 to 254, so the two have no single order. A transition that
+/// cannot apply there needs no order and is accepted.
 #[test]
-fn a_priority_at_or_after_owise_is_refused() {
+fn a_priority_unordered_against_owise_is_refused() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let refused = [
         (
             "equation",
-            "#[k::requires(int::eq(value, 1))]\n#[k::equation(priority = 200)]\nfn is_one(k::term![IsOne(value)]: Term<Bool>) -> Term<Bool> {\n    true\n}\n",
+            "#[k::requires(int::eq(value, 1))]\n#[k::equation(priority = 250)]\nfn is_one(k::term![IsOne(value)]: Term<Bool>) -> Term<Bool> {\n    true\n}\n",
         ),
         (
             "transition",
@@ -280,14 +402,13 @@ fn a_priority_at_or_after_owise_is_refused() {
     .join("\n");
     expect_test::expect![[r"
         equation:
-        error[krs::analysis::priority-after-owise]: equation `is_one` of `IsOne` has priority 200, which orders it with or after the `owise` equation `is_not_one` (`owise` is ranked 200); but `owise` gives the value only where no other equation of `IsOne` applies, so every other equation comes first, and the definition would state two orders between them
+        error[krs::analysis::priority-after-owise]: equation `is_one` of `IsOne` has priority 250 beside the `owise` equation `is_not_one`; `owise` gives the value only where no other equation of `IsOne` applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so a route that tries equations in order may try the `owise` one first
         --> src/lib.rs:53:26
         = help: give the equation a priority below 200
         transition:
-        error[krs::analysis::priority-after-owise]: rule `pick_late` has priority 250, which orders it with or after the `owise` rule `pick_other` (`owise` is ranked 200), and the two can apply to the same configuration; but `owise` applies only where no other rule applies, so every other rule comes first, and the definition would state two orders between them
+        error[krs::analysis::priority-after-owise]: rule `pick_late` has priority 250 and can apply where the `owise` rule `pick_other` does; `owise` comes after every other rule that applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so the two rules have no single order
         --> src/lib.rs:52:22
-        = help: give the rule a priority below 200, or make the two rules disjoint"]]
-    .assert_eq(&refused);
+        = help: give the rule a priority below 200, or make the two rules disjoint"]].assert_eq(&refused);
 
     let disjoint = package(
         &temporary.path().join("disjoint"),

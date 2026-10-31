@@ -2704,8 +2704,8 @@ pub(crate) enum OverlapViolation {
     },
     /// A rule of a nondet group overlaps no other rule of the group.
     StaleGroupMember { group: String, rule: StableItemId },
-    /// A transition with a written priority of 200 or more overlaps an
-    /// `owise` transition.
+    /// A transition with a written priority that has no single order with
+    /// `owise` ([`OWISE_UNORDERED_FROM`]) overlaps an `owise` transition.
     AfterOwise {
         owise: StableItemId,
         rule: StableItemId,
@@ -2741,18 +2741,23 @@ pub(crate) fn group_cell_sorts(modules: &[SemanticModule]) -> Vec<SemanticSortRe
     groups.into_iter().map(|(_, sort, _)| sort).collect()
 }
 
+/// The lowest written priority that the emitted `owise` attribute is not
+/// ordered after: a transition or equation ranked from here to 254 and an
+/// `owise` one it meets have no single order.
+pub(crate) const OWISE_UNORDERED_FROM: u32 = 200;
+
 /// Returns the first deterministic violation of the overlap check over every
-/// transition: a transition ranked with or after an `owise` one it overlaps,
-/// an overlapping pair at one priority outside one nondet group, then each
-/// group's validation.
+/// transition: a transition at a priority that has no single order with an
+/// `owise` one it overlaps, an overlapping pair at one priority outside one
+/// nondet group, then each group's validation.
 ///
-/// `owise` states that its transition applies where no other transition
-/// applies, so every transition that can meet it is tried first. A written
-/// `priority = N` with `N` of 200 or more orders its transition with or after
-/// the `owise` one, the rank 200 that orders `owise` after the default
-/// priority: where the two overlap, the definition would state two orders
-/// between them. Transitions that cannot match one configuration are never
-/// ordered, so only an overlapping pair is refused.
+/// `owise` on a transition means it comes after every other transition that
+/// applies. The emitted `owise` attribute orders it after every priority
+/// below [`OWISE_UNORDERED_FROM`] and fixes no rank against the priorities
+/// from there to 254, so a transition at such a priority that meets an
+/// `owise` one has no single order with it, and is refused. Transitions that
+/// cannot match one configuration need no order, so only an overlapping pair
+/// is refused.
 pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<OverlapViolation> {
     let graph = SortGraph::from_modules(modules);
     if let Some(violation) = first_ambiguous_alternatives(modules, &graph) {
@@ -2765,7 +2770,7 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
     for owise in rules.iter().filter(|rule| rule.owise) {
         let after = rules.iter().find(|rule| {
             !rule.owise
-                && rule.priority >= crate::equation_domain::OWISE_RANK
+                && rule.priority >= OWISE_UNORDERED_FROM
                 && transitions_overlap(owise, rule, &graph)
         });
         if let Some(rule) = after {

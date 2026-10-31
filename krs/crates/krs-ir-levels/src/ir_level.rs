@@ -700,14 +700,18 @@ impl IrRulePriority {
     /// Whether this is an authored `owise`, not a written `priority = N`.
     ///
     /// `owise` states that its sentence applies where no other equation of its
-    /// function, or no other transition, applies. Its value is the rank 200
-    /// that orders it after every sentence of the default priority, and the
-    /// Semantic IR frame of its origin names the `owise` key
+    /// function, or no other transition, applies. Its value is 200, which a
+    /// written `priority = 200` shares; only the Semantic IR frame of its
+    /// origin names the `owise` key
     /// ([`Self::RULE_OWISE_ORIGIN`], [`Self::EQUATION_OWISE_ORIGIN`]); every
     /// later level keeps that frame, so an emitter can state `owise` itself.
+    ///
+    /// In a debug build the answer is checked against the generated
+    /// descriptor's frame, where the origin carries one: it names the key's
+    /// role, `rule_owise` or `equation_owise` for an `owise`.
     #[must_use]
     pub fn is_owise(&self) -> bool {
-        self.origin.origin().frames().iter().any(|frame| {
+        let owise = self.origin.origin().frames().iter().any(|frame| {
             matches!(
                 frame,
                 krs_ir::OriginFrame::Transformation {
@@ -716,6 +720,43 @@ impl IrRulePriority {
                     ..
                 } if label == Self::RULE_OWISE_ORIGIN || label == Self::EQUATION_OWISE_ORIGIN
             )
+        });
+        debug_assert!(
+            self.descriptor_owise()
+                .is_none_or(|descriptor| descriptor == owise),
+            "the semantic origin of priority {} says owise is {owise}, its descriptor key does not",
+            self.value
+        );
+        owise
+    }
+
+    /// Whether the generated descriptor frame of the origin names an `owise`
+    /// key (`Some(true)`) or a `priority = N` one (`Some(false)`); `None`
+    /// when the origin has no such frame.
+    fn descriptor_owise(&self) -> Option<bool> {
+        use krs_ir::ProvenanceRole;
+        self.origin.origin().frames().iter().find_map(|frame| {
+            let krs_ir::OriginFrame::Transformation {
+                kind: krs_ir::TransformationOriginKind::GeneratedDescriptor,
+                label: Some(label),
+                ..
+            } = frame
+            else {
+                return None;
+            };
+            // `{invocation}.{role}#{ordinal}`.
+            let role = label.rsplit_once('#')?.0.rsplit_once('.')?.1;
+            if role == ProvenanceRole::RuleOwise.as_str()
+                || role == ProvenanceRole::EquationOwise.as_str()
+            {
+                Some(true)
+            } else if role == ProvenanceRole::RulePriority.as_str()
+                || role == ProvenanceRole::EquationPriority.as_str()
+            {
+                Some(false)
+            } else {
+                None
+            }
         })
     }
     /// Returns priority provenance.

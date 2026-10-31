@@ -41,6 +41,7 @@ use crate::coverage::{
     production_argument_sorts, symbolic_overlap,
 };
 use crate::int_facts::{IntFact, IntFacts, evaluate_int};
+use crate::overlap::OWISE_UNORDERED_FROM;
 
 /// The argument vectors one analysis may enumerate.
 pub(crate) const POINT_LIMIT: u64 = 1 << 16;
@@ -146,9 +147,8 @@ const CALL_DEPTH: u32 = 64;
 /// The function calls one evaluation may make in all.
 const CALL_BUDGET: u32 = 4096;
 
-/// A total function's equations, by priority band, lowest first (`owise`
-/// is the rank 200, last: no equation beside it is ranked 200 or after,
-/// [`first_equation_after_owise`]).
+/// A total function's equations, by priority band, lowest first; the
+/// `owise` equations are the last band ([`equation_rank`]).
 pub(crate) type Bands<'a> = Vec<Vec<EquationView<'a>>>;
 
 /// Evaluates ground terms: builtins on literals, constructors, `P :=K t`
@@ -1100,15 +1100,15 @@ pub(crate) struct EquationOverlap {
     pub(crate) results: (String, String),
 }
 
-/// An equation with a written `priority = N`, `N` of 200 or more, beside an
-/// `owise` equation of its function.
+/// An equation whose written priority has no single order with an `owise`
+/// equation of its function.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EquationAfterOwise {
     /// The function, rendered.
     pub(crate) function: String,
     /// The `owise` equation.
     pub(crate) owise: StableItemId,
-    /// The equation ranked with or after it.
+    /// The equation with the written priority.
     pub(crate) equation: StableItemId,
     /// That equation's priority.
     pub(crate) priority: u32,
@@ -1117,13 +1117,16 @@ pub(crate) struct EquationAfterOwise {
 }
 
 /// The first function, in declaration order, with an `owise` equation and an
-/// equation whose written priority is 200 or more.
+/// equation whose written priority is [`OWISE_UNORDERED_FROM`] or more.
 ///
-/// `owise` states that its equation gives the value where no other equation
-/// of the function applies, so every other equation is tried before it. A
-/// written `priority = N` with `N` of 200 or more orders its equation with or
-/// after the `owise` one, the rank 200 that orders `owise` after the default
-/// priority: the definition would state two orders between the two.
+/// `owise` gives the value only where no other equation of the function
+/// applies, so every other equation comes first. The emitted `owise`
+/// attribute orders it after every priority below [`OWISE_UNORDERED_FROM`]
+/// and fixes no rank against the priorities from there to 254: a route that
+/// evaluates a function by trying its equations in order may try the `owise`
+/// one first and give its value where the other applies, so the two have no
+/// single order. Every equation of the function can meet the `owise` one,
+/// whose pattern is the function's, so no overlap test narrows this.
 pub(crate) fn first_equation_after_owise(modules: &[SemanticModule]) -> Option<EquationAfterOwise> {
     function_equations(modules)
         .into_iter()
@@ -1134,7 +1137,8 @@ pub(crate) fn first_equation_after_owise(modules: &[SemanticModule]) -> Option<E
             })?;
             let (equation, priority) = rules.iter().find_map(|rule| {
                 let priority = rule.priority()?;
-                (!priority.is_owise() && priority.value() >= OWISE_RANK).then_some((rule, priority))
+                (!priority.is_owise() && priority.value() >= OWISE_UNORDERED_FROM)
+                    .then_some((rule, priority))
             })?;
             Some(EquationAfterOwise {
                 function: display_name(production.id()),
@@ -1146,9 +1150,27 @@ pub(crate) fn first_equation_after_owise(modules: &[SemanticModule]) -> Option<E
         })
 }
 
-/// The rank of an `owise` sentence: after every sentence of the default
-/// priority (50).
-pub(crate) const OWISE_RANK: u32 = 200;
+/// The rank under which the analyses order an equation among its function's
+/// equations: its written priority, 50 by default, and for an `owise`
+/// equation [`OWISE_EQUATION_RANK`].
+///
+/// `owise` gives the value only where no other equation of the function
+/// applies, so an `owise` equation forms a band of its own, after every
+/// other ([`first_equation_after_owise`] keeps written priorities below the
+/// rank the emitted attribute fixes).
+pub(crate) fn equation_rank(rule: &SemanticRule) -> u32 {
+    rule.priority().map_or(50, |priority| {
+        if priority.is_owise() {
+            OWISE_EQUATION_RANK
+        } else {
+            priority.value()
+        }
+    })
+}
+
+/// The rank of an `owise` equation in the analyses: after every written
+/// priority (`0..=254`).
+pub(crate) const OWISE_EQUATION_RANK: u32 = u32::MAX;
 
 /// The equations of each function, grouped by the instance their head names.
 pub(crate) fn function_equations(
@@ -1218,13 +1240,7 @@ pub(crate) fn evaluable_functions(
         }
         let Some(views) = rules
             .iter()
-            .map(|rule| {
-                Some((
-                    rule.priority()
-                        .map_or(50, krs_ir_levels::SemanticRulePriority::value),
-                    equation_view(rule)?,
-                ))
-            })
+            .map(|rule| Some((equation_rank(rule), equation_view(rule)?)))
             .collect::<Option<Vec<_>>>()
         else {
             continue;
@@ -1295,10 +1311,7 @@ pub(crate) fn first_equation_overlap(modules: &[SemanticModule]) -> Option<Equat
         let mut priorities = BTreeMap::<u32, Vec<&SemanticRule>>::new();
         for rule in rules {
             priorities
-                .entry(
-                    rule.priority()
-                        .map_or(50, krs_ir_levels::SemanticRulePriority::value),
-                )
+                .entry(equation_rank(rule))
                 .or_default()
                 .push(rule);
         }

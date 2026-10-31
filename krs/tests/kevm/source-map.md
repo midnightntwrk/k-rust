@@ -88,6 +88,8 @@ The current slice follows KEVM's `#next`/`#exec`/`#gas`/`#pc` pipeline, its core
 KEVM stores executable code as `Bytes` and decodes it with `#lookupOpCode`.
 The KRS definition now uses the pinned `BYTES` implementation directly: `lengthBytes(PROGRAM)` bounds lookup, `PROGRAM [ PC ]` reads the opcode byte, `PUSH0` pushes zero without immediate data, and a recursive big-endian decoder reads `PUSH1` through `PUSH32` immediates, reading an immediate byte past the end of the code as zero (case `push-immediate-past-code-end`).
 `Decode` is one equation table over the opcode byte: one literal row per named opcode, a bit template per encoded family (`011 nnnnn` is `PUSH(n+1)`, `1000 dddd` is `DUP(d+1)`, `1001 dddd` is `SWAP(d+1)`, `10100 ttt` with `t <= 4` is `LOG(t)`), and one `owise` row that decodes every other byte as `INVALID`.
+Since NT-26 that row is emitted as `owise`, so its axiom holds the condition that no other row applies, the bit templates and `t <= 4` included.
+Every claim of this port runs a byte-literal program from `pc` 0, so each decoded opcode is a concrete byte on which every row's condition is decided, and runs and proofs read the table as before; a proof over a symbolic opcode would now have to decide those conditions before the `INVALID` row applies, where a rank alone let it apply.
 The operational effects after decoding remain mapped to the checked-in summary rules.
 The program bytes remain unchanged across execution, matching KEVM's program-cell boundary.
 `JUMP` and true `JUMPI` scan those same bytes from offset zero, advancing over
@@ -137,7 +139,7 @@ Canonical K and native K-Rust compilation therefore preserve the account collect
 Deterministic reference expansion preserves the same boundary with owner-qualified nested fields, so the independently expanded Rust compiles, re-collects, and emits the same configuration and sentence identities.
 
 Descriptor protocol 25 adds typed `#[k::rule(owise)]` metadata and preserves its provenance through ordinary, head, and configuration rules.
-Semantic and Definition IR lower the fallback to the rank 200 under an `owise` origin, which canonical K emission and direct K-Rust adaptation state as `owise` (NT-26), and readable expansion retains the authored `owise` spelling.
+Semantic and Definition IR lower the fallback to the value 200 under an `owise` origin, which canonical K emission and direct K-Rust adaptation state as `owise` (NT-26), and readable expansion retains the authored `owise` spelling.
 The account-query rules use this ordered fallback only for absent accounts, after the explicit account-identity rule has had the opportunity to match.
 
 Descriptor protocol 26 and Definition IR schema 18 add a closed typed function-hook boundary.

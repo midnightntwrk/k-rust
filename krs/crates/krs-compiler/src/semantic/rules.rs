@@ -176,7 +176,7 @@ pub(super) fn check_group_descendants(
 
 /// Lowers an optional rule priority; its origin label names the authored key.
 ///
-/// `owise` lowers to the rank 200 on transitions and equations alike, under
+/// `owise` lowers to the value 200 on transitions and equations alike, under
 /// the label [`SemanticRulePriority::RULE_OWISE_ORIGIN`] or
 /// [`SemanticRulePriority::EQUATION_OWISE_ORIGIN`], which the emitters read to
 /// state `owise` itself; `priority = N` lowers to N.

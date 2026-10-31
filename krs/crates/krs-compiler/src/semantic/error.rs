@@ -187,9 +187,11 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second equation's head.
         second_head_range: Option<Box<SourceRange>>,
     },
-    /// A sentence with a written priority of 200 or more competes with an
-    /// `owise` sentence: an `owise` equation of its function, or an `owise`
-    /// transition it overlaps.
+    /// A sentence with a written priority of 200 or more meets an `owise`
+    /// sentence (an `owise` equation of its function, or an `owise`
+    /// transition it overlaps): `owise` comes after every other sentence that
+    /// applies, and the emitted `owise` attribute fixes no rank against
+    /// priorities 200 to 254, so the two have no single order.
     PriorityAfterOwise {
         /// The sentence with the written priority.
         rule: Box<StableItemId>,
@@ -1455,7 +1457,7 @@ impl fmt::Display for DescriptorLoweringError {
                 ..
             } => write!(
                 formatter,
-                "equation `{}` of `{function}` has priority {priority}, which orders it with or after the `owise` equation `{}` (`owise` is ranked 200); but `owise` gives the value only where no other equation of `{function}` applies, so every other equation comes first, and the definition would state two orders between them",
+                "equation `{}` of `{function}` has priority {priority} beside the `owise` equation `{}`; `owise` gives the value only where no other equation of `{function}` applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so a route that tries equations in order may try the `owise` one first",
                 rule.item_name(),
                 owise.item_name()
             ),
@@ -1467,7 +1469,7 @@ impl fmt::Display for DescriptorLoweringError {
                 ..
             } => write!(
                 formatter,
-                "rule `{}` has priority {priority}, which orders it with or after the `owise` rule `{}` (`owise` is ranked 200), and the two can apply to the same configuration; but `owise` applies only where no other rule applies, so every other rule comes first, and the definition would state two orders between them",
+                "rule `{}` has priority {priority} and can apply where the `owise` rule `{}` does; `owise` comes after every other rule that applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so the two rules have no single order",
                 rule.item_name(),
                 owise.item_name()
             ),
@@ -1741,7 +1743,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 ..
             } => diagnostic
                 .with_note(format!("owise: {owise}"))
-                .with_note(format!("ranked after it: {rule}"))
+                .with_note(format!("unordered against it: {rule}"))
                 .with_help(if function.is_some() {
                     "give the equation a priority below 200"
                 } else {

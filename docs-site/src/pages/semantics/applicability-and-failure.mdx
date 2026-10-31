@@ -43,7 +43,7 @@ The diagnostic does not guess that source order makes `first_foo` win.
 
 `owise` marks an explicit fallback rule that applies when the ordinary alternatives do not.
 It is semantic fallback, not “the last Rust match arm,” and its location in the source table does not select it.
-`owise` applies where no other rule, or no other equation of the function, applies, and is emitted as K's `owise`; `#[k::rule(priority = N)]` gives a transition any priority in `0..=254` (the default is 50), below 200 where it can meet an `owise` rule; equations take the same keys, and simplifications have a separate priority hint.
+`owise` applies where no other rule, or no other equation of the function, applies, and is emitted as K's `owise`; `#[k::rule(priority = N)]` gives a transition any priority in `0..=254` (the default is 50), below 200 where it can meet an `owise` rule; equations take the same keys, below 200 beside an `owise` equation; and simplifications have a separate priority hint.
 
 
 `tests/tour-negatives/verify.py` also pins four focused authoring failures to their exact tokens: a wrapper-free field missing `#[k::cell]`, forbidden initializer control flow, a constructor omitted from an exhaustive precedence chain, and an invalid rule-result update base.

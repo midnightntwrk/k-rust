@@ -478,7 +478,7 @@ impl EquationAttribute {
     }
 
     /// Returns the effective authored equation priority and the role that
-    /// anchors it: `owise` is the rank 200 under [`ProvenanceRole::EquationOwise`],
+    /// anchors it: `owise` is the value 200 under [`ProvenanceRole::EquationOwise`],
     /// and `priority = N` is N under [`ProvenanceRole::EquationPriority`].
     #[must_use]
     pub fn equation_priority(&self) -> Option<(ProvenanceRole, u32)> {
