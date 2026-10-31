@@ -290,6 +290,12 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// least what it did, and a run whose list is empty has the same leaves in every model the
 /// guarantee named before, and in more. The digest is that of the integrated passage, the
 /// composition of the K1, K2 and K3 texts.
+///
+/// GAP final fix round re-pin of the mark passage (text only, 483ad577 -> ed6562af): the
+/// guarantee sentence names the order of console effects as k-rust's order ("not a value but an
+/// order k-rust fixes"), as the rest of the document does, instead of as a reading k-rust keeps;
+/// the models it quantifies over are the same (those that agree with the request's inputs and
+/// with that order), and so are the marks, so A-1's exclusions read the same.
 const A1_PASSAGES: [passage::Passage; 7] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -317,7 +323,7 @@ const A1_PASSAGES: [passage::Passage; 7] = [
         anchor: "### Marks in executions",
         opening: "A mark is noted where the evaluator takes",
         lines: 26,
-        digest: "483ad577935c9cd981055e20b561eae1443baab457df185ba0ef0b7cffbc081d",
+        digest: "ed6562afa86c1b402fed8471868d1221449d37876b77cbcd7f0e3c524dd56c30",
     },
     passage::Passage {
         file: "docs/compatibility.md",

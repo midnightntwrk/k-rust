@@ -751,6 +751,18 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// is k-rust's, class `literal`; the paragraph's first sentence already classified both, so the
 /// element k-rust builds, the marks and the canonical texts are unchanged, and admission reads
 /// the same.
+///
+/// GAP final fix round re-pin (text only; no class, mark or element moves): (1) the literal line
+/// of Backend scope (37b6af1d -> 838f6d89) no longer says the literal rule gives the largest
+/// finite value past the threshold: it states the rule's two readings there (the largest finite
+/// value, or the infinity of the sign as the nearest value in the extended reals), which the text
+/// does not decide, which is why such a literal is class `literal`, as the line already said; it
+/// also cites the arithmetic `smt-hook`s at their lines in the embedded `domains.md`. (2) The
+/// Float literal paragraph of Domain values (e144923d -> 56151f56) says the same of the
+/// threshold and that k-rust's element past it is the infinity, the element it built before.
+/// (3) The machine-integer literal paragraph (d083c9e9 -> ed76b97a) states the residue reading
+/// as k-rust's element, determined in `[-2^(W-1), 2^W)`, the range the paragraph already gave and
+/// outside which the literal was already class `literal`. Admission reads the same.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -792,7 +804,7 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Backend scope",
                 "The arithmetic hooks are not affected: their `smt-hook`s name",
-                "37b6af1d53e9037e9999ca961a4a5aa83441fe2f0773652c7f275e17ed69536e",
+                "838f6d89768caf91439605d208bec3e5507500b49d25cead15813d32db52f932",
             ),
             passage(
                 "## Backend scope",
@@ -813,12 +825,12 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Domain values",
                 "A machine-integer literal of `MInt{W}`",
-                "d083c9e98d89142a548e389f0bc97ccfe16f509a3a5c61df1e65d2acc256fa28",
+                "ed76b97a5d453164e49d703946cdaf75980fea3eef02bd6e6962205d3f57bb81",
             ),
             passage(
                 "## Domain values",
                 "A `Float` literal names a rational number",
-                "e144923d010bf81757386401f6937c75b90554c399c02b92deae0a558448175b",
+                "56151f566a48df0f947fef7382ee52386f03519614e4e9073ab936fecda1c7ab",
             ),
             passage(
                 "## Constant folding",
