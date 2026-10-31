@@ -15,6 +15,7 @@ members = [
     "packages/cell-maps",
     "packages/set-instance-claims",
     "packages/local-function-claims",
+    "packages/owise",
 ]
 resolver = "3"
 

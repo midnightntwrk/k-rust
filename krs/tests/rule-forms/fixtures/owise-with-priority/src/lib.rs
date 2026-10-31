@@ -1,4 +1,4 @@
-//! `owise` and `priority = N` on one rule: owise is priority 200.
+//! `owise` and `priority = N` on one rule: `owise` states where the rule applies, which no priority orders.
 
 use k::Term;
 use k::builtin::{Int, KSequence};

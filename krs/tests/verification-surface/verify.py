@@ -178,6 +178,20 @@ construct's value: eight are proved by `krs prove` and by Java
 have (`starts-wrong`, `tests-wrong`, `aliased-wrong`, `off-by-one`) must fail
 on both routes.
 
+`owise` over a symbolic argument (NT-26): in `owise`, `isOne(V)` is `true`
+where `V ==Int 1` and, by an `#[k::equation(owise)]` equation, `false` where
+no other equation of `isOne` applies; `go(V)` rewrites to `V`. An `owise`
+equation states the function's value at every argument, symbolic ones too, so
+over a symbolic `V` it gives `false` only where `V =/=Int 1` is known.
+`one-reaches-one` (from `go(V)` with `isOne(V)`, reach `1`) is proved on both
+routes, and `one-reaches-two` (reach `2`) must fail on both: a prover that
+applied the `owise` equation before the guard of the other is decided would
+read the requires `isOne(V)` as `false` and prove it vacuously. `pick(V)`
+rewrites to `1` where `V ==Int 1` and, by an `#[k::rule(owise)]` transition,
+to `0` elsewhere: `pick-one` (with `V ==Int 1`, reach `1`) is proved on both
+routes and `pick-zero` (reach `0`) fails on both. The emitted K states each
+as K's `owise`, never as a priority.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -422,6 +436,19 @@ LOCAL_FUNCTION_CLAIMS_STATUSES = {
     "tests-wrong": "failed",
     "twice": "proven",
 }
+
+OWISE = Fixture(MANIFEST, "krs-verification-surface-owise")
+OWISE_SPEC = "KRS-OWISE-SPEC"
+OWISE_STATUSES = {
+    "one-reaches-one": "proven",
+    "one-reaches-two": "failed",
+    "pick-one": "proven",
+    "pick-zero": "disproved",
+}
+OWISE_FRAGMENTS = (
+    "  rule isOne ( _ ) => false [owise, label(",
+    "  rule pick ( _ ) => 0 [owise, label(pick-other-rule)]\n",
+)
 
 NEGATIVE = (
     "exists-equation",
@@ -1407,6 +1434,30 @@ def verify_local_function_claims(harness: FixtureGate, fixture: Fixture) -> None
     print(f"PASS {fixture.package}: eight claims proven, the four wrong ones failed, on both routes")
 
 
+def verify_owise(harness: FixtureGate, fixture: Fixture) -> None:
+    """`owise` over a symbolic argument: true claims proved, false ones failed, on both routes (NT-26)."""
+
+    harness.check(fixture)
+    harness.expand(fixture)
+    emitted = harness.emit(fixture)
+    source = emitted.source.read_text(encoding="utf-8")
+    for fragment in OWISE_FRAGMENTS:
+        if fragment not in source:
+            raise GateError(f"{fixture.package}: emitted definition.k omits:\n{fragment}")
+    if "priority(" in source:
+        raise GateError(f"{fixture.package}: an `owise` sentence is emitted as a priority")
+    native = native_trusted_proof(harness, fixture, OWISE_SPEC)
+    if native["statuses"] != OWISE_STATUSES or native["exit"] != 1 or native["warnings"]:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    harness.pins.expect(("owise_proofs", fixture.package), native)
+    java = java_claim_proofs(harness, emitted, OWISE_SPEC, tuple(OWISE_STATUSES))
+    expected = {label: status == "proven" for label, status in OWISE_STATUSES.items()}
+    if java != expected:
+        raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
+    harness.pins.expect(("owise_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: one-reaches-one and pick-one proven, one-reaches-two and pick-zero failed, on both routes")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -1443,6 +1494,7 @@ def main() -> int:
         verify_cell_maps(harness, CELL_MAPS)
         verify_set_instance_claims(harness, SET_INSTANCE_CLAIMS)
         verify_local_function_claims(harness, LOCAL_FUNCTION_CLAIMS)
+        verify_owise(harness, OWISE)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

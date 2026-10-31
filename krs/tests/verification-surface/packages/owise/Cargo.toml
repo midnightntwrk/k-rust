@@ -1,0 +1,21 @@
+[package]
+name = "krs-verification-surface-owise"
+description = "An owise equation and an owise transition over a symbolic argument: the true claims are proved and the false ones fail, on both routes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_owise"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-OWISE"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

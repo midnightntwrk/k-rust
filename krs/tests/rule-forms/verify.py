@@ -6,10 +6,10 @@ the outcomes must agree:
 
 - `priority`: `#[k::rule(priority = 40)]` beats a default-priority rule on
   the same head, so execution ends in `heads` and native search and
-  `krun --search` both reach that one final state; a transition at priority
-  250 loses to an `owise` one (priority 200) on both routes; guarded
-  equations at priorities 50 to 54, and the same function with an
-  `#[k::equation(owise)]` fallback, grade 95/85/75/65/10 identically;
+  `krun --search` both reach that one final state; guarded equations at
+  priorities 50 to 54, and the same function with an
+  `#[k::equation(owise)]` fallback, grade 95/85/75/65/10 identically; each
+  `owise` sentence is emitted as K's `owise`, never as a priority;
 - `nondet`: `#[k::rule(nondet = toss)]` groups two overlapping rules, and
   native search and `krun --search` both reach `heads` and `tails`; bare
   `#[k::strict]` reaches counters 3 and 4 on both routes; two `#[k::rule]`
@@ -95,7 +95,9 @@ the outcomes must agree:
   `<evaluate> false </evaluate>` and one with `<evaluate> true </evaluate>`
   and `result(ExecResult)`, and its `cells!` context on the target of `=`,
   evaluate by the `evaluate` cell's value alike on both routes;
-- negative fixtures: `owise` with `priority`, priority 255, the retired
+- negative fixtures: `owise` with `priority`, a transition at priority 250
+  that overlaps an `owise` one, an equation at priority 200 beside an
+  `owise` equation of its function, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
   one rule, a stale group member, a group mixing priorities, `nondet` on an
@@ -144,7 +146,6 @@ FIXTURES = HERE / "fixtures"
 PRIORITY = Fixture(MANIFEST, "krs-rule-forms-priority")
 PRIORITY_PROGRAMS = (
     Program("toss", "toss", "accepted", "heads", search=("heads",)),
-    Program("flip", "flip", "accepted", "high", search=("high",)),
     *(
         Program(f"grade-{percentile}", f"grade({percentile})", "accepted", letter)
         for percentile, letter in (
@@ -337,6 +338,8 @@ NONDET_PROGRAMS = (
 
 NEGATIVE = (
     "owise-with-priority",
+    "owise-after-priority",
+    "owise-equation-after-priority",
     "priority-out-of-range",
     "retired-priority",
     "owise-simplification",
@@ -668,7 +671,7 @@ def main() -> int:
         casts = harness.emit(CASTS)
         emitted_attributes(casts, (
             "rule isExpression ( _E:Exp ) => true [label(",
-            "rule isExpression ( _ ) => false [priority(200), label(",
+            "rule isExpression ( _ ) => false [owise, label(",
             "rule bar ( I:Int ) => bar ( {foo ( I:Int +Int 1 )}:>Int )\n    requires I:Int <Int 3 [label(",
             "rule baz ( I:Int ) => {foo ( I:Int )}:>Int [label(",
         ))
@@ -680,14 +683,13 @@ def main() -> int:
         priority = harness.emit(PRIORITY)
         emitted_attributes(priority, (
             "rule toss => heads [priority(40), label(",
-            "rule [flip-low]:",
-            "[priority(250)]",
-            "[priority(200)]",
-            "rule gradeOwise ( _ ) => letterF [priority(200), label(",
+            "rule gradeOwise ( _ ) => letterF [owise, label(",
             "rule grade ( _ ) => letterF [priority(54), label(",
         ))
+        if "priority(200)" in priority.source.read_text(encoding="utf-8"):
+            raise GateError(f"{priority.fixture.package}: an `owise` sentence is emitted as priority(200)")
         harness.compare(priority, PRIORITY_PROGRAMS, sort="Pgm", search=True)
-        print("PASS priority: priority 40 wins, owise (200) beats priority 250, equation priorities and owise grade alike")
+        print("PASS priority: priority 40 wins, equation priorities and owise grade alike")
 
         harness.check(NONDET)
         harness.expand(NONDET)

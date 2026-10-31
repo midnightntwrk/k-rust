@@ -1,13 +1,11 @@
 //! Rule and equation priority.
 //!
 //! K rules are unordered; every rule has a priority (50 by default) and is
-//! tried only after every rule with a lower number failed. `owise` is
-//! priority 200.
+//! tried only after every rule with a lower number failed. `owise` applies
+//! where no other rule, or no other equation of its function, applies.
 //!
 //! - `toss` has two transitions; `prefer_heads` at priority 40 always wins, so
 //!   execution and search both end in `heads` alone.
-//! - `flip` has a transition at priority 250 beside an `owise` one: owise
-//!   (200) is tried first on both routes.
 //! - `grade(N)` orders guarded equations by priority 50 to 54; `gradeOwise(N)`
 //!   writes the same function with an `owise` fallback.
 
@@ -20,15 +18,12 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Pgm, result = k::KResult)]
-#[k::precedence((Toss, Heads, Tails, Flip, Low, High))]
+#[k::precedence((Toss, Heads, Tails))]
 #[rustfmt::skip]
 pub enum Coin {
     #[k::syntax("toss")] Toss(),
     #[k::syntax("heads")] Heads(),
     #[k::syntax("tails")] Tails(),
-    #[k::syntax("flip")] Flip(),
-    #[k::syntax("low")] Low(),
-    #[k::syntax("high")] High(),
 }
 
 #[k::constructors(sort = Letter, result = k::KResult)]
@@ -73,16 +68,6 @@ fn prefer_heads(k::term![Coin::Toss()]: Term<Pgm>) -> Term<Pgm> {
 #[k::rule]
 fn tails(k::term![Coin::Toss()]: Term<Pgm>) -> Term<Pgm> {
     k::term![Coin::Tails()]
-}
-
-k::rules! {
-    for Pgm;
-    use Coin::*;
-
-    #[k::rule(priority = 250)]
-    flip_low : Flip() => Low();
-    #[k::rule(owise)]
-    flip_high: Flip() => High();
 }
 
 #[k::requires(int::ge(percentile, 90))]

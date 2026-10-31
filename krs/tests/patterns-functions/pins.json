@@ -11,7 +11,7 @@
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
-      "definition.k": "b9180797cdf2662ef3e10243d0cd9da3da08271d4c14a1378e29aea1a6aa55ab"
+      "definition.k": "41725eea1b9c039728da4e57f1bc68862be7c825d68d138c3b324ad943556c47"
     },
     "krs-patterns-functions-alternatives": {
       "definition.k": "38183ebe01834be7828410e1025b49ec680fe3967760c2ee1fa119d473061e9e"
@@ -26,14 +26,13 @@
       "definition.k": "e752c435ea0f00f698c37f19147a440b5ce64f295834a6953188bb775fecc6b9"
     },
     "krs-patterns-functions-sugar": {
-      "definition.k": "744acd07a1d15594384c289ef5725dadcb350b496626e1c54c8af897c4d78e62"
+      "definition.k": "f37f02b236dbdd6dc9575965f3cd5a3f5612f323f3ecc3fa13f61245caf916ba"
     },
     "krs-patterns-functions-bits": {
-      "definition.k": "6470a03da6820fcec9dfac9354588fad9eeb5c755738ba945997c5f65d1374c8"
+      "definition.k": "1384f57c7e4b5e7de7a7c62589d74d965d597c42bdf5c64e35ce33285ac898b0"
     }
   },
   "reference_sha256": {
-    "krs-patterns-functions-aliases": "c2f1bc0a9762dc2a209522f050185abb675f805162aa7a994377ef763dc8a192",
     "krs-patterns-functions-aliases-reference": "9a975a22f4eee36cedd871b9df5faff076809c214a53ff79b758a8b040b5a6a1",
     "krs-patterns-functions-alternatives": "f1d6f0366cc1d5922c34283fbd7d9d116cf605b10d3060fb0126cdcd3c136703",
     "krs-patterns-functions-alternatives-reference": "3145e8c0f545cd877e4b12990233676f6181a07de30fba7fe4d97c061b6af7e4",
@@ -47,8 +46,9 @@
     "krs-patterns-functions-contexts": "69b7199deaaaf3005bfdbc3fed34cd72913ba9707c482539d4da5317e81986d9",
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
     "krs-patterns-functions-contexts-haskell": "99bf2f669427d4b1136238cb1a208d26b1e90e77dad64a0f30ad648f6363acbc",
-    "krs-patterns-functions-sugar": "677a14fd74c6717e28c88c2b9b55b16632d53b845e8ab4596dcd31dcb77325cd",
-    "krs-patterns-functions-bits": "7be59f44a4b9de4788c416a15ef3637331a42bc2f2908cfa01b1c72b325a9391"
+    "krs-patterns-functions-aliases": "685dcef39a5b1e4de79a9b62d19b6ea781b0f773edef27cfa07100e692790875",
+    "krs-patterns-functions-sugar": "624c381d37e57d18562d6338cb3f670bba295bbde042bc41ee808ebfee092d5a",
+    "krs-patterns-functions-bits": "8cbe93804eb7847496a05d20a74c21451473972af30e164a5a7c2b0dbaee13b1"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {

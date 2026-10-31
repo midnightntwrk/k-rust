@@ -544,7 +544,7 @@ def verify_sugar(harness: FixtureGate) -> None:
         'syntax Int ::= "byte" "(" Int ")" [symbol(byte), function, total]',
         'syntax Int ::= "pick" "(" Bool "," Int ")" [symbol(pick), function, total]',
         "rule r8 ( -1 ) => rhl [label(",
-        "rule r8 ( _ ) => ra [priority(200), label(",
+        "rule r8 ( _ ) => ra [owise, label(",
         "requires Value:Int >=Int 0 [label(",
     ))
     harness.compare(emitted, SUGAR_PROGRAMS, sort="Exp", kore=True)

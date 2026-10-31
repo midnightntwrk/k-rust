@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "expand": {
-    "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
+    "krs-rule-forms-priority": "cd8ec69209b1f64612d34338e622a4cd874f17c88bdbaefd55a651772c72ec78",
     "krs-rule-forms-nondet": "d3d2e88f75ae2bf3b8b5ec26f70af4b3cfba6c0f9cee9430ddfcc448c4d39bd8",
     "krs-rule-forms-anywhere": "f71bf961706e9c2102f3ee2c6044b41f9885608c49610eb5978f8f7424f2febf",
     "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
@@ -16,7 +16,7 @@
   },
   "emitted": {
     "krs-rule-forms-priority": {
-      "definition.k": "04cd626ba03151e2ae2226a95abca650579907ecab0f916e270702a59aee9a37"
+      "definition.k": "a60c3ad983ee2eb644fe8626e4f315232742ee25e429394e56ecf62980985cdf"
     },
     "krs-rule-forms-nondet": {
       "definition.k": "c9e0982b9169053bd75cbf50975a6095e534b191273571d1fbecb4c266cb21bd"
@@ -25,7 +25,7 @@
       "definition.k": "55c8128e14f362e437e7c8fd566227fc1f484a7be2641f857b977294f68cdd4a"
     },
     "krs-rule-forms-casts": {
-      "definition.k": "18ab6361df9ec6f8074c9e95fa35429ea9d6dff4833e016f8a017c2440917078"
+      "definition.k": "8380ca647fe1fcaae3f24be121561bc0dd096c05d5144e2fa5261cda3b76f01d"
     },
     "krs-rule-forms-fresh": {
       "definition.k": "860c57d1f6d326a50aac6fd49963c240f788a8934e7c681489bd050f1b811bfd"
@@ -59,10 +59,8 @@
     }
   },
   "reference_sha256": {
-    "krs-rule-forms-priority": "d30827f046e8c6f8d79c1e5a2f64894fcab0fb409e50cb64c23e3ac438a39bdf",
     "krs-rule-forms-nondet": "a1a66f1764dfc2ed6b077741c7b5df627d6d34f7292397e1fd614ed2b4d70885",
     "krs-rule-forms-anywhere": "01bd1be45a81002d4d1d14b9fcfefc598bcf2ba63f2bc1a2ad5b517683151240",
-    "krs-rule-forms-casts": "6f6984e36c3df23dfdf06b2b5ae79cc58a0414b92f67aaeddd9b757c13565f6a",
     "krs-rule-forms-fresh": "f3658a7927331aa881b500b7c2fc0b5d642b86bc9d6d9163521b24614ff78e46",
     "krs-rule-forms-macros": "ce568da83d6d380328403263c5f9c10d40e355268efa6ebd19f968aef35d1d56",
     "krs-rule-forms-local-rewrite": "98525bc9c5b910cb2974bcd0e3922bff729329774fd4fd78a6e511caa3ff28b6",
@@ -72,7 +70,9 @@
     "krs-rule-forms-heat-cool-strict": "7e53e6cdb05575d64004b2e835d5175d869eb0d25a1f374e4542f43c74759a65",
     "krs-rule-forms-contexts": "30123b598ec24f3b8eaf9f46d3f93e76a8844d23fd8f25136ee227d74623df97",
     "krs-rule-forms-contexts-lvalue": "ec77b0870ada7c966baeea31bcaca7ed55a7b02e176e371025079d7cb27fdd31",
-    "krs-rule-forms-contexts-evaluate": "b2277087f1da392b32d900eba6cbc3eb1b6785725894fbed6d4edfe3ded7ca77"
+    "krs-rule-forms-contexts-evaluate": "b2277087f1da392b32d900eba6cbc3eb1b6785725894fbed6d4edfe3ded7ca77",
+    "krs-rule-forms-casts": "1950ef8ed9a9b958439b2988984a1a2355bff23b72ea0895e7adb14e143bc3ba",
+    "krs-rule-forms-priority": "f83195d4238d63cf2ed8d8ec8f3ef19cd3c90b1debef7ecaa0114e2cec2e3c10"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -81,13 +81,6 @@
         "run": "heads",
         "search": [
           "heads"
-        ]
-      },
-      "flip": {
-        "parse": "accepted",
-        "run": "high",
-        "search": [
-          "high"
         ]
       },
       "grade-95": {
@@ -782,7 +775,7 @@
   },
   "diagnostics": {
     "owise-with-priority": [
-      "error[krs::syntax::invalid-rule-key]: owise is priority 200; write one of them"
+      "error[krs::syntax::invalid-rule-key]: owise applies where no other rule or equation applies, which no priority orders; write one of them"
     ],
     "priority-out-of-range": [
       "error[krs::syntax::invalid-rule-key]: k-rust ranks rule priorities 0..=254"
@@ -888,6 +881,12 @@
     ],
     "alias-without-clause": [
       "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::alias]` but no `#[k::alias]` clause expands it, so nothing expands it; add a `#[k::alias] fn` whose pattern is headed by `Static::Flip`"
+    ],
+    "owise-after-priority": [
+      "error[krs::analysis::priority-after-owise]: rule `flip_low` has priority 250, which orders it with or after the `owise` rule `flip_high` (`owise` is ranked 200), and the two can apply to the same configuration; but `owise` applies only where no other rule applies, so every other rule comes first, and the definition would state two orders between them"
+    ],
+    "owise-equation-after-priority": [
+      "error[krs::analysis::priority-after-owise]: equation `grade_a` of `Grade` has priority 200, which orders it with or after the `owise` equation `grade_f` (`owise` is ranked 200); but `owise` gives the value only where no other equation of `Grade` applies, so every other equation comes first, and the definition would state two orders between them"
     ]
   },
   "known_divergences": {
@@ -1004,7 +1003,6 @@
     },
     "krs-rule-forms-priority": {
       "toss": [],
-      "flip": [],
       "grade-95": [],
       "grade-85": [],
       "grade-75": [],
