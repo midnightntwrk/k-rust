@@ -25,6 +25,7 @@ mod sort_injections;
 #[cfg(test)]
 pub(crate) mod stage_harness;
 mod term_to_kore;
+pub mod token_value;
 mod view;
 
 pub use compile::{

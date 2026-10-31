@@ -58,7 +58,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
-        ResolvedDefinition, RuleHead, Sentence, SortCatalog,
+        ResolvedDefinition, RuleHead, Sentence, SortCatalog, SortHead,
         checks::{self, check_functions_with_internal_labels},
         peel_aliases,
     },
@@ -67,16 +67,13 @@ use crate::{
     kast::{GeneratedLabel, Label, NodeHead, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
-        declaration_facts::{EmittedDeclarations, backend_sort},
+        declaration_facts::EmittedDeclarations,
         fresh_names::{self, FreshNames, GeneratedVariableIdentity},
-        module_to_kore::encode_kore_sort,
         passes::{Placement, PlacementKind},
-        term_to_kore::token_payload,
+        token_value::{TokenValue, token_value},
     },
-    kore::string::LiteralEncoding,
     provenance::GeneratingPass,
 };
-use k_rust_backend::term::Term as BackendTerm;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExpandMacrosError {
@@ -862,6 +859,8 @@ struct Expander<'view, 'definition> {
     /// The declarations of the term module's sorts as the emitted definition states them, from
     /// which a token's value follows ([`Self::same_token`]).
     facts: EmittedDeclarations<'view, 'definition>,
+    /// The value of each token compared so far, by sort and text ([`Self::token_value`]).
+    token_values: RefCell<FxHashMap<Sort, TokenValues>>,
     /// Macro rules by the head of their left side. A loaded rule's head carries no sort
     /// parameter, so it stands for every instance of its production; the variable sorts of its
     /// arguments decide whether it applies to a given subject.
@@ -1037,6 +1036,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             subsorts,
             overloads,
             facts: EmittedDeclarations::new(sorts, productions),
+            token_values: RefCell::default(),
             macros: macros
                 .into_iter()
                 .map(|(head, rules)| (head, Rc::from(rules)))
@@ -2147,30 +2147,41 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         undecided.map_or(Ok(true), Err)
     }
 
-    /// Whether the tokens `left` and `right` of `sort` denote one value of it.
-    ///
-    /// A token of a sort with domain values denotes the domain value the emitted definition
-    /// reads from its text, an element of its hook's domain, whose canonical text
-    /// the backend stores. So two spellings of one value are one term: the integers `1`, `+1`
-    /// and `01`; the strings `"a"` and `"\x61"`; the byte strings `b"ab"` and `b"\x61\x62"`;
-    /// the floats `1.5`, `1.50` and `15e-1`, which name one binary64 number. A float's format
-    /// is part of its value (`1.5f` is a binary32 number, another value than `1.5`), as is its
-    /// sign at zero (`0.0` and `-0.0` are two values, though `==Float` holds of them), and the
-    /// literal syntax names one NaN per format, which is equal to itself as a term. A token of
-    /// a sort whose domain values are their texts (an unhooked token sort), of a sort without
-    /// domain values, or whose text names no value of its sort, denotes its text.
+    /// Whether the tokens `left` and `right` of `sort` denote one value of it: equal texts, or
+    /// the same value in the emitted definition ([`token_value`]), each read once per token
+    /// ([`Self::token_value`]).
     fn same_token(&self, sort: &Sort, left: &str, right: &str) -> bool {
-        if left == right {
-            return true;
+        left == right
+            || matches!(
+                (self.token_value(sort, left), self.token_value(sort, right)),
+                (Some(left), Some(right)) if left == right
+            )
+    }
+
+    /// The value the token `text` of `sort` denotes in the definition emitted from the term
+    /// module ([`token_value`]), read the first time the token is compared and kept: reading a
+    /// float of a format other than binary32 and binary64 is big-integer work.
+    fn token_value(&self, sort: &Sort, text: &str) -> Option<TokenValue> {
+        if let Some(value) = self
+            .token_values
+            .borrow()
+            .get(sort)
+            .and_then(|values| values.get(text))
+        {
+            return value.clone();
         }
-        let backend = backend_sort(sort);
-        let encoding = LiteralEncoding::of_domain_value(&encode_kore_sort(sort));
-        let hook = self.facts.hook(sort);
-        let value = |token: &str| {
-            let payload = token_payload(token, hook, encoding).ok()?;
-            BackendTerm::domain_value_in(&self.facts, backend, payload)
-        };
-        matches!((value(left), value(right)), (Some(left), Some(right)) if left == right)
+        let value = token_value(
+            sort,
+            self.facts.hook(sort),
+            self.sorts.head_admits_domain_values(&SortHead::from(sort)),
+            text,
+        );
+        self.token_values
+            .borrow_mut()
+            .entry(sort.clone())
+            .or_default()
+            .insert(text.into(), value.clone());
+        value
     }
 
     fn pattern_overloads_subject(&self, pattern: &Label, subject: &Label) -> bool {
@@ -2559,6 +2570,9 @@ fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
             .iter()
             .any(|argument| mentions_parameter(argument, parameters))
 }
+
+/// The value of each token of one sort compared so far, by its text ([`token_value`]).
+type TokenValues = FxHashMap<Box<str>, Option<TokenValue>>;
 
 /// The subterm of a matched subject each variable of a rule's left side stands for.
 type Bindings<'pattern, 'subject> = BTreeMap<&'pattern str, &'subject Term>;
