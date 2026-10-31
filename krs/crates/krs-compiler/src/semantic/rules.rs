@@ -2074,7 +2074,6 @@ pub(super) fn lower_structured_rule_descriptor(
         declarations,
     )?;
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
-    check_cell_result(descriptor, rule, &subject_sort)?;
     // A single-body rule (KF-011) has no result: its subject's rewrites
     // say what changes, and the rule's sort is the subject's.
     let result_sort = rule.result_sort.as_ref().map_or_else(
@@ -2155,85 +2154,157 @@ pub(super) fn lower_structured_rule_descriptor(
     variables.extend(context_wildcards.into_iter().flatten());
     // A single-body rule's body is its subject, whose rewrites sit below the
     // root (KF-011); the rule body reads it through its images.
-    let rewrite = match result {
-        Some(result) => SemanticTerm::rewrite(
-            semantic_origin_from_primary(descriptor, "rule-rewrite")?,
-            result_sort,
-            subject,
-            result,
-        )?,
-        None => subject,
-    };
     let rule_origin_role = match rule.sentence_kind {
         krs_ir::SentenceKind::Alias => ProvenanceRole::AliasClause,
         krs_ir::SentenceKind::Desugar => ProvenanceRole::DesugarClause,
         _ => ProvenanceRole::RuleDeclaration,
     };
-    Ok(SemanticRule::new(
-        semantic_origin(descriptor, role_key(rule_origin_role, 0), "rule")?,
-        descriptor.id().clone(),
-        rule.sentence_kind,
-        variables,
-        rewrite,
-    )?
-    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
-    .with_priority(priority)?
-    .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
-    .with_anywhere(
-        rule.anywhere
-            .as_ref()
-            .map(|key| semantic_origin(descriptor, key.clone(), "rule-anywhere"))
-            .transpose()?,
-    )
-    .with_simplification(simplification)
-    .with_restriction(restriction)
-    .with_unbound_variables(unbound_variables)
-    .with_function_context(function_context)
-    .with_existentials(existentials)
-    .with_ensures(ensures)
-    .with_fresh(fresh)
-    .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
-    .with_requires(requires)?)
+    let origin = semantic_origin(descriptor, role_key(rule_origin_role, 0), "rule")?;
+    let lowered = match result {
+        Some(result)
+            if rule.sentence_kind == krs_ir::SentenceKind::Transition
+                && function_context.is_none()
+                && is_cell_valued(&result)
+                && !is_cell_valued(&subject) =>
+        {
+            SemanticRule::new_configuration(
+                origin,
+                descriptor.id().clone(),
+                rule.sentence_kind,
+                variables,
+                computation_rewrite(descriptor, rule, declarations, subject, result)?,
+            )?
+        }
+        Some(result) => SemanticRule::new(
+            origin,
+            descriptor.id().clone(),
+            rule.sentence_kind,
+            variables,
+            SemanticTerm::rewrite(
+                semantic_origin_from_primary(descriptor, "rule-rewrite")?,
+                result_sort,
+                subject,
+                result,
+            )?,
+        )?,
+        None => SemanticRule::new(
+            origin,
+            descriptor.id().clone(),
+            rule.sentence_kind,
+            variables,
+            subject,
+        )?,
+    };
+    Ok(lowered
+        .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
+        .with_priority(priority)?
+        .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
+        .with_anywhere(
+            rule.anywhere
+                .as_ref()
+                .map(|key| semantic_origin(descriptor, key.clone(), "rule-anywhere"))
+                .transpose()?,
+        )
+        .with_simplification(simplification)
+        .with_restriction(restriction)
+        .with_unbound_variables(unbound_variables)
+        .with_function_context(function_context)
+        .with_existentials(existentials)
+        .with_ensures(ensures)
+        .with_fresh(fresh)
+        .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
+        .with_requires(requires)?)
 }
 
-/// Checks that a `#[k::rule]` fn whose subject is no cell does not write a cell as its whole
-/// result.
+/// Whether `term`'s value is a cell: a cell term, or a `let` block whose body's value is one.
+fn is_cell_valued(term: &SemanticTerm) -> bool {
+    match term.kind() {
+        krs_ir_levels::IrTermKind::Cell { .. } => true,
+        krs_ir_levels::IrTermKind::Let { body, .. } => is_cell_valued(body),
+        _ => false,
+    }
+}
+
+/// A `#[k::rule]` fn's rewrite of the computation's first item into `result`, a cell's value, as
+/// the computation cell's clause: `<k> SUBJECT => RESULT ... </k>`.
 ///
-/// The fn rewrites the term its subject matches into its result, in the place the subject stands,
-/// and KRS emits the rewrite bare, which K completes to the configuration by the roots of its
-/// sides: a term goes into the computation cell, and a cell term at a side's root is the
-/// configuration's cell. So with a cell fragment as the whole result the rewrite would not
-/// replace the subject's item by the cell's value, which a `KItem` position holds (inside a
-/// computation, a `for Stmt` clause writes it so), but put the subject and the result in different
-/// cells, which no route can build. Term inference reads a complete cell term as a `KItem`
-/// wherever the position admits one, so the shape is told here, by the result's root.
-fn check_cell_result(
+/// The fn replaces the item its subject matches by its result, and a cell is a value a
+/// computation holds, of its cell sort below `KItem`. K completes a bare rewrite to the
+/// configuration by the roots of its sides, where a cell at a side's root is the
+/// configuration's cell, so the rewrite is written inside the computation cell, as a `for Stmt`
+/// clause's is, where both sides are the computation's items.
+fn computation_rewrite(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
-    subject_sort: &SemanticSortRef,
-) -> Result<(), DescriptorLoweringError> {
-    let (
-        krs_ir::SentenceKind::Transition,
-        Some(DescriptorTerm::Cell {
-            key, declaration, ..
-        }),
-    ) = (rule.sentence_kind, &rule.result)
-    else {
-        return Ok(());
+    declarations: &DescriptorIndex<'_>,
+    subject: SemanticTerm,
+    result: SemanticTerm,
+) -> Result<FixedConfigurationRewrite<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let shape =
+        |detail| DescriptorLoweringError::unsupported_shape("rule with a cell result", detail);
+    let mut configurations = declarations
+        .keys()
+        .filter(|id| id.item_kind() == ItemKind::Configuration);
+    let (Some(configuration_id), None) = (configurations.next(), configurations.next()) else {
+        return Err(shape("the definition has no one configuration"));
     };
-    if matches!(rule.subject, DescriptorTerm::Cell { .. }) {
-        return Ok(());
-    }
-    let sort = super::overload::sort_name(subject_sort);
-    Err(DescriptorLoweringError::InvalidTerm {
-        id: Box::new(descriptor.id().clone()),
-        detail: format!(
-            "the result of rule `{}` is the cell `{}`, a `k::fragment!`, at its root, while its subject is a `{sort}` term: K completes a `#[k::rule]` fn's rewrite to the configuration by the roots of its sides, and a cell at a side's root is the configuration's cell, so the rule would not replace the item its subject matches by this value; write the clause in a `k::rules! {{ for {sort}; .. }}` block, which writes the value inside the computation cell, or write the cell in a `k::cells!` rule's result to rewrite the configuration's cell",
-            descriptor.id().item_name(),
-            declaration.item_name(),
+    let configuration = require_fixed_configuration(
+        configuration_id,
+        declarations,
+        "rule with a cell result",
+        "a computation cell rewrite requires a fixed configuration",
+    )?;
+    let computation = configuration
+        .declaration
+        .fields
+        .iter()
+        .find(|field| {
+            matches!(
+                &field.content,
+                ProtocolCellContent::Leaf { wrapper, sort, .. }
+                    if *wrapper == krs_ir::CellWrapper::KCell
+                        && sort.sort == DescriptorSortRef::Builtin(BuiltinSort::KSequence)
+            )
+        })
+        .ok_or_else(|| shape("the configuration has no computation cell"))?;
+    let result_key = rule
+        .result_key
+        .clone()
+        .unwrap_or_else(|| rule.pattern_key.clone());
+    let before = SemanticTerm::k_sequence(
+        semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-subject")?,
+        subject.sort().clone(),
+        vec![subject],
+    );
+    let post = CellPost::Replace {
+        term: SemanticTerm::k_sequence(
+            semantic_origin(descriptor, result_key, "completed-k-result")?,
+            result.sort().clone(),
+            vec![result],
         ),
-        range: key_range(descriptor, key).map(Box::new),
-    })
+    };
+    let clause = FixedCellClause::new(
+        semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
+        semantic_cell_id(&computation.reference.cell)?,
+        before,
+        post,
+        CellContentFrame::KSequenceTail {
+            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
+            binding: None,
+        },
+    );
+    let selected = BTreeSet::from([computation.reference.cell.clone()]);
+    let omitted = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
+    Ok(FixedConfigurationRewrite::new(
+        semantic_origin(
+            descriptor,
+            rule.pattern_key.clone(),
+            "completed-configuration-rewrite",
+        )?,
+        generated_semantic_id("configuration", configuration_id, None)?,
+        vec![clause],
+        omitted,
+    )?)
 }
 
 /// The subject's bindings in first-occurrence order, which a predicate

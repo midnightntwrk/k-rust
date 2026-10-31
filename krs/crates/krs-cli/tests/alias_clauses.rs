@@ -306,10 +306,10 @@ fn a_function_or_a_condition_on_an_alias_clause_is_refused() {
 fn a_static_result_of_a_sort_not_below_its_productions_is_refused() {
     expect_test::expect![[r"
         alias-set:
-        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-ALIAS-CLAUSES::pairs (alias): the result of alias clause `pairs` has sort `Set`, which is not below `Value`, the sort of the production `Al::Pairs` it expands: a program's application of the production is replaced by the result where a `Value` stands, and a term of sort `Set` is none there; write a result of sort `Value`, or of a sort below it
+        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-ALIAS-CLAUSES::pairs (alias): the result of alias clause `pairs` has sort `Set`, which is not below `Value`, the sort of the production `Al::Pairs` it expands: a program's application of the production is replaced by the result where a `Value` stands, and a term of sort `Set` is not one there; write a result of sort `Value`, or of a sort below it
         --> src/lib.rs:86:5
         desugar-string:
-        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-ALIAS-CLAUSES::nought_again (desugar): the result of desugar clause `nought_again` has sort `String`, which is not below `Value`, the sort of the production `Sugar::Nought` it expands: a program's application of the production is replaced by the result where a `Value` stands, and a term of sort `String` is none there; write a result of sort `Value`, or of a sort below it
+        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-ALIAS-CLAUSES::nought_again (desugar): the result of desugar clause `nought_again` has sort `String`, which is not below `Value`, the sort of the production `Sugar::Nought` it expands: a program's application of the production is replaced by the result where a `Value` stands, and a term of sort `String` is not one there; write a result of sort `Value`, or of a sort below it
         --> src/lib.rs:91:5"]]
     .assert_eq(&refusals([
         (
