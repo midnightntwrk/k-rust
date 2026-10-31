@@ -1094,14 +1094,19 @@ impl Sample for CellContentFrame {
                 Self::ListRemainder {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::MovedMapRemainder {
+                    origin: sample::<NodeOrigin>(),
+                    binding: sample::<SemanticId>(),
+                },
             ],
-            4,
+            5,
             "CellContentFrame",
             |value| match value {
                 Self::Exact => 0,
                 Self::KSequenceTail { .. } => 1,
                 Self::MapRemainder { .. } => 2,
                 Self::ListRemainder { .. } => 3,
+                Self::MovedMapRemainder { .. } => 4,
             },
         )
     }

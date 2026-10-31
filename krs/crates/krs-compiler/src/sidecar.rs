@@ -582,10 +582,7 @@ impl SourceMap {
                                     SourceMapNodeKind::CellClause,
                                 )?;
                                 insert_term(&mut entries, cell.pattern())?;
-                                if let CellContentFrame::KSequenceTail { origin, .. }
-                                | CellContentFrame::MapRemainder { origin, .. }
-                                | CellContentFrame::ListRemainder { origin } = cell.frame()
-                                {
+                                if let Some(origin) = cell.frame().origin() {
                                     insert_origin(
                                         &mut entries,
                                         origin,
@@ -685,10 +682,7 @@ impl SourceMap {
                                 SourceMapNodeKind::CellClause,
                             )?;
                             insert_term(&mut entries, cell.pattern())?;
-                            if let CellContentFrame::KSequenceTail { origin, .. }
-                            | CellContentFrame::MapRemainder { origin, .. }
-                            | CellContentFrame::ListRemainder { origin } = cell.frame()
-                            {
+                            if let Some(origin) = cell.frame().origin() {
                                 insert_origin(&mut entries, origin, SourceMapNodeKind::CellFrame)?;
                             }
                         }
@@ -1023,15 +1017,8 @@ fn insert_rule_body(
                     for term in part.terms() {
                         insert_term(entries, term)?;
                     }
-                    match part.frame() {
-                        None | Some(CellContentFrame::Exact) => {}
-                        Some(
-                            CellContentFrame::KSequenceTail { origin, .. }
-                            | CellContentFrame::MapRemainder { origin, .. }
-                            | CellContentFrame::ListRemainder { origin },
-                        ) => {
-                            insert_origin(entries, origin, SourceMapNodeKind::CellFrame)?;
-                        }
+                    if let Some(origin) = part.frame().and_then(CellContentFrame::origin) {
+                        insert_origin(entries, origin, SourceMapNodeKind::CellFrame)?;
                     }
                 }
             }

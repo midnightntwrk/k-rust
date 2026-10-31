@@ -1679,6 +1679,19 @@ fn emit_cell_clause(
                     BuiltinSort::Map.k_name(),
                     MapOperation::CONCATENATION.separator,
                 )?,
+                // A moved remainder is bound on the left only: the right side is the cell's
+                // whole new content, `<c> K |-> V Rest:Map => Rest:Map [ K <- W ] </c>`.
+                CellContentFrame::MovedMapRemainder { origin, binding } => {
+                    let frame_start = writer.source.len();
+                    emit_named_frame_suffix(
+                        writer,
+                        names,
+                        binding,
+                        BuiltinSort::Map.k_name(),
+                        MapOperation::CONCATENATION.separator,
+                    )?;
+                    writer.record(origin.key(), frame_start, writer.source.len())?;
+                }
                 CellContentFrame::Exact
                 | CellContentFrame::KSequenceTail { binding: None, .. }
                 | CellContentFrame::MapRemainder { binding: None, .. }
@@ -1686,7 +1699,9 @@ fn emit_cell_clause(
             }
             writer.push(" => ");
             writer.append_rendered(render_term(term, context, names, false)?)?;
-            emit_single_frame(clause.frame(), names, writer)?;
+            if !matches!(clause.frame(), CellContentFrame::MovedMapRemainder { .. }) {
+                emit_single_frame(clause.frame(), names, writer)?;
+            }
         }
     }
     writer.push(" </");
@@ -1737,6 +1752,11 @@ fn emit_single_frame(
             let frame_start = writer.source.len();
             writer.push(" ...");
             writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+        CellContentFrame::MovedMapRemainder { .. } => {
+            return Err(EmitError::InvalidReference(
+                "a moved map remainder frames only a cell whose content is replaced".into(),
+            ));
         }
     }
     Ok(())

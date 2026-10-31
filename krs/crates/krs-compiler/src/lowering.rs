@@ -1795,6 +1795,12 @@ fn lower_frame(
         CellContentFrame::ListRemainder { origin } => Ok(CellContentFrame::ListRemainder {
             origin: origins.lower(origin, "cell-frame", None, None)?,
         }),
+        CellContentFrame::MovedMapRemainder { origin, binding } => {
+            Ok(CellContentFrame::MovedMapRemainder {
+                origin: origins.lower(origin, "cell-frame", None, Some(binding.as_str()))?,
+                binding: binding.clone(),
+            })
+        }
     }
 }
 

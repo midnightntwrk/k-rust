@@ -253,6 +253,18 @@ fn state_frame(
     })
 }
 
+/// `frame`, or the remainder it leaves bound on the left only when the result was built as the
+/// update chain over it ([`MapBase::moved_remainder`]).
+fn with_moved_remainder(
+    frame: CellContentFrame,
+    base: &MapBase<'_>,
+) -> Result<CellContentFrame, DescriptorLoweringError> {
+    match base.moved_remainder() {
+        Some(remainder) => super::configuration_rules::moved_map_frame(&frame, remainder.binding()),
+        None => Ok(frame),
+    }
+}
+
 /// Whether an optional cell's state is `Some(..)` or `None`.
 fn is_presence(state: &DescriptorState) -> bool {
     matches!(
@@ -338,14 +350,7 @@ pub(super) fn lower_optional_clause(
         None => Presence::Absent,
     };
     // A present result's whole `map![..]` is built over what the subject leaves of the map.
-    let base = MapBase::of(
-        match &before_presence {
-            Presence::Present { term } => Some(term),
-            Presence::Absent => None,
-        },
-        before_inner,
-        name,
-    );
+    let base = MapBase::of(before_presence.term(), before_inner, after_inner.flatten())?;
     let after_presence = after_inner
         .map(|state| -> Result<_, DescriptorLoweringError> {
             Ok(match state {
@@ -362,13 +367,18 @@ pub(super) fn lower_optional_clause(
         })
         .transpose()?;
     let frame = match before_inner {
-        Some(state) => state_frame(&descriptor, state, after_inner.flatten())?,
+        Some(state) => with_moved_remainder(
+            state_frame(&descriptor, state, after_inner.flatten())?,
+            &base,
+        )?,
         None => CellContentFrame::Exact,
     };
-    // A present cell restated unchanged is read only.
+    // A present cell restated unchanged is read only, unless its remainder moved into the
+    // result.
     let after_presence = match (&before_presence, after_presence) {
         (Presence::Present { term: left }, Some(Presence::Present { term: right }))
-            if lowering.same(left, &right) =>
+            if lowering.same(left, &right)
+                && !matches!(frame, CellContentFrame::MovedMapRemainder { .. }) =>
         {
             None
         }
@@ -822,7 +832,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                     .find(|candidate| candidate.field == field.field)
             });
             let before = self.subject_state(field, &sort)?;
-            let frame = state_frame(
+            let mut frame = state_frame(
                 descriptor,
                 &field.value,
                 result_field.map(|field| &field.value),
@@ -831,14 +841,19 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 None => CellPost::Preserve,
                 Some(result_field) => {
                     // A child's whole `map![..]` is built over what the subject leaves of it.
-                    let base = MapBase::of(Some(&before), Some(&field.value), &field.field);
+                    let base =
+                        MapBase::of(Some(&before), Some(&field.value), Some(&result_field.value))?;
                     let after = self.lowering.lower_result(
                         &result_field.value,
                         &sort,
                         &result_field.key,
                         &base,
                     )?;
-                    if self.lowering.same(&before, &after) {
+                    frame = with_moved_remainder(frame, &base)?;
+                    // A moved remainder leaves the child, so the result is its whole content.
+                    if self.lowering.same(&before, &after)
+                        && !matches!(frame, CellContentFrame::MovedMapRemainder { .. })
+                    {
                         CellPost::Preserve
                     } else {
                         CellPost::Replace { term: after }

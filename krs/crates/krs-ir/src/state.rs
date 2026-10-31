@@ -824,6 +824,48 @@ pub enum CellContentFrame {
         /// Provenance for the authored list remainder.
         origin: NodeOrigin,
     },
+    /// A map remainder bound on the pattern's side only: the pattern is the matched entries
+    /// joined with `binding`, and the clause's post-state, which must replace the content, is
+    /// the cell's whole new content with no remainder joined to it. The post-state writes its
+    /// entries over `binding` (`<c> K |-> V Rest => Rest [ K <- W ] </c>`), or moves the
+    /// remainder out of the cell.
+    MovedMapRemainder {
+        /// Provenance for the authored frame marker.
+        origin: NodeOrigin,
+        /// The remainder's binding, an authored `rest @ ..` or one generated for `..`.
+        binding: SemanticId,
+    },
+}
+
+impl CellContentFrame {
+    /// The authored frame marker's provenance; `None` for an exact frame.
+    #[must_use]
+    pub const fn origin(&self) -> Option<&NodeOrigin> {
+        match self {
+            Self::Exact => None,
+            Self::KSequenceTail { origin, .. }
+            | Self::MapRemainder { origin, .. }
+            | Self::ListRemainder { origin }
+            | Self::MovedMapRemainder { origin, .. } => Some(origin),
+        }
+    }
+
+    /// The variable the frame binds on the pattern's side, if any.
+    #[must_use]
+    pub const fn binding(&self) -> Option<&SemanticId> {
+        match self {
+            Self::KSequenceTail {
+                binding: Some(binding),
+                ..
+            }
+            | Self::MapRemainder {
+                binding: Some(binding),
+                ..
+            }
+            | Self::MovedMapRemainder { binding, .. } => Some(binding),
+            _ => None,
+        }
+    }
 }
 
 /// Post-state of one mentioned cell.

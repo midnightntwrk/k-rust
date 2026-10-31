@@ -24,18 +24,24 @@
 //! joining it with the result's entries, `<env> K |-> V Rest => K |-> W Rest </env>`. That join
 //! is the remainder with the entries written over it exactly when no written key is in the
 //! remainder, which holds for the keys the subject matched, since the remainder is what its
-//! distinct entries leave. A key the subject did not match may already be in the remainder;
-//! writing it needs the remainder bound on the left alone (`K |-> V Rest => Rest [ K <- W ]`),
-//! which the IR has no frame for (finding NT-9-1), so it is refused at the key.
+//! distinct entries leave, so a result that writes only those keys keeps the frame. A key the
+//! subject did not match may already be in the remainder, where the join has no value; the
+//! result is then the update chain over the remainder, which the clause binds on the left only
+//! (finding NT-9-1): `<env> K |-> V Rest => Rest [ K <- W ] [ K2 <- W2 ] </env>`, with a binding
+//! generated for an anonymous `..`. The clause's frame records the move
+//! ([`MapBase::moved_remainder`], `CellContentFrame::MovedMapRemainder`).
+
+use std::cell::Cell;
 
 use krs_ir::{
     Descriptor, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey,
+    SemanticId,
 };
 use krs_ir_levels::{IrSortRef, IrTermKind, MapEntry, MapOperands, SemanticSortRef, SemanticTerm};
 
 use super::configuration_rules::semantic_terms_equivalent;
 use super::error::DescriptorLoweringError;
-use super::origin::{key_range, semantic_origin};
+use super::origin::semantic_origin;
 
 /// What a built whole map is written over, as the subject reads the cell.
 #[derive(Clone, Debug)]
@@ -43,49 +49,109 @@ pub(super) enum MapBase<'a> {
     /// Nothing the subject matched: an initializer, a new instance, or a subject that binds the
     /// cell's whole content.
     Unmatched,
-    /// The keys the subject's map matched as distinct entries of the map; `framed` when the
-    /// subject leaves a remainder, which the result is written over. `cell` names the cell.
+    /// The keys the subject's map matched as distinct entries of the map, and the remainder the
+    /// subject leaves when the result is written over it.
     Matched {
         keys: Vec<&'a SemanticTerm>,
-        framed: bool,
-        cell: &'a str,
+        remainder: Option<Remainder>,
     },
 }
 
+/// The remainder a framed subject leaves of its map, which a result is written over.
+#[derive(Clone, Debug)]
+pub(super) struct Remainder {
+    /// The subject's `rest @ ..`, or a binding generated for its `..`, which the sentence
+    /// declares once a clause binds it (`configuration_rules::declare_moved_remainders`).
+    binding: SemanticId,
+    /// The provenance key of the subject's frame marker.
+    key: ProvenanceKey,
+    /// Whether the built result is the update chain over the remainder (a written key the
+    /// subject did not match), which the clause must bind on the left only.
+    moved: Cell<bool>,
+}
+
+impl Remainder {
+    /// The remainder's binding.
+    pub(super) const fn binding(&self) -> &SemanticId {
+        &self.binding
+    }
+}
+
 impl<'a> MapBase<'a> {
-    /// The base of a result written over `subject`, the subject's state of the cell `cell`, which
-    /// lowers to `before`.
+    /// The base of `result`, written over `subject`, the subject's state of a cell, which lowers
+    /// to `before`. The result is written over the subject's remainder unless it writes the
+    /// cell's whole content: a result without `..rest` over a subject's `rest @ ..` moves the
+    /// remainder out of the cell.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a remainder binding that is no semantic identity.
     pub(super) fn of<T>(
         before: Option<&'a SemanticTerm>,
         subject: Option<&ProtocolRuleStateTerm<T>>,
-        cell: &'a str,
-    ) -> Self {
-        let framed = subject.is_some_and(subject_map_framed);
-        match before.map(SemanticTerm::kind) {
-            Some(IrTermKind::Map(operands)) => match &**operands {
-                MapOperands::Items(entries) => Self::Matched {
-                    keys: entries.iter().map(|entry| &entry.key).collect(),
-                    framed,
-                    cell,
-                },
-                _ => Self::Unmatched,
-            },
-            _ => Self::Unmatched,
-        }
+        result: Option<&ProtocolRuleStateTerm<T>>,
+    ) -> Result<Self, DescriptorLoweringError> {
+        let Some(IrTermKind::Map(operands)) = before.map(SemanticTerm::kind) else {
+            return Ok(Self::Unmatched);
+        };
+        let MapOperands::Items(entries) = &**operands else {
+            return Ok(Self::Unmatched);
+        };
+        let whole_content = result.is_some_and(|result| {
+            !matches!(
+                result,
+                ProtocolRuleStateTerm::Map(map) if matches!(
+                    &map.body,
+                    ProtocolRuleMapBody::Items { remainder, .. }
+                        if !matches!(remainder, ProtocolRuleFrame::Exact)
+                )
+            )
+        });
+        let remainder = match subject.and_then(subject_map_frame) {
+            Some(ProtocolRuleFrame::Anonymous { key }) => Some(Remainder {
+                binding: SemanticId::new(format!(
+                    "{}map_rest_{}",
+                    krs_ir::ir::RESERVED_MARKER,
+                    key.ordinal()
+                ))?,
+                key: key.clone(),
+                moved: Cell::new(false),
+            }),
+            Some(ProtocolRuleFrame::Bind { key, binding }) if !whole_content => Some(Remainder {
+                binding: SemanticId::new(binding.clone())?,
+                key: key.clone(),
+                moved: Cell::new(false),
+            }),
+            _ => None,
+        };
+        Ok(Self::Matched {
+            keys: entries.iter().map(|entry| &entry.key).collect(),
+            remainder,
+        })
     }
 
     /// Whether the subject leaves a remainder the result is written over.
     pub(super) const fn is_framed(&self) -> bool {
-        matches!(self, Self::Matched { framed: true, .. })
+        matches!(
+            self,
+            Self::Matched {
+                remainder: Some(_),
+                ..
+            }
+        )
     }
-}
 
-/// One written entry of a built map, with the key of its key's authored text.
-pub(super) struct WrittenEntry {
-    /// The provenance key of the entry's key, where an error about the key is told.
-    pub(super) key_key: ProvenanceKey,
-    /// The lowered key and value.
-    pub(super) entry: MapEntry<SemanticTerm>,
+    /// The remainder a built result was written over as the update chain, which the clause
+    /// binds on the left only (`CellContentFrame::MovedMapRemainder`).
+    pub(super) fn moved_remainder(&self) -> Option<&Remainder> {
+        match self {
+            Self::Matched {
+                remainder: Some(remainder),
+                ..
+            } if remainder.moved.get() => Some(remainder),
+            _ => None,
+        }
+    }
 }
 
 /// A built whole map: its payload, the written entries in order, and a whole map they are
@@ -96,7 +162,7 @@ pub(super) struct BuiltMap {
     /// The semantic role of the map's node (`rule-map`, `initializer-map`).
     pub(super) role: &'static str,
     /// The written entries, in order.
-    pub(super) entries: Vec<WrittenEntry>,
+    pub(super) entries: Vec<MapEntry<SemanticTerm>>,
     /// A whole map the entries are written over, `m` of `map![k -> v, ..m]`.
     pub(super) over: Option<SemanticTerm>,
 }
@@ -176,37 +242,40 @@ fn distinct_keys(left: &KeyIdentity<'_>, right: &KeyIdentity<'_>) -> bool {
 }
 
 /// Builds the map `map` denotes over `base`: the join of its entries where the join provably has
-/// the update chain's value, the chain otherwise.
+/// the update chain's value, the chain otherwise. Over a remainder the subject leaves, a key the
+/// subject did not match may be in the remainder, so the map is then the chain over the
+/// remainder, and `base` records the move ([`MapBase::moved_remainder`]).
 ///
 /// # Errors
 ///
-/// Refuses, at the key, an entry written over a remainder the subject leaves at a key the subject
-/// did not match (finding NT-9-1).
+/// Fails where a node's provenance is missing or a map has no entries to join.
 pub(super) fn build(
     descriptor: &Descriptor,
-    map: BuiltMap,
+    mut map: BuiltMap,
     base: &MapBase<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
     let identities = map
         .entries
         .iter()
-        .map(|written| identity(&written.entry.key, base))
+        .map(|entry| identity(&entry.key, base))
         .collect::<Vec<_>>();
-    if base.is_framed()
-        && let MapBase::Matched { cell, .. } = *base
-        && let Some(index) = identities
+    if let MapBase::Matched {
+        remainder: Some(remainder),
+        ..
+    } = base
+        && identities
             .iter()
-            .position(|identity| !matches!(identity, KeyIdentity::Matched(_)))
+            .any(|identity| !matches!(identity, KeyIdentity::Matched(_)))
     {
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            format!(
-                "the result writes an entry over the map the subject leaves unread (`..` or `rest @ ..`) at a key the subject does not match, and that map may already hold the key: a result's whole `map![..]` writes each entry over the map before it, here that remainder, but K's cell frame only joins the remainder with the result's entries, which has no value where the two share a key, so KRS cannot write it yet; bind the whole map instead, `{cell}: Cell(m)` (inside `Some(..)` for an optional cell), and write `map![k -> v, ..m]`, which writes the entries over `m`"
-            ),
-        )
-        .within(
-            descriptor.id(),
-            key_range(descriptor, &map.entries[index].key_key).as_ref(),
+        remainder.moved.set(true);
+        map.over = Some(SemanticTerm::variable(
+            semantic_origin(
+                descriptor,
+                remainder.key.clone(),
+                "rule-map-moved-remainder",
+            )?,
+            SemanticSortRef::map(),
+            remainder.binding.clone(),
         ));
     }
     // Of two entries at one key, the later one's value is the map's.
@@ -215,9 +284,9 @@ pub(super) fn build(
             !(index + 1..map.entries.len()).any(|later| {
                 same_key(
                     &identities[index],
-                    &map.entries[index].entry.key,
+                    &map.entries[index].key,
                     &identities[later],
-                    &map.entries[later].entry.key,
+                    &map.entries[later].key,
                 )
             })
         })
@@ -233,7 +302,7 @@ pub(super) fn build(
         .into_iter()
         .enumerate()
         .filter(|(index, _)| kept.contains(index))
-        .map(|(_, written)| written.entry)
+        .map(|(_, entry)| entry)
         .collect::<Vec<_>>();
     if joined {
         let operands = MapOperands::items(entries).map_err(|error| {
@@ -287,13 +356,22 @@ pub(super) fn build(
 
 /// Whether the subject's state of a cell is a map that leaves a remainder (`..`, `rest @ ..`).
 pub(super) fn subject_map_framed<T>(subject: &ProtocolRuleStateTerm<T>) -> bool {
-    matches!(
-        subject,
-        ProtocolRuleStateTerm::Map(map) if matches!(
-            &map.body,
-            ProtocolRuleMapBody::Items { remainder, .. } if !matches!(remainder, ProtocolRuleFrame::Exact)
-        )
-    )
+    subject_map_frame(subject).is_some()
+}
+
+/// The frame of a subject's map that leaves a remainder (`..`, `rest @ ..`).
+fn subject_map_frame<T>(subject: &ProtocolRuleStateTerm<T>) -> Option<&ProtocolRuleFrame> {
+    match subject {
+        ProtocolRuleStateTerm::Map(map) => match &map.body {
+            ProtocolRuleMapBody::Items { remainder, .. }
+                if !matches!(remainder, ProtocolRuleFrame::Exact) =>
+            {
+                Some(remainder)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Whether the result writes its whole map over a map the subject bound whole,

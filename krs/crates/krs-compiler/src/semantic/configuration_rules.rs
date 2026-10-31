@@ -14,7 +14,7 @@ use krs_ir_levels::{
 };
 use krs_syntax::ProvenanceRole;
 
-use super::built_maps::{BuiltMap, MapBase, WrittenEntry, writes_over_whole_map};
+use super::built_maps::{BuiltMap, MapBase, writes_over_whole_map};
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
@@ -53,9 +53,9 @@ struct StateRuleTerms<'a> {
     declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
-    /// Computation remainders the result does not put back, each with its
-    /// frame key: the rule moves them, so they must be used elsewhere.
-    moved_remainders: Vec<(SemanticId, ProvenanceKey)>,
+    /// Computation and map remainders the result does not put back, each
+    /// with its family: the rule moves them, so they must be used elsewhere.
+    moved_remainders: Vec<(SemanticId, AssociativeStateFamily)>,
     /// Whether a cell of a Set collection's instance the pattern looks up is
     /// being lowered ([`super::set_instances`]).
     looking_up: bool,
@@ -397,12 +397,9 @@ impl<'a> StateRuleTerms<'a> {
             ProtocolRuleMapBody::Items { items, remainder } => {
                 let mut entries = Vec::with_capacity(items.len());
                 for item in items {
-                    entries.push(WrittenEntry {
-                        key_key: item.key_key.clone(),
-                        entry: MapEntry {
-                            key: self.key(&item.key, binding_sorts, subject)?,
-                            value: self.element(&item.value, binding_sorts, subject)?,
-                        },
+                    entries.push(MapEntry {
+                        key: self.key(&item.key, binding_sorts, subject)?,
+                        value: self.element(&item.value, binding_sorts, subject)?,
                     });
                 }
                 // A result's whole map is built over what the subject leaves of it.
@@ -419,10 +416,9 @@ impl<'a> StateRuleTerms<'a> {
                         base,
                     );
                 }
-                MapOperands::items(entries.into_iter().map(|written| written.entry).collect())
-                    .map_err(|error| {
-                        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
-                    })?
+                MapOperands::items(entries).map_err(|error| {
+                    DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
+                })?
             }
             ProtocolRuleMapBody::Update {
                 base, key, value, ..
@@ -593,6 +589,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         &subject_sorts,
         &result_sorts,
     )?;
+    declare_moved_remainders(&mut terms.variables, &clauses);
     let unused_moved = moved_remainders_unused_by(&terms, &clauses);
     // A context's hole lies in the computation cell (KF-021).
     if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context
@@ -1031,10 +1028,6 @@ fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
 /// Lowers one leaf or group cell entry of a `cells!` rule, and the result's
 /// term when the result restates the cell unchanged, which the clause only
 /// reads.
-#[expect(
-    clippy::too_many_lines,
-    reason = "One cell entry's checks against its declaration, then its subject and result, in order."
-)]
 fn lower_configuration_rule_clause(
     terms: &mut StateRuleTerms<'_>,
     subject: &DescriptorRuleCell,
@@ -1112,11 +1105,7 @@ fn lower_configuration_rule_clause(
     let mut frame = lower_subject_cell_frame(descriptor, &subject.value)?;
     let mut restated = None;
     let post = if let Some(result) = result {
-        let base = MapBase::of(
-            Some(&before),
-            Some(&subject.value),
-            &subject.field.cell.field,
-        );
+        let base = MapBase::of(Some(&before), Some(&subject.value), Some(&result.value))?;
         let after = terms.result_state_term(
             &result.value,
             &declared_sort,
@@ -1124,19 +1113,21 @@ fn lower_configuration_rule_clause(
             result_sorts,
             &base,
         )?;
-        let result_frame = result_state_frame(&subject.value, &result.value);
-        if let Some(moved) = pair_cell_frames(
-            terms,
-            &subject.field.cell.field,
-            subject_frame,
-            result_frame,
-            &before,
-        )? {
-            // The moved remainder is the subject's last item, not a frame.
-            before = moved;
-            frame = CellContentFrame::Exact;
+        if let Some(remainder) = base.moved_remainder() {
+            // The result is the update chain over the remainder: bound on the left only.
+            frame = moved_map_frame(&frame, remainder.binding())?;
         }
-        if semantic_terms_equivalent(&before, &after) {
+        let result_frame = result_state_frame(&subject.value, &result.value);
+        if let Some((moved, moved_frame)) =
+            pair_cell_frames(terms, subject_frame, result_frame, &before)?
+        {
+            before = moved;
+            frame = moved_frame;
+        }
+        // A moved remainder leaves the cell, so the result is its whole new content.
+        if !matches!(frame, CellContentFrame::MovedMapRemainder { .. })
+            && semantic_terms_equivalent(&before, &after)
+        {
             restated = Some(after);
             CellPost::Preserve
         } else {
@@ -1794,18 +1785,17 @@ fn moved_computation_remainder<'a>(
 }
 
 /// Checks that a leaf cell's subject and result frames agree. A result
-/// that does not put a bound computation remainder back writes the cell's
-/// whole new content, and the remainder, used elsewhere, has been moved:
-/// the pattern it returns ends in the remainder as its last item, and the
-/// clause keeps no frame. Moving a map remainder needs the pattern
-/// `items Rest` as one term, which the IR's map terms do not have yet.
+/// that does not put a bound remainder back writes the cell's whole new
+/// content, and the remainder, used elsewhere, has been moved. It returns the
+/// clause's pattern and frame then: a computation remainder is the pattern's
+/// last item, with no frame; a map remainder is bound on the left only
+/// (`CellContentFrame::MovedMapRemainder`).
 fn pair_cell_frames(
     terms: &mut StateRuleTerms<'_>,
-    cell: &str,
     subject_frame: RuleStateFrame<'_>,
     result_frame: RuleStateFrame<'_>,
     before: &SemanticTerm,
-) -> Result<Option<SemanticTerm>, DescriptorLoweringError> {
+) -> Result<Option<(SemanticTerm, CellContentFrame)>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     if let Some((tail, key)) = moved_computation_remainder(subject_frame, result_frame) {
         let tail = SemanticId::new(tail)?;
@@ -1818,16 +1808,23 @@ fn pair_cell_frames(
                 tail.clone(),
             ),
         )?;
-        terms.moved_remainders.push((tail, key.clone()));
-        return Ok(Some(moved));
+        terms
+            .moved_remainders
+            .push((tail, AssociativeStateFamily::KSequence));
+        return Ok(Some((moved, CellContentFrame::Exact)));
     }
-    if let Some(rest) = moved_map_remainder(subject_frame, result_frame) {
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            format!(
-                "the result writes the whole `{cell}` cell without putting back its map remainder `{rest}`; a rule cannot move a map remainder yet, so keep it with `..{rest}`"
-            ),
-        ));
+    if let Some((rest, key)) = moved_map_remainder(subject_frame, result_frame) {
+        let rest = SemanticId::new(rest)?;
+        terms
+            .moved_remainders
+            .push((rest.clone(), AssociativeStateFamily::Map));
+        return Ok(Some((
+            before.clone(),
+            CellContentFrame::MovedMapRemainder {
+                origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
+                binding: rest,
+            },
+        )));
     }
     validate_state_frame_pair(
         descriptor,
@@ -1838,22 +1835,40 @@ fn pair_cell_frames(
     Ok(None)
 }
 
-/// The map remainder `rest @ ..` when the result writes the map cell
-/// exactly, without `..rest`.
+/// The map remainder `rest @ ..` and its frame key when the result writes
+/// the map cell exactly, without `..rest`.
 fn moved_map_remainder<'a>(
     subject: RuleStateFrame<'a>,
     result: RuleStateFrame<'_>,
-) -> Option<&'a str> {
+) -> Option<(&'a str, &'a ProvenanceKey)> {
     match (subject, result) {
         (
             RuleStateFrame::Framed {
                 family: AssociativeStateFamily::Map,
-                frame: AssociativeStateFrame::Bind { binding, .. },
+                frame: AssociativeStateFrame::Bind { key, binding },
             },
             RuleStateFrame::Exact,
-        ) => Some(binding),
+        ) => Some((binding, key)),
         _ => None,
     }
+}
+
+/// The frame of a clause whose result is the update chain over the remainder its subject's map
+/// frame `frame` leaves: the remainder bound on the left only, to `binding`.
+pub(super) fn moved_map_frame(
+    frame: &CellContentFrame,
+    binding: &SemanticId,
+) -> Result<CellContentFrame, DescriptorLoweringError> {
+    let CellContentFrame::MapRemainder { origin, .. } = frame else {
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "cell content frame",
+            "a result written over a map remainder has a subject that leaves one",
+        ));
+    };
+    Ok(CellContentFrame::MovedMapRemainder {
+        origin: origin.clone(),
+        binding: binding.clone(),
+    })
 }
 
 /// The whole map a result's `map![k -> v, ..m]` is written over: `m`, a map the subject bound
@@ -1911,47 +1926,69 @@ fn with_trailing_item(
     ))
 }
 
-/// The moved computation remainders no result term uses.
+/// Declares the binding of each map remainder a clause binds on the left only that the sentence
+/// does not declare: the one generated for a subject's anonymous `..`, a map.
+fn declare_moved_remainders(
+    variables: &mut Vec<SemanticVariable>,
+    clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
+) {
+    for part in clauses.iter().flat_map(ConfigurationClause::parts) {
+        if let Some(CellContentFrame::MovedMapRemainder { binding, .. }) = part.frame()
+            && !variables.iter().any(|variable| variable.id() == binding)
+        {
+            variables.push(SemanticVariable::new(
+                binding.clone(),
+                SemanticSortRef::map(),
+            ));
+        }
+    }
+}
+
+/// The moved computation and map remainders no result term uses, each with
+/// its family.
 fn moved_remainders_unused_by(
     terms: &StateRuleTerms<'_>,
     clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
-) -> Vec<SemanticId> {
+) -> Vec<(SemanticId, AssociativeStateFamily)> {
     terms
         .moved_remainders
         .iter()
-        .map(|(tail, _)| tail)
-        .filter(|tail| {
+        .filter(|(rest, _)| {
             !clauses
                 .iter()
                 .flat_map(ConfigurationClause::parts)
                 .filter_map(|part| part.post_term())
-                .any(|term| super::evaluation::mentions(term, tail))
+                .any(|term| super::evaluation::mentions(term, rest))
         })
         .cloned()
         .collect()
 }
 
-/// A moved computation remainder must be used: in a result term or a
-/// condition. A bound remainder the rule neither puts back nor uses would
-/// be dropped silently, so it keeps the frame-mismatch error.
+/// A moved remainder must be used: in a result term or a condition. A
+/// bound remainder the rule neither puts back nor uses would be dropped
+/// silently, so it keeps the frame-mismatch error.
 fn check_moved_remainders(
-    unused: &[SemanticId],
+    unused: &[(SemanticId, AssociativeStateFamily)],
     requires: Option<&SemanticCondition>,
     ensures: Option<&SemanticCondition>,
 ) -> Result<(), DescriptorLoweringError> {
-    for tail in unused {
+    for (rest, family) in unused {
         let used = requires
             .into_iter()
             .chain(ensures)
             .flat_map(SemanticCondition::terms)
-            .any(|term| super::evaluation::mentions(term, tail));
+            .any(|term| super::evaluation::mentions(term, rest));
         if !used {
+            let rest_of = match family {
+                AssociativeStateFamily::KSequence => "rest of the computation",
+                AssociativeStateFamily::Map => "rest of the map",
+            };
             // A subject rest the result drops: the rest-mismatch mistake, whose code is the
             // bracket notation's.
             return Err(DescriptorLoweringError::CellCollection {
                 code: krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
                 reason: format!(
-                    "the subject names the rest of the computation `..{tail}`, and the result neither puts it back with `..{tail}` nor uses it, so the rule would drop it: put it back with `..{tail}`, or use it in a condition"
+                    "the subject names the {rest_of} `..{rest}`, and the result neither puts it back with `..{rest}` nor uses it, so the rule would drop it: put it back with `..{rest}`, or use it in a condition"
                 ),
                 range: None,
                 item: None,
@@ -2250,7 +2287,7 @@ mod state_frame_tests {
 
     /// A bound remainder whose result is written exactly is moved: the
     /// computation remainder becomes the subject's last item, and a map
-    /// remainder is reported.
+    /// remainder is bound on the left only.
     #[test]
     fn a_bound_remainder_with_an_exact_result_is_moved() {
         let framed_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
@@ -2294,7 +2331,8 @@ mod state_frame_tests {
                 .is_none()
         );
         assert_eq!(
-            moved_map_remainder(rule_state_frame(&framed_map), rule_state_frame(&empty)),
+            moved_map_remainder(rule_state_frame(&framed_map), rule_state_frame(&empty))
+                .map(|(binding, _)| binding),
             Some("rest")
         );
         assert!(

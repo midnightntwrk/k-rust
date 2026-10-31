@@ -56,6 +56,9 @@ struct Variants {
     /// Adds an `Expr` cell `acc`, its initializer leaf and the `keep` rule's
     /// clause holding terms of these sorts.
     acc: Option<AccContent>,
+    /// The `var` rule's `env` clause binds its remainder on the left only,
+    /// replaced by `E [ X <- V ]` (`Some(true)`) or preserved (`Some(false)`).
+    moved_env: Option<bool>,
 }
 
 /// The sorts of the `acc` cell's initializer leaf and rule clause.
@@ -91,6 +94,7 @@ impl Default for Variants {
             valid_update: true,
             k_sequence_items: false,
             acc: None,
+            moved_env: None,
         }
     }
 }
@@ -346,10 +350,37 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
                         Vec::new(),
                     )),
                 ),
-                CellPost::Preserve,
-                CellContentFrame::MapRemainder {
-                    origin: node("rule.var.env.frame"),
-                    binding: Some(sid("variable.e")),
+                match variants.moved_env {
+                    Some(true) => CellPost::Replace {
+                        term: DefinitionTerm::map(
+                            node("rule.var.env.after"),
+                            MapOperands::Update {
+                                map: variable(
+                                    "rule.var.e.after",
+                                    "variable.e",
+                                    DefinitionSortRef::map(),
+                                ),
+                                key: variable(
+                                    "rule.var.x.after",
+                                    "variable.x",
+                                    DefinitionSortRef::id(),
+                                ),
+                                value: variable("rule.var.v.env", "variable.v", value.clone()),
+                            },
+                        ),
+                    },
+                    Some(false) | None => CellPost::Preserve,
+                },
+                if variants.moved_env.is_some() {
+                    CellContentFrame::MovedMapRemainder {
+                        origin: node("rule.var.env.frame"),
+                        binding: sid("variable.e"),
+                    }
+                } else {
+                    CellContentFrame::MapRemainder {
+                        origin: node("rule.var.env.frame"),
+                        binding: Some(sid("variable.e")),
+                    }
                 },
             ),
         ],
@@ -551,6 +582,25 @@ fn rejects_wrong_configuration_target_and_incomplete_framing() {
     assert_eq!(
         calc_definition(Variants {
             complete_step_frame: false,
+            ..Variants::default()
+        })
+        .unwrap_err(),
+        DefinitionValidationError::InvalidCellFraming
+    );
+}
+
+/// A remainder bound on the left only frames a replaced clause: the
+/// replacement is the cell's whole content, so a preserved one is refused.
+#[test]
+fn a_moved_map_remainder_frames_only_a_replaced_clause() {
+    calc_definition(Variants {
+        moved_env: Some(true),
+        ..Variants::default()
+    })
+    .unwrap();
+    assert_eq!(
+        calc_definition(Variants {
+            moved_env: Some(false),
             ..Variants::default()
         })
         .unwrap_err(),

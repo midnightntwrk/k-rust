@@ -155,8 +155,11 @@ impl VariableNaming {
                                     true
                                 }
                             };
-                            // A named frame is printed on both sides of a replaced cell.
-                            scope.frame(frame, if replaced { 2 } else { 1 });
+                            // A named frame is printed on both sides of a replaced cell, a
+                            // moved remainder on the pattern's side only (the post-state's
+                            // term names it where it is used).
+                            let moved = matches!(frame, CellContentFrame::MovedMapRemainder { .. });
+                            scope.frame(frame, if replaced && !moved { 2 } else { 1 });
                         }
                         krs_ir::ClausePart::Written { term, .. } => scope.term(term),
                     }
@@ -294,15 +297,7 @@ impl Scope {
     }
 
     fn frame(&mut self, frame: &CellContentFrame, count: usize) {
-        if let CellContentFrame::KSequenceTail {
-            binding: Some(binding),
-            ..
-        }
-        | CellContentFrame::MapRemainder {
-            binding: Some(binding),
-            ..
-        } = frame
-        {
+        if let Some(binding) = frame.binding() {
             self.occur(binding, count);
         }
     }

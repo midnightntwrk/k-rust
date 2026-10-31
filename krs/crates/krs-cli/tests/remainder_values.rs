@@ -2,9 +2,11 @@
 //! `Tail:K`, a value a result may write: at a `KSequence` field it saves the
 //! continuation, and a result that does not put it back with `..tail` has
 //! moved it, so the computation cell's new content is what the result lists.
-//! A map remainder is a value too while it is put back; moving one out of
-//! its cell is refused, and so are a dropped remainder and the configuration
-//! remainder as a term.
+//! A map remainder is a value too: put back, or moved, when the result
+//! writes the map cell without `..rest`, which binds it on the left only
+//! (`<env> 0 |-> V Rest => Rest [ 1 <- V ] </env>`). A dropped remainder,
+//! of the computation or of a map, and the configuration remainder as a term
+//! are refused.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,7 +23,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence(cmd (Park, Resume, Bump, Report, Keep, Drop, Store, WrapK) > right seq (Seq))]
+#[k::precedence(cmd (Park, Resume, Bump, Report, Keep, Drop, Store, Move, WrapK) > right seq (Seq))]
 #[rustfmt::skip]
 pub enum Cmd {
     #[k::syntax("park")] Park(),
@@ -31,6 +33,7 @@ pub enum Cmd {
     #[k::syntax("keep")] Keep(),
     #[k::syntax("drop")] Drop(),
     #[k::syntax("store")] Store(),
+    #[k::syntax("move")] Move(),
     #[k::syntax("wrapk ( {body} )")] WrapK { body: KSequence },
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
 }
@@ -84,7 +87,8 @@ k::rules! {
 
 /// `park` saves the rest of the computation in a `WrapK` on the stack and
 /// moves it; `keep` saves a copy and keeps it; `store` reads a map
-/// remainder it puts back.
+/// remainder it puts back; `move` moves a map remainder into the term the
+/// result writes.
 const RULES: &str = r#"
 #[k::rule(label = "park")]
 pub fn park(
@@ -130,6 +134,22 @@ pub fn store(
     k::cells! {
         k: k::configuration::KCell(map::size(rest), ..tail),
         env: k::configuration::Cell(k::map![0 -> v, ..rest]),
+        ..state
+    }
+}
+
+#[k::rule(label = "move")]
+pub fn move_rest(
+    v: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(crate::Cmd::Move(), tail @ ..),
+        env: k::configuration::Cell(k::map![0 -> v, rest @ ..]),
+        state @ ..
+    }: crate::Machine,
+) -> crate::Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map::update(rest, 1, v)),
         ..state
     }
 }
@@ -214,7 +234,7 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
     );
     assert!(success, "{stderr}");
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         rule [park]:
             <k> park ~> Tail:K => bump ~> resume </k>
             <stack> S:List => ListItem(wrapk ( Tail:K )) S:List </stack>
@@ -223,9 +243,12 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
             <stack> S:List => ListItem(wrapk ( Tail:K )) S:List </stack>
         rule [store]:
             <k> store ~> Tail:K => size(Rest:Map) ~> Tail:K </k>
-            <env> 0 |-> V:Int Rest:Map </env>"]]
+            <env> 0 |-> V:Int Rest:Map </env>
+        rule [move]:
+            <k> move ~> Tail:K => .K ~> Tail:K </k>
+            <env> 0 |-> V:Int Rest:Map => Rest:Map [ 1 <- V:Int ] </env>"#]]
     .assert_eq(
-        &["park", "keep", "store"]
+        &["park", "keep", "store", "move"]
             .map(|label| rule(&k, label))
             .join("\n"),
     );
@@ -259,6 +282,27 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
         ]
     "#]]
     .assert_debug_eq(&runs);
+    // `move` leaves the remainder `2 |-> 7` with `1 |-> 5` written over it; `0` is gone.
+    fs::write(&program, "move").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[
+            program.to_str().unwrap(),
+            "-c",
+            "PC=0",
+            "-c",
+            "GAS=0",
+            "-c",
+            "ENV=0 |-> 5 2 |-> 7",
+        ],
+    );
+    assert!(success, "move:\n{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = flat.find("<env>").unwrap();
+    let end = flat.find("</env>").unwrap() + "</env>".len();
+    expect_test::expect!["<env> 1 |-> 5 2 |-> 7 </env>"].assert_eq(&flat[start..end]);
 }
 
 /// `krs check`'s first error headline.
@@ -272,9 +316,9 @@ fn first_error(target: &Path, manifest: &Path) -> String {
         .to_owned()
 }
 
-/// A bound remainder the rule neither puts back nor uses, a moved map
-/// remainder, the configuration remainder as a term, and one item or a
-/// sequence literal at a `K` field are refused.
+/// A bound remainder the rule neither puts back nor uses, of the
+/// computation or of a map, the configuration remainder as a term, and one
+/// item or a sequence literal at a `K` field are refused.
 #[test]
 fn remainders_the_rule_cannot_write_are_refused() {
     let target = shared_fixture_target();
@@ -292,10 +336,10 @@ pub fn lost(
 "#,
         ),
         (
-            "moved-map",
+            "dropped-map",
             r#"
-#[k::rule(label = "moved")]
-pub fn moved(
+#[k::rule(label = "lost")]
+pub fn lost(
     v: k::Term<Int>,
     k::cells! {
         k: k::configuration::KCell(crate::Cmd::Drop(), tail @ ..),
@@ -305,7 +349,7 @@ pub fn moved(
 ) -> crate::Machine {
     k::cells! {
         k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map::update(rest, 1, v)),
+        env: k::configuration::Cell(k::map![1 -> v]),
         ..state
     }
 }
@@ -351,7 +395,7 @@ k::rules! {
     expect_test::expect![[r#"
         [
             "dropped: error[krs::syntax::invalid-list-notation]: the subject names the rest of the computation `..tail`, and the result neither puts it back with `..tail` nor uses it, so the rule would drop it: put it back with `..tail`, or use it in a condition",
-            "moved-map: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-REMAINDER-VALUES::moved (rule): the result writes the whole `env` cell without putting back its map remainder `rest`; a rule cannot move a map remainder yet, so keep it with `..rest`",
+            "dropped-map: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
             "state-term: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a result can write",
             "one-item: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-REMAINDER-VALUES::one (rule): application result sort ORG-KRS-REMAINDER-VALUES::Stmt (sort) is not admissible at sort K",
             "sequence-literal: error[krs::syntax::unsupported-term-expression]: unsupported term expression: macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands",

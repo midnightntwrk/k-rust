@@ -861,6 +861,19 @@ where
         )),
         Err(L::error(ValidationError::ContextAliasFrameSortMismatch))
     );
+    // A pattern has no post-state a remainder could move into.
+    assert_eq!(
+        check(&alias::<L>(
+            cell.clone(),
+            map_variable(),
+            CellContentFrame::MovedMapRemainder {
+                origin: testing::origin("frame"),
+                binding: SemanticId::new("rest").unwrap()
+            },
+            map_variables()
+        )),
+        Err(L::error(ValidationError::InvalidCellFraming))
+    );
 }
 
 #[test]

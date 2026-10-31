@@ -751,6 +751,12 @@ impl<L: Validation> RewriteContext<'_, L> {
         if clause.kind() == CellClauseKind::Whole && clause.frame() != &CellContentFrame::Exact {
             return Err(L::error(ValidationError::InvalidCellFraming));
         }
+        // A moved remainder leaves the cell: its post-state is the cell's whole new content.
+        if matches!(clause.frame(), CellContentFrame::MovedMapRemainder { .. })
+            && !matches!(clause.after(), CellPost::Replace { .. })
+        {
+            return Err(L::error(ValidationError::InvalidCellFraming));
+        }
         insert_node::<L>(nodes, clause.origin().key())?;
         self.term(clause.before(), sort, nodes)?;
         if let CellPost::Replace { term } = clause.after() {
@@ -806,6 +812,9 @@ impl<L: Validation> RewriteContext<'_, L> {
                     if term.contains_rewrite() {
                         return Err(L::error(ValidationError::InvalidLocalRewrite));
                     }
+                } else if matches!(clause.frame(), CellContentFrame::MovedMapRemainder { .. }) {
+                    // A moved remainder needs the present cell's new content.
+                    return Err(L::error(ValidationError::InvalidCellFraming));
                 }
                 validate_cell_frame::<L>(clause.frame(), sort, self.scope, nodes)
             }
@@ -876,6 +885,7 @@ impl<L: Validation> RewriteContext<'_, L> {
                         self.term(child.term(), sort, nodes)?;
                         if child.term().contains_rewrite()
                             || (created && child.frame() != &CellContentFrame::Exact)
+                            || matches!(child.frame(), CellContentFrame::MovedMapRemainder { .. })
                         {
                             return Err(invalid());
                         }
@@ -985,10 +995,7 @@ pub(crate) fn validate_context_alias<L: Validation>(
             cell_ids,
             nodes,
         )?;
-        if let CellContentFrame::KSequenceTail { origin, .. }
-        | CellContentFrame::MapRemainder { origin, .. }
-        | CellContentFrame::ListRemainder { origin } = cell.frame()
-        {
+        if let Some(origin) = cell.frame().origin() {
             insert_node::<L>(nodes, origin.key())?;
         }
     }
@@ -1024,6 +1031,10 @@ pub(crate) fn validate_context_alias_frames<L: Validation>(
                 (binding.as_ref(), L::builtin_sort(BuiltinSort::Map))
             }
             CellContentFrame::ListRemainder { .. } => (None, L::builtin_sort(BuiltinSort::List)),
+            // A pattern has no post-state the remainder could be moved to.
+            CellContentFrame::MovedMapRemainder { .. } => {
+                return Err(L::error(ValidationError::InvalidCellFraming));
+            }
         };
         if leaf_sorts.get(cell.cell()) != Some(&required_sort) {
             return Err(L::error(ValidationError::ContextAliasFrameSortMismatch));
@@ -1061,6 +1072,9 @@ pub(crate) fn validate_cell_frame<L: Validation>(
         }
         CellContentFrame::ListRemainder { origin } => {
             (origin, None, L::builtin_sort(BuiltinSort::List))
+        }
+        CellContentFrame::MovedMapRemainder { origin, binding } => {
+            (origin, Some(binding), L::builtin_sort(BuiltinSort::Map))
         }
     };
     insert_node::<L>(nodes, origin.key())?;
@@ -1362,17 +1376,7 @@ pub(crate) fn validate_rule<L: Validation>(
                 for term in part.terms() {
                     collect_term_variables::<L>(term, &mut used);
                 }
-                if let Some(
-                    CellContentFrame::KSequenceTail {
-                        binding: Some(binding),
-                        ..
-                    }
-                    | CellContentFrame::MapRemainder {
-                        binding: Some(binding),
-                        ..
-                    },
-                ) = part.frame()
-                {
+                if let Some(binding) = part.frame().and_then(CellContentFrame::binding) {
                     used.insert(binding.clone());
                 }
             }
@@ -1387,15 +1391,7 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(context) = rule.function_context {
         for cell in context.cells().cells() {
             collect_term_variables::<L>(cell.pattern(), &mut used);
-            if let CellContentFrame::KSequenceTail {
-                binding: Some(binding),
-                ..
-            }
-            | CellContentFrame::MapRemainder {
-                binding: Some(binding),
-                ..
-            } = cell.frame()
-            {
+            if let Some(binding) = cell.frame().binding() {
                 used.insert(binding.clone());
             }
         }
@@ -1459,6 +1455,10 @@ fn validate_function_context<L: Validation>(
             }
             CellContentFrame::ListRemainder { origin } => {
                 (origin, None, L::builtin_sort(BuiltinSort::List))
+            }
+            // A function context only reads its cells.
+            CellContentFrame::MovedMapRemainder { .. } => {
+                return Err(L::error(ValidationError::InvalidCellFraming));
             }
         };
         insert_node::<L>(nodes, origin.key())?;
@@ -1696,17 +1696,7 @@ pub(crate) fn validate_existentials<L: Validation>(
                 if let Some(term) = part.post_term() {
                     collect_term_variables::<L>(term, &mut right_uses);
                 }
-                if let Some(
-                    CellContentFrame::KSequenceTail {
-                        binding: Some(binding),
-                        ..
-                    }
-                    | CellContentFrame::MapRemainder {
-                        binding: Some(binding),
-                        ..
-                    },
-                ) = part.frame()
-                {
+                if let Some(binding) = part.frame().and_then(CellContentFrame::binding) {
                     left_uses.insert(binding.clone());
                 }
             }
@@ -2941,17 +2931,7 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
     }
     if let RuleBodyRef::Configuration { body, .. } = rule.body {
         for part in body.parts() {
-            if let Some(
-                CellContentFrame::KSequenceTail {
-                    binding: Some(binding),
-                    ..
-                }
-                | CellContentFrame::MapRemainder {
-                    binding: Some(binding),
-                    ..
-                },
-            ) = part.frame()
-            {
+            if let Some(binding) = part.frame().and_then(CellContentFrame::binding) {
                 outside.insert(binding.clone());
             }
         }

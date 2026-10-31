@@ -1126,7 +1126,11 @@ impl Adapter<'_> {
             // inside `before`; k-rust lifts them as K does.
             CellPost::Preserve | CellPost::Local => before,
             CellPost::Replace { term } => NativeTerm::Rewrite {
-                left: Box::new(before),
+                left: Box::new(self.with_moved_remainder(
+                    before,
+                    clause.frame(),
+                    clause.origin(),
+                )?),
                 right: Box::new(self.term(
                     term,
                     module,
@@ -1152,10 +1156,7 @@ impl Adapter<'_> {
         index: u32,
         path: &[u32],
     ) {
-        if let CellContentFrame::KSequenceTail { origin, .. }
-        | CellContentFrame::MapRemainder { origin, .. }
-        | CellContentFrame::ListRemainder { origin } = frame
-        {
+        if let Some(origin) = frame.origin() {
             self.map_sentence_origin(
                 origin,
                 module,
@@ -1216,6 +1217,8 @@ impl Adapter<'_> {
                     )?,
                     Some(krs_ir::Presence::Present { term: after }) => {
                         let after = term(self, after, vec![index, 1])?;
+                        let before =
+                            self.with_moved_remainder(before, clause.frame(), clause.origin())?;
                         self.cell_image(
                             clause.cell(),
                             clause.kind(),
@@ -1461,10 +1464,7 @@ impl Adapter<'_> {
                     sentence_index,
                     SentenceNodeRole::ContextAliasCell(index),
                 );
-                if let CellContentFrame::KSequenceTail { origin, .. }
-                | CellContentFrame::MapRemainder { origin, .. }
-                | CellContentFrame::ListRemainder { origin } = cell.frame()
-                {
+                if let Some(origin) = cell.frame().origin() {
                     self.map_sentence_origin(
                         origin,
                         module,
@@ -1507,10 +1507,7 @@ impl Adapter<'_> {
                     sentence_index,
                     SentenceNodeRole::FunctionContextCell(index),
                 );
-                if let CellContentFrame::KSequenceTail { origin, .. }
-                | CellContentFrame::MapRemainder { origin, .. }
-                | CellContentFrame::ListRemainder { origin } = cell.frame()
-                {
+                if let Some(origin) = cell.frame().origin() {
                     self.map_sentence_origin(
                         origin,
                         module,
@@ -1531,6 +1528,26 @@ impl Adapter<'_> {
         Ok(native_cells(cells))
     }
 
+    /// A replaced cell's pattern: `before`, joined with the remainder a moved frame binds on
+    /// the left only (`K |-> V Rest`), whose rewrite's right side is the cell's whole content.
+    fn with_moved_remainder(
+        &self,
+        before: NativeTerm,
+        frame: &CellContentFrame,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        let CellContentFrame::MovedMapRemainder { binding, .. } = frame else {
+            return Ok(before);
+        };
+        Ok(NativeTerm::apply(
+            MapOperation::CONCATENATION.k_label,
+            vec![
+                before,
+                self.native_variable(binding, NativeSort::new(BuiltinSort::Map.k_name()), origin)?,
+            ],
+        ))
+    }
+
     fn framed_cell(
         &self,
         cell: &SymbolId,
@@ -1540,7 +1557,11 @@ impl Adapter<'_> {
     ) -> Result<NativeTerm, AdapterError> {
         let name = self.cell_name(cell, origin)?;
         let (content, open_right) = match frame {
-            CellContentFrame::Exact => (content, false),
+            // A moved remainder is already inside the rewrite's left side
+            // ([`Self::with_moved_remainder`]); the cell around it is exact.
+            CellContentFrame::Exact | CellContentFrame::MovedMapRemainder { .. } => {
+                (content, false)
+            }
             CellContentFrame::ListRemainder { .. } => (content, true),
             CellContentFrame::KSequenceTail { binding, .. } => match binding {
                 None => (content, true),

@@ -14,7 +14,7 @@ use krs_ir_levels::{
     SemanticTerm,
 };
 
-use super::built_maps::{BuiltMap, MapBase, WrittenEntry};
+use super::built_maps::{BuiltMap, MapBase};
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
@@ -996,15 +996,12 @@ fn lower_initializer_state(
                 ProtocolMapBody::Items { items } => {
                     let mut entries = Vec::with_capacity(items.len());
                     for item in items {
-                        entries.push(WrittenEntry {
-                            key_key: item.key_key.clone(),
-                            entry: MapEntry {
-                                key: lower_term(&item.key.term, element(&item.key.term).as_ref())?,
-                                value: lower_term(
-                                    &item.value.term,
-                                    element(&item.value.term).as_ref(),
-                                )?,
-                            },
+                        entries.push(MapEntry {
+                            key: lower_term(&item.key.term, element(&item.key.term).as_ref())?,
+                            value: lower_term(
+                                &item.value.term,
+                                element(&item.value.term).as_ref(),
+                            )?,
                         });
                     }
                     return super::built_maps::build(

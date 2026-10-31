@@ -1016,7 +1016,10 @@ impl Frame {
             krs_ir::CellContentFrame::Exact => Self::Exact,
             krs_ir::CellContentFrame::KSequenceTail { .. } => Self::Sequence,
             krs_ir::CellContentFrame::ListRemainder { .. } => Self::List,
-            krs_ir::CellContentFrame::MapRemainder { .. } => Self::Map,
+            // A moved remainder's pattern is the entries joined with the remainder, as K's
+            // frame's is.
+            krs_ir::CellContentFrame::MapRemainder { .. }
+            | krs_ir::CellContentFrame::MovedMapRemainder { .. } => Self::Map,
         }
     }
 }

@@ -6,12 +6,15 @@
 //! It is emitted as K's join of its entries wherever the join provably has that
 //! value (one entry; keys that are ground tokens with different values; keys
 //! the subject matched as distinct entries of the map), and as the update chain
-//! otherwise. The tests pin the emitted K of an initializer's maps (two
-//! configuration-variable keys, a value over a configuration variable, the empty
-//! map, ground keys, a rest), of results over the empty map, over a remainder
-//! (bound and anonymous, a matched key written under two spellings, an optional
-//! cell and a collection instance), over a whole map the subject bound, and of
-//! claims' end states; the errors (a key the remainder can hold, a key written
+//! otherwise. Over a remainder the subject leaves, a key the subject did not
+//! match may be in the remainder, so the result is the chain over the
+//! remainder, which the clause binds on the left only (finding NT-9-1). The
+//! tests pin the emitted K of an initializer's maps (two configuration-variable
+//! keys, a value over a configuration variable, the empty map, ground keys, a
+//! rest), of results over the empty map, over a remainder (bound and anonymous,
+//! a matched key written under two spellings, keys the subject did not match in
+//! a plain cell, an optional cell and a collection instance), over a whole map
+//! the subject bound, and of claims' end states; the error (a key written
 //! twice); the claims' native proofs; and `krs run` where two keys meet.
 
 use std::fs;
@@ -47,6 +50,16 @@ pub enum ExpSyntax {
     Slot { a: Int },
     #[k::syntax("put({a},{v})")]
     Put { a: Int, v: Int },
+    #[k::syntax("moved({a},{b})")]
+    Moved { a: Int, b: Int },
+    #[k::syntax("fresh({a},{b})")]
+    Fresh { a: Int, b: Int },
+    #[k::syntax("keys({a},{b})")]
+    Keys { a: Int, b: Int },
+    #[k::syntax("optb({a},{b})")]
+    Optb { a: Int, b: Int },
+    #[k::syntax("slotb({a},{b})")]
+    Slotb { a: Int, b: Int },
     #[k::syntax("done")]
     Done,
 }
@@ -253,6 +266,127 @@ fn put(
     }
 }
 
+/// A key the subject did not match, `b`, beside a matched one, written over the bound
+/// remainder: `rest` with `a` then `b` written over it.
+#[k::rule(label = "moved")]
+fn moved(
+    a: Term<Int>,
+    b: Term<Int>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Moved(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> v, rest @ ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 10, b -> v, ..rest]),
+        ..state
+    }
+}
+
+/// The same over an anonymous remainder, which the result keeps.
+#[k::rule(label = "fresh")]
+fn fresh(
+    a: Term<Int>,
+    b: Term<Int>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Fresh(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> v, ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 20, b -> 30]),
+        ..state
+    }
+}
+
+/// Two keys the subject did not match; the matched `a` is not written, so it is gone.
+#[k::rule(label = "keys")]
+fn keys(
+    a: Term<Int>,
+    b: Term<Int>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Keys(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> v, ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![b -> v, 7 -> a]),
+        ..state
+    }
+}
+
+/// A key the subject did not match, over an optional cell's bound remainder.
+#[k::rule(label = "optb")]
+fn optb(
+    a: Term<Int>,
+    b: Term<Int>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Optb(a, b), tail @ ..),
+        opt: Some(k::configuration::Cell(map![a -> v, rest @ ..])),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        opt: Some(k::configuration::Cell(map![b -> v, ..rest])),
+        ..state
+    }
+}
+
+/// A key the subject did not match, over a collection instance's anonymous remainder.
+#[k::rule(label = "slotb")]
+fn slotb(
+    a: Term<Int>,
+    b: Term<Int>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Slotb(a, b), tail @ ..),
+        Objs::obj: {
+            me @ k::fragment![crate::Obj { slots: map![a -> v, ..], .. }],
+            instances0 @ ..
+        },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Objs::obj: {
+            k::fragment![crate::Obj { slots: map![a -> 1, b -> v], ..me }],
+            ..instances0
+        },
+        ..state
+    }
+}
+
+/// A key the start state did not match written over its remainder: the end map holds `a`
+/// then `b` written over what `moved` leaves, the chain, which covers `a == b`.
+#[k::claim(all_paths, label = "moved-keys")]
+fn moved_keys(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Moved(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 10, b -> 0]),
+        ..state
+    }
+}
+
 /// The end state's keys are the ones the start state matched: the join.
 #[k::claim(all_paths, label = "matched-keys")]
 fn matched_keys(
@@ -380,8 +514,10 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 }
 
 /// The emitted K of every built whole map: the join where it provably has the
-/// update chain's value, the chain otherwise, and the chain over a whole map the
-/// subject bound (`map![a -> 1, b -> 2, ..e]`).
+/// update chain's value, the chain otherwise, the chain over a whole map the
+/// subject bound (`map![a -> 1, b -> 2, ..e]`), and the chain over the
+/// remainder, bound on the left only, where the result writes a key the
+/// subject did not match (`moved`, `fresh`, `keys`, `optb`, `slotb`).
 #[test]
 fn a_built_cell_map_emits_the_join_where_it_has_the_value_and_the_chain_otherwise() {
     let target = shared_fixture_target();
@@ -422,22 +558,34 @@ fn a_built_cell_map_emits_the_join_where_it_has_the_value_and_the_chain_otherwis
         <slots> .Map </slots>
         rule [anon]:
         <env> A:Int |-> V:Int => A:Int |-> B:Int ... </env>
+        rule [fresh]:
+        <env> A:Int |-> V:Int Krs_MapRest0:Map => Krs_MapRest0:Map [ A:Int <- 20 ] [ B:Int <- 30 ] </env>
         rule [hex]:
         <env> 1 |-> V:Int Rest:Map => 1 |-> 6 Rest:Map </env>
+        rule [keys]:
+        <env> A:Int |-> V:Int Krs_MapRest0:Map => Krs_MapRest0:Map [ B:Int <- V:Int ] [ 7 <- A:Int ] </env>
+        rule [moved]:
+        <env> A:Int |-> V:Int Rest:Map => Rest:Map [ A:Int <- 10 ] [ B:Int <- V:Int ] </env>
         rule [opt]:
         <opt> A:Int |-> V:Int Rest:Map => A:Int |-> 3 Rest:Map </opt>
+        rule [optb]:
+        <opt> A:Int |-> V:Int Rest:Map => Rest:Map [ B:Int <- V:Int ] </opt>
         rule [over]:
         <env> A:Int |-> V:Int Rest:Map => A:Int |-> 10 Rest:Map </env>
         rule [put]:
         <env> E:Map => E:Map [ A:Int <- V:Int ] </env>
         rule [slot]:
         <slots> A:Int |-> V:Int Rest:Map => A:Int |-> 5 Rest:Map </slots>
+        rule [slotb]:
+        <slots> A:Int |-> V:Int Krs_MapRest0:Map => Krs_MapRest0:Map [ A:Int <- 1 ] [ B:Int <- V:Int ] </slots>
         rule [two]:
         <env> E:Map => .Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>
         rule [whole]:
         <env> E:Map => E:Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>
         claim [matched-keys]:
         <env> A:Int |-> 0 B:Int |-> 0 => A:Int |-> 10 B:Int |-> 0 </env>
+        claim [moved-keys]:
+        <env> A:Int |-> 0 => .Map [ A:Int <- 10 ] [ B:Int <- 0 ] </env>
         claim [one-key]:
         <env> A:Int |-> 0 => A:Int |-> 10 </env>
         claim [unmatched-keys]:
@@ -473,33 +621,15 @@ fn check_error(target: &Path, replaced: &[(&str, &str)]) -> (String, String) {
     (headline, written[column - 1..column - 1 + width].to_owned())
 }
 
-/// Over a remainder the subject leaves, a result writes only at keys the
-/// subject matched: the remainder may hold any other key, where K's frame,
-/// which joins the remainder with the entries, has no value; so such a key is
-/// an error at the key, bound or anonymous, whose advice is the form `whole`
-/// writes (`map![k -> v, ..m]` over `Cell(m)`). Writing it over the remainder
-/// would need the remainder bound on the left alone, `K |-> V Rest => Rest [ K
-/// <- W ]`, which the IR has no frame for (finding NT-9-1). A key written twice
-/// in one spelling is an error at its second spelling, as in a literal.
+/// A key written twice in one spelling is an error at its second spelling,
+/// as in a literal.
 #[test]
-fn a_key_the_remainder_can_hold_and_a_key_written_twice_are_errors() {
+fn a_key_written_twice_is_an_error() {
     let target = shared_fixture_target();
-    let errors = [
-        ("OVER", "map![a -> 10, b -> v, ..rest]"),
-        ("ANON", "map![a -> 20, b -> 30]"),
-        ("TWO", "map![a -> 1, a -> 2]"),
-    ]
-    .map(|replaced| check_error(target.path(), &[replaced]));
+    let errors =
+        [("TWO", "map![a -> 1, a -> 2]")].map(|replaced| check_error(target.path(), &[replaced]));
     expect_test::expect![[r#"
         [
-            (
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-CELL-MAPS::over (rule): the result writes an entry over the map the subject leaves unread (`..` or `rest @ ..`) at a key the subject does not match, and that map may already hold the key: a result's whole `map![..]` writes each entry over the map before it, here that remainder, but K's cell frame only joins the remainder with the result's entries, which has no value where the two share a key, so KRS cannot write it yet; bind the whole map instead, `env: Cell(m)` (inside `Some(..)` for an optional cell), and write `map![k -> v, ..m]`, which writes the entries over `m`",
-                "b",
-            ),
-            (
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-CELL-MAPS::anon (rule): the result writes an entry over the map the subject leaves unread (`..` or `rest @ ..`) at a key the subject does not match, and that map may already hold the key: a result's whole `map![..]` writes each entry over the map before it, here that remainder, but K's cell frame only joins the remainder with the result's entries, which has no value where the two share a key, so KRS cannot write it yet; bind the whole map instead, `env: Cell(m)` (inside `Some(..)` for an optional cell), and write `map![k -> v, ..m]`, which writes the entries over `m`",
-                "b",
-            ),
             (
                 "error[krs::syntax::invalid-expression-notation]: the key `a` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to",
                 "a",
@@ -513,7 +643,13 @@ fn a_key_the_remainder_can_hold_and_a_key_written_twice_are_errors() {
 /// writes: the initializer's `map![a -> 1, b -> 2]` started with `$A` and `$B`
 /// both 5, the rule `two`'s result for `two(3,3)`, and `whole`'s entries
 /// written over the map it read for `whole(5,5)`; with distinct keys both
-/// entries stay. Under K's join the first two had no value.
+/// entries stay. Under K's join the first two had no value. A key the subject
+/// did not match is written over the remainder: `moved(3,4)` over `3 |-> 1 4
+/// |-> 2` rewrites the remainder's `4`, `moved(3,5)` adds `5`, and `moved(3,3)`
+/// writes `3` twice, the later value winning; `fresh` does the same over an
+/// anonymous remainder, and `keys` drops the matched `3` and writes two keys
+/// over the remainder, `7` twice for `keys(3,7)`. Under K's join the results
+/// whose key the remainder held had no value.
 #[test]
 fn the_later_of_two_equal_keys_wins_at_run_time() {
     let target = shared_fixture_target();
@@ -526,6 +662,12 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
         ("two(3,4)", "5", "6"),
         ("whole(5,5)", "5", "6"),
         ("whole(3,4)", "5", "6"),
+        ("moved(3,4)", "3", "4"),
+        ("moved(3,5)", "3", "4"),
+        ("moved(3,3)", "3", "4"),
+        ("fresh(3,4)", "3", "4"),
+        ("keys(3,4)", "3", "4"),
+        ("keys(3,7)", "3", "4"),
     ]
     .map(|(program, a, b)| {
         let file = manifest.with_file_name("program.txt");
@@ -561,14 +703,21 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
             "two(3,4) with A=5 B=6 => env: 3 |-> 1 4 |-> 2",
             "whole(5,5) with A=5 B=6 => env: 5 |-> 2 6 |-> 2",
             "whole(3,4) with A=5 B=6 => env: 3 |-> 1 4 |-> 2 5 |-> 1 6 |-> 2",
+            "moved(3,4) with A=3 B=4 => env: 3 |-> 10 4 |-> 1",
+            "moved(3,5) with A=3 B=4 => env: 3 |-> 10 4 |-> 2 5 |-> 1",
+            "moved(3,3) with A=3 B=4 => env: 3 |-> 1 4 |-> 2",
+            "fresh(3,4) with A=3 B=4 => env: 3 |-> 20 4 |-> 30",
+            "keys(3,4) with A=3 B=4 => env: 4 |-> 1 7 |-> 3",
+            "keys(3,7) with A=3 B=4 => env: 4 |-> 2 7 |-> 3",
         ]
     "#]]
     .assert_debug_eq(&runs);
 }
 
 /// The claims prove natively: the end state's join over the keys the start
-/// state matched, the one-entry join, and the chain of two keys the start state
-/// did not match, which the rules build too.
+/// state matched, the one-entry join, the chain of two keys the start state
+/// did not match, which the rules build too, and the chain `moved` writes over
+/// the remainder it leaves.
 #[test]
 fn claims_over_built_maps_prove() {
     let target = shared_fixture_target();
@@ -585,6 +734,7 @@ fn claims_over_built_maps_prove() {
     expect_test::expect![[r#"
         [
             "ORG-KRS-CELL-MAPS-SPEC.matched-keys: proven",
+            "ORG-KRS-CELL-MAPS-SPEC.moved-keys: proven",
             "ORG-KRS-CELL-MAPS-SPEC.one-key: proven",
             "ORG-KRS-CELL-MAPS-SPEC.unmatched-keys: proven",
         ]

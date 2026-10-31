@@ -95,13 +95,10 @@ fn clause_mentions(clause: &SemanticClause, variable: &SemanticId) -> bool {
         part.terms()
             .into_iter()
             .any(|term| term_mentions(term, variable))
-            || matches!(
-                part.frame(),
-                Some(
-                    CellContentFrame::KSequenceTail { binding: Some(binding), .. }
-                        | CellContentFrame::MapRemainder { binding: Some(binding), .. }
-                ) if binding == variable
-            )
+            || part
+                .frame()
+                .and_then(CellContentFrame::binding)
+                .is_some_and(|binding| binding == variable)
     })
 }
 
