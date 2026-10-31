@@ -122,7 +122,10 @@ Adjacent layers connect in three ways, each needing its own mechanism:
    It says that the big step preserves the lower layer's legality and that its labels are of these forms; for confluence and independence it must also state its footprint: a process's step touches only its own binding and the shared cells it names (keyed ones at the bindings it names).
    The footprint is the main risk of this form, since commutation needs it and nothing else in the contract implies it.
    The alternative is one combined K definition per system, which reuses every generator unchanged (confluence's views read footprints off the rules, as today) but gives no modular theorems and Lean proofs at the combined size.
-   Which one, or when each, is what the prototype of §8 decides.
+   Which one, or when each, is what the prototype of §8 decides. **Built both ways** (`design.md` §3.6, "The parameterized form"):
+   - With the segment as a function of the process's state and input (`class Hooks`), the footprint is the function's signature, and confluence asks nothing of it. Each lower layer pays instead: its big step must be a function. Determinism is generated, and termination is the segment measure.
+   - The combined form needs no hand Lean but proves nothing modular. Its slots grow with the lower layer's rules: 70 for `twolayer`, against 18 for the parameterized `twoparam`.
+   - The parameterized form fits a lower layer that is deterministic, and a parameter as a relation is the gap for one that is not.
 3. **Interleaving: many instances of one layer side by side.**
    This is confluence's and independence's home (`product.md` §4), at two levels, each its own statement over its own definition:
    - *inside one interleaving:* the segments of different UTXOs that read nothing the others write;
@@ -133,7 +136,7 @@ Adjacent layers connect in three ways, each needing its own mechanism:
    Its confluence with no premise (`demos/UtxoConf`) is therefore already "every order the DAG allows gives the same result" for that fixture.
    A DAG explicit in the configuration, with legality "a transition's predecessors have run", is the restriction-of-steps reading of `product.md` §8 question 3.
    As a feature, independent of any consumer, it is confluence under a readiness condition: any segment whose inputs are ready may run.
-   The shape that needs it is a coroutine handoff: a resume makes the resumer wait until the child yields, so a step of the interleaving is a whole segment. The fixture `handoff` has it with the segment's next state and output as parameters (`demos/HandoffConf`), and `twolayer` with a concrete coroutine language run by the resuming task: §8 step 4's combined form, confluent under the script's well-formedness with every slot generic (`demos/TwoConf`, `design.md` §3.6).
+   The shape that needs it is a coroutine handoff: a resume makes the resumer wait until the child yields, so a step of the interleaving is a whole segment. The fixture `handoff` has it with the segment's next state and output as parameters (`demos/HandoffConf`), and `twolayer` with a concrete coroutine language run by the resuming task: §8 step 4's combined form, confluent under the script's well-formedness with every slot generic (`demos/TwoConf`, `design.md` §3.6). Its parameterized form `twoparam` is confluent under the same well-formedness for every instance, and the coroutine language on its own (`corout`) gives the instance (`demos/TwoParamConf`, `demos/TwoParamInst`).
 
 Some layers are not K: a ledger written in Lean is an imported library (`product.md` §3.6), and a runtime is related by conformance tests rather than proofs.
 **Principle (proposed):** one specification per layer.

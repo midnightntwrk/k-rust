@@ -1629,6 +1629,149 @@ theorem MCh.compat_at_oo {c₁ c₂ : MCh M} {L : M} {k₁ k₂ : K} (hne : k₁
     (a₂ : c₂.At L k₂) (o₂ : c₂.Only k₂) (o₁ : c₁.Only k₁) : MCh.Compat c₁ c₂ :=
   MCh.compat_at hne a₁ a₂ (Or.inr o₂) (Or.inr o₁)
 
+/-! ### A change at several keys
+
+A big step can change a cell holding a map at more than one key: a segment that spends its input
+and writes its output removes one binding and adds another (`MCh.fx_move`). `AtL` and `OnlyL` are
+`At` and `Only` at a list of keys, and two changes at keys all different commute when neither reads
+the other's keys (`MCh.compat_atL`). -/
+
+/-- The change is at the keys `ks`: at every other key of `L` it matches and puts back nothing, or
+reads the binding. -/
+def MCh.AtL (c : MCh M) (L : M) (ks : List K) : Prop :=
+  ∃ a b, c = some (a, b) ∧ ∀ j, j ∉ ks →
+    (lookup a j = none ∧ lookup b j = none) ∨ (lookup a j = lookup b j ∧ lookup L j ≠ none)
+
+/-- The change matches and puts back no key outside `ks`. -/
+def MCh.OnlyL (c : MCh M) (ks : List K) : Prop :=
+  ∃ a b, c = some (a, b) ∧ ∀ j, j ∉ ks → lookup a j = none ∧ lookup b j = none
+
+theorem MCh.atL_of_at {c : MCh M} {L : M} {k : K} (h : c.At L k) : c.AtL L [k] :=
+  let ⟨a, b, e, h⟩ := h
+  ⟨a, b, e, fun j hj => h j fun e => hj (e ▸ List.mem_singleton_self j)⟩
+
+theorem MCh.onlyL_of_only {c : MCh M} {k : K} (h : c.Only k) : c.OnlyL [k] :=
+  let ⟨a, b, e, h⟩ := h
+  ⟨a, b, e, fun j hj => h j fun e => hj (e ▸ List.mem_singleton_self j)⟩
+
+theorem MCh.atL_of_onlyL {c : MCh M} (L : M) {ks : List K} (h : c.OnlyL ks) : c.AtL L ks :=
+  let ⟨a, b, e, h⟩ := h
+  ⟨a, b, e, fun j hj => Or.inl (h j hj)⟩
+
+theorem MCh.fresh_one {L : M} {k : K} (h : lookup L k = none) : ∀ j ∈ [k], lookup L j = none :=
+  fun _ hj => (List.mem_singleton.1 hj) ▸ h
+
+/-- A rule's move of a binding to another key (`(k ↦ v) D = L`, `(k' ↦ w) D = L'`, `k ≠ k'`;
+`MCh.Small`): it removes `k` and adds `k'`, which `L` does not bind, and touches nothing else. -/
+theorem MCh.fx_move {c : MCh M} {L L' D : M} {k k' : K} {v w : V} (sm : c.Small) (st : c.Step L L')
+    (h : concat (element k v) D = some L) (h' : concat (element k' w) D = some L') (hne : k ≠ k') :
+    c.OnlyL [k, k'] ∧ lookup L k' = none := by
+  have hLk : lookup L k = some v := lookup_of_concat_element h
+  have hL'k : lookup L' k = none :=
+    (lookup_concat_right h' (lookup_element_ne hne)).trans (concat_element_iff.1 h).2.1
+  have hLk' : lookup L k' = none :=
+    (lookup_concat_right h (lookup_element_ne (Ne.symm hne))).trans (concat_element_iff.1 h').2.1
+  have hL'k' : lookup L' k' = some w := lookup_of_concat_element h'
+  refine ⟨?_, hLk'⟩
+  obtain ⟨pre, ap⟩ := st
+  cases c with
+  | none =>
+    have e : L = L' := ap
+    subst e
+    rw [hLk] at hL'k
+    cases hL'k
+  | some p =>
+    obtain ⟨a, b⟩ := p
+    -- `b` binds `k'`, which `L` does not, and it is one binding (`Small`)
+    have hb : lookup b k' ≠ none := by
+      have e := MCh.lookup_apply pre k'
+      rw [ap, hL'k'] at e
+      by_cases u : lookup a k' = none ∧ lookup b k' = none
+      · rw [ite_eq_left u, hLk'] at e; cases e
+      · rw [ite_eq_right u] at e; rw [← e]; simp
+    have hbj : ∀ j, j ≠ k' → lookup b j = none := by
+      intro j hj
+      rcases (sm _ rfl).2 with ⟨k₀, w₀, eb⟩ | eb
+      · change b = _ at eb
+        subst eb
+        by_cases e0 : k' = k₀
+        · subst e0; exact lookup_element_ne hj
+        · exact absurd (lookup_element_ne e0) hb
+      · change b = _ at eb
+        subst eb; exact lookup_unit
+    refine ⟨a, b, rfl, fun j hj => ?_⟩
+    have hjk : j ≠ k := fun e => hj (e ▸ List.mem_cons_self ..)
+    have hjk' : j ≠ k' := fun e => hj (e ▸ List.mem_cons_of_mem _ (List.mem_singleton_self _))
+    refine ⟨?_, hbj j hjk'⟩
+    -- every other key is kept, so `a` matching it would put it back in `b`, which has none
+    cases ha : lookup a j with
+    | none => rfl
+    | some x =>
+      obtain ⟨R, r, hR, hr⟩ := pre _ rfl
+      have keep : lookup L' j = lookup L j :=
+        (lookup_concat_right h' (lookup_element_ne hjk')).trans
+          (lookup_concat_right h (lookup_element_ne hjk)).symm
+      have e := MCh.lookup_apply pre j
+      rw [ap, keep, lookup_of_concat hR ha, ite_eq_right (by simp [ha]), hbj j hjk'] at e
+      cases e
+
+/-- The keys of two changes are all different. -/
+abbrev MCh.KeysNe (ks₁ ks₂ : List K) : Prop := ∀ k₁ ∈ ks₁, ∀ k₂ ∈ ks₂, k₁ ≠ k₂
+
+/-- Two changes at keys all different commute when neither reads the other's keys: they are not
+bound, or the other change is at its own keys alone. -/
+theorem MCh.compat_atL {c₁ c₂ : MCh M} {L : M} {ks₁ ks₂ : List K} (hne : MCh.KeysNe ks₁ ks₂)
+    (a₁ : c₁.AtL L ks₁) (a₂ : c₂.AtL L ks₂) (f₁ : (∀ k ∈ ks₁, lookup L k = none) ∨ c₂.OnlyL ks₂)
+    (f₂ : (∀ k ∈ ks₂, lookup L k = none) ∨ c₁.OnlyL ks₁) : MCh.Compat c₁ c₂ := by
+  obtain ⟨x₁, y₁, rfl, h₁⟩ := a₁
+  obtain ⟨x₂, y₂, rfl, h₂⟩ := a₂
+  have n₂ : ∀ k ∈ ks₁, lookup x₂ k = none ∧ lookup y₂ k = none := by
+    intro k hk
+    have hk₂ : k ∉ ks₂ := fun m => hne k hk k m rfl
+    rcases f₁ with f | ⟨x, y, e, o⟩
+    · rcases h₂ k hk₂ with u | ⟨-, u⟩
+      · exact u
+      · exact absurd (f k hk) u
+    · cases e; exact o k hk₂
+  have n₁ : ∀ k ∈ ks₂, lookup x₁ k = none ∧ lookup y₁ k = none := by
+    intro k hk
+    have hk₁ : k ∉ ks₁ := fun m => hne k m k hk rfl
+    rcases f₂ with f | ⟨x, y, e, o⟩
+    · rcases h₁ k hk₁ with u | ⟨-, u⟩
+      · exact u
+      · exact absurd (f k hk) u
+    · cases e; exact o k hk₁
+  refine Or.inr (Or.inr ⟨_, _, _, _, rfl, rfl, Or.inr (Or.inr fun j => ?_)⟩)
+  by_cases j₁ : j ∈ ks₁
+  · exact Or.inr (Or.inl (n₂ j j₁))
+  by_cases j₂ : j ∈ ks₂
+  · exact Or.inl (n₁ j j₂)
+  rcases h₁ j j₁ with u | ⟨e₁, -⟩
+  · exact Or.inl u
+  rcases h₂ j j₂ with u | ⟨e₂, -⟩
+  · exact Or.inr (Or.inl u)
+  exact Or.inr (Or.inr ⟨e₁, e₂⟩)
+
+theorem MCh.compat_atL_ff {c₁ c₂ : MCh M} {L : M} {ks₁ ks₂ : List K} (hne : MCh.KeysNe ks₁ ks₂)
+    (a₁ : c₁.AtL L ks₁) (a₂ : c₂.AtL L ks₂) (n₁ : ∀ k ∈ ks₁, lookup L k = none)
+    (n₂ : ∀ k ∈ ks₂, lookup L k = none) : MCh.Compat c₁ c₂ :=
+  MCh.compat_atL hne a₁ a₂ (Or.inl n₁) (Or.inl n₂)
+
+theorem MCh.compat_atL_fo {c₁ c₂ : MCh M} {L : M} {ks₁ ks₂ : List K} (hne : MCh.KeysNe ks₁ ks₂)
+    (a₁ : c₁.AtL L ks₁) (a₂ : c₂.AtL L ks₂) (n₁ : ∀ k ∈ ks₁, lookup L k = none)
+    (o₁ : c₁.OnlyL ks₁) : MCh.Compat c₁ c₂ :=
+  MCh.compat_atL hne a₁ a₂ (Or.inl n₁) (Or.inr o₁)
+
+theorem MCh.compat_atL_of {c₁ c₂ : MCh M} {L : M} {ks₁ ks₂ : List K} (hne : MCh.KeysNe ks₁ ks₂)
+    (a₁ : c₁.AtL L ks₁) (a₂ : c₂.AtL L ks₂) (o₂ : c₂.OnlyL ks₂)
+    (n₂ : ∀ k ∈ ks₂, lookup L k = none) : MCh.Compat c₁ c₂ :=
+  MCh.compat_atL hne a₁ a₂ (Or.inr o₂) (Or.inl n₂)
+
+theorem MCh.compat_atL_oo {c₁ c₂ : MCh M} {L : M} {ks₁ ks₂ : List K} (hne : MCh.KeysNe ks₁ ks₂)
+    (a₁ : c₁.AtL L ks₁) (a₂ : c₂.AtL L ks₂) (o₂ : c₂.OnlyL ks₂) (o₁ : c₁.OnlyL ks₁) :
+    MCh.Compat c₁ c₂ :=
+  MCh.compat_atL hne a₁ a₂ (Or.inr o₂) (Or.inr o₁)
+
 end MCh
 
 end KPrelude
@@ -1955,12 +2098,13 @@ macro_rules
 
 For `hk : ¬ ch₁.KCompat ch₂`, the changes of two steps from one configuration at the cells holding
 a map: per cell, a change is `none` (a hypothesis `ch.f = none`, of the rule's class), or at the
-key its rule's match fixes (`MCh.fx_ins`, `only_ins`, `fx_rem`, `fx_repl` with `k2l_ne`, `fx_ext`,
+keys its rule's match fixes (`MCh.fx_ins`, `only_ins`, `fx_rem`, `fx_repl` with `k2l_ne`, `fx_ext`
+at one key; `fx_move` at two, told apart by `k2l_ne` or by a requirement `A =/=K B` of the rule;
 from a hypothesis `MCh.Step ch.f L L'` and the match, found up to reducible unfolding: `L` and `L'`
-as the matches state them). Per cell where both are at a key, it cases
-on the keys: equal, `cases` on the equation, then `k2l_det`, the goals left to the caller; all
-different, `hk` is refuted by `MCh.compat_at`. It fails when a change's key is not found, or two
-keys do not show that neither change reads the other's. -/
+as the matches state them). Per cell where both are at keys, it cases on every pair of keys: equal,
+`cases` on the equation, then `k2l_det`, the goals left to the caller; all different, `hk` is
+refuted by `MCh.compat_atL`. It fails when a change's keys are not found, or two changes' keys do
+not show that neither change reads the other's. -/
 
 /-- The parts of a conjunction, with their proofs from `p`. -/
 partial def keyedParts (p ty : Expr) : MetaM (Array (Expr × Expr)) := do
@@ -1978,17 +2122,36 @@ def keyedHyps : MetaM (Array (Expr × Expr)) := do
     out := out ++ (← keyedParts d.toExpr d.type)
   return out
 
-/-- Whether `k2l_ne` closes the goal `g`. -/
-def keyedNe (g : MVarId) : TacticM Bool := do
+/-- A rule's requirement `A =/=K B` tells `A` and `B` apart. -/
+theorem KEqHook.ne_true {α : Type} [DecidableEq α] {a b : α} (h : KEqHook.ne a b = true) : a ≠ b := by
+  simpa [KEqHook.ne] using h
+
+/-- Whether `k2l_ne` closes the goal `g`, or a requirement `A =/=K B` among the hypotheses does: a
+goal `x ≠ y` where `A` becomes `B` once `x` is rewritten to `y`. -/
+def keyedNe (g : MVarId) (hyps : Array (Expr × Expr) := #[]) : TacticM Bool := do
   let s ← saveState
   try
     let gs ← Tactic.run g (evalTactic (← `(tactic| k2l_ne)))
     if gs.isEmpty then return true
     s.restore
-    return false
   catch _ =>
     s.restore
-    return false
+  for (p, ty) in hyps do
+    let some (_, l, r) := ty.eq? | continue
+    unless l.isAppOf ``KEqHook.ne && r.isConstOf ``Bool.true do continue
+    let s ← saveState
+    try
+      let gs ← Tactic.run g do
+        evalTactic (← `(tactic| intro k2l_h))
+        let g' ← getMainGoal
+        let gs' ← g'.apply (← mkAppM ``KEqHook.ne_true #[p])
+        setGoals gs'
+        evalTactic (← `(tactic| rw [k2l_h]))
+      if gs.isEmpty then return true
+      s.restore
+    catch _ =>
+      s.restore
+  return false
 
 /-- Whether the hypothesis type `h` may be an instance of the pattern `t` (`concat a R = some m`):
 their parts the pattern fixes already are the same. -/
@@ -2011,7 +2174,7 @@ partial def keyedFill (ms : Array Expr) (hyps : Array (Expr × Expr)) : List Nat
       let ty ← instantiateMVars (← inferType m)
       if ty.isAppOfArity ``Ne 3 then
         let g ← mkFreshExprMVar ty
-        return (← keyedNe g.mvarId!) && (← isDefEq m g) && (← keyedFill ms hyps rest)
+        return (← keyedNe g.mvarId! hyps) && (← isDefEq m g) && (← keyedFill ms hyps rest)
       for (p, pty) in hyps do
         unless pty.getAppFn == ty.getAppFn && (← keyedQuick pty ty) do continue
         let s ← (Meta.saveState : MetaM _)
@@ -2053,13 +2216,15 @@ def keyedApply (lem : Name) (st : Expr) (hyps : Array (Expr × Expr)) : TacticM 
     s.restore
     return none
 
-/-- What `k2l_keyed` knows of a change at a key: `At` (with the key), and when found, that the key
-is not bound before, and that the change is at it alone. -/
+/-- What `k2l_keyed` knows of a change at its keys: `AtL` (with the keys), and when found, that the
+keys are not bound before, and that the change is at them alone; `facts`, the keys it knows are not
+bound, for `k2l_det`. -/
 structure KeyedFx where
   atP : Expr
-  key : Expr
+  keys : List Expr
   fresh : Option Expr
   only : Option Expr
+  facts : Array Expr
 
 /-- A proof of `x = none` among the hypotheses. -/
 def keyedNone (x : Expr) (hyps : Array (Expr × Expr)) : MetaM (Option Expr) := do
@@ -2068,37 +2233,57 @@ def keyedNone (x : Expr) (hyps : Array (Expr × Expr)) : MetaM (Option Expr) := 
       if r.isAppOf ``Option.none && (← withReducible (isDefEq l x)) then return some p
   return none
 
-/-- The key the change `x` is at, from its step and the match of its rule. -/
+/-- The keys the change `x` is at, from its step and the match of its rule. -/
 def keyedFx (x : Expr) (hyps : Array (Expr × Expr)) : TacticM (Option KeyedFx) := do
   let mut fx : Option KeyedFx := none
   for (st, ty) in hyps do
     unless ty.isAppOf ``MCh.Step do continue
     let as := ty.getAppArgs
     unless ← withReducible (isDefEq as[as.size - 3]! x) do continue
-    let mut atP : Option (Expr × Expr) := none
-    let mut fresh : Option Expr := none
+    let L := as[as.size - 2]!
+    let mut atP : Option (Expr × List Expr) := none
     let mut only : Option Expr := none
-    for lem in [``MCh.fx_ins, ``MCh.only_ins, ``MCh.fx_rem, ``MCh.fx_repl, ``MCh.fx_ext] do
+    let mut facts : Array Expr := #[]
+    for lem in [``MCh.fx_ins, ``MCh.only_ins, ``MCh.fx_rem, ``MCh.fx_repl, ``MCh.fx_ext, ``MCh.fx_move] do
       let some e ← keyedApply lem st hyps | continue
       for (p, pty) in ← keyedParts e (← inferType e) do
         if pty.isAppOf ``MCh.At then
-          if atP.isNone then atP := some (p, pty.getAppArgs.back!)
+          if atP.isNone then atP := some (← mkAppM ``MCh.atL_of_at #[p], [pty.getAppArgs.back!])
         else if pty.isAppOf ``MCh.Only then
+          if only.isNone then only := some (← mkAppM ``MCh.onlyL_of_only #[p])
+        else if pty.isAppOf ``MCh.OnlyL then
           if only.isNone then only := some p
-        else if fresh.isNone then fresh := some p
-    if let some (p, k) := atP then
-      fx := some { atP := p, key := k, fresh, only }
+          if atP.isNone then
+            if let some (_, ks) := (← instantiateMVars pty.getAppArgs.back!).listLit? then
+              atP := some (← mkAppM ``MCh.atL_of_onlyL #[L, p], ks)
+        else facts := facts.push p
+    if let some (p, ks) := atP then
+      -- a change at one key that knows it unbound is fresh at all its keys
+      let fresh ← match ks, facts.toList with
+        | [_], n :: _ => some <$> mkAppM ``MCh.fresh_one #[n]
+        | _, _ => pure none
+      fx := some { atP := p, keys := ks, fresh, only, facts }
       break
   return fx
 
-/-- The commutation of `x` at `f₁`'s key and `y` at `f₂`'s, by `hne` and what each knows. -/
-def keyedCompat (hne : Expr) (f₁ f₂ : KeyedFx) : MetaM Expr := do
-  match f₁.fresh, f₂.only, f₂.fresh, f₁.only with
-  | some n₁, _, some n₂, _ => mkAppM ``MCh.compat_at_ff #[hne, f₁.atP, f₂.atP, n₁, n₂]
-  | some n₁, _, _, some o₁ => mkAppM ``MCh.compat_at_fo #[hne, f₁.atP, f₂.atP, n₁, o₁]
-  | _, some o₂, some n₂, _ => mkAppM ``MCh.compat_at_of #[hne, f₁.atP, f₂.atP, o₂, n₂]
-  | _, some o₂, _, some o₁ => mkAppM ``MCh.compat_at_oo #[hne, f₁.atP, f₂.atP, o₂, o₁]
-  | _, _, _, _ => throwError "k2l_keyed: a change may read the key of the other"
+/-- The commutation of `x` at `f₁`'s keys and `y` at `f₂`'s, by what each knows, with the keys told
+apart by the hypotheses `kᵢ ≠ kⱼ` of the goal's context. -/
+def keyedCompat (f₁ f₂ : KeyedFx) : TacticM Expr := do
+  let some k := f₁.keys.head? | throwError "k2l_keyed: a change at no key"
+  let kTy ← inferType k
+  let hne ← mkFreshExprMVar (← mkAppM ``MCh.KeysNe #[← mkListLit kTy f₁.keys, ← mkListLit kTy f₂.keys])
+  let e ← match f₁.fresh, f₂.only, f₂.fresh, f₁.only with
+    | some n₁, _, some n₂, _ => mkAppM ``MCh.compat_atL_ff #[hne, f₁.atP, f₂.atP, n₁, n₂]
+    | some n₁, _, _, some o₁ => mkAppM ``MCh.compat_atL_fo #[hne, f₁.atP, f₂.atP, n₁, o₁]
+    | _, some o₂, some n₂, _ => mkAppM ``MCh.compat_atL_of #[hne, f₁.atP, f₂.atP, o₂, n₂]
+    | _, some o₂, _, some o₁ => mkAppM ``MCh.compat_atL_oo #[hne, f₁.atP, f₂.atP, o₂, o₁]
+    | _, _, _, _ => throwError "k2l_keyed: a change may read the key of the other"
+  let gs ← Tactic.run hne.mvarId! (evalTactic (← `(tactic|
+    (intro k₁ h₁ k₂ h₂
+     simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at h₁ h₂
+     (try cases h₁) <;> (try cases h₂) <;> (try subst k₁) <;> (try subst k₂) <;> assumption))))
+  unless gs.isEmpty do throwError "k2l_keyed: the keys are not told apart"
+  instantiateMVars e
 
 /-- The parts of a conjunction, nested to the right. -/
 partial def keyedConj (t : Expr) : List Expr :=
@@ -2142,22 +2327,23 @@ elab "k2l_keyed " hk:ident : tactic => withMainContext do
   let mut g ← getMainGoal
   for (_, f) in cells do
     if let some (f₁, f₂) := f then
-      for n in [f₁.fresh, f₂.fresh] do
-        if let some p := n then
-          if let some g' ← detAdd g p then g := g'
+      for p in f₁.facts ++ f₂.facts do
+        if let some g' ← detAdd g p then g := g'
   let mut left : List MVarId := []
   let mut proofs : Array Expr := #[]
   for (p, f) in cells do
     match p, f with
     | some p, _ => proofs := proofs.push p
     | none, some (f₁, f₂) =>
-      let (pos, neg) ← g.byCases (← mkEq f₁.key f₂.key) `k2l_kk
-      setGoals [pos.mvarId]
-      let kk := mkIdent `k2l_kk
-      evalTactic (← `(tactic| (first | (cases $kk:ident) | (subst $kk:ident) | skip); k2l_det))
-      left := left ++ (← getGoals)
-      g := neg.mvarId
-      proofs := proofs.push (← g.withContext (keyedCompat (mkFVar neg.fvarId) f₁ f₂))
+      for k₁ in f₁.keys do
+        for k₂ in f₂.keys do
+          let (pos, neg) ← g.withContext do g.byCases (← mkEq k₁ k₂) `k2l_kk
+          setGoals [pos.mvarId]
+          let kk := mkIdent `k2l_kk
+          evalTactic (← `(tactic| (first | (cases $kk:ident) | (subst $kk:ident) | skip); k2l_det))
+          left := left ++ (← getGoals)
+          g := neg.mvarId
+      proofs := proofs.push (← g.withContext (keyedCompat f₁ f₂))
     | none, none => pure ()
   g.withContext do
     let prf ← keyedAnd proofs.toList

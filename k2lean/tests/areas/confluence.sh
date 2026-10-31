@@ -7,7 +7,10 @@
 # order, the fixture handoffseq, into handoff, library handoffseq; DrfConf: workers writing one
 # cell, the fixture drf, a slot refuted by two runs of a program, library drf; TwoConf: the
 # two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
-# coordination script, library twolayer). Registry: confluence.py.
+# coordination script, library twolayer; TwoParamConf: its parameterized form, the fixture twoparam,
+# a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
+# from the coroutine language on its own, the fixture corout, library corout). Registry:
+# confluence.py.
 
 name_confluence() {
   case $1 in
@@ -17,6 +20,8 @@ name_confluence() {
     handoffseq) echo HandoffSeq ;;
     drf) echo Drf ;;
     twolayer) echo TwoLayer ;;
+    twoparam) echo TwoParam ;;
+    corout) echo Corout ;;
     *) return 1 ;;
   esac
 }
@@ -38,6 +43,11 @@ gen_confluence() {
     # the two-layer prototype (tests/fixtures/twolayer, docs/direction.md §8 step 4): the script's
     # tasks run the segments of a coroutine language, with the script's well-formedness `wf`
     twolayer) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
+    # its parameterized form (tests/fixtures/twoparam): a resume is one step, the segment's register
+    # and code functions with no equations (`class Hooks`), with the same well-formedness `wf`
+    twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
+    # the coroutine language on its own (tests/fixtures/corout), deterministic
+    corout) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -90,6 +100,23 @@ libs_confluence() {
         --threads tasks --obs vals --assume-invariant TwoLayer.Invariant --views-module TwoConf.Legal.Views \
         --slots "$DEMOS/TwoConf/TwoConf/Legal/Slots.lean" \
         --out "$DEMOS/TwoConf/TwoConf/Legal/Views.lean" --report "$DEMOS/TwoConf/legal.toml" ;;
+    # the parameterized form: every slot generic under `wf`, for every instance of the parameters
+    TwoParamConf) "$G" confluence --kore "$(libs_fixture twoparam)/definition.kore" --name TwoParam --ns TwoParamConf \
+        --threads tasks --obs vals --assume-invariant TwoParam.Invariant \
+        --slots "$DEMOS/TwoParamConf/TwoParamConf/Slots.lean" \
+        --out "$DEMOS/TwoParamConf/TwoParamConf/Views.lean" --report "$DEMOS/TwoParamConf/confluence.toml" ;;
+    # the translations of code between twoparam and corout, both ways (`relate --roots SortStmts`, by
+    # the fixtures' syntax definitions), for the instance `TwoParamInst/Inst.lean`
+    TwoParamInst) local a b
+      a=$(libs_fixture twoparam) b=$(libs_fixture corout)
+      "$G" relate --kore-a "$a/definition.kore" --syntax-a "$a/syntaxDefinition.kore" --name-a TwoParam \
+        --kore-b "$b/definition.kore" --syntax-b "$b/syntaxDefinition.kore" --name-b Corout \
+        --ns TwoParamInst.Tr --roots SortStmts \
+        --out "$DEMOS/TwoParamInst/TwoParamInst/Tr.lean" --report "$DEMOS/TwoParamInst/tr.toml" &&
+      "$G" relate --kore-a "$b/definition.kore" --syntax-a "$b/syntaxDefinition.kore" --name-a Corout \
+        --kore-b "$a/definition.kore" --syntax-b "$a/syntaxDefinition.kore" --name-b TwoParam \
+        --ns TwoParamInst.Back --roots SortStmts \
+        --out "$DEMOS/TwoParamInst/TwoParamInst/Back.lean" --report "$DEMOS/TwoParamInst/back.toml" ;;
     SimpleConf) simple_witnesses "$W/simple-witnesses" &&
       "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --slots "$DEMOS/SimpleConf/SimpleConf/Slots.lean" \
@@ -177,6 +204,26 @@ gate_confluence() {
     partlib twolayer TwoLayer
     scaffold confluence-TwoConf libs_confluence TwoConf
     dbuild_slots TwoConf
+  fi
+  # its parameterized form: the fixture twoparam, a resume's whole segment one step whose register
+  # and code are parameters (`TwoParam.Hooks`); under `wf` every slot generic for every instance,
+  # a resume that spends an output and writes its own changing <vals> at two keys (`MCh.fx_move`)
+  if runs demo TwoParamConf; then
+    phase "scaffold TwoParamConf"
+    partlib twoparam TwoParam
+    scaffold confluence-TwoParamConf libs_confluence TwoParamConf
+    dbuild_slots TwoParamConf
+  fi
+  # the parameters from the coroutine language on its own (the fixture corout, deterministic): a
+  # segment is corout's run to the first configuration that does not step, unique
+  # (`Paths.FirstReach.unique`), by hand in `TwoParamInst/Inst.lean` over the translations of code
+  # `relate` generates; TwoParamConf's `terminal_unique` at that instance; built against
+  # TwoParamConf's phase
+  if runs demo TwoParamInst; then
+    phase "scaffold TwoParamInst"
+    partlib corout Corout.Determinism
+    scaffold relate-TwoParamInst libs_confluence TwoParamInst
+    dbuild TwoParamInst
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;

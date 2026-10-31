@@ -49,6 +49,18 @@ DEMOS = {
                                              "demos/TwoConf/TwoConf/Legal/Slots.lean",
                                              "demos/TwoConf/confluence.toml", "demos/TwoConf/legal.toml"],
                 "slots": {"prefixes": ["join.", "Legal.join."], "list": "demos/TwoConf/open-joins.txt"}},
+    # its parameterized form: a segment's register and code parameters of the definition, every slot
+    # generic under `wf` for every instance
+    "TwoParamConf": {"tier": "light", "sources": ["generated/twoparam",
+                                                  "demos/TwoParamConf/TwoParamConf/Views.lean",
+                                                  "demos/TwoParamConf/TwoParamConf/Slots.lean",
+                                                  "demos/TwoParamConf/confluence.toml"],
+                     "slots": {"prefixes": ["join."]}},
+    # the parameters from the coroutine language on its own, by hand over the translations of code;
+    # built against TwoParamConf's phase
+    "TwoParamInst": {"tier": "light", "sources": ["generated/corout",
+                                                  "demos/TwoParamInst/TwoParamInst/Tr.lean",
+                                                  "demos/TwoParamInst/TwoParamInst/Back.lean"]},
 }
 
 # SIMPLE's pairs of rules classified, and its slots by premise and class with their statuses
