@@ -42,6 +42,14 @@ guarded = 12
 kc_auto = 12
 kc_auto_open = 0
 
+[sumspec-claims]
+tier = "heavy"
+claims = 2
+stated = 2
+guarded = 2
+kc_auto = 2
+kc_auto_open = 0
+
 [strict-claims]
 tier = "light"
 claims = 2
@@ -80,6 +88,8 @@ preserve = []
 "replay/sum-loop.toml" = { tier = "heavy", compare = "strip-seconds" }
 "claims-impplus.toml" = { tier = "light", compare = "exact" }
 "kc-auto-impplus.txt" = { tier = "light", compare = "sorted-lines" }
+"claims-sumspec.toml" = { tier = "heavy", compare = "exact" }
+"kc-auto-sumspec.txt" = { tier = "heavy", compare = "sorted-lines" }
 "claims-strict.toml" = { tier = "light", compare = "exact" }
 "kc-auto-strict.txt" = { tier = "light", compare = "sorted-lines" }
 "claims-prio.toml" = { tier = "light", compare = "exact" }
@@ -178,3 +188,10 @@ preserve = []
 "generated/strict-claims/claims.toml" = { tier = "light", sha256 = "50ad0418e2f2e1491bffd050763a97db08d48a89678954fc593551a6123d886e" }
 "generated/strict-claims/lakefile.lean" = { tier = "light", sha256 = "9aa735e0e793f0985a3308105d117e95b0afb6cbed0c410fb718a17b08c9563e" }
 "generated/strict-claims/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/sumspec-claims/KSumSpec.lean" = { tier = "heavy", sha256 = "22b7d1482ababfd7368415b59c43ab26c418c9a2880b27f3efef2c15046ce14e" }
+"generated/sumspec-claims/KSumSpec/Basic.lean" = { tier = "heavy", sha256 = "1c503c21f013f430ebc562802c699c3912ca2e69d51f2ab4ae66957b007a5b6b" }
+"generated/sumspec-claims/KSumSpec/SumSpec.lean" = { tier = "heavy", sha256 = "1ce2d72f99821752e2110c37358b7d08a8338ba1fc46fbc24fe526e7a83b9a68" }
+"generated/sumspec-claims/KSumSpecTest/Axioms.lean" = { tier = "heavy", sha256 = "cf975a16e392e6dbe73ca16304716c1af1c2de6d46ebcf7f7a1608fd4d39ac2c" }
+"generated/sumspec-claims/claims.toml" = { tier = "heavy", sha256 = "9139fe6d7deb6749704bd2deedc7d2260fca43760ed59b9fec6282afab58d0f1" }
+"generated/sumspec-claims/lakefile.lean" = { tier = "heavy", sha256 = "8e0601d764fe0ae8c7ae29456bd8a4ddba232eb7cdfc4ba4dce5ed391f245177" }
+"generated/sumspec-claims/lean-toolchain" = { tier = "heavy", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }

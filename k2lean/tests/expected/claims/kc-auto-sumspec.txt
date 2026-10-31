@@ -1,0 +1,2 @@
+info: KSumSpec/SumSpec.lean:43:2: kc_auto KSumSpec.SumSpec.Inst.claim0.holds: 80 configurations, 74 rule steps, 1 splits, 2 claim applications, 0 open
+info: KSumSpec/SumSpec.lean:66:2: kc_auto KSumSpec.SumSpec.Inst.claim1.holds: 18 configurations, 16 rule steps, 0 splits, 1 claim applications, 0 open
