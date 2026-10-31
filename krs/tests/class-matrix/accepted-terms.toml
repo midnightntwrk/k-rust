@@ -1655,6 +1655,24 @@ context alias [caseTAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."import/context-alias/map-key/Go()"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> go |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/context-alias/map-key/Hold(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> hold ( V0:KItem ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."import/context-alias/subject/Go()"]
 k = """
 context alias [caseTAG]:
@@ -1764,6 +1782,22 @@ k = """
 rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/equation/context-map-key/Go()"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> go |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."import/equation/context-map-key/Hold(x)"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> hold ( V0:KItem ) |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."import/equation/result/Go()"]
@@ -3969,6 +4003,24 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( (V0:KItem => go) , V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/cells/guard-restated/k::is!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , 0 ) => cTAG ( V0:KItem , 0 ) ... </k>
+requires isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/cells/guard-restated/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , 0 ) => cTAG ( V0:KItem , 0 ) ... </k>
+requires true
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -7647,6 +7699,63 @@ k = """
 rule cTAG ( V0:KItem , ( hold ( _ ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/equation/context-map-key/1"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> 1 |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/Cmd::Go()"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> go |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/Cmd::Hold(x)"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> hold ( V0:KItem ) |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/Size(x)"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> size ( V0:KItem ) |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/k::builtin::int::add(1, 2)"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> 1 +Int 2 |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/k::project!(Int, x)"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> V0:KItem |-> V1:KItem ... </env>
+requires isInt(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/x"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> V0:KItem |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/equation/guard/!(x < 1)"]
@@ -13872,6 +13981,14 @@ rule cTAG ( V0:KItem , hold ( ( hold ( _ ) #as V1:Stmt ) ) ) => hold ( V0:KItem 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/rule/subject-root-list/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> ListItem(V0:KItem) _ => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept.'terms/rule/subject-root/"s"']
 k = '''
 rule #token("\"s\"","String") => go [label(case-TAG)]
@@ -13938,6 +14055,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/rule/subject-root/Wrap::<dyn k::KItemSort>(x)"]
 k = """
 rule wrap ( V0::KItem ) => go [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18793,6 +18918,62 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/context-alias/item-root/y @ Cmd::Hold(_)"]
 
+[accept."terms/context-alias/map-key/1"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> 1 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/context-alias/map-key/Cmd::Go()"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> go |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/context-alias/map-key/Cmd::Hold(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> hold ( V0:KItem ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/context-alias/map-key/Size(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> size ( V0:KItem ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/context-alias/map-key/k::builtin::int::add(1, 2)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> 1 +Int 2 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/context-alias/map-key/k::project!(Int, x)"]
+
+[accept."terms/context-alias/map-key/x"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/context-alias/subject/Cmd::Go() | Cmd::Hold(_)"]
 
 [accept."terms/context-alias/subject/Wrap::<dyn k::KItemSort>(x)"]
@@ -18863,6 +19044,7 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 <env> size ( {V0:KItem}:>Int ) |-> V1:KItem ... </env>
+requires isInt(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -19203,7 +19385,7 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
 <env> pair ( V2:Int , V1:KItem ) |-> V3:KItem ... </env>
-requires V2:Int ==K {V0:KItem}:>Int
+requires V2:Int ==K V0:KItem
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -31734,6 +31916,57 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 same_k_as = ["notation/rule/subject-depth-2/k::builtin::set::item(x)"]
 k = """
 rule cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> .Map => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> .Set => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/map![]"]
+same_k_as = ["notation/rule/subject-root/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> .Map => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/set![]"]
+same_k_as = ["notation/rule/subject-root/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> .Set => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/set![x]"]
+same_k_as = ["notation/rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

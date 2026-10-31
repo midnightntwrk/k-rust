@@ -107,13 +107,27 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // map's remainder; and in the static subjects (NT-14), each of the desugar's and the
             // alias's, the 17 spellings that stand there only, the 20 witnesses a rule of the
             // case's own writes, the 2 a typed parameter binds (the desugar's), the 8 spellings
-            // at a constructor's argument and at an alias's pattern, and 5 at an alternative.
+            // at a constructor's argument and at an alias's pattern, and 5 at an alternative;
+            // and the 7 keys an equation's function context and a context alias look up each, the
+            // 2 conditions of a `cells!` rule that restates its cells, and the list brackets at a
+            // fn's `List` subject (NT-18).
             (
                 Family::Terms,
-                106 * 48 + 3 * 2 + 2 + 35 * 2 + 2 + 2 + 2 + 2 * (17 + 20 + 2 * 8 + 5) + 2,
+                106 * 48
+                    + 3 * 2
+                    + 2
+                    + 35 * 2
+                    + 2
+                    + 2
+                    + 2
+                    + 2 * (17 + 20 + 2 * 8 + 5)
+                    + 2
+                    + 7 * 2
+                    + 2
+                    + 1,
             ),
-            // 89 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
-            (Family::Import, 89 * 2),
+            // 93 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
+            (Family::Import, 93 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's), and a
             // set's singleton as the witness a rule of the case's own writes, at each static
@@ -343,7 +357,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 75] = [
+const OVERRIDDEN: [(&str, &str); 69] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -596,8 +610,10 @@ const OVERRIDDEN: [(&str, &str); 75] = [
     (
         "terms/sort-rule/result/matches-pattern/map![x -> 1]",
         "function-in-pattern",
-    ), // A collection's value as a single-body rule's or a context's whole subject (decision
-    // NT-11-2), where the table refuses the subject that holds no `k::rewrite!` first.
+    ), // A collection's value as a context's whole subject (decision NT-11-2), where the table
+    // refuses the context whose hole the subject does not bind, or list brackets at a `KItem`
+    // position, first.
+    ("terms/context/subject-root/[x, ..]", "function-in-pattern"),
     (
         "notation/context/subject-root/k::builtin::map::empty()",
         "function-in-pattern",
@@ -612,34 +628,6 @@ const OVERRIDDEN: [(&str, &str); 75] = [
     ),
     (
         "notation/context/subject-root/set![]",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/k::builtin::map::empty()",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/k::builtin::set::empty()",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/k::builtin::set::item(x)",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/map![]",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/set![]",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/set![x]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/local-rule/subject-root/k::builtin::set::item(x)",
         "function-in-pattern",
     ),
 ];
@@ -1302,7 +1290,12 @@ const SIBLING_EXCEPTION_POSITIONS: [(&str, &str, &str); 2] = [
 
 /// Sibling cases a name or sort rule does not decide though it decides the spelling at another
 /// sibling, and why.
-const SIBLING_EXCEPTIONS: [(&str, &str, &str); 13] = [
+const SIBLING_EXCEPTIONS: [(&str, &str, &str); 14] = [
+    (
+        "terms/rule/subject-root-list/[x, ..]",
+        "list-notation-sort",
+        "the fn's whole subject is a `Term<List>`, a position of the sort list brackets denote, unlike its siblings' `KItem` (NT-18)",
+    ),
     (
         "terms/readable/map-key/matches-pattern/Size(x)",
         "matches-pattern-binder",

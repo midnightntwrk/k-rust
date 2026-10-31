@@ -1292,8 +1292,14 @@ class = "condition-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'import/{cells-claim,context,readable}/guard/{Go(),Hold(x)}'
+match = 'import/{cells-claim/guard,cells/guard-restated,context/guard,readable/guard}/{Go(),Hold(x)}'
 class = "condition-sort"
+at = "spelling"
+
+# content-sort (NT-18): a bare variant, a `Stmt`, as a fn's whole subject of sort `List`
+[[refuse]]
+match = 'import/rule/subject-root-list/{Go(),Hold(x)}'
+class = "content-sort"
 at = "spelling"
 
 # unbound-name (NT-2): a name an initializer's or a constant's root reads

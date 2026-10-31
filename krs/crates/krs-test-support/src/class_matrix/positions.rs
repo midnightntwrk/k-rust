@@ -180,12 +180,11 @@ impl Form {
         matches!(self, Self::Alias)
     }
 
-    /// Whether the form's subject root is the whole left side of a rewrite K writes as a term
-    /// rule's or a context's: a `#[k::rule]` fn's, a single-body one's and a context's. Below
-    /// that root a pattern holds terms; at it, K reads the root's symbol as the rule's.
+    /// Whether the form's subject root names the production whose argument the sentence
+    /// evaluates first: a context's.
     #[must_use]
-    pub const fn subject_root_is_term_rule(self) -> bool {
-        matches!(self, Self::RuleFn | Self::LocalRule | Self::Context)
+    pub const fn subject_root_evaluates_argument(self) -> bool {
+        matches!(self, Self::Context)
     }
 
     /// Whether the root of the form's subject is the production the clause expands: a static
@@ -730,10 +729,9 @@ pub enum Construct {
     /// A set's concatenation of parts, `k::builtin::set::concat(a, b)` (K's `A B`): a pattern
     /// that matches a set split into disjoint parts, and their union where it is built.
     Concatenation,
-    /// A collection's unit or a set's singleton written as its call, `k::builtin::map::empty()`,
-    /// `k::builtin::set::empty()` or `k::builtin::set::item(x)`: a value, which a pattern matches
-    /// as the collection, written in K as the application of one of the collection's functions
-    /// (`.Map`, `.Set`, `SetItem`).
+    /// A collection's unit or singleton written as its call, `k::builtin::map::empty()`,
+    /// `k::builtin::set::empty()`, `k::builtin::set::item(x)`, `k::builtin::list::empty()` or
+    /// `k::builtin::list::item(x)`: a value, which a pattern matches as the collection.
     CollectionValue,
     /// A notation form, which denotes a builtin operation's application.
     Notation(Notation),

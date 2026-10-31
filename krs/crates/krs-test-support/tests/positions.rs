@@ -664,14 +664,13 @@ const ROOTS_NOT_GENERATED: [(model::Form, model::Slot, &str); 3] = {
 /// `k::matches!` depend on it) and whether it is a `cells!` value's; each listed form shares all
 /// three with the form named. A simplification's condition shares none with a claim's but the
 /// first, so it is generated.
-const CONDITIONS_NOT_GENERATED: [(model::Form, &str); 6] = {
+const CONDITIONS_NOT_GENERATED: [(model::Form, &str); 5] = {
     use model::Form as F;
     [
         (F::ReadableClaim, "a `cells!` claim's"),
         (F::SortRule, "a readable rule's"),
         (F::EquationTable, "an equation fn's"),
         (F::LocalRule, "a rule fn's"),
-        (F::CellsRule, "a rule fn's"),
         (F::CellsLocalRule, "a rule fn's"),
     ]
 };

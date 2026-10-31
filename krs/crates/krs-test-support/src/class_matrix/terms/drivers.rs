@@ -50,6 +50,8 @@ struct Driver<'a> {
     command: &'a Command,
     counter: Option<Ground>,
     extra: bool,
+    /// In an x-counter run ([`Spelling::x_counter`]), `x`'s value, which is also the counter.
+    x: Option<Ground>,
     /// Whether the plan read the hole's witness, the only reading a counter-witness replaces.
     read_witness: Cell<bool>,
 }
@@ -102,7 +104,12 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
     ) {
         return static_counter_plans(slot, spelling, command);
     }
-    if undriven(slot).is_some() || matches!(slot.form, "desugar" | "alias") {
+    // An equation whose function context reads the configuration leaves, where it does not
+    // apply, its application with the configuration it read, which the generator does not state.
+    if undriven(slot).is_some()
+        || matches!(slot.form, "desugar" | "alias")
+        || (slot.form, slot.position) == ("equation", "context-map-key")
+    {
         return Vec::new();
     }
     let mut drivers = spelling
@@ -112,6 +119,16 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
         .into_iter()
         .map(|counter| Driver::new(slot, spelling, command, Some(counter), false))
         .collect::<Vec<_>>();
+    // An equation's counter run is read by the application it leaves, which the generator
+    // states only where the equation reads no configuration.
+    if !matches!(slot.form, "equation" | "table")
+        && let Some(x) = &spelling.x_counter
+    {
+        drivers.push(Driver {
+            x: Some(x.clone()),
+            ..Driver::new(slot, spelling, command, Some(x.clone()), false)
+        });
+    }
     if matches!(
         slot.opener,
         Some("set-element" | "set-element-beside-fresh")
@@ -184,6 +201,7 @@ impl<'a> Driver<'a> {
             command,
             counter,
             extra,
+            x: None,
             read_witness: Cell::new(false),
         }
     }
@@ -279,7 +297,8 @@ impl Driver<'_> {
     /// What the hole denotes where it is built: the spelling's meaning, inside what the opener
     /// writes around it.
     fn meaning(&self) -> Result<Meaning, K7> {
-        let spelling = &self.spelling.value;
+        let x_value = self.x.clone().map(Meaning::Value);
+        let spelling = x_value.as_ref().unwrap_or(&self.spelling.value);
         // `Size(HOLE)` reads the hole inside an application of `Size`, which no equation of the
         // base evaluates, so it stays as written around the hole's value: `Size` is no value
         // here, only a wrapper the run shows the hole's value in.
@@ -342,6 +361,11 @@ impl Driver<'_> {
     /// below `@`, `|` or a name nothing else binds, and computed below a `let`, a `k::matches!`,
     /// a function and a record update.
     fn key(&self) -> Read {
+        // An x-counter is read where the hole is looked up: the key a reading that ignored the
+        // hole's meaning would compute from `x`.
+        if self.x.is_some() {
+            self.read_witness.set(true);
+        }
         match self.slot.opener {
             None => self.element(),
             Some("as-body" | "or-branch" | "beside-fresh") => self.witness(),
@@ -457,7 +481,8 @@ impl Driver<'_> {
         reason = "One match of the closed slot set; each arm is one slot's driver."
     )]
     fn plan(&self) -> Result<K7, K7> {
-        let one = || int(1);
+        // `x`'s value: 1, or an x-counter's.
+        let one = || self.x.clone().unwrap_or_else(|| int(1));
         let k = |items: Vec<Ground>| ("k", Ground::Seq(items));
         let fields = |a: Ground, b: Ground| vec![a, b];
         // The case's command over `x` = 1 and a second field the template does not read.
@@ -496,7 +521,8 @@ impl Driver<'_> {
             }
             // `HOLE => Cmd::Go()` over a whole computation item: the witness is the program
             // where it is a `Stmt`, and goes first in the computation cell otherwise.
-            ("rule" | "sort-rule", "subject-root" | "subject-root-term") => {
+            ("rule" | "sort-rule", "subject-root" | "subject-root-term")
+            | ("rule", "subject-root-list") => {
                 let witness = self.witness()?;
                 if witness.term.is_statement() {
                     Self::applied(&witness.term, 1, vec![k(vec![go()])], witness.status)
@@ -615,6 +641,13 @@ impl Driver<'_> {
                     key.status,
                 )
             }
+            // A rule whose result restates its subject: the step leaves the command as it was.
+            ("cells", "guard-restated") => self.guarded(
+                &reading(),
+                1,
+                vec![k(vec![reading()])],
+                vec![k(vec![reading()])],
+            ),
             ("cells" | "readable", "map-value") => {
                 let witness = self.witness()?;
                 Self::set_up(
@@ -832,6 +865,17 @@ impl Driver<'_> {
                     1,
                     vec![k(vec![hold(Ground::unevaluated("size", vec![value.term]))])],
                     value.status,
+                )
+            }
+            // `Probe(Cmd::NAME(), x)` with the key its function context looks up in the map:
+            // the call's result is 0 where the equation applies.
+            ("equation", "context-map-key") => {
+                let key = self.key()?;
+                Self::set_up(
+                    env(key.term, int(0)),
+                    call(one()),
+                    vec![k(vec![hold(int(0))])],
+                    key.status,
                 )
             }
             ("equation", "guard") => {

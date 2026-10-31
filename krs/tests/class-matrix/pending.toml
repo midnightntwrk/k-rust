@@ -8126,3 +8126,34 @@ deviation = "record-update-base advises terms/context/result/{ let Cmd::Pair { a
 ["k8/terms/readable/map-key/or-branch/Cmd::Pair { a: x, ..x }"]
 finding = "S0-14"
 deviation = "record-update-in-pattern advises none, and its refusal advises `{ let Cmd::Pair { a: _, b } = e; Cmd::Pair { a: .., b } }`"
+
+# NT-18-1: a sort projection in a context alias's map key reaches expansion's internal
+# `krs::expand::missing-provenance-key` ("this node holds no provenance key from its sentence's
+# parse"), before lowering judges the key. Lowering refuses such a key (a context alias states no
+# condition to hold the key's guard, `krs::analysis::invalid-sort-test`); the expansion error
+# stands first. Looks like NT-2-17's gap (a context alias's subject loses the provenance keys of
+# some macro nodes) at one more node. Probe: `env: Cell(k::map![k::project!(Int, x) -> v, ..])`
+# in a `#[k::context_alias]` subject (review probe p6 of NT-18).
+
+["terms/context-alias/map-key/k::project!(Int, x)"]
+finding = "NT-18-1"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+# NT-18-2 (K6): a key that computes (a function's or an operator's application) in an equation's
+# function context is accepted, and every native route refuses the equation: the native frontends
+# read a function context's cells as the equation's left side, matched as written ("Illegal
+# function symbol size below the root of an equation's left-hand side"; `1 +Int 2` there is
+# "klabel _+Int_ not defined in any production"). By decision D2 the key is evaluated and looked
+# up, as in a rule's pattern. Proposal: write a computed function-context key as a fresh name the
+# equation's condition equates with the key's value (`<env> K |-> V ... </env>` with
+# `requires K ==K size(X)`), as a computed Set instance's cells are (NT-10): a map holds a key
+# once, so the selection the fresh name makes is the lookup. The guards now reach the equation's
+# condition (M1 of NT-18's review). Probe: `terms/equation/context-map-key/Size(x)`.
+
+["k6/terms/equation/context-map-key/Size(x)"]
+finding = "NT-18-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/equation/context-map-key/k::builtin::int::add(1, 2)"]
+finding = "NT-18-2"
+deviation = "every native route UndefinedKLabel"

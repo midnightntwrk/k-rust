@@ -522,6 +522,11 @@ struct Spelling {
     /// Ground terms the spelling must not match where a pattern reads it (counter-witnesses), or
     /// why none is stated.
     counter: Result<Vec<Ground>, &'static str>,
+    /// A value of `x` at which the spelling denotes nothing, though a reading that ignored its
+    /// meaning would take it for that value: where a pattern looks the spelling up as a key or
+    /// an element, a run with `x` bound to it and the collection holding it must not apply the
+    /// sentence ([`drivers`]).
+    x_counter: Option<Ground>,
     /// Whether the spelling, read as a pattern, matches 1, the value of `x`: what a `let`
     /// pattern or a `k::matches!` over `x` decides.
     matches_x: bool,
@@ -612,6 +617,15 @@ impl Spelling {
         }
     }
 
+    /// The spelling, which denotes nothing where `x` is `x_value`, a term a key or an element
+    /// that ignored the spelling's meaning would look up instead.
+    fn refuting_x(self, x_value: Ground) -> Self {
+        Self {
+            x_counter: Some(x_value),
+            ..self
+        }
+    }
+
     /// The spelling, which has no counter-witness, for `reason`.
     fn unrefuted(self, reason: &'static str) -> Self {
         Self {
@@ -657,6 +671,7 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
         witness: Err("no witness is stated"),
         value: Meaning::Undefined("no value is stated"),
         counter: Err("no counter-witness is stated"),
+        x_counter: None,
         matches_x: false,
         below_root_only: false,
         static_only: false,
@@ -791,7 +806,10 @@ fn spellings() -> Vec<Spelling> {
             ],
         )
         .unmatched(COMPUTED)
-        .denoting(int(1)),
+        .denoting(int(1))
+        // With `x` not an `Int` the projection is undefined: a key or an element it computes
+        // looks nothing up, though `x` itself is in the collection (finding M2 of NT-18's review).
+        .refuting_x(go()),
         // As, Or, Matches, Let, Closure, Rewrite.
         spelling(
             "y @ Cmd::Hold(_)",
@@ -1819,6 +1837,18 @@ fn cells_rule(subject: &str, result: &str) -> String {
 /// A `cells!` sentence's computation cell reading the command: `KCell(Cmd::NAME(x, _), tail @ ..)`.
 const CELLS_COMMAND: &str = "k: k::configuration::KCell(Cmd::NAME(x, _), tail @ ..)";
 
+/// The keys the function-context and context-alias map-key slots hold: a binder, values, the
+/// projection whose key is guarded, and applications, which compute the key.
+const LOOKED_UP_KEYS: &[&str] = &[
+    "x",
+    "1",
+    "Cmd::Go()",
+    "Cmd::Hold(x)",
+    "k::project!(Int, x)",
+    "Size(x)",
+    "k::builtin::int::add(1, 2)",
+];
+
 /// The result's computation cell that drops the command.
 const CELLS_TAIL: &str = "k: k::configuration::KCell(..tail)";
 
@@ -1860,6 +1890,21 @@ fn slots() -> Vec<Slot> {
             ),
        )
         .alone(),
+        // A fn's whole subject of sort `List`, which list brackets denote: the computation's first
+        // item, a list, matched by its elements (decision NT-11-2).
+        slot(
+            "rule",
+            "subject-root-list",
+            Side::Subject,
+            (RuleFn, Part::Subject, &[]),
+            concat!(
+                "#[k::rule(label = \"case-TAG\")]\n",
+                "fn case_TAG(k::term![HOLE]: Term<List>) -> Term<KItem> {\n",
+                "    Cmd::Go()\n}\n"
+            ),
+        )
+        .alone()
+        .holding(Holds::Only(&["[x, ..]"])),
         slot(
             "rule",
             "result",
@@ -2012,6 +2057,25 @@ fn slots() -> Vec<Slot> {
             "",
         )
         .holding(Holds::Only(&["x", "1"])),
+        // The condition of a `cells!` rule whose result restates every cell it names: the rule
+        // is the step the author wrote, a rewrite of the restated computation item into itself
+        // (finding NT-11-3, S4 of NT-18's review).
+        slot(
+            "cells",
+            "guard-restated",
+            Side::Guard,
+            (CellsRule, Part::Requires, &[]),
+            concat!(
+                "#[k::rule(label = \"case-TAG\")]\n",
+                "#[k::requires(HOLE)]\n",
+                "pub fn case_TAG(\nBINDERS",
+                "    k::cells! { k: k::configuration::KCell(Cmd::NAME(x, 0), tail @ ..), state @ .. }: Machine,\n",
+                ") -> Machine {\n",
+                "    k::cells! { k: k::configuration::KCell(Cmd::NAME(x, 0), ..tail), ..state }\n}\n"
+            ),
+        )
+        .binding(&[X])
+        .holding(Holds::Only(&["true", "k::is!(Int, x)"])),
         // A single-body `cells!` rule, a `cells!` claim and a context alias.
         slot(
             "cells-local",
@@ -2116,6 +2180,22 @@ fn slots() -> Vec<Slot> {
             ),
         )
         .binding(&[Y, X]),
+        // A key a context alias's pattern looks up (finding M1 of NT-18's review): an alias states
+        // no condition, so a key that needs a guard is refused there.
+        slot(
+            "context-alias",
+            "map-key",
+            Side::Subject,
+            (ContextAlias, Part::Subject, &[MapKey]),
+            concat!(
+                "#[k::context_alias(name = case_TAG, here = site)]\n",
+                "fn case_TAG(\nBINDERS",
+                "    k::cells! { k: k::configuration::KCell(site, Cmd::NAME(x, _), tail @ ..), env: k::configuration::Cell(k::map![HOLE -> v, ..]), state @ .. }: Machine,\n",
+                ") {\n}\n"
+            ),
+        )
+        .binding(&[X, V])
+        .holding(Holds::Only(LOOKED_UP_KEYS)),
         // A context, whose command's first field is its hole.
         slot(
             "context",
@@ -2198,6 +2278,25 @@ fn slots() -> Vec<Slot> {
             ),
         )
         .arity(0),
+        // A key the equation's function context looks up (finding M1 of NT-18's review): its
+        // guards are the equation's condition, as a rule's are.
+        slot(
+            "equation",
+            "context-map-key",
+            Side::Subject,
+            (EquationFn, Part::Subject, &[MapKey]),
+            concat!(
+                "#[k::equation]\nfn case_TAG(\n",
+                "    x: Term<KItem>,\n",
+                "    v: Term<KItem>,\n",
+                "    k::term![Probe(Cmd::NAME(), x)]: Term<Int>,\n",
+                "    k::cells! { env: k::configuration::Cell(k::map![HOLE -> v, ..]), .. }: Machine,\n",
+                ") -> Term<Int> {\n",
+                "    0\n}\n"
+            ),
+        )
+        .arity(0)
+        .holding(Holds::Only(LOOKED_UP_KEYS)),
         // A table row names its function in the table's header, so its subject has no root of
         // its own; its result is the function's sort, `Int`, whose root the shorthand's covers.
         slot(

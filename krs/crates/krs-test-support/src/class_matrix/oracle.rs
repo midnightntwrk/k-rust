@@ -562,15 +562,14 @@ const fn application(construct: Construct, position: Position) -> Option<Refusal
     }
 }
 
-/// A collection's unit or a set's singleton (`map![]`, `set![x]`, their calls) is a value, a
-/// pattern below a root as a constructor is. At the whole left side of a term rule or a context
-/// it is what K writes it as, the application of the collection's function (`.Map`, `SetItem`),
-/// and a rewrite whose left side is a function's application is that function's equation, which
-/// a builtin collection's function is not open to, while a context is rooted at the production
-/// whose argument it evaluates: a function at a matched root (decision NT-11-2). Elsewhere a root
+/// A collection's unit or singleton (`map![]`, `set![x]`, `[x, ..]`, their calls) is a value, a
+/// pattern as a constructor is. At a rule's whole subject, the computation's first item, it
+/// matches that item where it is the collection (decision NT-11-2); a context's subject root
+/// names the production whose argument the context evaluates, which a collection is not, so a
+/// collection there is refused with the class a function at a matched root has. Elsewhere a root
 /// decides as a value's ([`value_at_root`]).
 const fn collection_value(position: Position) -> Option<Refusal> {
-    if at_subject_root(position) && position.form.subject_root_is_term_rule() {
+    if at_subject_root(position) && position.form.subject_root_evaluates_argument() {
         Some(resolution(Class::FunctionInPattern))
     } else {
         value_at_root(position)
@@ -578,7 +577,8 @@ const fn collection_value(position: Position) -> Option<Refusal> {
 }
 
 /// A set's concatenation matches a set split into disjoint parts, a pattern as a constructor is
-/// (at a root too, but a term rule's or a context's, as [`collection_value`]), and builds their union where the parts are disjoint. Below a static clause's
+/// (at a root too, but a context's, as [`collection_value`]), and builds their union where the
+/// parts are disjoint. Below a static clause's
 /// subject root it is matched as written, and static expansion neither reorders a set's parts nor
 /// regroups a list's (decision NT-14, finding S2 of its review: `[1, 2, 3]` misses
 /// `list::concat([1, 2], [3])`), so a collection of two or more parts there is one of its
@@ -848,13 +848,14 @@ const fn record(construct: Construct, position: Position) -> Option<Refusal> {
     }
 }
 
-/// List brackets denote a list wherever the position's sort is one, which the compiler judges. A
+/// List brackets denote a list wherever the position's sort is one, which the compiler judges,
+/// decided at a root as a collection's value ([`collection_value`]). A
 /// list's anonymous rest `..` stands for the elements a pattern leaves unnamed: a built term or a
 /// condition has nothing it keeps, an alias clause's subject, built from what its result matched,
 /// has no value for them, and a constant's value is ground.
 const fn collection(construct: Construct, position: Position) -> Option<Refusal> {
     match construct {
-        Construct::ListBrackets => value_at_root(position),
+        Construct::ListBrackets => collection_value(position),
         _ => {
             if in_constant(position) {
                 Some(placement(Class::ConstantNotGround))

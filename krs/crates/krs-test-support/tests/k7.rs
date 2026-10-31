@@ -113,7 +113,7 @@ fn every_slot_has_a_driver_or_says_why_not() {
 const UNDRIVEN: &[&str] = &[
     "a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates): cells-claim/guard | cells-claim/item-root | cells-claim/result-item-root | cells-claim/result | cells-claim/subject | claim/item-root | claim/result-item-root | claim/result | claim/subject | cells-claim/guard/closure-body",
     "a constant has no program syntax, and no base sentence can name the case's constant: constant/value-root | constant/value",
-    "a context alias acts only through a production strict in it, and neither the base nor the case declares one: context-alias/item-root | context-alias/subject",
+    "a context alias acts only through a production strict in it, and neither the base nor the case declares one: context-alias/item-root | context-alias/map-key | context-alias/subject",
     "a simplification only rewrites what a prover simplifies, and needs a prover: simplification/guard | simplification/result-root | simplification/result | simplification/subject-root | simplification/subject",
     "the base applies no function but Probe and Size from a rule: equation/subject-root",
     "the function is internal: it has no program syntax, and no base sentence can name the case's function: shorthand/result-root | shorthand/result",
@@ -181,7 +181,7 @@ const UNREAD: &[&str] = &[
 const STATUSES: &[&str] = &[
     "828 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
     "180 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
-    "184 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
+    "193 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
     "26 no driver: a malformed attribute is refused",
     "413 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "76 no driver: the base applies no function but Probe and Size from a rule",
@@ -202,8 +202,8 @@ const STATUSES: &[&str] = &[
     "5 no value: the condition's stated value, 1.5, is no Bool",
     "20 no value: the condition's stated value, 2, is no Bool",
     "5 no value: the condition's stated value, 3, is no Bool",
-    "14 no value: the condition's stated value, Cmd::Go(), is no Bool",
-    "9 no value: the condition's stated value, Cmd::Hold(1), is no Bool",
+    "15 no value: the condition's stated value, Cmd::Go(), is no Bool",
+    "10 no value: the condition's stated value, Cmd::Hold(1), is no Bool",
     "5 no value: the condition's stated value, Wrap(1), is no Bool",
     "10 no value: the condition's stated value, [1], is no Bool",
     "5 no value: the condition's stated value, b\"ab\", is no Bool",
@@ -219,7 +219,7 @@ const STATUSES: &[&str] = &[
     "28 no value: the update's base, x = 1, is no Pair",
     "56 no value: x = 1 is no Bool",
     "43 no witness: a cell's value, which a program writes no syntax for",
-    "1791 no witness: a computed term, which no evaluated term is",
+    "1792 no witness: a computed term, which no evaluated term is",
     "43 no witness: a matching-logic predicate, which only a prover reads",
     "4 no witness: a program writes $x only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "4 no witness: a program writes Wrap(1) only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
@@ -232,9 +232,9 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "77 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "6 no witness: the program would hold a value the generator does not state",
-    "1144 runs a counter-witness",
-    "1639 runs, liveness",
-    "2492 runs, value",
+    "1183 runs a counter-witness",
+    "1642 runs, liveness",
+    "2502 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern
