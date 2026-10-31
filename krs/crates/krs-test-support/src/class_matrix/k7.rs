@@ -423,10 +423,13 @@ pub struct Run {
     pub cells: Vec<(String, Ground)>,
     /// What the run checks.
     pub status: Status,
-    /// The `Cmd` variants of the alias productions whose clauses' written results compute (`An`,
-    /// and a case's own command `C..` where the case's spelling stands in its clause's result),
-    /// which no print of the state may write: such an alias names an expression, and a value
-    /// that equals its value is no term written for it (decision NT-23-1).
+    /// The `Cmd` variants of the alias productions printing does not reverse, which no print of
+    /// the state may write; every other alias of the definition prints backwards where its
+    /// clause matches. They are those whose clauses' written results compute (`An`, and a case's
+    /// own command `C..` where the case's spelling stands in its clause's result): such an alias
+    /// names an expression, and a value that equals its value is no term written for it (decision
+    /// NT-23-1). And a case's own command whose clause's subject holds a token that would print
+    /// as text no program reads back as it (`$x`, NT-23-3).
     pub forward_only: Vec<String>,
 }
 

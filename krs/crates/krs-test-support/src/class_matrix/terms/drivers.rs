@@ -1051,22 +1051,22 @@ impl Driver<'_> {
                         format!("no rule writes {} as one term", witness.term),
                     )
                 })?;
-                Self::applied(
+                self.forward_only_if_unread(Self::applied(
                     &Ground::ctor("Cmd::Drive", vec![int(i64::from(self.command.drive()))]),
                     1,
                     vec![k(vec![hold(one())])],
                     witness.status,
-                )
+                ))
             }
             // A static clause expands what a program writes as `krs run` parses it: no step.
             ("desugar" | "alias", "subject" | "subject-typed") | ("desugar", "subject-beside") => {
                 let witness = self.witness()?;
                 literal(&witness.term)?;
-                Self::expanded(
+                self.forward_only_if_unread(Self::expanded(
                     &self.command(fields(one(), witness.term)),
                     vec![k(vec![hold(one())])],
                     witness.status,
-                )
+                ))
             }
             ("desugar" | "alias", "subject-root") => {
                 let witness = self.witness()?;
@@ -1156,6 +1156,24 @@ impl Driver<'_> {
         }
         plan
     }
+
+    /// `plan`, with the case's own command among the aliases no print writes where its alias
+    /// clause's subject holds a token whose printed text no program reads back as it: the `Id`
+    /// `$x` (`k::id!("$x")`), which a program writes only through its maker, so printed as `$x`
+    /// it lexes as no token at all.
+    fn forward_only_if_unread(&self, mut plan: Result<K7, K7>) -> Result<K7, K7> {
+        if let Ok(K7::Run(run)) = &mut plan
+            && self.slot.form == "alias"
+            && self
+                .spelling
+                .nodes
+                .iter()
+                .any(|node| node.construct == Construct::IdToken)
+        {
+            run.forward_only.push(self.command.name.clone());
+        }
+        plan
+    }
 }
 
 /// The base's aliases whose clauses' written results compute: `an => hold(1 - 1)`.
@@ -1168,6 +1186,13 @@ fn base_forward_only() -> Vec<String> {
 /// a set's concatenation (the union of its parts), `let`, `k::matches!`, `k::or_bool!`, a sort
 /// test or a record update. A name, a constructor's application, a literal, a token, list brackets and a
 /// collection's unit or singleton write the term they denote.
+///
+/// List brackets hold at most one rest (`[a, ..mid, z]`), so the term they write splits a list
+/// value one way, and they construct. A list concatenation that joins two named lists, which
+/// only `k::builtin::list::concat` writes, computes, since the value it matches has several
+/// splits; the spellings write `list::concat` nowhere, and a builtin operation's application
+/// counts as computing here (the product tells `list::concat(list::item(x), rest)`, which
+/// constructs, by its operands).
 const fn computes(construct: Construct) -> bool {
     match construct {
         Construct::FunctionApplication

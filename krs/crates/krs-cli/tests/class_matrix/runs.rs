@@ -116,11 +116,12 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
 /// term printed without reversing an alias does not parse either. Tokens compare by text
 /// ([`untyped_tokens`]).
 ///
-/// Before it is read back, a print must name no term the author did not write: it must be the
-/// print of the same printer without the aliases `forward_only` names, whose clauses' written
-/// results compute (the plan's [`Run::forward_only`]). Such an alias names an expression, so a
-/// value that merely equals its value is no term written for it, though the alias read back
-/// denotes the value.
+/// Before it is read back, a print must reverse exactly the aliases the plan states: it must be
+/// the print of a printer that reverses every alias of the definition but those `forward_only`
+/// names (the plan's [`Run::forward_only`]: clauses whose written results compute, or whose
+/// subject's token no program reads back). A print through one of those names a term the author
+/// did not write, though the alias read back denotes the value; a print that leaves out another
+/// keeps a constructing clause forward only. Either is a deviation.
 fn printed_reads_back(
     semantics: &mut Semantics,
     state: &Term,
@@ -128,11 +129,12 @@ fn printed_reads_back(
     forward_only: &[String],
 ) -> Option<String> {
     let case = case_printer(semantics.unparser(), own);
-    let written = case.retaining_aliases(|symbol| {
-        !forward_only
-            .iter()
-            .any(|name| symbol.strip_prefix("Lblcmd") == Some(name.as_str()))
-    });
+    let stated = case_printer(&semantics.unparser().reversing_every_alias(), own)
+        .retaining_aliases(|symbol| {
+            !forward_only
+                .iter()
+                .any(|name| symbol.strip_prefix("Lblcmd") == Some(name.as_str()))
+        });
     let options = unparse::Options::new(unparse::Mode::Pretty);
     let as_held = unparse::Options {
         reverse_aliases: false,
@@ -163,11 +165,11 @@ fn printed_reads_back(
         } else {
             cell.as_str()
         };
-        let unnamed = written.print_kore(content, &options);
-        if unnamed.text != printed.text {
+        let expected = stated.print_kore(content, &options);
+        if expected.text != printed.text {
             return Some(format!(
-                "{place} printed `{}` through an alias whose written result computes, where the state prints `{}`",
-                printed.text, unnamed.text
+                "{place} printed `{}`, where reversing the aliases the plan states prints `{}`",
+                printed.text, expected.text
             ));
         }
         if !printed.warnings.is_empty() {
