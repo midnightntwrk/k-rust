@@ -1429,6 +1429,8 @@ preserve = []
 "demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "9468bfe30731ae2654e2d037505a8a62688814b9aa842ff19c53ac47a883a5b8" }
 "demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "1ec04076ac4c55636d29a044c45299b5ff1e6ecec72f00d3f3db8afab7f639d0" }
 "demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "d1139ac197761802cf7be5fcda277dafa7543234aacf2cbbc15f062b5dd8d2f6" }
+"demos/HandoffSeqRel/HandoffSeqRel/Tr.lean" = { tier = "light", sha256 = "bd9a3e8baec99b7cdfd42f722dc80386de93782b906ea98fadf54e753225cf63" }
+"demos/HandoffSeqRel/correspondence.toml" = { tier = "light", sha256 = "54e14cb1653dff4bc76f86ced355c7bf60fdef8742fc3a2a71160d77274275a9" }
 "demos/RaceConf/RaceConf/Pairs/Slots.lean" = { tier = "light", sha256 = "edd5222d602e28a68d68aabaefbfb25b29efe15c8d873abcb28fe307cb78ba6c" }
 "demos/RaceConf/RaceConf/Pairs/Views.lean" = { tier = "light", sha256 = "354f75fa3c5b5d2711a67dd2b534440b7d10eb36189f7d020cb907b31723ac97" }
 "demos/RaceConf/RaceConf/Slots.lean" = { tier = "light", sha256 = "f3ec9d9fdb2682b02681e696dd0268b8a5581c9cb5439509abe43a15cb3157cb" }
