@@ -671,6 +671,13 @@ pub struct EcdsaRecover {
     pub s: k::Term<Bytes>,
 }
 
+/// ECREC's output from the recovered public key: the low 20 bytes of its Keccak-256 hash, as one
+/// 32-byte word.
+///
+/// The length test is the guard for the one input past `EcrecRecoverable` that recovers no key:
+/// s·R = e·G, where the recovered point r^-1·(s·R - e·G) is the point at infinity.
+/// `plugin/krypto.md` gives no value there, so the hook's empty result is k-rust's failure value,
+/// and the test maps it to the EVM's empty output.
 #[k::function(total, syntax = "#kevmEcrecOutput({public_key})")]
 pub fn EcrecOutput(public_key: k::Term<Bytes>) -> k::Term<Bytes> {
     if bytes::length(public_key) <= 0 {
@@ -705,6 +712,14 @@ pub const SECP256K1_P: Int =
 /// cannot occur: a root x of x^3 + 7 would give the point (x, 0), of order 2, and the group's
 /// order n is odd. So the residue test below is exact. The modulus is the nonzero constant p, so
 /// every operation applied here has a determined value.
+///
+/// `0 < r` is implied by the residue test (at r = 0 the value is 7, a non-residue modulo p); it is
+/// kept so that the guard states the EVM's range for r beside the one for s.
+///
+/// The guard is necessary, not sufficient: a signature that passes it can still have s·R = e·G
+/// (R the point with x-coordinate r and the parity v selects, e the hash), and then the recovered
+/// point is the point at infinity, which is no public key. `plugin/krypto.md` gives no value for
+/// that input; `EcrecOutput`'s length test maps the hook's empty result to the EVM's empty output.
 #[k::function(total, syntax = "#kevmEcrecRecoverable({v}, {r}, {s})")]
 pub fn EcrecRecoverable(v: k::Term<Int>, r: k::Term<Int>, s: k::Term<Int>) -> k::Term<Bool> {
     (v == 27 || v == 28)
@@ -716,7 +731,9 @@ pub fn EcrecRecoverable(v: k::Term<Int>, r: k::Term<Int>, s: k::Term<Int>) -> k:
 }
 
 /// ECREC's output: the EVM's precompile yields the empty output on a signature that is not
-/// recoverable, so the ECDSA hook is applied only to a recoverable one.
+/// recoverable, so the ECDSA hook is applied only to a recoverable one. The one recoverable input
+/// that `plugin/krypto.md` still gives no value for, s·R = e·G (see `EcrecRecoverable`), recovers
+/// no key; `EcrecOutput`'s length test is its guard.
 #[k::function(total, syntax = "#kevmEcrecPrecompileOutput({data})")]
 pub fn EcrecPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
     if EcrecRecoverable(
@@ -5702,46 +5719,40 @@ mod tests {
         let guard = "# kevmEcrecRecoverable ( # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 32 , 32 ) , 0 , 0 ) , # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 64 , 32 ) , 0 , 0 ) , # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 96 , 32 ) , 0 , 0 ) )";
 
         let outputs = rules_of(source, "kevmEcrecPrecompileOutput");
-        assert_eq!(outputs.len(), 2, "{outputs:#?}");
-        let (recovered, empty): (Vec<&str>, Vec<&str>) = outputs
-            .iter()
-            .copied()
-            .partition(|rule| rule.contains("# kevmEcdsaRecover ("));
-        assert_eq!(recovered.len(), 1, "{outputs:#?}");
-        assert!(
-            recovered[0].contains(&format!("\n    requires {guard} [label(")),
-            "the ECDSA hook is applied without the recoverability guard: {}",
-            recovered[0]
-        );
-        assert_eq!(empty.len(), 1, "{outputs:#?}");
-        assert!(
-            empty[0].starts_with("# kevmEcrecPrecompileOutput ( Data:Bytes ) => .Bytes\n"),
-            "{}",
-            empty[0]
-        );
-        assert!(
-            empty[0].contains(&format!("\n    requires notBool {guard} [label(")),
-            "{}",
-            empty[0]
+        // Each rule is pinned whole (its generated label aside), so a changed connective,
+        // operand or guard fails here even where every corpus case keeps its output.
+        let unlabelled = |rule: &&str| {
+            rule.split_once(" [label(").map_or_else(
+                || panic!("unlabelled rule: {rule}"),
+                |(body, _)| body.to_owned(),
+            )
+        };
+        let mut outputs: Vec<String> = outputs.iter().map(unlabelled).collect();
+        outputs.sort();
+        assert_eq!(
+            outputs,
+            [
+                format!(
+                    "# kevmEcrecPrecompileOutput ( Data:Bytes ) => # kevmEcrecOutput ( # kevmEcdsaRecover ( # kevmReturnBytes ( Data:Bytes , 0 , 32 ) , # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 32 , 32 ) , 0 , 0 ) , # kevmReturnBytes ( Data:Bytes , 64 , 32 ) , # kevmReturnBytes ( Data:Bytes , 96 , 32 ) ) )\n    requires {guard}"
+                ),
+                format!(
+                    "# kevmEcrecPrecompileOutput ( Data:Bytes ) => .Bytes\n    requires notBool {guard}"
+                ),
+            ],
+            "the ECDSA hook must be applied exactly when the recoverability guard holds"
         );
 
         let n = "115792089237316195423570985008687907852837564279074904382605163141518161494337";
         let p = "115792089237316195423570985008687907853269984665640564039457584007908834671663";
-        let recoverable = rules_of(source, "kevmEcrecRecoverable");
-        assert_eq!(recoverable.len(), 1, "{recoverable:#?}");
-        let body = recoverable[0];
-        for conjunct in [
-            "(V:Int ==Int 27) orElseBool (V:Int ==Int 28)".to_owned(),
-            "0 <Int R:Int".to_owned(),
-            format!("R:Int <Int {n}"),
-            "0 <Int S:Int".to_owned(),
-            format!("S:Int <Int {n}"),
-            format!(
-                "(((R:Int *Int R:Int) *Int R:Int) +Int 7) ^%Int (({p} -Int 1) /Int 2) {p}) ==Int 1"
-            ),
-        ] {
-            assert!(body.contains(&conjunct), "missing `{conjunct}` in {body}");
-        }
-        assert!(!body.contains("requires"), "{body}");
+        let recoverable: Vec<String> = rules_of(source, "kevmEcrecRecoverable")
+            .iter()
+            .map(unlabelled)
+            .collect();
+        assert_eq!(
+            recoverable,
+            [format!(
+                "# kevmEcrecRecoverable ( V:Int , R:Int , S:Int ) => ((((((V:Int ==Int 27) orElseBool (V:Int ==Int 28)) andThenBool (0 <Int R:Int)) andThenBool (R:Int <Int {n})) andThenBool (0 <Int S:Int)) andThenBool (S:Int <Int {n})) andThenBool (((((R:Int *Int R:Int) *Int R:Int) +Int 7) ^%Int (({p} -Int 1) /Int 2) {p}) ==Int 1)"
+            )],
+        );
     }
 }

@@ -79,6 +79,7 @@ HASKELL_BACKEND_GAPS: Mapping[str, str] = {
     "extcodehash-nonce-nonempty-warm": _KECCAK,
     "extcodehash-balance-nonempty-cold": _KECCAK,
     "staticcall-ecrec-precompile-success": _KECCAK,
+    "staticcall-ecrec-precompile-success-v-28": _KECCAK,
     "staticcall-sha256-precompile-success": _NO_HOOK.format("KRYPTO.sha256raw"),
     "staticcall-ripemd160-precompile-success": _NO_HOOK.format("KRYPTO.ripemd160raw"),
     **{
