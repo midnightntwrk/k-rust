@@ -15,9 +15,11 @@ use k_rust_backend::{
     definition::BackendDefinition,
 };
 use kink_native::census::{
-    CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES, REFERENCE_FILES,
-    declaration_census, internalize, reference_prelude,
+    CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES,
+    KRYPTO_REFERENCE_SHA256, KRYPTO_REFERENCE_TEXT, REFERENCE_FILES, declaration_census,
+    internalize, reference_prelude,
 };
+use kink_native::exclusion::UNDOCUMENTED_EVALUATED_HOOKS;
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::Baseline;
 use serde_json::json;
@@ -59,8 +61,11 @@ fn census_reference_prelude_is_natural_and_declares_the_former_fold_hooks() {
         .values()
         .filter_map(|s| s.attributes.hook.clone())
         .collect();
-    assert_eq!(hooked, 287);
-    assert_eq!(hooks.len(), 285);
+    // kink27 GK-3: 287 and 285 plus the 22 hooked productions of the pinned `krypto.md`'s `k`
+    // fences, 22 distinct hook names none of which a builtin file declares
+    // (`census_unknown_hook_probes` checks that for `KRYPTO.keccak256`).
+    assert_eq!(hooked, 309);
+    assert_eq!(hooks.len(), 307);
     eprintln!(
         "CENSUS_REFERENCE {}",
         json!({"files":REFERENCE_FILES,"hooked_symbols":hooked,"hooks":hooks.len()})
@@ -282,7 +287,8 @@ const TYPED_SET: &str = "  syntax Coll [hook(SET.Set)]\n  \
 
 fn compile_text(name: &str, module: &str, text: String) -> ValidatedDefinition {
     let mut resolver = |_: &str, required: &str| {
-        builtin::embedded(required).ok_or_else(|| format!("{required} is not embedded"))
+        kink_native::census::reference_source(required)
+            .ok_or_else(|| format!("{required} is not a reference text"))
     };
     let loaded = Baseline::load(
         ResolvedSource::new(name, text),
@@ -295,6 +301,154 @@ fn compile_text(name: &str, module: &str, text: String) -> ValidatedDefinition {
     NativeValidator::bind(loaded, CompileOptions::default())
         .compile_baseline()
         .unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+/// The hooks of the `k` fences of the pinned `krypto.md`, in text order (kink27 GK-3): the 14
+/// k-rust evaluates and `sha512`, `sha512_256`, `sha3`, `blake2compress`, `sha512raw`, `sha3raw`,
+/// `ecdsaSign`, `verifyKZGProof`, which it does not. The `libcrypto-extra` fence is not `k`.
+const KRYPTO_HOOKS: [&str; 22] = [
+    "KRYPTO.keccak256",
+    "KRYPTO.sha256",
+    "KRYPTO.sha512",
+    "KRYPTO.sha512_256",
+    "KRYPTO.sha3",
+    "KRYPTO.ripemd160",
+    "KRYPTO.blake2compress",
+    "KRYPTO.keccak256raw",
+    "KRYPTO.sha256raw",
+    "KRYPTO.sha512raw",
+    "KRYPTO.sha512_256raw",
+    "KRYPTO.sha3raw",
+    "KRYPTO.ripemd160raw",
+    "KRYPTO.ecdsaRecover",
+    "KRYPTO.ecdsaSign",
+    "KRYPTO.ecdsaPubKey",
+    "KRYPTO.bn128add",
+    "KRYPTO.bn128mul",
+    "KRYPTO.bn128ate",
+    "KRYPTO.bn128valid",
+    "KRYPTO.bn128g2valid",
+    "KRYPTO.verifyKZGProof",
+];
+
+/// The evaluated hooks no reference text documents: they stay rule U.
+const UNDOCUMENTED_BY_ANY_REFERENCE: [&str; 6] = [
+    "HASH.keccak256",
+    "HASH.ripemd160",
+    "HASH.sha256",
+    "HASH.sha3_256",
+    "KRYPTO.sha3256",
+    "SECP256K1.ecdsaRecover",
+];
+
+/// kink27 GK-3: the census's `KRYPTO` reference is the plugin text at its pin, and it documents
+/// 14 of the evaluated hooks k-rust has no builtin-file reference for, and none of the other six.
+#[test]
+fn the_krypto_reference_is_the_plugin_text_at_its_pin() {
+    assert_eq!(
+        kink_patch::sha256(KRYPTO_REFERENCE_TEXT.as_bytes()).to_string(),
+        KRYPTO_REFERENCE_SHA256
+    );
+    let code = k_rust::outer::extract_fenced_k_code(KRYPTO_REFERENCE_TEXT, "k").unwrap();
+    let hooks: Vec<&str> = code
+        .split("hook(")
+        .skip(1)
+        .map(|rest| rest.split(')').next().unwrap())
+        .collect();
+    assert_eq!(hooks, KRYPTO_HOOKS);
+    let (documented, undocumented): (Vec<&str>, Vec<&str>) = UNDOCUMENTED_EVALUATED_HOOKS
+        .iter()
+        .partition(|hook| KRYPTO_HOOKS.contains(hook));
+    assert_eq!(documented.len(), 14, "{documented:?}");
+    assert_eq!(undocumented, UNDOCUMENTED_BY_ANY_REFERENCE);
+}
+
+/// kink27 GK-3: a declaration of a `krypto.md` hook with its documented sorts passes rule H,
+/// whether it imports the plugin's `KRYPTO` module or declares its own symbols (as KRS-emitted
+/// KEVM does); one with other sorts is rule H's finding, and a hook no reference text documents
+/// stays rule U.
+#[test]
+fn plugin_hooks_are_admitted_by_name_and_signature() {
+    use CensusClass::{H, U};
+    let kryptouse = declaration_census(&compile_text(
+        "kryptouse.k",
+        "KRYPTOUSE",
+        "requires \"krypto.md\"\n\
+         module KRYPTOUSE\n  imports KRYPTO\n  imports BASIC-K\n  imports BYTES\n  imports STRING\n  \
+         syntax Prog ::= go(Bytes) [symbol(go)] | done(String) [symbol(done)]\n  \
+         configuration <k> .K </k>\n  \
+         rule [go]: go(B) => done(Keccak256(B))\nendmodule\n"
+            .to_owned(),
+    ))
+    .unwrap();
+    let krskrypto = declaration_census(&compile_text(
+        "krskrypto.k",
+        "KRSKRYPTO",
+        "module KRSKRYPTO\n  imports BASIC-K\n  imports INT\n  imports BOOL\n  imports BYTES\n  imports LIST\n  \
+         syntax G1Point ::= \"(\" Int \",\" Int \")\" [symbol(kevmG1Point)]\n  \
+         syntax Bytes ::= \"#kevmKeccakRaw\" \"(\" Bytes \")\" [function, total, hook(KRYPTO.keccak256raw), symbol(kevmKeccakRaw)]\n  \
+         syntax Bytes ::= \"#kevmEcdsaRecover\" \"(\" Bytes \",\" Int \",\" Bytes \",\" Bytes \")\" [function, total, hook(KRYPTO.ecdsaRecover), symbol(kevmEcdsaRecover)]\n  \
+         syntax G1Point ::= \"#kevmBn128Add\" \"(\" G1Point \",\" G1Point \")\" [function, total, hook(KRYPTO.bn128add), symbol(kevmBn128Add)]\n  \
+         syntax Bool ::= \"#kevmBn128Ate\" \"(\" List \",\" List \")\" [function, total, hook(KRYPTO.bn128ate), symbol(kevmBn128Ate)]\n  \
+         syntax Prog ::= go(Bytes) [symbol(go)] | done(Bytes) [symbol(done)]\n  \
+         configuration <k> .K </k>\n  \
+         rule [go]: go(B) => done(#kevmKeccakRaw(B))\nendmodule\n"
+            .to_owned(),
+    ))
+    .unwrap();
+    let kryptomisfit = declaration_census(&compile_text(
+        "kryptomisfit.k",
+        "KRYPTOMISFIT",
+        "module KRYPTOMISFIT\n  imports BASIC-K\n  imports INT\n  imports BYTES\n  imports STRING\n  \
+         syntax Int ::= keccakInt(Bytes) [function, hook(KRYPTO.keccak256raw), symbol(keccakInt)]\n  \
+         syntax String ::= hashKeccak(Bytes) [function, hook(HASH.keccak256), symbol(hashKeccak)]\n  \
+         syntax String ::= sha3Hex(Bytes) [function, hook(KRYPTO.sha3256), symbol(sha3Hex)]\n  \
+         syntax Prog ::= go(Bytes) [symbol(go)] | done(Int) [symbol(done)]\n  \
+         configuration <k> .K </k>\n  \
+         rule [go]: go(B) => done(keccakInt(B))\nendmodule\n"
+            .to_owned(),
+    ))
+    .unwrap();
+    for (name, census) in [
+        ("KRYPTOUSE", &kryptouse),
+        ("KRSKRYPTO", &krskrypto),
+        ("KRYPTOMISFIT", &kryptomisfit),
+    ] {
+        eprintln!("GK3_CENSUS {name} {}", census.text());
+    }
+    assert_eq!(
+        kryptouse.verdict(),
+        CensusVerdict::Natural,
+        "{}",
+        kryptouse.text()
+    );
+    assert!(
+        kryptouse
+            .inert()
+            .iter()
+            .all(|inert| !inert.hook.starts_with("KRYPTO.")),
+        "{:?}",
+        kryptouse.inert()
+    );
+    assert_eq!(
+        krskrypto.verdict(),
+        CensusVerdict::Natural,
+        "{}",
+        krskrypto.text()
+    );
+    let rows: Vec<_> = kryptomisfit
+        .findings()
+        .iter()
+        .map(|finding| (finding.class, finding.symbol.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [(U, "LblhashKeccak"), (H, "LblkeccakInt"), (U, "Lblsha3Hex")]
+    );
+    assert_eq!(
+        kryptomisfit.findings()[1].expected.as_deref(),
+        Some("(SortBytes) -> SortBytes")
+    );
 }
 
 mod kink_tier {

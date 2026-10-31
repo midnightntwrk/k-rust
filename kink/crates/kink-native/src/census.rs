@@ -21,8 +21,11 @@ use kink_patch::Baseline;
 
 use crate::{NativeValidator, ValidatedDefinition};
 
-/// Domain of the canonical census document and its payload digest.
-pub const CENSUS_DOMAIN: &str = "kink/declaration-census/v1";
+/// Domain of the canonical census document and its payload digest. v2 (kink27 GK-3): the
+/// reference adds blockchain-k-plugin's `krypto.md`, so a declaration of one of its hooks with its
+/// signature passes rule H where v1 flagged it U, and its eight hooks k-rust leaves unimplemented
+/// are checked by rule H instead of listed inert.
+pub const CENSUS_DOMAIN: &str = "kink/declaration-census/v2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// A census is natural exactly when it contains no finding.
@@ -274,10 +277,11 @@ fn canonical_sort_hook(sort: BuiltinSort) -> Option<&'static str> {
     }
 }
 
-/// A hook absent from the reference prelude that k-rust leaves unimplemented. Only such hooks
-/// reach here: a reference hook goes to rule H first, whatever its name, so the constant-folding
-/// hooks of k-rust 927b9ce6 (every one a reference hook) need no exclusion here (re-pin L2-1,
-/// finding C-07, which removed the dead `FOLDED_HOOKS` clause).
+/// A hook absent from the reference (k-rust's builtin files and the pinned `krypto.md`) that
+/// k-rust leaves unimplemented. Only such hooks reach here: a reference hook goes to rule H
+/// first, whatever its name, so the constant-folding hooks of k-rust 927b9ce6 (every one a
+/// reference hook) need no exclusion here (re-pin L2-1, finding C-07, which removed the dead
+/// `FOLDED_HOOKS` clause).
 fn inert_hook(hook: &str) -> bool {
     !hook.starts_with("IO.")
         && matches!(
@@ -705,6 +709,28 @@ pub const REFERENCE_FILES: [&str; 9] = [
     "unification.k",
 ];
 
+/// blockchain-k-plugin's `plugin/krypto.md` at 651a2db5afc1789c89553f9113c1afa39e391e35 (KEVM
+/// 5dd05ea's plugin), copied unchanged under its NCSA licence (`reference/LICENSE-blockchain-k-plugin.txt`):
+/// the text that documents the `KRYPTO` hooks by name. A hook attribute binds a symbol to the
+/// operation its name documents, so the census reads this text as the reference for every
+/// declaration of these hooks, whatever file or symbol declares them (rule H checks the sorts).
+pub const KRYPTO_REFERENCE_FILE: &str = "krypto.md";
+pub const KRYPTO_REFERENCE_TEXT: &str = include_str!("../reference/krypto.md");
+pub const KRYPTO_REFERENCE_SHA256: &str =
+    "cca4e2eb6767cbab9829bdcdfa0488c643caba511a66657ba35218881bb6c9e3";
+
+/// The source the census reference resolves `required` to: the pinned `krypto.md`, or the
+/// k-rust builtin file of that name.
+pub fn reference_source(required: &str) -> Option<ResolvedSource> {
+    if required == KRYPTO_REFERENCE_FILE {
+        return Some(ResolvedSource::new(
+            "kink-reference://krypto.md",
+            KRYPTO_REFERENCE_TEXT,
+        ));
+    }
+    builtin::embedded(required)
+}
+
 struct Reference {
     side: ValidatedDefinition,
     hooks: BTreeMap<String, Vec<Symbol>>,
@@ -727,7 +753,7 @@ fn load_options() -> LoadOptions {
 
 fn load_reference_source(text: String) -> Result<Baseline, String> {
     let mut resolver = |_: &str, required: &str| {
-        builtin::embedded(required).ok_or_else(|| format!("{required} is not embedded"))
+        reference_source(required).ok_or_else(|| format!("{required} is not a reference text"))
     };
     Baseline::load(
         ResolvedSource::new("census-reference.k", text),
@@ -761,10 +787,14 @@ pub const EXCLUDED_REFERENCE_MODULES: &[&str] =
     &["KCELLS", "RULE-CELLS", "CONFIG-CELLS", "DEFAULT-LAYOUT"];
 
 fn build_reference() -> Result<Reference, CensusError> {
-    let files: Vec<String> = REFERENCE_FILES.iter().map(|f| (*f).to_owned()).collect();
+    let files: Vec<String> = REFERENCE_FILES
+        .iter()
+        .chain([&KRYPTO_REFERENCE_FILE])
+        .map(|f| (*f).to_owned())
+        .collect();
     let mut modules = Vec::new();
-    for file in REFERENCE_FILES {
-        let source = builtin::embedded(file)
+    for file in &files {
+        let source = reference_source(file)
             .ok_or_else(|| CensusError::Reference(format!("missing {file}")))?;
         let code = if file.ends_with(".md") {
             k_rust::outer::extract_fenced_k_code(&source.text, "k")

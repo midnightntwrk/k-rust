@@ -31,6 +31,13 @@ Runtime Verification's pyk test data, crates/k-rust/tests/fixtures/kore/LICENSE.
   `k2lean/demos/k/krs-imp/*.kore` contain the K builtin modules krust compiles
   into every definition (k2lean/README.md, "Third-party material").
 
+K Semantics Blockchain Plugin (University of Illinois/NCSA Open Source License,
+kink/crates/kink-native/reference/LICENSE-blockchain-k-plugin.txt):
+- `kink/crates/kink-native/reference/krypto.md` is runtimeverification/blockchain-k-plugin's
+  `plugin/krypto.md` at commit 651a2db5afc1789c89553f9113c1afa39e391e35, unchanged.
+  It is compiled into kink-native (`census::KRYPTO_REFERENCE_TEXT`), so binary
+  distributions of kink-native reproduce this notice.
+
 Haskell backend (BSD 3-Clause License, licenses/HASKELL-BACKEND-BSD-3-Clause.txt):
 - `crates/k-rust-backend` ports the behaviour of runtimeverification/haskell-backend
   commit ad54c7a55085b726c4d3c2728242a7e0695b0439 to Rust (docs/backend-port.md).

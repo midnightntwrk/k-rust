@@ -854,8 +854,10 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 ([`LICENSE-APACHE`](LICENSE-APACHE)) or the MIT license ([`LICENSE-MIT`](LICENSE-MIT)), at your
 option. KRS, everything under [`krs/`](krs/), is licensed the same way, and so is kink, under
 [`kink/`](kink/), except the K tutorial's IMP that `kink/examples/imp` copies, which keeps its
-BSD 3-Clause license (`kink/examples/imp/LICENSE-K.md`), and so is k2lean, under
-[`k2lean/`](k2lean/), except the third-party material its README lists.
+BSD 3-Clause license (`kink/examples/imp/LICENSE-K.md`), and blockchain-k-plugin's
+`plugin/krypto.md`, which `kink/crates/kink-native/reference` copies and keeps its University of
+Illinois/NCSA license (`kink/crates/kink-native/reference/LICENSE-blockchain-k-plugin.txt`), and
+so is k2lean, under [`k2lean/`](k2lean/), except the third-party material its README lists.
 
 The third-party material keeps its BSD 3-Clause license and copyright notices: the K Framework
 builtin sources and parser runtime copied into `crates/k-rust`, the K test data among its fixtures,

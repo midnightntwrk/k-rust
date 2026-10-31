@@ -43,7 +43,7 @@ const PROTECTED: &[&str] = &[
 ];
 
 /// The light tier's definitions: every protected fixture; every fixture with a pinned census
-/// row (the VI-T13 fixtures, including the flagged H and U rows and the inert hook, and the two
+/// row (the VI-T13 fixtures, including the flagged H rows and the inert hook, and the two
 /// TB-02 token-hook fixtures); `t13role.k`, whose compile refusal the census and coverage
 /// checks pin; `tb02float.k`, whose Float literals the representation gate admits
 /// (R3-ADMIT-FLOAT; it refused them as FloatLiteral until then); and `t13implemented.k` is also
@@ -165,7 +165,7 @@ fn root() -> PathBuf {
 /// The census rows pinned for a fixture: its findings as (class, symbol), empty for Natural;
 /// `None` for a fixture whose row is not pinned.
 fn expected(name: &str) -> Option<Vec<(CensusClass, &'static str)>> {
-    use CensusClass::{H, U};
+    use CensusClass::H;
     Some(match name {
         "t13ite.k" => vec![(H, "Lbli2b")],
         "t13owk.k" => vec![(H, "LbladdB")],
@@ -173,7 +173,10 @@ fn expected(name: &str) -> Option<Vec<(CensusClass, &'static str)>> {
         // t13role.k (rule C at 927b9ce6: .LI, _LI_, mkFoo) no longer compiles at 501f18b9, which
         // refuses the misfit role itself (E-06; support::EXPECTED_COMPILE_FAILURES).
         "t13typedlist.k" => vec![(H, "LblgetLE")],
-        "t13implemented.k" => vec![(U, "Lblkeccak")],
+        // kink27 GK-3: `keccak : Bytes -> String` hooked `KRYPTO.keccak256` is the signature the
+        // pinned `krypto.md` declares, so rule H passes it (was U). The exclusion census still
+        // reads the hook (`IMPLEMENTATION_CHOSEN` below).
+        "t13implemented.k" => vec![],
         "tb02bytestoken.k" => vec![(H, "Lblb2s")],
         "tb02stringtoken.k" => vec![(H, "Lbls2b")],
         "t13natural.k" | "t13inert.k" => vec![],
