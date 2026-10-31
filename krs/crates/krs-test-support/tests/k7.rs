@@ -200,8 +200,8 @@ const STATUSES: &[&str] = &[
     "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "6 no witness: the program would hold a value the generator does not state",
     "1144 runs a counter-witness",
-    "1616 runs, liveness",
-    "2518 runs, value",
+    "1632 runs, liveness",
+    "2502 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern

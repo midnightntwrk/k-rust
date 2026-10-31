@@ -670,10 +670,10 @@ fn go() -> Ground {
     Ground::ctor("Cmd::Go", Vec::new())
 }
 
-/// What the machine base's cells hold when the run starts, by cell path: the base's own
-/// initializer's values with the program `go`. The collection `job` starts with no instance and
-/// is not read; the optional `counter` is read only by the case that writes it, so that one
-/// finding about optional cells (NT-12-6) stays with that case.
+/// What the machine base's cells hold when the run starts, by cell path: every cell of the
+/// configuration, with the values the base's own initializer denotes and the program `go`. The
+/// optional `counter` written `Some(0)` holds 0 (decision NT-12-6), and the collection `job`,
+/// whose initializer writes an instance's template, starts with no instance.
 fn machine_cells() -> Vec<(&'static str, Ground)> {
     vec![
         ("k", Ground::Seq(vec![go()])),
@@ -681,6 +681,8 @@ fn machine_cells() -> Vec<(&'static str, Ground)> {
         ("stack", Ground::List(Vec::new())),
         ("env", Ground::map(Vec::new())),
         ("frame.ret", Ground::Int(0)),
+        ("counter", Ground::Int(0)),
+        ("queue.job[payload]", Ground::List(Vec::new())),
     ]
 }
 
@@ -842,9 +844,7 @@ fn initial_present() -> Case {
         },
     );
     let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
-    let mut cells = machine_cells();
-    cells.push(("counter", Ground::Int(0)));
-    case.k7 = start_with(cells, &[], &[]);
+    case.k7 = start_with(machine_cells(), &[], &[]);
     case
 }
 
@@ -1231,8 +1231,9 @@ fn typed_initializer(cell: &str, content: &str) -> Case {
 }
 
 /// K7's plan for a typed initializer case: the run starts with the program `go` and `ANY` bound
-/// to 1, takes no step, and the typed cells hold the typed base's values with `content`'s in
-/// `cell` (the collection `slot` starts empty and is not read).
+/// to 1, takes no step, and every cell holds the typed base's value with `content`'s in `cell`:
+/// the optional `opt` written `Some(Val::Unit())` holds the unit (decision NT-12-6), and the
+/// collection `slot`, whose initializer writes an instance's template, starts with no instance.
 fn typed_start(cell: &str, content: &str) -> K7 {
     let unit = || Ground::ctor("Val::Unit", Vec::new());
     let value = match content {
@@ -1254,6 +1255,8 @@ fn typed_start(cell: &str, content: &str) -> K7 {
         ("list", Ground::List(Vec::new())),
         ("map", Ground::map(Vec::new())),
         ("boxed.inner", unit()),
+        ("opt", unit()),
+        ("slots.slot[item]", Ground::List(Vec::new())),
     ];
     let changed = match cell {
         "list" => Some(Ground::List(vec![value])),

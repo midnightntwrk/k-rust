@@ -6254,16 +6254,152 @@ deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); 
 # `opt: Some(Val::Unit())`) starts absent: KRS emits `<counter multiplicity="?"> 0 </counter>`,
 # and a cell of multiplicity `?` is left out of the initial configuration unless the declaration
 # says it starts present, so the run starts with `.CounterCell`. The initializer's `Some(..)` means
-# the cell is there with that value. Probe: a machine of `k` and `counter: Option<Int>` initialized
-# `Some(0)`, `krs run --depth 0` on `go` prints `.CounterCell`.
+# the cell is there with that value (decision NT-16). K7 compares every cell of the initial
+# configuration (NT-16), so every machine-base and typed-base initializer case K6 accepts deviates
+# at the optional cell its base writes `Some(..)`, and so does the K8 advice check that reads one
+# (`init/k/k::k![pgm]`); the initial base's case, whose cell says `initial`, conforms. Probe: a
+# machine of `k` and `counter: Option<Int>` initialized `Some(0)`, `krs run --depth 0` on `go`
+# prints `.CounterCell`.
 
 ["k7/init/counter/Some(0)"]
 finding = "NT-12-6"
-deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/env/k::builtin::map::empty()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/env/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/env/k::map![0 -> 1]"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 1}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 1}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/env/k::map![]"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/env/k::map![pgm -> 1, 0 -> 2]"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/frame/Frame { ret: 0 }"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/job/Job { payload: 0 }"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/k/k::k![pgm]"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/order/nested-reversed"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], frame.aux = 1, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = [], frame.aux = 1"
+
+["k7/init/order/pc-first"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/order/queue-first"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/order/reversed"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/pc/0"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/stack/list::empty()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
+
+["k7/init/typed/any/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go(), 1], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go(), 1], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/any/Cmd::Go()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go(), 1], leaf = Val::Unit(), stmt = Cmd::Go(), any = Cmd::Go(), list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go(), 1], leaf = Val::Unit(), stmt = Cmd::Go(), any = Cmd::Go(), list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/any/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go(), 1], leaf = Val::Unit(), stmt = Cmd::Go(), any = Val::Unit(), list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go(), 1], leaf = Val::Unit(), stmt = Cmd::Go(), any = Val::Unit(), list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/any/any"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/boxed/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = 1, opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = 1, opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/boxed/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/leaf/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = 1, stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = 1, stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/leaf/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/list/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [1], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [1], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/list/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [Val::Unit()], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [Val::Unit()], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/map/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{0 -> 1}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{0 -> 1}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/map/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{0 -> Val::Unit()}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{0 -> Val::Unit()}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/opt/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = 1, slots.slot[item] = []"
 
 ["k7/init/typed/opt/Val::Unit()"]
 finding = "NT-12-6"
-deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit()"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/slot/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/slot/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/stmt/1"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = 1, any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = 1, any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/stmt/Cmd::Go()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k7/init/typed/stmt/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Val::Unit(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Val::Unit(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
+["k8/init/k/k::k![pgm]"]
+finding = "NT-12-6"
+deviation = "advice of initializer-remainder: K7: another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = absent, queue.job[payload] = [], where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0, queue.job[payload] = []"
 
 
 # K8 (NT-13): the attribute axis's cases (`attrs/..`), the terms slots writing NT-9-1's key, and

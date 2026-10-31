@@ -233,7 +233,7 @@ the descriptors of the base and its own. A case is judged by
   token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
   which the run's parse expands, and its result read in the expansion; an initializer, of the
   term family or of the configuration families' `init` (the machine and typed bases, with `$PGM`
-  bound to `go` and `-c ANY=1`), is read before any step, each cell's stated value compared. Values the program grammar cannot write (a map, a set, a list, `$x`,
+  bound to `go` and `-c ANY=1`), is read before any step, and every cell of the initial configuration is compared with the value its initializer denotes: the case's own spelling in its cell, the base's values elsewhere, an optional cell written `Some(v)` holding `v` (decision NT-16, finding NT-12-6) and a collection, whose initializer writes an instance's template, holding none. Values the program grammar cannot write (a map, a set, a list, `$x`,
   `Wrap::<KItem>(..)`) are written through the base's makers, functions that build exactly them,
   which a static clause's expansion meets unevaluated, so a witness only a maker writes is no
   witness for a desugar's or an alias's subject. Claims and simplifications need a prover (L4
