@@ -88,6 +88,11 @@ operation, and a corpus of programs that apply them to concrete values:
   closed with `krs::native::raw-k-parse` at the `raw_k!` text, after the
   `krs::semantic::raw-k` warning that names it.
 
+The `strings` cases `from-string*` and `to-string` and the `floats` cases
+`to-int-tie-*`, `from-int-binary32` and `round-binary32` pin values
+`domains.md` leaves open: they are k-rust's choices, which k-rust marks on the
+run.
+
 `known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
 function that has no equations: Java K's LLVM backend evaluates only the taken

@@ -642,11 +642,13 @@ pub mod bytes {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct ToInt(pub Bytes, pub Endianness, pub Signedness);
 
-    /// Marker for `String2Bytes`, the Latin-1 bytes of a string.
+    /// Marker for `String2Bytes` (`BYTES.string2bytes`). `domains.md` names no encoding, so
+    /// the bytes are open: k-rust writes one byte per code point below 256 and marks the run.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct StringToBytes(pub super::string::String);
 
-    /// Marker for `Bytes2String`, the Latin-1 string of bytes.
+    /// Marker for `Bytes2String` (`BYTES.bytes2string`). `domains.md` names no encoding, so
+    /// the string is open: k-rust reads one code point per byte and marks the run.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct BytesToString(pub Bytes);
 
@@ -840,7 +842,8 @@ pub mod float {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Float;
 
-    /// Marker for addition `+Float`, rounding to nearest, ties to even.
+    /// Marker for addition `+Float`, rounding to nearest, ties to even, as its `smt-hook`
+    /// states (`roundNearestTiesToEven`).
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Add(pub Float, pub Float);
 
@@ -948,7 +951,8 @@ pub mod float {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct FromInt(pub Int, pub Int, pub Int);
 
-    /// Marker for `Float2Int`, rounding ties to even.
+    /// Marker for `Float2Int` (`FLOAT.float2int`), the nearest integer; `domains.md` names no
+    /// rule for a tie, so a tie is open: k-rust rounds it to even and marks the run.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct ToInt(pub Float);
 

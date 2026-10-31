@@ -150,7 +150,9 @@ macro_rules! __krs_hook_operation_catalog {
                     point_constructors: &[],
                 }
             }
-            /// Validate a concrete `alt_bn128` G1 point (`KRYPTO.bn128valid`).
+            /// Validate a concrete G1 point of the plugin's BN128 curve (`KRYPTO.bn128valid`).
+            /// `plugin/krypto.md` gives no curve parameters, so every value is open: k-rust computes
+            /// `alt_bn128` and marks the run.
             KryptoBn128Valid {
                 rust_module: krypto,
                 rust_name: bn128_valid,
@@ -164,7 +166,7 @@ macro_rules! __krs_hook_operation_catalog {
                     }],
                 }
             }
-            /// Add two concrete `alt_bn128` G1 points (`KRYPTO.bn128add`).
+            /// Add two concrete G1 points of the plugin's BN128 curve (`KRYPTO.bn128add`).
             KryptoBn128Add {
                 rust_module: krypto,
                 rust_name: bn128_add,
@@ -178,7 +180,8 @@ macro_rules! __krs_hook_operation_catalog {
                     }],
                 }
             }
-            /// Multiply a concrete `alt_bn128` G1 point by an integer (`KRYPTO.bn128mul`).
+            /// Multiply a concrete G1 point of the plugin's BN128 curve by an integer
+            /// (`KRYPTO.bn128mul`).
             KryptoBn128Mul {
                 rust_module: krypto,
                 rust_name: bn128_mul,
@@ -192,7 +195,8 @@ macro_rules! __krs_hook_operation_catalog {
                     }],
                 }
             }
-            /// Validate a concrete `alt_bn128` G2 point and subgroup membership (`KRYPTO.bn128g2valid`).
+            /// Validate a concrete G2 point of the plugin's BN128 curve and its subgroup membership
+            /// (`KRYPTO.bn128g2valid`).
             KryptoBn128G2Valid {
                 rust_module: krypto,
                 rust_name: bn128_g2_valid,
@@ -206,7 +210,8 @@ macro_rules! __krs_hook_operation_catalog {
                     }],
                 }
             }
-            /// Test whether an `alt_bn128` pairing product is the target-group identity (`KRYPTO.bn128ate`).
+            /// Test whether a pairing product of the plugin's BN128 curve is the target-group identity
+            /// (`KRYPTO.bn128ate`).
             KryptoBn128Ate {
                 rust_module: krypto,
                 rust_name: bn128_ate,
@@ -1548,7 +1553,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Bool,
                 functional: true
             }
-            /// `String2Bytes`, the Latin-1 bytes of a string (`BYTES.string2bytes`).
+            /// `String2Bytes` (`BYTES.string2bytes`). `domains.md` names no encoding, so the bytes
+            /// are open: k-rust writes one byte per code point below 256 and marks the run.
             BytesFromString {
                 rust_module: bytes,
                 rust_name: from_string,
@@ -1561,7 +1567,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Bytes,
                 functional: true
             }
-            /// `Bytes2String`, the Latin-1 string of bytes (`BYTES.bytes2string`).
+            /// `Bytes2String` (`BYTES.bytes2string`). `domains.md` names no encoding, so the string
+            /// is open: k-rust reads one code point per byte and marks the run.
             BytesToString {
                 rust_module: bytes,
                 rust_name: to_string,
@@ -1617,7 +1624,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Parameter,
                 functional: true
             }
-            /// `_+Float_` (`FLOAT.add`), rounding to nearest, ties to even.
+            /// `_+Float_` (`FLOAT.add`), rounding to nearest, ties to even, as its `smt-hook` states
+            /// (`roundNearestTiesToEven`).
             FloatAdd {
                 rust_module: float,
                 rust_name: add,
@@ -1968,7 +1976,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Float,
                 functional: true
             }
-            /// `Float2Int`, rounding ties to even (`FLOAT.float2int`).
+            /// `Float2Int` (`FLOAT.float2int`), the nearest integer; `domains.md` names no rule for a
+            /// tie, so a tie is open: k-rust rounds it to even and marks the run.
             FloatToInt {
                 rust_module: float,
                 rust_name: to_int,
