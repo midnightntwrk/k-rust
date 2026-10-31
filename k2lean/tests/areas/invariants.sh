@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
 
@@ -17,7 +17,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;;
     simpleinv|simplestore|simplet|simpleenvs) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -67,6 +67,12 @@ gen_invariants() {
     drfinv) GEN_ARGS=(--kore "$FIXTURES/drf/definition.kore" --runtime "$FIXTURES/drf/runtime.json"
             --out "$o" --name Drf --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant drfOk@T) ;;
+    # the two-layer prototype's outputs behind their process's count (tests/fixtures/twoparam's
+    # `valsOk`, with the script's `wf`): a map walk whose test looks the process up in <procs>,
+    # which `resume` changes at that key (closer 3b, docs/invariants.md §5.1)
+    twoparamvals) GEN_ARGS=(--kore "$FIXTURES/twoparam/definition.kore" --runtime "$FIXTURES/twoparam/runtime.json"
+            --out "$o" --name TwoParam --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant wf@T --invariant valsOk@T) ;;
     # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
             --out "$o" --name KWalk --prelude ../../lean --open-obligations "$o/open-obligations.txt"
@@ -282,6 +288,8 @@ gate_invariants() {
   runs lib walk && inv_lib walk KWalk
   # claims disjoint across a cell map's elements, read by `noDup` (tests/fixtures/drf's `drfOk`)
   runs lib drfinv && inv_lib drfinv Drf
+  # twoparam's outputs behind their process's count in <procs> (tests/fixtures/twoparam's `valsOk`)
+  runs lib twoparamvals && inv_lib twoparamvals TwoParam
   runs negative krsimp-ill-typed && negative_ill_typed
   # SIMPLE with the K function `holdsOk` (demos/k/simple-inv), as for kimpinv; "every store value
   # is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's top cell

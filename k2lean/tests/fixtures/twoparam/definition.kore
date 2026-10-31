@@ -1476,6 +1476,55 @@ module TWOPARAM
     ),
     total{}()
   ]
+  symbol LblvalsOk'LParUndsRParUnds'TWOPARAM'Unds'Bool'Unds'TCell{}(SortTCell{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(98,19,98,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+    SortMap{},
+    SortMap{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,19,99,53)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    total{}()
+  ]
+  symbol Lbltaken'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'KItem'Unds'Map{}(
+    SortKItem{},
+    SortMap{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(100,19,100,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblbelow'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Int'Unds'KItem{}(
+    SortInt{},
+    SortKItem{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(101,19,101,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    total{}()
+  ]
   symbol Lbl'-LT-'tid'-GT-'{}(SortInt{}) : SortTidCell{}
   [
     cell{}(),
@@ -2750,6 +2799,51 @@ module TWOPARAM
       \equals{SortBool{}, R}(
         Val:SortBool{},
         LblnoDup'LParUndsRParUnds'TWOPARAM'Unds'Bool'Unds'List{}(K0:SortList{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblvalsOk'LParUndsRParUnds'TWOPARAM'Unds'Bool'Unds'TCell{}(K0:SortTCell{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+          K0:SortMap{},
+          K1:SortMap{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        Lbltaken'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'KItem'Unds'Map{}(
+          K0:SortKItem{},
+          K1:SortMap{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        Lblbelow'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Int'Unds'KItem{}(
+          K0:SortInt{},
+          K1:SortKItem{}
+        )
       )
     )
     [functional{}()]
@@ -8348,6 +8442,302 @@ module TWOPARAM
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTCell{}, R}(
+            X0:SortTCell{},
+            Lbl'-LT-'T'-GT-'{}(
+              Var'Unds'Gen0:SortTasksCell{},
+              Lbl'-LT-'procs'-GT-'{}(VarPS:SortMap{}),
+              Lbl'-LT-'vals'-GT-'{}(VarVS:SortMap{})
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblvalsOk'LParUndsRParUnds'TWOPARAM'Unds'Bool'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortBool{}}(
+          Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+            VarVS:SortMap{},
+            VarPS:SortMap{}
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("a123af0629d7214cc0382217aa72fec80d0ba1570bbd20aeeb97d550a821d09f"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(102,3,102,92)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortMap{}, R}(X0:SortMap{}, Lbl'Stop'Map{}()),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, Var'Unds'Gen0:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+          X0:SortMap{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("a457471b0185a60f49042b9ed661a7953024d74d445e53416797eb7a2deb28c0"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(103,3,103,31)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortMap{}, R}(
+            X0:SortMap{},
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'UndsPipe'-'-GT-Unds'{}(VarK:SortKItem{}, Var'Unds'Gen0:SortKItem{}),
+              VarVS:SortMap{}
+            )
+          ),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, VarPS:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+          X0:SortMap{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds'andBool'Unds'{}(
+            Lbltaken'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'KItem'Unds'Map{}(
+              VarK:SortKItem{},
+              VarPS:SortMap{}
+            ),
+            Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+              VarVS:SortMap{},
+              VarPS:SortMap{}
+            )
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("9cc8e4b1bd9c58ddc7c42e71f99511ea6ad5e03b79936e9ebc3772ae30597db3"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(104,3,104,71)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(
+            X0:SortKItem{},
+            inj{SortOid{}, SortKItem{}}(
+              Lblo'LParUndsCommUndsRParUnds'TWOPARAM-SYNTAX'Unds'Oid'Unds'Int'Unds'Int{}(
+                VarP:SortInt{},
+                VarM:SortInt{}
+              )
+            )
+          ),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, VarPS:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lbltaken'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'KItem'Unds'Map{}(
+          X0:SortKItem{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(
+          Lblbelow'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Int'Unds'KItem{}(
+            VarM:SortInt{},
+            LblMap'Coln'lookupOrDefault{}(
+              VarPS:SortMap{},
+              inj{SortInt{}, SortKItem{}}(VarP:SortInt{}),
+              inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))
+            )
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2d6b82ddaeaf5862158065be263aba1a9342acb675bd6b3afa407cc563d4c706"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(105,3,105,57)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen2:SortInt{},
+              \exists{R}(
+                Var'Unds'Gen3:SortInt{},
+                \exists{R}(
+                  Var'Unds'Gen4:SortMap{},
+                  \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                      \in{SortKItem{}, R}(
+                        X0:SortKItem{},
+                        inj{SortOid{}, SortKItem{}}(
+                          Lblo'LParUndsCommUndsRParUnds'TWOPARAM-SYNTAX'Unds'Oid'Unds'Int'Unds'Int{}(
+                            Var'Unds'Gen2:SortInt{},
+                            Var'Unds'Gen3:SortInt{}
+                          )
+                        )
+                      ),
+                      \and{R}(\in{SortMap{}, R}(X1:SortMap{}, Var'Unds'Gen4:SortMap{}), \top{R}())
+                    )
+                  )
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(
+            \in{SortKItem{}, R}(X0:SortKItem{}, Var'Unds'Gen0:SortKItem{}),
+            \and{R}(\in{SortMap{}, R}(X1:SortMap{}, Var'Unds'Gen1:SortMap{}), \top{R}())
+          )
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lbltaken'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'KItem'Unds'Map{}(
+          X0:SortKItem{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("03fb4bcf38a679a0a7977745d8826eccbcab4a84f70358366bbbeb4298aa3424"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(106,3,106,36)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInt{}, R}(X0:SortInt{}, VarM:SortInt{}),
+          \and{R}(
+            \in{SortKItem{}, R}(
+              X1:SortKItem{},
+              Lblst'LParUndsCommUndsCommUndsRParUnds'TWOPARAM'Unds'KItem'Unds'Int'Unds'Int'Unds'Stmts{}(
+                VarN:SortInt{},
+                Var'Unds'Gen0:SortInt{},
+                Var'Unds'Gen1:SortStmts{}
+              )
+            ),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lblbelow'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Int'Unds'KItem{}(
+          X0:SortInt{},
+          X1:SortKItem{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds-LT-'Int'Unds'{}(VarM:SortInt{}, VarN:SortInt{}),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("4727fe53b4150e5ca322c6ed77443ba064b0387406a8c7152fcd630fd7a67af5"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(107,3,107,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen2:SortInt{},
+              \exists{R}(
+                Var'Unds'Gen3:SortInt{},
+                \exists{R}(
+                  Var'Unds'Gen4:SortInt{},
+                  \exists{R}(
+                    Var'Unds'Gen5:SortStmts{},
+                    \and{R}(
+                      \top{R}(),
+                      \and{R}(
+                        \in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen2:SortInt{}),
+                        \and{R}(
+                          \in{SortKItem{}, R}(
+                            X1:SortKItem{},
+                            Lblst'LParUndsCommUndsCommUndsRParUnds'TWOPARAM'Unds'KItem'Unds'Int'Unds'Int'Unds'Stmts{}(
+                              Var'Unds'Gen3:SortInt{},
+                              Var'Unds'Gen4:SortInt{},
+                              Var'Unds'Gen5:SortStmts{}
+                            )
+                          ),
+                          \top{R}()
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(
+            \in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}),
+            \and{R}(\in{SortKItem{}, R}(X1:SortKItem{}, Var'Unds'Gen1:SortKItem{}), \top{R}())
+          )
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lblbelow'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Int'Unds'KItem{}(
+          X0:SortInt{},
+          X1:SortKItem{}
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("c73f9175ba389d3e0f211cc533bf5bda637d5ccae49c3a093d86943f3440f8a6"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(108,3,108,36)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \top{R}()),
       \equals{SortTidCell{}, R}(
         LblinitTidCell{}(),
@@ -11126,7 +11516,7 @@ module TWOPARAM
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,1,96,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,1,109,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
   )

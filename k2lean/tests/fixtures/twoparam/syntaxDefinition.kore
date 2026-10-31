@@ -2461,6 +2461,75 @@ module TWOPARAM
     terminals{}("1101"),
     total{}()
   ]
+  symbol LblvalsOk'LParUndsRParUnds'TWOPARAM'Unds'Bool'Unds'TCell{}(SortTCell{}) : SortBool{}
+  [
+    format{}("%cvalsOk%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(98,19,98,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblbehind'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Map'Unds'Map{}(
+    SortMap{},
+    SortMap{}
+  ) : SortBool{}
+  [
+    format{}("%cbehind%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,19,99,53)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
+  symbol Lbltaken'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'KItem'Unds'Map{}(
+    SortKItem{},
+    SortMap{}
+  ) : SortBool{}
+  [
+    format{}("%ctaken%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(100,19,100,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
+  symbol Lblbelow'LParUndsCommUndsRParUnds'TWOPARAM'Unds'Bool'Unds'Int'Unds'KItem{}(
+    SortInt{},
+    SortKItem{}
+  ) : SortBool{}
+  [
+    format{}("%cbelow%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(101,19,101,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'tid'-GT-'{}(SortInt{}) : SortTidCell{}
   [
     cell{}(),

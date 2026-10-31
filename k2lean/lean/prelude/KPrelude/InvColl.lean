@@ -436,6 +436,50 @@ grow. -/
     EntriesOn (fun q => inKeys q.2 S' = true) m :=
   fun p hp => h _ (hm p hp)
 
+/-! A map a rule matches or builds as `K |-> V REST` is `REST` with `K` bound to `V`, and `K` is not
+a key of `REST` (`concat_element_iff`). So a lookup in it is the bound value at `K` and a lookup in
+`REST` elsewhere, and a lookup in `REST` at `K` finds nothing. `k2l_preserve` adds these facts for
+each such match of a rule (`forwardLookups`), so that a test reading a map the rule changes at one
+key (an output's process count in `<procs>`) reads it as the old map at every other key. -/
+
+theorem lookup_of_concat_element_ite [DecidableEq K] {k : K} {v : V} {r m : M}
+    (h : concat (element k v) r = some m) (k' : K) :
+    lookup m k' = if k' = k then some v else lookup r k' := by
+  obtain ⟨_, _, rfl⟩ := concat_element_iff.1 h
+  split
+  · subst_vars; exact lookup_update_self _ _ _
+  · rename_i hne; exact lookup_update_ne _ _ hne
+
+theorem lookup_rest_of_concat_element {k : K} {v : V} {r m : M}
+    (h : concat (element k v) r = some m) : lookup r k = none :=
+  (concat_element_iff.1 h).2.1
+
+theorem lookupOrDefault_of_concat_element [DecidableEq K] {k : K} {v : V} {r m : M}
+    (h : concat (element k v) r = some m) (k' : K) (d : V) :
+    lookupOrDefault m k' d = if k' = k then v else lookupOrDefault r k' d := by
+  unfold lookupOrDefault
+  rw [MapRepr.lookupR_eq, MapRepr.lookupR_eq, ← lookup_def, ← lookup_def,
+    lookup_of_concat_element_ite h]
+  split <;> rfl
+
+theorem lookupOrDefault_rest_of_concat_element {k : K} {v : V} {r m : M}
+    (h : concat (element k v) r = some m) (d : V) : lookupOrDefault r k d = d := by
+  unfold lookupOrDefault
+  rw [MapRepr.lookupR_eq, ← lookup_def, lookup_rest_of_concat_element h]; rfl
+
+theorem inKeys_of_concat_element_ite [DecidableEq K] {k : K} {v : V} {r m : M}
+    (h : concat (element k v) r = some m) (k' : K) :
+    inKeys k' m = if k' = k then true else inKeys k' r := by
+  unfold inKeys
+  rw [MapRepr.lookupR_eq, MapRepr.lookupR_eq, ← lookup_def, ← lookup_def,
+    lookup_of_concat_element_ite h]
+  split <;> rfl
+
+theorem inKeys_rest_of_concat_element {k : K} {v : V} {r m : M}
+    (h : concat (element k v) r = some m) : inKeys k r = false := by
+  unfold inKeys
+  rw [MapRepr.lookupR_eq, ← lookup_def, lookup_rest_of_concat_element h]; rfl
+
 end
 
 end MapHook

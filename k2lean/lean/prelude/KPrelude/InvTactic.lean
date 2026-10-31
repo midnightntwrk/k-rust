@@ -28,7 +28,15 @@ On each goal it runs, in order, until one closes the goal completely:
    (a predicate on keys, values or entries kept by `update`, `remove`, a map pattern, ...), the
    lemma's premises by the hypotheses or by simp; a goal no lemma applies to is normalized by the
    unfolding set and attacked again (at most twice on a path: `Q (k, v)` of a rebuilt element
-   unfolds to goals on the collections inside it);
+   unfolds to goals on the collections inside it). Where such a predicate applies a K function
+   that looks a value up (`M[K] orDefault D`, `M[K]`) to a map the rule matches or builds as
+   `K |-> V REST` (twoparam's outputs behind their process's count in `<procs>`), the closer
+   first runs with the lookups in each such map (`V` at `K`, `REST` elsewhere, the default in
+   `REST` at `K`: `InvColl`'s `lookupOrDefault_of_concat_element` and its group) and, at a
+   binding whose fact applies a K function to its key or value, that function's matches split
+   in the fact (which binds the key to the pattern of the case that holds and refutes the
+   others), the lookups rewritten, the goal's `if`s split, and the goals left closed by a fact,
+   a refutation or arithmetic (`3b`); 3 as above runs when that fails;
 4. *simp*: `simp_all` with the unfolding set; failing that, the same on each branch of the
    disjunctions among the rule's hypotheses (at most three split along a path), which an
    invariant with `orBool` or `impliesBool` at its top leaves (`B impliesBool hasZero(L)` is
@@ -364,13 +372,174 @@ def entriesOn? (ty : Expr) : Option (Expr × Expr) :=
   if ty.isAppOf `KPrelude.MapHook.EntriesOn && n ≥ 2 then some (ty.getArg! (n - 2), ty.getArg! (n - 1))
   else none
 
+/-- The K functions `c` (those with a generated `c.rule1`) applied in `e` to a local variable or a
+component of one. -/
+def kFunsOnVars (e : Expr) : MetaM (Array Name) := do
+  let env ← getEnv
+  let acc ← IO.mkRef (#[] : Array Name)
+  e.forEach fun s => do
+    let .const c _ := s.getAppFn | return
+    unless env.contains (c ++ `rule1) do return
+    -- a variable, or a component of one (`p.1` of a binding `p`)
+    let onVar (a : Expr) : Bool := a.isFVar ||
+      ((a.isAppOfArity ``Prod.fst 3 || a.isAppOfArity ``Prod.snd 3) && a.appArg!.isFVar) ||
+      (match a with | .proj _ _ b => b.isFVar | _ => false)
+    unless s.getAppArgs.any onVar do return
+    unless (← acc.get).contains c do acc.modify (·.push c)
+  acc.get
+
+/-- Closer 3b's leaf: the goal `Q' p` under `hp : Q p`, the last two locals, for a binding `p`
+whose test the unfolding set does not decide (it matches on the binding's key: `taken(o(P, M),
+PS)` and an `owise` case). The binding is split into its key and value; each K function the fact
+applies to one of them is unfolded, in the fact and the goal, to the matches of its rules; the
+matches of the fact are split (`split at`), which binds the key to the pattern of the case the
+fact holds in and refutes the others; then the facts and the goal are normalized with `U`, which
+holds the lookups of the rule's matched maps (`forwardLookups`), and the `if`s of the goal are
+split. A goal left that is a fact, refuted by one, or arithmetic over them is closed here; the
+others go back to the collections closer. -/
+partial def testLeaf (U : Array SimpArg) : TacticM Unit := do
+  let simpNamed (U : Array SimpArg) (names : Array Name) : TacticM Unit := do
+    for n in names do
+      if (← getGoals).isEmpty then return
+      let present ← (← getMainGoal).withContext do return ((← getLCtx).findFromUserName? n).isSome
+      if present then
+        tryRec (evalTactic (← `(tactic| simp only [$U,*] at $(mkIdent n):ident))) (pure ())
+    if (← getGoals).isEmpty then return
+    tryRec (evalTactic (← `(tactic| simp only [$U,*]))) (pure ())
+  -- the binding's fact named, the binding split
+  liftMetaTactic fun g => do
+    let ids := (← g.getDecl).lctx.getFVarIds
+    let some hp := ids.back? | return [g]
+    let g ← g.rename hp `k2l_hp
+    let some p := ids.pop.back? | return [g]
+    if (← whnfR (← p.getType)).isAppOf ``Prod then
+      return (← g.cases p).toList.map (·.mvarId)
+    return [g]
+  let hpId := mkIdent `k2l_hp
+  tryRec (evalTactic (← `(tactic| (try dsimp only at $hpId:ident ⊢); (try simp only [$U,*] at $hpId:ident)))) (pure ())
+  if (← getGoals).isEmpty then return
+  -- the K functions the fact applies to the key or the value: their rules' matches
+  let g ← getMainGoal
+  let fs ← g.withContext do
+    let some d := (← getLCtx).findFromUserName? `k2l_hp | return #[]
+    kFunsOnVars (← instantiateMVars d.type)
+  if fs.isEmpty then return
+  let env ← getEnv
+  let mut us : Array Name := #[]
+  for c in fs do
+    us := us.push c
+    let mut i := 1
+    while env.contains (c ++ Name.mkSimple s!"rule{i}") do
+      us := us.push (c ++ Name.mkSimple s!"rule{i}")
+      i := i + 1
+  let base ← g.withContext do return (← getLCtx).getFVarIds
+  let ua : Array SimpArg ← us.mapM (fun n => simpArgOfName n)
+  evalTactic (← `(tactic| simp only [$ua,*] at $hpId:ident ⊢))
+  if (← getGoals).isEmpty then return
+  -- split the matches of the fact, then of what each split leaves, refuting the cases that hold
+  -- no `true`
+  for _ in [0:8] do
+    let mut out : Array MVarId := #[]
+    let mut progress := false
+    for g in ← getGoals do
+      let r ← g.withContext do
+        for d in (← getLCtx) do
+          if d.isImplementationDetail || base.contains d.fvarId && d.userName != `k2l_hp then continue
+          let ty ← instantiateMVars d.type
+          unless ← isProp ty do continue
+          let env ← getEnv
+          unless (ty.find? fun e => (isMatcherAppCore? env e).isSome).isSome do continue
+          if let some gs ← Lean.Meta.splitLocalDecl? g d.fvarId then return some gs
+        return none
+      match r with
+      | some gs =>
+        progress := true
+        for g' in gs do
+          let c ← tryRec (do setGoals [g']; evalTactic (← `(tactic| contradiction)); pure true) (pure false)
+          unless c do out := out.push g'
+      | none => out := out.push g
+    setGoals out.toList
+    unless progress do break
+  -- the facts the splits left, named; the lookups rewritten; the `if`s of the goal split
+  let mut out : Array MVarId := #[]
+  for g in ← getGoals do
+    setGoals [g]
+    tryRec (evalTactic (← `(tactic| try subst_vars))) (pure ())
+    if (← getGoals).isEmpty then continue
+    let g ← getMainGoal
+    let (g, hs) ← g.withContext do
+      let mut g := g
+      let mut hs : Array Name := #[]
+      let mut i := 0
+      for d in (← getLCtx) do
+        if d.isImplementationDetail || base.contains d.fvarId then continue
+        unless ← isProp d.type do continue
+        let n := Name.mkSimple s!"k2l_t{i}"
+        g ← g.rename d.fvarId n
+        hs := hs.push n
+        i := i + 1
+      return (g, hs)
+    setGoals [g]
+    let names := hs.push `k2l_hp
+    simpNamed U names
+    -- each `if` of the goal: its two cases, the condition's equation substituted
+    for _ in [0:4] do
+      let mut next : Array MVarId := #[]
+      for g in ← getGoals do
+        let before ← g.withContext do return (← getLCtx).getFVarIds
+        match ← tryRec (Lean.Meta.splitTarget? g) (pure none) with
+        | none => next := next.push g
+        | some gs =>
+          for g' in gs do
+            -- the case's condition, named, rewrites the same condition in the facts
+            let (g', cs) ← g'.withContext do
+              let mut g' := g'
+              let mut cs : Array Name := #[]
+              for d in (← getLCtx) do
+                if d.isImplementationDetail || before.contains d.fvarId then continue
+                unless ← isProp d.type do continue
+                let n := Name.mkSimple s!"k2l_c{cs.size}"
+                g' ← g'.rename d.fvarId n
+                cs := cs.push n
+              return (g', cs)
+            setGoals [g']
+            tryRec (evalTactic (← `(tactic| (try injections); try subst_vars))) (pure ())
+            if (← getGoals).isEmpty then continue
+            let mut Uc := U
+            for c in cs do
+              let present ← (← getMainGoal).withContext do return ((← getLCtx).findFromUserName? c).isSome
+              if present then Uc := Uc.push ⟨(← `(Lean.Parser.Tactic.simpLemma| $(mkIdent c):ident)).raw⟩
+            simpNamed Uc names
+            next := next ++ (← getGoals).toArray
+      setGoals next.toList
+    -- each goal left: the fact itself, or arithmetic on the facts the leaf named
+    for g in ← getGoals do
+      setGoals [g]
+      if ← closes (← `(tactic| first | assumption | contradiction)) then continue
+      -- the comparisons as propositions first, then the operations: rewriting `IntHook.add N 1`
+      -- inside `decide (M < IntHook.add N 1)` first leaves its `Decidable` instance behind, and
+      -- the term is then no longer one `decide_eq_true_eq` matches
+      let ua1 : Array SimpArg ← #[``IntHook.lt, ``IntHook.le, ``IntHook.gt, ``IntHook.ge,
+        ``IntHook.eq, ``IntHook.ne, ``decide_eq_true_eq, ``decide_eq_false_iff_not].mapM
+        (fun n => simpArgOfName n)
+      let ua2 : Array SimpArg := #[⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩]
+      let s ← saveState
+      simpNamed ua1 names
+      if (← getGoals).isEmpty then continue
+      simpNamed ua2 names
+      if (← getGoals).isEmpty then continue
+      if ← closes (← `(tactic| omega)) then continue
+      s.restore
+      out := out.push g
+  setGoals out.toList
+
 /-- The *collections* closer: conjunctions, hypotheses, `@[k2l_coll]` lemmas, and a
 discharger for the leaves. When no lemma applies to a goal, it is normalized by `norm` (the
 unfolding set, `simp only`) and the closer starts again on the result, at most `norms` times on
 one path: a goal about one element of a collection (`Q (k, v)`, the invariant of a thread) unfolds
 to a goal about a collection inside it (the thread's `<holds>` map), which the lemmas address. -/
 partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TSyntax `tactic)
-    (U : Array SimpArg) (norms : Nat) : Nat → TacticM Bool
+    (U : Array SimpArg) (norms : Nat) (leaf : Bool := false) : Nat → TacticM Bool
   | depth => do
     if (← getGoals).isEmpty then return true
     splitAnds
@@ -394,7 +563,7 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
       for g' in gs do
         if ← g'.isAssigned then continue
         setGoals [g']
-        unless ← collClose disch lemmas norm U norms depth do return false
+        unless ← collClose disch lemmas norm U norms leaf depth do return false
       return true
     if tgt.isAppOfArity ``And 2 then
       let s ← saveState
@@ -427,10 +596,23 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
               unless fits do return false
               gh.assign (.fvar h)
               setGoals [gq]
+              -- closer 3b: a fact that applies a K function to the binding (its test matches on
+              -- the key), by the cases of that function's matches
+              if leaf then
+                let sq ← saveState
+                evalTactic (← `(tactic| (intro p hp; try dsimp only at hp ⊢; try simp only [$U,*] at hp)))
+                let onVars ← (← getMainGoal).withContext do
+                  let some d := (← getLCtx).lastDecl | return false
+                  return !(← kFunsOnVars (← instantiateMVars d.type)).isEmpty
+                sq.restore
+                if onVars then
+                  evalTactic (← `(tactic| intro p hp))
+                  testLeaf U
+                  return ← all (← getGoals) (depth - 1)
               -- the binding's fact, normalized as the goal will be (its parts are what closes it)
               evalTactic (← `(tactic| (intro p hp; try dsimp only at hp ⊢; try simp only [$U,*] at hp)))
               splitAnds
-              collClose disch lemmas norm U norms (depth - 1)) (pure false)
+              collClose disch lemmas norm U norms leaf (depth - 1)) (pure false)
           if ok then
             setGoals []
             return true
@@ -460,7 +642,7 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
       let ok ← tryRec (do
           tryRec (evalTactic norm) (pure ())
           if (← getGoals).isEmpty then return true
-          collClose disch lemmas norm U (norms - 1) 3) (pure false)
+          collClose disch lemmas norm U (norms - 1) leaf 3) (pure false)
       if ok then
         setGoals []
         return true
@@ -568,6 +750,82 @@ def forwardKeysIncl : TacticM Unit := do
   let (_, g') ← g.assertHypotheses hs
   setGoals [g']
 
+/-- Does a K function look a value up in a map: does one of its rules (`c.rule1`, `c.rule2`, …)
+apply `MapHook.lookupOrDefault` or `MapHook.lookup`? -/
+def looksUp (c : Name) : MetaM Bool := do
+  let env ← getEnv
+  let mut i := 1
+  while env.contains (c ++ Name.mkSimple s!"rule{i}") do
+    if let some v := (env.find? (c ++ Name.mkSimple s!"rule{i}")).bind (·.value?) then
+      if (v.find? fun e => e.isConstOf `KPrelude.MapHook.lookupOrDefault ||
+          e.isConstOf `KPrelude.MapHook.lookup).isSome then
+        return true
+    i := i + 1
+  return false
+
+/-- Does a predicate over a collection's bindings (`EntriesOn Q m`, in the goal or a hypothesis)
+apply a K function that looks values up in a map (`looksUp`) to a map that a hypothesis
+`concat (element k v) r = some m'` of the rule matches or builds (`m'` an argument)? Then the test
+reads the value the rule may have changed at `k` (closer 3b). A test that reads such a map only
+through its keys (`in_keys`) is closer 3's (`KeysIncl`). -/
+def readsMatchedMap : TacticM Bool := do
+  let g ← getMainGoal
+  g.withContext do
+    let mut ms : Array Expr := #[]
+    for d in (← getLCtx) do
+      if d.isImplementationDetail then continue
+      if let some (a, _, m) := concatEq? (← instantiateMVars d.type) then
+        if a.isAppOf `KPrelude.MapHook.element then ms := ms.push m
+    if ms.isEmpty then return false
+    let env ← getEnv
+    -- the K functions applied to a matched map inside an `EntriesOn` predicate
+    let fs ← IO.mkRef (#[] : Array Name)
+    let scan (e : Expr) : MetaM Unit := e.forEach fun s => do
+      unless s.isAppOf `KPrelude.MapHook.EntriesOn && s.getAppNumArgs ≥ 2 do return
+      (s.getArg! (s.getAppNumArgs - 2)).forEach fun t => do
+        let .const c _ := t.getAppFn | return
+        if env.contains (c ++ `rule1) && t.getAppArgs.any (ms.contains ·) then
+          unless (← fs.get).contains c do fs.modify (·.push c)
+    scan (← instantiateMVars (← g.getType))
+    for d in (← getLCtx) do
+      unless d.isImplementationDetail do scan (← instantiateMVars d.type)
+    let fs ← fs.get
+    for c in fs do
+      if ← looksUp c then return true
+    return false
+
+/-- For each hypothesis `concat (element k v) r = some m` (a rule's match of `K |-> V REST`, or a
+map it builds so): the lookups in `m` at every key, as the bound value at `k` and a lookup in `r`
+elsewhere, and in `r` at `k` (`KPrelude.MapHook.lookupOrDefault_of_concat_element` and the
+others of its group in `InvColl`). Returns the names of the facts added (closer 3b). -/
+def forwardLookups : TacticM (Array Name) := do
+  let env ← getEnv
+  unless env.contains `KPrelude.MapHook.lookupOrDefault_of_concat_element do return #[]
+  let g ← getMainGoal
+  let new ← g.withContext do
+    let mut out : Array (Expr × Expr) := #[]
+    for d in (← getLCtx) do
+      if d.isImplementationDetail then continue
+      let some (a, _, _) := concatEq? (← instantiateMVars d.type) | continue
+      unless a.isAppOf `KPrelude.MapHook.element do continue
+      for lem in [`KPrelude.MapHook.lookupOrDefault_of_concat_element,
+          `KPrelude.MapHook.lookupOrDefault_rest_of_concat_element,
+          `KPrelude.MapHook.lookup_of_concat_element_ite,
+          `KPrelude.MapHook.lookup_rest_of_concat_element,
+          `KPrelude.MapHook.inKeys_of_concat_element_ite,
+          `KPrelude.MapHook.inKeys_rest_of_concat_element] do
+        let fact ← tryRec (do
+            let pf ← mkAppM lem #[.fvar d.fvarId]
+            pure (some (← instantiateMVars (← inferType pf), pf))) (pure none)
+        if let some f := fact then out := out.push f
+    return out
+  if new.isEmpty then return #[]
+  let hs : Array Hypothesis := new.mapIdx fun i (ty, pf) =>
+    { userName := Name.mkSimple s!"k2l_lk_{i}", type := ty, value := pf }
+  let (_, g') ← g.assertHypotheses hs
+  setGoals [g']
+  return hs.map (·.userName)
+
 /-- The *compute* closer. -/
 partial def splitLoop (simpU : TSyntax `tactic) (simpAllU : TSyntax `tactic)
     (heads : Array Name) : Nat → TacticM Unit
@@ -666,6 +924,17 @@ partial def injVars (e : Expr) (acc : Array (FVarId × Name) := #[]) :
   | .mdata _ b | .proj _ _ b => injVars b acc
   | _ => return acc
 
+/-- The leaf discharger and the normalization of the collections closer, with the unfolding set
+`U` (as `mkClosers` builds them). -/
+def collTactics (U : Array SimpArg) : TacticM (TSyntax `tactic × TSyntax `tactic) := do
+  let Ustar : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpStar| *)).raw⟩
+  let Ua : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩
+  let arith ← `(tactic| ((try simp only [$Ua,*] at *) <;> omega))
+  let disch ← `(tactic| first
+    | assumption | rfl | decide
+    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done) | $arith:tactic)
+  return (disch, ← `(tactic| simp only [$U,*]))
+
 /-- Run the closers on the main goal `P lhs → P rhs` (the only goal); true when one of them
 closes it. Otherwise the goal is restored to its state on entry. `depth` bounds the case splits
 of closer 6 along one path. -/
@@ -701,7 +970,27 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
             if (← getGoals).isEmpty then return) 4
         forwardKeysIncl
         if (← getGoals).isEmpty then return true
-        collClose k.disch k.coll k.norm k.U 2 3) (pure false)
+        -- 3b. where a test over a collection's bindings looks a value up in a map the rule
+        -- matched or built as `K |-> V REST` (`readsMatchedMap`: an output's process count in
+        -- `<procs>`), first the same closer with the lookups in each such map (`forwardLookups`)
+        -- and, at a binding whose fact applies a K function to its key or value, the cases of
+        -- that function's matches (`testLeaf`): 3 alone can spend the rule's budget on such a
+        -- leaf. 3 runs when 3b fails.
+        if ← readsMatchedMap then
+          let s ← saveState
+          let ok ← tryRec (do
+              let lk ← forwardLookups
+              let mut U' := U
+              for n in lk do
+                U' := U'.push ⟨(← `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)).raw⟩
+              for n in [``eq_self_iff_true, ``decide_eq_true_eq, ``Option.some.injEq, ``ite_true,
+                  ``ite_false] do
+                U' := U'.push (← simpArgOfName n)
+              let (disch, norm) ← collTactics U'
+              collClose disch k.coll norm U' 2 true 3) (pure false)
+          if ok then return true
+          s.restore
+        collClose k.disch k.coll k.norm k.U 2 false 3) (pure false)
     if ok then setGoals [] else s1.restore
   -- 4. simp, then on each branch of the hypotheses' disjunctions
   unless ok do
@@ -1048,7 +1337,7 @@ syntax (name := k2lCollClose) "k2l_coll_close"
     | ((try simp only [$Ua,*] at *) <;> omega))
   let coll ← labelled `k2l_coll
   let norm ← `(tactic| simp only [$U,*])
-  unless ← collClose disch coll norm U 2 3 do
+  unless ← collClose disch coll norm U 2 false 3 do
     throwError "k2l_coll_close: failed"
 
 end K2LPreserve

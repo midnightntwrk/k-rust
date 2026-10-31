@@ -93,4 +93,17 @@ module TWOPARAM
   rule noDup(.List) => true
   rule noDup(ListItem(X) L) => notBool (X in L) andBool noDup(L)
   rule wf(<T> TS:TasksCell <procs> _ </procs> <vals> _ </vals> </T>) => noDup(mclaims(TS))
+  // The outputs' invariant, `valsOk` (`gen --invariant valsOk@T`): every output `o(P, M)` in
+  // `<vals>` is of a segment P has taken, M below P's count in `<procs>`.
+  syntax Bool ::= valsOk(TCell) [function, total]
+                | behind(Map, Map) [function, total]
+                | taken(KItem, Map) [function, total]
+                | below(Int, KItem) [function, total]
+  rule valsOk(<T> _:TasksCell <procs> PS </procs> <vals> VS </vals> </T>) => behind(VS, PS)
+  rule behind(.Map, _) => true
+  rule behind((K |-> _) VS, PS) => taken(K, PS) andBool behind(VS, PS)
+  rule taken(o(P, M), PS) => below(M, PS[P] orDefault 0)
+  rule taken(_, _) => false [owise]
+  rule below(M, st(N, _, _)) => M <Int N
+  rule below(_, _) => false [owise]
 endmodule
