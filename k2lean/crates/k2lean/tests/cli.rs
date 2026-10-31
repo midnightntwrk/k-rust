@@ -1660,6 +1660,65 @@ fn gen_progress(fx: &str, out: &Path, ns: &str, extra: &[&str]) -> std::process:
         .unwrap()
 }
 
+/// `gen --measure` (design.md §3.10, INV-15) on the coroutine language `corout`, whose measure
+/// `measure` and two lemmas about the function it calls are K: one case per rule that the rule's
+/// step lowers the measure, each by `k2l_measure` with the measure's unfolding set and the author's
+/// lemmas (the simplification rules about `mu`, and no `domains.md` one); a case listed open is
+/// taken from the hand module, whose skeleton is written once; a measure that is not an `Int` is
+/// refused; a generation without `--measure` removes the modules.
+#[test]
+fn measure_states_one_case_per_rule_with_the_authors_lemmas_and_a_listed_case_by_hand() {
+    let d = tmp("cli-measure");
+    let args = ["--measure", "measure@T"];
+    let o = gen_progress("corout", &d, "Corout", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("measure: 0 open cases"));
+    let defs = std::fs::read_to_string(d.join("Corout/MeasureDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "def Measure.value (c : SortGeneratedTopCell) : Option Int :=\n  K.«measure(_)_COROUT_Int_TCell» (Measure.cell_T c)"
+    ));
+    let thms = std::fs::read_to_string(d.join("Corout/Measure.lean")).unwrap();
+    let mac = thms
+        .lines()
+        .find(|l| l.starts_with("local macro \"k2l_meas\""))
+        .unwrap();
+    assert!(mac.contains("Eqn.«mu(_)_COROUT_Int_Stmts_5»"));
+    assert!(mac.contains("Eqn.«measure(_)_COROUT_Int_TCell_2»"));
+    assert_eq!(mac.matches("Simp.s_").count(), 2);
+    assert_eq!(thms.matches(":= by k2l_meas\n").count(), 4);
+    assert!(thms.contains(
+        "theorem «loop-done» : Step.Rel.«loop-done» (KPrelude.Measure.Lower Measure.value) := by k2l_meas"
+    ));
+    assert!(thms.contains("#k2l_assert_axioms Measure.lower Measure.terminates"));
+    assert!(!thms.contains("import Corout.MeasureHand"));
+
+    std::fs::write(d.join("open-measure-cases.txt"), "loop | listed by hand\n").unwrap();
+    let o = gen_progress("corout", &d, "Corout", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let thms = std::fs::read_to_string(d.join("Corout/Measure.lean")).unwrap();
+    assert!(thms.contains("import Corout.MeasureHand\n"));
+    assert!(thms.contains(
+        "theorem loop : Step.Rel.loop (KPrelude.Measure.Lower Measure.value) := Measure.hand.loop"
+    ));
+    let hand = std::fs::read_to_string(d.join("Corout/MeasureHand.lean")).unwrap();
+    assert!(hand.contains("-- theorem Measure.hand.loop : Step.Rel.loop (KPrelude.Measure.Lower Measure.value) := by"));
+    std::fs::write(d.join("Corout/MeasureHand.lean"), "-- edited\n").unwrap();
+    let o = gen_progress("corout", &d, "Corout", &args);
+    assert!(o.status.success());
+    assert_eq!(
+        std::fs::read_to_string(d.join("Corout/MeasureHand.lean")).unwrap(),
+        "-- edited\n"
+    );
+
+    let o = gen_progress("corout", &d, "Corout", &["--measure", "app@T"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("must take one argument and return Int"));
+
+    let o = gen_progress("corout", &d, "Corout", &[]);
+    assert!(o.status.success());
+    assert!(!d.join("Corout/Measure.lean").exists() && !d.join("Corout/MeasureDefs.lean").exists());
+}
+
 /// `gen --progress` (design.md §3.9) on the stack machine `vm`: one case per head of `<k>`, each
 /// proved among the rules of its head only; a case marked `| refuted hand` becomes the third
 /// outcome `Progress.Refuted` with its refutation checked, and the hand skeleton is written once; a

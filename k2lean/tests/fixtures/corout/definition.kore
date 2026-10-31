@@ -274,7 +274,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -284,7 +284,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,24)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,19,12,24)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -297,7 +297,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,19,12,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,19,13,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -307,7 +307,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,19,13,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,19,14,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -320,7 +320,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -330,7 +330,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -341,7 +341,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,19,15,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,19,16,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -1286,7 +1286,27 @@ module COROUT
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,20,23,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,20,24,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/corout/corout.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(SortStmts{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,18,38,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/corout/corout.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblmeasure'LParUndsRParUnds'COROUT'Unds'Int'Unds'TCell{}(SortTCell{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,18,47,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -1298,7 +1318,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -1310,7 +1330,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -1322,7 +1342,7 @@ module COROUT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     )
@@ -2125,6 +2145,24 @@ module COROUT
           K0:SortStmts{},
           K1:SortStmts{}
         )
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(K0:SortStmts{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblmeasure'LParUndsRParUnds'COROUT'Unds'Int'Unds'TCell{}(K0:SortTCell{})
       )
     )
     [functional{}()]
@@ -5726,7 +5764,7 @@ module COROUT
     )
     [
       UNIQUE'Unds'ID{}("3d5c9de1170611f4acf63b73e555a7a5cc9bd3be32ad021b4c21637e070889b1"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,27)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,27)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/corout/corout.k)"
       )
@@ -5765,7 +5803,7 @@ module COROUT
     )
     [
       UNIQUE'Unds'ID{}("fa5d138d2c54809d3340ecab2f188c9f5861ae80f3f00680356126a3bfc13f79"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/corout/corout.k)"
       )
@@ -5806,7 +5844,7 @@ module COROUT
     [
       UNIQUE'Unds'ID{}("344ecfa0b3d24994c5242014b0c426e2c01cfa98bd0666280f42dfc24e25d4eb"),
       label{}("add"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,72)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,72)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/corout/corout.k)"
       )
@@ -5847,7 +5885,7 @@ module COROUT
     [
       UNIQUE'Unds'ID{}("3a205b851928f8e87d91e8229fb0ece2599327f3cd0caeda9dd79037a6601226"),
       label{}("dbl"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,69)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,69)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/corout/corout.k)"
       )
@@ -5913,7 +5951,7 @@ module COROUT
     [
       UNIQUE'Unds'ID{}("7e532ea6fbe276a269be4291434a44f9ffa2fe48e26b84d20cb7dfbc8e7fae15"),
       label{}("loop"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,104)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,104)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/corout/corout.k)"
       )
@@ -5960,10 +5998,304 @@ module COROUT
     [
       UNIQUE'Unds'ID{}("f661b180ce64b4083a022554253fea44a581f9db2c354fd9e037125d65dbea20"),
       label{}("loop-done"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,74)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,3,33,74)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/corout/corout.k)"
       )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'COROUT-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts'QuotRBraUnds'Stmts{}()
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d33a653e54ea7648185aec237a2cc97fc6074cf4dd2b3f585d938f111c9f11ba"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,3,39,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'UndsSClnUndsUnds'COROUT-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts{}(
+              Lbladd'LParUndsRParUnds'COROUT-SYNTAX'Unds'Stmt'Unds'Int{}(Var'Unds'Gen0:SortInt{}),
+              VarC:SortStmts{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            \dv{SortInt{}}("1"),
+            Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarC:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("f5648db2ef13847b5b32cdaf964e8b2cc12e63ca68b5c519f37086e3a9256b78"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'UndsSClnUndsUnds'COROUT-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts{}(
+              Lbldbl'Unds'COROUT-SYNTAX'Unds'Stmt{}(),
+              VarC:SortStmts{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            \dv{SortInt{}}("1"),
+            Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarC:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("5ba18a9561588d66376b7c82cd066ed32cb4c3e5ad642fcfc89f28a07e11182f"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'UndsSClnUndsUnds'COROUT-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts{}(
+              Lblyield'Unds'COROUT-SYNTAX'Unds'Stmt{}(),
+              VarC:SortStmts{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            \dv{SortInt{}}("1"),
+            Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarC:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("adc2d4c3ad8c93cd5340b69ff36cc1139a47996d19f4ebecca6c332f6c61550c"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'UndsSClnUndsUnds'COROUT-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts{}(
+              Lblloop'LParUndsCommUndsRParUnds'COROUT-SYNTAX'Unds'Stmt'Unds'Int'Unds'Code{}(
+                VarM:SortInt{},
+                Lbl'LBraUndsRBraUnds'COROUT-SYNTAX'Unds'Code'Unds'Stmts{}(VarB:SortStmts{})
+              ),
+              VarC:SortStmts{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            Lbl'UndsPlus'Int'Unds'{}(
+              \dv{SortInt{}}("1"),
+              Lbl'UndsStar'Int'Unds'{}(
+                LblmaxInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(
+                  VarM:SortInt{},
+                  \dv{SortInt{}}("0")
+                ),
+                Lbl'UndsPlus'Int'Unds'{}(
+                  Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarB:SortStmts{}),
+                  \dv{SortInt{}}("1")
+                )
+              )
+            ),
+            Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarC:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("9a6cdfba31986469955c0fe0350a018f74177755c6d1e9010966c51969d8880c"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,84)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortInt{}, R}(
+        Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(
+          Lblapp'LParUndsCommUndsRParUnds'COROUT'Unds'Stmts'Unds'Stmts'Unds'Stmts{}(
+            VarA:SortStmts{},
+            VarB:SortStmts{}
+          )
+        ),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarA:SortStmts{}),
+            Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarB:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("ec69e536f8a7fa9adbecabb74a570aca284d3594837810d64e261f7928c2239b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,58)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(Var'Unds'C:SortStmts{}),
+          \dv{SortInt{}}("0")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("635e8b9640b815903122146cb91b51b5f980411688f946c5fddf4e5be16b0200"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTCell{}, R}(
+            X0:SortTCell{},
+            Lbl'-LT-'T'-GT-'{}(
+              Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortStmts{}, SortKItem{}}(VarC:SortStmts{}), dotk{}())),
+              Var'Unds'Gen0:SortRegCell{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmeasure'LParUndsRParUnds'COROUT'Unds'Int'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortInt{}}(
+          Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(VarC:SortStmts{}),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("26a4b7c62bca47031ce1e46006a6fcc7c4c16195a33c33ad50e25481ec44f1dc"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,53)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen2:SortRegCell{},
+              \exists{R}(
+                Var'Unds'Gen1:SortStmts{},
+                \and{R}(
+                  \top{R}(),
+                  \and{R}(
+                    \in{SortTCell{}, R}(
+                      X0:SortTCell{},
+                      Lbl'-LT-'T'-GT-'{}(
+                        Lbl'-LT-'k'-GT-'{}(
+                          kseq{}(inj{SortStmts{}, SortKItem{}}(Var'Unds'Gen1:SortStmts{}), dotk{}())
+                        ),
+                        Var'Unds'Gen2:SortRegCell{}
+                      )
+                    ),
+                    \top{R}()
+                  )
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortTCell{}, R}(X0:SortTCell{}, Var'Unds'Gen0:SortTCell{}), \top{R}())
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblmeasure'LParUndsRParUnds'COROUT'Unds'Int'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("681edfa6f051612c39e1e65181684ab4771281e0227696aef7d74f8fe225e4a5"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,31)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/corout/corout.k)"
+      ),
+      owise{}()
     ]
   axiom{R}
     \implies{R}(
@@ -7331,7 +7663,7 @@ module COROUT
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,1,33,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,1,50,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/corout/corout.k)"
   )

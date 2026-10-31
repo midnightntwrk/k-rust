@@ -2,7 +2,8 @@
 // own: the lower layer of the fixture twolayer, the semantics that the fixture twoparam leaves as a
 // parameter. A configuration is the code left and the register. Nothing steps at `yield` or at the
 // code's end: those are where a segment ends, and the upper layer takes over there. `loop(M, B)`
-// runs B M times.
+// runs B M times. The measure `measure` (`k2lean gen --measure measure@T`, direction.md §5) is the
+// steps left, which every rule lowers, so every segment ends.
 requires "domains.md"
 
 module COROUT-SYNTAX
@@ -30,4 +31,20 @@ module COROUT
   rule <k> dbl ; C => C </k> <reg> R => R *Int 2 </reg> [label(dbl)]
   rule <k> loop(M, { B }) ; C => app(B, loop(M -Int 1, { B }) ; C) </k> requires M >Int 0 [label(loop)]
   rule <k> loop(M, _) ; C => C </k> requires M <=Int 0 [label(loop-done)]
+
+  // The steps left to run: one per statement, a loop's body as many times as it runs, and one more
+  // for the loop's own end. A `yield` counts too, so that the measure of `app(A, B)` is the sum of
+  // the two whatever `A` holds (the lemma below, which the `loop` rule's step needs).
+  syntax Int ::= mu(Stmts) [function, total]
+  rule mu(.Stmts) => 0
+  rule mu(add(_) ; C) => 1 +Int mu(C)
+  rule mu(dbl ; C) => 1 +Int mu(C)
+  rule mu(yield ; C) => 1 +Int mu(C)
+  rule mu(loop(M, { B }) ; C) => 1 +Int maxInt(M, 0) *Int (mu(B) +Int 1) +Int mu(C)
+  rule mu(app(A, B)) => mu(A) +Int mu(B) [simplification]
+  rule mu(_C) >=Int 0 => true [simplification]
+
+  syntax Int ::= measure(TCell) [function, total]
+  rule measure(<T> <k> C:Stmts </k> _ </T>) => mu(C)
+  rule measure(_) => 0 [owise]
 endmodule

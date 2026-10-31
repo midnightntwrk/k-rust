@@ -47,8 +47,9 @@ gen_confluence() {
     # its parameterized form (tests/fixtures/twoparam): a resume is one step, the segment's register
     # and code functions with no equations (`class Hooks`), with the same well-formedness `wf`
     twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
-    # the coroutine language on its own (tests/fixtures/corout), deterministic
-    corout) libs_fixture_args "$1" ;;
+    # the coroutine language on its own (tests/fixtures/corout), deterministic; its measure (the
+    # steps left, `measure` in K) is lowered by every rule (`gen --measure`, INV-15)
+    corout) libs_fixture_args "$1"; GEN_ARGS+=(--measure measure@T) ;;
     *) return 1 ;;
   esac
   return 0
@@ -254,6 +255,13 @@ gate_confluence() {
     partlib corout Corout
     scaffold relate-TwoParamInst libs_confluence TwoParamInst
     dbuild TwoParamInst
+  fi
+  # every segment ends (B's): corout's measure, lowered by every rule (`Corout.Measure`), so the
+  # hooks of TwoParamInst always have a value (`TwoParamEnds.hooks_some`); built against
+  # TwoParamInst's phase
+  if runs demo TwoParamEnds; then
+    phase "build TwoParamEnds"
+    dbuild TwoParamEnds
   fi
   # IMP++ (the soundness area's library impplus): threads, `print`, K's stdout stream at priorities 25
   # and 30 before the language's rules, and the store a map changed at some bindings; up to the

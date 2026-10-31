@@ -414,7 +414,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -429,7 +429,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,24)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,19,12,24)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -447,7 +447,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,19,12,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,19,13,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -462,7 +462,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,19,13,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,19,14,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -480,7 +480,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -495,7 +495,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -511,7 +511,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,19,15,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,19,16,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -2126,13 +2126,43 @@ module COROUT
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,20,23,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,20,24,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
     priorities{}(),
     right{}(),
     terminals{}("110101"),
+    total{}()
+  ]
+  symbol Lblmu'LParUndsRParUnds'COROUT'Unds'Int'Unds'Stmts{}(SortStmts{}) : SortInt{}
+  [
+    format{}("%cmu%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,18,38,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/corout/corout.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblmeasure'LParUndsRParUnds'COROUT'Unds'Int'Unds'TCell{}(SortTCell{}) : SortInt{}
+  [
+    format{}("%cmeasure%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,18,47,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/corout/corout.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
     total{}()
   ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
@@ -2143,7 +2173,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -2168,7 +2198,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),
@@ -2195,7 +2225,7 @@ module COROUT
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/corout/corout.k)"
     ),

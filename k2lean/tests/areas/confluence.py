@@ -64,6 +64,9 @@ DEMOS = {
     "TwoParamInst": {"tier": "light", "sources": ["generated/corout",
                                                   "demos/TwoParamInst/TwoParamInst/Tr.lean",
                                                   "demos/TwoParamInst/TwoParamInst/Back.lean"]},
+    # every segment ends (B's, INV-15): corout's measure, generated in generated/corout; built
+    # against TwoParamInst's phase
+    "TwoParamEnds": {"tier": "light"},
     # IMP++'s threads joined generically up to the flush of K's stdout stream, the theorem the
     # observation's (`confluence --threads threads --obs output --slots`), its races refuted at
     # peaks of the programs in demos/ImpPlusConf/witnesses

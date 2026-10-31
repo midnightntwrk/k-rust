@@ -23,6 +23,7 @@ mod init;
 mod invariants;
 mod ir;
 mod lower;
+mod measure;
 mod model;
 mod multi;
 mod names;
@@ -362,6 +363,18 @@ fn main() {
                 .collect();
             for s in &specs {
                 roots.insert(invariants::resolve(&def, &s.name).unwrap_or_else(|e| panic!("{e}")));
+            }
+            // the step measure (`measure.rs`): its function is generated too
+            let measure_spec: Option<invariants::Spec> = a
+                .rest
+                .iter()
+                .position(|x| x == "--measure")
+                .map(|i| invariants::parse_spec(&a.rest[i + 1]));
+            if let Some(s) = &measure_spec {
+                roots.insert(
+                    invariants::resolve(&def, &s.name)
+                        .unwrap_or_else(|e| panic!("{}", e.replace("--invariant", "--measure"))),
+                );
             }
             // no stuck states (`progress.rs`): the ending's function is generated too
             let progress_on = a.rest.iter().any(|x| x == "--progress");
@@ -872,6 +885,62 @@ fn main() {
                         .filter(|l| invariants::case_token(l).is_some())
                         .count()
                 );
+            }
+            // the step measure: `MeasureDefs.lean`, `Measure.lean`, `open-measure-cases.txt`
+            match &measure_spec {
+                None => {
+                    for f in ["MeasureDefs.lean", "Measure.lean"] {
+                        let _ = std::fs::remove_file(out.join(ns).join(f));
+                    }
+                }
+                Some(spec) => {
+                    let open_path = match a.rest.iter().position(|x| x == "--open-measure-cases") {
+                        Some(i) => PathBuf::from(&a.rest[i + 1]),
+                        None => out.join("open-measure-cases.txt"),
+                    };
+                    let open_cases = invariants::read_open(&open_path);
+                    let stated_names: std::collections::BTreeSet<String> =
+                        stated.iter().map(|s| s.name.clone()).collect();
+                    let hand = out.join(ns).join("MeasureHand.lean");
+                    let cx = invariants::Ctx {
+                        def: &def,
+                        m: &m,
+                        fns: &fgen.fns,
+                        eqs: &eqs,
+                        stated: &stated_names,
+                        open_eqns: &open,
+                        recursive: &fgen.recursive,
+                        ctors: &pctors,
+                        top: &top,
+                        ns,
+                        init: None,
+                    };
+                    let o = measure::emit(&cx, spec, &stated, &open_cases, hand.exists())
+                        .unwrap_or_else(|e| panic!("measure: {e}"));
+                    write(
+                        &out.join(ns).join("MeasureDefs.lean"),
+                        &with_hooks(o.defs.clone(), ns, &fgen.params),
+                    );
+                    write(
+                        &out.join(ns).join("Measure.lean"),
+                        &with_hooks(o.theorems.clone(), ns, &fgen.params),
+                    );
+                    write(&open_path, &o.open_list);
+                    if let Some(sk) = &o.hand_skeleton {
+                        write(&hand, sk);
+                        eprintln!(
+                            "note: wrote the hand-proof skeleton {} (it is never overwritten)",
+                            hand.display()
+                        );
+                    }
+                    eprintln!(
+                        "measure: {} open cases",
+                        o.open_list
+                            .lines()
+                            .filter(|l| invariants::case_token(l).is_some())
+                            .count()
+                    );
+                }
             }
             // no stuck states: `ProgressDefs.lean`, `Progress.lean`, `open-progress-cases.txt`
             if progress_on {

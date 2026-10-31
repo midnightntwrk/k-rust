@@ -50,3 +50,23 @@ DEMOS = {
 }
 
 NEGATIVE = {"krsimp-ill-typed": {"tier": "light"}}
+
+
+def measure_meas(d, ns):
+    """The step measure of library d (`gen --measure`, `d/NS/Measure.lean`): its rule cases, those
+    proved by `k2l_measure`, and the open ones (open-measure-cases.txt)."""
+    def measure(c):
+        m = read(c.tree / "generated" / d / ns / "Measure.lean")
+        ol = read(c.tree / "generated" / d / "open-measure-cases.txt") or ""
+        opened = sorted(l.split(" | ")[0].strip() for l in ol.splitlines() if l.strip() and not l.startswith("#"))
+        return {"cases": len(re.findall(r"^theorem .* : Step\.Rel\.", m, re.M)) if m else None,
+                "auto": len(re.findall(r":= by k2l_meas$", m, re.M)) if m else None,
+                "open": opened}
+    return measure
+
+
+RECORDS = {
+    # corout's measure (the confluence area's library corout, built by its demo TwoParamEnds):
+    # every rule lowers it (INV-15)
+    "corout-measure": {"tier": "light", "measure": measure_meas("corout", "Corout"), "sources": []},
+}

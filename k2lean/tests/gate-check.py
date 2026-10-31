@@ -100,7 +100,8 @@ KINDS = ("lib", "inv", "prog", "demo", "negative", "record", "output")
 # (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
 # hashed, so an edit to them is checked by the build that uses them, not by the sources check
 HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean", "RefutedHand.lean",
-               "DivergesHand.lean", "open-progress-cases.txt", "ProgressHand.lean")
+               "DivergesHand.lean", "open-progress-cases.txt", "ProgressHand.lean", "open-measure-cases.txt",
+               "MeasureHand.lean")
 
 
 def tiers(tier):

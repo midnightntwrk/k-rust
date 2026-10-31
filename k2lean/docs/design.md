@@ -880,15 +880,47 @@ Measured (same host):
 
 Not supported yet (the generator stops with a message): nested cell collections and cell lists or sets, `<k>` at the top and in a collection, rules with several matches when `<k>` is not in a cell map.
 
+### 3.10 Every run ends: a measure every rule lowers (`gen --measure`)
+
+In a finite execution "every run ends" is termination of `Step`: no infinite path from any configuration (`Paths.Terminates`), proved by a measure into `Nat` that every step lowers (`KPrelude.Ends.terminates_of_measure`; `direction.md` §5).
+The author writes the measure in K, as for an invariant, a function of one cell to `Int` (K has no `Nat`), and `gen --measure NAME@CELL` states one obligation per rule, over the rule's instance: its step lowers the measure (`Step.Rel.r (KPrelude.Measure.Lower Measure.value)`, `NS/Measure.lean`).
+`Lower μ c c'` is: the value is defined at `c` and at `c'`, nonnegative at `c'`, and smaller there than at `c`.
+That is enough: a strictly decreasing sequence of nonnegative integers is finite, and a first configuration with a negative value has no step, since its successor's value would be nonnegative and below it.
+The value's definedness is part of each obligation, because K's `total` is the author's claim, which k2lean states and does not assume (§8.1).
+`Measure.lower` gathers the cases (`Step.rel_of`), and `Measure.terminates` is termination from every configuration (`KPrelude.Measure.terminates`, by `toNat` of the value).
+
+A measure over a recursive structure needs facts about the functions the rules apply, and the author states them in K as simplification rules, which `gen` states as obligations (§3, `Simp.s_…`) and never assumes; the measure's cases use those that are proved.
+The fixture `corout` (the coroutine language of `direction.md` §8 step 4) counts the steps left, a loop's body as many times as it runs:
+
+```k
+rule mu(loop(M, { B }) ; C) => 1 +Int maxInt(M, 0) *Int (mu(B) +Int 1) +Int mu(C)
+rule mu(app(A, B)) => mu(A) +Int mu(B) [simplification]
+rule mu(_C) >=Int 0 => true [simplification]
+```
+
+The `loop` rule's step leads to `app(B, loop(M -Int 1, { B }) ; C)`, whose measure is a sum only by the first lemma; the second gives every call's value and its bound. Both need an induction, which the equations' generic attempt does (EQ-21).
+
+`k2l_measure` (`KPrelude/Measure.lean`) proves a case:
+- it takes the rule's variables of one value form apart (`casesCells`, as `k2l_preserve` does: a `loop`'s code is a `{ B }`), and unfolds `Lower`, the measure and the functions it calls by their proved equations;
+- it adds what each lemma says at each call whose value the context knows: a lemma is `Option.bind (f xs) k = rhs`, and where `f as = some v` (a rule's premise, such as `app(B, …) = some r`, or a case below) its instance at `as` is `k v = rhs`, simplified with every known call; where `f as = none`, the nonnegativity lemma's instance is `False`, which closes the case;
+- it cases on each call of a partial function that the goal still holds, the call generalized in the hypotheses that mention it, adding the lemmas' facts in each case;
+- then the arithmetic: the hooks in Lean's arithmetic (`k2l_arith`, `maxInt` and `minInt` unfolded), then the equations' `k2l_int_arith` (EQ-21): each `if` split on its condition, the sign of each product whose two factors `k2l_int_omega` bounds, then `k2l_int_omega`, then `grind`, which normalizes the products (`max(M, 0) * (μ(B) + 1)` against `max(M - 1, 0) * (μ(B) + 1)`), which `omega` does not accept.
+A case `k2l_measure` does not close is listed in `open-measure-cases.txt` (`open-from-log NS/Measure.lean`) and taken from the hand module `NS/MeasureHand.lean` (written once), as for invariants.
+
+Measured on `corout` (2026-11-01): 4 rules, 4 cases by `k2l_measure`, `Measure.lean` in about 3 s; `Measure.terminates` on Lean's three axioms.
+Its consumer, `demos/TwoParamEnds`: corout's run from a segment's start reaches a first configuration that does not step (`KPrelude.Measure.exists_firstReach_terminal`), so the hooks that `TwoParamInst` takes from it always have a value (`hooks_some`), and `TwoParamConf.terminal_unique`'s instance has no segment without a result.
+Not supported yet: a measure read from a cell inside a cell collection (the generator stops), a measure under an invariant (`terminates_of_measure_on` is in the prelude; the flag is not), a lexicographic measure.
+
 ## 4. Commands
 
 | command | does |
 |---|---|
 | `gen` | the library (§1) |
-| `open-from-log EQUATIONS.lean BUILD.log OPEN.txt` | adds the failed theorems of a build log to an open list (equations, the cases of a kind 1 invariant, or the cases of `progress`) |
+| `open-from-log EQUATIONS.lean BUILD.log OPEN.txt` | adds the failed theorems of a build log to an open list (equations, the cases of a kind 1 invariant, of `progress` or of a measure) |
 | `goldens`, `cases`, `configs` | test and benchmark data from krust runs |
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |
+| `gen --measure NAME@CELL` | every run ends: one case per rule that its step lowers the author's measure, a K function of a cell to `Int`, with the author's lemmas as K simplification rules (§3.10) |
 | `gen --progress [--ending NAME@CELL]` | no stuck states: every configuration satisfying the invariant is an acceptable ending or has a rule that applies, one case per head of `<k>`, or of an element's `<k>` when `<k>` is in a cell map; under a kind 2 invariant with `--assume-invariant` and `--progress-out` (§3.9) |
 | `soundness` | the runtime typing, preservation, progress and type soundness of a semantics for a K type checker, around a hand module (§3.3) |
 | `refine` | a stuttering bisimulation between two definitions whose steps do not correspond one to one, from `relate --per-rule` and a hand module (§3.5) |
