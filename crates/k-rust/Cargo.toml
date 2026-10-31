@@ -30,6 +30,7 @@ required-features = ["choice-sampling"]
 [dependencies]
 clap = { workspace = true, optional = true }
 k-rust-backend.workspace = true
+k-rust-domain.workspace = true
 k-rust-kore.workspace = true
 k-rust-regex.workspace = true
 libc = { version = "0.2", optional = true }

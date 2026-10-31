@@ -1123,6 +1123,7 @@ dependencies = [
  "insta",
  "k-rust",
  "k-rust-backend",
+ "k-rust-domain",
  "k-rust-kore",
  "k-rust-regex",
  "lean-conformance",
@@ -1155,6 +1156,7 @@ dependencies = [
  "indoc",
  "insta",
  "k-rust-backend",
+ "k-rust-domain",
  "k-rust-kore",
  "k256",
  "lean-conformance",
@@ -1164,7 +1166,6 @@ dependencies = [
  "petgraph",
  "proptest",
  "ripemd",
- "rug",
  "rustc-hash",
  "serde_json",
  "sha2 0.11.0",
@@ -1184,6 +1185,15 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "toml",
+]
+
+[[package]]
+name = "k-rust-domain"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "rug",
 ]
 
 [[package]]
@@ -1422,7 +1432,7 @@ name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
  "expect-test",
- "k-rust",
+ "k-rust-domain",
  "krs-compiler",
  "krs-diagnostic",
  "krs-ir",

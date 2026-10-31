@@ -6,7 +6,7 @@
 //! counters = []
 //! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
 //! span = "none"
-//! tests = ["crates/k-rust-backend/src/builtin/float/canonical/tests.rs"]
+//! tests = ["crates/k-rust-domain/src/float/canonical/tests.rs"]
 //!
 //! [[cost]]
 //! mode = "binary32 or binary64"

@@ -2,7 +2,7 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::*;
-use crate::builtin::hook_models::float::round_exact;
+use crate::float::rounding_model::round_exact;
 
 fn canonical(token: &str) -> String {
     canonical_float_text(token).unwrap_or_else(|refusal| panic!("{token}: {refusal:?}"))
@@ -79,7 +79,7 @@ fn nudged(literal: &str, k: u32, up: bool) -> String {
 /// infinity), half the least subnormal (ties to zero) and just above it, the largest subnormal
 /// plus half an ulp (the least normal), an all-ones significand plus half an ulp (carries into
 /// the next binade), and the negation of each.
-pub(in crate::builtin) fn boundary_literals(format: (u64, u64)) -> Vec<String> {
+fn boundary_literals(format: (u64, u64)) -> Vec<String> {
     let (n, m) = (format.0 as i64, format.1 as i64);
     let emax = (1_i64 << (m - 1)) - 1;
     let emin = 1 - emax;
@@ -130,7 +130,7 @@ pub(in crate::builtin) fn boundary_literals(format: (u64, u64)) -> Vec<String> {
 
 /// A small deterministic generator of decimal literals of `format`: 1 to 25 digits and a decimal
 /// exponent spread over the format's range and beyond it.
-pub(in crate::builtin) fn random_literals(format: (u64, u64), count: usize) -> Vec<String> {
+fn random_literals(format: (u64, u64), count: usize) -> Vec<String> {
     let mut state = 0x9e37_79b9_7f4a_7c15_u64 ^ (format.0 << 32) ^ format.1;
     let mut next = move || {
         state ^= state << 13;

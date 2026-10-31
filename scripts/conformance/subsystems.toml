@@ -49,7 +49,7 @@ fixture_homes = ["matching"]
 
 [[subsystem]]
 name = "backend-simplify-builtins"
-source_pattern = "k-rust-backend/src/(simplify|builtin|smt|externalize|binary)|tests/simplification_budget"
+source_pattern = "k-rust-backend/src/(simplify|builtin|smt|externalize|binary)|k-rust-domain/src/|tests/simplification_budget"
 fixture_homes = ["simplify", "hooks"]
 
 [[subsystem]]

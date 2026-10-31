@@ -64,6 +64,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+pub use k_rust_domain::{DomainValueBound, InvalidDomainValueReason};
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::kore::string as kore_string;
 use k_rust_kore::measure::{self, Algorithm};
@@ -465,36 +466,6 @@ pub fn execution_digest(
     hasher.update([0]);
     hasher.update(printed.as_bytes());
     Ok(ExecutionDigest(hasher.finalize().into()))
-}
-
-/// Why a domain value names no element of its sort.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InvalidDomainValueReason {
-    /// The text is not in the literal syntax of the sort's hook.
-    NotALiteral,
-    /// A machine-integer literal whose suffix names another width than its sort's.
-    OtherWidth,
-    /// A sort hooked `MINT.MInt` that is not `SortMInt` applied to a numeral sort, so that it
-    /// has no width and no text is a literal of it.
-    NoWidth,
-    /// A Float literal whose precision or exponent-bits field is 0, which names no format.
-    NoFloatFormat,
-}
-
-/// The bound of k-rust that a domain value is beyond: its text names an element of its sort
-/// whose canonical text k-rust declines to build.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DomainValueBound {
-    /// A negative literal of a machine-integer sort wider than `limit_bits`
-    /// (`MAX_INT_RESULT_BITS`), whose residue modulo `2^W` would be a decimal of about `W` bits.
-    MIntResidue { limit_bits: u64 },
-    /// A Float literal whose canonical text (the exact decimal of the value it rounds to), or
-    /// the exact arithmetic that finds it, is estimated at `estimate_bits`, more than
-    /// `limit_bits` (`MAX_FLOAT_CANONICAL_BITS`).
-    FloatCanonicalText { limit_bits: u64, estimate_bits: u64 },
-    /// A Float literal of a format whose precision or exponent-bits field is 1, which has no
-    /// IEEE-like parameters and which k-rust does not compute.
-    FloatFormat,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

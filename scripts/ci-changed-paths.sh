@@ -22,7 +22,7 @@ definition_paths=(
 
 # The portable feature set compiles the `not(feature = "z3-inference")` side of k-rust, the
 # `not(feature = "z3")` side of the backend, and the WebAssembly bindings that ship it, over the
-# KORE and regex crates they depend on. Any source or test of those crates (including the prelude
+# KORE, domain and regex crates they depend on. Any source or test of those crates (including the prelude
 # and parser sources k-rust embeds, and the `cfg(not(feature = "z3-inference"))` assertions in
 # k-rust's integration tests that only the full portable suite runs), any manifest
 # that selects features, and the nextest profile the suite runs under can change its result.
@@ -33,6 +33,7 @@ portable_suite_paths=(
   '^crates/k-rust/cparser/'
   '^crates/k-rust-backend/src/'
   '^crates/k-rust-backend/tests/'
+  '^crates/k-rust-domain/src/'
   '^crates/k-rust-kore/src/'
   '^crates/k-rust-regex/src/'
   '^crates/k-rust-wasm/'

@@ -138,7 +138,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +3 modes — in: [match result] — at backend/definedness.rs `rule_is_defined`
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode — at backend/definition.rs `build_sort_graph`
 - backend.execution.captured_stdout — O(d + l + b * h) term visits and buffer copies… — at k-rust/backend/execution.rs `captured_stdout_buffer`
-- backend.float.canonical — lexical/suffix parsing plus Rust's correctly… +2 modes — at backend/builtin/float/canonical.rs `canonical_float_text`
+- backend.float.canonical — lexical/suffix parsing plus Rust's correctly… +2 modes — at domain/float/canonical.rs `canonical_float_text`
 - backend.float.root — at most f binary-search comparisons; each… +1 mode — at backend/builtin/float/root.rs `positive_root_bits`
 - backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode — at backend/builtin/substitution.rs `evaluate`
 - backend.fresh.variables — O(c log v) per name, amortized O(log v) with one… +5 modes — at backend/fresh.rs `FreshCounter::mint`

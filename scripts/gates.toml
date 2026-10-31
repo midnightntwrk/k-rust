@@ -58,9 +58,9 @@
 [path-set]
 # The sources and manifests the krust binary is built from.
 krust = [
-  '^crates/(k-rust|k-rust-backend|k-rust-kore|k-rust-regex)/(src|builtin|cparser)/',
+  '^crates/(k-rust|k-rust-backend|k-rust-domain|k-rust-kore|k-rust-regex)/(src|builtin|cparser)/',
   '^crates/(k-rust|k-rust-backend)/build\.rs$',
-  '^crates/(k-rust|k-rust-backend|k-rust-kore|k-rust-regex)/Cargo\.toml$',
+  '^crates/(k-rust|k-rust-backend|k-rust-domain|k-rust-kore|k-rust-regex)/Cargo\.toml$',
   '^Cargo\.(toml|lock)$',
 ]
 # What every reference differential script reads or runs besides its own file: the manifest, the

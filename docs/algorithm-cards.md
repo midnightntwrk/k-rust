@@ -388,7 +388,7 @@ files = [
   "crates/k-rust-backend/src/builtin/string.rs",
 ]
 classification = "responsibility-only"
-reason = "namespace hook dispatch and local operations dispatched by builtin.rs; they do not share one algorithm identity. Float root rounding and arbitrary-format canonicalization have their own cards in builtin/float/root.rs and builtin/float/canonical.rs. The collection hooks (list.rs, map.rs, set.rs) are each a few operations of the persistent tree that holds their arguments' items, backend.term.chunked, and each module head states its hooks' costs in the items n of the collection"
+reason = "namespace hook dispatch and local operations dispatched by builtin.rs; they do not share one algorithm identity. Float root rounding and arbitrary-format canonicalization have their own cards in builtin/float/root.rs and in k-rust-domain's float/canonical.rs. The collection hooks (list.rs, map.rs, set.rs) are each a few operations of the persistent tree that holds their arguments' items, backend.term.chunked, and each module head states its hooks' costs in the items n of the collection"
 
 [[without_primary_card]]
 files = ["crates/k-rust-backend/src/externalize.rs", "crates/k-rust-backend/src/verify.rs"]

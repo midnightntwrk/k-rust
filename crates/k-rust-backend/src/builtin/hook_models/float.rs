@@ -12,6 +12,7 @@ use std::cmp::Ordering;
 use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use k_rust_domain::float::rounding_model::round_exact;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{Case, Draw, Env, Spec, Val, assert_reached, run};
@@ -125,15 +126,6 @@ fn signed_infinity(format: Format, negative: bool) -> u64 {
     signed_zero(format, negative) | format.infinity()
 }
 
-/// `num/den ≥ 2^power`.
-fn at_least_power(num: &BigUint, den: &BigUint, power: i64) -> bool {
-    if power >= 0 {
-        *num >= den << power
-    } else {
-        num << -power >= *den
-    }
-}
-
 /// `±num/den` rounded to nearest, ties to even, in `format`, overflowing to infinity.
 fn round(format: Format, negative: bool, num: &BigUint, den: &BigUint) -> u64 {
     let sign = signed_zero(format, negative);
@@ -152,43 +144,6 @@ fn round(format: Format, negative: bool, num: &BigUint, den: &BigUint) -> u64 {
     }
     let exponent = quantum + precision - 1;
     sign | ((exponent + format.emax()) as u64) << format.fraction_bits() | (mantissa - hidden)
-}
-
-/// The positive `num/den` rounded to nearest, ties to even, with `precision` significant bits
-/// (the implicit bit included) and the normal exponents `emin..=emax`, subnormals included:
-/// `Some((mantissa, quantum))` for the value `mantissa·2^quantum` (a zero mantissa when it rounds
-/// to zero), and `None` when it overflows to infinity. The arithmetic of [`round`] for any
-/// IEEE-like format, which the canonical text of Float literals is also checked against.
-pub(in crate::builtin) fn round_exact(
-    precision: i64,
-    emin: i64,
-    emax: i64,
-    num: &BigUint,
-    den: &BigUint,
-) -> Option<(BigUint, i64)> {
-    let mut exponent = num.bits() as i64 - den.bits() as i64;
-    if !at_least_power(num, den, exponent) {
-        exponent -= 1;
-    }
-    let mut quantum = exponent.max(emin) - (precision - 1);
-    let (scaled_num, scaled_den) = if quantum <= 0 {
-        (num << -quantum, den.clone())
-    } else {
-        (num.clone(), den << quantum)
-    };
-    let mut mantissa = &scaled_num / &scaled_den;
-    let twice_remainder = (&scaled_num % &scaled_den) << 1;
-    if twice_remainder > scaled_den || (twice_remainder == scaled_den && mantissa.bit(0)) {
-        mantissa += 1_u8;
-    }
-    if mantissa.bits() as i64 > precision {
-        mantissa >>= 1;
-        quantum += 1;
-    }
-    if !mantissa.is_zero() && quantum + mantissa.bits() as i64 - 1 > emax {
-        return None;
-    }
-    Some((mantissa, quantum))
 }
 
 /// `±n·2^e` rounded.

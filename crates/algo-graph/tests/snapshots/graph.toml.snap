@@ -2348,63 +2348,63 @@ table = "Algorithm::ALL"
 registry_name = "BackendFloatCanonical"
 
 [node.anchor]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "canonical_float_text"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "canonical_float_text"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "float_canonical_bits_estimate"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "Literal::parse"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "Magnitude::parse"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "Other::plan"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "Other::remote"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "Other::range"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "Plan::text"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "dyadic"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "round"
 
 [[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical.rs"
 symbol = "exact_decimal"
 
 [[node.cost]]
@@ -4537,6 +4537,11 @@ symbol = "Catalog::cofactor"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "Catalog::negate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
 symbol = "guard_of"
 
 [[node.sites]]
@@ -5222,18 +5227,6 @@ symbol = "PassInput::resolved_raw"
 
 [[node]]
 kind = "observation"
-id = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
-provenance = "declared"
-area = "backend"
-name = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
-
-[node.anchor]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
-symbol = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
-
-[[node]]
-kind = "observation"
 id = "crates/k-rust-backend/src/builtin/float/root.rs"
 provenance = "declared"
 area = "backend"
@@ -5375,6 +5368,18 @@ name = "crates/k-rust-backend/tests/size_weighted_growth.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/tests/size_weighted_growth.rs"
 symbol = "crates/k-rust-backend/tests/size_weighted_growth.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-domain/src/float/canonical/tests.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-domain/src/float/canonical/tests.rs"
+
+[node.anchor]
+crate = "k-rust-domain"
+file = "crates/k-rust-domain/src/float/canonical/tests.rs"
+symbol = "crates/k-rust-domain/src/float/canonical/tests.rs"
 
 [[node]]
 kind = "observation"
@@ -7838,11 +7843,11 @@ file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "term_depth"
 
 [[node.cost]]
-mode = "one sentence, no macro rule with a parametric head"
+mode = "one sentence, no macro rule applying a parametric production in its left side or placing a binding in its right side"
 bound = "O((N + W x (P + U)) x R + K)"
 
 [[node.cost]]
-mode = "one sentence, some macro rule with a parametric head (typed in place)"
+mode = "one sentence, some macro rule applying a parametric production in its left side or placing a binding at a parametric argument in its right side (typed in place)"
 bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + W x h^2 + Y x (h + R + G))"
 
 [[node.cost]]
@@ -11627,7 +11632,7 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "backend.float.canonical"
-to = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
+to = "crates/k-rust-domain/src/float/canonical/tests.rs"
 provenance = "declared"
 
 [[edge]]

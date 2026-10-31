@@ -37,7 +37,7 @@ cargo nextest run --workspace -E 'binary_id(k-rust::cli) & test(/kprove/)'
 A change to code under a `cfg(feature = ...)` gate, to the backend's `z3` sites, or to the bindings also needs the portable build, which compiles the other side of those gates:
 
 ```sh
-cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend --no-default-features
+cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend -p k-rust-domain --no-default-features
 ```
 
 The registry entry `build-agreement` (`scripts/build-agreement.sh`) compiles every compile case of `scripts/reference-differential.toml`, the real semantics included, through the library in both builds and fails when they compile a case differently, when a build does not compile a case expected to compile, or when the portable build's `Z3InferenceRequired` refusals differ from the set its entry records; a change to the rule grammar, the parser, or any source with a `z3-inference` cfg owes it.
@@ -152,15 +152,15 @@ Each library prints a G1 line: stated, proved, refuted, open.
 
 | When | Workflow | Checks |
 |---|---|---|
-| Every push and pull request | `ci.yml` | formatting; the benchmark registry and reference cache (`kbench validate` and a dry run); the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` without its `z3` feature; the `wasm32` build; the dependency-free regex crate; the scripts' Python unit tests (`scripts/script-unit-tests.sh`) |
-| A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
+| Every push and pull request | `ci.yml` | formatting; the benchmark registry and reference cache (`kbench validate` and a dry run); the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` and `k-rust-domain` without the backend's `z3` feature; the `wasm32` build; the dependency-free regex crate; the scripts' Python unit tests (`scripts/script-unit-tests.sh`) |
+| A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm`, `k-rust-backend` and `k-rust-domain`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
 | Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend, and the value-contract oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000 random definitions with a date-derived seed printed in hexadecimal |
 | Every week, or on demand | `differential.yml` | the reference differential gates and `scripts/lean-check.sh`, the `weekly` entries of `scripts/gates.toml` |
 | Every week, or on demand | `k2lean.yml` | `k2lean/tests/gate.sh light`, the `k2lean-light` entry of `scripts/gates.toml`, with the pinned K release and Lean |
 | A push to `main`, or a pull request that changes the workspace manifests, `crates/`, or `krs/` | `krs.yml` | KRS's tour verifiers, gate support tests, repository hygiene, documentation, feature and `wasm32` lint variants, the standalone test packages' Clippy and MSRV checks, the `semantics/` workspace, and the browser worker |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
-The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
+The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-domain`, `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
 A push is compared with the commit before it and a pull request with its merge base; a new branch, a force push, a previous commit missing from the clone, or a failing comparison runs every path-triggered check.
 A check that is not needed appears as a skipped job, which GitHub counts as passing for a required check.
 A failed scheduled run shows only on the repository's Actions page; `gh run list --workflow nightly.yml --limit 1` reads the latest one.

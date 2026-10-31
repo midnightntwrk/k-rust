@@ -1,6 +1,6 @@
 //! An independent oracle for the canonical text of a Float literal: MPFR's value of the literal
 //! in its format. Built only with the test feature `mpfr-oracle`, which links MPFR through `rug`
-//! (CI enables it); no other build of the backend depends on MPFR.
+//! (CI enables it); no other build of this crate depends on MPFR.
 //!
 //! A literal of the format `pNxM` denotes its decimal rounded to nearest, ties to even, at `N`
 //! bits of precision and then into the format's exponent range with subnormals, as IEEE 754
@@ -18,7 +18,7 @@ use rug::{
     float::{self, Round, Special},
 };
 
-use crate::builtin::{
+use crate::float::{
     FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text, float_canonical_bits_estimate,
 };
 

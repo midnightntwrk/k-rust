@@ -386,6 +386,7 @@ version = "0.8.0"
 dependencies = [
  "indexmap",
  "k-rust-backend",
+ "k-rust-domain",
  "k-rust-kore",
  "k-rust-regex",
  "num-bigint",
@@ -408,6 +409,7 @@ dependencies = [
 name = "k-rust-backend"
 version = "0.5.0"
 dependencies = [
+ "k-rust-domain",
  "k-rust-kore",
  "k256",
  "libc",
@@ -422,6 +424,14 @@ dependencies = [
  "substrate-bn",
  "z3",
  "z3-sys",
+]
+
+[[package]]
+name = "k-rust-domain"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
 ]
 
 [[package]]
@@ -489,7 +499,7 @@ dependencies = [
 name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
- "k-rust",
+ "k-rust-domain",
  "krs-diagnostic",
  "krs-ir",
  "krs-ir-levels",

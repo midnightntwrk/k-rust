@@ -128,7 +128,10 @@ in `k-rust-kore` so the in-process backend can consume the same representation w
 frontend internals. K token regexes (syntax, parsing, printing, and the checks that need no
 definition) live in the dependency-free `k-rust-regex` crate, re-exported as
 `k_rust::definition::regex`, so proc macros and WebAssembly tools can validate them without building
-the frontend. Thin `k-rust-napi` and `k-rust-wasm` crates expose the host-independent APIs to
+the frontend. The values of builtin tokens (domain kinds, literal validation, the canonical text of
+`Int`, `MInt` and `Float` values, `String` and `Bytes` unquoting, and the value a token denotes)
+live in `k-rust-domain`, which needs only big-integer arithmetic: the backend builds every domain
+value with it, and KRS compares its builtin tokens by it without building the frontend. Thin `k-rust-napi` and `k-rust-wasm` crates expose the host-independent APIs to
 native Node.js and portable WebAssembly respectively.
 A Rust host embeds the in-process backend through `k_rust::backend`, which re-exports the cancellation surface; the backend types its signatures carry are named through `k_rust::k_rust_backend`, so the host needs no separate `k-rust-backend` dependency.
 
@@ -785,11 +788,11 @@ cargo test --doc --workspace --exclude k-rust-napi --locked
 scripts/measure-ratchet.sh --gh-release
 cargo clippy -p k-rust -p k-rust-wasm --all-targets --no-default-features --locked -- -D warnings
 cargo nextest run --locked --no-fail-fast --profile ci --no-default-features -p k-rust -p k-rust-wasm --lib --test inner_parser --test definition_regex
-cargo nextest run --locked --no-fail-fast --profile ci -p k-rust-backend
+cargo nextest run --locked --no-fail-fast --profile ci -p k-rust-backend -p k-rust-domain
 cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
 ```
 
-The full portable suite (`cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend --no-default-features`)
+The full portable suite (`cargo nextest run -p k-rust -p k-rust-wasm -p k-rust-backend -p k-rust-domain --no-default-features`)
 and `scripts/z3-acquisition-check.sh` run when a push or pull request changes their trigger paths, and
 every night together with `scripts/backend-smoke.sh`. [Testing contracts](docs/testing.md#running-the-suites)
 describes the local loop, the trigger paths, and when to run the reference gates.

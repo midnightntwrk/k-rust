@@ -50,10 +50,12 @@ jobs:
       - name: Test the portable feature set
         run: >-
           cargo nextest run --locked --no-fail-fast --profile ci --no-default-features
-          -p k-rust -p k-rust-wasm -p k-rust-backend
+          -p k-rust -p k-rust-wasm -p k-rust-backend -p k-rust-domain
 
       - name: Run the portable feature set's doc-tests
-        run: cargo test --doc --locked --no-default-features -p k-rust -p k-rust-wasm -p k-rust-backend
+        run: >-
+          cargo test --doc --locked --no-default-features
+          -p k-rust -p k-rust-wasm -p k-rust-backend -p k-rust-domain
 
   # The value contract's oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000
   # random definitions, with a seed derived from the date and printed in hexadecimal, so that a

@@ -5,12 +5,13 @@
 //! characters after its K escapes, a `BYTES.Bytes` token's bytes as the code points of their
 //! values, any other token's characters. `cparser/main.c` holds the one decoder and the one
 //! encoder that do this; the escapes they read and write are the constants of
-//! [`crate::kast::string`] (K literals) and [`crate::kore::string`] (KORE literals), printed
+//! [`k_rust_domain::string`] (K literals) and [`crate::kore::string`] (KORE literals), printed
 //! here, so the generated parser and the in-process route cannot read or write a different set.
 
 use std::fmt::Write as _;
 
-use crate::kast::string as k;
+use k_rust_domain::string as k;
+
 use crate::kore::string as kore;
 
 /// The C header `cparser/main.c` includes as `krust_literals.h`.

@@ -1,0 +1,30 @@
+[package]
+name = "k-rust-domain"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "The values of K's builtin tokens: domain kinds, literal validation, canonical texts, and token values"
+repository = "https://github.com/midnightntwrk/k-rust"
+license = "MIT OR Apache-2.0"
+keywords = ["k-framework", "kore", "rewriting"]
+categories = ["compilers"]
+
+# Only big-integer arithmetic: the value a builtin token denotes is read without a definition, a
+# backend or a KORE parser, so that a compiler of K terms (KRS) reads it as the backend does
+# without building either.
+[dependencies]
+num-bigint.workspace = true
+num-traits.workspace = true
+# MPFR, linked only for the test feature `mpfr-oracle`: an independent oracle of the canonical
+# Float text (`float/canonical/mpfr_oracle.rs`). No build of this crate computes with it.
+rug = { workspace = true, optional = true }
+
+[features]
+# Thread-local work counters (`mint_text_parses`); off in the shipped binary.
+measure = []
+# The exact rounding model (`float::rounding_model`), which the backend's Float hook models are
+# checked against too. For tests; off in every normal build.
+rounding-model = []
+# Check the canonical Float text against MPFR (`float/canonical/mpfr_oracle.rs`). For tests; CI
+# runs it, and no other build links MPFR.
+mpfr-oracle = ["dep:rug"]

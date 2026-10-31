@@ -919,32 +919,14 @@ fn production_result_sort(parameters: &[Sort], sort: &Sort, label: &Label) -> So
 /// the code points of their values, any other token its text. A KORE domain value outside a
 /// definition carries only its sort's name, so the payload holds them by the encoding of that
 /// name (`kore::string::LiteralEncoding`), whatever the hook. `Err` names why the token is no
-/// literal of its sort.
+/// literal of its sort ([`k_rust_domain::token_payload`]).
 pub(crate) fn token_payload(
     token: &str,
     hook: Option<&str>,
     encoding: LiteralEncoding,
 ) -> Result<KoreString, String> {
-    let text = match hook {
-        Some("STRING.String") => kast::string::unquote_text(token)?,
-        Some("BYTES.Bytes") => {
-            let bytes = token
-                .strip_prefix('b')
-                .ok_or_else(|| "expected a leading `b`".to_owned())
-                .and_then(kast::string::unquote_bytes)?;
-            if encoding == LiteralEncoding::Bytes {
-                return Ok(bytes.into());
-            }
-            bytes.into_iter().map(char::from).collect()
-        }
-        _ => token.to_owned(),
-    };
-    encoding.store(&text).ok_or_else(|| {
-        format!(
-            "a code point above U+00FF in a value of {}, whose values are bytes",
-            BuiltinSort::Bytes.kore_name()
-        )
-    })
+    k_rust_domain::token_payload(token, hook, encoding == LiteralEncoding::Bytes)
+        .map(KoreString::from)
 }
 
 /// The token of a sort hooked `hook` whose emitted domain value has the payload `payload`, in the

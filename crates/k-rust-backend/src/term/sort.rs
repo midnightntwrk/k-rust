@@ -37,6 +37,7 @@ use std::{
     sync::{Arc, LazyLock, PoisonError, RwLock},
 };
 
+use k_rust_domain::DomainSort;
 use k_rust_kore::names::BuiltinSort;
 use rustc_hash::FxHashSet;
 
@@ -260,6 +261,23 @@ impl Sort {
     #[inline]
     pub fn has_variable(&self) -> bool {
         self.0.has_variable
+    }
+}
+
+/// A sort as its domain values read it (`k_rust_domain`): by its constructor's KORE name and its
+/// arguments.
+impl DomainSort for Sort {
+    fn as_application(&self) -> Option<(&str, &[Self])> {
+        match self.node() {
+            SortNode::Application { name, arguments } => {
+                Some((name.as_ref(), arguments.as_slice()))
+            }
+            SortNode::Variable(_) => None,
+        }
+    }
+
+    fn has_variable(&self) -> bool {
+        Sort::has_variable(self)
     }
 }
 

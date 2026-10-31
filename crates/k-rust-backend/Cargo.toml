@@ -10,6 +10,7 @@ keywords = ["k-framework", "kore", "rewriting", "symbolic-execution"]
 categories = ["compilers", "development-tools"]
 
 [dependencies]
+k-rust-domain.workspace = true
 k-rust-kore.workspace = true
 k256.workspace = true
 num-bigint.workspace = true
@@ -22,9 +23,6 @@ sha3.workspace = true
 substrate-bn.workspace = true
 z3 = { workspace = true, optional = true }
 z3-sys = { workspace = true, optional = true }
-# MPFR, linked only for the test feature `mpfr-oracle`: an independent oracle of the canonical
-# Float text (`builtin/float/canonical/mpfr_oracle.rs`). No build of the backend computes with it.
-rug = { workspace = true, optional = true }
 
 # The simplifier's stack guard reads the current thread's real stack bounds. On wasm32 the
 # engine's call-stack limit is invisible to the module, so the guard is absent there and the
@@ -40,7 +38,8 @@ libc = "0.2"
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
-# Test builds count work through `k_rust_kore::measure`, check every normal-form claim
+# Test builds count work through `k_rust_kore::measure` and `k_rust_domain`'s counters, check the
+# Float hook models against `k_rust_domain`'s exact rounding model, check every normal-form claim
 # (`check-normal-forms`), may turn the simplifier's memoization off (`test-switches`) and build
 # domain values without a definition (`raw-domain-values`); `cargo build` stays feature-off.
 k-rust-backend = { path = ".", features = [
@@ -49,6 +48,7 @@ k-rust-backend = { path = ".", features = [
   "test-switches",
   "raw-domain-values",
 ] }
+k-rust-domain = { workspace = true, features = ["measure", "rounding-model"] }
 k-rust-kore = { workspace = true, features = ["measure"] }
 lean-conformance.workspace = true
 proptest.workspace = true
@@ -66,13 +66,10 @@ test-switches = []
 # implementation-chosen value take another admitted value, to test that every unmarked run is
 # model-independent. For tests; no shipped crate enables it, and without a seed it changes nothing.
 choice-sampling = []
-# Check the canonical Float text against MPFR (`builtin/float/canonical/mpfr_oracle.rs`). For
-# tests; CI runs it, and no other build links MPFR.
-mpfr-oracle = ["dep:rug"]
 # Expose `Term::raw_domain_value`, which stores a domain value's text as given, without a kind,
 # so that the test suites of this crate and of its dependents build terms without a definition.
 # For tests; off in every normal build, where every domain value is built with its sort's kind.
 raw-domain-values = []
-measure = ["k-rust-kore/measure"]
+measure = ["k-rust-domain/measure", "k-rust-kore/measure"]
 z3 = ["dep:z3", "dep:z3-sys"]
 z3-gh-release = ["z3", "z3/gh-release"]

@@ -11,7 +11,7 @@ publish = false
 test-support = ["krs-ir/test-support", "krs-ir-levels/test-support"]
 
 [dependencies]
-k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false }
+k-rust-domain = { version = "0.1.0", path = "../../../crates/k-rust-domain" }
 krs-diagnostic = { path = "../krs-diagnostic" }
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
 krs-ir-levels = { path = "../krs-ir-levels" }

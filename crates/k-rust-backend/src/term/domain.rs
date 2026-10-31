@@ -19,115 +19,23 @@ use std::cell::{Cell, RefCell};
 #[cfg(debug_assertions)]
 use std::{collections::BTreeMap, sync::Arc};
 
+pub(crate) use k_rust_domain::TextRejection;
 use k_rust_kore::kore::ast::KoreString;
-use k_rust_kore::names::BuiltinSort;
 
-use super::{
-    DomainKind, MIntLiteral, MIntWidth, Sort, Term, TermKind, mint_width_beyond_bound,
-    mint_width_digits,
-};
-use crate::builtin::{FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, float_canonical_bits_estimate};
-use crate::definition::{BackendDefinition, DomainValueBound, InvalidDomainValueReason};
+use super::{DomainKind, Sort, Term, TermKind};
+use crate::definition::BackendDefinition;
 #[cfg(debug_assertions)]
 use crate::{definition::SortInfo, term::Name};
 
-/// Why a text is no domain value of a kind at a sort.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TextRejection {
-    /// The text names no element of the sort: it is outside the kind's literal syntax, a
-    /// machine-integer suffix names another width or the sort names none, or a `Bytes` code
-    /// point is above U+00FF.
-    NamesNoElement(InvalidDomainValueReason),
-    /// The text names an element whose canonical text k-rust declines to compute: a negative
-    /// machine-integer literal of a width beyond `MAX_INT_RESULT_BITS`, a Float literal of a
-    /// format with a field of 1, or one whose canonical text is beyond
-    /// `MAX_FLOAT_CANONICAL_BITS`.
-    BeyondBound(DomainValueBound),
-}
-
-/// Whether `value` is a domain value of `kind` at `sort`: the validator every construction route
-/// with a text from outside the backend applies before [`Term::domain_value_of`] (definition load
-/// and requests, `STRING.string2token`).
-///
-/// - `Int`: a decimal integer, with an optional sign.
-/// - `Bool`: `true` or `false`.
-/// - `MInt(W)`: a literal `[+-]?[0-9]+[pP][0-9]+` whose suffix names the sort's width; a sort
-///   that names no width has no literal.
-/// - `Bytes`: any payload at `SortBytes`, whose payload is one byte per code point; elsewhere the
-///   UTF-8 of code points each at most U+00FF, since a larger code point names no byte.
-/// - `Float`: a text in FLOAT-SYNTAX whose suffix names a format (no field of 0). A format with a
-///   field of 1, which k-rust does not compute, and a literal whose canonical text is estimated
-///   beyond `MAX_FLOAT_CANONICAL_BITS` name values k-rust declines to build.
-/// - `String` and `Token`: every text.
+/// Whether `value` is a domain value of `kind` at `sort` ([`k_rust_domain::validate_text`]): the
+/// validator every construction route with a text from outside the backend applies before
+/// [`Term::domain_value_of`] (definition load and requests, `STRING.string2token`).
 pub(crate) fn validate_text(
     kind: DomainKind,
     sort: &Sort,
     value: &KoreString,
 ) -> Result<(), TextRejection> {
-    let text = value.as_utf8().ok();
-    let no_element = |reason| Err(TextRejection::NamesNoElement(reason));
-    match kind {
-        DomainKind::Int if !text.is_some_and(is_decimal_integer) => {
-            no_element(InvalidDomainValueReason::NotALiteral)
-        }
-        DomainKind::Bool if !matches!(text, Some("true" | "false")) => {
-            no_element(InvalidDomainValueReason::NotALiteral)
-        }
-        DomainKind::MInt(width) => {
-            let digits = match (width, mint_width_digits(sort)) {
-                (MIntWidth::Bits(_) | MIntWidth::Unrepresentable, Some(digits)) => digits,
-                _ => return no_element(InvalidDomainValueReason::NoWidth),
-            };
-            let Some(literal) = text.and_then(MIntLiteral::parse) else {
-                return no_element(InvalidDomainValueReason::NotALiteral);
-            };
-            if !literal.names_width(digits) {
-                return no_element(InvalidDomainValueReason::OtherWidth);
-            }
-            if literal.is_negative() && mint_width_beyond_bound(width) {
-                return Err(TextRejection::BeyondBound(DomainValueBound::MIntResidue {
-                    limit_bits: crate::builtin::MAX_INT_RESULT_BITS,
-                }));
-            }
-            Ok(())
-        }
-        DomainKind::Float => match text.map(float_canonical_bits_estimate) {
-            Some(Ok(_)) => Ok(()),
-            None | Some(Err(FloatTextRefusal::NotALiteral)) => {
-                no_element(InvalidDomainValueReason::NotALiteral)
-            }
-            Some(Err(FloatTextRefusal::ZeroFormatField)) => {
-                no_element(InvalidDomainValueReason::NoFloatFormat)
-            }
-            Some(Err(FloatTextRefusal::UncomputedFormat)) => {
-                Err(TextRejection::BeyondBound(DomainValueBound::FloatFormat))
-            }
-            Some(Err(FloatTextRefusal::BeyondBound { estimate_bits })) => Err(
-                TextRejection::BeyondBound(DomainValueBound::FloatCanonicalText {
-                    limit_bits: MAX_FLOAT_CANONICAL_BITS,
-                    estimate_bits,
-                }),
-            ),
-        },
-        DomainKind::Bytes
-            if !sort.is_builtin(BuiltinSort::Bytes)
-                && !text
-                    .is_some_and(|text| text.chars().all(|character| character <= '\u{ff}')) =>
-        {
-            no_element(InvalidDomainValueReason::NotALiteral)
-        }
-        DomainKind::Int
-        | DomainKind::Bool
-        | DomainKind::Bytes
-        | DomainKind::String
-        | DomainKind::Token => Ok(()),
-    }
-}
-
-/// A decimal integer with an optional sign, the literal syntax of `INT.Int`.
-pub(crate) fn is_decimal_integer(value: &str) -> bool {
-    let digits = value.strip_prefix(['+', '-']).unwrap_or(value).as_bytes();
-    !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
+    k_rust_domain::validate_text(kind, sort, value.as_bytes())
 }
 
 std::thread_local! {
@@ -248,8 +156,26 @@ mod tests {
     use std::{collections::BTreeMap, fs, path::Path};
 
     use k_rust_kore::kore::parser::parse_definition;
+    use k_rust_kore::names::BuiltinSort;
 
     use super::*;
+    use crate::term::MIntWidth;
+
+    /// The KORE names `k_rust_domain` reads a sort by are the builtin sorts' KORE names.
+    #[test]
+    fn the_domain_crate_reads_the_builtin_sorts_by_their_kore_names() {
+        for (name, builtin) in [
+            (k_rust_domain::INT_SORT, BuiltinSort::Int),
+            (k_rust_domain::BOOL_SORT, BuiltinSort::Bool),
+            (k_rust_domain::STRING_SORT, BuiltinSort::String),
+            (k_rust_domain::BYTES_SORT, BuiltinSort::Bytes),
+            (k_rust_domain::FLOAT_SORT, BuiltinSort::Float),
+        ] {
+            assert_eq!(name, builtin.kore_name());
+        }
+        assert_eq!(k_rust_domain::MINT_SORT, k_rust_kore::names::MINT_SORT);
+    }
+    use crate::definition::{DomainValueBound, InvalidDomainValueReason};
 
     /// Every construction route of a domain value, as `(file, calls of domain_value_of(,
     /// calls of new_domain_value()` outside inline test modules, with the source of each route's
