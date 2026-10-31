@@ -5760,18 +5760,38 @@ deviation = "failed: cannot find a production for KLabel \"#let\""
 
 # NT-8-1 (twin): the same failures, seen by K7's twin check: the rule twin's run builds the value,
 # the static clause's program expansion fails at x = 1 (at x = go it does not apply, NT-20-1).
+# The record update written as a `let` (`{ let Cmd::Pair { a: _, b } = x; .. }`) fails the same way;
+# its rule twin has no value at either witness, since neither 1 nor go is a Pair: the end the
+# static clause's run reaches at x = 1 once its expansion writes the `#let`, and at x = go once
+# NT-20-1 lets it apply.
+
+["twin/terms/alias/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-8-1"
+deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
 
 ["twin/terms/alias/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "NT-8-1"
 deviation = "x = 1: failed: cannot find a production for KLabel \"_:=K_\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
 
+["twin/terms/alias/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-8-1"
+deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
+
 ["twin/terms/alias/result/{ let y = x; y }"]
 finding = "NT-8-1"
 deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
+["twin/terms/desugar/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-8-1"
+deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
+
 ["twin/terms/desugar/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "NT-8-1"
 deviation = "x = 1: failed: cannot find a production for KLabel \"_:=K_\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/terms/desugar/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-8-1"
+deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
 
 ["twin/terms/desugar/result/{ let y = x; y }"]
 finding = "NT-8-1"
