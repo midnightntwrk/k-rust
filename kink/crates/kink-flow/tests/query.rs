@@ -265,14 +265,22 @@ fn a_pattern_list_error_names_its_key() {
     assert!(!dir.join(CACHE_DIRECTORY).exists());
 }
 
-const LOOP_BOUNDED: &str = r#"
+/// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
+/// test after ten minutes, so this clock fires only on a test that fails anyway, and the bound
+/// decides every passing run (R4-WALLCLOCK).
+const NO_CLOCK_MS: u64 = 600_000;
+
+/// The loop flow with a depth bound of 50 and no clock that decides a run.
+fn loop_bounded() -> String {
+    format!(
+        r#"
 [spec]
 entry = "loop.k"
 main_module = "LOOP"
 syntax_module = "LOOP-SYNTAX"
 
 [budget]
-time_ms = 10000
+time_ms = {NO_CLOCK_MS}
 max_depth = 50
 
 [[program]]
@@ -282,7 +290,9 @@ file = "programs/spin.loop"
 [[program]]
 id = "countdown"
 file = "programs/countdown.loop"
-"#;
+"#
+    )
+}
 
 /// Flow F-18 deliverable 6: the initial configuration and the final one count.
 #[test]
@@ -1502,7 +1512,7 @@ programs = ["add"]
     fn a_bound_turns_a_would_be_no_into_unknown() {
         let dir = fixture("loop", "bounds");
         let bounded = dir.join("FLOW-bounded.toml");
-        write(&bounded, LOOP_BOUNDED);
+        write(&bounded, &loop_bounded());
         let patterns = dir.join("PATTERNS.toml");
         let (document, status) = plain(&bounded, &patterns);
         assert_eq!(status, EXIT_OK, "{document:#}");

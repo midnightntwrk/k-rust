@@ -58,7 +58,21 @@ fn tests() -> Vec<TestCase> {
     }]
 }
 
-fn campaign<'a>(validator: &'a NativeValidator, tests: &'a [TestCase]) -> Campaign<'a> {
+/// The time bound of the runs that must time out: the never-ending mutant without a work budget
+/// (`RunOptions::default()`), which no other bound stops, so `Timeout` is its only outcome at any
+/// load. Its baseline ends in a handful of steps.
+const UNBOUNDED_TIME: Duration = Duration::from_secs(3);
+
+/// The time bound of a run whose expected outcome comes from the work budget or from a complete
+/// run: nextest stops a test after ten minutes, so this clock fires only on a test that fails
+/// anyway, and the bound decides every passing run (R4-WALLCLOCK).
+const NO_CLOCK: Duration = Duration::from_secs(600);
+
+fn campaign<'a>(
+    validator: &'a NativeValidator,
+    tests: &'a [TestCase],
+    time: Duration,
+) -> Campaign<'a> {
     Campaign {
         validator,
         module: "WORKLOOP",
@@ -66,7 +80,7 @@ fn campaign<'a>(validator: &'a NativeValidator, tests: &'a [TestCase]) -> Campai
         classify: &normal,
         tests,
         budget: ExecutionBudget {
-            time: Duration::from_secs(3),
+            time,
             max_simplification_iterations: 10_000,
             max_depth: None,
             max_breadth: None,
@@ -214,17 +228,17 @@ fn a_mutant_that_never_ends_is_unknown_under_a_work_budget() {
     on_a_big_stack(|| {
         let validator = validator();
         let tests = tests();
-        let campaign = campaign(&validator, &tests);
         let generation = replace(validator.baseline(), "WORKLOOP.step", "1", "-1");
         let unbounded = run(
-            &campaign,
+            &campaign(&validator, &tests, UNBOUNDED_TIME),
             &generation,
             ScheduleMode::Full,
             RunOptions::default(),
         );
         assert_never_ends_unbounded(&unbounded);
+        let no_clock = campaign(&validator, &tests, NO_CLOCK);
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let bounded = run(&campaign, &generation, schedule, calibrated(4, 100));
+            let bounded = run(&no_clock, &generation, schedule, calibrated(4, 100));
             assert_never_ends_bounded(&bounded, &unbounded);
         }
     });
@@ -262,17 +276,16 @@ mod heavy {
         on_a_big_stack(|| {
             let validator = validator();
             let tests = tests();
-            let campaign = campaign(&validator, &tests);
             let generation = replace(validator.baseline(), "WORKLOOP.step", "1", "-1");
             let unbounded = run(
-                &campaign,
+                &campaign(&validator, &tests, UNBOUNDED_TIME),
                 &generation,
                 ScheduleMode::FirstKill,
                 RunOptions::default(),
             );
             assert_never_ends_unbounded(&unbounded);
             let bounded = run(
-                &campaign,
+                &campaign(&validator, &tests, NO_CLOCK),
                 &generation,
                 ScheduleMode::FirstKill,
                 calibrated(4, 100),
@@ -296,7 +309,7 @@ mod kink_tier {
         on_a_big_stack(|| {
             let validator = validator();
             let tests = tests();
-            let campaign = campaign(&validator, &tests);
+            let campaign = campaign(&validator, &tests, NO_CLOCK);
             let baseline = validator.baseline();
             let same_work = replace(baseline, "WORKLOOP.stop", "7", "8");
             let more_work = replace(baseline, "WORKLOOP.step", "0", "-2");

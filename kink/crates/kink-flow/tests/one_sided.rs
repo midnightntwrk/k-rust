@@ -516,6 +516,11 @@ mod heavy {
     }
 }
 
+/// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
+/// test after ten minutes, so this clock fires only on a test that fails anyway, and the bound
+/// decides every passing run (R4-WALLCLOCK).
+const NO_CLOCK_MS: u64 = 600_000;
+
 /// The corpus of `testdata/k/l1/onesided.k` with one program, `start(12000)`, and one mutation,
 /// early's 7 becomes 8 and late's 2 becomes 3: its early final configuration `done(12008)` is not
 /// the baseline's, and its loop is half as long again, so with `work_factor = 1` its run (about
@@ -537,7 +542,7 @@ fn one_sided_corpus(work_factor: Option<u64>) -> PathBuf {
         dir.join("FLOW.toml"),
         format!(
             "[spec]\nentry = \"onesided.k\"\nmain_module = \"ONESIDED\"\n\
-             syntax_module = \"ONESIDED-SYNTAX\"\n\n[budget]\ntime_ms = 60000\n{budget}\n\
+             syntax_module = \"ONESIDED-SYNTAX\"\n\n[budget]\ntime_ms = {NO_CLOCK_MS}\n{budget}\n\
              [[program]]\nid = \"start\"\ntext = \"start(12000)\"\n"
         ),
     )

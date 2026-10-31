@@ -2209,7 +2209,8 @@ main_module = "SIMPLE-UNTYPED"
 syntax_module = "SIMPLE-UNTYPED-SYNTAX"
 
 [budget]
-time_ms = 10000
+# the clock never decides a run of the tests (R4-WALLCLOCK)
+time_ms = 600000
 max_depth = 100000
 work_factor = 4
 

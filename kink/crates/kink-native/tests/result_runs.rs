@@ -52,9 +52,13 @@ fn backend(side: &ValidatedDefinition, module: &str) -> Backend {
     .unwrap()
 }
 
+/// The budget of a run whose expected outcome comes from `max_depth`, the work budget or a
+/// complete run. Its time bound is ten minutes: nextest stops a test after ten minutes, so the
+/// clock fires only on a test that fails anyway, and the bound decides every passing run
+/// (R4-WALLCLOCK). A test whose purpose is the time limit sets its own.
 fn budget() -> ExecutionBudget {
     ExecutionBudget {
-        time: Duration::from_secs(60),
+        time: Duration::from_secs(600),
         max_simplification_iterations: 10_000,
         max_depth: Some(1000),
         max_breadth: None,

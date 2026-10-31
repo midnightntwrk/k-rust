@@ -600,6 +600,10 @@ The dev and test profiles are k-rust's (the root `Cargo.toml`): the workspace at
 debug assertions and overflow checks stay on for every package.
 For a debugger session that shows local variables, use the `debugging` profile (`cargo test --profile debugging`).
 
+A kink-tier test whose expected outcome comes from a deterministic bound (a work budget, `max_depth`, `max_breadth`, the fuzz's `max_work`) runs under `time_ms = 600000` (the tests' `NO_CLOCK_MS`) or the equivalent `ExecutionBudget::time`: nextest stops a test after ten minutes, so the clock decides no passing run.
+A test whose purpose is the time limit gives the run it expects to time out no other bound.
+A wall time is asserted only as a lower bound or compared in the serial `wall-clock` group.
+
 ## Retired tooling
 
 The earlier official-K "G-track",

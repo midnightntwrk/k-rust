@@ -98,6 +98,11 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+/// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
+/// test after ten minutes, so this clock fires only on a test that fails anyway, and the bound
+/// decides every passing run (R4-WALLCLOCK).
+const NO_CLOCK_MS: u64 = 600_000;
+
 /// The `FLOW.toml` text of `entry` (main module `main`, syntax module `{main}-SYNTAX`) with the
 /// `[budget]` lines `budget` (none when empty) and the programs `(id, text)`.
 fn manifest_text(entry: &str, main: &str, budget: &str, programs: &[(&str, &str)]) -> String {
@@ -409,7 +414,7 @@ endmodule
             "osa.k",
             ONE_SIDED_K,
             "OSA",
-            "work_factor = 4\n",
+            &format!("time_ms = {NO_CLOCK_MS}\nwork_factor = 4\n"),
             &[("one", "a(1)")],
             ONE_SIDED_MUTATIONS,
         );
@@ -441,7 +446,12 @@ endmodule
         // kink's own run with the fragment as the only program: a one-sided kill.
         let id = document["program"]["id"].as_str().unwrap();
         let fragment = document["program"]["fragment"].as_str().unwrap();
-        let mut manifest = manifest_text("osa.k", "OSA", "work_factor = 4\n", &[]);
+        let mut manifest = manifest_text(
+            "osa.k",
+            "OSA",
+            &format!("time_ms = {NO_CLOCK_MS}\nwork_factor = 4\n"),
+            &[],
+        );
         manifest.push('\n');
         manifest.push_str(fragment);
         fs::write(dir.join("FLOW.toml"), manifest).unwrap();
@@ -493,7 +503,7 @@ endmodule
             "imp.k",
             &fs::read_to_string(source.join("imp.k")).unwrap(),
             "IMP",
-            "time_ms = 10000\nmax_depth = 100000\nwork_factor = 4\n",
+            &format!("time_ms = {NO_CLOCK_MS}\nmax_depth = 100000\nwork_factor = 4\n"),
             &[("primes", &primes)],
             "",
         );
@@ -698,7 +708,7 @@ endmodule
                 entry,
                 &fuzz_data(file),
                 main,
-                "time_ms = 300000\n",
+                &format!("time_ms = {NO_CLOCK_MS}\n"),
                 &programs,
                 "",
             );

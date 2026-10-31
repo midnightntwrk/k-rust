@@ -33,7 +33,12 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// A private copy of the loop fixture whose search manifest has a one-minute time bound and
+/// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
+/// test after ten minutes, so this clock fires only on a test that fails anyway, and the bound
+/// decides every passing run (R4-WALLCLOCK).
+const NO_CLOCK_MS: u64 = 600_000;
+
+/// A private copy of the loop fixture whose search manifest has the time bound `NO_CLOCK_MS` and
 /// `work_factor = factor`.
 fn fixture(test: &str, factor: u64) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -55,7 +60,7 @@ fn set_factor(manifest: &Path, factor: u64) {
         .lines()
         .filter(|line| !line.starts_with("work_factor"))
         .map(|line| match line {
-            "time_ms = 500" | "time_ms = 60000" => "time_ms = 60000".to_owned(),
+            line if line.starts_with("time_ms = ") => format!("time_ms = {NO_CLOCK_MS}"),
             "[budget]" => format!("[budget]\nwork_factor = {factor}"),
             line => line.to_owned(),
         })
@@ -113,7 +118,7 @@ mod kink_tier {
     fn a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached() {
         let manifest = fixture("loop-work", 2);
         let first = search(&manifest);
-        // The time bound is a minute; that the work budget, not the clock, stopped the loop is
+        // The time bound is `NO_CLOCK_MS`; that the work budget, not the clock, stopped the loop is
         // the run's outcome and cause below: a run the clock stops is a timeout, and this one is
         // `unknown` because it reached its work budget, with one work-bound leaf. So no elapsed
         // time is compared (a wall-time bound fails under load).
