@@ -3505,6 +3505,37 @@ def SameThreadJoins : Prop :=
     /// The same for a keyed slot, at each key `k2l_keyed` leaves.
     const ONE_BINDING_KEYED: &str = "\n    | (k2l_keyed hk\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_one_binding\n            k2l_det\n            all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩))";
 
+    /// The sorts whose values are all `KResult`s that a rule's condition asks `isKResult` of, by
+    /// their names without `Sort`: a hypothesis `K.isKResult (SortK.kseq (inj_S_KItem V) …)` of a
+    /// rule's variant (whose binders have the variant's sorts, which the KORE axiom's do not), with
+    /// each leaf of `S` a leaf of `KResult`. A heating rule's `notBool isKResult(V)` at such a `V`
+    /// never holds; since `isKResult` of a variable does not compute, the attempts read it from a
+    /// lemma (`kresult_S`).
+    fn kresult_sorts(m: &Model, rs: &[Rule]) -> Vec<String> {
+        let Some(kr) = m.sorts.get("SortKResult") else {
+            return vec![];
+        };
+        const PRE: &str = "K.isKResult (SortK.kseq (inj_";
+        let mut out = BTreeSet::new();
+        for (_, h) in rs.iter().flat_map(|r| &r.app.hyps) {
+            for (at, _) in h.match_indices(PRE) {
+                let rest = &h[at + PRE.len()..];
+                let Some(end) = rest.find("_KItem ") else {
+                    continue;
+                };
+                let s = &rest[..end];
+                if s != "KResult"
+                    && let Some(si) = m.sorts.get(&format!("Sort{s}"))
+                    && !si.leaves.is_empty()
+                    && si.leaves.iter().all(|l| kr.leaves.contains(l))
+                {
+                    out.insert(s.to_string());
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
     fn emit_slots(
         o: &mut String,
         cx: &SlotCx,
@@ -3543,6 +3574,35 @@ def SameThreadJoins : Prop :=
                 super::fail(&format!("--open-joins: {n} is not a slot of {name}"));
             }
         }
+        // the sorts whose values are all `KResult`s, each a lemma in the views
+        let kres = kresult_sorts(&lib.m, rs);
+        if !kres.is_empty() {
+            writeln!(o, "\n/-! ## The sorts whose values are all `KResult`s -/\n").unwrap();
+            for s in &kres {
+                writeln!(
+                    o,
+                    "/-- Every `{s}` is a `KResult` (each of its leaves is one of `KResult`'s), so a rule's\n`notBool isKResult(V)` at a `V : {s}` never holds. -/\ntheorem kresult_{s} (v : {name}.Sort{s}) :\n    {name}.K.isKResult (.kseq ({name}.inj_{s}_KItem v) .dotk) = true := by\n  k2l_cases v <;> rfl\n"
+                )
+                .unwrap();
+            }
+        }
+        // a side condition `notBool isKResult(V)` refuted by those lemmas, after the others
+        let kres_alt = |indent: &str| {
+            if kres.is_empty() {
+                String::new()
+            } else {
+                let ls: Vec<String> = kres.iter().map(|s| format!("kresult_{s}")).collect();
+                format!(
+                    "\n{indent}| (simp only [{}] at *; k2l_refute_computed)",
+                    ls.join(", ")
+                )
+            }
+        };
+        let kres_doc = if kres.is_empty() {
+            ""
+        } else {
+            "; `notBool isKResult(V)`\nrefuted by `kresult_S` at a sort whose values are all `KResult`s"
+        };
         // the statements, in the views, for the hand module to state
         writeln!(
             o,
@@ -3652,13 +3712,14 @@ def SameThreadJoins : Prop :=
                     }
                 };
                 format!(
-                    "  intro c c₁ c₂ a₁ a₂ k {hinv}s₁ s₂ l₁ l₂\n  obtain ⟨{}, rfl, rfl, {}⟩ := s₁\n  obtain ⟨{}, e, rfl, {}⟩ := s₂\n  cases e\n  {}\n  all_goals {}\n  all_goals (subst e₁; try cases e₂)\n  all_goals k2l_det\n  all_goals first\n    | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n    | (k2l_proj_compute; k2l_refute_computed)\n    | (exfalso; k2l_arith_omega)",
+                    "  intro c c₁ c₂ a₁ a₂ k {hinv}s₁ s₂ l₁ l₂\n  obtain ⟨{}, rfl, rfl, {}⟩ := s₁\n  obtain ⟨{}, e, rfl, {}⟩ := s₂\n  cases e\n  {}\n  all_goals {}\n  all_goals (subst e₁; try cases e₂)\n  all_goals k2l_det\n  all_goals first\n    | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n    | (k2l_proj_compute; k2l_refute_computed)\n    | (exfalso; k2l_arith_omega){}",
                     us(i),
                     last(b1, "hp₁"),
                     us(j),
                     last(b2, "hp₂"),
                     key(b1, "₁"),
-                    key(b2, "₂")
+                    key(b2, "₂"),
+                    kres_alt("    ")
                 )
             } else if k == 1 {
                 // the instances named, the second's binders suffixed: one instance or a clash
@@ -3679,9 +3740,10 @@ def SameThreadJoins : Prop :=
                     v.join(", ")
                 };
                 let mut p = format!(
-                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  have i₁ := Inst.of s₁\n  have i₂ := Inst.of s₂\n  obtain ⟨{}⟩ := i₁\n  obtain ⟨{}⟩ := i₂\n  cases e\n  first\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed)\n         | (exfalso; k2l_arith_omega))",
+                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  have i₁ := Inst.of s₁\n  have i₂ := Inst.of s₂\n  obtain ⟨{}⟩ := i₁\n  obtain ⟨{}⟩ := i₂\n  cases e\n  first\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed)\n         | (exfalso; k2l_arith_omega){})",
                     pat(a1, "rfl"),
-                    pat(&a2, "e")
+                    pat(&a2, "e"),
+                    kres_alt("         ")
                 );
                 for a in super::commute_alts(name, &rs[i], &rs[j], (&roles[i], &roles[j]), &sfx) {
                     write!(p, "\n    | {a}").unwrap();
@@ -3694,10 +3756,11 @@ def SameThreadJoins : Prop :=
                 // two changes of a cell holding a map at their keys (`k2l_keyed`): at one key the
                 // instances agree or clash, at two the changes commute; else the instances alone
                 format!(
-                    "  intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n  have x₁ := ChOf.cells o₁\n  have x₂ := ChOf.cells o₂\n  have i₁ := o₁.2.2\n  have i₂ := o₂.2.2\n  simp only [Rule.cls, InClass] at i₁ i₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n  try simp only [{}] at x₁ x₂\n  first\n    | (k2l_keyed hk\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed)\n         | (exfalso; k2l_arith_omega))",
+                    "  intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n  have x₁ := ChOf.cells o₁\n  have x₂ := ChOf.cells o₂\n  have i₁ := o₁.2.2\n  have i₂ := o₂.2.2\n  simp only [Rule.cls, InClass] at i₁ i₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n  try simp only [{}] at x₁ x₂\n  first\n    | (k2l_keyed hk\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed)\n         | (exfalso; k2l_arith_omega){})",
                     us(i),
                     us(j),
-                    cells.join(", ")
+                    cells.join(", "),
+                    kres_alt("         ")
                 ) + if so.inv.is_some() {
                     ONE_BINDING_KEYED
                 } else {
@@ -3842,7 +3905,7 @@ def SameThreadJoins : Prop :=
                     }
                 ),
                 format!(
-                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)",
+                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)",
                     if *any_keyed {
                         "the keys of two changes of a cell holding a map (`k2l_keyed`), "
                     } else {
@@ -3854,8 +3917,9 @@ def SameThreadJoins : Prop :=
             (
                 "--slots",
                 format!("{} of `OpenJoins`", total[1]),
-                "each rule's instance (`k2l_det`), a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)"
-                    .to_string(),
+                format!(
+                    "each rule's instance (`k2l_det`), a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)"
+                ),
             )
         };
         let refutes = if !refuted.is_empty() {
