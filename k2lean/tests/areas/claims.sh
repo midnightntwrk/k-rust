@@ -176,6 +176,38 @@ impplus_claims() {
   else bad "claims-impplus gen" "$L/claims-impplus-gen.log"; fi
 }
 
+sumspec_claims() {
+  # the K tutorial's own IMP++ proof, lesson_7/tests/proofs/sum-spec.k, read as it is (through
+  # demos/claims/specs/tutorial-sum-spec.k, which requires the definition first): the loop over
+  # framed <env> and <store> by its circularity, a map equality by bindings at the loop's head and
+  # `(N + 1) * N / 2` at its exit; the program by the loop's claim. Heavy: 62 rules a step, 98
+  # configurations (the loop 80, the program 18), about 12 minutes
+  phase "sumspec claims"
+  local OUTP=$GEN/sumspec-claims
+  if ! "$KRUST" kcompile "$T/demos/claims/specs/tutorial-sum-spec.k" --main-module SUM-SPEC --definition-module IMP \
+      --for-proving --output-directory "$KO/sumspec" --builtin-directory "$BUILTIN" -I "$IMPPP" -w none \
+      > "$L/kcompile-sumspec.log" 2>&1; then
+    bad "kcompile sumspec" "$L/kcompile-sumspec.log"; return
+  fi
+  if "$G" claims --kore "$KO/impplus/definition.kore" --spec "$KO/sumspec/definition.kore" \
+      --out "$OUTP" --name KSumSpec --semantics KImpPlus --semantics-path ../impplus \
+      --kclaims-path ../../lean > "$L/claims-sumspec-gen.log" 2>&1; then
+    ok "claims-sumspec gen"
+    cp "$OUTP/claims.toml" "$MEAS/claims-sumspec.toml"
+    if lbuild "$OUTP" build-claims-sumspec; then
+      ok "build claims-sumspec" "$L/build-claims-sumspec.log"
+      if lbuild "$OUTP" build-claims-sumspec-guard KSumSpecTest; then
+        ok "guard claims-sumspec" "$L/build-claims-sumspec-guard.log"
+      else bad "guard claims-sumspec" "$L/build-claims-sumspec-guard.log"; fi
+      grep -o 'KSumSpec[^ ]*\.holds depends on axioms: .*' "$L/build-claims-sumspec-guard.log" \
+        > "$MEAS/axioms-sumspec.txt" || true
+      # (each claim's summary line; a step's message that it left a configuration to a split also
+      # names kc_auto)
+      grep -E 'kc_auto [^ ]+: [0-9]+ configurations' "$L/build-claims-sumspec.log" > "$MEAS/kc-auto-sumspec.txt" || true
+    else bad "build claims-sumspec" "$L/build-claims-sumspec.log"; fi
+  else bad "claims-sumspec gen" "$L/claims-sumspec-gen.log"; fi
+}
+
 strict_claims() {
   # kstrict's claims (demos/claims/specs/strict-spec.k): with a symbolic rest of `<k>`, the cooling
   # rules' matchers do not reduce, and `kc_auto` steps by the cases of `Step` (`tryRel`)
@@ -255,6 +287,9 @@ gate_claims() {
   fi
   if runs record impplus-claims; then
     kc impplus && impplus_claims
+  fi
+  if runs record sumspec-claims; then
+    kc impplus && sumspec_claims
   fi
   if runs record claims; then
     kc kimp && kc kimp-inv

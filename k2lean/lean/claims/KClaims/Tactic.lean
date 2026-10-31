@@ -630,16 +630,27 @@ def matchMapValues (gs : Array MVarId) : MetaM Unit := do
         unless a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 do return false
         let m := b.appArg!
         if m.hasExprMVar then return false
-        -- the block's bindings: its own, or those of the goal defining it
-        let blk := a.getArg! (a.getAppNumArgs - 2)
-        let mut parts := #[blk, a.appArg!]
-        if blk.isMVar then
+        -- every binding the pattern names at this map: the goal's own, and through a block (a
+        -- metavariable) those of the goal defining it, at every level (`(A B) C`)
+        let defOf (x : Expr) : MetaM (Option Expr) := do
           for g' in gs do
             if ← g'.isAssigned then continue
             let some (_, a', b') := (← instantiateMVars (← g'.getType)).eq? | continue
             unless a'.isAppOf ``KPrelude.MapHook.concat && b'.isAppOfArity ``Option.some 2 do continue
-            if b'.appArg! == blk then
-              parts := #[a'.getArg! (a'.getAppNumArgs - 2), a'.appArg!]
+            if b'.appArg! == x then return some a'
+          return none
+        let mut parts := #[]
+        let mut todo := #[a.getArg! (a.getAppNumArgs - 2), a.appArg!]
+        let mut depth := 0
+        while !todo.isEmpty && depth < 32 do
+          depth := depth + 1
+          let e := todo.back!
+          todo := todo.pop
+          if e.isMVar then
+            if let some a' ← defOf e then
+              todo := todo.push (a'.getArg! (a'.getAppNumArgs - 2)) |>.push a'.appArg!
+              continue
+          parts := parts.push e
         let mut found := false
         for e in parts do
           unless e.isAppOf ``KPrelude.MapHook.element do continue
@@ -731,6 +742,14 @@ def solveConj (closer : TSyntax `tactic) (g : MVarId) : TacticM Bool := do
       let t ← instantiateMVars (← gi.getType)
       match t.eq? with
       | some (_, a, b) =>
+        -- a block of the claim's map pattern whose values are unknown (`concat (element k ?v) … =
+        -- some ?blk`): left to `matchMapValues`, which reads the values in the map the frame's goal
+        -- names (its description is kept as stated, `openStep`), not evaluated with them unknown
+        let a ← instantiateMVars a
+        if a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 && b.appArg!.isMVar &&
+            a.hasExprMVar then
+          rest := rest.push gi
+          continue
         if ← isDefEq a b then
           gi.assign (← mkEqRefl a)
         else if ← structUnify a b then
@@ -742,6 +761,27 @@ def solveConj (closer : TSyntax `tactic) (g : MVarId) : TacticM Bool := do
         else return false
       | none => rest := rest.push gi
     matchMapValues rest
+    -- a block whose values are now known, matched in a literal map (the frame's goal `concat ?blk
+    -- ?F = some m`, `m` a literal): by evaluation, as `m` is; matched in a described map it stays
+    -- for the closer, which builds it from its bindings (`kc_map`) as the description states them
+    let literalIn (blk : Expr) : MetaM Bool := do
+      for gj in rest do
+        if ← gj.isAssigned then continue
+        let some (_, a', b') := (← instantiateMVars (← gj.getType)).eq? | continue
+        unless a'.isAppOf ``KPrelude.MapHook.concat && b'.isAppOfArity ``Option.some 2 do continue
+        unless a'.getArg! (a'.getAppNumArgs - 2) == blk do continue
+        let m := b'.appArg!
+        if m.getAppFn.isConst && (← isConstructorApp m) then return true
+      return false
+    for gi in rest do
+      if ← gi.isAssigned then continue
+      let some (_, a, b) := (← instantiateMVars (← gi.getType)).eq? | continue
+      unless a.isAppOf ``KPrelude.MapHook.concat && !a.hasExprMVar && b.isAppOfArity ``Option.some 2 &&
+        b.appArg!.isMVar do continue
+      unless ← literalIn b.appArg! do continue
+      let s ← saveState
+      let ok ← tryCatchRuntimeEx (isDefEq a b) fun _ => pure false
+      if ok then gi.assign (← mkEqRefl a) else s.restore
     -- a witness may be chosen by the closer (the value of a partial function, `kc_assumption`)
     unless ← closeAll closer rest do return false
     for w in ws do
@@ -1008,8 +1048,77 @@ a variable side is substituted, an equation `f … = some x` is evaluated by `ca
 condition is simplified to a proposition. `none` if no hypothesis needs it. -/
 def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId × Array FVarId)) :=
   g.withContext do
+  -- the order of opening, as matching binds a variable before a key reads it: a rule's match of a
+  -- known map first (a literal: the configuration's thread map), which unification decides and
+  -- which fixes the rule's variables; then the rest (conjunctions, equations, conditions); the
+  -- matches of described maps last, which may split over a description's sides, each before one
+  -- whose key mentions a variable it binds
+  let mut known := #[]
+  let mut rest := #[]
+  let mut described := #[]
   for ldecl in (← getLCtx) do
     if ldecl.isImplementationDetail || tried.contains ldecl.fvarId then continue
+    match (← instantiateMVars ldecl.type).eq? with
+    | some (_, a, b) =>
+      if a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 then
+        if b.appArg!.isFVar then described := described.push ldecl
+        else if !b.appArg!.hasExprMVar then known := known.push ldecl
+        else rest := rest.push ldecl
+      else rest := rest.push ldecl
+    | none => rest := rest.push ldecl
+  -- the maps opened by evaluation: a root map whose descriptions, through the maps it is built
+  -- from, end in bindings only (`element`, `unit`, a literal), with no frame, so that the whole map
+  -- is a literal, and the maps it is built from; others keep their descriptions as stated
+  -- (`openStep`, below)
+  let descOf : Std.HashMap FVarId (Expr × Expr) ← (← getLCtx).foldlM (init := {}) fun acc d => do
+    if d.isImplementationDetail then return acc
+    let some (_, a, b) := (← instantiateMVars d.type).eq? | return acc
+    unless a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 && b.appArg!.isFVar do
+      return acc
+    let m := b.appArg!.fvarId!
+    if a.containsFVar m || acc.contains m then return acc
+    return acc.insert m (a.getArg! (a.getAppNumArgs - 2), a.appArg!)
+  let rec closedMap : Nat → Expr → MetaM Bool
+    | 0, _ => return false
+    | fuel + 1, e => do
+      if e.isAppOf ``KPrelude.MapHook.element || e.isAppOf ``KPrelude.MapHook.unit then return true
+      if e.isFVar then
+        let some (x, y) := descOf[e.fvarId!]? | return false
+        return (← closedMap fuel x) && (← closedMap fuel y)
+      if !e.hasFVar || (e.getAppFn.isConst && (← isConstructorApp e)) then return true
+      -- a map whose bindings evaluate (a block already opened by evaluation)
+      let l ← whnfD (← mkAppM ``KPrelude.ListIso.toList #[e])
+      return l.isAppOfArity ``List.cons 3 || l.isAppOfArity ``List.nil 1
+  -- (a root: a described map that is no part of another's description, a cell's content or a
+  -- map of its own)
+  let parts : FVarIdSet := descOf.fold (init := {}) fun acc _ (x, y) =>
+    [x, y].foldl (fun acc e => if e.isFVar then acc.insert e.fvarId! else acc) acc
+  let mut evaluated : FVarIdSet := {}
+  for (m, _) in descOf do
+    if !parts.contains m && (← closedMap 16 (.fvar m)) then
+      let mut todo := #[m]
+      while !todo.isEmpty do
+        let x := todo.back!
+        todo := todo.pop
+        if evaluated.contains x then continue
+        evaluated := evaluated.insert x
+        if let some (a, b) := descOf[x]? then
+          for e in [a, b] do
+            if e.isFVar then todo := todo.push e.fvarId!
+  let mut ordered := #[]
+  let mut pending := described
+  while !pending.isEmpty do
+    let parts ← pending.mapM fun d => do
+      let some (_, a, _) := (← instantiateMVars d.type).eq? | return (#[], #[])
+      let some (k, v, _) := elemConcat? a | return (#[], #[])
+      return ((collectFVars {} k).fvarIds, (collectFVars {} v).fvarIds)
+    let ready := (List.range pending.size).find? fun i =>
+      (List.range pending.size).all fun j => j == i ||
+        !(parts[i]!.1.any fun x => parts[j]!.2.contains x)
+    let i := ready.getD 0
+    ordered := ordered.push pending[i]!
+    pending := pending.eraseIdxIfInBounds i
+  for ldecl in known ++ rest ++ ordered do
     -- the assumed invariant stays folded (`kc_auto … inv`): it is opened on demand
     if ldecl.userName == `hinv then continue
     let t ← whnfD (← instantiateMVars ldecl.type)
@@ -1036,6 +1145,13 @@ def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId 
           evalTactic (← `(tactic| kc_bool_simp at $(mkIdent ldecl.userName):ident))
           return some (← getUnsolvedGoals, tried.push ldecl.fvarId)
         catch _ => return some ([g], tried.push ldecl.fvarId)
+      -- a description of a map (`concat A B = some m`) is opened by evaluation only where `m` is,
+      -- or is part of, a map that is a literal (`evaluated`, above: so a cell's content stays in
+      -- constructor normal form, `normGoal`); otherwise it stays as stated, its bindings being
+      -- what lookups read and what a claim's block matches
+      let desc := a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 &&
+        b.appArg!.isFVar && !evaluated.contains b.appArg!.fvarId!
+      if desc then return some ([g], tried.push ldecl.fvarId)
       let a' ← whnfD a
       let b' ← whnfD b
       let ctorA ← if a'.getAppFn.isConst then isConstructorApp a' else pure false
@@ -1078,6 +1194,49 @@ partial def openAll (g : MVarId) (tried : Array FVarId := #[]) (fuel : Nat := 20
   match ← openStep g tried with
   | none => return [g]
   | some (gs, tried) => return (← gs.mapM fun g => openAll g tried (fuel - 1)).flatten
+
+/-- A case refuted by one of its own premises alone: a rule's match of a cell map whose bindings
+are known (a literal: IMP++'s thread map, whose rules all match `<k>` inside it), shown
+impossible in a goal of its own, over that premise and the variables it mentions. `False` from
+some of the case's hypotheses is `False` from all of them, and the cost no longer grows with the
+configuration's context, which every case inherits (IMP++, `sum = n;`: 49 s of the 72 s a run
+spent opening cases, 0.3 to 2.2 s a case as the context grew). The refutation is a theorem of
+its own (`mkAuxTheorem`), checked once, and the step's proof names it. -/
+def refuteAlone (g : MVarId) (tried : Array FVarId) : TacticM Bool := g.withContext do
+  let lctx ← getLCtx
+  for d in lctx do
+    if d.isImplementationDetail || tried.contains d.fvarId then continue
+    let ty ← instantiateMVars d.type
+    let some (_, a, b) := ty.eq? | continue
+    unless a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 do continue
+    if b.appArg!.isFVar then continue
+    -- the variables the premise mentions, with those their types mention
+    let mut set : FVarIdSet := {}
+    let mut todo := (collectFVars {} ty).fvarIds
+    while !todo.isEmpty do
+      let x := todo.back!
+      todo := todo.pop
+      if set.contains x then continue
+      set := set.insert x
+      todo := todo ++ (collectFVars {} (← instantiateMVars (← x.getType))).fvarIds
+    let xs := lctx.foldl (fun acc d' => if set.contains d'.fvarId then acc.push d'.toExpr else acc) #[]
+    let pty ← mkForallFVars (xs.push d.toExpr) (mkConst ``False)
+    if pty.hasFVar || pty.hasExprMVar then continue
+    let m ← mkFreshExprMVarAt {} {} pty
+    let s ← saveState
+    let goals ← getGoals
+    let closed ← try
+        let (_, g0) ← m.mvarId!.introN (xs.size + 1)
+        pure (← openAll g0 #[] 40).isEmpty
+      catch _ => pure false
+    setGoals goals
+    if closed then
+      let pf ← instantiateMVars m
+      let c ← if pf.hasExprMVar then pure pf else mkAuxTheorem pty pf
+      g.assign (← mkFalseElim (← g.getType) (mkAppN c (xs.push d.toExpr)))
+      return true
+    s.restore
+  return false
 
 /-- `kc_open`: `openAll` on the main goal (the premises of a case of a rule, opened as `tryRel`
 opens them). -/
@@ -1242,6 +1401,8 @@ structure Cfg where
   /-- the relation has an `ExecSucc` instance: a step by every successor when no single rule
   decides it (no `RuleSet`, so no determinism) -/
   succ : Bool := false
+  /-- the configurations reached, in order (`kc_auto` makes each one's proof a theorem) -/
+  confs : IO.Ref (Array MVarId)
 
 /-- A type whose values a case split enumerates cheaply: an inductive type without indices, with 2
 to 8 constructors, none of which has a field of the type itself (so `SortK`, maps and lists are
@@ -1530,15 +1691,31 @@ def progressByMatcher (R c : Expr) (ctor : Name) : TacticM (Option Expr) := do
   let st := mkApp lh (← instantiateMVars hi)
   return some (← mkAppOptM ``Exists.intro #[α, pLam, d, st])
 
-/-- A successor of a step by the cases of `R`, without the case's hypotheses about the
-configuration it left: the priority premise (no rule of an earlier rank applies there), a match
-against a map that is not a variable (a literal the case was located in: its bindings are
-already the rule's variables), and closed propositions (conditions the case evaluated; `True`).
-Each was used when the case was opened, and none constrains a variable of the successor, while
-every later step and closer reads the whole context: kept, they grow with each step (IMP++,
-`sum = n;`: 57 hypotheses after five steps, and the sixth step did not end). Dropping a
-hypothesis is sound (the goal is only weakened). -/
-def dropStepFacts (g : MVarId) (pri : Option FVarId) : MetaM MVarId := g.withContext do
+/-- A successor of a step by the cases of `R`, without what the case derived about the
+configuration it left. A successor needs the descriptions of the maps in its configuration (the
+claim's, and those of the maps the step built: a write's new store), the conditions on its
+variables, and the circularity; what a rule derived reading a map follows from that map's
+description. So it drops: the priority premise (no rule of an earlier rank applies there),
+closed propositions (conditions the case evaluated; `True`), a match against a map that is not a
+variable (a literal the case was located in), and every fact about maps the case introduced
+(`inherited`: the context before the step) other than the description of a map no inherited
+hypothesis describes, the map the step built. Kept, these grow with each step and every later
+lookup searches them: a read restates its map by itself, `concat (element k v) (remove m k) =
+some m`, and `remove m k` leads back to `m` (IMP++, the loop body of `sum-spec.k`: 69 hypotheses
+at its 19th step, whose opening did not end; with the drop, 22 to 28 over its 48 steps).
+Dropping a hypothesis is sound (the goal is only weakened). -/
+def dropStepFacts (g : MVarId) (pri : Option FVarId) (inherited : Array FVarId) : MetaM MVarId :=
+  g.withContext do
+  let isMapFn (e : Expr) : Bool := match e.getAppFn with
+    | .const n _ => (`KPrelude.MapHook).isPrefixOf n
+    | _ => false
+  -- the maps the configuration's context described before the step
+  let mut described : FVarIdSet := {}
+  for d in ← getLCtx do
+    unless inherited.contains d.fvarId do continue
+    if let some (_, a, b) := (← instantiateMVars d.type).eq? then
+      if a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 && b.appArg!.isFVar then
+        described := described.insert b.appArg!.fvarId!
   let mut drop := #[]
   for d in ← getLCtx do
     if d.isImplementationDetail then continue
@@ -1546,10 +1723,29 @@ def dropStepFacts (g : MVarId) (pri : Option FVarId) : MetaM MVarId := g.withCon
     let ty ← instantiateMVars d.type
     unless ← isProp ty do continue
     if !ty.hasFVar && !ty.hasMVar then drop := drop.push d.fvarId; continue
-    if let some (_, a, b) := ty.eq? then
-      if a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 && !b.appArg!.isFVar then
-        drop := drop.push d.fvarId
-  g.tryClearMany drop
+    let some (_, a, b) := ty.eq? | continue
+    if a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 && !b.appArg!.isFVar then
+      drop := drop.push d.fvarId; continue
+    if inherited.contains d.fvarId then continue
+    unless isMapFn a || isMapFn b do continue
+    let built := a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 &&
+      b.appArg!.isFVar && !a.containsFVar b.appArg!.fvarId! && !described.contains b.appArg!.fvarId!
+    unless built do drop := drop.push d.fvarId
+  -- but a map of the configuration keeps a description: where all of its would go (its frame was
+  -- replaced by `remove m k` when a rule read it, so that the claim's own description now restates
+  -- it by itself), the first stays
+  let target ← instantiateMVars (← g.getType)
+  let mut descs : Std.HashMap FVarId (Array FVarId) := {}
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let some (_, a, b) := (← instantiateMVars d.type).eq? | continue
+    unless a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 && b.appArg!.isFVar do continue
+    let m := b.appArg!.fvarId!
+    if target.containsFVar m then descs := descs.insert m ((descs.getD m #[]).push d.fvarId)
+  let mut stays : Array FVarId := #[]
+  for (_, ds) in descs do
+    if ds.all drop.contains then stays := stays.push ds[0]!
+  g.tryClearMany (drop.filter fun x => !stays.contains x)
 
 /-- Step by the relation itself, where the executable successors do not reduce (a symbolic part
 of the configuration is read by the rule index or a matcher before a position that decides).
@@ -1566,9 +1762,11 @@ Unification may instantiate variables of the configuration (the head of a symbol
 say): then a case covers only part of the configurations, and the cases together cover them
 all. Such steps are counted (`frame refinements`), since they are an implicit case split.
 
-What it does not decide: a rule matching a cell map states its left-hand side as `concat …`
-premises, which unification does not see; where `openAll` and the closers cannot refute them,
-the rule stays a candidate (IMP++'s thread map, for one). -/
+A rule matching a cell map states its left-hand side as `concat …` premises, which
+unification does not see: a case is first refuted by such a premise alone where the map is known
+(`refuteAlone`: IMP++'s thread map, whose `<k>` every rule matches), so that its cost does not
+grow with the configuration's context; where neither that nor `openAll` and the closers refute
+it, the rule stays a candidate. -/
 def tryRel (cfg : Cfg) (g : MVarId) : TacticM (Option (List MVarId)) := g.withContext do
   let t ← instantiateMVars (← g.getType)
   let some (c, _) := configOf t | return none
@@ -1601,7 +1799,8 @@ def tryRel (cfg : Cfg) (g : MVarId) : TacticM (Option (List MVarId)) := g.withCo
     -- reintroduces those, as new variables)
     let tried ← sg.mvarId.withContext do
       pure ((← getLCtx).getFVarIds.filter inherited.contains)
-    let gs ← try openAll sg.mvarId tried catch _ => pure [sg.mvarId]
+    let gs ← if ← refuteAlone sg.mvarId tried then pure []
+      else try openAll sg.mvarId tried catch _ => pure [sg.mvarId]
     for g in gs do
       unless ← closeSpurious g do left := left.push (sg.ctorName.getD .anonymous, g, refined)
   -- a case of a later rank, when a rule of an earlier rank applies
@@ -1658,7 +1857,7 @@ def tryRel (cfg : Cfg) (g : MVarId) : TacticM (Option (List MVarId)) := g.withCo
   let mut res := []
   for (_, sg, _) in out do
     let pri ← sg.withContext do pure ((← getLCtx).findFromUserName? `kcpri |>.map (·.fvarId))
-    res := res ++ [← normGoal (← dropStepFacts sg pri)]
+    res := res ++ [← normGoal (← dropStepFacts sg pri inherited)]
   if out.any (·.2.2) then cfg.stats.modify (·.modify 4 (· + 1))
   return some res
 
@@ -1747,11 +1946,17 @@ partial def explore (cfg : Cfg) (gs0 : List MVarId) (fuel : Nat) : TacticM (List
       | .done => pure ()
       | .next gs k =>
         cfg.stats.modify (·.modify k (· + 1))
+        cfg.confs.modify (· ++ gs.toArray)
         work := gs.map (·, f - 1) ++ work
       | .stuck g' => left := left.push g'
   return left.toList
 
 end
+
+/-- `kc_wf`: a map well formed, from its description, or built by `remove` and `update` from
+described maps (the frame of a claim's map pattern, `remove^keys m`, `kc_map_ext`), or a literal. -/
+elab "kc_wf" : tactic => liftMetaFinishingTactic fun g => do
+  unless ← proveWF g do throwError "kc_wf: not shown well formed"
 
 /-- `kc_map`: a rule's match of a map, `concat (element k v) r = some m`, proved from the map's
 description. With `m` known (the left-hand side's map), the binding is one of the description's,
@@ -1847,6 +2052,16 @@ partial def mapParts (tys : Array Expr) (e : Expr) (st : MapParts) : MetaM MapPa
         return { st with eqs := st.eqs.push (← rflEq e el) }
     catch _ => pure ()
     s.restore
+    -- a map whose bindings evaluate (a block of closed keys): the keys of its list
+    let mut l ← whnfD (← mkAppM ``KPrelude.ListIso.toList #[e])
+    let mut st' := st
+    let mut ok := true
+    while l.isAppOfArity ``List.cons 3 do
+      let p ← whnfD (l.getArg! 1)
+      unless p.isAppOfArity ``Prod.mk 4 do ok := false; break
+      st' ← st'.addKey (p.getArg! 2)
+      l ← whnfD l.appArg!
+    if ok && l.isAppOfArity ``List.nil 1 then return st'
     return st
   if st.ds.any (fun d => d.type.appArg!.appArg! == e) || st.fs.contains e then return st
   let some d ← mapDescNR? e | return { st with fs := st.fs.push e }
@@ -1883,6 +2098,12 @@ elab "kc_map_ext" : tactic => do
       unless ← isDefEq (← inferType b) (← inferType r) do throwError "kc_map_ext: frame"
       b.mvarId!.assign r
   let b ← instantiateMVars b
+  -- a literal `m` (its bindings evaluated): the equation by evaluation, which decides it where the
+  -- keys of `A` and `B` compare too (closed keys), and is stuck at once where they do not
+  if m.getAppFn.isConst && (← isConstructorApp m) then
+    let s ← saveState
+    if ← tryCatchRuntimeEx (do g.refl; pure true) (fun _ => pure false) then return
+    s.restore
   let parts ← mapParts tys m (← mapParts tys b (← mapParts tys a {}))
   let (ds, ks, fs) := (parts.ds, parts.ks, parts.fs)
   -- the facts: key disequalities, a frame's absence at a key, the maps' well-formedness
@@ -2030,6 +2251,7 @@ elab "kc_index_split" : tactic => do
 macro_rules | `(tactic| kc_close) => `(tactic| first
   | kc_assumption
   | kc_map
+  | kc_wf
   | kc_map_ext
   | rfl
   | decide
@@ -2104,8 +2326,22 @@ elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? v:(kcInv)? sp:(kcSplit)? cl:(kcClose)?
       | _ => pure none
     | none => pure none
   let stats ← IO.mkRef #[0, 0, 0, 0, 0]
-  let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats, inv, splitVars := sp.isSome, succ }
-  let rest ← explore cfg [g] cfg.fuel
+  let confs ← IO.mkRef #[]
+  let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats, inv, splitVars := sp.isSome, succ, confs }
+  -- (the search's own tactic calls record no info trees: they show no goal to anyone, and their
+  -- metavariable contexts would otherwise be kept to the end of the file)
+  let rest ← withEnableInfoTree false (explore cfg [g] cfg.fuel)
+  -- each configuration's proof a theorem of its own, the deepest first: a step's proof then names
+  -- its successors' theorems instead of containing the rest of the run, whose instantiation
+  -- through the nested cases otherwise grows without bound (IMP++, the loop body of
+  -- `sum-spec.k`: its 48 steps closed, then past 24 GB building the term)
+  for c in (← confs.get).reverse do
+    unless (← getMCtx).decls.contains c do continue
+    unless ← c.isAssigned do continue
+    c.withContext do
+      let v ← instantiateMVars (mkMVar c)
+      unless v.hasExprMVar do
+        c.assign (← mkAuxTheorem (← instantiateMVars (← c.getType)) v)
   if kc.stats.get (← getOptions) then
     let st ← stats.get
     let decl := (← Term.getDeclName?).map toString |>.getD "?"

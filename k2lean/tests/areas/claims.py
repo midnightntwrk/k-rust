@@ -68,6 +68,9 @@ RECORDS = {
     # on impplus (the soundness area's library; a `Step` that is not a function)
     "impplus-claims": {"tier": "light", "measure": measure_spec("impplus"),
                        "sources": ["generated/impplus-claims"]},
+    # on impplus: the K tutorial's own sum-spec.k (lesson_7/tests/proofs), read as it is
+    "sumspec-claims": {"tier": "heavy", "measure": measure_spec("sumspec"),
+                       "sources": ["generated/sumspec-claims"]},
     # on kstrict (the area's own library; claims whose successors do not reduce: `tryRel`)
     "strict-claims": {"tier": "light", "measure": measure_spec("strict"),
                       "sources": ["generated/strict-claims"]},
@@ -89,6 +92,8 @@ OUTPUTS = {
     "replay/sum-loop.toml": {"tier": "heavy", "compare": "strip-seconds"},
     "claims-impplus.toml": {"tier": "light", "compare": "exact"},
     "kc-auto-impplus.txt": {"tier": "light", "compare": "sorted-lines"},
+    "claims-sumspec.toml": {"tier": "heavy", "compare": "exact"},
+    "kc-auto-sumspec.txt": {"tier": "heavy", "compare": "sorted-lines"},
     "claims-strict.toml": {"tier": "light", "compare": "exact"},
     "kc-auto-strict.txt": {"tier": "light", "compare": "sorted-lines"},
     "claims-prio.toml": {"tier": "light", "compare": "exact"},
