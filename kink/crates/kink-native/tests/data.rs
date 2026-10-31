@@ -474,6 +474,16 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// definition), or `None`, after which `ceil_term_node` either keeps the obligation owed or asks
 /// `value_production_ceil_equations`, a route pinned above. No route gains a `\top` it did not
 /// have, so `ground_defined` stays one-sided and it is re-pinned.
+///
+/// GAP K2 (`draft/kink27/gap`, ticket K2; re-pinned at integration C, which K2's own checks did
+/// not run): `range` past the end of its list is class `outside-domain` (`\bottom` in some models,
+/// a list in others), so `observation::lists::domain` no longer states `size(L) >= k` as the
+/// whole domain of `range(L, k, 0)`: it states `size(L) >= k OR \ceil(range(L, k, 0))`, the
+/// second member the deferred atom (`Predicate::Defined`), which is never re-walked.
+/// Where `size(L) >= k` holds the domain is that predicate, as before; elsewhere it is no longer
+/// refuted. The change removes a route to `no` and adds no route to `\top`, so `ground_defined`
+/// stays one-sided; the element-index branch (`L[I]`, determined `\bottom` past the end) is
+/// unchanged. `list_domain` is re-pinned; the rest is byte-identical.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -759,7 +769,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "list_domain",
-                "087ac753d0e9aaf6dc400bbb8c3a6865ef27f5a64ed91ba744bc2f585ad694d0"
+                "b7b15bc7f7a0347ec2e086996614d92b6d3681710ec98ff6deb53d2fc6fd230e"
             ),
             (
                 "sole_constructor_heads",
