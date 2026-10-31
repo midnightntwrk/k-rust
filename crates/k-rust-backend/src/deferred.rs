@@ -2081,7 +2081,7 @@ mod tests {
                     assert!(matches!(value, BuiltinResult::Value(_)), "{value:?}");
                     assert_eq!(
                         format!("{:?}", facts.shared),
-                        r#"{ChosenValue(ChosenValue { hook: "MAP.choice", class: Item, withheld_in_proof: true })}"#
+                        r#"{ChosenValue(ChosenValue { hook: "MAP.choice", class: Item, withheld_in_proof: true, defined: true })}"#
                     );
                     count
                 })

@@ -262,6 +262,8 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines.
 ///
 /// Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
+///
+/// GAP K1 re-pin of the mark passage (`draft/kink27/gap`, ticket K1): two sentences changed, and each only adds marks. A mark is noted where the evaluator takes the value or, for class `curve`, its `\bottom`; and the definedness check of a classified application no longer drops the mark of a `curve` or `outside-domain` application of a partial symbol, whose definedness is the pick. The list only grows, so A-1's exclusion of a run with a non-empty list excludes at least what it did, and the guarantee for a run whose list is empty (the passage's last sentence) is unchanged.
 const A1_PASSAGES: [passage::Passage; 7] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -289,7 +291,7 @@ const A1_PASSAGES: [passage::Passage; 7] = [
         anchor: "### Marks in executions",
         opening: "A mark is noted where the evaluator takes",
         lines: 25,
-        digest: "95a011afcd589c8552438021f5104e582e9997f1e66d5d714af6aee6a6a67c28",
+        digest: "6727bb348aa93c0eae0a70ad95c835bc3a43d54976436fe460d2720470bb3431",
     },
     passage::Passage {
         file: "docs/compatibility.md",

@@ -4485,6 +4485,77 @@ module MAIN
     assert!(folded.is_empty(), "{folded:#?}");
 }
 
+/// GAP K1: the fold evaluates outside an execution, so it writes no token for a value the
+/// definition leaves open in the classes `float-rounding` (an inexact `Int2Float` or
+/// `roundFloat`, `Int2Float` of 0, `Float2Int` at a tie, an inexact root), `outside-domain` (a root
+/// of a negative value, a floor, ceiling or truncation of a non-integer to a zero or of an
+/// infinity) and `byte-encoding` (every `String2Bytes` and `Bytes2String`), while the determined
+/// neighbours fold. Before K1 every one of these folded to k-rust's pick.
+#[test]
+fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() {
+    let open = [
+        "Int2Float(16777217, 24, 8)",
+        "Int2Float(0, 53, 11)",
+        "roundFloat(0.1, 24, 8)",
+        "Float2Int(2.5)",
+        "rootFloat(2.0, 2)",
+        "rootFloat(-4.0, 2)",
+        "floorFloat(0.5)",
+        "ceilFloat(-0.5)",
+        "truncFloat(Infinity)",
+        r#"String2Bytes("a")"#,
+        r#"Bytes2String(b"a")"#,
+    ];
+    let determined = [
+        "Int2Float(3, 24, 8)",
+        "roundFloat(0.5, 24, 8)",
+        "roundFloat(-0.0, 24, 8)",
+        "Float2Int(2.4)",
+        "rootFloat(4.0, 2)",
+        "floorFloat(-0.5)",
+        "ceilFloat(-0.0)",
+        "truncFloat(2.7)",
+    ];
+    let rules = open
+        .iter()
+        .chain(&determined)
+        .enumerate()
+        .map(|(index, application)| format!("  rule go({index}) => res({application})\n"))
+        .collect::<String>();
+    let results = folded_results(&format!(
+        r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= go(Int) [symbol(go)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  imports BYTES
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K) [symbol(res)]
+{rules}endmodule
+"#
+    ));
+    assert_eq!(results.len(), open.len() + determined.len(), "{results:?}");
+    let (open_results, determined_results) = results.split_at(open.len());
+    let folded = open
+        .iter()
+        .zip(open_results)
+        .filter(|(_, result)| result.starts_with("res(#token("))
+        .map(|(application, result)| format!("{application} folded to {result}"))
+        .collect::<Vec<_>>();
+    assert!(folded.is_empty(), "{folded:#?}");
+    let unfolded = determined
+        .iter()
+        .zip(determined_results)
+        .filter(|(_, result)| !result.starts_with("res(#token("))
+        .map(|(application, result)| format!("{application} left as {result}"))
+        .collect::<Vec<_>>();
+    assert!(unfolded.is_empty(), "{unfolded:#?}");
+}
+
 /// The right-hand sides of the `res(...)` rules of `source`, printed, before the fold (`false`)
 /// or after it (`true`).
 fn right_hand_sides(source: &str, fold: bool) -> Vec<String> {

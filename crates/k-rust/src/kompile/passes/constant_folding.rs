@@ -29,7 +29,7 @@ use std::{
 use num_bigint::BigInt;
 
 use k_rust_backend::{
-    builtin::{BuiltinResult, DeclarationFacts, chosen_value, evaluate_declared},
+    builtin::{BuiltinResult, DeclarationFacts, HookOutcome, chosen_value, evaluate_declared},
     evaluation::EvaluationMode,
     term::{DomainKind, Sort as BackendSort, Term as BackendTerm, TermKind},
 };
@@ -352,7 +352,14 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         // k-rust's would give the emitted definition fewer models than the source, whatever an
         // evaluation outside an execution withholds, so the application stays as written, and a
         // run computes it.
-        if chosen_value(application.hook, &arguments, Some(&value)).is_some() {
+        if chosen_value(
+            application.hook,
+            &arguments,
+            HookOutcome::Value(&value),
+            application.total,
+        )
+        .is_some()
+        {
             return None;
         }
         // A value of a strict subsort of the result sort is an injection, which no token writes.

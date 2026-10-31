@@ -8883,6 +8883,17 @@ type FoldedHookCase = (
 /// overflow to an infinity, NaN, and the format queries in other formats. `STRING.string2token`
 /// is declared at `Id` and at a sort hooked `INT.Int` under another name. Each argument tuple
 /// names a value of the hook, so a run of every case at once ends in one configuration.
+///
+/// GAP K1 re-pin: the fold writes no value the definition leaves open, so the conversion and
+/// rounding cases are determined ones. Before, they were a tie of `Float2Int` (2.5, -3.5, 2.5f),
+/// an `Int2Float` the format does not hold (2^53 + 1, 2^24 + 1, a value past the largest
+/// binary32), an inexact `roundFloat` (0.1 and 1.0e-45 to binary32), an inexact root (2.0, 2), a
+/// root of a negative value (-8.0f, 3) and a `ceilFloat` rounding a non-integer to a zero (-0.5):
+/// `domains.md` names no rounding for those, so a token for k-rust's pick would give the compiled
+/// definition fewer models than the source (classes `float-rounding` and `outside-domain`). The
+/// edges kept are the largest exact integers and the largest finite binary32 as integers, a
+/// negative one, the smallest binary32 subnormal (exact), exact roots, and non-ties on both
+/// sides.
 const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     (
         "BOOL.and",
@@ -9263,7 +9274,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
             &["-0.0", "0.0"],
         ],
     ),
-    ("FLOAT.ceil", &["Float"], "Float", &[&["-0.5"], &["1.5f"]]),
+    ("FLOAT.ceil", &["Float"], "Float", &[&["-1.5"], &["1.5f"]]),
     (
         "FLOAT.div",
         &["Float", "Float"],
@@ -9291,7 +9302,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "FLOAT.float2int",
         &["Float"],
         "Int",
-        &[&["2.5"], &["-3.5"], &["1.0e300"], &["2.5f"]],
+        &[&["2.4"], &["-3.6"], &["1.0e300"], &["2.75f"]],
     ),
     ("FLOAT.floor", &["Float"], "Float", &[&["-0.5"], &["2.5f"]]),
     (
@@ -9311,9 +9322,9 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         &["Int", "Int", "Int"],
         "Float",
         &[
-            &["9007199254740993", "53", "11"],
-            &["16777217", "24", "8"],
-            &["340282356779733661637539395458142568448", "24", "8"],
+            &["9007199254740992", "53", "11"],
+            &["-16777216", "24", "8"],
+            &["340282346638528859811704183484516925440", "24", "8"],
         ],
     ),
     (
@@ -9374,17 +9385,17 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "FLOAT.root",
         &["Float", "Int"],
         "Float",
-        &[&["27.0", "3"], &["2.0", "2"], &["-8.0f", "3"]],
+        &[&["27.0", "3"], &["16.0", "4"], &["0.125f", "3"]],
     ),
     (
         "FLOAT.round",
         &["Float", "Int", "Int"],
         "Float",
         &[
-            &["0.1", "24", "8"],
+            &["0.5", "24", "8"],
             &["0.1f", "53", "11"],
             &["-0.0", "24", "8"],
-            &["1.0e-45", "24", "8"],
+            &["1.401298464324817e-45", "24", "8"],
         ],
     ),
     (
@@ -14118,13 +14129,22 @@ endmodule
 
 /// A claim whose truth depends on a value the definition leaves open (Base2String's letter
 /// case, `minFloat` and `maxFloat` of `+0.0` and `-0.0`, the names `substOne` gives the binders
-/// it traverses) holds in some models of the definition and not in others, so it is neither
-/// proven nor disproved, whether its verdict came from the final state, from a rule condition
-/// (`cond-upper`) or from the apartness of `==K` against the other case (`eqk-false`). A withheld
-/// application is an unknown value of its sort, so `rt-valid`, which holds for every value the
-/// hook admits, is not proven either. Claims that need only that a value exists, claims over
-/// determined neighbours, and claims over k-rust's specified readings (String2Bytes byte per code
-/// point, Float2Int ties to even, the empty Bytes of a failed ECDSA recovery) are proven.
+/// it traverses, and since GAP K1 `String2Bytes`'s encoding, a `Float2Int` tie, an inexact
+/// `Int2Float` or root, a floor rounding to a zero, the empty Bytes of a failed ECDSA recovery
+/// and a hex digest's letter case) holds in some models of the definition and not in others, so
+/// it is neither proven nor disproved, whether its verdict came from the final state, from a rule
+/// condition (`cond-upper`) or from the apartness of `==K` against the other case (`eqk-false`). A
+/// withheld application is an unknown value of its sort, so `rt-valid`, which holds for every
+/// value the hook admits, is not proven either. Claims that need only that a value exists, and
+/// claims over determined neighbours, are proven; but a value outside a partial hook's described
+/// domain may also be `\bottom` (class `outside-domain`, `defined: false`), so even the claim that
+/// some value is reached is not proven there (`ecdsa-some`, `rtf-negative-some`).
+///
+/// GAP K1 re-pin: `s2b-latin1`, `f2i-tie` and `ecdsa-failure` were proven, on k-rust's then
+/// stated readings (byte per code point, ties to even, the empty Bytes). No text fixes them:
+/// `domains.md` names no encoding for `String2Bytes` and no tie rule for `Float2Int`, and
+/// `krypto.md` describes `ECDSARecover` only on a 32-byte hash with a recoverable signature, so
+/// each claim fails in a model the definition admits, and none is a consequence of it.
 #[test]
 fn kprove_proves_no_claim_that_depends_on_an_open_value() {
     let source = format!(
@@ -14146,6 +14166,23 @@ module OPEN-SPEC
   claim [s2b-latin1]: <k> s2b("\xe9") => r(b"\xe9") </k>
   claim [f2i-tie]: <k> f2i(2.5) => r(2) </k>
   claim [ecdsa-failure]: <k> rec(b"", 29, b"", b"") => r(b"") </k>
+  claim [s2b-some]: <k> s2b("\xe9") => r(?_B:Bytes) </k>
+  claim [f2i-some]: <k> f2i(2.5) => r(?_I:Int) </k>
+  claim [f2i-near]: <k> f2i(2.4) => r(2) </k>
+  claim [i2f-inexact]: <k> i2f(16777217) => r(16777216.0f) </k>
+  claim [i2f-some]: <k> i2f(16777217) => r(?_F:Float) </k>
+  claim [i2f-exact]: <k> i2f(3) => r(3.0f) </k>
+  claim [rtf-inexact]: <k> rtf(2.0, 2) => r(1.4142135623730951) </k>
+  claim [rtf-exact]: <k> rtf(4.0, 2) => r(2.0) </k>
+  claim [rtf-negative]: <k> rtf(-4.0, 2) => r(NaN) </k>
+  claim [rtf-negative-some]: <k> rtf(-4.0, 2) => r(?_F:Float) </k>
+  claim [fl-half]: <k> fl(0.5) => r(0.0) </k>
+  claim [fl-some]: <k> fl(0.5) => r(?_F:Float) </k>
+  claim [fl-integer]: <k> fl(1.5) => r(1.0) </k>
+  claim [ecdsa-some]: <k> rec(b"", 29, b"", b"") => r(?_B:Bytes) </k>
+  claim [kec-lower]: <k> kec(b"") => r("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470") </k>
+  claim [kec-some]: <k> kec(b"") => r(?_S:String) </k>
+  claim [kraw-digest]: <k> kraw(b"") => r(b"\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70") </k>
 endmodule
 "#,
         include_str!("fixtures/open-values.k")
@@ -14161,6 +14198,16 @@ endmodule
         "max-zeros",
         "cond-upper",
         "eqk-false",
+        "s2b-latin1",
+        "f2i-tie",
+        "ecdsa-failure",
+        "i2f-inexact",
+        "rtf-inexact",
+        "rtf-negative",
+        "rtf-negative-some",
+        "fl-half",
+        "ecdsa-some",
+        "kec-lower",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }
@@ -14168,9 +14215,16 @@ endmodule
         "b2s-some",
         "b2s-digits",
         "mn-determined",
-        "s2b-latin1",
-        "f2i-tie",
-        "ecdsa-failure",
+        "s2b-some",
+        "f2i-some",
+        "f2i-near",
+        "i2f-some",
+        "i2f-exact",
+        "rtf-exact",
+        "fl-some",
+        "fl-integer",
+        "kec-some",
+        "kraw-digest",
     ] {
         assert_eq!(
             claim_verdict(&verdicts, claim, &output),

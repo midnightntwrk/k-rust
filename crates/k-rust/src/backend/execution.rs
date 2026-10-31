@@ -909,6 +909,11 @@ fn chosen_value_met(
             rule_named_by_id(definition, hook),
             class.name()
         ),
+        k_rust_backend::builtin::ChosenClass::Curve
+        | k_rust_backend::builtin::ChosenClass::OutsideDomain => format!(
+            "read an outcome of {hook} the definition leaves open, a value or none ({})",
+            class.name()
+        ),
         k_rust_backend::builtin::ChosenClass::Order
         | k_rust_backend::builtin::ChosenClass::Item
         | k_rust_backend::builtin::ChosenClass::FloatDestination
@@ -917,6 +922,9 @@ fn chosen_value_met(
         | k_rust_backend::builtin::ChosenClass::SignedZero
         | k_rust_backend::builtin::ChosenClass::FreshName
         | k_rust_backend::builtin::ChosenClass::ReadCount
+        | k_rust_backend::builtin::ChosenClass::HexCase
+        | k_rust_backend::builtin::ChosenClass::ByteEncoding
+        | k_rust_backend::builtin::ChosenClass::FloatRounding
         | _ => format!(
             "read a value of {hook} the definition leaves open ({})",
             class.name()

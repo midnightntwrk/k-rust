@@ -1464,7 +1464,8 @@ mod tests {
             crate::builtin::chosen_value(
                 "SUBSTITUTION.substOne",
                 &[body, exp_var("v"), kvar("x")],
-                None,
+                crate::builtin::HookOutcome::Unknown,
+                false,
             )
             .map(|chosen| chosen.class)
         };

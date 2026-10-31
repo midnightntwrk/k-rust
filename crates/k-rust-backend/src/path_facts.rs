@@ -90,10 +90,12 @@ impl PathFact {
         }
     }
 
-    /// Whether a [`suspend`]ed evaluation leaves the fact unnoted: only a chosen value, whose
-    /// definedness is the same in every model.
+    /// Whether a [`suspend`]ed evaluation leaves the fact unnoted: only a chosen value whose
+    /// definedness is the same in every model ([`ChosenValue::defined`]). A `curve` or
+    /// `outside-domain` value of a partial symbol is not: a model may leave the application
+    /// undefined, so an evaluation that reads only whether it is defined reads k-rust's pick.
     fn suspends(&self) -> bool {
-        matches!(self, Self::ChosenValue(_))
+        matches!(self, Self::ChosenValue(chosen) if chosen.defined)
     }
 
     /// The fact as the load of a definition observed it ([`ObservedIn::Load`]).
@@ -1110,7 +1112,10 @@ pub(crate) fn aside<T>(action: impl FnOnce() -> T) -> T {
 }
 
 /// Run `action` with the notes of chosen values suspended: an evaluation whose value decides
-/// nothing that depends on which admitted value it took. Every other kind of fact is noted as
+/// nothing that depends on which admitted value it took. A chosen value whose definedness is
+/// itself open (`ChosenValue::defined` false: `curve`, `outside-domain` at a partial symbol) is
+/// still noted, since the definedness such an evaluation decides is the pick. Every other kind
+/// of fact is noted as
 /// anywhere else, because it can steer the definedness the evaluation decides: the
 /// definedness-only fold of a pure hook reads an allowance refusal as "not defined without a
 /// value" (`deferred::defined_without_value`), where a larger allowance gives the value and the

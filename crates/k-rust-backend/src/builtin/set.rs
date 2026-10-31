@@ -1138,7 +1138,8 @@ mod tests {
     fn set_listings_and_choices_of_several_elements_are_order_and_item() {
         let of = |elements: &[Term]| Term::set(set_definition(), elements.to_vec(), None);
         let class = |hook: &str, set: Term| {
-            crate::builtin::chosen_value(hook, &[set], None).map(|chosen| chosen.class)
+            crate::builtin::chosen_value(hook, &[set], crate::builtin::HookOutcome::Unknown, false)
+                .map(|chosen| chosen.class)
         };
         let two = of(&[Term::int(1), Term::int(2)]);
         let one = of(&[Term::int(1)]);

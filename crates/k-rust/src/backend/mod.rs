@@ -821,7 +821,8 @@ impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutpu
 /// A value the definition leaves open that a run read: the hook that computed it and what the
 /// definition leaves open about it (`class`, docs/compatibility.md, "Implementation-chosen hook
 /// values": `order`, `item`, `float-destination`, `nan-sign`, `letter-case`, `signed-zero`,
-/// `fresh-name`, `read-count`, `effect-order`, `fresh-association`). For `fresh-association`, the
+/// `fresh-name`, `read-count`, `effect-order`, `fresh-association`, `hex-case`, `byte-encoding`,
+/// `float-rounding`, `curve`, `outside-domain`). For `fresh-association`, the
 /// compiler's association of a rule's two or more `!` names with counter offsets, `hook` is that
 /// rule's `UNIQUE_ID`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -3786,6 +3787,11 @@ mod tests {
             ChosenClass::ReadCount,
             ChosenClass::EffectOrder,
             ChosenClass::FreshAssociation,
+            ChosenClass::HexCase,
+            ChosenClass::ByteEncoding,
+            ChosenClass::FloatRounding,
+            ChosenClass::Curve,
+            ChosenClass::OutsideDomain,
         ]
         .map(|class| class.name().to_owned())
         .into_iter()

@@ -714,6 +714,22 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// MInt literal, the fold of binary32/64 `FLOAT` applications over literals, and k-rust's IEEE
 /// arithmetic (the `Float` paragraph of Backend scope, and `rootFloat`'s NaN). A change of any of
 /// them fails here, and the admission is read again against it.
+///
+/// GAP K1 re-pin (`draft/kink27/gap`, ticket K1): four passages changed, and each change narrows
+/// what admission takes on, so it is read again and re-pinned without a change to admission.
+/// (1) The roundTiesToEven passage of Backend scope is split: `Int2Float`, `roundFloat`, a
+/// `Float2Int` tie and an inexact `rootFloat` are now open (class `float-rounding`), taken only
+/// by an execution, which marks the run, and withheld elsewhere, the fold included; the literal
+/// reading (ties, overflow, a rounded zero, roundTiesToEven) is unchanged and now on its own line,
+/// pinned beside it. (2) One NaN per format is now stated as fixed by `domains.md`
+/// (`Float2String`'s round trip and the one `NaN` lexeme per format), the same element k-rust
+/// stores. (3) The fold leaves the `float-rounding` and `outside-domain` applications unfolded, so
+/// it writes fewer of k-rust's values into the compiled definition. (4) `rootFloat` outside a
+/// positive finite value (its NaN of a negative value among them) is `outside-domain`: an
+/// execution's value, marked, not a value the fold or a proof takes. So no Float literal names
+/// another element, and every value the fold writes is one it wrote before; the premises the
+/// README states for these hooks (P-F1 to P-F4) are narrower than needed now, which the kink
+/// session's GK-1/GK-2 restate.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -748,13 +764,19 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             ),
             passage(
                 "## Backend scope",
-                "k-rust's reading: where the `FLOAT` text says \"nearest\"",
-                "5ced7c0469227b09b101b8660e53b41210923ff4891511cb918d71ec67f4496d",
+                "Where the `FLOAT` text says \"nearest\" without a rule for ties",
+                "67a5a97207ccc9ff6af3e305465008bb1b16eb78bba22e42478b646050238f67",
+            ),
+            // GAP K1: the literal reading moved to its own line after the conversions' classes.
+            passage(
+                "## Backend scope",
+                "The arithmetic hooks are not affected: their `smt-hook`s name",
+                "68ee38a9b1f2fed645c9d0ee18204e6033ec9967d9d8a5d11a1e45cf78c5a105",
             ),
             passage(
                 "## Backend scope",
-                "k-rust's reading: every spelling of `NaN` in one format",
-                "793378856555a4fc7386b32d9f2aecfcbc5f5fcaac896a9e2a9c7af4261c1df2",
+                "Each format has one NaN, and every spelling of `NaN` in one format",
+                "1dd84283101ed96fcefe6ecee7dc1eb22168c8ed6daa11e0c23bc4656f436a20",
             ),
             // Fix round 1: the passages the further premises rest on.
             passage(
@@ -780,12 +802,12 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Constant folding",
                 "The `FLOAT` hooks are folded exactly where the backend computes them",
-                "c1bf025adf14e52c2c558a72b2edf67e5155f0abb83325d078cc0265548feabe",
+                "487dfcf7b1f4e45e21f00696e1b3f56de0799efec9a4021f4f55792249b626f0",
             ),
             passage(
                 "## Hook values at the edges of their domains",
                 "- `rootFloat(F, N)` is \"the Nth integer root\" of `F`",
-                "3c500f7eaf36d7a8cedadfc12e29cbe8d398b12f4bee60a8b74a2b258816e6df",
+                "7eeea18cde5a4cc3707deaa5e978dfbf36b922eaa0d6555c333718041e480130",
             ),
         ],
     );

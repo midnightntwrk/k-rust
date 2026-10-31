@@ -283,6 +283,96 @@ fn float_letter_case_and_substitution_values_computed_at_run_time_are_marked() {
     );
 }
 
+/// GAP K1: the values `domains.md` and `krypto.md` leave open beyond the classes above, each
+/// beside a determined neighbour. A Float conversion or root the text names no rounding for
+/// (`float-rounding`: an inexact `Int2Float`, `Int2Float` of 0, an inexact `roundFloat`,
+/// `Float2Int` at a tie, an inexact root of a positive value), a value outside a described domain
+/// (`outside-domain`: a root of a negative value, `floorFloat` of a non-integer rounding to a
+/// zero, the ECDSA failure values), a byte encoding (`byte-encoding`, every application), a hex
+/// output's letter case (`hex-case`) and every BN128 outcome (`curve`).
+const GAP_VALUES: &str = r#"
+module MAIN
+  imports INT
+  imports FLOAT
+  imports STRING
+  imports BYTES
+  syntax G1Point ::= g1(Int, Int)
+  syntax String ::= Keccak256(Bytes) [function, hook(KRYPTO.keccak256)]
+                  | ECDSAPubKey(Bytes) [function, hook(KRYPTO.ecdsaPubKey)]
+  syntax Bytes ::= Keccak256raw(Bytes) [function, hook(KRYPTO.keccak256raw)]
+                 | ECDSARecover(Bytes, Int, Bytes, Bytes) [function, hook(KRYPTO.ecdsaRecover)]
+  syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
+  syntax Bool ::= isValidPoint(G1Point) [function, hook(KRYPTO.bn128valid)]
+  syntax Pgm ::= i2f(Int) | rnd(Float) | f2i(Float) | rt(Float, Int) | fl(Float) | s2b(String)
+               | b2s(Bytes) | kec(Bytes) | kraw(Bytes) | pub(Bytes) | rec(Int) | add(Int, Int)
+               | valid(Int, Int) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule i2f(I) => done(Int2Float(I, 24, 8))
+  rule rnd(F) => done(roundFloat(F, 24, 8))
+  rule f2i(F) => done(Float2Int(F))
+  rule rt(F, N) => done(rootFloat(F, N))
+  rule fl(F) => done(floorFloat(F))
+  rule s2b(S) => done(String2Bytes(S))
+  rule b2s(B) => done(Bytes2String(B))
+  rule kec(B) => done(Keccak256(B))
+  rule kraw(B) => done(Keccak256raw(B))
+  rule pub(B) => done(ECDSAPubKey(B))
+  rule rec(V) => done(ECDSARecover(b"", V, b"", b""))
+  rule add(X, Y) => done(BN128Add(g1(0, 0), g1(X, Y)))
+  rule valid(X, Y) => done(isValidPoint(g1(X, Y)))
+endmodule
+"#;
+
+#[test]
+fn conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are_marked() {
+    let rounding = |hook: &str| [mark(hook, "float-rounding")];
+    let outside = |hook: &str| [mark(hook, "outside-domain")];
+    assert_marked(GAP_VALUES, "i2f(16777217)", &rounding("FLOAT.int2float"));
+    assert_marked(GAP_VALUES, "i2f(0)", &rounding("FLOAT.int2float"));
+    assert_marked(GAP_VALUES, "i2f(3)", &[]);
+    assert_marked(GAP_VALUES, "rnd(0.1)", &rounding("FLOAT.round"));
+    assert_marked(GAP_VALUES, "rnd(0.5)", &[]);
+    assert_marked(GAP_VALUES, "f2i(2.5)", &rounding("FLOAT.float2int"));
+    assert_marked(GAP_VALUES, "f2i(2.4)", &[]);
+    assert_marked(GAP_VALUES, "rt(2.0, 2)", &rounding("FLOAT.root"));
+    assert_marked(GAP_VALUES, "rt(4.0, 2)", &[]);
+    assert_marked(GAP_VALUES, "rt(-4.0, 2)", &outside("FLOAT.root"));
+    assert_marked(GAP_VALUES, "fl(0.5)", &outside("FLOAT.floor"));
+    assert_marked(GAP_VALUES, "fl(-0.5)", &[]);
+    assert_marked(GAP_VALUES, "fl(1.5)", &[]);
+    assert_marked(
+        GAP_VALUES,
+        r#"s2b("a")"#,
+        &[mark("BYTES.string2bytes", "byte-encoding")],
+    );
+    assert_marked(
+        GAP_VALUES,
+        r#"b2s(b"a")"#,
+        &[mark("BYTES.bytes2string", "byte-encoding")],
+    );
+    assert_marked(
+        GAP_VALUES,
+        r#"kec(b"")"#,
+        &[mark("KRYPTO.keccak256", "hex-case")],
+    );
+    assert_marked(GAP_VALUES, r#"kraw(b"")"#, &[]);
+    assert_marked(GAP_VALUES, r#"pub(b"")"#, &outside("KRYPTO.ecdsaPubKey"));
+    assert_marked(
+        GAP_VALUES,
+        r#"pub(b"0123456789abcdef0123456789abcdef")"#,
+        &[mark("KRYPTO.ecdsaPubKey", "hex-case")],
+    );
+    assert_marked(GAP_VALUES, "rec(29)", &outside("KRYPTO.ecdsaRecover"));
+    assert_marked(GAP_VALUES, "add(1, 2)", &[mark("KRYPTO.bn128add", "curve")]);
+    // A non-point: k-rust's `\bottom`, a pick of the curve too, marks the undefined step.
+    assert_marked(GAP_VALUES, "add(1, 3)", &[mark("KRYPTO.bn128add", "curve")]);
+    assert_marked(
+        GAP_VALUES,
+        "valid(1, 3)",
+        &[mark("KRYPTO.bn128valid", "curve")],
+    );
+}
+
 const CONDITIONS: &str = r#"
 module MAIN
   imports INT

@@ -605,6 +605,11 @@ export type ChosenClass =
   | 'read-count'
   | 'effect-order'
   | 'fresh-association'
+  | 'hex-case'
+  | 'byte-encoding'
+  | 'float-rounding'
+  | 'curve'
+  | 'outside-domain'
 
 /**
  * The `UNIQUE_ID`s of the rules and equations a run used, each list sorted: `applied` those it

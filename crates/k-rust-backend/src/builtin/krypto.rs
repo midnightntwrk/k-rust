@@ -7,12 +7,14 @@
 //! name the plugin does not use; no K module declares these names, so each is the same function
 //! as its `KRYPTO` spelling by this module's dispatch and its contract is the one
 //! `docs/compatibility.md`, "Cryptographic hooks", states. Each digest is the value of a named
-//! standard hash function of its `Bytes` literal argument. Three values are k-rust's readings of
-//! the plugin's text, which gives no letter case and no value outside the documented domain:
-//! every hex output (of the digests and of `ecdsaPubKey`) is lowercase, `ecdsaRecover` outside
-//! its documented domain is the empty `Bytes`, and `ecdsaPubKey` of an invalid secret key is the
-//! empty `String`. They are determined values of the definition as k-rust reads it, not values it
-//! leaves open, so the open-value classifier never returns them.
+//! standard hash function of its `Bytes` literal argument. The plugin's text leaves three things
+//! open, which the evaluator picks and the open-value classifier (`super::chosen_value`) names:
+//! the letter case of a hex output (of the digests and of `ecdsaPubKey`; k-rust writes
+//! lowercase, class `hex-case`), the value of `ecdsaRecover` and `ecdsaPubKey` outside their
+//! documented domain (k-rust's empty `Bytes` and empty `String`, class `outside-domain`), and
+//! every outcome of the BN128 hooks, whose curve the text does not name (k-rust's alt_bn128,
+//! class `curve`). An execution takes those picks and marks them; every other evaluation leaves
+//! the application unevaluated.
 
 use std::sync::{Arc, LazyLock};
 
@@ -595,6 +597,35 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 fn failed_recovery() -> BuiltinResult {
     BuiltinResult::Value(bytes::bytes_term(&[]))
+}
+
+/// Whether `value`, the hex `String` a hook with a hex output gives, holds a letter digit: the
+/// plugin's "`String` values are interpreted as hex-encoded data" (`krypto.md`:16) names no
+/// letter case and has no consistency clause, so each letter digit's case is a model's choice
+/// (`super::chosen_value`, `HexCase`), while a string of decimal digits reads the same in every
+/// case. The empty string has no digit at all.
+pub(super) fn writes_a_hex_letter(value: &Term) -> bool {
+    super::string::read_string(value)
+        .is_some_and(|text| text.chars().any(|digit| digit.is_ascii_alphabetic()))
+}
+
+/// Whether `value`, the evaluator's value of `ecdsaRecover` or `ecdsaPubKey` (`hook`), is the
+/// value it gives outside the documented domain (`super::chosen_value`, `OutsideDomain`).
+///
+/// `ECDSARecover` "takes a 32-character byte string of a message, v, r, s of the signed message
+/// and returns the 64-character public key used to sign the message", and `ECDSAPubKey` "takes a
+/// 32-character byte string of a private key, and returns the 64 byte hex-encoded public key"
+/// (`krypto.md`:80-82): the description gives a value only where a key exists, and says nothing
+/// elsewhere. The evaluator returns a key exactly on the documented inputs ([`ecdsa_recover`]
+/// accepts only a 32-byte hash, `v` of 27 or 28 and 32-byte `r` and `s` from which a key is
+/// recovered; [`ecdsa_public_key`] only a 32-byte secret in `[1, n)`), where every model gives
+/// that key, and its failure value everywhere else: the empty `Bytes`, which no 64-byte key is,
+/// and the empty `String`, which no 128-digit hex key is. So the value decides the class.
+pub(super) fn is_failure_value(hook: &str, value: &Term) -> bool {
+    match hook {
+        "KRYPTO.ecdsaPubKey" => super::string::read_string(value).is_some_and(str::is_empty),
+        _ => bytes::read_bytes(value).is_some_and(|bytes| bytes.is_empty()),
+    }
 }
 
 fn string_term(value: impl Into<String>) -> Term {

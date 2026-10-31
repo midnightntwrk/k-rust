@@ -288,3 +288,85 @@ fn a_listing_of_a_map_with_symbolic_values_is_as_defined_as_the_map() {
         assert_eq!(simplified, Predicate::True, "{source}");
     }
 }
+
+/// GAP K1: hooks whose outcome the declaring text leaves open, at partial and `total` symbols.
+const OPEN_OUTCOMES: &str = r#"[]
+module MAIN
+  sort SortK{} []
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+  hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+  sort SortG1Point{} []
+  symbol g1{}(SortInt{}, SortInt{}) : SortG1Point{} [constructor{}()]
+  hooked-symbol add{}(SortG1Point{}, SortG1Point{}) : SortG1Point{}
+    [function{}(), hook{}("KRYPTO.bn128add")]
+  hooked-symbol rec{}(SortBytes{}, SortInt{}, SortBytes{}, SortBytes{}) : SortBytes{}
+    [function{}(), hook{}("KRYPTO.ecdsaRecover")]
+  hooked-symbol totalRec{}(SortBytes{}, SortInt{}, SortBytes{}, SortBytes{}) : SortBytes{}
+    [function{}(), total{}(), hook{}("KRYPTO.ecdsaRecover")]
+  hooked-symbol s2b{}(SortString{}) : SortBytes{}
+    [function{}(), total{}(), hook{}("BYTES.string2bytes")]
+endmodule []"#;
+
+/// The `\ceil` of `source` simplified in `mode`.
+fn definedness(definition: &BackendDefinition, source: &str, mode: EvaluationMode) -> Predicate {
+    let predicate = Predicate::Ceil(internal_term(definition, source));
+    with_evaluation(mode, || {
+        unstopped::simplify_predicate_with_solver(
+            definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the definedness simplifies")
+    })
+}
+
+/// GAP K1: outside an execution a value of class `curve` or `outside-domain` at a partial symbol
+/// is of unknown definedness, since `\bottom` is a model too: the `\ceil` of a BN128 sum of a
+/// non-point (k-rust's pick is `\bottom`) and of a failed recovery (k-rust's pick is the empty
+/// `Bytes`) is neither true nor false. At a `total` symbol, and for a class whose description
+/// gives a value (`byte-encoding`), the application is defined. An execution takes k-rust's pick.
+/// Before K1 the proof routes read the pick: the sum was undefined and the recovery defined.
+#[test]
+fn an_open_outcome_of_a_partial_symbol_is_of_unknown_definedness_outside_an_execution() {
+    let syntax = parse_definition(OPEN_OUTCOMES).expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let int = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+    let sum = format!(
+        "add{{}}(g1{{}}({}, {}), g1{{}}({}, {}))",
+        int(0),
+        int(0),
+        int(1),
+        int(3)
+    );
+    let empty = r#"\dv{SortBytes{}}("")"#;
+    let failed = |symbol: &str| format!("{symbol}{{}}({empty}, {}, {empty}, {empty})", int(29));
+    for source in [sum.as_str(), failed("rec").as_str()] {
+        let proof = definedness(&definition, source, EvaluationMode::Proof);
+        assert!(
+            !matches!(proof, Predicate::True | Predicate::False),
+            "{source}: {proof:?}"
+        );
+    }
+    for source in [
+        failed("totalRec"),
+        r#"s2b{}(\dv{SortString{}}("a"))"#.to_owned(),
+    ] {
+        assert_eq!(
+            definedness(&definition, &source, EvaluationMode::Proof),
+            Predicate::True,
+            "{source}"
+        );
+    }
+    assert_eq!(
+        definedness(&definition, &sum, EvaluationMode::Execution),
+        Predicate::False
+    );
+    assert_eq!(
+        definedness(&definition, &failed("rec"), EvaluationMode::Execution),
+        Predicate::True
+    );
+}

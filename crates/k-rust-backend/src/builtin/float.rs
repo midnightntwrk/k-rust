@@ -1,7 +1,7 @@
 //! Portable IEEE binary32/binary64 implementations of K's `FLOAT` hooks.
 
-use num_bigint::BigInt;
-use num_traits::{FromPrimitive, Signed, ToPrimitive};
+use num_bigint::{BigInt, BigUint};
+use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 
 use k_rust_domain::float::{
     FloatFormat, canonical_f32, canonical_f64, is_float_syntax, parse_f32, parse_f64, split_token,
@@ -256,6 +256,161 @@ pub(crate) fn signed_zeros(hook: &str, arguments: &[Term]) -> bool {
         && zero(left)
         && zero(right)
         && left.is_sign_negative() != right.is_sign_negative()
+}
+
+/// Whether `Int2Float`, `roundFloat` or `Float2Int` (`hook`) applied to `arguments`, read as
+/// the evaluator reads them, has a value the definition leaves open (class `float-rounding`,
+/// `super::chosen_value`); `false` for every other hook.
+///
+/// "You can convert an integer to a floating-point number with the specified precision and
+/// exponent range" (`domains.md`, "Conversion between integer and float") and "Round a
+/// floating-point number to a specified precision and exponent range" ("Floating-point
+/// mathematics") name no rounding and have no `smt-hook`, so where the argument is not a value
+/// of the destination format every neighbour of it there is a model's value: `Int2Float` of an
+/// integer the format does not hold, an overflow included, and `roundFloat` of a value the
+/// destination does not hold. Where the format holds the argument, the conversion is that
+/// element and every model agrees, with one exception: the integer 0 is held by the two zeros,
+/// and the text gives no sign, so `Int2Float(0, P, E)` is open too. A `Float` argument is an
+/// element of its format, a zero with its sign and the one NaN of a format included, so
+/// `roundFloat` of a value the destination holds, `-0.0` and `NaN` among them, is that element.
+/// `Float2Int` "rounds to the nearest integer", which decides every argument but a tie, a value
+/// exactly halfway between two integers; NaN and the infinities have no nearest integer, which
+/// the evaluator leaves unevaluated on every route.
+pub(crate) fn rounds(hook: &str, arguments: &[Term]) -> bool {
+    let computed = |argument: &Term| match read_float(hook, argument) {
+        Ok(Some(Operand::Computed(value))) => Some(value),
+        _ => None,
+    };
+    match (hook, arguments) {
+        ("FLOAT.int2float", [integer, precision, exponent_bits]) => {
+            let FormatArguments::Format(format) = read_format(precision, exponent_bits) else {
+                return false;
+            };
+            let Some(integer) = read_int(integer) else {
+                return false;
+            };
+            let held = if format.is_binary32() {
+                integer.to_f32().map(f64::from)
+            } else if format.is_binary64() {
+                integer.to_f64()
+            } else {
+                return false;
+            };
+            integer.is_zero() || held.and_then(BigInt::from_f64) != Some(integer)
+        }
+        ("FLOAT.round", [value, precision, exponent_bits]) => {
+            let FormatArguments::Format(format) = read_format(precision, exponent_bits) else {
+                return false;
+            };
+            let Some(value) = computed(value) else {
+                return false;
+            };
+            if !format.is_computed() || value.is_nan() {
+                return false;
+            }
+            value.round_to(&format).as_f64() != value.as_f64()
+        }
+        ("FLOAT.float2int", [value]) => computed(value).is_some_and(|value| {
+            let value = value.as_f64();
+            value.is_finite() && (value - value.trunc()).abs() == 0.5
+        }),
+        _ => false,
+    }
+}
+
+/// Which value of `rootFloat(F, N)` (`arguments`) the definition leaves open, given the
+/// evaluator's value `value`: `None` where it determines it.
+///
+/// "Compute the Nth integer root `rootFloat` of a float" (`domains.md`, "Floating-point
+/// mathematics") has no `smt-hook` and names no rounding. For a positive finite `F` and a
+/// positive degree it describes the positive real `N`th root: where a float of `F`'s format is
+/// that root exactly, every model gives it; where none is, every neighbour of the root is a
+/// model's value (class `float-rounding`; `sqrtFloat` follows by its rule `rootFloat(F, 2)`).
+/// Elsewhere (a zero, an infinity, a NaN, a negative `F`, a degree of 0 or below) the
+/// description gives no value, so every value, and `\bottom`, is a model's (class
+/// `outside-domain`): the evaluator's IEEE `rootn` value is k-rust's pick. A negative `F` with an
+/// odd degree is among them: the text does not say that "the Nth integer root" of a negative
+/// float is its real root.
+pub(crate) fn root_open(arguments: &[Term], value: &Term) -> Option<super::ChosenClass> {
+    let [radicand, degree] = arguments else {
+        return None;
+    };
+    let Ok(Some(Operand::Computed(radicand))) = read_float("FLOAT.root", radicand) else {
+        return None;
+    };
+    let degree = read_int(degree)?;
+    let radicand = radicand.as_f64();
+    if !(radicand.is_finite() && radicand > 0.0 && degree.is_positive()) {
+        return Some(super::ChosenClass::OutsideDomain);
+    }
+    let Ok(Some(Operand::Computed(root))) = read_float("FLOAT.root", value) else {
+        return None;
+    };
+    let root = root.as_f64();
+    (!(root.is_finite() && root > 0.0 && is_exact_power(root, &degree, radicand)))
+        .then_some(super::ChosenClass::FloatRounding)
+}
+
+/// Whether `base^degree` is exactly `target`, for positive finite floats and a positive degree.
+/// With `base = m * 2^e` and `target = M * 2^E`, `m` and `M` odd, `base^degree` is
+/// `m^degree * 2^(e * degree)`, whose odd part is `m^degree`: equal exactly when `m^degree = M`
+/// and `e * degree = E`. `M` is below `2^53`, so an odd `m` above 1 fits only a degree below 34.
+fn is_exact_power(base: f64, degree: &BigInt, target: f64) -> bool {
+    let odd_part = |value: f64| {
+        let bits = value.to_bits();
+        let field = i64::try_from(bits >> 52).expect("a positive float's 11-bit exponent field");
+        let fraction = bits & ((1 << 52) - 1);
+        let (mantissa, exponent) = if field == 0 {
+            (fraction, -1074)
+        } else {
+            (fraction | (1 << 52), field - 1075)
+        };
+        let zeros = mantissa.trailing_zeros();
+        (mantissa >> zeros, exponent + i64::from(zeros))
+    };
+    let ((odd, exponent), (target_odd, target_exponent)) = (odd_part(base), odd_part(target));
+    if BigInt::from(exponent) * degree != BigInt::from(target_exponent) {
+        return false;
+    }
+    if odd == 1 {
+        return target_odd == 1;
+    }
+    degree
+        .to_u32()
+        .filter(|degree| *degree < 64)
+        .is_some_and(|degree| BigUint::from(odd).pow(degree) == BigUint::from(target_odd))
+}
+
+/// Whether `floorFloat`, `ceilFloat` or `truncFloat` (`hook`) applied to `arguments` has a value
+/// the definition leaves open (class `outside-domain`, `super::chosen_value`); `false` for every
+/// other hook.
+///
+/// Each rounds "to the next lowest" (highest; closest in the direction of zero) "floating-point
+/// value which is an integer" (`domains.md`, "Floating-point mathematics"). No such value is
+/// next to a NaN or an infinity, so the description gives none there (the hooks are `total`: a
+/// value exists, which the text does not name). A finite argument that is an integer is that
+/// value itself, a zero with its sign included: rounding leaves a value already in the target
+/// set. A finite non-integer whose rounding is 0 has two such values, `+0.0` and `-0.0`, equally
+/// "an integer" and equally near it, so the sign of the result is open; every other finite
+/// argument has exactly one.
+pub(crate) fn integral_open(hook: &str, arguments: &[Term]) -> bool {
+    if !matches!(hook, "FLOAT.floor" | "FLOAT.ceil" | "FLOAT.trunc") {
+        return false;
+    }
+    let [argument] = arguments else {
+        return false;
+    };
+    let Ok(Some(Operand::Computed(value))) = read_float(hook, argument) else {
+        return false;
+    };
+    let rounded = match hook {
+        "FLOAT.floor" => value.floor(),
+        "FLOAT.ceil" => value.ceil(),
+        _ => value.trunc(),
+    }
+    .as_f64();
+    let value = value.as_f64();
+    !value.is_finite() || (rounded == 0.0 && value != 0.0)
 }
 
 #[derive(Clone, Copy)]
