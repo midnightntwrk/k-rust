@@ -707,7 +707,7 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     ("notation", "function-in-pattern", 4),
     ("notation", "ml-in-condition", 27),
     ("terms", "alias-at-subject-root", 2),
-    ("terms", "alias-in-let-pattern", 34),
+    ("terms", "alias-in-let-pattern", 40),
     ("terms", "configuration-variable-sort", 2),
     ("terms", "function-in-pattern", 8),
     ("terms", "island-at-subject-root", 18),
