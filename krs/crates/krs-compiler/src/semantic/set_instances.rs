@@ -32,6 +32,17 @@
 //! alias, alternatives, an open record or `..`) holds no construct that
 //! computes ([`super::function_patterns`] refuses one), so only a computed
 //! instance has guards.
+//!
+//! A key a pattern looks up (decision D2) is guarded the same way where it
+//! holds a sort projection, which both K frontends refuse on a left side
+//! although they read a function's application there by value (finding
+//! NT-11-1). `{t}:>S` denotes `t` where `t` has sort `S`, and nothing
+//! otherwise, so a key that is the projection is the key `t` with the guard
+//! `isS(t)`: the entry at `t` is looked up exactly when the projection is
+//! defined, and its value is the one the projection computes. A projection
+//! below a key's root stands where its sort `S` is needed, which `t` need not
+//! have, so it is a fresh variable of sort `S` equated with it, as an
+//! instance's computed cell is.
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, DescriptorTerm, ProvenanceKey, SemanticId,
@@ -45,7 +56,8 @@ use super::function_patterns::{Applied, applied_function};
 use super::infer::StructuredTermBuilder;
 use super::origin::semantic_origin;
 
-/// The guards of the computed instances one sentence looks up.
+/// The guards of the computed instances one sentence looks up, and of the
+/// projections in the keys it looks up.
 #[derive(Debug, Default)]
 pub(super) struct InstanceGuards {
     /// The number of guards the sentence's earlier builders made, which
@@ -56,13 +68,18 @@ pub(super) struct InstanceGuards {
     /// rule's one builder keeps the rule's guards from its first instance to
     /// its condition, and guards only while it lowers such a cell.
     active: bool,
+    /// How many function applications enclose the term being lowered in a
+    /// looked-up key: below one a term is computed, not matched, and a
+    /// projection there is read by value as the function's argument.
+    computed: usize,
 }
 
-/// One construct an instance computes: the fresh variable written in its
-/// place, and the guard `variable ==K value`.
+/// One construct an instance or a key computes: the fresh variable written in
+/// its place, and the guard `variable ==K value`; or, for a key that is a
+/// projection, no variable and the guard that the projection is defined.
 #[derive(Debug)]
 pub(super) struct Guard {
-    variable: SemanticVariable,
+    variable: Option<SemanticVariable>,
     equation: SemanticTerm,
     /// The construct's node, where the guard's conjunction is anchored.
     key: ProvenanceKey,
@@ -75,6 +92,7 @@ impl InstanceGuards {
             offset,
             guards: Vec::new(),
             active: false,
+            computed: 0,
         }
     }
 
@@ -90,6 +108,20 @@ impl InstanceGuards {
         self.active = active;
     }
 
+    /// Enters (`true`) or leaves a function application's arguments.
+    pub(super) fn compute(&mut self, entering: bool) {
+        if entering {
+            self.computed += 1;
+        } else {
+            self.computed -= 1;
+        }
+    }
+
+    /// Whether no function application encloses the term being lowered.
+    pub(super) const fn matched(&self) -> bool {
+        self.computed == 0
+    }
+
     /// The number of guards made.
     pub(super) fn len(&self) -> usize {
         self.offset + self.guards.len()
@@ -99,11 +131,21 @@ impl InstanceGuards {
     pub(super) fn into_guards(self) -> Vec<Guard> {
         self.guards
     }
+
+    /// Adds `condition`, a Bool the sentence requires of what it matched,
+    /// anchored at the construct `key` names.
+    pub(super) fn require(&mut self, condition: SemanticTerm, key: ProvenanceKey) {
+        self.guards.push(Guard {
+            variable: None,
+            equation: condition,
+            key,
+        });
+    }
 }
 
 impl Guard {
-    /// The fresh variable, which the sentence declares.
-    pub(super) fn variable(&self) -> SemanticVariable {
+    /// The fresh variable, which the sentence declares, if the guard has one.
+    pub(super) fn variable(&self) -> Option<SemanticVariable> {
         self.variable.clone()
     }
 }
@@ -142,7 +184,16 @@ impl StructuredTermBuilder<'_> {
         let guards = self.instance_guards.take();
         let value = self.lower(term, expected_sort, subject);
         self.instance_guards = guards;
-        let value = value?;
+        self.guard_value(key, value?)
+    }
+
+    /// `value`, a construct's lowered value, written as a fresh variable
+    /// whose guard equates it with `value`, anchored at `key`.
+    pub(super) fn guard_value(
+        &mut self,
+        key: ProvenanceKey,
+        value: SemanticTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let guards = self
             .instance_guards
             .as_mut()
@@ -163,7 +214,7 @@ impl StructuredTermBuilder<'_> {
             vec![read, value],
         );
         guards.guards.push(Guard {
-            variable: SemanticVariable::new(id.clone(), sort.clone()),
+            variable: Some(SemanticVariable::new(id.clone(), sort.clone())),
             equation,
             key: key.clone(),
         });

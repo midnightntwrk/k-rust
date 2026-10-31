@@ -303,6 +303,44 @@ fn rules(body: &str) -> String {
     format!("k::rules! {{\n    for Machine;\n    use StmtSyntax::*;\n\n    {body}\n}}\n")
 }
 
+/// A key a pattern looks up in a typed map, computed by a read of an untyped
+/// one: K's read returns a `KItem`, which KRS projects to the key's sort, and
+/// no native route reads a projection on a left side (finding NT-11-1). The
+/// key is a fresh name of the key's sort, which the rule's guard equates with
+/// the projected read, so the entry the read computes is the one matched:
+/// `krs check` passes.
+#[test]
+fn a_typed_key_computed_by_a_read_is_a_guarded_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "typed-key",
+        &format!(
+            "{PREAMBLE}{}",
+            rules(
+                "typed_key: { k: [Op(20), Hold(m), ..], env: { map::get(m, 1) -> v, .. } } => { k: [v, ..] };"
+            )
+        ),
+    );
+    let (success, _, check_stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{check_stderr}");
+    assert_eq!(diagnostics(&check_stderr), [], "{check_stderr}");
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    expect_test::expect![[r#"
+        "<k> op 20 ~> hold M:Map => V:Value ... </k> <env> Krs_Instance0:Id |-> V:Value ... </env> requires Krs_Instance0:Id ==K {M:Map [ 1 ]}:>Id"
+    "#]]
+    .assert_debug_eq(&rule(&definition, "typed-key").trim_end_matches(" endmodule"));
+}
+
 /// Every write of an ill-sorted element or of a collection whose element
 /// types nothing declares, and every read that asks for a sort the
 /// collection never holds, is rejected at the term, naming the position and

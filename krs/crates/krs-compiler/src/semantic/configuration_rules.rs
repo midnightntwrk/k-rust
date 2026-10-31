@@ -111,10 +111,11 @@ impl<'a> StateRuleTerms<'a> {
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
         // A looked-up instance's cell is read as a key is, and what it
-        // computes is guarded.
-        let instance_guards = self.looking_up.then(|| {
+        // computes is guarded; a looked-up key's projections are guarded too.
+        let looked_up_key = in_key && subject;
+        let instance_guards = (self.looking_up || looked_up_key).then(|| {
             let mut guards = super::set_instances::InstanceGuards::after(self.guards.len());
-            guards.activate(true);
+            guards.activate(self.looking_up);
             guards
         });
         let mut builder = StructuredTermBuilder {
@@ -144,13 +145,20 @@ impl<'a> StateRuleTerms<'a> {
         };
         builder.infer_sentence(|builder| builder.infer(term, expected_sort, subject))?;
         builder.resolve_binding_sorts()?;
-        let lowered = builder.lower(term, expected_sort, subject)?;
+        let lowered = if looked_up_key {
+            builder.lower_key(term, expected_sort)?
+        } else {
+            builder.lower(term, expected_sort, subject)?
+        };
         self.wildcard_ordinal += builder.wildcards.len();
         self.variables.append(&mut builder.wildcards);
         if let Some(guards) = builder.instance_guards.take() {
             let guards = guards.into_guards();
-            self.variables
-                .extend(guards.iter().map(super::set_instances::Guard::variable));
+            self.variables.extend(
+                guards
+                    .iter()
+                    .filter_map(super::set_instances::Guard::variable),
+            );
             self.guards.extend(guards);
         }
         Ok(lowered)
@@ -748,7 +756,8 @@ fn lower_configuration_rule_clauses(
             "configuration remainder",
         )?;
     }
-    let clauses = rule
+    let mut restated = Vec::new();
+    let mut clauses = rule
         .subject
         .cells
         .iter()
@@ -757,6 +766,7 @@ fn lower_configuration_rule_clauses(
             if super::cell_states::is_cell_state(&subject.value)
                 || result.is_some_and(|result| super::cell_states::is_cell_state(&result.value))
             {
+                restated.push(None);
                 return lower_configuration_state_clause(
                     terms,
                     subject,
@@ -766,10 +776,41 @@ fn lower_configuration_rule_clauses(
                     result_sorts,
                 );
             }
-            lower_configuration_rule_clause(terms, subject, result, subject_sorts, result_sorts)
-                .map(ConfigurationClause::Fixed)
+            let (clause, after) = lower_configuration_rule_clause(
+                terms,
+                subject,
+                result,
+                subject_sorts,
+                result_sorts,
+            )?;
+            restated.push(after.map(|after| (subject.wrapper, after)));
+            Ok(ConfigurationClause::Fixed(clause))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    // A rule with a result is the rewrite of its subject into it: a step, even
+    // where the result restates the subject. Where every cell is restated or
+    // read, a cell it restates keeps the rewrite the author wrote, the
+    // computation cell's first, so the rule is that step rather than a rule
+    // with no rewrite.
+    if rule.result.is_some()
+        && rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Transition
+        && super::rules::changes_no_cell(&clauses)
+    {
+        let restated_at = |wanted: Option<krs_ir::CellWrapper>| {
+            restated.iter().position(|after| {
+                after
+                    .as_ref()
+                    .is_some_and(|(wrapper, _)| wanted.is_none() || *wrapper == wanted)
+            })
+        };
+        if let Some(index) =
+            restated_at(Some(krs_ir::CellWrapper::KCell)).or_else(|| restated_at(None))
+            && let Some((_, after)) = restated[index].take()
+            && let ConfigurationClause::Fixed(clause) = &mut clauses[index]
+        {
+            *clause = rewritten_to(clause, after);
+        }
+    }
     // A context (KF-021) need not rewrite anything.
     if rule.result.is_none()
         && rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Context
@@ -947,6 +988,21 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
     }
 }
 
+/// `clause` with its post-state the rewrite to `after`, every other field kept.
+fn rewritten_to(
+    clause: &FixedCellClause<SemanticId, SemanticTerm>,
+    after: SemanticTerm,
+) -> FixedCellClause<SemanticId, SemanticTerm> {
+    FixedCellClause::new(
+        clause.origin().clone(),
+        clause.cell().clone(),
+        clause.before().clone(),
+        CellPost::Replace { term: after },
+        clause.frame().clone(),
+    )
+    .with_kind(clause.kind())
+}
+
 /// The post-state of a cell a rule reads without restating it: rewritten in
 /// place when it holds a `k::rewrite!` (KF-011), otherwise unchanged.
 fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
@@ -957,13 +1013,26 @@ fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
     }
 }
 
+/// Lowers one leaf or group cell entry of a `cells!` rule, and the result's
+/// term when the result restates the cell unchanged, which the clause only
+/// reads.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One cell entry's checks against its declaration, then its subject and result, in order."
+)]
 fn lower_configuration_rule_clause(
     terms: &mut StateRuleTerms<'_>,
     subject: &DescriptorRuleCell,
     result: Option<&DescriptorRuleCell>,
     subject_sorts: &BTreeMap<String, SemanticSortRef>,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+) -> Result<
+    (
+        FixedCellClause<SemanticId, SemanticTerm>,
+        Option<SemanticTerm>,
+    ),
+    DescriptorLoweringError,
+> {
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
     let name = &subject.field.cell.field;
@@ -1026,6 +1095,7 @@ fn lower_configuration_rule_clause(
     )?;
     let subject_frame = rule_state_frame(&subject.value);
     let mut frame = lower_subject_cell_frame(descriptor, &subject.value)?;
+    let mut restated = None;
     let post = if let Some(result) = result {
         let base = MapBase::of(
             Some(&before),
@@ -1052,6 +1122,7 @@ fn lower_configuration_rule_clause(
             frame = CellContentFrame::Exact;
         }
         if semantic_terms_equivalent(&before, &after) {
+            restated = Some(after);
             CellPost::Preserve
         } else {
             CellPost::Replace { term: after }
@@ -1059,12 +1130,15 @@ fn lower_configuration_rule_clause(
     } else {
         unrestated_post(&before)
     };
-    Ok(FixedCellClause::new(
-        semantic_origin(descriptor, subject.field.key.clone(), "rule-cell-clause")?,
-        semantic_cell_id(&subject.field.cell)?,
-        before,
-        post,
-        frame,
+    Ok((
+        FixedCellClause::new(
+            semantic_origin(descriptor, subject.field.key.clone(), "rule-cell-clause")?,
+            semantic_cell_id(&subject.field.cell)?,
+            before,
+            post,
+            frame,
+        ),
+        restated,
     ))
 }
 
@@ -1078,7 +1152,13 @@ fn lower_configuration_group_clause(
     declaration: &StableItemId,
     subject_sorts: &BTreeMap<String, SemanticSortRef>,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+) -> Result<
+    (
+        FixedCellClause<SemanticId, SemanticTerm>,
+        Option<SemanticTerm>,
+    ),
+    DescriptorLoweringError,
+> {
     let descriptor = terms.descriptor;
     let group_entry = |cell: &DescriptorRuleCell| {
         cell.wrapper.is_none() && matches!(cell.value, ProtocolRuleStateTerm::Group(_))
@@ -1101,11 +1181,13 @@ fn lower_configuration_group_clause(
         subject_sorts,
         true,
     )?;
+    let mut restated = None;
     let post = match result {
         Some(result) => {
             let after =
                 terms.state_term(&result.value, &sort, &result.field.key, result_sorts, false)?;
             if semantic_terms_equivalent(&before, &after) {
+                restated = Some(after);
                 CellPost::Preserve
             } else {
                 CellPost::Replace { term: after }
@@ -1113,11 +1195,14 @@ fn lower_configuration_group_clause(
         }
         None => unrestated_post(&before),
     };
-    Ok(FixedCellClause::whole(
-        semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,
-        semantic_cell_id(&subject.field.cell)?,
-        before,
-        post,
+    Ok((
+        FixedCellClause::whole(
+            semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,
+            semantic_cell_id(&subject.field.cell)?,
+            before,
+            post,
+        ),
+        restated,
     ))
 }
 

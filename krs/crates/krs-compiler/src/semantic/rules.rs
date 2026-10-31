@@ -560,17 +560,18 @@ pub(super) fn lower_head_rule_descriptor(
 
     let mut clauses = Vec::new();
     let mut selected = BTreeSet::new();
+    let mut restated_head = None;
     if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
-        clauses.push(ConfigurationClause::Fixed(
-            lower_head_rule_computation_clause(
-                &mut builder,
-                rule,
-                head,
-                computation,
-                head_sort.as_ref(),
-                sort_parents,
-            )?,
-        ));
+        let (clause, restated) = lower_head_rule_computation_clause(
+            &mut builder,
+            rule,
+            head,
+            computation,
+            head_sort.as_ref(),
+            sort_parents,
+        )?;
+        clauses.push(ConfigurationClause::Fixed(clause));
+        restated_head = restated;
         selected.insert(computation.cell.clone());
     }
     for extra in &rule.extras {
@@ -589,6 +590,25 @@ pub(super) fn lower_head_rule_descriptor(
                     key_range(descriptor, &head_rule_extra_cell(extra).key).as_ref(),
                 )
             })?,
+        );
+    }
+    // A `for Sort` table's clause is a K term rule, the rewrite of its subject
+    // into its result: a step, even where the result restates the subject.
+    // Where it does and no cell changes otherwise, the computation clause keeps
+    // the rewrite the author wrote, as a `#[k::rule]` fn's `go => go` does, so
+    // the rule is that step rather than a rule with no rewrite.
+    if rule.head_sort.is_some()
+        && rule.claim.is_none()
+        && changes_no_cell(&clauses)
+        && let Some(restated) = restated_head
+        && let Some(ConfigurationClause::Fixed(clause)) = clauses.first_mut()
+    {
+        *clause = FixedCellClause::new(
+            clause.origin().clone(),
+            clause.cell().clone(),
+            clause.before().clone(),
+            CellPost::Replace { term: restated },
+            clause.frame().clone(),
         );
     }
     // Every cell record is checked, since one may now only read `k`; a
@@ -651,7 +671,7 @@ pub(super) fn lower_head_rule_descriptor(
         .unwrap_or_default();
     let guard_variables = guards
         .iter()
-        .map(super::set_instances::Guard::variable)
+        .filter_map(super::set_instances::Guard::variable)
         .collect::<Vec<_>>();
     let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
     let (existentials, ensures) =
@@ -837,20 +857,7 @@ fn check_framed_computation_rule(
                 .map(Box::new),
         )
     };
-    // An optional or collection clause (KF-023) changes something unless it
-    // only reads; its parts say so.
-    let unchanged = clauses
-        .iter()
-        .flat_map(ConfigurationClause::parts)
-        .all(|part| match part {
-            krs_ir::ClausePart::Matched { before, after, .. } => match after {
-                krs_ir::PartPost::Preserve => true,
-                krs_ir::PartPost::Local | krs_ir::PartPost::Removed => false,
-                krs_ir::PartPost::Replace(term) => same_term(before, term),
-            },
-            krs_ir::ClausePart::Written { .. } => false,
-        });
-    if unchanged {
+    if changes_no_cell(clauses) {
         return Err(DescriptorLoweringError::RuleChangesNoCell {
             rule: Box::new(descriptor.id().clone()),
             range: range()?,
@@ -875,6 +882,23 @@ fn check_framed_computation_rule(
         });
     }
     Ok(())
+}
+
+/// Whether no clause of a rule changes its cell: each only reads it or
+/// restates it. An optional or collection clause (KF-023) changes something
+/// unless it only reads; its parts say so.
+pub(super) fn changes_no_cell(clauses: &[ConfigurationClause<SemanticId, SemanticTerm>]) -> bool {
+    clauses
+        .iter()
+        .flat_map(ConfigurationClause::parts)
+        .all(|part| match part {
+            krs_ir::ClausePart::Matched { before, after, .. } => match after {
+                krs_ir::PartPost::Preserve => true,
+                krs_ir::PartPost::Local | krs_ir::PartPost::Removed => false,
+                krs_ir::PartPost::Replace(term) => same_term(before, term),
+            },
+            krs_ir::ClausePart::Written { .. } => false,
+        })
 }
 
 /// Whether `result` restates the items of the k sequence `before`; the item
@@ -1284,7 +1308,8 @@ fn head_item_sort<'a>(
 /// Lowers the matched items and their result into the computation-cell
 /// clause: an open pattern preserves the implicit K-sequence tail, an exact
 /// one names the whole cell, and a result that leaves the cell out only
-/// reads it.
+/// reads it. A result that restates the matched items reads them too, and is
+/// returned beside the clause, which writes it only where a rewrite needs it.
 fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
@@ -1292,7 +1317,13 @@ fn lower_head_rule_computation_clause(
     computation: &krs_ir::DescriptorComputationCell,
     head_sort: Option<&SemanticSortRef>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+) -> Result<
+    (
+        FixedCellClause<SemanticId, SemanticTerm>,
+        Option<SemanticTerm>,
+    ),
+    DescriptorLoweringError,
+> {
     let descriptor = builder.descriptor;
     let mut subject_items = Vec::with_capacity(head.items.len());
     for (index, item) in head.items.iter().enumerate() {
@@ -1313,6 +1344,7 @@ fn lower_head_rule_computation_clause(
         subject_item_sort,
         subject_items,
     );
+    let mut restated = None;
     let post = match &head.result {
         None => CellPost::Preserve,
         Some(result) => {
@@ -1335,18 +1367,19 @@ fn lower_head_rule_computation_clause(
                         )
                     },
                 )?;
+            let unchanged = same_items(&before_k, &result_items);
+            let term = SemanticTerm::k_sequence(
+                semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
+                result_item_sort,
+                result_items,
+            );
             // A result that restates the matched items unchanged only reads
             // them, as a restated cell does.
-            if same_items(&before_k, &result_items) {
+            if unchanged {
+                restated = Some(term);
                 CellPost::Preserve
             } else {
-                CellPost::Replace {
-                    term: SemanticTerm::k_sequence(
-                        semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
-                        result_item_sort,
-                        result_items,
-                    ),
-                }
+                CellPost::Replace { term }
             }
         }
     };
@@ -1358,12 +1391,15 @@ fn lower_head_rule_computation_clause(
             binding: None,
         }
     };
-    Ok(FixedCellClause::new(
-        semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
-        semantic_cell_id(&computation.cell)?,
-        before_k,
-        post,
-        frame,
+    Ok((
+        FixedCellClause::new(
+            semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
+            semantic_cell_id(&computation.cell)?,
+            before_k,
+            post,
+            frame,
+        ),
+        restated,
     ))
 }
 
