@@ -681,7 +681,19 @@ impl State {
         self.sequence += 1;
         let sequence = self.sequence;
         match self.stamps.iter_mut().find(|(stamped, _)| *stamped == fact) {
-            Some((_, stamp)) => *stamp = sequence,
+            Some((stamped, stamp)) => {
+                // Equal chosen values may differ in `defined` (one hook declared at a `total` and
+                // at a partial symbol). A memo learns the stamped copy (`since`) and replays it
+                // anywhere, suspended evaluations included, so the stamp keeps open definedness
+                // once any equal fact had it: the copy whose replay still notes the mark.
+                if let (PathFact::ChosenValue(kept), PathFact::ChosenValue(noted)) =
+                    (&mut *stamped, &fact)
+                    && !noted.defined
+                {
+                    kept.defined = false;
+                }
+                *stamp = sequence;
+            }
             None => self.stamps.push((fact.clone(), sequence)),
         }
         if self.aside || (self.suspended && fact.suspends()) {
@@ -1257,6 +1269,34 @@ mod tests {
             assert_eq!(facts.shared, FactSet::from([fact("A"), fact("B")]));
         });
         assert_eq!(run, [fact("A"), fact("B")]);
+    }
+
+    /// One hook declared at a `total` and at a partial symbol gives equal chosen values (a mark
+    /// is its hook and its class) that differ in `defined`. Whichever is noted first, the copy a
+    /// memo learns (`since`) is the one of open definedness, so a memo of the partial
+    /// application replayed in a suspended evaluation elsewhere still notes its mark.
+    #[test]
+    fn a_memo_keeps_the_open_definedness_of_a_chosen_value_noted_after_a_defined_one() {
+        let curve = |total| {
+            PathFact::ChosenValue(ChosenValue::of_application(
+                Arc::from("KRYPTO.bn128add"),
+                ChosenClass::Curve,
+                total,
+            ))
+        };
+        let ((), _run) = run(|| {
+            let ((), _facts) = collect(|| note(curve(true)));
+            let marker = marker();
+            let ((), _facts) = collect(|| note(curve(false)));
+            let memo = since(marker);
+            assert!(
+                memo.iter()
+                    .all(|fact| matches!(fact, PathFact::ChosenValue(chosen) if !chosen.defined)),
+                "{memo:?}"
+            );
+            let ((), replayed) = collect(|| suspend(|| replay(&memo)));
+            assert_eq!(replayed.shared, FactSet::from([curve(false)]));
+        });
     }
 
     #[test]

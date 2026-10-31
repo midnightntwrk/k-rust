@@ -911,7 +911,7 @@ fn chosen_value_met(
         ),
         k_rust_backend::builtin::ChosenClass::Curve
         | k_rust_backend::builtin::ChosenClass::OutsideDomain => format!(
-            "read an outcome of {hook} the definition leaves open, a value or none ({})",
+            "read an outcome of {hook} the definition leaves open: its value and, where the definition also admits no value, whether it has one ({})",
             class.name()
         ),
         k_rust_backend::builtin::ChosenClass::Order

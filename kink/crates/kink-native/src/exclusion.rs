@@ -182,8 +182,11 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v4";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
-/// exactly the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
-/// KINK-17/2) can return `Some`: the match arms (`MAP.keys_list`, `MAP.values`, `SET.set2list`,
+/// the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
+/// KINK-17/2) could return `Some` there; since GAP K1 it also returns `Some` for 25 more hooks,
+/// not listed here, which the census keeps (all but the FLOAT ones) and the test
+/// `implementation_chosen_hooks_are_k_rusts` lists (`K_RUST_GAP_K1_HOOKS`) until kink27's GK-1.
+/// Those of 8f8ad57c5 are the match arms (`MAP.keys_list`, `MAP.values`, `SET.set2list`,
 /// `MAP.choice`, `SET.choice`, `STRING.base2string`, `SUBSTITUTION.substOne`, `IO.read`), the six
 /// Float operations `float::mixed_destination` reads (`BinaryOperation::of`), `FLOAT.sign`
 /// (`float::nan_sign`) and `FLOAT.min`/`FLOAT.max` (`float::signed_zeros`, already among the six).

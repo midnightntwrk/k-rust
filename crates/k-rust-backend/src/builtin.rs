@@ -146,7 +146,8 @@ pub enum UnsupportedHookReason {
     /// whose order domains.md does not fix, or a Float operation over a binary32 and a binary64
     /// operand, whose result format it does not name: an execution takes k-rust's documented
     /// value, and every other evaluation leaves the application unevaluated, with `defined` set
-    /// (`crate::evaluation`).
+    /// where the application has a value in every model (`ChosenValue::defined`;
+    /// `crate::evaluation`).
     Unspecified {
         detail: String,
         /// The application is defined, so its `\ceil` holds although its value is not computed.
@@ -715,7 +716,9 @@ fn chosen_detail(chosen: &ChosenValue, arguments: &[Term]) -> String {
             .map(|pair| pair.detail(hook))
             .unwrap_or_default(),
         ChosenClass::NanSign => float::nan_sign(hook, arguments).unwrap_or_default(),
-        class if class.may_be_undefined() => format!(
+        // Only a class whose outcome may be `\bottom` gives `defined: false`, and only at a
+        // partial symbol: there a model may leave the application undefined.
+        class if !chosen.defined => format!(
             "{hook} has an outcome on these arguments the definition leaves open ({}), a value \
              or none, which only an execution chooses",
             class.name()
