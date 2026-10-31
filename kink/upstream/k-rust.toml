@@ -17,7 +17,8 @@
 # k-rust on 2026-10-18, frozen at sha256 55d51a795c6c126a7b9ee461cec6b6da28cc49d8b5d37dbf5b955121747e4262) were added on 2026-10-18.
 # Requests KINK-23..KINK-26 of draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (frozen on 2026-10-19, not yet given to k-rust;
 # frozen at sha256 1126291481995c21906438f2756cc34ea2c4068f68965c2df1b24fbd9ad2514c) were added on 2026-10-19.
-# status_at_main rows record the judgement at main 9ea39ec7 (2026-10-15); the pin is now later than that main.
+# status_at_main rows record the judgement at main 9ea39ec7 (2026-10-15), except documented-decision-facade, re-judged at main 5daf52e85
+# on 2026-10-31 (kink27 R4-LEDGER); the pin is now later than 9ea39ec7.
 #
 # Fields added on 2026-10-15 (now in README.md's field table):
 #   handoff               the request's id in HANDOFF.md (KINK-NN); present only on requests HANDOFF.md asks for.
@@ -35,7 +36,7 @@
 # original fields) and where_requested_shape_differs (how an accepted fix differs from the request).
 
 schema = 1
-updated = "2026-10-30"
+updated = "2026-10-31"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native, kink-campaign, kink-corpus and kink-flow all depend on k-rust.
@@ -720,7 +721,8 @@ id = "hook-signature-validation"
 title = "Hooked symbols are not checked against their hook's signature at load"
 kind = "correctness"
 status = "partial"
-status_basis = "static screen of source at 501f18b9 on 2026-10-17: collection hooks are validated at compile and load (status_at_main_basis; still present). KINK-12/1 injects strict-subsort hook values (0cf21035c; k-rust-backend tests/backend/hook_result_sorts.rs). There is no diagnostic, refusal or capability query for the other hooked declarations that never evaluate: no HookDeclarationMisfit or hook_capability exists in crates/. Plus R0a, E-13: addB is unevaluated at the pin"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85; first judged at 501f18b9 on 2026-10-17): collection hooks are validated at compile and load (status_at_main_basis; still present). KINK-12/1 injects strict-subsort hook values (0cf21035c; k-rust-backend tests/backend/hook_result_sorts.rs). There is no diagnostic, refusal or capability query for the other hooked declarations that never evaluate: no HookDeclarationMisfit or hook_capability exists in crates/. Plus R0a, E-13: addB is unevaluated at 501f18b9 (a test run of the former pin, not repeated)"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); status unchanged. status_at_main stays partial as judged at 9ea39ec7: status_basis cites that basis for the collection-hook validation, and the re-screen found the row unchanged at main 5daf52e85."
 blocking = false
 needed_by = ["kink-flow check: tell the user and the LLM why programs over a hooked symbol k-rust never evaluates end unknown, instead of refusing the whole specification", "retiring kink's census replica (rules H and U: a reference-prelude compile per process and an evaluate_hook probe under catch_unwind)"]
 summary = "No hooked declaration's signature is checked at load, by kompile or by the backend: kb/verify.rs:621-711 checks only the hooked-symbol keyword, constructor result sorts, the binder's KVar argument and element-symbol arity; kc/kompile/compile.rs:1383-1395 compiles nullary KRYPTO hooks at sort Value. STRING.token2string reads any DomainValue whatever its sort (kb/builtin/string.rs:268-277) and STRING.string2token writes into any result sort (:279-291). The Haskell backend verifies each hook's signature (hb/Builtin.hs:66-83; KEqual.hs:102-123), and docs/compatibility.md:17 leaves the behaviour of such definitions undefined, so refusing them costs no valid definition. In 596 compiled conformance definitions the prelude's 279 hooks carry one signature each (two legitimate pairs: IO.traceTerm, string2token into Id and KVar); the only non-natural user declarations are KREFLECTION.printKORE retyped as crash(Int) : Pgm (kprove-error-status) and KWasm's typed lists (ListInt:make, ListInt:get : WrappedInt and the ListRef twins). FIXCOLL hooks such as LIST.make build Term::list(k_item_definition(), ..) whatever the declared result (kb/builtin/list.rs:210-234), so a typed list built by make is a SortList value in a ListInt position."
@@ -941,7 +943,8 @@ id = "documented-decision-facade"
 title = "In-process cancellation is reachable only through k-rust-backend internals, and k-rust-backend breaks its API without a version change"
 kind = "api"
 status = "partial"
-status_basis = "static screen of source at 501f18b9 on 2026-10-17: k_rust::backend re-exports CancellationToken, StopCause, StackLimit, StopScope, PreludeFailure, SegmentRefused, StepTimeoutMode and VARIABLE_IDENTITY (crates/k-rust/src/backend/mod.rs:204-213), and the whole backend crate as k_rust::k_rust_backend (crates/k-rust/src/lib.rs:29). The module doc '# Bounding an operation' and tests/facade_reexports.rs are present. The versions are k-rust 0.7.0 and k-rust-backend 0.4.0, bumped once, in 5c9d5a696. No public-API check, per k-rust's decision 2c (k-rust's CI was not inspected)"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85; first judged at 501f18b9 on 2026-10-17): k_rust::backend re-exports CancellationToken, StopCause, StackLimit, StopScope, PreludeFailure, SegmentRefused, StepTimeoutMode and VARIABLE_IDENTITY (crates/k-rust/src/backend/mod.rs:211-220 at the pin), and the whole backend crate as k_rust::k_rust_backend (crates/k-rust/src/lib.rs:29 at the pin). The module doc '# Bounding an operation' and tests/facade_reexports.rs are present. At 501f18b9 the versions were k-rust 0.7.0 and k-rust-backend 0.4.0, bumped once, in 5c9d5a696; at the pin they are 0.8.0 and 0.5.0 ([reference_pin]). No public-API check, per k-rust's decision 2c (k-rust's CI was not inspected)"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); status unchanged. status_at_main moved from open (judged at 9ea39ec7, before the pin) to partial at main 5daf52e85, the same screen."
 blocking = false
 needed_by = ["kink-flow's timeout status (kink bounds wall time by cancelling a CancellationToken in process)", "re-pin cost: three of five re-pin compile errors at main are in k-rust-backend APIs"]
 summary = "At 9ea39ec7 stop::StopCause is a private use in the facade (k-rust backend/mod.rs:45), no pub use of k_rust_backend exists in crates/k-rust/src, and the facade documentation sends readers to k_rust_backend::stop::operation (:1448-1453). k-rust-backend is 0.3.0 at both the pin and main although Term::domain_value was removed, StopCause::StackExhausted became StackExhausted(StackLimit) and collection metadata fields became Sorts. Merges ticket 4 item 3 (facade CancellationToken). The broad stable facade for theories, unifier and solver queries is deferred."
@@ -950,8 +953,8 @@ local_workaround = "kink depends on k-rust-backend with an exact version (Cargo.
 requested_action = "Handoff KINK-08 (P2). (1) The facade re-exports CancellationToken (with scope), StopCause and StackLimit and documents what a cancelled execute or search returns, including a cancellation on the entry poll where the builds differ. (2) Breaking changes visible from versions: open decision (k-rust) between 2a, semver for k-rust-backend public items (recommended), and 2b, declare it internal and re-export what hosts need. Acceptance: a doc test with k_rust imports only observes Cancelled; a public-API check in CI."
 sources = ["k-in-k2 draft/upstream-tickets/k-rust-search-timeout-cancel.md item 3", "draft/tasks/k-rust-handoff-2026-10-15/inventory/kink-code.md W-31; inventory/k-rust-main.md section 3", "draft/tasks/k-rust-handoff-2026-10-15/assessed/group-3.md section 6", "k-rust draft/k-in-k/answers-2026-10.toml KINK-08"]
 handoff = "KINK-08"
-status_at_main = "open"
-status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: k-rust backend/mod.rs:45, :1448-1453; crates/k-rust-backend/Cargo.toml version 0.3.0; k-rust-backend stop.rs:50-80"
+status_at_main = "partial"
+status_at_main_basis = "static screen of source at 5daf52e85 on 2026-10-31 (kink27 R4-LEDGER): the screen in status_basis, which found no change between the reference pin 0068938b1 and this main"
 where_requested_shape_differs = "Item (1) is done. Item (2) is declined in both forms (2a semver, 2b internal plus selective re-export) and replaced by decision 2c: the whole crate is re-exported with no stability promise, and a host audits each re-pin by diffing cargo public-api for k-rust and k-rust-backend between its two commits."
 update_2026_10_17 = "Folded from k-rust draft/k-in-k/answers-2026-10.toml KINK-08 ('partly done: criterion 1 passes; criterion 2 declined'). Item (1): the doc test bounds Backend::execute with k_rust imports only, and a request cancelled before it starts answers Err with stop_cause Cancelled in both builds (KINK-08/3). kink judges 2c insufficient for its re-pins. A public-API diff would show the five compile breaks that answers-2026-10.md section 1 does not list: the MapDefinition and ListDefinition sort fields, the removal of Term::domain_value, DestinationAnchor, Drop on kast::Term, and StackExhausted(StackLimit). It would not show the meaning changes kink met behind unchanged signatures: choice, mixed-format Float, String2Bytes, \\xhh literals, the Markdown offset map, the nine newly evaluated hooks, and 35d3e6d6c and 5ff3ccc6d. ADDENDUM-3 section 1, not yet given to k-rust, asks that answers list every change to an evaluation or execution result. kink keeps its direct k-rust-backend =0.4.0 dependency (about 44 import sites). cargo public-api was not run: it is not installed (findings E-17)."
 
@@ -1038,8 +1041,11 @@ update_2026_10_17 = "Folded from k-rust draft/k-in-k/answers-2026-10.toml KINK-1
 id = "implementation-chosen-value-diagnostic"
 title = "Executions give no signal when a leaf's result used a value the definition leaves open"
 kind = "missing-feature"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+status = "fixed"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): docs/compatibility.md '### Marks in executions' (:1895 at the pin): every leaf whose path read a value of an open class carries an implementation-chosen-value diagnostic with hook and class (BackendDiagnostic::ImplementationChosenValue), the result lists every mark (ExecutionResult::implementation_chosen_values, wire implementationChosenValues), searches mark alike; classes order, item, float-destination, nan-sign, letter-case, signed-zero, fresh-name, read-count, effect-order. kink reads the list per run (kink-native exclusion.rs run_exclusion) and kink27 R2-CHOICE-SAMPLING tests the marks' completeness (crates/k-rust/tests/choice_sampling.rs)"
+fixed_in = "375710b23 (KINK-17/1; tickets KINK-17/1-5, heads 728e7eb34, 25fa4ccc9, 14d847708, 1d956d123, 436419b7a; merges 978d30070, 3a196ed14, 1fbca7fad)"
+where_requested_shape_differs = "The short-circuit operators get no mark: k-rust states their strict value as the meaning in every model and marks only console effects of an irrelevant operand (effect-order), docs/compatibility.md 'Conditionals and Boolean connectives are strict'. Proof routes and load-time analyses withhold the classes, except read-count (KINK-17/3)."
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); moved from open to fixed."
 blocking = false
 needed_by = ["kill semantics (ANALYSIS decision 1): a kill must hold in every model of the definition, so the census can narrow from the definition to the leaf"]
 summary = "At 501f18b9 k-rust evaluates applications whose value the definition leaves open (choice and listing order of MAP/SET/RANGEMAP, mixed-format Float, NaN sign, Base2String case, Float2String text, String2Bytes/Bytes2String reading, substitution renaming, several hook families, the strict reading of andBool/orBool/impliesBool/#if) and returns one model's answer with no leaf signal. ADDENDUM-3 also asks whether andThenBool's strictness on an undefined right operand is intended."
@@ -1054,8 +1060,11 @@ handoff = "KINK-17"
 id = "contradicted-claim-coverage"
 title = "No flag for a false [preserves-definedness] claim, or for a false total/functional claim hit while deciding a condition"
 kind = "missing-feature"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+status = "fixed"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): docs/compatibility.md '## A contradicted `total` attribute is named, not repaired' (:1629 at the pin; a condition refuted through a contradicted total, r(0) with r(I) => done requires td(I) >Int 0, leaves a stuck leaf carrying the record, as does the leaf an owise rule reaches) and '## A contradicted `preserves-definedness` attribute is named, not repaired' (:1671; under state-set the merged trivial leaf of two(0) carries the record), both modalities, executions and searches, records on the leaf and on contradictedClaims"
+fixed_in = "1e1d6d4d2 and c138a8ec0 (tickets KINK-18/1-3, heads df82984f7, 16e88a6d4, a009ea6fc; merges 879fce1cc, 7d4c588f9, 4561f7820, dec70ffd1, 5ad12d943)"
+where_requested_shape_differs = "Records are complete for contradictions evaluation finds on ground arguments only (docs/compatibility.md, the list paragraph, :1661 at the pin); a claim false only at a symbolic instance a later step narrows to gets no record (kink finding KINK-PD-SYMBOLIC-INSTANCE, parked). A state-set trivial leaf names its own step's rule and carries the merged paths' records instead of listing every rule it stands for, which kink no longer needs (update_2026_10_27). Proof routes record nothing (k-rust FU-41); kink does not prove."
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); moved from open to fixed; the request's reproducers and acceptance are ground, and the remaining gap, a claim false only at a symbolic instance, is kink's own parked finding KINK-PD-SYMBOLIC-INSTANCE (where_requested_shape_differs)."
 blocking = false
 needed_by = ["kill semantics (ANALYSIS decision 2): a kill on an inconsistent theory says nothing about tests"]
 summary = "Since KINK-10/3 an undefined rule result gives a Trivial leaf over the pre-step configuration. contradicted_total reports false total/functional claims there, but nothing reports a false [preserves-definedness] claim, nor a false total/functional claim met while evaluating a requires or equation condition (the run then reads it as 'not applied' and ends Stuck or takes owise)."
@@ -1071,8 +1080,11 @@ handoff = "KINK-18"
 id = "smt-undecided-count"
 title = "Results do not say whether any solver answer was undecided"
 kind = "missing-feature"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+status = "fixed"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): ExecutionResult::smt_unknowns (crates/k-rust/src/backend/mod.rs, wire smtUnknowns, absent at 0, 0 in the portable build) and docs/compatibility.md '### Execute' exclusions (:2460 at the pin): a Z3 run with a nonzero count is outside the Execute promise, one with count 0 is inside it on a fresh or reused Backend"
+fixed_in = "f8491ad35 (KINK-19/1, head 2e0417b71; merge cb563160f)"
+where_requested_shape_differs = "Executions only: searches and RPC routes carry no count (k-rust answer KINK-19 still_open)."
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); moved from open to fixed."
 blocking = false
 needed_by = ["tier-1 outcome caching in Z3 builds (FU-15), off today"]
 summary = "compatibility.md excludes runs with an SMT timeout from the Execute promise, but a result does not say whether one happened, so kink cannot cache any Z3-profile outcome."
@@ -1087,8 +1099,9 @@ handoff = "KINK-19"
 id = "equation-pair-check-coverage"
 title = "Equation-pair classification skips definitions without equation heads, gives no per-group counts and leaves simple disjoint guards unrefuted"
 kind = "correctness"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+status = "partial"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): items 1, 2, 3, 6, 8, 9 present: BackendDefinition::value_claims_in_scope(CheckScope::All) classifies every pair whatever the heads, ValueClaims::group_counts gives per index and priority group counts (docs/compatibility.md :1125-1128 at the pin), one-term integer bounds are refuted in every build (KINK-20/3), sentence_provenance is documented for #lambda and #withConfig equations (KINK-20/5); merges 0f449a6a8, 879fce1cc, 79fa4c823, 7a43fc511. Item 4 (semantic self pairs) and item 5 (load-time diagnostics for declared functions) were deferred and item 7 rejected by k-rust (answer KINK-20)"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); moved from open to partial."
 blocking = false
 needed_by = ["mutant consistency check (inconsistent-mutant refusal): a consistent mutant wrongly refused leaves the score and can hide a survivor"]
 summary = "value_claims_in_scope(CheckScope::All) checks no pair in a definition with no equation head and no withdrawable overloaded symbol (every definition kink mutates); CheckCounts is whole-definition only; in the portable build a non-complementary but disjoint overlap such as X >Int 5 vs X <=Int 0 is 'neither refuted nor enough to join', so kink refuses a consistent mutant. Also asks for a source-sentence to KORE-equation mapping, labels on generated #lambda equations, and two contract clarifications."
@@ -1103,8 +1116,10 @@ handoff = "KINK-20"
 id = "typing-error-where-compilation-succeeds"
 title = "SentenceTyper reports a sort error on a cell-less rewrite that compilation accepts"
 kind = "correctness"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+status = "fixed"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): docs/compatibility.md '## Sorts of compiled terms' (:368-373 at the pin): a cell-less rewrite is typed where compilation places it (wrapped in the computation cell, at K), a cell-less claim at the join of its sides; typing_in (crates/k-rust/src/kompile/sort_injections/typing.rs) types in compilation's view; an anywhere or function-headed rule whose right side is not at or below its left side's sort is refused (KINK-21/3)"
+fixed_in = "79fa4c823 (tickets KINK-21/1-4, heads e7b166360, 7596ad864, 2864601e5; merges 5cfa1c5a0, 79fa4c823)"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); moved from open to fixed."
 blocking = false
 needed_by = ["k-rust's own contract (compatibility.md:278); kink no longer depends on it"]
 summary = "compatibility.md:278 says a typing error implies compilation fails. At 501f18b9, [ab] a(X) => b(X) with A, B having two common supersorts gives IncompatibleSorts in for_compilation().typing_in, yet compiles and runs; likely the typer takes the LUB before AddImplicitComputationCell. Related: compile_loaded_definition accepts a parser-free [anywhere] rule equating an A with a B that the parser refuses (fails later at backend internalisation). Also asks to document the loader's retained modules."
@@ -1119,8 +1134,9 @@ handoff = "KINK-21"
 id = "execution-facts-for-kills"
 title = "Two execution facts kink's kills rest on are not stated: leaves before a work-bound leaf are finished, and state sets absorb bound or undecided leaves"
 kind = "correctness"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md (sha256 55d51a79…, given to k-rust on 2026-10-18, judged against k-rust's code at 501f18b9 when written), not requalified"
+status = "partial"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): fact 1 is the work budget's prefix contract, docs/compatibility.md '### Work budget' (:2346-2349 at the pin, a093ab83b); fact 2 is stated under '## Search results' (:2129-2134: a bound or undecided leaf is merged only into an earlier stuck leaf of its configuration, and a state-set result in which every such leaf was merged is complete); tickets KINK-22/1-2, heads cb8c7138c, 4ec97fac0, merge cb563160f. Not added: the per-result count of absorbed bound or undecided leaves (ask 2) and the work counts on a cancelled error (ask 3), deferred by k-rust (answer KINK-22, reopen triggers in its triage/KINK-22.toml); no such field exists at main"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); moved from open to partial."
 blocking = false
 needed_by = ["one-sided kills from work-bound runs (ANALYSIS decision 6; on by default in kink-flow)", "StateSet result runs: completeness of a state-set result"]
 summary = "Fact 1: every leaf reported before the work-bound leaf is a finished expansion (read from k-rust-backend rewrite/execute.rs:378-384, not stated). Fact 2: a state set can be complete where the path set of the same bounds is not, because a later depth-bound or undecided leaf of a stuck configuration is absorbed without trace (kink fixture testdata/k/l1/absorb.k: [Stuck 3], work 7 in both modalities)."
@@ -1136,7 +1152,8 @@ id = "edited-module-load-against-prepared-base"
 title = "Resolving a mutation needs a full load_for_compilation of the edited text"
 kind = "performance"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): no load of a definition with one module edited against a prepared base equal to load_for_compilation of the edited text; the prepared-semantics base of crates/k-rust/src/outer/loader.rs (0db04c53e, 2026-09-25) predates the request and loads whole sources"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); status unchanged."
 blocking = false
 needed_by = ["kink cold cost on large specifications (resolution about 10 s per mutation on KEVM, 3.3 s on KMIR)"]
 summary = "Every edited load re-parses every rule bubble of the definition and prelude (84 of 111 ms per IMP load). outer::load_with_prepared_base exists but refuses a base module re-read with different text (PreparedModuleMismatch, loader.rs:1633-1667) and selects no syntax module."
@@ -1152,7 +1169,8 @@ id = "search-work-budget"
 title = "search and search_pattern have no deterministic work budget"
 kind = "missing-feature"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): SearchRequest and SearchPatternRequest (crates/k-rust/src/backend/wire.rs:350, :392) have no max_work and k-rust-backend search.rs SearchOptions bounds only max_depth (:178); kink-flow src/pattern.rs:43 states the gap"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); status unchanged."
 blocking = false
 needed_by = ["kink-flow query (F-18): a bounded pattern answer that can be cached"]
 summary = "Only max_depth, max_breadth and the clock bound a search; a looping or widely branching program ends in a cancellation, which kink cannot cache, or in an OOM. execute already has max_work (KINK-16)."
@@ -1186,7 +1204,8 @@ id = "search-stack-stop-count"
 title = "Searches do not count the stack stops they dismiss"
 kind = "soundness-signal"
 status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status_basis = "static screen of source at 0068938b1 on 2026-10-31 (unchanged at main 5daf52e85): k-rust-backend SearchResult (search.rs:431) has no stack_stops; only ExecutionResult and the state-match summary count stack stops"
+update_2026_10_31 = "kink27 R4-LEDGER: re-screened at the reference pin 0068938b1 (the 2026-10-30 pin move had not re-screened this row); status unchanged."
 blocking = false
 needed_by = ["kink-flow query (F-18): a final no without a code-reading premise"]
 summary = "compatibility.md says search and proofs do not count the stack stops they dismiss; stop::counting_stack_stops is crate-private and only execute reads it. kink read each dismissal site a search reaches at 501f18b9 (fold_hooks_or_keep, simplified_ceil_condition, list_update_cannot_match, state_may_expand) and found none can make an answer false."
