@@ -1218,12 +1218,41 @@ impl Semantics {
     /// A symbol without a printable production is printed as KAST and reported in [`Printed::warnings`].
     #[must_use]
     pub fn unparse_k_head(&self, term: &Term) -> Option<Option<Printed>> {
-        term.k_head_kore().map(|head| {
-            head.map(|item| {
-                self.unparser
-                    .print_kore(item, &krs_unparse::Options::new(krs_unparse::Mode::Pretty))
+        self.unparse_k_head_with(term, true)
+    }
+
+    /// Read a `<k>` cell's first item back from the text [`Semantics::unparse_k_head`] prints:
+    /// parsed with the main module's grammar, which has the builtin collections' syntax too, at
+    /// `KItem`, with its aliases and desugars expanded as a program's are.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Parse`] when the text does not parse.
+    pub fn parse_k_head(&mut self, text: &str) -> Result<Pattern, ExecError> {
+        self.configuration
+            .parse_head("k", text)
+            .map_err(|error| ExecError::Parse {
+                input: "the printed <k> head".to_owned(),
+                sort: "KItem".to_owned(),
+                message: error.to_string(),
             })
-        })
+    }
+
+    /// Print the first item of a term's `<k>` cell as [`Semantics::unparse_k_head`] does, with
+    /// the definition's aliases reversed or, when `reverse_aliases` is false, each term printed as
+    /// the state holds it.
+    #[must_use]
+    pub fn unparse_k_head_with(
+        &self,
+        term: &Term,
+        reverse_aliases: bool,
+    ) -> Option<Option<Printed>> {
+        let options = krs_unparse::Options {
+            reverse_aliases,
+            ..krs_unparse::Options::new(krs_unparse::Mode::Pretty)
+        };
+        term.k_head_kore()
+            .map(|head| head.map(|item| self.unparser.print_kore(item, &options)))
     }
 
     fn steps(&mut self, trace: &[TraceEntry]) -> Vec<Step> {

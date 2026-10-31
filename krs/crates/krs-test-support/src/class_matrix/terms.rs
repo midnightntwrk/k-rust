@@ -64,9 +64,10 @@ pub struct Word(pub String);
 /// The commands: three values the constructs build, the static productions (`Dz` and `Az`,
 /// ground and of one clause each, and those whose expansion the clauses below decide: `Dn` of
 /// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
-/// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path), and K7's driver
-/// commands (below the initializer, and `Drive`, which a case's own rule writes its witness
-/// from), then one command per case.
+/// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path, and `Ah`, an alias of
+/// two clauses whose subjects hold a literal, which printing reverses only on the terms each
+/// clause's result matches with its literal), and K7's driver commands (below the initializer,
+/// and `Drive`, which a case's own rule writes its witness from), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -75,6 +76,7 @@ pub enum Cmd {
     #[k::syntax("pair({a}, {b})")] Pair { a: KItem, b: KItem },
     #[k::syntax("dz")] #[k::desugar] Dz(),
     #[k::syntax("az")] #[k::alias] Az(),
+    #[k::syntax("ah({a})")] #[k::alias] Ah { a: Int },
     #[k::syntax("dn({a})")] #[k::desugar] Dn { a: Int },
     #[k::syntax("rc({a})")] #[k::desugar(recursive)] Rc { a: Int },
     #[k::syntax("tw({a})")] #[k::desugar] Tw { a: KItem },
@@ -118,9 +120,10 @@ pub struct Word(pub String);
 /// The commands: three values the constructs build, the static productions (`Dz` and `Az`,
 /// ground and of one clause each, and those whose expansion the clauses below decide: `Dn` of
 /// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
-/// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path), and K7's driver
-/// commands (below the initializer, and `Drive`, which a case's own rule writes its witness
-/// from), then one command per case.
+/// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path, and `Ah`, an alias of
+/// two clauses whose subjects hold a literal, which printing reverses only on the terms each
+/// clause's result matches with its literal), and K7's driver commands (below the initializer,
+/// and `Drive`, which a case's own rule writes its witness from), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -129,6 +132,7 @@ pub enum Cmd {
     #[k::syntax("pair({a}, {b})")] Pair { a: KItem, b: KItem },
     #[k::syntax("dz")] #[k::desugar] Dz(),
     #[k::syntax("az")] #[k::alias] Az(),
+    #[k::syntax("ah({a})")] #[k::alias] Ah { a: Int },
     #[k::syntax("dn({a})")] #[k::desugar] Dn { a: Int },
     #[k::syntax("rc({a})")] #[k::desugar(recursive)] Rc { a: Int },
     #[k::syntax("tw({a})")] #[k::desugar] Tw { a: KItem },
@@ -287,7 +291,11 @@ const INITIALIZER: &str = r#"impl Machine {
 ///   program grammar;
 /// - makers for the values the grammar has no syntax for, each of which builds exactly the value
 ///   it names: `memp` and `mput(m, k, v)` a map, `semp`, `sone(a)` and `sunion(a, b)` a set,
-///   `lemp`, `lone(a)` and `lcat(a, b)` a list, `wk(a)` `Wrap::<KItem>(a)`, `idx` the `Id` `$x`.
+///   `lemp`, `lone(a)` and `lcat(a, b)` a list, `wk(a)` `Wrap::<KItem>(a)`, `idx` the `Id` `$x`;
+/// - `ah`'s clauses `ah(1) => hold(1)` and `ah(2) => hold(2)`, which no program writes: they are
+///   for printing, which reverses them, so K7 reads a run's printed state back
+///   (`printed_reads_back` of krs-cli's class matrix) where it starts with `hold(1)`, the
+///   value most drivers end with, and `hold(0)` (`sizeof`) is a value neither clause matches.
 ///
 /// None of them is a case's: each case's K is what it adds to this base. The driver rules have
 /// priority 10, ahead of every case's, so that none overlaps a case's rule whose subject's root
@@ -302,6 +310,16 @@ fn dz(k::term![Cmd::Dz()]: Term<Stmt>) -> Term<Stmt> {
 #[k::alias]
 fn az(k::term![Cmd::Az()]: Term<Stmt>) -> Term<Stmt> {
     Cmd::Pair(4, 5)
+}
+
+#[k::alias]
+fn ah_one(k::term![Cmd::Ah(1)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Hold(1)
+}
+
+#[k::alias]
+fn ah_two(k::term![Cmd::Ah(2)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Hold(2)
 }
 
 #[k::desugar]

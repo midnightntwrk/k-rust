@@ -243,7 +243,8 @@ const COUNTERLESS: &[&str] = &[
 
 /// Each production of the terms base that a static clause expands (a `Cmd` variant marked
 /// `#[k::desugar]` or `#[k::alias]`) is applied by a spelling, so a static production kind the
-/// base gains without a spelling is named here.
+/// base gains without a spelling is named here. `Ah` is the exception: its clauses are there for
+/// printing, which reverses them on the states K7 reads back, and no spelling writes it.
 #[test]
 fn every_static_production_of_the_terms_base_has_a_spelling() {
     let base = Base::Terms.preamble();
@@ -281,6 +282,7 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
         [
             ("#[k::desugar]", "Dz".to_owned()),
             ("#[k::alias]", "Az".to_owned()),
+            ("#[k::alias]", "Ah".to_owned()),
             ("#[k::desugar]", "Dn".to_owned()),
             ("#[k::desugar]", "Rc".to_owned()),
             ("#[k::desugar]", "Tw".to_owned()),
@@ -290,7 +292,7 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
         ],
         "the terms base's static productions"
     );
-    for (marker, name) in marked {
+    for (marker, name) in marked.into_iter().filter(|(_, name)| name != "Ah") {
         let application = format!("Cmd::{name}(");
         assert!(
             cases.iter().any(

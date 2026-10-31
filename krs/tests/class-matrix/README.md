@@ -184,6 +184,14 @@ the descriptors of the base and its own. A case is judged by
   the right thing: a rule that never applies, a program that cannot be expanded and a built term
   with another value all look accepted to K1 to K6.
 
+  *The printed state is the state* (NT-23): K7 reads values structurally, so it also reads a
+  conforming run's computation cell back as `krs run` prints it. Where printing reverses an alias
+  in the cell's first item, the printed text, parsed with the definition's grammar and its aliases
+  expanded again, must be the item, value for value (`printed_reads_back`). The terms base's
+  `ah(1) => hold(1)` and `ah(2) => hold(2)` make it read back every run ending in `hold(1)`, where
+  `hold(0)` is a value neither clause matches; a reversal of a term whose literal its clause does
+  not write (`ah(1 #And 0)`) would deviate there.
+
   *Witnesses and values* (`class_matrix::k7`, the spellings in `class_matrix/terms.rs`) are
   generator data, stated from what each construct denotes, never from what KRS emits or runs,
   with the templates' binders at fixed values (`x` is 1): a spelling's *witness* is a ground term

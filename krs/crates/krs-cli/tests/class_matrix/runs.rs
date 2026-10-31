@@ -15,7 +15,7 @@ use k_rust::backend::CancellationToken;
 use k_rust::kore::ast::Pattern;
 use krs_exec::{
     CellError, ConfigInputs, Halt, ProgramInput, RunOptions, RunReport, Semantics, SortRef,
-    StateView, Value, ValueIndex, View,
+    StateView, Term, Value, ValueIndex, View,
 };
 use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 
@@ -94,7 +94,55 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
         .iter()
         .map(|(cell, expected)| (cell, expected, read(view, index, cell)))
         .collect::<Vec<_>>();
-    verdict(run, &report, &observed)
+    match verdict(run, &report, &observed) {
+        Ran::Conforms(status) => printed_reads_back(semantics, &report.state)
+            .map_or(Ran::Conforms(status), Ran::Deviates),
+        deviates @ Ran::Deviates(_) => deviates,
+    }
+}
+
+/// Whether the computation cell's first item, as `krs run` prints it, is the state's: where the
+/// printer reverses an alias there, the printed text, read back with the definition's grammar
+/// (which expands its aliases again, [`Semantics::parse_k_head`]), must be the item, value for
+/// value. `None` when it is, or when no alias was reversed; otherwise the deviation.
+///
+/// Only a reversal is read back: a term printed as the state holds it denotes itself, though the
+/// grammar may have no syntax for parts of it (a freezer, a function's symbolic result).
+fn printed_reads_back(semantics: &mut Semantics, state: &Term) -> Option<String> {
+    let (Some(Some(printed)), Some(Some(unreversed)), Some(Some(item))) = (
+        semantics.unparse_k_head(state),
+        semantics.unparse_k_head_with(state, false),
+        state.k_head_kore(),
+    ) else {
+        return None;
+    };
+    if printed.text == unreversed.text {
+        return None;
+    }
+    let read = match semantics.parse_k_head(&printed.text) {
+        Ok(read) => read,
+        Err(error) => {
+            return Some(format!(
+                "printed `{}`, which does not read back: {}",
+                printed.text,
+                first_line(&error.to_string())
+            ));
+        }
+    };
+    let index = semantics.values();
+    let value = |pattern: &Pattern| {
+        index.decode(pattern).map_or_else(
+            |_| Ground::Opaque(pattern.to_string()),
+            |value| ground(index, &value),
+        )
+    };
+    let (held, read) = (value(item), value(&read));
+    (held != read).then(|| {
+        format!(
+            "printed `{}`, which reads back as {read}, where the state holds {held}",
+            printed.text
+        )
+    })
 }
 
 /// Configure `inputs` and run the state within `depth` steps, both within `limit`: the program's

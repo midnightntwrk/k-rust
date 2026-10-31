@@ -7975,3 +7975,44 @@ deviation = "counter-witness `cf7f18262(1, b\"\\x61\\x62\")`: failed: invalid ex
 ["k7/terms/desugar/subject/k::bytes!(b\"ab\")"]
 finding = "NT-14-2"
 deviation = "counter-witness `cde9c5e43(1, b\"\\x61\\x62\")`: failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCde9c5e43' survived expansion"
+
+# NT-23-1 (K7, the printed state): an alias whose result applies a function on ground arguments
+# reaches `macros.kore` with that application folded (`cTAG => 1 +Int 2` as `cTAG = 3`, k-rust's
+# constant folding runs on the alias's rule before the axiom is written), so printing reverses the
+# evaluated value: `3` prints `cTAG`, and `pair(1, 3)` prints `cTAG(1)`. The printed alias denotes
+# the value, but its expansion is the unevaluated application, and the reference says a value whose
+# applications are evaluated prints expanded. The printer sees only the folded axiom; an emission
+# question (fold an alias's macro axiom or not), outside NT-23.
+
+["k7/terms/alias/result-root-ground/k::builtin::int::add(1, 2)"]
+finding = "NT-23-1"
+deviation = "printed `c06de1b0f`, which reads back as 'UndsPlus'Int'Unds'(1, 2), where the state holds 3"
+
+["k7/terms/alias/result/k::builtin::int::add(1, 2)"]
+finding = "NT-23-1"
+deviation = "printed `c74e836cc(1)`, which reads back as Cmd::Pair(1, 'UndsPlus'Int'Unds'(1, 2)), where the state holds Cmd::Pair(1, 3)"
+
+# NT-23-2 (K7, the printed state; program expansion): an alias whose parameter is a `KItem`
+# (`cTAG(x) => hold(x)`) is not expanded in a program whose argument there is a term of a user
+# sort: `krs run` refuses `cTAG(go)` and `cTAG(hold(1))` ("macro or alias symbol .. survived
+# expansion"), and reading the printed state back leaves the application, while `cTAG(1)` expands.
+# Printing reverses `hold(go)` to `cTAG(go)`, which denotes it, so the printed state does not read
+# back. Which alias a batch prints with is the first in `macros.kore`, so the cases vary with the
+# batch. A program-expansion question (an implicit `Sort <= KItem` edge, like S0-8?), outside NT-23.
+# Probe: `wrap(x: KItem) => hold(x)`, the program `wrap(go)`.
+
+["k7/import/rule/result/Go()"]
+finding = "NT-23-2"
+deviation = "printed `c64289ea3(c7f8bfba8)`, which reads back as cmdC64289ea3(Cmd::Go()), where the state holds Cmd::Hold(Cmd::Go())"
+
+["k7/import/rule/result/Hold(x)"]
+finding = "NT-23-2"
+deviation = "printed `c64289ea3(ah(1))`, which reads back as cmdC64289ea3(Cmd::Hold(1)), where the state holds Cmd::Hold(Cmd::Hold(1))"
+
+["k7/import/rule/subject-depth-2/Go()"]
+finding = "NT-23-2"
+deviation = "counter-witness `cadf34aa1(1, hold(hold(0)))`: printed `cadf34aa1(1, c64289ea3(c64289ea3(0)))`, which reads back as Cmd::Cadf34aa1(1, cmdC64289ea3(Cmd::Hold(0))), where the state holds Cmd::Cadf34aa1(1, Cmd::Hold(Cmd::Hold(0)))"
+
+["k7/import/rule/subject-depth-2/Hold(x)"]
+finding = "NT-23-2"
+deviation = "counter-witness `c371ce8b4(1, hold(pair(0, 0)))`: printed `c371ce8b4(1, c64289ea3(pair(0, 0)))`, which reads back as Cmd::C371ce8b4(1, cmdC64289ea3(Cmd::Pair(0, 0))), where the state holds Cmd::C371ce8b4(1, Cmd::Hold(Cmd::Pair(0, 0)))"
