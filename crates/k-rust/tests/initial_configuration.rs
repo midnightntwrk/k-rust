@@ -543,16 +543,22 @@ endmodule
 }
 
 /// Values expanded through one `expansion()` share its derived views and nothing else: each is
-/// expanded as `expand_program`, which builds fresh views, expands it.
+/// expanded as `expand_program`, which builds fresh views, expands it. `g`'s right side has a
+/// `?` variable no parameter receives, so each use mints a generated variable from the
+/// expander's fresh names; a value expanded again, after others, through the shared expansion
+/// gets the names a fresh expansion gives, so no expander state carries from one value to the
+/// next.
 #[test]
 fn a_shared_expansion_expands_as_fresh_expansions() {
     let compiled = compiled(
         r#"
 module MAIN
-  syntax Foo ::= "foo" [symbol(foo)] | box(Foo) [symbol(box)]
+  syntax Foo ::= "foo" [symbol(foo)] | box(Foo) [symbol(box)] | pair(Foo, Foo) [symbol(pair)]
   syntax Foo ::= m(Foo) [macro, symbol(m)] | al(Foo) [alias, symbol(al)]
+  syntax Foo ::= g(Foo) [macro, symbol(g)]
   rule m(X) => box(X)
   rule al(X) => box(box(X))
+  rule g(X) => pair(X, ?Y:Foo)
   configuration <k> $PGM:Foo </k>
 endmodule
 "#,
@@ -562,7 +568,13 @@ endmodule
     let macros = grammar.macro_definition().unwrap();
     let parser = k_rust::inner::ProgramParser::from_resolved(grammar.resolved(), "MAIN").unwrap();
     let sort = Sort::new("Foo");
-    let values = ["m(foo)", "al(m(foo))", "box(al(foo))"];
+    let values = [
+        "m(foo)",
+        "g(g(foo))",
+        "al(m(foo))",
+        "box(al(foo))",
+        "g(m(foo))",
+    ];
     let parse = |text: &str| parser.parse(&sort, text).unwrap();
     let fresh: Vec<_> = values
         .iter()
@@ -570,23 +582,37 @@ endmodule
         .collect();
     for (text, expanded) in values.iter().zip(&fresh) {
         let mut labels = Vec::new();
-        expanded.term().visit_preorder(&mut |term| {
-            if let k_rust::kast::Term::Apply { label, .. } = term {
-                labels.push(label.name.clone());
-            }
+        let mut variables = Vec::new();
+        expanded.term().visit_preorder(&mut |term| match term {
+            k_rust::kast::Term::Apply { label, .. } => labels.push(label.name.clone()),
+            k_rust::kast::Term::Variable { name, .. } => variables.push(name.clone()),
+            _ => {}
         });
         assert!(
-            labels.iter().all(|label| label == "box" || label == "foo"),
+            labels
+                .iter()
+                .all(|label| label == "box" || label == "foo" || label == "pair"),
             "{text} expands every macro and alias: {labels:?}"
         );
+        let uses = text.matches("g(").count();
+        assert_eq!(
+            variables.len(),
+            uses,
+            "{text} has one generated variable per use of g: {variables:?}"
+        );
+        variables.sort();
+        variables.dedup();
+        assert_eq!(variables.len(), uses, "{text}'s uses of g are distinct");
     }
     let shared = macros.expansion();
-    for (text, expected) in values.iter().zip(&fresh) {
-        assert_eq!(
-            &shared.expand_program("MAIN", parse(text), &sort).unwrap(),
-            expected,
-            "{text}"
-        );
+    for _ in 0..2 {
+        for (text, expected) in values.iter().zip(&fresh) {
+            assert_eq!(
+                &shared.expand_program("MAIN", parse(text), &sort).unwrap(),
+                expected,
+                "{text}"
+            );
+        }
     }
 }
 

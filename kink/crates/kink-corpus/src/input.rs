@@ -1,6 +1,6 @@
 //! Program parsing and configuration assembly through k-rust's concrete-input API.
 
-use std::{cell::Cell, collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt};
 
 use k_rust::{
     definition::{AttributeKey, Definition, Sentence},
@@ -105,15 +105,17 @@ pub fn assemble_input_with(
     InputAssembler::new(&grammar).assemble(&text, spec.start_sort.as_deref(), &spec.variables)
 }
 
+#[cfg(feature = "measure")]
 thread_local! {
-    static INPUT_GRAMMAR_BUILDS: Cell<usize> = const { Cell::new(0) };
+    static INPUT_GRAMMAR_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// How many times [`InputGrammar::prepare`] ran on this thread; a test reads it to pin how often
-/// a caller builds the grammar.
-#[doc(hidden)]
+/// a caller builds the grammar. A test instrument: only the `measure` feature, which dependents
+/// enable from their dev-dependencies, compiles it.
+#[cfg(feature = "measure")]
 pub fn input_grammar_builds() -> usize {
-    INPUT_GRAMMAR_BUILDS.with(Cell::get)
+    INPUT_GRAMMAR_BUILDS.with(std::cell::Cell::get)
 }
 
 /// What assembling inputs of one compiled definition needs, built once per definition: the
@@ -147,6 +149,7 @@ impl InputGrammar {
         loaded: &LoadedSource,
         compiled: Option<&ValidatedDefinition>,
     ) -> Result<Self, InputError> {
+        #[cfg(feature = "measure")]
         INPUT_GRAMMAR_BUILDS.with(|builds| builds.set(builds.get() + 1));
         let fresh;
         let compiled = match compiled {

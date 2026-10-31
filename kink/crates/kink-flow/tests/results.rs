@@ -925,12 +925,13 @@ text = 'h(opaque(1), 2)'
         let (record, admitted) = admit_spec(&manifest);
         assert_eq!(record.text(), whole.record.text());
         let (spec, mut inputs) = admitted.unwrap();
-        let mut session = inputs.session();
-        // In reverse order, each program alone gives what `admit` gave.
+        let mut session = inputs.session(&spec);
+        // In reverse order through one session, and so also after the refused `bad` program,
+        // each program gives what `admit` gave in manifest order.
         for (program, expected) in manifest.programs.iter().zip(&whole.programs).rev() {
             let outcome = session
                 .text(program)
-                .and_then(|text| session.test_case(&spec, program, text));
+                .and_then(|text| session.test_case(program, text));
             assert_eq!(outcome, expected.outcome, "{}", program.id);
         }
     }
