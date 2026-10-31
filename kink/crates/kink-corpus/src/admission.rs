@@ -1,7 +1,8 @@
 //! Ordered corpus refusals. The baseline check has no candidate to execute.
 
 use crate::{
-    LoadedSource, ProgramSource, SourceFile, TestInputSpec, assemble_input_with,
+    InputAssembler, InputGrammar, LoadedSource, ProgramSource, SourceFile, TestInputSpec,
+    assemble_input_with,
     manifest::{
         BELOW_FLOOR, CorpusInput, CorpusManifest, DefinitionSpec, Exclusion, exclusion_applies,
         normalized, path_excluded,
@@ -181,15 +182,26 @@ fn admit(
     let validator = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default());
     let compiled = compile_definition(&validator, record)?;
     let mut backend = input_backend(&compiled, &d.main_module)?;
+    // One grammar and one assembler serve every program of the definition, built on the first
+    // (`InputAssembler::assemble` gives what a fresh assembly gives).
+    let grammar = std::cell::OnceCell::new();
+    let mut assembler = None;
     let mut tests = Vec::new();
     for test in &d.tests {
         let initial_state = match &test.input {
             CorpusInput::Program(spec) => {
-                let mut spec = spec.clone();
-                if let ProgramSource::File(file) = &spec.program {
-                    spec.program = ProgramSource::Text(input_texts[file].clone());
-                }
-                program_input(&loaded, &compiled, &spec)?
+                let text = match &spec.program {
+                    ProgramSource::File(file) => &input_texts[file],
+                    ProgramSource::Text(text) => text,
+                };
+                let grammar = grammar
+                    .get_or_init(|| InputGrammar::prepare(&loaded, Some(&compiled)))
+                    .as_ref()
+                    .map_err(|e| input_refusal(e.clone()))?;
+                assembler
+                    .get_or_insert_with(|| InputAssembler::new(grammar))
+                    .assemble(text, spec.start_sort.as_deref(), &spec.variables)
+                    .map_err(input_refusal)?
             }
             CorpusInput::KoreState { file, .. } => {
                 // kink-patch `parse_json`: a concrete state nests two JSON levels per KORE level,
@@ -510,14 +522,19 @@ pub fn program_input(
     compiled: &ValidatedDefinition,
     spec: &TestInputSpec,
 ) -> Result<Pattern, AdmissionRefusal> {
-    assemble_input_with(loaded, Some(compiled), spec).map_err(|e| {
-        let reason = match e {
-            crate::InputError::Parse(_) => "parse",
-            crate::InputError::StreamMode(_) => "stream-mode",
-            _ => "assemble",
-        };
-        AdmissionRefusal::new("inputs", reason, e)
-    })
+    assemble_input_with(loaded, Some(compiled), spec).map_err(input_refusal)
+}
+
+/// The refusal of a program whose input assembly failed with `e`: reason `parse` for a parse
+/// failure, `stream-mode` for a binding of `$IO` on a definition with stream cells, `assemble`
+/// for any other failure.
+pub fn input_refusal(e: crate::InputError) -> AdmissionRefusal {
+    let reason = match e {
+        crate::InputError::Parse(_) => "parse",
+        crate::InputError::StreamMode(_) => "stream-mode",
+        _ => "assemble",
+    };
+    AdmissionRefusal::new("inputs", reason, e)
 }
 
 /// The concrete-state check and the input gate of one initial state.

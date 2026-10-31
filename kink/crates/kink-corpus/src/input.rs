@@ -1,6 +1,6 @@
 //! Program parsing and configuration assembly through k-rust's concrete-input API.
 
-use std::fmt;
+use std::{cell::Cell, collections::BTreeMap, fmt};
 
 use k_rust::{
     definition::{AttributeKey, Definition, Sentence},
@@ -101,50 +101,145 @@ pub fn assemble_input_with(
             String::from_utf8(bytes).map_err(|e| InputError::Parse(e.to_string()))?
         }
     };
-    let fresh;
-    let compiled = match compiled {
-        Some(compiled)
-            if *compiled.compile_options() == CompileOptions::default()
-                && compiled.definition() == loaded.baseline.definition() =>
+    let grammar = InputGrammar::prepare(loaded, compiled)?;
+    InputAssembler::new(&grammar).assemble(&text, spec.start_sort.as_deref(), &spec.variables)
+}
+
+thread_local! {
+    static INPUT_GRAMMAR_BUILDS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many times [`InputGrammar::prepare`] ran on this thread; a test reads it to pin how often
+/// a caller builds the grammar.
+#[doc(hidden)]
+pub fn input_grammar_builds() -> usize {
+    INPUT_GRAMMAR_BUILDS.with(Cell::get)
+}
+
+/// What assembling inputs of one compiled definition needs, built once per definition: the
+/// program grammar, the declared variables, the start sort and whether the definition has stream
+/// cells.
+pub struct InputGrammar {
+    grammar: ProgramGrammar,
+    main_module: String,
+    syntax_module: String,
+    variables: BTreeMap<String, Sort>,
+    default_start: Sort,
+    stream_cells: bool,
+}
+
+impl fmt::Debug for InputGrammar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InputGrammar")
+            .field("main_module", &self.main_module)
+            .field("syntax_module", &self.syntax_module)
+            .field("variables", &self.variables)
+            .field("default_start", &self.default_start)
+            .field("stream_cells", &self.stream_cells)
+            .finish_non_exhaustive()
+    }
+}
+
+impl InputGrammar {
+    /// The grammar of `loaded`'s baseline, with `compiled` as in [`assemble_input_with`] (the
+    /// same guard: a `compiled` that is not that compile is replaced by a compile made here).
+    pub fn prepare(
+        loaded: &LoadedSource,
+        compiled: Option<&ValidatedDefinition>,
+    ) -> Result<Self, InputError> {
+        INPUT_GRAMMAR_BUILDS.with(|builds| builds.set(builds.get() + 1));
+        let fresh;
+        let compiled = match compiled {
+            Some(compiled)
+                if *compiled.compile_options() == CompileOptions::default()
+                    && compiled.definition() == loaded.baseline.definition() =>
+            {
+                compiled
+            }
+            _ => {
+                fresh = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default())
+                    .compile_baseline()
+                    .map_err(|e| InputError::Assemble(e.to_string()))?;
+                &fresh
+            }
+        };
+        let grammar = ProgramGrammar::new(loaded.baseline.definition()).map_err(input_error)?;
+        let variables = compiled.artifacts().configuration_variables.clone();
+        let default_start =
+            program_start_position(variables.get("PGM").unwrap_or(&Sort::new("KItem")));
+        Ok(Self {
+            grammar,
+            main_module: loaded.baseline.definition().main_module.to_string(),
+            syntax_module: loaded.syntax_module.to_string(),
+            variables,
+            default_start,
+            stream_cells: has_stream_cells(&compiled.artifacts().execution_definition),
+        })
+    }
+}
+
+/// Assembles the initial configurations of one [`InputGrammar`] with one k-rust
+/// [`ConfigurationAssembler`], whose parsers, macro-expansion views and sort injectors are built
+/// on first use and then serve every later program.
+pub struct InputAssembler<'g> {
+    grammar: &'g InputGrammar,
+    assembler: ConfigurationAssembler<'g>,
+}
+
+impl fmt::Debug for InputAssembler<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InputAssembler")
+            .field("grammar", self.grammar)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'g> InputAssembler<'g> {
+    pub fn new(grammar: &'g InputGrammar) -> Self {
+        Self {
+            grammar,
+            assembler: ConfigurationAssembler::new(
+                &grammar.grammar,
+                grammar.main_module.as_str(),
+                grammar.syntax_module.as_str(),
+                &grammar.variables,
+            ),
+        }
+    }
+
+    /// The initial configuration of the program `text` read at `start_sort` (the start position
+    /// of `$PGM`'s sort by default) with the variable texts `variables`, as
+    /// [`assemble_input_with`] assembles it.
+    ///
+    /// The assembler is cleared first, so a configuration an earlier call abandoned on an error
+    /// leaves nothing behind: each call gives what a fresh assembler gives.
+    pub fn assemble(
+        &mut self,
+        text: &str,
+        start_sort: Option<&str>,
+        variables: &[(String, String)],
+    ) -> Result<Pattern, InputError> {
+        let assembler = &mut self.assembler;
+        assembler.clear();
+        let start = start_sort.map_or_else(|| self.grammar.default_start.clone(), Sort::new);
+        assembler.program(&start, text).map_err(input_error)?;
+        if let Some((name, _)) = variables.iter().find(|(name, _)| is_io(name))
+            && self.grammar.stream_cells
         {
-            compiled
+            return Err(InputError::StreamMode(format!(
+                "the program binds {name} on a definition with stream cells: kink runs a stream \
+                 definition with $IO = \"off\" only, so that its stream cells state the program's \
+                 output and unread input"
+            )));
         }
-        _ => {
-            fresh = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default())
-                .compile_baseline()
-                .map_err(|e| InputError::Assemble(e.to_string()))?;
-            &fresh
+        for (name, text) in variables {
+            assembler.bind(name, text).map_err(input_error)?;
         }
-    };
-    let grammar = ProgramGrammar::new(loaded.baseline.definition()).map_err(input_error)?;
-    let variables = &compiled.artifacts().configuration_variables;
-    let start = spec.start_sort.as_ref().map_or_else(
-        || program_start_position(variables.get("PGM").unwrap_or(&Sort::new("KItem"))),
-        Sort::new,
-    );
-    let mut assembler = ConfigurationAssembler::new(
-        &grammar,
-        &loaded.baseline.definition().main_module,
-        &loaded.syntax_module,
-        variables,
-    );
-    assembler.program(&start, &text).map_err(input_error)?;
-    if let Some((name, _)) = spec.variables.iter().find(|(name, _)| is_io(name))
-        && has_stream_cells(&compiled.artifacts().execution_definition)
-    {
-        return Err(InputError::StreamMode(format!(
-            "the program binds {name} on a definition with stream cells: kink runs a stream \
-             definition with $IO = \"off\" only, so that its stream cells state the program's \
-             output and unread input"
-        )));
+        assembler
+            .bind_stream_defaults::<ConfigurationError>(false, false, || Ok(Vec::new()))
+            .map_err(input_error)?;
+        assembler.finish().map_err(input_error)
     }
-    for (name, text) in &spec.variables {
-        assembler.bind(name, text).map_err(input_error)?;
-    }
-    assembler
-        .bind_stream_defaults::<ConfigurationError>(false, false, || Ok(Vec::new()))
-        .map_err(input_error)?;
-    assembler.finish().map_err(input_error)
 }
 
 /// Whether a program variable's name names `$IO` (it may be written with or without its `$`).

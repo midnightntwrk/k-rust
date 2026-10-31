@@ -6,8 +6,8 @@ use k_rust::{
     kore::{codec::to_value, parser::parse_definition},
 };
 use kink_corpus::{
-    CorpusSource, InputError, LoadedSource, ProgramSource, TestInputSpec, assemble_input,
-    assemble_input_with, load_source,
+    CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
+    TestInputSpec, assemble_input, assemble_input_with, load_source,
 };
 use kink_native::{NativeValidator, bridge::validate_test_initial_state};
 
@@ -138,6 +138,61 @@ fn program_file_escape_is_refused() {
         assemble_input(&loaded, &input),
         Err(InputError::Parse(_))
     ));
+}
+
+/// One `InputAssembler` serves every program of its definition: each result, an initial state
+/// or a refusal, is the one a fresh assembly gives, also right after a program whose
+/// configuration was abandoned on an error after its program was bound (the `true` value of
+/// `$N`, the `$IO` binding on a stream definition). The assembler is cleared before each program;
+/// without that the program after an abandoned one would be refused as a second `$PGM`.
+#[test]
+fn one_assembler_assembles_what_assemble_input_does() {
+    let with_variables = |variables: &[(&str, &str)]| TestInputSpec {
+        variables: variables
+            .iter()
+            .map(|(name, text)| ((*name).into(), (*text).into()))
+            .collect(),
+        ..spec()
+    };
+    for (loaded, inputs) in [
+        (
+            load("variables.k", "VARIABLES"),
+            vec![
+                with_variables(&[]),
+                with_variables(&[("N", "42")]),
+                with_variables(&[("N", "true")]),
+                with_variables(&[("N", "7")]),
+            ],
+        ),
+        (
+            load("streams.k", "STREAMS"),
+            vec![
+                with_variables(&[("IO", "\"on\"")]),
+                with_variables(&[("STDIN", "\"5\\n\"")]),
+            ],
+        ),
+    ] {
+        let compiled = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default())
+            .compile_baseline()
+            .unwrap();
+        let grammar = InputGrammar::prepare(&loaded, Some(&compiled)).unwrap();
+        let mut assembler = InputAssembler::new(&grammar);
+        let mut refusals = 0;
+        for input in &inputs {
+            let ProgramSource::Text(text) = &input.program else {
+                unreachable!("every program here is a text")
+            };
+            let fresh = assemble_input_with(&loaded, Some(&compiled), input);
+            refusals += usize::from(fresh.is_err());
+            assert_eq!(
+                assembler.assemble(text, input.start_sort.as_deref(), &input.variables),
+                fresh,
+                "{:?}",
+                input.variables
+            );
+        }
+        assert!(refusals > 0 && refusals < inputs.len(), "{inputs:?}");
+    }
 }
 
 mod kink_tier {
