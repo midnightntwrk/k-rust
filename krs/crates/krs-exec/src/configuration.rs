@@ -46,6 +46,16 @@ impl From<ConfigurationError> for AssemblyError {
     }
 }
 
+/// `frontend` with the sort predicates `isS` and projections `project:S` (and the field projections) that the compiled definition generates for its sorts: the symbols a rule's `k::is!`, `k::project!` and projected collection lookup apply.
+///
+/// A program's expansion writes an alias's or a desugar's result into the program, and the expanded program is typed and converted to KORE over the program grammar.
+/// The result holds these symbols exactly where the same term in a rule's result does, and the expanded program then evaluates as that rule's result would, so the grammar names them as the compiled definition does; without them the expansion of `cn(1)` under `cn(x) => pair(x, isInt(x))` names no production.
+/// Their productions take a `K` argument, so a program's own text reaches them only where the syntax module parses a `K` term.
+fn with_sort_helpers(frontend: &Definition) -> Result<Definition, Box<dyn Error>> {
+    let predicates = k_rust::kompile::generate_sort_predicate_syntax(frontend)?;
+    Ok(k_rust::kompile::generate_sort_projections(&predicates)?)
+}
+
 /// The program grammar and declared variable sorts that every configuration of one loaded definition is assembled against.
 struct Grammar {
     program: ProgramGrammar,
@@ -70,6 +80,7 @@ impl Configuration {
     /// Prepare the program grammar, configuration parser modules, and macros once per session.
     ///
     /// The grammar is leaked so that the assembler, which borrows it, can live in the session: a session loads one definition, once, for the life of its process.
+    /// It is read over the frontend definition with the sort predicates and projections the definition generates ([`with_sort_helpers`]).
     ///
     /// # Errors
     ///
@@ -80,7 +91,7 @@ impl Configuration {
     ) -> Result<Self, Box<dyn Error>> {
         let main_module = frontend_definition.main_module.clone();
         let grammar: &'static Grammar = Box::leak(Box::new(Grammar {
-            program: ProgramGrammar::new(frontend_definition)?,
+            program: ProgramGrammar::new(&with_sort_helpers(frontend_definition)?)?,
             variables: configuration_variables,
         }));
         let resolved = grammar.program.resolved();
