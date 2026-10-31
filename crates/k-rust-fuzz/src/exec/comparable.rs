@@ -681,8 +681,9 @@ mod tests {
     }
 
     /// P3 (kink27 FUZZ-UNDEF-P3): an undefined step is no end and its term is never compared,
-    /// so whether its term is data does not matter; it needs only to be decided and to exist,
-    /// which P2 reads on every leaf.
+    /// so whether its term is data does not matter; in a definition with data (the `result`
+    /// helper's `definition_data: Some(true)`) it needs only to be decided and to exist, which P2
+    /// reads on every leaf.
     #[test]
     fn an_undefined_step_needs_only_to_exist_and_be_decided() {
         for data_end in [Some(false), None] {

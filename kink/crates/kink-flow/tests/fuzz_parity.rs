@@ -21,8 +21,8 @@
 //!   undefined path beside the same ends is no difference, and a side whose every path takes an
 //!   undefined step has the empty set of ends, which a clean end of the other side distinguishes.
 //!   kink completes an undefined step whose configuration exists without being a value (kink27
-//!   R3-UNDEF-BRIDGE), and so does the fuzz's comparable judgement, whose P3 reads ends only
-//!   (kink27 FUZZ-UNDEF-P3).
+//!   R3-UNDEF-BRIDGE), and so does the fuzz's comparable judgement, whose P3 reads ends, and the
+//!   definition's data on undefined steps (kink27 FUZZ-UNDEF-P3).
 //!
 //! Known divergences, pinned for the final first-principles review, not desired behaviour:
 //! - cond(0): the fuzz holds no end of a definition with an unnamed critical-pair finding to be
