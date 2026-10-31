@@ -578,7 +578,16 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// execution applies it), which changes the warnings printed, not the verdict, the seeds or the
 /// counts kink reads; its documentation was rewrapped. The stages, the early return, the probe
 /// head and the premise are unchanged.
-const CONFLUENCE_RS: &str = "5f92763aac23dea009e03ad93661304c98c7a86494bc5dbc317c6a2e7a625e2e";
+/// GAP K3 fix round 2: 5f92763a -> de1ac0de. An equation the evaluator never applies as written
+/// (an application below its root, an unbound right-hand side variable) gets that reason even
+/// where it also holds an open literal, as before K3; `OpenLiteral` is left to the equations an
+/// execution applies. Each such equation is still one per-equation pair, seeded alike whatever
+/// its reason, so the seeds, the closure and the counts kink reads are unchanged, and the warning
+/// it prints and the documentation of `OpenLiteral` move. One data-heads reading moves back to
+/// its pre-K3 value: such an equation with an unbound right-hand side variable is a decided
+/// finding again (`data_term::Finding::is_decided`), since read as written it equates its
+/// left-hand side with every value of that variable's sort whatever the literal's element is.
+const CONFLUENCE_RS: &str = "de1ac0deac996515212a1fc033c2aff2f0590f6bd91a71ec720db3f076719016";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

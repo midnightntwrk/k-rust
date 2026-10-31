@@ -2845,7 +2845,8 @@ fn check_pass(
             };
             let reason = if let Some(reason) = never_applied {
                 reason
-            } else if let Some(literal) = equation.rule.computed_attributes.open_literals.first() {
+            } else {
+                let literal = equation.rule.computed_attributes.open_literals.first()?;
                 // The literal is not apart from any value, so no overlap of the equation is
                 // refuted or joined on its element: the equation is joined with nothing.
                 //
@@ -2863,8 +2864,6 @@ fn check_pass(
                 // such pair would give
                 // (`an_open_literal_taints_the_equations_its_element_may_overlap`).
                 UnjoinedReason::OpenLiteral(literal.to_string())
-            } else {
-                return None;
             };
             Some(UnjoinedPair {
                 first: Arc::clone(&equation.rule),
