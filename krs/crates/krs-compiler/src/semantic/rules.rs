@@ -550,6 +550,7 @@ pub(super) fn lower_head_rule_descriptor(
         &head_rule_terms(rule),
         catalog,
         declarations,
+        rule.sentence_kind != krs_ir::SentenceKind::Claim,
     )?;
     let head_sort = rule
         .head_sort
@@ -2072,6 +2073,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .collect::<Vec<_>>(),
         catalog,
         declarations,
+        rule.sentence_kind != krs_ir::SentenceKind::Claim,
     )?;
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
     // A single-body rule (KF-011) has no result: its subject's rewrites

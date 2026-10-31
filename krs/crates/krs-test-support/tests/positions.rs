@@ -34,7 +34,7 @@ const KNOWN: [(&str, &str); 21] = [
     // prover lowers them in a claim, so the product refuses them there (NT-7-1); a `cells!`
     // claim's cell values are S0-17's.
     (
-        r"terms/{claim/subject,claim/item-root,claim/result,claim/result-item-root,cells-claim/guard,cells-claim/guard/closure-body}/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/{claim/subject,claim/item-root,claim/result,claim/result-item-root,cells-claim/guard,cells-claim/guard/closure-body}/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-7-1",
     ),
     // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), so a construct in
@@ -57,7 +57,7 @@ const KNOWN: [(&str, &str); 21] = [
         "NT-3-2",
     ),
     (
-        r"terms/readable/set-instance-child/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/readable/set-instance-child/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-3-2",
     ),
     (
@@ -85,28 +85,28 @@ const KNOWN: [(&str, &str); 21] = [
         "NT-2-6",
     ),
     (
-        r"terms/readable/map-key/matches-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/readable/map-key/matches-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-2-6",
     ),
     (r"terms/readable/map-key/let-pattern/x | 1", "NT-2-25"),
     // A set's element reads as a constructor's argument to the product, which cannot tell
     // `set::item` before resolution (NT-3-1).
     (
-        r"terms/rule/subject/set-element/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/rule/subject/set-element/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-3-1",
     ),
     // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), which the oracle
     // admits as a computed key.
     (
-        r"terms/readable/map-key/function-argument/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/readable/map-key/function-argument/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-3-2",
     ),
     (
-        r"terms/readable/map-key/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/readable/map-key/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-3-2",
     ),
     (
-        r#"terms/readable/map-key/let-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}"#,
+        r#"terms/readable/map-key/let-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}"#,
         "NT-3-2",
     ),
     (
@@ -118,7 +118,7 @@ const KNOWN: [(&str, &str); 21] = [
         "NT-3-2",
     ),
     (
-        r"terms/readable/map-key/update-field/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/readable/map-key/update-field/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
         "NT-3-2",
     ),
 ];

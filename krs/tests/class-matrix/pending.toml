@@ -8147,3 +8147,150 @@ deviation = "<k> head printed `cade81b66(ak, word)`, which reads back as cmdCade
 ["k7/terms/alias/subject/k::lexeme!(Word, \"word\")"]
 finding = "NT-23-3"
 deviation = "<k> head printed `cced49ed0(ak, word)`, which reads back as cmdCced49ed0(1, word), where the state holds Cmd::Hold(1)"
+
+# NT-16 review S4: the update of a computed record that `record-update-base` now advises, a `let`
+# that destructures it, deviates where the term family's other `let` spellings do, under their
+# findings; the advice itself deviates on the context form (NT-16-4: a context has no result slot,
+# so no generated case writes the advised form there) and where the refusal is another class's
+# (S0-14).
+
+["terms/cells-claim/guard/closure-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/cells-claim/guard/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/local-rule/subject/rewrite-left/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/as-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/rule/guard/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/set-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-3-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/sort-rule/result/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/subject-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["k3/terms/readable/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/readable/result-list-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/readable/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k8/terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "NT-7-1"
+deviation = "advice of record-update-base: refused: krs::expand::let-outside-term"
+
+["k8/terms/context/guard/Cmd::Pair { a: x, ..x }"]
+finding = "NT-16-4"
+deviation = "record-update-base advises terms/context/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }, which is not generated"
+
+["k8/terms/readable/map-key/or-branch/Cmd::Pair { a: x, ..x }"]
+finding = "S0-14"
+deviation = "record-update-in-pattern advises none, and its refusal advises `{ let Cmd::Pair { a: _, b } = e; Cmd::Pair { a: .., b } }`"

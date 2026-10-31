@@ -97,7 +97,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes, 8 typed cells × 4 contents, and the typed `stmt` written after it starts.
             (Family::Init, 126 + 1 + 3 + 1 + 1 + 4 + 32 + 1),
-            // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
+            // (81 positions of depth 1 + 25 positions constructs open) × 48 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings
             // reading an initializer's configuration variable in a `let` body; the 2 static
@@ -110,7 +110,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // at a constructor's argument and at an alias's pattern, and 5 at an alternative.
             (
                 Family::Terms,
-                106 * 47 + 3 * 2 + 2 + 35 * 2 + 2 + 2 + 2 + 2 * (17 + 20 + 2 * 8 + 5) + 2,
+                106 * 48 + 3 * 2 + 2 + 35 * 2 + 2 + 2 + 2 + 2 * (17 + 20 + 2 * 8 + 5) + 2,
             ),
             // 89 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
             (Family::Import, 89 * 2),

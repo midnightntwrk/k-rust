@@ -476,8 +476,8 @@ advice = "terms/init/variable-item/Cmd::Pair { a: x, ..x }"
 
 [class.record-update-base]
 code = "krs::analysis::invalid-record-update"
-doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence"
-advice = "none"
+doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence; a value the sentence computes is destructured with a `let` instead, except in a claim, which holds no `let`"
+advice = "terms/{form}/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"
 
 [class.record-update-in-pattern]
 code = "krs::syntax::invalid-record-update"
@@ -762,7 +762,7 @@ class = "condition-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{equation,rule}/guard/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x)}'
+match = 'terms/{equation,rule}/guard/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}'
 class = "condition-sort"
 at = "spelling"
 
@@ -1025,7 +1025,7 @@ at = "spelling"
 # unbound-name (NT-7): a `let` block, `k::matches!`, a sort test, a turbofish and a record update
 # read `x`, which the initializer of these slots does not bind (`init/variable-item` binds it)
 [[refuse]]
-match = 'terms/init/{item,item-depth-2,item-root}/{Cmd::Pair \{ a: x\, ..x \},Wrap::<dyn k::KItemSort>(x),k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let y = x; y \}}'
+match = 'terms/init/{item,item-depth-2,item-root}/{Cmd::Pair \{ a: x\, ..x \},Wrap::<dyn k::KItemSort>(x),k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let y = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}'
 class = "unbound-name"
 at = "spelling"
 
@@ -1111,12 +1111,12 @@ at = "spelling"
 
 # condition-sort (NT-2): a condition that is no Bool term
 [[refuse]]
-match = 'terms/cells-claim/guard/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x.add::<Int>(1)}'
+match = 'terms/cells-claim/guard/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x.add::<Int>(1),\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}'
 class = "condition-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{context/guard,readable/guard,rule/guard/let-body}/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x.add::<Int>(1)}'
+match = 'terms/{context/guard,readable/guard,rule/guard/let-body}/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x.add::<Int>(1),\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}'
 class = "condition-sort"
 at = "spelling"
 
@@ -1181,7 +1181,7 @@ at = "spelling"
 
 # object-term-as-predicate (NT-2): an object term as a quantifier's body
 [[refuse]]
-match = 'terms/cells-claim/guard/closure-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<dyn k::KItemSort>(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let y = x; y \}}'
+match = 'terms/cells-claim/guard/closure-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<dyn k::KItemSort>(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let y = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}'
 class = "object-term-as-predicate"
 at = "spelling"
 
@@ -1380,7 +1380,7 @@ class = "condition-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/simplification/guard/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x | 1,x.add::<Int>(1)}'
+match = 'terms/simplification/guard/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x | 1,x.add::<Int>(1),\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}'
 class = "condition-sort"
 at = "spelling"
 

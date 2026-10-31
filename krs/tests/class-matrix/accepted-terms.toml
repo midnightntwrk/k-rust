@@ -2514,6 +2514,13 @@ syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 """
 same_k_as = ["terms/alias/result-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/alias/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
+"""
+
 [accept."terms/alias/result/!(x < 1)"]
 k = """
 rule cTAG ( V0:Int ) => pair ( V0:Int , notBool (V0:Int <Int 1) ) [label(krsRule_DIGEST)]
@@ -2732,6 +2739,13 @@ rule cTAG ( V0:Int ) => pair ( V0:Int , V0:Int +Int 1 ) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 """
 same_k_as = ["terms/alias/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/alias/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem ) => pair ( V0:KItem , ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
+"""
 
 [accept."terms/alias/result/{ let y = x; y }"]
 k = """
@@ -6870,6 +6884,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 """
 same_k_as = ["terms/desugar/result-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/desugar/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem , _ ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/desugar/result/!(x < 1)"]
 k = """
 rule cTAG ( V0:Int , _ ) => hold ( notBool (V0:Int <Int 1) ) [label(krsRule_DIGEST)]
@@ -7088,6 +7109,13 @@ rule cTAG ( V0:Int , _ ) => hold ( V0:Int +Int 1 ) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/desugar/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/desugar/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/desugar/result/{ let y = x; y }"]
 k = """
@@ -7925,6 +7953,13 @@ rule probe ( cTAG , V0:Int ) => size ( V0:Int +Int 1 ) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["terms/equation/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/equation/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/equation/result/{ let y = x; y }"]
 k = """
@@ -9594,6 +9629,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/local-rule/subject/rewrite-right/k::builtin::int::add(x, 1)"]
 
+[accept."terms/local-rule/subject/rewrite-right/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( (V0:KItem => go) , (_ => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) )) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/local-rule/subject/rewrite-right/{ let y = x; y }"]
 k = """
 rule cTAG ( (V0:KItem => go) , (_ => ( #let V1:KItem = V0:KItem #in V1:KItem )) ) [label(case-TAG)]
@@ -11246,6 +11288,8 @@ same_k_as = ["terms/readable/map-key/k::builtin::int::add(x, 1)"]
 
 [accept."terms/readable/map-key/{ let y = x; y }"]
 
+[accept."terms/readable/map-key/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
 [accept.'terms/readable/map-value-child/"s"']
 k = '''
 rule [case-TAG]:
@@ -11741,6 +11785,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/readable/result-item-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/readable/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/readable/result-item-root/{ let y = x; y }"]
 k = """
 rule [case-TAG]:
@@ -12039,6 +12091,15 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/readable/result-list-element/k::builtin::int::add(x, 1)"]
 
+[accept."terms/readable/result-list-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) )) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/readable/result-list-element/{ let y = x; y }"]
 k = """
 rule [case-TAG]:
@@ -12305,6 +12366,14 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/readable/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/readable/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/result/{ let y = x; y }"]
 k = """
@@ -13422,6 +13491,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/rule/result-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/rule/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem , _ ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/rule/result-root/{ let y = x; y }"]
 k = """
 rule cTAG ( V0:KItem , _ ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(case-TAG)]
@@ -13654,6 +13730,13 @@ rule cTAG ( V0:Int , _ ) => hold ( V0:Int +Int 1 ) [label(case-TAG)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/rule/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/rule/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/result/{ let y = x; y }"]
 k = """
@@ -14799,6 +14882,15 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/shorthand/result-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/shorthand/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule fTAG ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/shorthand/result-root/{ let y = x; y }"]
 k = """
 rule fTAG ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
@@ -15097,6 +15189,15 @@ syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/shorthand/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/shorthand/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule fTAG ( V0:KItem ) => size ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/shorthand/result/{ let y = x; y }"]
 k = """
@@ -15413,6 +15514,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["terms/simplification/result-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/simplification/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."terms/simplification/result-root/{ let y = x; y }"]
 k = """
 rule probe ( cTAG , V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [simplification, label(krsRule_DIGEST)]
@@ -15645,6 +15753,13 @@ rule probe ( cTAG , V0:Int ) => size ( V0:Int +Int 1 ) [simplification, label(kr
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["terms/simplification/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/simplification/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/simplification/result/{ let y = x; y }"]
 k = """
@@ -16093,6 +16208,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/sort-rule/result-root/k::builtin::int::add(x, 1)"]
 
+[accept."terms/sort-rule/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/sort-rule/result-root/{ let y = x; y }"]
 k = """
 rule [case-TAG]:
@@ -16447,6 +16570,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/sort-rule/result/function-argument/k::builtin::int::add(x, 1)"]
 
+[accept."terms/sort-rule/result/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/sort-rule/result/function-argument/{ let y = x; y }"]
 k = """
 rule [case-TAG]:
@@ -16792,6 +16923,14 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/sort-rule/result/let-body/k::builtin::int::add(x, 1)"]
+
+[accept."terms/sort-rule/result/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) ) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/result/let-body/{ let y = x; y }"]
 k = """
@@ -17291,6 +17430,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/sort-rule/result/update-field/k::builtin::int::add(x, 1)"]
 
+[accept."terms/sort-rule/result/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) ) , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/sort-rule/result/update-field/{ let y = x; y }"]
 k = """
 rule [case-TAG]:
@@ -17380,6 +17527,14 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["terms/sort-rule/result/k::builtin::int::add(x, 1)"]
+
+[accept."terms/sort-rule/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/result/{ let y = x; y }"]
 k = """
@@ -18210,6 +18365,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["terms/equation/result/x.add::<Int>(1)", "terms/table/result/k::builtin::int::add(x, 1)"]
 
+[accept."terms/table/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."terms/table/result/{ let y = x; y }"]
 k = """
 rule probe ( cTAG , V0:KItem ) => size ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [label(krsRule_DIGEST)]
@@ -18719,6 +18881,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/readable/map-key/function-argument/{ let y = x; y }"]
 
+[accept."terms/readable/map-key/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
 [accept."terms/readable/map-key/let-body/!(x < 1)"]
 
 [accept."terms/readable/map-key/let-body/\"s\""]
@@ -18782,6 +18946,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/readable/map-key/let-body/x.add::<Int>(1)"]
 
 [accept."terms/readable/map-key/let-body/{ let y = x; y }"]
+
+[accept."terms/readable/map-key/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 
 [accept."terms/readable/map-key/let-pattern/\"s\""]
 
@@ -19147,6 +19313,8 @@ same_k_as = ["terms/readable/map-key/update-field/k::builtin::int::add(x, 1)"]
 
 [accept."terms/readable/map-key/update-field/{ let y = x; y }"]
 
+[accept."terms/readable/map-key/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
 [accept."terms/rule/guard/let-pattern/-1"]
 
 [accept."terms/rule/guard/matches-pattern/_"]
@@ -19398,6 +19566,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/rule/subject/set-element/{ let y = x; y }"]
 
+[accept."terms/rule/subject/set-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
 [accept."terms/readable/map-key/or-branch/Cmd::Hold(x)"]
 
 [accept."terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }"]
@@ -19599,6 +19769,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/set-instance-child/{ let y = x; y }"]
+
+[accept."terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 
 [accept."notation/alias/result-root/k::builtin::list::item(x).len()"]
 same_k_as = ["notation/alias/result-root/k::builtin::list::size(k::builtin::list::item(x))"]
@@ -33030,17 +33202,25 @@ configuration
 
 [accept."terms/claim/item-root/{ let y = x; y }"]
 
+[accept."terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
 [accept."terms/claim/result-item-root/k::matches!(x, Cmd::Hold(_))"]
 
 [accept."terms/claim/result-item-root/{ let y = x; y }"]
+
+[accept."terms/claim/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 
 [accept."terms/claim/result/k::matches!(x, Cmd::Hold(_))"]
 
 [accept."terms/claim/result/{ let y = x; y }"]
 
+[accept."terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+
 [accept."terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
 
 [accept."terms/claim/subject/{ let y = x; y }"]
+
+[accept."terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 
 [accept.'terms/init/variable-item/"s"']
 k = '''
@@ -33692,6 +33872,34 @@ configuration
 k = """
 configuration
 <k> $PGM:Stmt ~> $X:KItem ~> hold ( $X:KItem ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( ( #let pair ( _ , V0:KItem ) = $X:KItem #in pair ( 1 , V0:KItem ) ) ) </k>
 <env> .Map </env>
 <stack> .List </stack>
 <frame>

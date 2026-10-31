@@ -95,11 +95,15 @@ impl RecordUpdates {
     /// that is not the alias of exactly one record of the update's
     /// constructor or cell, outside `|`, and for a group child that must be
     /// rebuilt but is matched by a pattern no record rebuilds.
+    ///
+    /// `let_admitted` says whether the sentence may hold a `let` block (a claim may not), which
+    /// a refused base's advice writes.
     pub(super) fn scan(
         descriptor: &Descriptor,
         terms: &[&DescriptorTerm],
         catalog: &BTreeMap<StableItemId, ProductionSignature>,
         declarations: &DescriptorIndex<'_>,
+        let_admitted: bool,
     ) -> Result<Self, DescriptorLoweringError> {
         let mut scan = Scan::default();
         for term in terms {
@@ -109,7 +113,7 @@ impl RecordUpdates {
         if scan.updates.is_empty() && groups.is_empty() {
             return Ok(Self::default());
         }
-        let mut bases = update_bases(descriptor, &scan, catalog, declarations)?;
+        let mut bases = update_bases(descriptor, &scan, catalog, declarations, let_admitted)?;
         let reconstructed = groups
             .keys()
             .filter(|name| scan.whole.contains(*name))
@@ -183,18 +187,24 @@ fn update_bases<'a>(
     scan: &Scan<'a>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     declarations: &DescriptorIndex<'_>,
+    let_admitted: bool,
 ) -> Result<BTreeMap<String, Base<'a>>, DescriptorLoweringError> {
     let error = |key: &ProvenanceKey, reason: String| invalid(descriptor, key, reason);
     let mut bases = BTreeMap::<String, Base<'a>>::new();
     for (base, sites) in &scan.updates {
-        let (key, _) = &sites[0];
+        let (key, site) = &sites[0];
         let occurrences = scan.aliases.get(base).map_or(&[][..], Vec::as_slice);
         let [found] = occurrences else {
             return Err(error(
                 key,
                 if occurrences.is_empty() {
+                    let advice = if let_admitted {
+                        destructuring_advice(site, catalog, declarations)?
+                    } else {
+                        String::new()
+                    };
                     format!(
-                        "`..{base}` takes the fields it does not list from a record matched as `{base} @ Ctor {{ .. }}` in the left-hand side, but `{base}` is no such alias; a binder of the whole term names no fields K can read"
+                        "in a result or a condition, a record update's base must be a name the subject matches: `..{base}` takes the fields it does not list from a record matched as `{base} @ Ctor {{ .. }}` in the left-hand side, and `{base}` is no such alias; a binder of the whole term names no fields K can read{advice}"
                     )
                 } else {
                     format!(
@@ -252,6 +262,55 @@ fn update_bases<'a>(
         );
     }
     Ok(bases)
+}
+
+/// The advice for an update whose base the subject does not match, where the sentence may hold
+/// a `let` block: destructure the value with a `let` and rebuild the record, under a condition
+/// that the value is that constructor's, since a `let` whose pattern does not match has no value
+/// and a result with none ends the run undefined. Empty for a group cell's record, which no
+/// `let` destructures.
+fn destructuring_advice(
+    site: &UpdateSite,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<String, DescriptorLoweringError> {
+    let Record::Production(id) = &site.record else {
+        return Ok(String::new());
+    };
+    // The constructor's path from the crate root: an enum variant under its enum.
+    let mut segments = id.module_path().to_vec();
+    if let Some(owner) = id.disambiguator().strip_prefix("enum:") {
+        segments.push(owner.to_owned());
+    }
+    segments.push(id.item_name().to_owned());
+    if !id.module_path().is_empty() {
+        segments.insert(0, "crate".to_owned());
+    }
+    let name = segments.join("::");
+    let fields = record_fields(&site.record, catalog, declarations)?;
+    let field = |field: &ProductionFieldId, listed: &str| {
+        let field = field.as_str();
+        if site.listed.iter().any(|listed| listed.as_str() == field) {
+            format!("{field}: {listed}")
+        } else if field.starts_with(|c: char| c.is_ascii_digit()) {
+            format!("{field}: v{field}")
+        } else {
+            field.to_owned()
+        }
+    };
+    let pattern = fields
+        .iter()
+        .map(|name| field(name, "_"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rebuilt = fields
+        .iter()
+        .map(|name| field(name, ".."))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        ". To update a value the sentence computes, destructure it with `let`: write `{{ let {name} {{ {pattern} }} = e; {name} {{ {rebuilt} }} }}`, `e` the value and `..` each field the update lists, guarded by `#[k::requires(k::matches!(e, {name} {{ .. }}))]`, since the `let` has no value where `e` is another constructor's, and a result without one ends the run undefined"
+    ))
 }
 
 /// Makes each whole-used group alias a record rebuilt whole, and each
@@ -1084,6 +1143,7 @@ pub(crate) fn head_rule_long_form(
         &super::rules::head_rule_terms(rule),
         &catalog,
         &declarations,
+        true,
     )?;
     let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, &declarations);
     let mut rule = rule.clone();
@@ -1170,7 +1230,7 @@ pub(crate) fn structured_rule_long_form(
     // The long form reads the cell declarations, as lowering does: a group
     // record's children come from its declaration.
     let declarations = DescriptorIndex::new(bundle);
-    let updates = RecordUpdates::scan(descriptor, &terms, &catalog, &declarations)?;
+    let updates = RecordUpdates::scan(descriptor, &terms, &catalog, &declarations, true)?;
     let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, &declarations);
     let mut rule = rule.clone();
     rule.subject = long(&rule.subject)?;

@@ -380,7 +380,7 @@ pub fn cells_update(
         (
             [
                 [
-                    "error[krs::analysis::invalid-record-update]: `..w` takes the fields it does not list from a record matched as `w @ Ctor { .. }` in the left-hand side, but `w` is no such alias; a binder of the whole term names no fields K can read",
+                    "error[krs::analysis::invalid-record-update]: in a result or a condition, a record update's base must be a name the subject matches: `..w` takes the fields it does not list from a record matched as `w @ Ctor { .. }` in the left-hand side, and `w` is no such alias; a binder of the whole term names no fields K can read. To update a value the sentence computes, destructure it with `let`: write `{ let Cmd::Wrap { a: _, b } = e; Cmd::Wrap { a: .., b } }`, `e` the value and `..` each field the update lists, guarded by `#[k::requires(k::matches!(e, Cmd::Wrap { .. }))]`, since the `let` has no value where `e` is another constructor's, and a result without one ends the run undefined",
                     "--> src/lib.rs:78:59",
                 ],
                 [

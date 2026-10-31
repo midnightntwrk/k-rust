@@ -896,6 +896,23 @@ fn spellings() -> Vec<Spelling> {
         )
         .unmatched(COMPUTED)
         .undefined("the update's base, x = 1, is no Pair"),
+        // The update of a computed value that `record-update-base` advises: the value
+        // destructured with a `let`, and the record rebuilt from the field it keeps.
+        spelling(
+            "{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }",
+            &[
+                node(C::Let, &[]),
+                node(C::Constructor, &[LetPattern]),
+                node(C::Wildcard, &[LetPattern, Argument]),
+                node(C::Reference, &[LetPattern, Argument]),
+                node(C::Reference, &[LetValue]),
+                node(C::Constructor, &[LetBody]),
+                node(C::Literal, &[LetBody, Argument]),
+                node(C::Reference, &[LetBody, Argument]),
+            ],
+        )
+        .unmatched(COMPUTED)
+        .undefined("the let's pattern does not match x = 1"),
         spelling(
             "Cmd::Pair { a: x, .. }",
             &[node(C::OpenRecord, &[]), node(C::Reference, &[Argument])],
