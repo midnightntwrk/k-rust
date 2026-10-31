@@ -9675,22 +9675,24 @@ mod kink_tier {
 
     /// R3-ADMIT-FLOAT fix round 1: the TB-03 routes whose `t12probe.k` rows the census refuses
     /// (that fixture applies `String2Bytes`), on census-free rows of `floatzero.k` that reach their
-    /// values through exact `Int2Float` conversions and one-format `/Float` and `-Float`. Each
-    /// mutant respells a literal to another spelling of the element it names, or writes `==K` for
-    /// `==Float` where both sides are one element, so each row runs and Survives, with the
+    /// values through `Int2Float` (of 1, and of 0 for F6) and one-format `/Float` and `-Float`.
+    /// Each mutant respells a literal to another spelling of the element it names, or writes `==K`
+    /// for `==Float` where both sides are one element, so each row runs and Survives, with the
     /// baseline's one comparison agreeing: the signed-zero respelling (F6), the NaN (F8; one NaN
     /// per format, premise P-F3), the infinity (F9), `==K` for `==Float` (F11), a literal in a
     /// function equation compared with `==K` (F12), and two literals of one value compared with
     /// `==K` in a function (V5b). Each route has a control that names another element (`NaNf`, the
     /// binary32 NaN; `-Infinity`; `2.0`) and is killed, so the baseline's test does reach the
     /// literal's rule (F6's control is `float_literal_spellings_are_compared_by_value`'s `0.0f`).
-    /// kink27 GK-0: F8 reaches the NaN as `0.0 /Float 0.0` from `nans(0)` and F9 the infinity as
-    /// `1.0 /Float (1.0 -Float 1.0)` from `infs(1)`, values the `smt-hook`s of `/Float` and
-    /// `-Float` fix (domains.md 1568, 1572), where they went through `rootFloat` of a negative
-    /// value and an overflowing `Int2Float`, which no text fixes. The F8 control's kill rests on
-    /// one NaN per format (premise P-F3: the quotient is the NaN `NaN` names); the F9 control's on
-    /// the `Infinity` lexeme naming the positive infinity (P-F1). Every row is measured before the
-    /// first assertion.
+    /// kink27 GK-0: F8 reaches the NaN as `(1.0 -Float 1.0) /Float (1.0 -Float 1.0)` from
+    /// `nans(1)` and F9 the infinity as `1.0 /Float (1.0 -Float 1.0)` from `infs(1)`: `Int2Float`
+    /// of 1 is the one binary64 element of value 1, and the `smt-hook`s of `-Float` and `/Float`
+    /// fix the rest (domains.md 1572, 1568), where the routes went through `rootFloat` of a
+    /// negative value and an overflowing `Int2Float`, which no text fixes. The F8 control's kill
+    /// rests on one NaN per format (P-F3, which domains.md fixes: the quotient is the NaN `NaN`
+    /// names); the F9 control's on the `Infinity` lexeme naming the positive infinity, a reading of
+    /// an open literal (kink27 GAP class `literal`), not premise P-F1's rounding. Every row is
+    /// measured before the first assertion.
     #[test]
     #[ignore = "kink"]
     fn census_free_float_spelling_routes_are_not_killed() {
@@ -9700,8 +9702,8 @@ mod kink_tier {
             let baseline = validator.baseline();
             let routes = [
                 ("F6", "point", R("0.0", "0e+00p53x11"), "start", 0, true),
-                ("F8", "nanp", R("NaN", "NaNp53x11"), "nans", 0, true),
-                ("F8-control", "nanp", R("NaN", "NaNf"), "nans", 0, false),
+                ("F8", "nanp", R("NaN", "NaNp53x11"), "nans", 1, true),
+                ("F8-control", "nanp", R("NaN", "NaNf"), "nans", 1, false),
                 (
                     "F9",
                     "infp",

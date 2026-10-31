@@ -666,7 +666,8 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
 /// readings, kink README P-F1 to P-F3). At `SortMInt{}`, a sort hooked `MINT.MInt` with no width
 /// argument, load refuses every literal (NoWidth), so those rows show only that the gate does not
 /// decide it; at the parametric `SortMInt{Sort8{}}`, `1p8`, `01p8` and `257p8` name one element,
-/// and `-1p8` and `255p8` another (premise P-M1).
+/// and `-1p8` and `255p8` another (in range by domains.md 2880-2882 and 2889; `257p8` by premise
+/// P-M1).
 #[test]
 fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
     for (sort, value) in [
