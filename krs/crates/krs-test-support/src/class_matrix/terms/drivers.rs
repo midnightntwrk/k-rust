@@ -1179,7 +1179,7 @@ impl Driver<'_> {
 }
 
 /// The base's aliases whose clauses' written results compute: `an => hold(1 - 1)`.
-fn base_forward_only() -> Vec<String> {
+pub(super) fn base_forward_only() -> Vec<String> {
     vec!["An".to_owned()]
 }
 

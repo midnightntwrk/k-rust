@@ -410,7 +410,8 @@ fn word() -> Ground {
     Ground::token("Word", "word")
 }
 
-/// A run of `program` that ends with the computation cell `items` after `steps` steps.
+/// A run of `program` that ends with the computation cell `items` after `steps` steps, on the
+/// terms base, whose aliases with a computed result print forward only.
 fn run(program: &Ground, steps: u64, items: Vec<Ground>, status: Status) -> Run {
     Run {
         program: program
@@ -421,7 +422,7 @@ fn run(program: &Ground, steps: u64, items: Vec<Ground>, status: Status) -> Run 
         steps,
         cells: vec![("k".to_owned(), Ground::Seq(items))],
         status,
-        forward_only: Vec::new(),
+        forward_only: drivers::base_forward_only(),
     }
 }
 
