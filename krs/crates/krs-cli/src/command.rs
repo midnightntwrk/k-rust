@@ -624,8 +624,12 @@ fn check(
 ///
 /// Without `--backend` every native route is judged, so a pass means that
 /// `emit-k`, `build` on either backend, and the run commands all accept the
-/// definition, and a failure names the route and the commands that refuse it.
-/// `--backend B` narrows the claim to `emit-k` and `B`'s route.
+/// definition, and a failure names the route and the commands that refuse it;
+/// but a feature one route's capability table lacks and another route builds
+/// is that route's documented limit, not a fault of the definition, so the
+/// routes that build it are judged and the refusal is a warning naming the
+/// route ([`route_limited`]). `--backend B` narrows the claim to `emit-k` and
+/// `B`'s route.
 ///
 /// [`CollectedDefinition::check`] makes the same judgement of a collected
 /// bundle, so a caller that judges many definitions (the class tests) asks
@@ -641,21 +645,87 @@ fn check_verdict(
     render_emitted(prepared, measurement)
         .map_err(|error| error.attributed("`krs emit-k` refuses this definition".to_owned()))?;
     // Every route's capability table before any compile: a refusal costs nothing to find.
-    let mut refusals = backends.iter().filter_map(|&backend| {
-        route_refusal(prepared.lowered.definition(), Route::native(backend))
-            .map(|refusal| (backend, refusal))
-    });
-    if let Some((backend, refusal)) = refusals.next() {
-        let every = refusals.count() + 1 == backends.len();
-        return Err(if several && every {
+    let (refused, capable): (Vec<_>, Vec<_>) = backends
+        .iter()
+        .map(|&backend| {
+            (
+                backend,
+                route_refusal(prepared.lowered.definition(), Route::native(backend)),
+            )
+        })
+        .partition(|(_, refusal)| refusal.is_some());
+    let capable = capable
+        .into_iter()
+        .map(|(backend, _)| backend)
+        .collect::<Vec<_>>();
+    let mut refused = refused
+        .into_iter()
+        .filter_map(|(backend, refusal)| refusal.map(|refusal| (backend, refusal)));
+    // A route that lacks a feature the definition needs refuses it, as `build` on that route
+    // does; with `--backend` that is the verdict, and so it is when every route lacks one.
+    // Without `--backend`, a route-limited feature that another route builds is the documented
+    // limit of one route, not a fault of the definition: the routes that can run it are judged,
+    // and the refusal is reported as a warning naming the route and its commands.
+    if (capable.is_empty() || !several)
+        && let Some((backend, refusal)) = refused.next()
+    {
+        return Err(if several {
             every_route_refuses(refusal)
         } else {
             route_attributed(refusal, backend, several)
         });
     }
-    measurement.timings.try_span("check.routes", |timings| {
-        judge_routes(prepared, &backends, several, visit, timings)
-    })
+    let limited = crate::DiagnosticReports {
+        envelopes: refused
+            .flat_map(|(backend, refusal)| route_limited(refusal, backend, &capable))
+            .collect(),
+    };
+    // A capable route's refusal is the verdict; the limited routes' refusals stay reported.
+    let mut warnings = measurement
+        .timings
+        .try_span("check.routes", |timings| {
+            judge_routes(prepared, &capable, several, visit, timings)
+        })
+        .map_err(|error| error.warned(limited.clone()))?;
+    extend_unique(&mut warnings, limited);
+    Ok(warnings)
+}
+
+/// The capability refusal of `backend`'s route, as the warning `check` reports when the routes
+/// of `capable` build the definition: the route and the commands it limits, and the routes
+/// that run it.
+fn route_limited(
+    refusal: CommandError,
+    backend: Backend,
+    capable: &[Backend],
+) -> Vec<crate::DiagnosticEnvelope> {
+    let building = capable
+        .iter()
+        .map(|&other| {
+            format!(
+                "`{}`, the route of {}",
+                Route::native(other).name(),
+                route_commands(other)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let note = format!(
+        "only `{}` refuses it, the route of {}; {building}, builds it",
+        Route::native(backend).name(),
+        route_commands(backend),
+    );
+    refusal
+        .attributed(note)
+        .diagnostics()
+        .map(Cow::into_owned)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut envelope| {
+            envelope.severity = crate::DiagnosticSeverity::Warning;
+            envelope
+        })
+        .collect()
 }
 
 /// A visit of the definition the run commands load, made where the check loads it on the

@@ -46,7 +46,8 @@ Only a doc comment, a literal, or another token longer than the line leaves a li
 On the `native-rust` route, which `build --backend haskell`, `run`, `search`, and `prove` share, it also loads the compiled definition as the run commands do, including each spec module's proof definition.
 It reports the same errors and warnings those commands report, but writes no artifacts.
 A passing `check` therefore means that `emit-k`, `build` on either backend, and the run commands accept the definition; what remains are refusals of one invocation, such as a program that does not parse, `search` on a definition with `stream` cells, or `prove --spec-module` naming no spec module.
-When a route refuses the definition, for example `native-llvm` refusing an existential rule result (`krs::capability::unavailable`), `check` fails with that refusal and a note naming the commands of that route.
+The exception is a feature one route's capability table lacks and another route builds, for example an existential rule result, which `native-llvm` refuses and `native-rust` runs: that is the documented limit of one route, not a fault of the definition, so `check` judges the routes that build it, passes, and warns with the refusal (`krs::capability::unavailable`), naming the commands of the route that refuses and of the routes that build it.
+When every route refuses the definition, or a route's compile does, `check` fails with that refusal and a note naming the commands of that route.
 `--backend llvm` or `--backend haskell` narrows the judgement to `emit-k` and that backend's route, so `check --backend haskell` passes for a definition only the symbolic route runs, and `check --backend llvm` for one only concrete execution runs.
 The routes compile concurrently, so judging both costs about the time of the slower compile.
 Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.

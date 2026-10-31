@@ -166,6 +166,21 @@ class FixtureGate:
 
         return self._krs(fixture, "check", *extra)
 
+    def check_route_limited(self, fixture: Fixture, refusal: str) -> None:
+        """Require `krs check` without `--backend` to pass with `refusal` as a warning.
+
+        `refusal` is the headline with which one route's `krs build` or run command refuses the
+        definition by its capability table. Another route builds the definition, so the check
+        judges that route, passes, and reports the one route's refusal as a warning.
+        """
+
+        process = self._krs(fixture, "check", check=False)
+        warning = re.sub(r"^error\[", "warning[", refusal)
+        if process.returncode != 0 or warning not in diagnostic_lines(process.stderr):
+            raise GateError(
+                f"{fixture.package}: krs check did not pass with the warning {warning!r}:\n{process.stderr}"
+            )
+
     def partition(self, fixture: Fixture) -> tuple[str, list[str]]:
         """Pin and return the `krs check --partition` text and its warning headlines."""
 

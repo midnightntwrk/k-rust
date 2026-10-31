@@ -1693,7 +1693,7 @@ pub fn zero_to_unknown(
 "#;
 
 #[test]
-fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
+fn check_warns_where_one_route_lacks_a_feature_another_builds() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = materialize_fixture(temporary.path(), RULE_EXISTENTIAL);
@@ -1710,9 +1710,10 @@ fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
     assert!(!build.status.success(), "{build_stderr}");
     assert!(build_stderr.contains(refusal), "{build_stderr}");
 
-    // Without --backend, `check` predicts `build` on every backend, so the
-    // route's refusal fails it before anything is compiled, with a note naming
-    // the commands of the refusing route and the --backend that leaves it out.
+    // Without --backend, a feature one route lacks and the other builds is that
+    // route's documented limit: `check` judges the route that builds it, passes,
+    // and warns with the refusal, naming the commands of each route. The
+    // refusing route is not compiled.
     let all_timings = temporary.path().join("check-timings.json");
     let all = command(
         target.path(),
@@ -1722,39 +1723,36 @@ fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
         &["--no-reuse", "--timings", all_timings.to_str().unwrap()],
     );
     let all_stderr = String::from_utf8(all.stderr).unwrap();
-    assert!(!all.status.success(), "{all_stderr}");
-    assert!(all.stdout.is_empty());
-    assert!(all_stderr.contains(refusal), "{all_stderr}");
-    // Human output also renders the note.
-    let mut process = krs_command!();
-    fixture_build_env(&mut process, target.path());
-    let human = process
-        .args(["check", "--manifest-path"])
-        .arg(&manifest)
-        .args([
-            "--package",
-            "krs-cli-foo-bar-fixture",
-            "--definition",
-            "main",
-        ])
-        .env("NO_COLOR", "1")
-        .output()
-        .unwrap();
-    let human_stderr = String::from_utf8(human.stderr).unwrap();
-    assert!(!human.status.success(), "{human_stderr}");
+    assert_success_with(all.status, &all_stderr);
     assert!(
-        human_stderr.contains(
-            "`native-llvm` is the route of `krs build --backend llvm`; `krs check --backend haskell` judges only the route of"
+        String::from_utf8(all.stdout)
+            .unwrap()
+            .starts_with("KRS check passed: "),
+        "{all_stderr}"
+    );
+    let warnings = krs_cli::DiagnosticEnvelope::from_json_lines(&all_stderr).unwrap();
+    let limit = warnings
+        .iter()
+        .find(|warning| warning.code == "krs::capability::unavailable")
+        .unwrap_or_else(|| panic!("no capability warning:\n{all_stderr}"));
+    assert_eq!(limit.severity, krs_cli::DiagnosticSeverity::Warning);
+    assert!(limit.message.contains(refusal), "{all_stderr}");
+    assert_eq!(
+        limit.notes.last().map(String::as_str),
+        Some(
+            "only `native-llvm` refuses it, the route of `krs build --backend llvm`; `native-rust`, the route of `krs build --backend haskell`, `krs run`, `krs search`, and `krs prove`, builds it"
         ),
-        "{human_stderr}"
+        "{all_stderr}"
+    );
+    let ids = span_ids(&read_json(&all_timings));
+    assert!(
+        ids.iter().any(|(id, _)| id == "check.native-rust"),
+        "{ids:?}"
     );
     assert!(
-        !span_ids(&read_json(&all_timings))
-            .iter()
-            .any(|(id, _)| id.starts_with("native.") || id == "check.routes"),
-        "check compiled although a route refuses the definition"
+        !ids.iter().any(|(id, _)| id == "check.native-llvm"),
+        "check compiled the route that lacks the feature: {ids:?}"
     );
-
     // `--backend llvm` predicts exactly `build --backend llvm`.
     let llvm = command(
         target.path(),
@@ -1800,7 +1798,8 @@ fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
 }
 
 /// `KRS_CHECK_AGREEMENT=1` runs the commands a check judges and fails on any
-/// disagreement; it holds for a refused default check and a passing narrowed one.
+/// disagreement; it holds for a default check that warns of the LLVM route's
+/// refusal and a passing narrowed one.
 #[test]
 fn check_agrees_with_the_commands_it_judges() {
     let target = shared_fixture_target();
@@ -1824,7 +1823,7 @@ fn check_agrees_with_the_commands_it_judges() {
             .output()
             .unwrap();
         let stderr = String::from_utf8(agreed.stderr).unwrap();
-        assert_eq!(agreed.status.success(), arguments.len() > 1, "{stderr}");
+        assert!(agreed.status.success(), "{stderr}");
         assert!(!stderr.contains("KRS_CHECK_AGREEMENT"), "{stderr}");
     }
 }

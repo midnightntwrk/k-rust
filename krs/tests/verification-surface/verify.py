@@ -837,10 +837,8 @@ def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> No
     if refused.returncode == 0 or not refusal:
         raise GateError(f"{fixture.package}: krs build --backend llvm accepted rule existentials")
     harness.pins.expect(("capability_refusals", fixture.package), refusal[0])
-    # `krs check` predicts `build` on every backend, so it refuses with the same refusal.
-    checked = harness._krs(fixture, "check", check=False)
-    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != refusal[:1]:
-        raise GateError(f"{fixture.package}: krs check did not refuse as krs build --backend llvm does:\n{checked.stderr}")
+    # The native-rust route builds it, so `krs check` passes and warns with the LLVM route's refusal.
+    harness.check_route_limited(fixture, refusal[0])
 
     directory = harness.workspace / "programs" / fixture.package
     directory.mkdir(parents=True, exist_ok=True)

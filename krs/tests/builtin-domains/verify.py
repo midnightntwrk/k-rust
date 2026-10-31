@@ -742,10 +742,8 @@ def console_hooks(harness: FixtureGate) -> None:
     if refused.stdout:
         raise GateError(f"{HOOKS.package}: krs run printed {refused.stdout!r} before refusing")
     harness.pins.expect(("diagnostics", "io-hooks-run"), lines)
-    # `krs check` predicts `krs run`, so it refuses with the same refusal.
-    checked = harness._krs(HOOKS, "check", check=False)  # noqa: SLF001
-    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != lines[:1]:
-        raise GateError(f"{HOOKS.package}: krs check did not refuse as krs run does:\n{checked.stderr}")
+    # The native-llvm route builds it, so `krs check` passes and warns with the run route's refusal.
+    harness.check_route_limited(HOOKS, lines[0])
     native_llvm = harness.workspace / "native-llvm" / HOOKS.package
     harness._krs(HOOKS, "build", "--backend", "llvm", "--output", native_llvm)  # noqa: SLF001
     krs_gate.require_route(harness.gate, emitted.directory, "java-llvm-reference", environment=harness.environment)

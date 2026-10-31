@@ -6,7 +6,9 @@
 //! into a temporary directory, for every backend the check judged, and, on the
 //! `native-rust` route, the run commands' definition load ([`exec::judge`]) on
 //! a fresh compile. It fails with [`CommandError::CheckDisagreement`] unless
-//! the check passed exactly when all of them did.
+//! the check passed exactly when all of them did, the commands of a route
+//! whose capability table lacks a feature another route builds aside: without
+//! `--backend` the check warns of that route's refusal.
 //!
 //! What is compared is the composition of each command: which judgements it
 //! runs and which of their findings refuse the definition. k-rust's compile is
@@ -96,15 +98,26 @@ pub(super) fn verify(
         &scratch.path().join("emit-k"),
         &mut Measurement::disabled(),
     );
-    let mut verdicts = vec![("krs emit-k".to_owned(), emitted.map(drop))];
+    let mut verdicts = vec![("krs emit-k".to_owned(), emitted.map(drop), false)];
     // The commands the check claims to predict: `build` on the backend it
-    // names, or on every backend `build` takes.
+    // names, or on every backend `build` takes. Without `--backend`, a route
+    // whose capability table lacks a feature the definition needs is the
+    // route's documented limit: its commands refuse, and the check judges the
+    // other routes and warns, so those refusals are expected where another
+    // route is capable.
+    let several = backend.is_none();
     let backends = backend.map_or_else(|| Backend::ALL.to_vec(), |backend| vec![backend]);
-    for backend in backends {
+    let mut limited_routes = 0;
+    for backend in &backends {
+        let backend = *backend;
+        let limited = several
+            && require_route(prepared.lowered.definition(), Route::native(backend)).is_err();
+        limited_routes += usize::from(limited);
         let output = scratch.path().join(backend.as_str());
         verdicts.push((
             format!("krs build --backend {}", backend.as_str()),
             build(prepared, backend, &output, &mut Measurement::disabled()).map(drop),
+            limited,
         ));
         if Route::native(backend) == Route::NativeRust {
             let mut timings = Timings::disabled();
@@ -116,10 +129,14 @@ pub(super) fn verify(
             verdicts.push((
                 "the definition load of krs run, search, and prove".to_owned(),
                 load,
+                limited,
             ));
         }
     }
-    let accepted = verdicts.iter().all(|(_, verdict)| verdict.is_ok());
+    let accepted = limited_routes < backends.len()
+        && verdicts
+            .iter()
+            .all(|(_, verdict, limited)| *limited || verdict.is_ok());
     if accepted == checked.is_ok() {
         return Ok(());
     }
@@ -132,10 +149,15 @@ pub(super) fn verify(
             "KRS_CHECK_AGREEMENT: krs check failed ({error}), but every command it judges accepts the definition:"
         ),
     };
-    for (command, verdict) in verdicts {
+    for (command, verdict, limited) in verdicts {
+        let limit = if limited {
+            " (a route-limited feature)"
+        } else {
+            ""
+        };
         match verdict {
             Ok(()) => write!(message, "\n  {command}: accepted"),
-            Err(error) => write!(message, "\n  {command}: refused: {error}"),
+            Err(error) => write!(message, "\n  {command}: refused{limit}: {error}"),
         }
         .expect("writing to a String cannot fail");
     }

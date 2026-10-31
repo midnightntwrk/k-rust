@@ -257,10 +257,8 @@ def verify_functions(harness: FixtureGate) -> None:
     if not lines or "krs::capability::unavailable" not in lines[0]:
         raise GateError(f"{FUNCTIONS.package}: krs build --backend llvm failed without the capability refusal:\n{refused.stderr}")
     harness.pins.expect(("diagnostics", "functions-llvm"), lines)
-    # `krs check` predicts `build` on every backend, so it refuses with the same refusal.
-    checked = harness._krs(FUNCTIONS, "check", check=False)  # noqa: SLF001
-    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != lines[:1]:
-        raise GateError(f"{FUNCTIONS.package}: krs check did not refuse as krs build --backend llvm does:\n{checked.stderr}")
+    # The native-rust route builds it, so `krs check` passes and warns with the LLVM route's refusal.
+    harness.check_route_limited(FUNCTIONS, lines[0])
 
 
 def verify_constructors(harness: FixtureGate) -> None:
