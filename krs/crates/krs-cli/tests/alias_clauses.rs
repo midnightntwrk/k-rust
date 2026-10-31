@@ -1001,7 +1001,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         format!("{program} => {state}")
     })
     .join("\n");
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         make(1) => two(1, ListItem ( 5 ) ListItem ( 6 ) ListItem ( 7 )) ~> .K
         make(2) => lr(5, ListItem ( 6 ) ListItem ( 7 )) ~> .K
         make(3) => si(5) ~> .K
@@ -1014,6 +1014,6 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         make(12) => elems(SetItem ( 12 )) ~> .K
         prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K
         box(5) => fz(5, 1.5) ~> .K
-        fl(5, false) => fl(5, false) ~> .K"#]]
+        fl(5, false) => fl(5, false) ~> .K"]]
     .assert_eq(&printed);
 }
