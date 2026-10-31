@@ -33,10 +33,10 @@
 //!   subject matches and `false` elsewhere. Its pattern stays a pattern, in a condition, where
 //!   `name @ pattern` means what it means in any condition; in a result K takes no `#as`. A test
 //!   inside a lifted block is lifted first, on its own, for that reason. The `false` equation
-//!   states its condition rather than taking `owise`, which KRS emits as `priority(200)`: K's
-//!   Haskell backend reads a priority as an order, and applies the lower equation to a symbolic
-//!   argument whose match against the higher one's pattern it cannot establish, so `false`
-//!   would hold where the test is undetermined.
+//!   states its condition (`notBool` of the test) rather than taking `owise`: the two conditions
+//!   are exact complements, so the helper's value is the test's at every argument, symbolic ones
+//!   too, whatever order a route tries equations in, and `false` never holds where the test is
+//!   undetermined.
 //!
 //! The function's name, `krsLocal_<digest>`, is a digest of its identity, which is derived from
 //! the sentence's own identity and the construct's place among the sentence's lifted
