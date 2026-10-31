@@ -56,36 +56,45 @@ pub(crate) fn subsort_kitem_pass(
             .expect("resolved definition contains every source module");
         let sorts = views.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
-        let mut generated = Vec::new();
-        // Invariant: `generated` holds a `KItem ::= Sort` subsort production for every non-parser sort of `sorts.all_sorts()` before `sort`; each iteration consumes one sort.
-        for sort in sorts.all_sorts() {
-            if !sort.role().has_implicit_kitem_subsort() {
-                continue;
-            }
-            let production = Sentence::Production {
-                label: None,
-                parameters: Vec::new(),
-                sort: Sort::builtin(BuiltinSort::KItem),
-                items: vec![ProductionItem::NonTerminal {
-                    sort: sort.clone(),
-                    name: None,
-                }],
-                attributes: Attributes::default(),
-            };
-            generated.push(production);
-        }
-        let generated = retain_new_sentences(
-            visible
-                .iter()
-                .copied()
-                .chain(module.local_sentences.iter().map(Arc::as_ref)),
-            generated,
-        );
+        let generated = kitem_subsorts(sorts, visible.iter().copied(), &module.local_sentences);
         module
             .local_sentences
             .extend(generated.into_iter().map(Arc::new));
     }
     Ok(output)
+}
+
+/// The `KItem ::= S` subsort productions for every sort `S` of `sorts` that is not a parser
+/// sort, without those `visible` or `local` already hold: what this stage adds to a module whose
+/// sort catalog is `sorts`, whose visible sentences are `visible`, and whose own sentences are
+/// `local`.
+pub(crate) fn kitem_subsorts<'a>(
+    sorts: &crate::definition::SortCatalog<'_>,
+    visible: impl IntoIterator<Item = &'a Sentence>,
+    local: &'a [Arc<Sentence>],
+) -> Vec<Sentence> {
+    let mut generated = Vec::new();
+    // Invariant: `generated` holds a `KItem ::= Sort` subsort production for every non-parser sort of `sorts.all_sorts()` before `sort`; each iteration consumes one sort.
+    for sort in sorts.all_sorts() {
+        if !sort.role().has_implicit_kitem_subsort() {
+            continue;
+        }
+        let production = Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::builtin(BuiltinSort::KItem),
+            items: vec![ProductionItem::NonTerminal {
+                sort: sort.clone(),
+                name: None,
+            }],
+            attributes: Attributes::default(),
+        };
+        generated.push(production);
+    }
+    retain_new_sentences(
+        visible.into_iter().chain(local.iter().map(Arc::as_ref)),
+        generated,
+    )
 }
 
 /// `subsorts` with the `KItem ::= S` subsorts this stage adds for every sort `S` of `sorts` that is

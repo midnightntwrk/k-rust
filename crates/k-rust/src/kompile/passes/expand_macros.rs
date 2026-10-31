@@ -67,10 +67,16 @@ use crate::{
     kast::{Label, NodeHead, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
+        declaration_facts::{EmittedDeclarations, backend_sort},
         fresh_names::{self, FreshNames, GeneratedVariableIdentity},
+        module_to_kore::encode_kore_sort,
+        passes::{Placement, PlacementKind},
+        term_to_kore::token_payload,
     },
+    kore::string::LiteralEncoding,
     provenance::GeneratingPass,
 };
+use k_rust_backend::term::Term as BackendTerm;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExpandMacrosError {
@@ -580,10 +586,10 @@ pub fn expand_macros_in_term_with_scope(
 /// value, are macro-expanded.
 ///
 /// Rule parsing retains semantic-cast wrappers around variables. The compilation pipeline
-/// removes those wrappers, gives each root alias of a macro rule its head's sort, and marks each
-/// rule of a macro-like production with the production's
-/// macro kind before macro matching, so concrete terms build their expander from the same rule
-/// shape. The prepared value depends on the definition alone and not on the term, so one value
+/// removes those wrappers, gives each root alias of a macro rule its head's sort, marks each
+/// rule of a macro-like production with the production's macro kind, and declares every sort
+/// but a parser sort below `KItem` before macro matching, so concrete terms build their expander
+/// from the same rule shape and subsort order. The prepared value depends on the definition alone and not on the term, so one value
 /// serves every term expanded against the same definition.
 pub struct MacroExpansionDefinition {
     resolved: ResolvedDefinition,
@@ -591,13 +597,16 @@ pub struct MacroExpansionDefinition {
 
 impl MacroExpansionDefinition {
     /// Resolve semantic casts in, and propagate macro kinds onto, every rule that can become a
-    /// macro rule, and resolve the result.
+    /// macro rule, declare every sort but a parser sort below `KItem` in each module, and resolve
+    /// the result.
     ///
     /// An expander reads from its definition the productions, sort declarations, and syntax
     /// relations of its module (catalogs, subsorts, overloads, sort injection) and the rules that
-    /// `macro_rule` accepts. Cast resolution and propagation change only the terms and attributes
-    /// of rules, so they leave the first part unchanged; this function applies them to a superset
-    /// of the accepted rules and leaves every other rule as written:
+    /// `macro_rule` accepts. The `KItem` subsorts are those the pipeline declares before it
+    /// expands macros (`subsort_kitem`), so the subsort order a program is expanded under is the
+    /// one a rule is expanded under. Cast resolution and propagation change only the terms and
+    /// attributes of rules, so they leave the first part unchanged; this function applies them to
+    /// a superset of the accepted rules and leaves every other rule as written:
     ///
     /// - `macro_rule` accepts a rule when it carries a macro kind, or when the head of its
     ///   rewrite's left projection has a macro-kind production visible in the expander's module.
@@ -664,6 +673,18 @@ impl MacroExpansionDefinition {
                 super::propagate_macro_attribute(&mut rule, productions);
                 *sentence = std::sync::Arc::new(rule);
             }
+            // Every sort but a parser sort is below `KItem` in the definition the pipeline
+            // expands its sentences in, which declares those subsorts before expanding them; a
+            // program is expanded under the same order, so a `KItem` variable of a macro rule
+            // matches a term of any such sort, as it does in a rule.
+            let generated = super::kitem_subsorts(
+                views.sort_catalog(module_id),
+                original.sentences(module_id).iter().copied(),
+                &module.local_sentences,
+            );
+            module
+                .local_sentences
+                .extend(generated.into_iter().map(std::sync::Arc::new));
         }
         let resolved = ResolvedDefinition::resolve(&prepared).map_err(|error| error.to_string())?;
         Ok(Self { resolved })
@@ -811,6 +832,9 @@ struct Expander<'view, 'definition> {
     injector: SortInjector<'view, 'definition>,
     subsorts: &'view crate::definition::PartialOrder<Sort>,
     overloads: &'view crate::definition::OverloadOrder<'definition>,
+    /// The declarations of the term module's sorts as the emitted definition states them, from
+    /// which a token's value follows ([`Self::same_token`]).
+    facts: EmittedDeclarations<'view, 'definition>,
     /// Macro rules by the head of their left side. A loaded rule's head carries no sort
     /// parameter, so it stands for every instance of its production; the variable sorts of its
     /// arguments decide whether it applies to a given subject.
@@ -834,6 +858,13 @@ struct Expander<'view, 'definition> {
     existentials: BTreeMap<String, (String, String)>,
     /// The label of the macro rule being instantiated.
     macro_label: String,
+    /// The sort the macro rule being instantiated gives each variable of its left side that
+    /// carries one ([`Self::placed`]).
+    binder_sorts: BTreeMap<String, Sort>,
+    /// Whether the sentence or standalone term being expanded holds a binding placed at its
+    /// variable's sort by a cast ([`Self::placed`]), which [`Self::released`] writes as the
+    /// placement it stands for once expansion ends.
+    placed_bindings: bool,
     /// Rewrites by `macro-rec` and `alias-rec` rules made since the sentence or standalone
     /// term began expanding.
     recursive_rewrites: usize,
@@ -970,6 +1001,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             injector,
             subsorts,
             overloads,
+            facts: EmittedDeclarations::new(sorts, productions),
             macros: macros
                 .into_iter()
                 .map(|(head, rules)| (head, Rc::from(rules)))
@@ -986,6 +1018,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             generated: BTreeSet::new(),
             existentials: BTreeMap::new(),
             macro_label: String::new(),
+            binder_sorts: BTreeMap::new(),
+            placed_bindings: false,
             recursive_rewrites: 0,
             growth_allowance: MIN_RECURSIVE_GROWTH,
             red_zone: stack_zone(0),
@@ -1013,9 +1047,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             };
             let mut site = Site::new(sentence);
             self.expand_site(&mut site, fields)?;
-            return Ok(site.sentence);
+            return Ok(self.released_sentence(site.sentence));
         }
-        match sentence {
+        let expanded = match sentence {
             Sentence::Rule {
                 body,
                 requires,
@@ -1056,6 +1090,56 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             | sentence @ Sentence::ContextAlias { .. }
             | sentence @ Sentence::Configuration { .. }
             | sentence @ Sentence::Bubble { .. } => Ok(sentence),
+        }?;
+        Ok(self.released_sentence(expanded))
+    }
+
+    /// `sentence` with the placed bindings of its expansion released ([`Self::released`]).
+    fn released_sentence(&self, sentence: Sentence) -> Sentence {
+        if !self.placed_bindings {
+            return sentence;
+        }
+        match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } => Sentence::Rule {
+                body: self.released(body),
+                requires: self.released(requires),
+                ensures: self.released(ensures),
+                attributes,
+            },
+            Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } => Sentence::Claim {
+                body: self.released(body),
+                requires: self.released(requires),
+                ensures: self.released(ensures),
+                attributes,
+            },
+            Sentence::Context {
+                body,
+                requires,
+                attributes,
+            } => Sentence::Context {
+                body: self.released(body),
+                requires: self.released(requires),
+                attributes,
+            },
+            sentence @ (Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. }) => sentence,
         }
     }
 
@@ -1305,6 +1389,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// `input_depth` deep, with its full budget.
     fn begin(&mut self, input_depth: usize) {
         self.identities.clear();
+        self.placed_bindings = false;
         self.recursive_rewrites = 0;
         self.growth_allowance = growth_allowance(input_depth);
         self.red_zone = stack_zone(input_depth);
@@ -1397,6 +1482,21 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         if let Term::Apply { label, .. } = rule.left.unannotated() {
             self.macro_label.clone_from(&label.name);
         }
+        self.binder_sorts.clear();
+        let mut pending = vec![&rule.left];
+        // Invariant: `binder_sorts` holds the first sort written, in preorder, for each variable of the left side's subterms visited so far, and `pending` holds the subterms not yet visited; each iteration visits one node of the left side.
+        while let Some(term) = pending.pop() {
+            if let Term::Variable { name, sort } = term.unannotated()
+                && let Some(sort) = sort
+                    .as_ref()
+                    .or_else(|| term.metadata().and_then(|metadata| metadata.sort.as_ref()))
+            {
+                self.binder_sorts
+                    .entry(name.clone())
+                    .or_insert_with(|| sort.clone());
+            }
+            pending.extend(children_of(term).into_iter().rev());
+        }
         with_stack(self.red_zone, || {
             self.substitute(
                 rule.right.clone(),
@@ -1412,7 +1512,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     fn expand_standalone(&mut self, term: Term, position: &Sort) -> Result<Term, Diagnostic> {
         self.begin(term_depth(&term));
         if self.typer.is_none() {
-            return self.expand_term(term, &BTreeSet::new(), 0);
+            let expanded = self.expand_term(term, &BTreeSet::new(), 0)?;
+            return Ok(self.released(expanded));
         }
         let mut site = Site::ground(term, position);
         self.expand_site(&mut site, &[0])?;
@@ -1431,7 +1532,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 position,
             );
         });
-        Ok(body)
+        Ok(self.released(body))
     }
 
     /// Expand the macros of the term at `path` of `site`, innermost first, in place.
@@ -1690,7 +1791,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         match pattern.unannotated() {
             Term::Variable { name, sort } => {
                 if let Some(existing) = bindings.get(name.as_str()) {
-                    return Ok(*existing == subject);
+                    return Ok(self.same_term(existing, subject));
                 }
                 if let Some(pattern_sort) = sort.as_ref().or(metadata_sort) {
                     let subject_sort = self
@@ -1730,7 +1831,11 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 }
                 Ok(true)
             }
-            Term::Token { .. } => Ok(pattern == subject),
+            Term::Token { token, sort } => Ok(matches!(
+                subject.unannotated(),
+                Term::Token { token: written, sort: written_sort }
+                    if written_sort == sort && self.same_token(sort, token, written)
+            )),
             // `P #as V` matches exactly what `P` matches and binds `V` to the whole subject.
             Term::As {
                 pattern: aliased,
@@ -1748,6 +1853,57 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 "Cannot compute macros with terms that are not KApply, KToken, or KVariable.",
             )),
         }
+    }
+
+    /// Whether `left` and `right` are one term: the same nodes, each pair of tokens denoting
+    /// one value ([`Self::same_token`]). Compared without recursion.
+    fn same_term(&self, left: &Term, right: &Term) -> bool {
+        let mut pending = vec![(left, right)];
+        // Invariant: every pair of corresponding subterms of `left` and `right` compared so far is the same node, and `pending` holds the corresponding pairs not yet compared; each iteration compares one pair and pushes its children, so the walk visits each node of `left` at most once.
+        while let Some((left, right)) = pending.pop() {
+            let same = match (left.unannotated(), right.unannotated()) {
+                (
+                    Term::Token { token, sort },
+                    Term::Token {
+                        token: other,
+                        sort: other_sort,
+                    },
+                ) => sort == other_sort && self.same_token(sort, token, other),
+                (left, right) => NodeHead::of(left) == NodeHead::of(right),
+            };
+            let (left, right) = (children_of(left), children_of(right));
+            if !same || left.len() != right.len() {
+                return false;
+            }
+            pending.extend(left.into_iter().zip(right));
+        }
+        true
+    }
+
+    /// Whether the tokens `left` and `right` of `sort` denote one value of it.
+    ///
+    /// A token of a sort with domain values denotes the domain value the emitted definition
+    /// reads from its text, an element of its hook's domain, whose canonical text
+    /// the backend stores. So two spellings of one value are one term: the integers `1`, `+1`
+    /// and `01`; the strings `"a"` and `"\x61"`; the byte strings `b"ab"` and `b"\x61\x62"`;
+    /// the floats `1.5`, `1.50` and `15e-1`, which name one binary64 number. A float's format
+    /// is part of its value (`1.5f` is a binary32 number, another value than `1.5`), as is its
+    /// sign at zero (`0.0` and `-0.0` are two values, though `==Float` holds of them), and the
+    /// literal syntax names one NaN per format, which is equal to itself as a term. A token of
+    /// a sort whose domain values are their texts (an unhooked token sort), of a sort without
+    /// domain values, or whose text names no value of its sort, denotes its text.
+    fn same_token(&self, sort: &Sort, left: &str, right: &str) -> bool {
+        if left == right {
+            return true;
+        }
+        let backend = backend_sort(sort);
+        let encoding = LiteralEncoding::of_domain_value(&encode_kore_sort(sort));
+        let hook = self.facts.hook(sort);
+        let value = |token: &str| {
+            let payload = token_payload(token, hook, encoding).ok()?;
+            BackendTerm::domain_value_in(&self.facts, backend, payload)
+        };
+        matches!((value(left), value(right)), (Some(left), Some(right)) if left == right)
     }
 
     fn pattern_overloads_subject(&self, pattern: &Label, subject: &Label) -> bool {
@@ -1876,6 +2032,118 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         parts.pop().expect("a term has a root")
     }
 
+    /// The sort the macro rule being instantiated gives `argument` when it is a variable the
+    /// match bound: the sort written at this occurrence, or else at its left side.
+    fn binder_sort(
+        &self,
+        argument: &Term,
+        bindings: &BTreeMap<&str, (Term, Shape, usize)>,
+    ) -> Option<Sort> {
+        let Term::Variable { name, sort } = argument.unannotated() else {
+            return None;
+        };
+        if !bindings.contains_key(name.as_str()) {
+            return None;
+        }
+        sort.as_ref()
+            .or_else(|| {
+                argument
+                    .metadata()
+                    .and_then(|metadata| metadata.sort.as_ref())
+            })
+            .or_else(|| self.binder_sorts.get(name))
+            .cloned()
+    }
+
+    /// `binding`, which replaces a variable of sort `sort` at an argument of a parametric
+    /// application in a macro rule's right side, placed at `sort`: cast to it when its own sort
+    /// is strictly below it; with what is known of it.
+    ///
+    /// The macro rule's typing fixes the instance of the application from the variable's sort.
+    /// A term placed at a parametric argument takes the instance from its own sort, which is
+    /// the variable's only when nothing narrower is bound: `wrap(X:Stmt)` bound to a `Value`
+    /// would be `wrap` at `Value`, another term than the rule states. The cast places the
+    /// binding at the variable's sort, so the result is the application at the instance the
+    /// rule's typing gives it, with the binding injected into the variable's sort; where the
+    /// sorts are equal the binding already is.
+    ///
+    /// The cast is how the term states its sort while expansion goes on: the typing of the
+    /// sentence, which reads the instances of parametric heads, places the operand at the
+    /// cast's sort, and a later macro rule's variable matches the cast by that sort, as it
+    /// matches the injection the cast stands for. When expansion ends, each such cast is written
+    /// as that placement ([`Self::released`]).
+    fn placed(&mut self, binding: Term, known: Known, sort: &Sort) -> (Term, Known) {
+        let placement = self
+            .injector
+            .term_sort(&binding, None)
+            .ok()
+            .and_then(|found| Placement::between(&found, sort, self.subsorts));
+        if placement.is_none_or(|placement| matches!(placement.kind(), PlacementKind::Identity)) {
+            return (binding, known);
+        }
+        self.placed_bindings = true;
+        (
+            Term::Apply {
+                label: Label::semantic_cast(sort),
+                arguments: vec![binding],
+            },
+            Known::Children(vec![known]),
+        )
+    }
+
+    /// `term` with each cast `#SemanticCastToS(t)` whose operand's sort is strictly below `S`
+    /// written as the placement of `t` at `S` (`inj{sort(t), S}(t)`, or the one-item sequence of
+    /// a `KItem` at `K`): the term the cast denotes, which the emitted definition writes; every
+    /// other node as it is. Only an expansion that placed a binding ([`Self::placed`]) holds such
+    /// a cast it wrote.
+    fn released(&self, term: Term) -> Term {
+        if !self.placed_bindings {
+            return term;
+        }
+        with_stack(self.red_zone, || self.release(term))
+    }
+
+    fn release(&self, term: Term) -> Term {
+        let metadata = term.metadata().cloned();
+        let rebuilt = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
+                let mut arguments = arguments
+                    .into_iter()
+                    .map(|argument| self.release(argument))
+                    .collect::<Vec<_>>();
+                if let Some(sort) = label.semantic_cast_sort()
+                    && let [operand] = arguments.as_slice()
+                    && let Some(placement) = self
+                        .injector
+                        .term_sort(operand, None)
+                        .ok()
+                        .and_then(|found| Placement::between(&found, &sort, self.subsorts))
+                    && !matches!(placement.kind(), PlacementKind::Identity)
+                {
+                    let operand = arguments.pop().expect("a cast has one operand");
+                    return with_metadata(placement.apply(operand), metadata);
+                }
+                Term::Apply { label, arguments }
+            }
+            TermParts::Rewrite { left, right } => Term::Rewrite {
+                left: Box::new(self.release(*left)),
+                right: Box::new(self.release(*right)),
+            },
+            TermParts::As { pattern, alias } => Term::As {
+                pattern: Box::new(self.release(*pattern)),
+                alias: Box::new(self.release(*alias)),
+            },
+            TermParts::Sequence(items) => {
+                Term::Sequence(items.into_iter().map(|item| self.release(item)).collect())
+            }
+            leaf @ (TermParts::InjectedLabel(_)
+            | TermParts::Variable { .. }
+            | TermParts::Token { .. }) => Term::from(leaf),
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        };
+        with_metadata(rebuilt, metadata)
+    }
+
     /// `term`, a rule's right side, with each variable bound by the match replaced by its
     /// binding and each other variable but `#Configuration` by a fresh one, the same fresh
     /// variable for every occurrence of a name; with what is known of the result: a binding
@@ -1945,9 +2213,31 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 }
             }
             TermParts::Apply { label, arguments } => {
+                // The arguments at which the production's sort parameters occur: there the
+                // instance of the application follows from the argument's sort.
+                let parametric = production_parameters(self.productions, &label).map(
+                    |(parameters, _, sorts)| {
+                        sorts
+                            .iter()
+                            .map(|sort| mentions_parameter(sort, parameters))
+                            .collect::<Vec<_>>()
+                    },
+                );
                 let (arguments, known) = arguments
                     .into_iter()
-                    .map(|argument| self.substitute(argument, bindings, settled, fresh))
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let binder = parametric
+                            .as_ref()
+                            .is_some_and(|parametric| parametric.get(index) == Some(&true))
+                            .then(|| self.binder_sort(&argument, bindings))
+                            .flatten();
+                        let (argument, known) = self.substitute(argument, bindings, settled, fresh);
+                        match binder {
+                            Some(sort) => self.placed(argument, known, &sort),
+                            None => (argument, known),
+                        }
+                    })
                     .unzip();
                 (Term::Apply { label, arguments }, Known::Children(known))
             }
@@ -1991,6 +2281,15 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         };
         (rebuilt, known)
     }
+}
+
+/// Whether `sort` is one of `parameters` or has one among its arguments.
+fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
+    parameters.contains(sort)
+        || sort
+            .parameters
+            .iter()
+            .any(|argument| mentions_parameter(argument, parameters))
 }
 
 /// The subterm of a matched subject each variable of a rule's left side stands for.

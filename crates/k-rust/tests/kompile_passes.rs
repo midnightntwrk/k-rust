@@ -6094,6 +6094,243 @@ fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() 
     assert_eq!(printed, r#"f(#token("true","Bool"))"#);
 }
 
+/// A macro rule's token matches a program's token by the value both denote, so two spellings
+/// of one value are one term: `+1` and `01` are the integer `1`, `"\x61b"` is `"ab"`,
+/// `b"\x61\x62"` is `b"ab"`, and `1.50`, `15e-1` and `1.5d` are the binary64 number `1.5`. A
+/// float's format and its sign at zero are part of its value (`1.5f`, `-0.0`), the literal
+/// syntax names one NaN per format, and a token of an unhooked sort is its text. A repeated
+/// variable compares its occurrences the same way.
+#[test]
+fn a_macro_matches_a_token_by_its_value() {
+    let source = indoc! {r##"
+        module MAIN
+          syntax Int [hook(INT.Int), token]
+          syntax Bool [hook(BOOL.Bool), token]
+          syntax String [hook(STRING.String), token]
+          syntax Bytes [hook(BYTES.Bytes), token]
+          syntax Float [hook(FLOAT.Float), token]
+          syntax Name [token]
+          syntax Exp ::= "z" [symbol(z)]
+          syntax Exp ::= "fi" "(" Int ")" [macro, symbol(fi)]
+          syntax Exp ::= "fb" "(" Bool ")" [macro, symbol(fb)]
+          syntax Exp ::= "fs" "(" String ")" [macro, symbol(fs)]
+          syntax Exp ::= "fy" "(" Bytes ")" [macro, symbol(fy)]
+          syntax Exp ::= "ff" "(" Float ")" [macro, symbol(ff)]
+          syntax Exp ::= "fz" "(" Float ")" [macro, symbol(fz)]
+          syntax Exp ::= "fn" "(" Float ")" [macro, symbol(fn)]
+          syntax Exp ::= "fk" "(" Name ")" [macro, symbol(fk)]
+          syntax Exp ::= "twice" "(" Int "," Int ")" [macro, symbol(twice)]
+          rule fi(#token("1", "Int")) => z
+          rule fb(#token("true", "Bool")) => z
+          rule fs(#token("\"ab\"", "String")) => z
+          rule fy(#token("b\"ab\"", "Bytes")) => z
+          rule ff(#token("1.5", "Float")) => z
+          rule fz(#token("0.0", "Float")) => z
+          rule fn(#token("NaN", "Float")) => z
+          rule fk(#token("abc", "Name")) => z
+          rule twice(X:Int, X) => z
+        endmodule
+    "##};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let token = |sort: &str, text: &str| Term::Token {
+        token: text.into(),
+        sort: Sort::new(sort),
+    };
+    let expands = |program: Term| {
+        let expanded = prepared
+            .expand_program(
+                "MAIN",
+                k_rust::inner::ParsedProgram::from_term(program),
+                &Sort::new("Exp"),
+            )
+            .unwrap();
+        expanded.term() == &application("z", Vec::new())
+    };
+    let cases = [
+        ("fi", "Int", "1", true),
+        ("fi", "Int", "+1", true),
+        ("fi", "Int", "01", true),
+        ("fi", "Int", "-1", false),
+        ("fi", "Int", "2", false),
+        ("fb", "Bool", "true", true),
+        ("fb", "Bool", "false", false),
+        ("fs", "String", r#""ab""#, true),
+        ("fs", "String", r#""\x61b""#, true),
+        ("fs", "String", r#""a\U00000062""#, true),
+        ("fs", "String", r#""aB""#, false),
+        ("fy", "Bytes", r#"b"ab""#, true),
+        ("fy", "Bytes", r#"b"\x61\x62""#, true),
+        ("fy", "Bytes", r#"b"a""#, false),
+        ("ff", "Float", "1.5", true),
+        ("ff", "Float", "1.50", true),
+        ("ff", "Float", "15e-1", true),
+        ("ff", "Float", "1.5d", true),
+        ("ff", "Float", "1.5p53x11", true),
+        ("ff", "Float", "1.5f", false),
+        ("ff", "Float", "1.5000001", false),
+        ("fz", "Float", "0.0", true),
+        ("fz", "Float", "0e3", true),
+        ("fz", "Float", "-0.0", false),
+        ("fn", "Float", "NaN", true),
+        ("fn", "Float", "NaNd", true),
+        ("fn", "Float", "NaNf", false),
+        ("fk", "Name", "abc", true),
+        ("fk", "Name", "abd", false),
+    ];
+    for (head, sort, text, matched) in cases {
+        assert_eq!(
+            expands(application(head, vec![token(sort, text)])),
+            matched,
+            "{head}({text})"
+        );
+    }
+    assert!(expands(application(
+        "twice",
+        vec![token("Int", "1"), token("Int", "+1")]
+    )));
+    assert!(!expands(application(
+        "twice",
+        vec![token("Int", "1"), token("Int", "2")]
+    )));
+}
+
+/// Every sort but a parser sort is below `KItem` in the order a program is expanded under, as
+/// in the definition a rule is expanded in: a macro rule's `KItem` variable matches a program
+/// term of a sort the definition declares below no other sort.
+#[test]
+fn a_macro_kitem_variable_matches_a_program_term_of_any_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Stmt ::= "go" [symbol(go)]
+          syntax Exp ::= "z" [symbol(z)]
+          syntax KItem ::= Exp
+          syntax Exp ::= "keep" "(" KItem ")" [macro, symbol(keep)]
+          rule keep(_X:KItem) => z
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let expanded = MacroExpansionDefinition::prepare(&definition)
+        .unwrap()
+        .expand_program(
+            "MAIN",
+            k_rust::inner::ParsedProgram::from_term(application(
+                "keep",
+                vec![application("go", Vec::new())],
+            )),
+            &Sort::new("Exp"),
+        )
+        .unwrap();
+    assert_eq!(expanded.term(), &application("z", Vec::new()));
+}
+
+/// A parametric application in a macro rule's right side keeps the instance the rule's typing
+/// gives it: `co(X:Stmt) => wrap(X)` is `wrap` at `Stmt`, so `co(vv)`, with `vv` a `Value` below
+/// `Stmt`, expands to `wrap` at `Stmt` over `vv` injected into `Stmt`, not to `wrap` at `Value`.
+/// A binding of the variable's own sort is written as it is.
+#[test]
+fn a_macro_result_keeps_the_instance_its_rule_is_typed_at() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value ::= "vv" [symbol(vv)]
+          syntax Stmt ::= Value | "ss" [symbol(ss)]
+          syntax {T} Wrap ::= "wrap" "(" T ")" [symbol(wrap)]
+          syntax {T} Wrap ::= "pair" "(" T "," T ")" [symbol(pair)]
+          syntax Wrap ::= "co" "(" Stmt ")" [macro, symbol(co)]
+          syntax Wrap ::= "cp" "(" Stmt ")" [macro, symbol(cp)]
+          rule co(X:Stmt) => wrap(X)
+          rule cp(X:Stmt) => wrap(pair(X, X))
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = k_rust::kompile::SortInjector::new(&resolved, "MAIN").unwrap();
+    let expand = |head: &str, argument: &str| {
+        let expanded = prepared
+            .expand_program(
+                "MAIN",
+                k_rust::inner::ParsedProgram::from_term(application(
+                    head,
+                    vec![application(argument, Vec::new())],
+                )),
+                &Sort::new("Wrap"),
+            )
+            .unwrap();
+        let injected = injector
+            .inject(expanded.term(), &Sort::new("Wrap"))
+            .unwrap();
+        let kore = k_rust::kompile::term_to_kore_from_resolved_with_token_module(
+            &resolved, "MAIN", "MAIN", &injected,
+        )
+        .unwrap();
+        (
+            Printer::new().print_term(expanded.term()),
+            format!("{kore}"),
+        )
+    };
+    assert_eq!(
+        expand("co", "vv"),
+        (
+            "wrap(inj{Value,Stmt}(vv(.KList)))".to_owned(),
+            "Lblwrap{SortStmt{}}(inj{SortValue{}, SortStmt{}}(Lblvv{}()))".to_owned()
+        )
+    );
+    assert_eq!(
+        expand("co", "ss"),
+        (
+            "wrap(ss(.KList))".to_owned(),
+            "Lblwrap{SortStmt{}}(Lblss{}())".to_owned()
+        )
+    );
+    assert_eq!(
+        expand("cp", "vv").1,
+        "Lblwrap{SortWrap{}}(Lblpair{SortStmt{}}(inj{SortValue{}, SortStmt{}}(Lblvv{}()), \
+         inj{SortValue{}, SortStmt{}}(Lblvv{}())))"
+    );
+}
+
+/// A rule that applies a macro keeps the instance the macro rule's typing gives its result, as
+/// a program does: `co(vv)` in a rule's result is `wrap` at `Stmt` over `vv` injected into
+/// `Stmt`, and a rule variable `V:Value` bound by `co(V)` is placed at `Stmt` the same way.
+#[test]
+fn a_rule_applying_a_macro_keeps_the_instance_of_its_result() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value ::= "vv" [symbol(vv)]
+          syntax Stmt ::= Value | "ss" [symbol(ss)]
+          syntax {T} Wrap ::= "wrap" "(" T ")" [symbol(wrap)]
+          syntax Wrap ::= "co" "(" Stmt ")" [macro, symbol(co)]
+          syntax Wrap ::= "hold" "(" Wrap ")" [symbol(hold)] | "done" [symbol(done)]
+          rule co(X:Stmt) => wrap(X)
+          rule hold(co(V:Value)) => co(vv)
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = subsort_kitem(&definition).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let expanded = expand_macros(&definition).unwrap();
+    let injected = add_sort_injections_to_definition(&expanded).unwrap();
+    let bodies = injected
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(format!("{body:?}")),
+            _ => None,
+        })
+        .filter(|body| body.contains("\"hold\""))
+        .collect::<Vec<_>>();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    let wrap_at_stmt =
+        r#"Label { name: "wrap", parameters: [Sort { name: "Stmt", parameters: [] }] }"#;
+    let into_stmt = r#"Label { name: "inj", parameters: [Sort { name: "Value", parameters: [] }, Sort { name: "Stmt", parameters: [] }] }"#;
+    assert_eq!(bodies[0].matches(wrap_at_stmt).count(), 2, "{}", bodies[0]);
+    assert_eq!(bodies[0].matches(into_stmt).count(), 2, "{}", bodies[0]);
+    assert!(!bodies[0].contains("SemanticCast"), "{}", bodies[0]);
+}
+
 /// Whether a rule is a macro rule follows from its attributes and from the production at the
 /// root of its left-hand side, so selecting the macro rules does not walk the rest of the other
 /// rules: beside an ordinary rule whose left-hand side is 100,000 levels deep, a program is
