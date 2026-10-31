@@ -14,10 +14,19 @@
 //!   and some map;
 //! - `unmatched-keys`: `put(a, 10)` and `put(b, 11)` write keys the empty
 //!   start map does not hold, so the end map is the update chain
-//!   `.Map [ a <- 10 ] [ b <- 11 ]`, whatever `a` and `b` are.
+//!   `.Map [ a <- 10 ] [ b <- 11 ]`, whatever `a` and `b` are;
+//! - `moved-one` and `moved-rest`: `move(a, b)` matches `a` and writes 10 at
+//!   `a`, then 0 at `b`, over the rest of the map, which the rule binds on the
+//!   left only (finding NT-9-1); the end map is that rest with the two entries
+//!   written over it in that order, so where `b` is `a` the later entry's 0 is
+//!   the value at `a`, and where `b` is a key of the rest it is overwritten.
+//!   `moved-one`'s rest is empty; `moved-rest`'s is any map, `rest`.
 //!
 //! Each claim has a negative control, `<label>-false`, whose end state no
-//! path reaches; neither prover may prove it.
+//! path reaches; neither prover may prove it. The `moved` controls write the
+//! same entries in the other order, which differs from the rule's map only
+//! where `b` is `a`: a prover that took the symbolic keys for distinct would
+//! prove them.
 
 use k::builtin::{Int, KSequence, Map, map};
 use k::{KItem, Term};
@@ -34,6 +43,7 @@ pub enum ExpSyntax {
     #[k::syntax("get({a})")] Get { a: Int },
     #[k::syntax("got({a})")] Got { a: Int },
     #[k::syntax("put({a},{v})")] Put { a: Int, v: Int },
+    #[k::syntax("move({a},{b})")] Move { a: Int, b: Int },
 }
 
 #[k::configuration]
@@ -127,6 +137,26 @@ fn put(
     }
 }
 
+/// `move(a, b)` writes 10 at `a`, then the old value at `b`, over the rest of the map: `b` may
+/// be any key, so the result is the update chain over the rest.
+#[k::rule(label = "move")]
+fn move_rule(
+    a: Term<Int>,
+    b: Term<Int>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Move(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> v, rest @ ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 10, b -> v, ..rest]),
+        ..state
+    }
+}
+
 /// One key: its entry becomes 10.
 #[k::claim(all_paths, label = "sym-one")]
 fn sym_one(
@@ -196,6 +226,42 @@ fn unmatched_keys(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![a -> 10, b -> 11]),
+        ..state
+    }
+}
+
+/// `move(a, b)` over the map holding `a` alone: 10 then 0 written over the empty rest.
+#[k::claim(all_paths, label = "moved-one")]
+fn moved_one(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Move(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 10, b -> 0]),
+        ..state
+    }
+}
+
+/// `move(a, b)` over `a` and any rest: that rest with 10 at `a`, then 0 at `b`, written over it.
+#[k::claim(all_paths, label = "moved-rest")]
+fn moved_rest(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Move(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0, rest @ ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 10, b -> 0, ..rest]),
         ..state
     }
 }
@@ -271,6 +337,42 @@ fn unmatched_keys_false(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![a -> 11, b -> 11]),
+        ..state
+    }
+}
+
+/// `moved-one` with the two entries in the other order: wrong where `b` is `a`.
+#[k::claim(all_paths, label = "moved-one-false")]
+fn moved_one_false(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Move(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![b -> 0, a -> 10]),
+        ..state
+    }
+}
+
+/// `moved-rest` with the two entries in the other order: wrong where `b` is `a`.
+#[k::claim(all_paths, label = "moved-rest-false")]
+fn moved_rest_false(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Move(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0, rest @ ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![b -> 0, a -> 10, ..rest]),
         ..state
     }
 }

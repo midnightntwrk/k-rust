@@ -1,6 +1,6 @@
 [package]
 name = "krs-verification-surface-cell-maps"
-description = "Claims over a map cell with symbolic keys: matched keys, a rule's result read back, and keys the start state does not hold"
+description = "Claims over a map cell with symbolic keys: matched keys, a rule's result read back, keys the start state does not hold, and keys written over the rest a rule leaves"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

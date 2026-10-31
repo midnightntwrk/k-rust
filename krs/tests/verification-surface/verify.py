@@ -148,17 +148,24 @@ simplification not rooted at `ml::equals` or `ml::ceil`, one whose types
 disagree, and a predicate subject on a transition.
 
 Map cells with symbolic keys (NT-9): `cell-maps` has an `env` map cell and
-four claims whose keys are variables: `sym-one` rewrites the entry of a key
+six claims whose keys are variables: `sym-one` rewrites the entry of a key
 in a map that holds it alone, `sym-two` in one that also holds a second key,
 `set-get` reads back the map a rule's result wrote, and `unmatched-keys`
 writes two keys the empty start map does not hold, so its emitted end map is
-the update chain `.Map [ A:Int <- 10 ] [ B:Int <- 11 ]`. Every claim is
-proved natively (`krs prove`) and by Java `kprove --claims` on the emitted
+the update chain `.Map [ A:Int <- 10 ] [ B:Int <- 11 ]`. `moved-one` and
+`moved-rest` (NT-27, finding NT-9-1) step `move(a, b)`, whose rule writes 10
+at the key it matched and then the old value at `b`, a key it did not match,
+over the rest of the map, bound on the left only (`<env> A:Int |-> V:Int
+Rest:Map => Rest:Map [ A:Int <- 10 ] [ B:Int <- V:Int ] </env>`); the rest is
+empty in `moved-one` and the symbolic `Rest:Map` in `moved-rest`. Every claim
+is proved natively (`krs prove`) and by Java `kprove --claims` on the emitted
 files. Each has a negative control, `<label>-false`, with an end state no path
 reaches (`sym-one` ending with 11, `sym-two` writing `b` too, `set-get`
-reading back 11, `unmatched-keys` with 11 at `a`): neither route may prove
-it, as the `conc` and ablation fixtures pin a claim that fails. `krs prove`
-disproves `set-get-false` and reports the three others `indeterminate`.
+reading back 11, `unmatched-keys` with 11 at `a`, the `moved` claims with
+their two entries in the other order, wrong only where `b` is `a`): neither
+route may prove it, as the `conc` and ablation fixtures pin a claim that
+fails. `krs prove` disproves `set-get-false` and reports the five others
+`indeterminate`.
 
 Set collections selected by computed instances (NT-10): `set-instance-claims`
 is the configuration-cells gate's `set-instances` definition with three
@@ -400,9 +407,9 @@ LESSON_SPEC_FRAGMENT = (
 
 CELL_MAPS = Fixture(MANIFEST, "krs-verification-surface-cell-maps")
 CELL_MAPS_SPEC = "KRS-CELL-MAPS-SPEC"
-CELL_MAPS_CLAIMS = ("sym-one", "sym-two", "set-get", "unmatched-keys")
+CELL_MAPS_CLAIMS = ("sym-one", "sym-two", "set-get", "unmatched-keys", "moved-one", "moved-rest")
 # Each claim with a false end state: neither route may prove it. `krs prove` disproves the
-# concrete `got(11)` (stuck at `got(10)`); on the three end maps it ends with a leaf whose
+# concrete `got(11)` (stuck at `got(10)`); on the five end maps it ends with a leaf whose
 # condition, a negated equality of terms over the symbolic keys, it cannot decide, and reports
 # `indeterminate`.
 CELL_MAPS_STATUSES = {
@@ -411,14 +418,19 @@ CELL_MAPS_STATUSES = {
     "sym-two-false": "indeterminate",
     "set-get-false": "disproved",
     "unmatched-keys-false": "indeterminate",
+    "moved-one-false": "indeterminate",
+    "moved-rest-false": "indeterminate",
 }
 # The `<env>` cell of each claim as emitted: the keys a claim names stay symbolic,
-# and keys the start map does not hold are written as the update chain.
+# and keys the start map does not hold are written as the update chain, over the
+# rest the start map leaves where it leaves one.
 CELL_MAPS_FRAGMENTS = (
     "    <env> A:Int |-> 0 => A:Int |-> 10 </env>\n",
     "    <env> A:Int |-> 0 B:Int |-> 0 => A:Int |-> 10 B:Int |-> 0 </env>\n",
     "    <env> E:Map => ?After:Map </env>\n",
     "    <env> .Map => .Map [ A:Int <- 10 ] [ B:Int <- 11 ] </env>\n",
+    "    <env> A:Int |-> 0 => .Map [ A:Int <- 10 ] [ B:Int <- 0 ] </env>\n",
+    "    <env> A:Int |-> 0 Rest:Map => Rest:Map [ A:Int <- 10 ] [ B:Int <- 0 ] </env>\n",
 )
 
 SET_INSTANCE_CLAIMS = Fixture(MANIFEST, "krs-verification-surface-set-instance-claims")
