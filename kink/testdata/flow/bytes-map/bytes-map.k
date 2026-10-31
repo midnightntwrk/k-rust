@@ -1,5 +1,5 @@
 // A program that writes a value under a Bytes key into a Map cell and halts: a Bytes key is
-// not a value kink compares (CS-T04), so the final configuration stays class unknown. The key is
+// a value kink compares (kink27 R5-BYTES-ENDS; before, CS-T04 left it unknown). The key is
 // built with `encodeBytes("UTF-8", K)`, whose encoding domains.md names, not `String2Bytes`,
 // whose value it leaves open (re-pin decision 1, R0c).
 module BYTES-MAP-SYNTAX

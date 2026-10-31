@@ -438,7 +438,10 @@ pub(crate) fn contains_non_strict_injection(
     found
 }
 
-/// Only these decoded domain values have a proven injective codec at the current k-rust pin.
+/// Only these decoded domain values have a proven injective codec at the current k-rust pin:
+/// canonical Int and Bool texts, ASCII String and unhooked texts, and every `Bytes` value in its
+/// sort's stored form (one byte per code point at `SortBytes`, the UTF-8 of code points
+/// ≤ U+00FF elsewhere; `docs/compatibility.md` "Strings and their literals").
 pub(crate) fn domain_value_identity_safe(
     definition: &BackendDefinition,
     sort: &KoreSort,
@@ -470,6 +473,14 @@ fn domain_bytes_identity_safe(definition: &BackendDefinition, name: &str, bytes:
         }
         Some("BOOL.Bool") => bytes == b"true" || bytes == b"false",
         Some("STRING.String") | None => bytes.is_ascii(),
+        // A Bytes value is a byte sequence (`domains.md`, `BYTES-SYNTAX`). At `SortBytes` the
+        // payload is that sequence itself; at a renamed sort it is the UTF-8 of one code point
+        // (≤ U+00FF) per byte, which every k-rust route stores. Either form has one payload per
+        // value; anything else has no decode.
+        Some("BYTES.Bytes") => {
+            name == BuiltinSort::Bytes.kore_name()
+                || std::str::from_utf8(bytes).is_ok_and(|text| text.chars().all(|c| c <= '\u{ff}'))
+        }
         _ => false,
     }
 }

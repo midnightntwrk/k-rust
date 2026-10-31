@@ -428,35 +428,28 @@ fn run_together(
 mod kink_tier {
     use super::*;
 
+    /// kink27 R5-BYTES-ENDS: a Bytes domain value has a trusted injective codec (its payload is its
+    /// sort's one stored form), so the Bytes-keyed Map the `store` rule leaves is a value and the
+    /// program is comparable. Before, TV-01 refused the key's Bytes value (CS-T04), and the oracle
+    /// gate left the program `unknown`.
     #[test]
     #[ignore = "kink"]
-    fn a_bytes_key_remains_unknown_with_the_runners_cause() {
+    fn a_bytes_key_is_comparable() {
         let manifest = fixture("bytes-map", "bytes-map").join("FLOW.toml");
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{document:#}");
-        assert_eq!(rows(&document), expect(&[("store", "unknown", false)]));
-        // Re-pin R0c (deliverable 8): the `store` rule now builds its key with
-        // `encodeBytes("UTF-8", K)`, which the decision-1 census does not flag, so the cause is again
-        // the oracle gate's refusal of the Bytes-keyed Map (as at R0a; R0b's cause named
-        // implementation-chosen-hook for `String2Bytes`). The class is unknown either way.
-        // fz26 KINK-CAUSE-SUBTERM: the cause names the first node, in pre-order, that fails its
-        // own test: the Map under <mem> and its entry pass, the key's Bytes value does not.
-        assert_eq!(
-            document["programs"][0]["cause"],
-            "the campaign runner refused the baseline run (BaselineOracleFailed: a baseline \
-             declaration-scoped oracle gate rejected); every path ended, but a final configuration \
-             is not a value kink can compare: in the stuck leaf at depth 1, the first node, in \
-             pre-order, that fails its own test is a domain value at <mem>/Map entry 1 key: it is a \
-             domain value without a trusted injective codec (only canonical Int and Bool values, \
-             and ASCII values of String and of sorts without a hook, have one) (node: \
-             \\dv{SortBytes{}}(\"a\")); leaves: stuck at depth 1"
-        );
+        assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         let record = read_json(&record_path(&manifest, &document, "store"));
-        assert_eq!(record["class"], "unknown");
-        assert!(record["baseline"].is_null() && record["run_sha256"].is_null());
-        assert_eq!(record["final_configuration"].as_array().unwrap().len(), 1);
-        assert_eq!(document["rules"][0]["status"], "uncovered");
-        assert_eq!(document["rules"][0]["reached_by"], json!([]));
+        assert_eq!(record["class"], "comparable");
+        assert!(
+            !record["baseline"].is_null() && !record["run_sha256"].is_null(),
+            "{record:#}"
+        );
+        let finals = record["final_configuration"].as_array().unwrap();
+        assert_eq!(finals.len(), 1);
+        let text = finals[0].as_str().unwrap();
+        assert!(text.contains("\\dv{SortBytes{}}(\"a\")"), "{text}");
+        assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
     }
 
     /// fz26 KRUST-ANYWHERE-HEAD: on SIMPLE (TRIAL2's stream-free copy,

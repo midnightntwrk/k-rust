@@ -352,6 +352,44 @@ fn with_int(term: &Pattern, from: &str, to: &str) -> Pattern {
     }
 }
 
+/// `term` with every injected `SortBytes` domain value replaced by the non-canonical Int text
+/// `01`, injected from `SortInt` into the same target: a domain value that fails
+/// `IdentitySafeDomainValue` for a reason other than its codec, at the Bytes value's path.
+fn with_noncanonical_int_for_bytes(term: &Pattern) -> Pattern {
+    match term {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == "inj"
+                && symbol
+                    .sort_parameters
+                    .first()
+                    .is_some_and(|source| sort_named(source, "SortBytes")) =>
+        {
+            let int = k_rust::kore::ast::Sort::Application {
+                name: "SortInt".to_owned(),
+                arguments: Vec::new(),
+            };
+            let mut symbol = symbol.clone();
+            symbol.sort_parameters[0] = int.clone();
+            Pattern::Application {
+                symbol,
+                arguments: std::iter::once(Pattern::DomainValue {
+                    sort: int,
+                    value: "01".into(),
+                })
+                .collect(),
+            }
+        }
+        Pattern::Application { symbol, arguments } => Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: arguments
+                .iter()
+                .map(with_noncanonical_int_for_bytes)
+                .collect(),
+        },
+        other => other.clone(),
+    }
+}
+
 const STORE: &str = "Lbl'-LT-'store'-GT-'";
 
 fn sort_named(sort: &k_rust::kore::ast::Sort, expected: &str) -> bool {
@@ -361,12 +399,16 @@ fn sort_named(sort: &k_rust::kore::ast::Sort, expected: &str) -> bool {
 /// fz26 KINK-CAUSE-SUBTERM: `first_non_value` names the first node, in pre-order, whose own test
 /// fails with its children ignored, from the walk `terminal_value` takes, so it names no node
 /// exactly when the term has a terminal value. A parent has no terminal value whenever a child has
-/// none, so the root is named only when its own test fails.
+/// none, so the root is named only when its own test fails. Since kink27 R5-BYTES-ENDS a Bytes key
+/// is a value; the key path is shown on the same state with that key replaced by a non-canonical
+/// Int value, which fails the same own test at the same path.
 #[test]
 fn the_first_non_value_is_the_first_node_whose_own_test_fails() {
     let fixture = Fixture::new("collstore.k", "COLLSTORE", "COLLSTORE-SYNTAX");
     let mut backend = fixture.backend();
     let bytes = stuck_state(&fixture, &mut backend, "bytesKey(\"a\")");
+    let nonkey = with_noncanonical_int_for_bytes(&bytes);
+    assert_ne!(nonkey, bytes, "the Bytes key is replaced");
     let fkey = stuck_state(&fixture, &mut backend, "fKey(1)");
     let put = stuck_state(&fixture, &mut backend, "seq(put(2, 20), put(1, 10))");
     // The only failure is a leaf: a non-canonical Int value under a valued key.
@@ -380,7 +422,7 @@ fn the_first_non_value_is_the_first_node_whose_own_test_fails() {
         .with_solver(None, |definition, solver| {
             let decider =
                 ObservationDecider::new(definition, solver, TestInitialState::of_test(&initial));
-            for term in [&bytes, &fkey, &put, &leaf, &duplicate] {
+            for term in [&bytes, &nonkey, &fkey, &put, &leaf, &duplicate] {
                 assert_eq!(
                     decider.terminal_value(term).is_some(),
                     decider.first_non_value(term).is_none(),
@@ -388,12 +430,15 @@ fn the_first_non_value_is_the_first_node_whose_own_test_fails() {
                 );
             }
             assert!(decider.terminal_value(&put).is_some());
+            // kink27 R5-BYTES-ENDS: a Bytes key has a trusted injective codec.
+            assert!(decider.terminal_value(&bytes).is_some(), "{bytes:?}");
 
-            // The Map and its entry pass; the key's injection passes; the Bytes value does not.
-            let failure = decider.first_non_value(&bytes).expect("a Bytes key is no value");
+            // The Map and its entry pass; the key's injection passes; the non-canonical Int value
+            // does not.
+            let failure = decider.first_non_value(&nonkey).expect("01 is no Int value");
             assert_eq!(failure.test, LocalTest::IdentitySafeDomainValue, "{failure:?}");
             assert!(
-                matches!(&failure.node, Pattern::DomainValue { sort, .. } if sort_named(sort, "SortBytes")),
+                matches!(&failure.node, Pattern::DomainValue { sort, .. } if sort_named(sort, "SortInt")),
                 "{failure:?}"
             );
             assert!(

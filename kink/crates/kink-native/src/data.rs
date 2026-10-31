@@ -513,7 +513,11 @@ pub(crate) fn symbolic(rule: &RewriteRule) -> bool {
 /// need not be elements. The walk itself is unchanged; the heads it delegates to moved. A
 /// component of kink's semantics identity (kink-campaign `identity`, key `terminal_value`): it
 /// changes which slots compare, so a verdict. Bump it whenever what the walk admits changes.
-pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v2";
+/// v3 (kink27 R5-BYTES-ENDS): a domain value of a sort hooked `BYTES.Bytes` has a trusted
+/// injective codec, its payload in its sort's stored form, so an end holding one (a cell, a Map
+/// key or value, a List or Set element) is compared. The same codec admits it in step-event
+/// patterns, configuration existence and shared feasibility.
+pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v3";
 
 /// Which ends of runs on a definition are data under it ([`data_ends`]).
 #[derive(Clone, Copy, Debug)]

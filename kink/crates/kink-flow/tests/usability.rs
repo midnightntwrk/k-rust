@@ -551,9 +551,45 @@ mod kink_tier {
         assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
         assert_eq!(classes(&results_document(&manifest, None)), expected(true));
 
-        // An unknown baseline (a Bytes-keyed map) keeps its diagnostic run.
-        let bytes = fixture("bytes-map", "diagnostic").join("FLOW.toml");
-        let document = results_document(&bytes, None);
+        // An unknown baseline keeps its diagnostic run. Since kink27 R5-BYTES-ENDS a Bytes-keyed
+        // map is comparable, so the unknown baseline is an overloaded list holding `opaque(1)`, a
+        // total function's application no equation reduces (tests/results.rs
+        // `an_overloaded_list_names_the_application_inside_it`).
+        let dir = scratch("diagnostic");
+        fs::write(
+            dir.join("ovf.k"),
+            r#"module OVF-SYNTAX
+  imports DOMAINS-SYNTAX
+  syntax Exp  ::= Int | Id | opaque(Int) [function, total]
+  syntax Ids  ::= List{Id,","}  [overload(Exps)]
+  syntax Exps ::= List{Exp,","} [overload(Exps)]
+  syntax Exps ::= Ids
+  syntax Pgm  ::= "h" "(" Exps ")"
+endmodule
+module OVF
+  imports OVF-SYNTAX
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule <k> h(Es) => .K </k> <s> _ => Es </s>
+  rule opaque(0) => 0
+endmodule
+"#,
+        )
+        .unwrap();
+        let opaque = dir.join("FLOW.toml");
+        fs::write(
+            &opaque,
+            r#"[spec]
+entry = "ovf.k"
+main_module = "OVF"
+syntax_module = "OVF-SYNTAX"
+[[program]]
+id = "opaque"
+text = 'h(opaque(1), 2)'
+"#,
+        )
+        .unwrap();
+        let document = results_document(&opaque, None);
         assert_eq!(document["programs"][0]["class"], "unknown");
         assert_eq!(
             document["baseline_runs"],
@@ -914,5 +950,136 @@ mod kink_tier {
             .filter_map(|(label, _)| label)
             .collect::<BTreeSet<_>>();
         assert!(labels.contains("LOOP.countdown"));
+    }
+
+    /// kink27 R5-BYTES-ENDS: a Bytes value in an end is compared by its byte sequence, in a cell,
+    /// a Map value and a List element. Two sequences kill; one sequence built by two routes (a
+    /// literal and `BYTES.concat`) survives; a respelled literal compiles to the baseline. The
+    /// byte 0xe9 and the UTF-8 of `é` are distinct values: a Bytes payload has no second reading.
+    /// Before, TV-01 refused every Bytes value, so no program was comparable and no row was killed
+    /// or survived.
+    #[test]
+    #[ignore = "kink"]
+    fn bytes_ends_are_compared_by_their_bytes() {
+        let dir = scratch("bytes-ends");
+        fs::write(
+            dir.join("bytes-ends.k"),
+            r#"module BYTES-ENDS-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= run(Int) [symbol(run)]
+endmodule
+module BYTES-ENDS
+  imports BYTES-ENDS-SYNTAX
+  imports INT
+  imports BYTES
+  imports MAP
+  imports LIST
+  configuration <k> $PGM:Prog </k> <out> b"" </out> <mem> .Map </mem> <log> .List </log>
+  rule [cell]: <k> run(0) => .K ... </k> <out> _ => b"AB" </out>
+  rule [map]:  <k> run(1) => .K ... </k> <mem> M => M[1 <- b"\xe9"] </mem>
+  rule [list]: <k> run(2) => .K ... </k> <log> L => L ListItem(b"\x00\xff") </log>
+endmodule
+"#,
+        )
+        .unwrap();
+        let manifest = dir.join("FLOW.toml");
+        fs::write(
+            &manifest,
+            r#"[spec]
+entry = "bytes-ends.k"
+main_module = "BYTES-ENDS"
+syntax_module = "BYTES-ENDS-SYNTAX"
+
+[[program]]
+id = "cell"
+text = "run(0)"
+
+[[program]]
+id = "map"
+text = "run(1)"
+
+[[program]]
+id = "list"
+text = "run(2)"
+"#,
+        )
+        .unwrap();
+        let mutations = dir.join("MUTATIONS.toml");
+        fs::write(
+            &mutations,
+            r#"[[mutation]]
+id = "cell-other"
+note = "two sequences in a cell"
+  [[mutation.edit]]
+  rule = "cell"
+  find = 'b"AB"'
+  replace = 'b"AC"'
+
+[[mutation]]
+id = "cell-concat"
+note = "one sequence by two routes: a literal and BYTES.concat"
+  [[mutation.edit]]
+  rule = "cell"
+  find = 'b"AB"'
+  replace = 'b"A" +Bytes b"B"'
+
+[[mutation]]
+id = "cell-respell"
+note = "one value, another spelling of its literal"
+  [[mutation.edit]]
+  rule = "cell"
+  find = 'b"AB"'
+  replace = 'b"\x41\x42"'
+
+[[mutation]]
+id = "map-utf8"
+note = "a Map value: the byte 0xe9 against the UTF-8 of e-acute"
+  [[mutation.edit]]
+  rule = "map"
+  find = 'b"\xe9"'
+  replace = 'b"\xc3\xa9"'
+
+[[mutation]]
+id = "list-byte"
+note = "a List element, NUL and high bytes"
+  [[mutation.edit]]
+  rule = "list"
+  find = 'b"\x00\xff"'
+  replace = 'b"\x00\xfe"'
+
+[[mutation]]
+id = "list-concat"
+note = "one sequence by two routes in a List element"
+  [[mutation.edit]]
+  rule = "list"
+  find = 'b"\x00\xff"'
+  replace = 'b"\x00" +Bytes b"\xff"'
+"#,
+        )
+        .unwrap();
+        let document = search(&manifest, &mutations, ProgramOrder::Corpus);
+        let expected = [
+            ("cell-other", "killed"),
+            ("cell-concat", "survived"),
+            ("cell-respell", "equivalent"),
+            ("map-utf8", "killed"),
+            ("list-byte", "killed"),
+            ("list-concat", "survived"),
+        ];
+        assert_eq!(
+            statuses(&document),
+            expected
+                .iter()
+                .map(|(id, status)| ((*id).to_owned(), (*status).to_owned()))
+                .collect::<Vec<_>>(),
+            "{document:#}"
+        );
+        for (id, program) in [
+            ("cell-other", "cell"),
+            ("map-utf8", "map"),
+            ("list-byte", "list"),
+        ] {
+            assert_eq!(mutation(&document, id)["killer"], program, "{id}");
+        }
     }
 }

@@ -374,7 +374,8 @@ impl LocalTest {
             Self::TermKind => "it is not a variable, a domain value or an application",
             Self::IdentitySafeDomainValue => {
                 "it is a domain value without a trusted injective codec (only canonical Int and \
-                 Bool values, and ASCII values of String and of sorts without a hook, have one)"
+                 Bool values, ASCII values of String and of sorts without a hook, and Bytes \
+                 values have one)"
             }
             Self::CanonicalInjection => "it is a sort injection not in k-rust's normal form",
             Self::DeclaredSymbol => "its symbol is not declared by the definition",
@@ -1497,5 +1498,78 @@ mod tests {
         let identity = pattern(r"Lblg{}(inj{SortS{}, SortS{}}(Lbla{}()))");
         assert!(k_rust_defined(&identity));
         assert!(!decider.configuration_exists(&identity));
+    }
+
+    /// kink27 R5-BYTES-ENDS: a domain value of a sort hooked `BYTES.Bytes` has a trusted
+    /// injective codec. Its payload is its sort's one stored form (the byte sequence itself at
+    /// `SortBytes`, the UTF-8 of one code point per byte at a renamed sort), so every spelling of
+    /// one value reads to one payload and distinct payloads are distinct values. A payload at a
+    /// renamed sort outside that form has no decode and stays refused.
+    #[test]
+    fn bytes_domain_values_have_a_trusted_injective_codec() {
+        let definition = BackendDefinition::internalize(
+            &k_rust::kore::parser::parse_definition(
+                r#"[]
+                module MAIN
+                    sort SortS{} []
+                    hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+                    hooked-sort SortMyBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+                    symbol Lblb{}(SortBytes{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+                    symbol Lblm{}(SortMyBytes{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+                endmodule []"#,
+            )
+            .expect("KORE"),
+            "MAIN",
+        )
+        .expect("definition");
+        let pattern = |text: &str| k_rust::kore::parser::parse_pattern(text).expect("pattern");
+        let empty = pattern(r#"Lblb{}(\dv{SortBytes{}}(""))"#);
+        let decider = ObservationDecider::new(
+            &definition,
+            &k_rust_backend::smt::NoSolver,
+            TestInitialState::of_test(&empty),
+        );
+        for text in [
+            r#"Lblb{}(\dv{SortBytes{}}(""))"#,
+            r#"Lblb{}(\dv{SortBytes{}}("\x03\x00\x00\x00\x00\x00\x00\x00"))"#,
+            r#"Lblb{}(\dv{SortBytes{}}("\xff\x80A"))"#,
+            r#"Lblm{}(\dv{SortMyBytes{}}("\xe9"))"#,
+        ] {
+            let term = pattern(text);
+            assert_eq!(decider.terminal_value(&term), Some(term.clone()), "{text}");
+        }
+
+        // One value, one payload: every spelling of the byte 0x41 reads to one pattern, and the
+        // byte 0xe9 and the two bytes of the UTF-8 of `é` are distinct values.
+        let spelled = pattern(r#"\dv{SortBytes{}}("A")"#);
+        assert_eq!(spelled, pattern(r#"\dv{SortBytes{}}("\x41")"#));
+        assert_eq!(spelled, pattern(r#"\dv{SortBytes{}}("A")"#));
+        assert_ne!(
+            pattern(r#"\dv{SortBytes{}}("\xe9")"#),
+            pattern(r#"\dv{SortBytes{}}("\xc3\xa9")"#)
+        );
+
+        // A payload outside a renamed sort's form (not UTF-8, or a code point above U+00FF) is
+        // stored by no k-rust route and has no decode.
+        let template = pattern(r#"Lblm{}(\dv{SortMyBytes{}}(""))"#);
+        let Pattern::Application { symbol, arguments } = &template else {
+            unreachable!("an application")
+        };
+        let Some(Pattern::DomainValue { sort: renamed, .. }) = arguments.first() else {
+            unreachable!("a domain value argument")
+        };
+        for payload in [vec![0xe9], "\u{101}".as_bytes().to_vec()] {
+            let term = Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: std::iter::once(Pattern::DomainValue {
+                    sort: renamed.clone(),
+                    value: k_rust::kore::ast::KoreString::from_bytes(payload.clone()),
+                })
+                .collect(),
+            };
+            assert_eq!(decider.terminal_value(&term), None, "{payload:?}");
+        }
+
+        assert!(decider.configuration_exists(&pattern(r#"Lblb{}(\dv{SortBytes{}}("\xff"))"#)));
     }
 }

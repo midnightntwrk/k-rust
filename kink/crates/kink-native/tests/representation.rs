@@ -846,6 +846,80 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     );
 }
 
+/// kink27 R5-BYTES-ENDS: the passages the trusted `Bytes` codec of TV-01 rests on (kink README,
+/// "A `Bytes` domain value in an end is compared"). K's text fixes the value: a `Bytes` is a byte
+/// sequence whose literal names one byte per item (`domains.md`, `BYTES-SYNTAX`). k-rust's
+/// contract fixes the payload: one stored form per value, kept by every reader and route, chosen
+/// by the sort's KORE name, and printed one fixed way. A change of any of them fails here, and the
+/// codec is read again against it.
+#[test]
+fn the_passages_the_bytes_end_codec_rests_on_are_pinned() {
+    let passage = |file, anchor, opening, digest| passage::Passage {
+        file,
+        anchor,
+        opening,
+        lines: 1,
+        digest,
+    };
+    let strings = |opening, digest| {
+        passage(
+            "docs/compatibility.md",
+            "## Strings and their literals",
+            opening,
+            digest,
+        )
+    };
+    // "Byte Arrays" is a setext heading, which the helper does not read; the nearest ATX heading
+    // above `BYTES-SYNTAX` is "### Implementation of Strings".
+    let bytes = |opening, digest| {
+        passage(
+            "crates/k-rust/builtin/domains.md",
+            "### Implementation of Strings",
+            opening,
+            digest,
+        )
+    };
+    passage::assert_pinned(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.."),
+        &[
+            strings(
+                "A K `String` is a sequence of code points too",
+                "bebe6540b5aef3bb778c2cc4c4dff7bb4bebb4f18109b08cf3b5005d853ec5bd",
+            ),
+            strings(
+                "k-rust stores a domain value's code points in one form only",
+                "59402ce6fb97b6a6b999dd5983ecd6ff758a32b4732d1edb363b9ad9faed7206",
+            ),
+            strings(
+                "Every reader keeps that form",
+                "9be8848ccab0a47ca40b76f007097ea2284acd186a5363b5b1a82d44e6ce0d9d",
+            ),
+            strings(
+                "The form is chosen by the sort's KORE name",
+                "c54e6e6d36f497a6870a39456a8563ea5754229a342b3403b7bcba741761bff4",
+            ),
+            strings(
+                "The writers write printable ASCII as itself",
+                "e317ce5698f333f38b3f7edc07fa4851448fe4b0ce312636005477000d920e13",
+            ),
+            passage(
+                "docs/compatibility.md",
+                "## Domain values",
+                "Every route validates a text for its sort's kind",
+                "9840cb13d02403ca457b8abe2c93bfeb1b6e0cc20099977a7b580523bab7ed47",
+            ),
+            bytes(
+                "syntax Bytes [hook(BYTES.Bytes)]",
+                "032782d5196d3c225be5fd416d9d07a67d0a37a2033006ca259e03117e7c2d96",
+            ),
+            bytes(
+                "syntax Bytes ::= r\"b",
+                "1214afd67e422dce90a7856661d3e9627a5b3efeb8c53875d258c23d60e5b956",
+            ),
+        ],
+    );
+}
+
 mod kink_tier {
     use super::*;
 

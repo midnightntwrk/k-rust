@@ -305,7 +305,8 @@ enum Judged {
 /// sort whose hook (`hook`, which reads the definition's sort table) is `STRING.String` or none,
 /// whose ASCII values have a trusted injective codec (kink-native's TV-01). Generated `String`
 /// hole values reach ends this way, and replacing their non-ASCII characters can give a value; a
-/// `Bytes`, `Float` or `MInt` domain value is refused for every value, and no repair helps.
+/// `Float` or `MInt` domain value is refused for every value (a `Bytes` value has a codec; only a
+/// payload outside its sort's form, which k-rust never stores, is refused), and no repair helps.
 fn repairable(failure: &NonValue, hook: &dyn Fn(&str) -> Option<Option<String>>) -> bool {
     let Pattern::DomainValue {
         sort: KoreSort::Application { name, arguments },
