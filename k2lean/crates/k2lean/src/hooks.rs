@@ -223,9 +223,12 @@ pub fn unfold_names() -> &'static [&'static str] {
     ]
 }
 
-/// Also the partial and less common hooks, for equation and simplification proofs.
+/// Also the partial and less common hooks, for equation and simplification proofs. The total
+/// `Int`-valued hooks are unfolded there by their propositional theorems (`IntHook.add_eq`, ...),
+/// whose rewrite under `decide` rebuilds the instance, where unfolding the definition leaves an
+/// instance of the old proposition (`KPrelude.EqBase`, EQ-22).
 pub fn eq_unfold_names() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = unfold_names().to_vec();
+    let mut v: Vec<&'static str> = unfold_names().iter().map(|n| by_theorem(n)).collect();
     v.extend([
         "KPrelude.IntHook.tdiv",
         "KPrelude.IntHook.tmod",
@@ -234,9 +237,9 @@ pub fn eq_unfold_names() -> Vec<&'static str> {
         "KPrelude.IntHook.pow",
         "KPrelude.IntHook.shl",
         "KPrelude.IntHook.shr",
-        "KPrelude.IntHook.abs",
-        "KPrelude.IntHook.min",
-        "KPrelude.IntHook.max",
+        "KPrelude.IntHook.abs_eq",
+        "KPrelude.IntHook.min_eq",
+        "KPrelude.IntHook.max_eq",
         "KPrelude.StringHook.eq",
         "KPrelude.StringHook.ne",
         // laws that need more than unfolding
@@ -245,4 +248,14 @@ pub fn eq_unfold_names() -> Vec<&'static str> {
         "Int.tmod_eq_of_lt",
     ]);
     v
+}
+
+/// The propositional theorem that unfolds a total `Int`-valued hook in `k2l_eq`, else the name.
+fn by_theorem(n: &'static str) -> &'static str {
+    match n {
+        "KPrelude.IntHook.add" => "KPrelude.IntHook.add_eq",
+        "KPrelude.IntHook.sub" => "KPrelude.IntHook.sub_eq",
+        "KPrelude.IntHook.mul" => "KPrelude.IntHook.mul_eq",
+        _ => n,
+    }
 }

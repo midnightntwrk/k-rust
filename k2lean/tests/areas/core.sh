@@ -251,6 +251,10 @@ gate_core() {
   # the checks of `#k2l_refuted` (a refutation's form, restatements, the parameters' closure, sorry)
   if (cd "$T/lean" && "$RT" lake env lean "$D/k/refuted/refuted-check.lean") > "$L/refuted-check.log" 2>&1
   then ok "refuted check" "$L/refuted-check.log"; else bad "refuted check" "$L/refuted-check.log"; fi
+  # the checks of the hooks' arithmetic in the generic equation proofs (`k2l_eq`, EQ-22): a
+  # comparison of an arithmetic hook decided by `omega`, an author's laws over it proved
+  if (cd "$T/lean" && "$RT" lake env lean "$D/k/eqarith/eqarith-check.lean") > "$L/eqarith-check.log" 2>&1
+  then ok "eqarith check" "$L/eqarith-check.log"; else bad "eqarith check" "$L/eqarith-check.log"; fi
   # the checks of `#k2l_proves` (a proof's form: the statement named or written out, its closure, axioms)
   if (cd "$T/lean" && "$RT" lake env lean "$D/k/proves/proves-check.lean") > "$L/proves-check.log" 2>&1
   then ok "proves check" "$L/proves-check.log"; else bad "proves check" "$L/proves-check.log"; fi
