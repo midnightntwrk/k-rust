@@ -81,7 +81,10 @@ Admits the specification through kink-corpus's admission stages, with the same s
 `manifest` (this crate: the manifest does not decode), `exclusion`, `load`, `semantic-input`, `compile`,
 `representation`, `declaration-census` and `inputs`, then `assume-joined` (this crate: the definition's full
 critical-pair check on the input backend, against `[spec] assume_joined`).
-The declaration census passes a hooked symbol whose hook its reference declares with the same argument and result sorts (rule H), or one k-rust has no evaluator for (inert); the reference is k-rust's embedded builtin files and blockchain-k-plugin's `plugin/krypto.md` at `651a2db5` (kink-native `census::KRYPTO_REFERENCE_TEXT`, pinned by digest), so the plugin's `KRYPTO` hooks are admitted whichever file or symbol declares them. Any other hooked symbol is refused (`vi-t13`).
+The declaration census passes a hooked symbol whose hook its reference declares with the same argument and result sorts (rule H), or one whose hook the reference does not declare and k-rust has no evaluator for (inert); any other hooked symbol is refused (`vi-t13`).
+The reference is k-rust's embedded builtin files and blockchain-k-plugin's `plugin/krypto.md` at `651a2db5` (kink-native `census::KRYPTO_REFERENCE_TEXT`, pinned by digest), so a declaration of one of the plugin's `KRYPTO` hooks with its documented sorts is admitted whichever file or symbol declares it, and one with other sorts is refused, also for a hook k-rust does not evaluate (`KRYPTO.sha512`).
+Sorts are compared by name: a builtin sort's name is backed by its sort hook, but the point sorts `G1Point` and `G2Point` are not, so the BN128 hooks are admitted on any sort of that name, and their value is k-rust's reading of the point constructor (the definition's only constructor of that sort with two, or four, `Int` arguments; `docs/compatibility.md` "Cryptographic hooks", which states k-rust's contract for these hooks against this revision of `krypto.md` and is pinned by kink-native's `the_krypto_reference_is_k_rusts_crypto_contract`).
+Admission is not a verdict: until k-rust records the values `krypto.md` leaves open on each run, every hook k-rust evaluates stays in the exclusion census, so a definition that declares one has no kill and no `no` (`implementation-chosen-hook`), and `fuzz` refuses it at `exclusions`; a query's `hit` through such a hook stands (query "Answers" below), and rests on k-rust's evaluation as that contract states it (lowercase hex, the ECDSA failure values, the point constructor by signature).
 Then each program is admitted on its own (file read: stage `load`; parse: `inputs`/`parse`;
 other assembly failures: `inputs`/`assemble`; the concrete-state check and the input gate: `inputs`/`input-gate`).
 A refused specification skips the programs; a refused program never stops the others.
@@ -384,7 +387,7 @@ Where a run's wall time goes (release build, `--order corpus`, 4 compile workers
 | --- | --- | --- | --- |
 | Admission: load | one load of the specification and the prelude, about 0.12 s on `examples/imp` | once | once |
 | Admission: baseline compile | about 0.22 s on `examples/imp` | once per command (before L1-4: once more per program run live) | once |
-| Admission: declaration census | 0.52 s, of which its reference prelude's compile 0.22 s | once | read from the census memo |
+| Admission: declaration census | 0.52 s, of which its reference prelude's compile 0.22 s (measured before kink27 GK-3 added `krypto.md` to the reference) | once | read from the census memo |
 | Resolution | one full load per mutation (0.11-0.15 s on `examples/imp`: the definition's every rule bubble is parsed again) | every mutation | only mutations tier 1 does not decide; the rest read the resolution memo |
 | Result update | each new or changed program's baseline run | new programs | nothing |
 | Kill search | per live call: the mutant's compile (compiled ahead on the workers), its backend, the consistency check and every program run | every mutation | nothing, or the mutations tier 1 does not decide |

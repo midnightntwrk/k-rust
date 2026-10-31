@@ -714,6 +714,25 @@ pub const REFERENCE_FILES: [&str; 9] = [
 /// the text that documents the `KRYPTO` hooks by name. A hook attribute binds a symbol to the
 /// operation its name documents, so the census reads this text as the reference for every
 /// declaration of these hooks, whatever file or symbol declares them (rule H checks the sorts).
+///
+/// What admission establishes, and what it does not:
+/// - Rule H compares sorts by name. A builtin sort's name is backed by its sort hook (rule N);
+///   the point sorts `G1Point` and `G2Point` are not builtin, so any sort a definition names
+///   `G1Point` passes, whatever its constructors or sort hook. The BN128 hooks' value on such a
+///   sort is k-rust's reading, not this text's: the point constructor is the definition's only
+///   constructor of result sort `G1Point` with two `Int` arguments (`G2Point`: four `Int`s),
+///   `docs/compatibility.md` "Cryptographic hooks".
+/// - A hook of this text declared with other sorts is rule H's finding, also where k-rust has no
+///   evaluator for it (`KRYPTO.sha512`): a hook is inert only when the reference does not
+///   declare it.
+/// - Admission is not a verdict. The hooks k-rust evaluates stay in the exclusion census
+///   (`exclusion::UNDOCUMENTED_EVALUATED_HOOKS`) until kink27 GK-1, so every kill and every `no`
+///   of a definition that declares one is `implementation-chosen-hook` (and `kink-flow fuzz`
+///   refuses it at stage `exclusions`). A query's `hit` is given before the definition exclusion
+///   is read (kink-flow `pattern`), so a `hit` through these hooks rests on k-rust's evaluation
+///   as its contract states it (compatibility.md "Cryptographic hooks": lowercase hex, the ECDSA
+///   failure values, the point constructor by signature). That contract names this revision;
+///   kink-native's test `the_krypto_reference_is_k_rusts_crypto_contract` pins the passages.
 pub const KRYPTO_REFERENCE_FILE: &str = "krypto.md";
 pub const KRYPTO_REFERENCE_TEXT: &str = include_str!("../reference/krypto.md");
 pub const KRYPTO_REFERENCE_SHA256: &str =

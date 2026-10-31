@@ -3,7 +3,13 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::{collections::BTreeSet, path::Path};
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
+
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use k_rust::{
     builtin,
@@ -16,8 +22,8 @@ use k_rust_backend::{
 };
 use kink_native::census::{
     CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES,
-    KRYPTO_REFERENCE_SHA256, KRYPTO_REFERENCE_TEXT, REFERENCE_FILES, declaration_census,
-    internalize, reference_prelude,
+    KRYPTO_REFERENCE_FILE, KRYPTO_REFERENCE_SHA256, KRYPTO_REFERENCE_TEXT, REFERENCE_FILES,
+    declaration_census, internalize, reference_prelude,
 };
 use kink_native::exclusion::UNDOCUMENTED_EVALUATED_HOOKS;
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -68,7 +74,12 @@ fn census_reference_prelude_is_natural_and_declares_the_former_fold_hooks() {
     assert_eq!(hooks.len(), 307);
     eprintln!(
         "CENSUS_REFERENCE {}",
-        json!({"files":REFERENCE_FILES,"hooked_symbols":hooked,"hooks":hooks.len()})
+        json!({
+            "files": REFERENCE_FILES,
+            "krypto": KRYPTO_REFERENCE_FILE,
+            "hooked_symbols": hooked,
+            "hooks": hooks.len()
+        })
     );
     for hook in FORMER_FOLDED_HOOKS {
         assert!(
@@ -363,6 +374,156 @@ fn the_krypto_reference_is_the_plugin_text_at_its_pin() {
     assert_eq!(undocumented, UNDOCUMENTED_BY_ANY_REFERENCE);
 }
 
+/// The k-rust tree the workspace builds against: the root of k-rust-backend's path dependency in
+/// k-rust's root manifest, as `tests/exclusion.rs` reads it (kink is a part of k-rust's workspace).
+fn k_rust_tree() -> PathBuf {
+    let kink = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest: toml::Value =
+        toml::from_str(&std::fs::read_to_string(kink.join("../Cargo.toml")).unwrap()).unwrap();
+    kink.join("..")
+        .join(
+            manifest["workspace"]["dependencies"]["k-rust-backend"]["path"]
+                .as_str()
+                .expect("k-rust-backend is a path dependency"),
+        )
+        .join("../..")
+}
+
+/// kink27 GK-3 fix round 1 (review SF2): the census's `KRYPTO` reference is the text k-rust's
+/// crypto contract is stated against, so a `hit` through one of its hooks rests on k-rust
+/// evaluating the operation the census admitted.
+/// - `docs/compatibility.md` "Cryptographic hooks": its Sources paragraph names `651a2db5`, this
+///   copy's revision, beside `207ae512`, the inventory's, and states that the two give the same
+///   contract for every hook k-rust evaluates; its point-constructor sentence is the reading a
+///   BN128 hook's value rests on where rule H matches `G1Point`/`G2Point` by name. Both are
+///   located by anchor and opening and pinned by digest (`testdata/k/passage.rs`).
+/// - k-rust's hook capability inventory (`crates/k-rust/tests/fixtures/hook-capabilities.toml`)
+///   records `207ae512`'s `krypto.md` as its `[crypto]` source; its `implemented` list is exactly
+///   `UNDOCUMENTED_EVALUATED_HOOKS`.
+/// - Every hooked production of the copy's `k` fences has the arity `[crypto.arities]` gives its
+///   hook, and its hook is `implemented` when k-rust evaluates it, else in a `[crypto.unsupported]`
+///   group.
+///
+/// The inventory records no sorts; that the sorts agree is the Sources paragraph's statement. A
+/// k-rust re-pin that moves its crypto contract to another plugin revision, or changes one of
+/// these hooks, fails here, and the copy is read again against it.
+#[test]
+fn the_krypto_reference_is_k_rusts_crypto_contract() {
+    let k_rust = k_rust_tree();
+    passage::assert_pinned(
+        &k_rust,
+        &[
+            passage::Passage {
+                file: "docs/compatibility.md",
+                anchor: "## Cryptographic hooks",
+                opening: "The `KRYPTO` hooks are declared in blockchain-k-plugin `plugin/krypto.md`, \
+                          at `207ae512`",
+                lines: 2,
+                digest: "314cfec92e86cfe837d3c19ef588e69204912a43198df4c9637ef54283e38799",
+            },
+            passage::Passage {
+                file: "docs/compatibility.md",
+                anchor: "## Cryptographic hooks",
+                opening: "The Kore name of a point constructor is a property of the compiled \
+                          definition",
+                lines: 1,
+                digest: "4c848787c4b3457aad657587c628855ffb405e70b4bc29e4fcd6e01a51fbf84d",
+            },
+        ],
+    );
+
+    let inventory: toml::Value = toml::from_str(
+        &std::fs::read_to_string(
+            k_rust.join("crates/k-rust/tests/fixtures/hook-capabilities.toml"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let crypto = &inventory["crypto"];
+    let strings = |value: &toml::Value| {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item.as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>()
+    };
+    assert!(
+        strings(&crypto["sources"])
+            .contains("runtimeverification/blockchain-k-plugin@207ae512:plugin/krypto.md"),
+        "{:?}",
+        crypto["sources"]
+    );
+    let implemented = strings(&crypto["implemented"]);
+    assert_eq!(
+        implemented,
+        UNDOCUMENTED_EVALUATED_HOOKS
+            .iter()
+            .map(|hook| (*hook).to_owned())
+            .collect::<BTreeSet<_>>()
+    );
+    let unsupported = crypto["unsupported"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|group| strings(&group["hooks"]))
+        .collect::<BTreeSet<_>>();
+
+    let code = k_rust::outer::extract_fenced_k_code(KRYPTO_REFERENCE_TEXT, "k").unwrap();
+    let parsed = k_rust::outer::parse("kink-reference://krypto.md", &code).unwrap();
+    let mut declared = Vec::new();
+    for module in &parsed.modules {
+        for sentence in &module.sentences {
+            if let k_rust::outer::Sentence::Syntax(syntax) = sentence
+                && let SyntaxBody::Productions(blocks) = &syntax.body
+            {
+                for production in blocks.iter().flat_map(|b| &b.productions) {
+                    let Some(hook) = production
+                        .attributes
+                        .iter()
+                        .find(|a| a.key == "hook")
+                        .and_then(|a| a.value.clone())
+                    else {
+                        continue;
+                    };
+                    let arity = production
+                        .items
+                        .iter()
+                        .filter(|item| {
+                            matches!(
+                                item,
+                                k_rust::outer::ProductionItem::NonTerminal { .. }
+                                    | k_rust::outer::ProductionItem::UserList { .. }
+                            )
+                        })
+                        .count();
+                    declared.push((hook, arity));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        declared
+            .iter()
+            .map(|(hook, _)| hook.as_str())
+            .collect::<Vec<_>>(),
+        KRYPTO_HOOKS
+    );
+    for (hook, arity) in &declared {
+        assert_eq!(
+            crypto["arities"][hook.as_str()].as_integer(),
+            Some(i64::try_from(*arity).unwrap()),
+            "{hook}: the pinned krypto.md declares arity {arity}"
+        );
+        assert!(
+            implemented.contains(hook) != unsupported.contains(hook),
+            "{hook}: implemented {}, unsupported {}",
+            implemented.contains(hook),
+            unsupported.contains(hook)
+        );
+    }
+}
+
 /// kink27 GK-3: a declaration of a `krypto.md` hook with its documented sorts passes rule H,
 /// whether it imports the plugin's `KRYPTO` module or declares its own symbols (as KRS-emitted
 /// KEVM does); one with other sorts is rule H's finding, and a hook no reference text documents
@@ -403,6 +564,7 @@ fn plugin_hooks_are_admitted_by_name_and_signature() {
          syntax Int ::= keccakInt(Bytes) [function, hook(KRYPTO.keccak256raw), symbol(keccakInt)]\n  \
          syntax String ::= hashKeccak(Bytes) [function, hook(HASH.keccak256), symbol(hashKeccak)]\n  \
          syntax String ::= sha3Hex(Bytes) [function, hook(KRYPTO.sha3256), symbol(sha3Hex)]\n  \
+         syntax Int ::= sha512Int(Bytes) [function, hook(KRYPTO.sha512), symbol(sha512Int)]\n  \
          syntax Prog ::= go(Bytes) [symbol(go)] | done(Int) [symbol(done)]\n  \
          configuration <k> .K </k>\n  \
          rule [go]: go(B) => done(keccakInt(B))\nendmodule\n"
@@ -443,11 +605,23 @@ fn plugin_hooks_are_admitted_by_name_and_signature() {
         .collect();
     assert_eq!(
         rows,
-        [(U, "LblhashKeccak"), (H, "LblkeccakInt"), (U, "Lblsha3Hex")]
+        [
+            (U, "LblhashKeccak"),
+            (H, "LblkeccakInt"),
+            (U, "Lblsha3Hex"),
+            (H, "Lblsha512Int")
+        ]
     );
     assert_eq!(
         kryptomisfit.findings()[1].expected.as_deref(),
         Some("(SortBytes) -> SortBytes")
+    );
+    // Fix round 1 (review SF3): `KRYPTO.sha512`, which k-rust does not evaluate, declared with
+    // another result sort than `krypto.md`'s does not bind the documented operation, so it is
+    // rule H's finding; before GK-3 (no reference declared it) it was listed inert.
+    assert_eq!(
+        kryptomisfit.findings()[3].expected.as_deref(),
+        Some("(SortBytes) -> SortString")
     );
 }
 

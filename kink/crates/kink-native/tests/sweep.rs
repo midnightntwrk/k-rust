@@ -76,7 +76,8 @@ const LIGHT: &[&str] = &[
 /// Every testdata and example definition that compiles, by its definition-level exclusions
 /// (decision 1's census, the load's stack stops, C-10's role-rooted axioms). The census flags
 /// exactly the definitions whose own rules use a hook it reads: `String2Bytes` (`t12probe`), the
-/// undocumented `KRYPTO.keccak256` (`t13implemented`) and the `String2Bytes`/`Bytes2String` pair
+/// evaluated `KRYPTO.keccak256`, which `krypto.md` describes but whose values k-rust records on no
+/// run's list (`t13implemented`), and the `String2Bytes`/`Bytes2String` pair
 /// (`runlist/iop`, `runlist/lhs`). Every comparison on them is unknown. No load counts a stack
 /// stop on a 256 MiB thread, and no definition has an axiom rooted at a collection role symbol.
 ///

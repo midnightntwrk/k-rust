@@ -862,4 +862,5 @@ so is k2lean, under [`k2lean/`](k2lean/), except the third-party material its RE
 The third-party material keeps its BSD 3-Clause license and copyright notices: the K Framework
 builtin sources and parser runtime copied into `crates/k-rust`, the K test data among its fixtures,
 and, to the extent it derives from it, the Haskell backend that `k-rust-backend` ports. The
-licenses are in [`licenses/`](licenses/), and [NOTICE](NOTICE) says what each covers.
+licenses are in [`licenses/`](licenses/); kink's copies keep theirs beside them, as named above.
+[NOTICE](NOTICE) says what each license covers.
