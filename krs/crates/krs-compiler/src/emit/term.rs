@@ -652,7 +652,7 @@ fn render_builtin_argument(
 /// The open ends of an operator-shaped collection term: whether its K spelling
 /// begins (`.0`) or ends (`.1`) with one of its own operands, as `S1 -Set S2`,
 /// `K in S`, and `M [ K <- undef ]` (open at the left only) do. A projected
-/// lookup is braced, so it is closed.
+/// lookup is braced, or parenthesized at `KItem`, so it is closed.
 fn collection_open_ends(term: &DefinitionTerm) -> Option<(bool, bool)> {
     let spec = match term.kind() {
         DefinitionTermKind::Map(operands) => {
@@ -777,7 +777,10 @@ fn render_collection<'a>(
 }
 
 /// Renders a collection operation; `project` is false only for the operand
-/// of a generated sort operation, which supplies the one cast itself.
+/// of a generated sort operation, which supplies the one cast itself. A
+/// projected lookup read at `KItem`, the sort K's lookup already has, is the
+/// lookup itself: its projection would be the identity, so it is written in
+/// parentheses, which keep it one closed term as the braces do.
 fn render_collection_projected<'a>(
     result_sort: &DefinitionSortRef,
     spec: &CollectionOperationSpec,
@@ -788,8 +791,9 @@ fn render_collection_projected<'a>(
     project: bool,
 ) -> Result<(), EmitError> {
     let project = project && spec.is_projected();
+    let identity = project && context.sort_name_ref(result_sort)? == "KItem";
     if project {
-        output.push("{");
+        output.push(if identity { "(" } else { "{" });
     }
     match spec.k_notation {
         CollectionNotation::Mixfix { pieces } => {
@@ -821,7 +825,9 @@ fn render_collection_projected<'a>(
             output.push(")");
         }
     }
-    if project {
+    if project && identity {
+        output.push(")");
+    } else if project {
         output.push("}:>");
         output.push(&context.sort_name_ref(result_sort)?);
     }

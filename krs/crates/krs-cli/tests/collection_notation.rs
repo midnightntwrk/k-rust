@@ -357,14 +357,14 @@ fn collection_notation_emits_the_k_of_the_calls_it_denotes() {
         <stack> St:List </stack>
         rule [visit]:
         <k> visit ( N:Int ) => .K ... </k>
-        <env> E:Map => updateMap(removeAll(E:Map [ N:Int <- {E:Map [ N:Int ] orDefault 0}:>KItem ] [ 0 <- undef ], S:Set), E:Map) </env>
+        <env> E:Map => updateMap(removeAll(E:Map [ N:Int <- (E:Map [ N:Int ] orDefault 0) ] [ 0 <- undef ], S:Set), E:Map) </env>
         <stack> St:List => St:List [ 0 <- N:Int ] </stack>
         <seen> S:Set => S:Set |Set SetItem(N:Int) </seen>
         <counts> C:Map => C:Map [ N:Int <- {C:Map [ N:Int ]}:>Int +Int 1 ] </counts>
         requires (N:Int in_keys(E:Map) andThenBool N:Int in St:List) andThenBool (notBool N:Int in S:Set)
         requires "definition.k"
         <k> drop ( N:Int ) ~> Tail:K => .K ~> Tail:K </k>
-        <env> E:Map => E:Map [ N:Int <- {E:Map [ N:Int ]}:>KItem ] </env>
+        <env> E:Map => E:Map [ N:Int <- (E:Map [ N:Int ]) ] </env>
         requires N:Int in_keys(E:Map)"#]].assert_eq(&sentences);
 }
 

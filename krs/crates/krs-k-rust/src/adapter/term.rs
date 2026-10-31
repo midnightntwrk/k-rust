@@ -10,6 +10,9 @@ use krs_ir_levels::{
 
 use super::{Adapter, AdapterError, SentenceNodeRole};
 
+/// K's sort of a collection lookup's result.
+const K_ITEM: &str = "KItem";
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum TermContext {
     Normal,
@@ -399,7 +402,10 @@ impl Adapter<'_> {
     }
 
     /// Projects a `KItem` collection result to the Definition IR result sort when
-    /// the operation's catalog row says both backends do.
+    /// the operation's catalog row says both backends do. A result read at
+    /// `KItem`, the sort the lookup already has, is the lookup itself: its
+    /// projection would be the identity, which the frontend refuses on a left
+    /// side, where a key or a set element a pattern looks up holds the lookup.
     fn project_collection(
         &self,
         native: NativeTerm,
@@ -409,14 +415,15 @@ impl Adapter<'_> {
         if !spec.is_projected() {
             return Ok(native);
         }
+        let sort = std::mem::take(&mut self.sort(term.sort(), term.origin())?.name);
+        if sort == K_ITEM {
+            return Ok(native);
+        }
         // upstream k-rust/semantic-cast-projection-widening: represent a typed
         // heterogeneous lookup with the project:<Sort> term used
         // by k-rust's semantic downcast. Keep the Definition IR
         // result sort explicit.
-        Ok(NativeTerm::apply(
-            format!("project:{}", self.sort(term.sort(), term.origin())?.name),
-            vec![native],
-        ))
+        Ok(NativeTerm::apply(format!("project:{sort}"), vec![native]))
     }
 }
 
