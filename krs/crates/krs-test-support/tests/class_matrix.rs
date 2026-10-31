@@ -126,11 +126,12 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 2
                     + 7 * 2
                     + 2
-                    + 1,
+                    + 1
+                    + 4,
             ),
-            // 93 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
+            // 94 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
             // subject beside a second clause one too) × 2 bare variants.
-            (Family::Import, 93 * 2),
+            (Family::Import, 94 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's), and a
             // set's singleton as the witness a rule of the case's own writes, at each static

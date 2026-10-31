@@ -232,8 +232,8 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "77 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "6 no witness: the program would hold a value the generator does not state",
-    "1183 runs a counter-witness",
-    "1642 runs, liveness",
+    "1197 runs a counter-witness",
+    "1648 runs, liveness",
     "2502 runs, value",
 ];
 
