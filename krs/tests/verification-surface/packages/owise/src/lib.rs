@@ -16,6 +16,15 @@
 //!
 //! - `pick-one`: from `pick(V)` with `V ==Int 1`, every path reaches `1`.
 //! - `pick-zero`: the same start reaches `0`. False.
+//!
+//! Those two decide the guard. Over an undecided guard, `pick(V)` takes the
+//! other transition where `V ==Int 1` and the `owise` one exactly where
+//! `V =/=Int 1`:
+//!
+//! - `pick-any-one`: from `pick(V)` with no requires, every path reaches `1`.
+//!   False: where `V =/=Int 1` the path reaches `0`.
+//! - `pick-other-zero`: from `pick(V)` with `V =/=Int 1`, every path reaches
+//!   `0`. True: the other transition does not apply there.
 
 use k::builtin::{Bool, Int, KSequence, int};
 use k::{KItem, Term};
@@ -114,6 +123,26 @@ pub fn pick_one(
 #[k::claim(all_paths, label = "pick-zero")]
 #[k::requires(int::eq(i, 1))]
 pub fn pick_zero(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Pick(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(0, ..tail), ..state }
+}
+
+/// False: where `V =/=Int 1`, `pick(V)` reaches 0.
+#[k::claim(all_paths, label = "pick-any-one")]
+pub fn pick_any_one(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Pick(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(1, ..tail), ..state }
+}
+
+/// `pick(V)` with `V =/=Int 1` reaches 0 alone: only the `owise` transition
+/// applies there.
+#[k::claim(all_paths, label = "pick-other-zero")]
+#[k::requires(int::ne(i, 1))]
+pub fn pick_other_zero(
     i: Term<Int>,
     k::cells! { k: k::configuration::KCell(ExpSyntax::Pick(i), tail @ ..), state @ .. }: Machine,
 ) -> Machine {

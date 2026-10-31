@@ -189,8 +189,12 @@ applied the `owise` equation before the guard of the other is decided would
 read the requires `isOne(V)` as `false` and prove it vacuously. `pick(V)`
 rewrites to `1` where `V ==Int 1` and, by an `#[k::rule(owise)]` transition,
 to `0` elsewhere: `pick-one` (with `V ==Int 1`, reach `1`) is proved on both
-routes and `pick-zero` (reach `0`) fails on both. The emitted K states each
-as K's `owise`, never as a priority.
+routes and `pick-zero` (reach `0`) fails on both. Those decide the guard; over
+an undecided one, `pick-any-one` (no requires, reach `1`) fails on both routes,
+since where `V =/=Int 1` the `owise` transition reaches `0`, and
+`pick-other-zero` (with `V =/=Int 1`, reach `0`) is proved on both, since only
+the `owise` transition applies there. The emitted K states each `owise` as
+K's `owise`, never as a priority.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -444,6 +448,8 @@ OWISE_STATUSES = {
     "one-reaches-two": "failed",
     "pick-one": "proven",
     "pick-zero": "disproved",
+    "pick-any-one": "disproved",
+    "pick-other-zero": "proven",
 }
 OWISE_FRAGMENTS = (
     "  rule isOne ( _ ) => false [owise, label(",
@@ -1455,7 +1461,10 @@ def verify_owise(harness: FixtureGate, fixture: Fixture) -> None:
     if java != expected:
         raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
     harness.pins.expect(("owise_kprove", fixture.package), java)
-    print(f"PASS {fixture.package}: one-reaches-one and pick-one proven, one-reaches-two and pick-zero failed, on both routes")
+    print(
+        f"PASS {fixture.package}: one-reaches-one, pick-one and pick-other-zero proven, "
+        "one-reaches-two, pick-zero and pick-any-one failed, on both routes"
+    )
 
 
 def main() -> int:

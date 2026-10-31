@@ -1,6 +1,7 @@
 //! An equation at priority 200 beside an `owise` equation of its function:
-//! `owise` gives the value only where no other equation applies, so no
-//! equation beside it is ranked with or after it.
+//! `owise` gives the value only where no other equation applies, but the
+//! emitted `owise` attribute fixes no rank against priorities 200 to 254, so
+//! a route that tries equations in order may try the `owise` one first.
 
 use k::Term;
 use k::builtin::{Int, KSequence, int};

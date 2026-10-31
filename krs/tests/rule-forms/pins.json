@@ -883,10 +883,10 @@
       "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::alias]` but no `#[k::alias]` clause expands it, so nothing expands it; add a `#[k::alias] fn` whose pattern is headed by `Static::Flip`"
     ],
     "owise-after-priority": [
-      "error[krs::analysis::priority-after-owise]: rule `flip_low` has priority 250, which orders it with or after the `owise` rule `flip_high` (`owise` is ranked 200), and the two can apply to the same configuration; but `owise` applies only where no other rule applies, so every other rule comes first, and the definition would state two orders between them"
+      "error[krs::analysis::priority-after-owise]: rule `flip_low` has priority 250 and can apply where the `owise` rule `flip_high` does; `owise` comes after every other rule that applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so the two rules have no single order"
     ],
     "owise-equation-after-priority": [
-      "error[krs::analysis::priority-after-owise]: equation `grade_a` of `Grade` has priority 200, which orders it with or after the `owise` equation `grade_f` (`owise` is ranked 200); but `owise` gives the value only where no other equation of `Grade` applies, so every other equation comes first, and the definition would state two orders between them"
+      "error[krs::analysis::priority-after-owise]: equation `grade_a` of `Grade` has priority 200 beside the `owise` equation `grade_f`; `owise` gives the value only where no other equation of `Grade` applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so a route that tries equations in order may try the `owise` one first"
     ]
   },
   "known_divergences": {

@@ -1,5 +1,7 @@
-//! A transition at priority 250 overlaps an `owise` one: `owise` applies only
-//! where no other rule applies, so no rule it meets is ranked with or after it.
+//! A transition at priority 250 overlaps an `owise` one: `owise` comes after
+//! every other transition that applies, but the emitted `owise` attribute
+//! fixes no rank against priorities 200 to 254, so the two have no single
+//! order.
 
 use k::Term;
 use k::builtin::KSequence;
