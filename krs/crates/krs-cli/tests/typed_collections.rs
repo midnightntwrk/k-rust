@@ -309,10 +309,13 @@ fn rules(body: &str) -> String {
 /// projection denotes the read where the read has that sort, so the sentence
 /// requires that instead: at a typed map's key root the key is the read, as a
 /// map holds it, with the guard `isId(read)` (S2 of NT-18's review); below a
-/// function the projected read is the function's argument and the guard is
-/// `isSet(read)` (M2). An equation's function context guards its keys in the
-/// equation's condition as a rule does (M1): `k::project!(Int, n)` is the key
-/// `n` where `isInt(n)` holds. `krs check` passes.
+/// function the projected read is the function's argument, which matching
+/// would evaluate before the guard, so the application is a fresh name the
+/// condition equates with it after `isSet(read)` holds (M2). An equation's
+/// function context guards its keys in the equation's condition as a rule
+/// does (M1): `k::project!(Int, n)` is the key `n` where `isInt(n)` holds; and
+/// since the equation matches the context as written, a key that computes
+/// there is a fresh name too (NT-18-2). `krs check` passes.
 #[test]
 fn a_key_computed_by_a_projected_read_is_guarded() {
     let target = shared_fixture_target();
@@ -331,6 +334,15 @@ fn a_key_computed_by_a_projected_read_is_guarded() {
                 "    v: Term<k::KItem>,\n",
                 "    k::term![Rd(n)]: Term<k::KItem>,\n",
                 "    k::cells! { raw: k::configuration::Cell(k::map![k::project!(Int, n) -> v, ..]), .. }: Machine,\n",
+                ") -> Term<k::KItem> {\n    v\n}\n\n",
+                "#[k::function(partial, sort = k::KItem, syntax = \"rn({n})\")]\n",
+                "pub struct Rn {\n    pub n: Term<k::KItem>,\n}\n\n",
+                "#[k::equation]\n",
+                "fn rn(\n",
+                "    n: Term<k::KItem>,\n",
+                "    v: Term<k::KItem>,\n",
+                "    k::term![Rn(n)]: Term<k::KItem>,\n",
+                "    k::cells! { raw: k::configuration::Cell(k::map![k::builtin::int::add(k::project!(Int, n), 1) -> v, ..]), .. }: Machine,\n",
                 ") -> Term<k::KItem> {\n    v\n}\n\n",
             ),
             rules(concat!(
@@ -351,26 +363,30 @@ fn a_key_computed_by_a_projected_read_is_guarded() {
     );
     assert!(success, "{stderr}");
     let definition = fs::read_to_string(output.join("definition.k")).unwrap();
-    let equation = definition
-        .lines()
-        .skip_while(|line| !line.contains("rule [[ rd"))
-        .take(3)
-        .map(str::trim)
-        .collect::<Vec<_>>()
-        .join(" ");
-    // The equation's label is a hash of the sentence.
-    let equation = equation.split(" [label(").next().unwrap_or_default();
+    // An equation, its label (a hash of the sentence) left out.
+    let equation = |head: &str| {
+        let text = definition
+            .lines()
+            .skip_while(|line| !line.contains(head))
+            .take(3)
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join(" ");
+        text.split(" [label(").next().unwrap_or_default().to_owned()
+    };
     expect_test::expect![[r#"
         [
             "<k> op 20 ~> hold M:Map => V:Value ... </k> <env> (M:Map [ 1 ]) |-> V:Value ... </env> requires isId(M:Map [ 1 ])",
-            "<k> op 21 ~> hold M:Map => V:KItem ... </k> <raw> size({M:Map [ 1 ]}:>Set) |-> V:KItem ... </raw> requires isSet(M:Map [ 1 ])",
+            "<k> op 21 ~> hold M:Map => V:KItem ... </k> <raw> Krs_Instance1:Int |-> V:KItem ... </raw> requires isSet(M:Map [ 1 ]) andThenBool (Krs_Instance1:Int ==K size({M:Map [ 1 ]}:>Set))",
             "rule [[ rd ( N:KItem ) => V:KItem ]] <raw> N:KItem |-> V:KItem ... </raw> requires isInt(N:KItem)",
+            "rule [[ rn ( N:KItem ) => V:KItem ]] <raw> Krs_Instance1:Int |-> V:KItem ... </raw> requires isInt(N:KItem) andThenBool (Krs_Instance1:Int ==K ({N:KItem}:>Int +Int 1))",
         ]
     "#]]
     .assert_debug_eq(&[
         rule(&definition, "typed-key").trim_end_matches(" endmodule"),
         rule(&definition, "sized-key").trim_end_matches(" endmodule"),
-        equation,
+        &equation("rule [[ rd"),
+        &equation("rule [[ rn"),
     ]);
 }
 

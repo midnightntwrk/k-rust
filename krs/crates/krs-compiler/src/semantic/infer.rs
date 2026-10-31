@@ -380,9 +380,26 @@ impl StructuredTermBuilder<'_> {
     /// sort `S` below `KItem` (a typed collection's, or one at a typed
     /// position) is a projection on a left side as `k::project!` is, and is
     /// guarded as one: at the key's `root` it is the read at `KItem`, the
-    /// sort K's read has, with the guard `isS(read)`; at a matched position
-    /// below it, a fresh variable of sort `S` equated with the read; below a
-    /// construct that computes, the projected read with the guard `isS(read)`.
+    /// sort K's read has, with the guard `isS(read)`, and no projection is
+    /// evaluated; at a matched position below it, a fresh variable of sort `S`
+    /// equated with the read; below a construct that computes, the projected
+    /// read with the guard `isS(read)`.
+    ///
+    /// A function's application at a matched position is the key's value,
+    /// looked up, except in two cases, where it is a fresh name `K` of its sort
+    /// and the guard `K ==K value` selects the entry whose key is that value
+    /// (a map holds a key once, so the selection is the lookup):
+    ///
+    /// - a projection, or a projected read, below it was guarded: matching
+    ///   evaluates a looked-up key before the sentence's condition, so the
+    ///   projection would be evaluated before the guard that it is defined,
+    ///   and a backend may abort on a projection that does not apply. As a
+    ///   fresh name the value is computed in the condition only, after the
+    ///   projection's guard, which `andThenBool` evaluates first (the guards
+    ///   are conjoined in the order they are made, the operands' before the
+    ///   application's own); the selection is the price of that order;
+    /// - the key is an equation's function context's, whose cells the
+    ///   equation matches as written ([`Self::key_matched_as_written`]).
     fn lower_key_application(
         &mut self,
         term: &DescriptorTerm,
@@ -395,6 +412,7 @@ impl StructuredTermBuilder<'_> {
         };
         let matched = self.key_matched();
         let computes = self.computes(term);
+        let guards_before = self.key_guards();
         if computes {
             self.key_computes(true);
         }
@@ -403,26 +421,66 @@ impl StructuredTermBuilder<'_> {
             self.key_computes(false);
         }
         let lowered = lowered.map_err(|error| self.locate(error, term))?;
-        let Some(read) = self.narrowing_read(&lowered) else {
-            return Ok(lowered);
-        };
-        let sort = lowered.sort().clone();
+        // A guard made while the operands were lowered guards a projection
+        // below this application.
+        let guarded_below = self.key_guards() > guards_before;
         let key = reference.key.clone();
-        let guarded = if root {
-            self.require_sort(key, sort, &read).map(|()| read)
-        } else if matched {
-            self.guard_equal(key, sort, read)
-        } else {
-            self.require_sort(key, sort, &read).map(|()| lowered)
+        let lowered = match self.narrowing_read(&lowered) {
+            None => lowered,
+            Some(read) => {
+                let sort = lowered.sort().clone();
+                let guarded = if root {
+                    self.require_sort(key.clone(), sort, &read).map(|()| read)
+                } else if matched {
+                    return self
+                        .guard_equal(key, sort, read)
+                        .map_err(|error| self.locate(error, term));
+                } else {
+                    self.require_sort(key.clone(), sort, &read)
+                        .map(|()| lowered)
+                };
+                guarded.map_err(|error| self.locate(error, term))?
+            }
         };
-        guarded.map_err(|error| self.locate(error, term))
+        if computes && matched && (guarded_below || self.key_matched_as_written()) {
+            let sort = lowered.sort().clone();
+            return self
+                .guard_equal(key, sort, lowered)
+                .map_err(|error| self.locate(error, term));
+        }
+        Ok(lowered)
+    }
+
+    /// The number of guards the sentence's keys and instances have made.
+    fn key_guards(&self) -> usize {
+        self.instance_guards
+            .as_ref()
+            .map_or(0, super::set_instances::InstanceGuards::len)
+    }
+
+    /// Whether the key being lowered is one an equation's function context
+    /// looks up (finding NT-18-2). The context's cells are part of the
+    /// equation's left side, which the equation matches against the
+    /// configuration as written: an application there would match only a
+    /// configuration that holds it unevaluated, never the value it computes.
+    /// So a key that computes is a fresh name the equation's condition
+    /// equates with the key's value.
+    fn key_matched_as_written(&self) -> bool {
+        matches!(
+            self.descriptor.payload(),
+            DescriptorPayload::StructuredRule(rule)
+                if rule.sentence_kind == krs_ir::SentenceKind::Equation
+        )
     }
 
     /// A projection `k::project!(S, t)` below a guarded key's root: at a
     /// matched position, where the key's sort `S` is needed, a fresh variable
     /// `V` of sort `S` with the guard `V ==K t`, which holds exactly when `t`
     /// is that `S` and holds no projection; below a construct that computes,
-    /// the projection, read by value, with the guard `isS(t)`.
+    /// the projection, with the guard `isS(t)`, and the outermost application
+    /// above it a fresh name its guard equates with the application's value
+    /// ([`Self::lower_key_application`]), so the projection is evaluated only
+    /// once `isS(t)` held.
     fn lower_key_projection(
         &mut self,
         key: &ProvenanceKey,

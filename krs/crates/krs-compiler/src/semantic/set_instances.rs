@@ -47,9 +47,17 @@
 //!   of sort `S` with the guard `V ==K t`: `V`'s sort already tests `t`, so
 //!   the guard holds exactly when `t` is the `S` the entry's key holds there,
 //!   and `==K` is defined on every pair of terms;
-//! - below a function's application the key is computed, the projection is
-//!   read by value as the function's argument, and it is defined only where
-//!   `isS(t)` holds, which the guard states.
+//! - below a function's application the projection is the function's
+//!   argument, defined only where `isS(t)` holds; matching evaluates a
+//!   looked-up key before the condition, so the outermost application above
+//!   it is a fresh name `K` of its sort, and the guards are `isS(t)
+//!   andThenBool K ==K f(.., {t}:>S, ..)`: the projection is evaluated only
+//!   once `isS(t)` held, and `K` selects the entry whose key is the value,
+//!   which a map holds once.
+//!
+//! An equation's function context is matched as written, so there every key
+//! that computes is such a fresh name, equated with the key's value in the
+//! equation's condition (finding NT-18-2).
 //!
 //! The guards are conjoined ahead of the sentence's condition, so a sentence
 //! that has no condition to hold them cannot look such a key up: its lowering
