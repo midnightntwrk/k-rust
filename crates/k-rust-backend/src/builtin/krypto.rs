@@ -496,7 +496,32 @@ where
     let Some(digest) = digest::<D>(hook, arguments)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(string_term(encode_hex(&digest))))
+    Ok(BuiltinResult::Value(string_term(hex_output(&digest))))
+}
+
+/// The hex `String` of a hook with a hex output: [`encode_hex`]'s lowercase digits, and under a
+/// `choice_sampling` seed each letter digit in the case the seed chooses for its position (class
+/// `hex-case`, one choice per letter digit: `krypto.md`:16 names no case and no consistency
+/// clause).
+fn hex_output(input: &[u8]) -> String {
+    let encoded = encode_hex(input);
+    let Some(seed) = crate::choice_sampling::seed() else {
+        return encoded;
+    };
+    if encoded.bytes().any(|digit| digit.is_ascii_alphabetic()) {
+        crate::choice_sampling::taken(super::ChosenClass::HexCase);
+    }
+    encoded
+        .chars()
+        .enumerate()
+        .map(|(position, digit)| {
+            if crate::choice_sampling::upper_case_at(seed, position) {
+                digit.to_ascii_uppercase()
+            } else {
+                digit
+            }
+        })
+        .collect()
 }
 
 fn encode_hex(input: &[u8]) -> String {
@@ -547,9 +572,28 @@ fn ecdsa_public_key(arguments: &[Term]) -> HookResult<BuiltinResult> {
     };
     let encoded = secret
         .map(|secret| secret.public_key().to_sec1_point(false))
-        .and_then(|point| point.as_bytes().get(1..).map(encode_hex))
-        .unwrap_or_default();
-    Ok(BuiltinResult::Value(string_term(encoded)))
+        .and_then(|point| point.as_bytes().get(1..).map(hex_output));
+    Ok(BuiltinResult::Value(string_term(
+        encoded.unwrap_or_else(|| failure_value("", "00")),
+    )))
+}
+
+/// k-rust's failure value of `ecdsaRecover` or `ecdsaPubKey`, `failure`, outside the documented
+/// domain; under a `choice_sampling` seed that says so, `other` (class `outside-domain`): the
+/// description gives no value there, so every value of the sort is a model's, and both are of a
+/// length no key has ([`is_failure_value`]).
+fn failure_value<T: ?Sized + ToOwned>(failure: &T, other: &T) -> T::Owned {
+    match crate::choice_sampling::seed() {
+        Some(seed) => {
+            crate::choice_sampling::taken(super::ChosenClass::OutsideDomain);
+            if crate::choice_sampling::bit(seed) {
+                other.to_owned()
+            } else {
+                failure.to_owned()
+            }
+        }
+        None => failure.to_owned(),
+    }
 }
 
 fn ecdsa_recover(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -601,8 +645,9 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes::bytes_term(coordinates)))
 }
 
+/// k-rust's `ecdsaRecover` outside the documented domain: the empty `Bytes` ([`failure_value`]).
 fn failed_recovery() -> BuiltinResult {
-    BuiltinResult::Value(bytes::bytes_term(&[]))
+    BuiltinResult::Value(bytes::bytes_term(&failure_value::<[u8]>(&[], &[0])))
 }
 
 /// Whether `value`, the hex `String` a hook with a hex output gives, holds a letter digit: the
@@ -626,13 +671,21 @@ pub(super) fn writes_a_hex_letter(value: &Term) -> bool {
 /// accepts only a 32-byte hash, `v` of 27 or 28 and 32-byte `r` and `s` from which a key is
 /// recovered; [`ecdsa_public_key`] only a 32-byte secret in `[1, n)`), where every model gives
 /// that key, and its failure value everywhere else: the empty `Bytes`, which no 64-byte key is,
-/// and the empty `String`, which no 128-digit hex key is. So the value decides the class.
+/// and the empty `String`, which no 128-digit hex key is. So the value decides the class: a value
+/// of another length than a key's is no key. The test-only chooser's other failure values
+/// ([`failure_value`]) are of such a length too.
 pub(super) fn is_failure_value(hook: &str, value: &Term) -> bool {
     match hook {
-        "KRYPTO.ecdsaPubKey" => super::string::read_string(value).is_some_and(str::is_empty),
-        _ => bytes::read_bytes(value).is_some_and(|bytes| bytes.is_empty()),
+        "KRYPTO.ecdsaPubKey" => {
+            super::string::read_string(value).is_some_and(|key| key.len() != 2 * KEY_BYTES)
+        }
+        _ => bytes::read_bytes(value).is_some_and(|key| key.len() != KEY_BYTES),
     }
 }
+
+/// The bytes of an uncompressed secp256k1 public key without its SEC1 tag: two 32-byte
+/// coordinates.
+const KEY_BYTES: usize = 64;
 
 fn string_term(value: impl Into<String>) -> Term {
     Term::string(value.into())

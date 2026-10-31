@@ -11,6 +11,7 @@ use super::{
     UnsupportedHookReason, describe_int, expect_arity, int_term, read_int,
 };
 use crate::allowance::Allowance;
+use crate::choice_sampling;
 use crate::term::{Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -59,6 +60,28 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    // Under a `choice_sampling` seed, the encoding the seed chooses (class `byte-encoding`):
+    // k-rust's, or UTF-8, a named encoding a model may read the conversions by. Where UTF-8
+    // decodes no string from the bytes, that model's `total` `Bytes2String` has a value the
+    // encoding does not give, so the application is left unevaluated, as k-rust leaves
+    // `String2Bytes` above U+00FF, and no value is taken.
+    if let Some(seed) = choice_sampling::seed()
+        && choice_sampling::bit(seed)
+    {
+        return Ok(match std::str::from_utf8(&bytes) {
+            Ok(text) => {
+                choice_sampling::taken(super::ChosenClass::ByteEncoding);
+                BuiltinResult::Value(string_term(text))
+            }
+            Err(_) => BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                defined: true,
+                detail: "Bytes2String of bytes that are no UTF-8 sequence, read as UTF-8".into(),
+            }),
+        });
+    }
+    if choice_sampling::seed().is_some() {
+        choice_sampling::taken(super::ChosenClass::ByteEncoding);
+    }
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
@@ -88,6 +111,15 @@ fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ));
     };
+    // Under a `choice_sampling` seed, where k-rust takes a value, the encoding the seed chooses
+    // (class `byte-encoding`): k-rust's, or UTF-8, which encodes every string. An application
+    // k-rust leaves unevaluated is no pick and stays unevaluated.
+    if let Some(seed) = choice_sampling::seed() {
+        choice_sampling::taken(super::ChosenClass::ByteEncoding);
+        if choice_sampling::bit(seed) {
+            return Ok(BuiltinResult::Value(bytes_term(value.as_bytes())));
+        }
+    }
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
@@ -240,6 +272,17 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(index) = index.to_usize() else {
         return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
+    // Under a `choice_sampling` seed a replacement up to the end takes the model the seed
+    // chooses: `#False` read literally (`\bottom`, which is `outside-domain` at its scoped site
+    // and which the seed may in turn replace by a value of the sort) or the replaced `DEST`.
+    if index + replacement.len() == bytes.len()
+        && let Some(seed) = choice_sampling::seed()
+    {
+        choice_sampling::taken(super::ChosenClass::OutsideDomain);
+        if choice_sampling::bit(seed) {
+            return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
+        }
+    }
     bytes[index..index + replacement.len()].copy_from_slice(&replacement);
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }

@@ -13,7 +13,9 @@
 //! class) and in `Execution` mode, where k-rust takes its own value for every open application.
 //! The chooser's count of the open values each class's sites took (`choice_sampling::take_counts`)
 //! is read apart for the compilation and the run: a probe's class takes one under some seed, and
-//! a control's run takes none.
+//! a control's run takes none. The classes and sites the chooser has no other value for
+//! (`curve`, `literal`, `String2Token` naming no element; `k_rust_backend::choice_sampling`) are
+//! asserted marked and unchanged under every seed instead.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -90,6 +92,75 @@ module MAIN
 endmodule
 "#;
 
+/// GAP's classes (`docs/compatibility.md`, "Implementation-chosen hook values"): a hex output's
+/// letter case, a byte encoding, a Float rounding, and the values and `\bottom`s of hooks outside
+/// their described domains, each probe beside a control on which the value is determined. A
+/// `\bottom` probe reaches the pick as a step's result (`ord`, `upd`, `dec`), as a condition
+/// whose rule then gives way to its `owise` rule (`cnd`), and as an operand a decided `#if`
+/// discards, whose definedness alone is read (`skip`, a `suspend`ed evaluation).
+const GAP: &str = r#"
+module MAIN
+  imports INT
+  imports FLOAT
+  imports STRING
+  imports BYTES
+  imports LIST
+  imports K-EQUAL
+  syntax String ::= Keccak256(Bytes) [function, hook(KRYPTO.keccak256)]
+                  | ECDSAPubKey(Bytes) [function, hook(KRYPTO.ecdsaPubKey)]
+  syntax Bytes ::= Keccak256raw(Bytes) [function, hook(KRYPTO.keccak256raw)]
+                 | ECDSARecover(Bytes, Int, Bytes, Bytes) [function, hook(KRYPTO.ecdsaRecover)]
+  syntax Pgm ::= kec(Bytes) | kraw(Bytes) | s2b(String) | b2s(Bytes) | enc(String) | i2f(Int)
+               | rnd(Float) | f2i(Float) | rt(Float, Int) | fl(Float) | flinf(Float) | rec(Int)
+               | pub(Bytes) | sub(Int) | fnd(Int) | rpl(Int) | ord(String) | upd(Int)
+               | dec(Bytes) | cnd(String) | skip(Int) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule kec(B) => done(Keccak256(B))
+  rule kraw(B) => done(Keccak256raw(B))
+  rule s2b(S) => done(String2Bytes(S))
+  rule b2s(B) => done(Bytes2String(B))
+  rule enc(S) => done(encodeBytes("UTF-8", S))
+  rule i2f(I) => done(Int2Float(I, 24, 8))
+  rule rnd(F) => done(roundFloat(F, 24, 8))
+  rule f2i(F) => done(Float2Int(F))
+  rule rt(F, N) => done(rootFloat(F, N))
+  rule fl(F) => done(floorFloat(F))
+  rule flinf(F) => done(floorFloat(F /Float 0.0))
+  rule rec(V) => done(ECDSARecover(b"", V, b"", b""))
+  rule pub(B) => done(ECDSAPubKey(B))
+  rule sub(I) => done(substrString("abc", I, I))
+  rule fnd(I) => done(findString("abc", "a", I))
+  rule rpl(I) => done(replaceAtBytes(b"\x01\x02\x03", I, b"\x00\x00"))
+  rule ord(S) => done(ordChar(S))
+  rule upd(I) => done(ListItem(1) [ I <- 0 ])
+  rule dec(B) => done(decodeBytes("UTF-8", B))
+  rule cnd(S) => done(1) requires ordChar(S) ==Int 0
+  rule cnd(_) => done(2) [owise]
+  rule skip(I) => done(#if true #then 1 #else size(ListItem(1) [ I <- 0 ]) #fi)
+endmodule
+"#;
+
+/// The classes and sites the chooser leaves at k-rust's value, each with its reason
+/// (`k_rust_backend::choice_sampling`): every BN128 outcome (`curve`: no other curve is
+/// implemented), a literal's element (`literal`: fixed when the definition is loaded), and
+/// `String2Token` of a text naming no element of its sort (`outside-domain`: a value of the
+/// declared sort is a token its lexical syntax admits, which the arguments do not give).
+const EXEMPT: &str = r#"
+module MAIN
+  imports INT
+  imports FLOAT
+  imports STRING
+  syntax G1Point ::= g1(Int, Int)
+  syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
+  syntax Int ::= String2PInt(String) [function, hook(STRING.string2token)]
+  syntax Pgm ::= add(Int, Int) | inf(Int) | tok(String) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule add(X, Y) => done(BN128Add(g1(0, 0), g1(X, Y)))
+  rule [inf]: inf(_) => done(Infinity)
+  rule tok(S) => done(String2PInt(S))
+endmodule
+"#;
+
 /// A program of a definition, and the class whose probe or control it is.
 struct Program {
     class: &'static str,
@@ -122,6 +193,26 @@ const POWER: &[Program] = &[
     program("fresh-name", PROBES, "sub(lam(y, app(x, y)), 1, x)"),
     program("read-count", PROBES, "rd(3)"),
     program("fresh-association", FRESH, "mk(3)"),
+    program("hex-case", GAP, r#"kec(b"")"#),
+    program("byte-encoding", GAP, r#"s2b("\xe9")"#),
+    program("byte-encoding", GAP, r#"b2s(b"\xc3\xa9")"#),
+    program("float-rounding", GAP, "i2f(16777217)"),
+    program("float-rounding", GAP, "rnd(0.1)"),
+    program("float-rounding", GAP, "f2i(2.5)"),
+    program("float-rounding", GAP, "rt(2.0, 3)"),
+    program("outside-domain", GAP, "rec(29)"),
+    program("outside-domain", GAP, r#"pub(b"")"#),
+    program("outside-domain", GAP, "rt(-4.0, 2)"),
+    program("outside-domain", GAP, "fl(0.5)"),
+    program("outside-domain", GAP, "flinf(1.0)"),
+    program("outside-domain", GAP, "sub(1)"),
+    program("outside-domain", GAP, "fnd(-1)"),
+    program("outside-domain", GAP, "rpl(1)"),
+    program("outside-domain", GAP, r#"ord("ab")"#),
+    program("outside-domain", GAP, "upd(5)"),
+    program("outside-domain", GAP, r#"dec(b"\xff")"#),
+    program("outside-domain", GAP, r#"cnd("ab")"#),
+    program("outside-domain", GAP, "skip(5)"),
 ];
 
 /// Programs beside each probe whose value of the class is determined.
@@ -135,6 +226,26 @@ const CONTROLS: &[Program] = &[
     program("fresh-name", PROBES, "sub(app(x, x), 1, x)"),
     program("read-count", PROBES, "rd(1)"),
     program("fresh-association", FRESH, "one(3)"),
+    program("hex-case", GAP, r#"kraw(b"")"#),
+    program("byte-encoding", GAP, r#"enc("\xe9")"#),
+    program("float-rounding", GAP, "i2f(3)"),
+    program("float-rounding", GAP, "f2i(2.4)"),
+    program("float-rounding", GAP, "rt(4.0, 2)"),
+    program("outside-domain", GAP, "fl(1.5)"),
+    program("outside-domain", GAP, "sub(0)"),
+    program("outside-domain", GAP, "fnd(0)"),
+    program("outside-domain", GAP, "rpl(0)"),
+    program("outside-domain", GAP, r#"ord("a")"#),
+    program("outside-domain", GAP, "upd(0)"),
+    program("outside-domain", GAP, r#"cnd("a")"#),
+    program("outside-domain", GAP, "skip(0)"),
+];
+
+/// Programs whose run reads a value of a class, or a site, the chooser exempts ([`EXEMPT`]).
+const EXEMPTED: &[Program] = &[
+    program("curve", EXEMPT, "add(1, 2)"),
+    program("literal", EXEMPT, "inf(0)"),
+    program("outside-domain", EXEMPT, r#"tok("x")"#),
 ];
 
 const SEEDS: [u64; 3] = [1, 2, 3];
@@ -243,6 +354,8 @@ fn run_counting(program: &Program, seed: Option<u64>) -> (Run, Choices) {
 /// computing site.
 #[test]
 fn every_class_probe_reads_a_mark_and_some_seed_changes_it() {
+    // Every probe is run and the ones no seed changes are reported together.
+    let mut unchanged = Vec::new();
     for probe in POWER {
         let context = format!("{} ({})", probe.program, probe.class);
         let (default, unseeded) = run_counting(probe, None);
@@ -263,12 +376,16 @@ fn every_class_probe_reads_a_mark_and_some_seed_changes_it() {
             taken |=
                 choices.compile.contains_key(probe.class) || choices.run.contains_key(probe.class);
         }
-        assert!(
-            changed,
-            "{context}: some seed changes the leaves of {default:#?}"
-        );
-        assert!(taken, "{context}: some seed takes a value of the class");
+        if !(changed && taken) {
+            unchanged.push(format!(
+                "{context}: changed {changed}, taken {taken}, default {default:?}"
+            ));
+        }
     }
+    assert!(
+        unchanged.is_empty(),
+        "probes that no seed changes, or whose class no seed takes a value of: {unchanged:#?}"
+    );
 }
 
 /// Every control's default run has an empty list, and every seed gives it the same leaves and
@@ -292,6 +409,31 @@ fn no_seed_changes_a_control_probe() {
                 choices.run.is_empty(),
                 "{context}: seed {seed}'s run takes {:?}",
                 choices.run
+            );
+        }
+    }
+}
+
+/// Every exempt program's default run lists its class's mark, and no seed changes it or takes a
+/// value of the class: the chooser has no other value for it ([`EXEMPT`]), so a harness over
+/// unmarked runs tests nothing for it, and its mark is the run's only record.
+#[test]
+fn exempt_classes_are_marked_and_no_seed_takes_another_value_of_them() {
+    for exempt in EXEMPTED {
+        let context = format!("{} ({} exempt)", exempt.program, exempt.class);
+        let default = run(exempt, None);
+        assert!(!default.leaves.is_empty(), "{context}: {default:#?}");
+        assert!(
+            default.classes.contains(exempt.class),
+            "{context}: the default run lists the class: {default:#?}"
+        );
+        for seed in SEEDS {
+            let (seeded, choices) = run_counting(exempt, Some(seed));
+            assert_eq!(seeded, default, "{context}: seed {seed} changes the run");
+            assert!(
+                !choices.compile.contains_key(exempt.class)
+                    && !choices.run.contains_key(exempt.class),
+                "{context}: seed {seed} takes a value of the class: {choices:?}"
             );
         }
     }

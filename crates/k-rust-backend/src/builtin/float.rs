@@ -632,6 +632,35 @@ impl KFloat {
         }
     }
 
+    /// The adjacent value of the format above (`up`) or below this one: the other rounding
+    /// neighbour of a value this one rounds, for the test-only chooser (`crate::choice_sampling`).
+    /// The neighbour of the largest finite value is the infinity of its sign, and of an infinity
+    /// the largest finite value of its sign; next to a zero lies the least subnormal.
+    fn adjacent(self, up: bool) -> Self {
+        match (self, up) {
+            (Self::Binary32(value), true) => Self::Binary32(value.next_up()),
+            (Self::Binary32(value), false) => Self::Binary32(value.next_down()),
+            (Self::Binary64(value), true) => Self::Binary64(value.next_up()),
+            (Self::Binary64(value), false) => Self::Binary64(value.next_down()),
+        }
+    }
+
+    /// `+0.0` of this value's format.
+    fn positive_zero(self) -> Self {
+        match self {
+            Self::Binary32(_) => Self::Binary32(0.0),
+            Self::Binary64(_) => Self::Binary64(0.0),
+        }
+    }
+
+    /// The NaN of this value's format.
+    fn nan(self) -> Self {
+        match self {
+            Self::Binary32(_) => Self::Binary32(f32::NAN),
+            Self::Binary64(_) => Self::Binary64(f64::NAN),
+        }
+    }
+
     fn round_to_integer(self) -> Option<BigInt> {
         let rounded = match self {
             Self::Binary32(value) => f64::from(value.round_ties_even()),
@@ -698,9 +727,9 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
         ),
         "FLOAT.neg" => inspect(hook, arguments, |value| float_term(value.neg())),
         "FLOAT.abs" => inspect(hook, arguments, |value| float_term(value.abs())),
-        "FLOAT.floor" => inspect(hook, arguments, |value| float_term(value.floor())),
-        "FLOAT.ceil" => inspect(hook, arguments, |value| float_term(value.ceil())),
-        "FLOAT.trunc" => inspect(hook, arguments, |value| float_term(value.trunc())),
+        "FLOAT.floor" => inspect(hook, arguments, |value| integral(value, KFloat::floor)),
+        "FLOAT.ceil" => inspect(hook, arguments, |value| integral(value, KFloat::ceil)),
+        "FLOAT.trunc" => inspect(hook, arguments, |value| integral(value, KFloat::trunc)),
         "FLOAT.root" => root(hook, arguments),
         "FLOAT.add" | "FLOAT.sub" | "FLOAT.mul" | "FLOAT.div" | "FLOAT.min" | "FLOAT.max" => {
             let operation = BinaryOperation::of(hook).expect("a binary Float operation");
@@ -721,6 +750,72 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
     }
 }
 
+/// `floorFloat`, `ceilFloat` or `truncFloat` (`round`) of `value`. Under a `choice_sampling`
+/// seed, where the description gives no value ([`integral_open`]) the result is the one the seed
+/// chooses (class `outside-domain`): k-rust's, or another value of the format, the other zero
+/// for a zero result of a nonzero argument and `+0.0` for a NaN or an infinity.
+fn integral(value: KFloat, round: impl FnOnce(KFloat) -> KFloat) -> Term {
+    let rounded = round(value);
+    if let Some(seed) = choice_sampling::seed() {
+        let infinite = !value.as_f64().is_finite();
+        let zero_of_nonzero = rounded.as_f64() == 0.0 && value.as_f64() != 0.0;
+        if infinite || zero_of_nonzero {
+            choice_sampling::taken(super::ChosenClass::OutsideDomain);
+            if choice_sampling::bit(seed) {
+                return float_term(if infinite {
+                    value.positive_zero()
+                } else {
+                    rounded.neg()
+                });
+            }
+        }
+    }
+    float_term(rounded)
+}
+
+/// `rootFloat(F, N)` ([`KFloat::root`]). Under a `choice_sampling` seed, the value the seed
+/// chooses where the text leaves it open ([`root_open`]): for an inexact root of a positive
+/// finite `F` in a positive degree the other rounding neighbour of the real root (class
+/// `float-rounding`), and outside that domain another value of the format, `+0.0` for k-rust's
+/// NaN and NaN otherwise (class `outside-domain`).
+fn sampled_root(value: KFloat, degree: &BigInt) -> KFloat {
+    let root = value.root(degree);
+    let Some(seed) = choice_sampling::seed() else {
+        return root;
+    };
+    let radicand = value.as_f64();
+    if !(radicand.is_finite() && radicand > 0.0 && degree.is_positive()) {
+        choice_sampling::taken(super::ChosenClass::OutsideDomain);
+        if !choice_sampling::bit(seed) {
+            return root;
+        }
+        return if root.is_nan() {
+            root.positive_zero()
+        } else {
+            root.nan()
+        };
+    }
+    if is_exact_power(root.as_f64(), degree, radicand) {
+        return root;
+    }
+    choice_sampling::taken(super::ChosenClass::FloatRounding);
+    if !choice_sampling::bit(seed) {
+        return root;
+    }
+    let (format, bits, root_bits) = match (value, root) {
+        (KFloat::Binary32(value), KFloat::Binary32(root)) => (
+            root::BINARY32,
+            u64::from(value.to_bits()),
+            u64::from(root.to_bits()),
+        ),
+        (KFloat::Binary64(value), KFloat::Binary64(root)) => {
+            (root::BINARY64, value.to_bits(), root.to_bits())
+        }
+        _ => unreachable!("a root has its radicand's format"),
+    };
+    root.adjacent(root::root_exceeds(format, bits, degree, root_bits))
+}
+
 fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some(value) = read_float(hook, &arguments[0])? else {
@@ -733,7 +828,9 @@ fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
         Operand::Computed(value) => value,
         Operand::Uncomputed { format, .. } => return Ok(uncomputed_operands(hook, &[&format])),
     };
-    Ok(BuiltinResult::Value(float_term(value.root(&degree))))
+    Ok(BuiltinResult::Value(float_term(sampled_root(
+        value, &degree,
+    ))))
 }
 
 /// `roundFloat(F, P, E)`. The format arguments are read first: where they name no format the
@@ -758,7 +855,20 @@ fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     if !format.is_computed() {
         return Ok(uncomputed_destination(hook, &format));
     }
-    Ok(BuiltinResult::Value(float_term(value.round_to(&format))))
+    let rounded = value.round_to(&format);
+    // Under a `choice_sampling` seed, a value the destination does not hold rounds to the
+    // neighbour the seed chooses (class `float-rounding`): k-rust's nearest, or the other.
+    if let Some(seed) = choice_sampling::seed()
+        && !value.is_nan()
+        && rounded.as_f64() != value.as_f64()
+    {
+        choice_sampling::taken(super::ChosenClass::FloatRounding);
+        if choice_sampling::bit(seed) {
+            let above = rounded.as_f64() > value.as_f64();
+            return Ok(BuiltinResult::Value(float_term(rounded.adjacent(!above))));
+        }
+    }
+    Ok(BuiltinResult::Value(float_term(rounded)))
 }
 
 /// `Int2Float(I, P, E)`. The format arguments are read first: where they name no format the
@@ -788,6 +898,23 @@ fn int_to_float(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     } else {
         return Ok(uncomputed_destination(hook, &format));
     };
+    // Under a `choice_sampling` seed, an integer the format does not hold converts to the
+    // neighbour the seed chooses (class `float-rounding`): k-rust's nearest, or the other, an
+    // infinity's neighbour being the largest finite value; 0, which both zeros hold, to either.
+    if let Some(seed) = choice_sampling::seed() {
+        let held = BigInt::from_f64(value.as_f64());
+        if integer.is_zero() || held.as_ref() != Some(&integer) {
+            choice_sampling::taken(super::ChosenClass::FloatRounding);
+            if choice_sampling::bit(seed) {
+                let other = match held {
+                    _ if integer.is_zero() => value.neg(),
+                    Some(held) => value.adjacent(held < integer),
+                    None => value.adjacent(value.is_sign_negative()),
+                };
+                return Ok(BuiltinResult::Value(float_term(other)));
+            }
+        }
+    }
     Ok(BuiltinResult::Value(float_term(value)))
 }
 
@@ -817,6 +944,23 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(value
         .round_to_integer()
         .map_or_else(no_nearest_integer, |integer| {
+            // Under a `choice_sampling` seed, a tie rounds to the integer the seed chooses
+            // (class `float-rounding`): k-rust's even one, or the other.
+            let exact = value.as_f64();
+            if let Some(seed) = choice_sampling::seed()
+                && (exact - exact.trunc()).abs() == 0.5
+            {
+                choice_sampling::taken(super::ChosenClass::FloatRounding);
+                if choice_sampling::bit(seed) {
+                    // A tie is below 2^52 in magnitude, so its nearest integers are exact.
+                    let above = integer.to_f64().is_some_and(|rounded| rounded > exact);
+                    return BuiltinResult::Value(int_term(if above {
+                        integer - 1
+                    } else {
+                        integer + 1
+                    }));
+                }
+            }
             BuiltinResult::Value(int_term(integer))
         }))
 }
@@ -1111,6 +1255,138 @@ mod tests {
 
     fn float(token: &str) -> Term {
         Term::raw_domain_value(Sort::builtin(BuiltinSort::Float), token)
+    }
+
+    /// Under a `choice_sampling` seed whose bit is set, every `float-rounding` site gives the
+    /// other rounding neighbour, adjacent to k-rust's value and on the other side of the exact
+    /// result, and every `outside-domain` site another value of the format: each is a value some
+    /// model of the text gives.
+    #[cfg(feature = "choice-sampling")]
+    #[test]
+    fn a_seed_takes_the_other_rounding_neighbour_and_another_value_outside_the_domain() {
+        use std::num::NonZeroU64;
+        let value = |hook: &str, arguments: &[Term]| match evaluate(hook, arguments) {
+            Ok(BuiltinResult::Value(value)) => value,
+            other => panic!("{hook} has a value: {other:?}"),
+        };
+        let number = |term: &Term| match read_float("test", term) {
+            Ok(Some(Operand::Computed(value))) => value,
+            _ => panic!("a computed Float: {term:?}"),
+        };
+        let int = |value: i64| int_term(BigInt::from(value));
+        let both = |hook: &str, arguments: &[Term]| {
+            let own = value(hook, arguments);
+            let other = crate::choice_sampling::with_seed(NonZeroU64::new(1).unwrap(), || {
+                value(hook, arguments)
+            });
+            (own, other)
+        };
+        let floats = |hook: &str, arguments: &[Term]| {
+            let (own, other) = both(hook, arguments);
+            (number(&own), number(&other))
+        };
+        // 2^24 + 1 lies between 2^24 and 2^24 + 2; k-rust takes the even one.
+        let (own, other) = floats("FLOAT.int2float", &[int(16_777_217), int(24), int(8)]);
+        assert_eq!((own.as_f64(), other.as_f64()), (16_777_216.0, 16_777_218.0));
+        // 0 is held by both zeros.
+        let (own, other) = floats("FLOAT.int2float", &[int(0), int(24), int(8)]);
+        assert!(!own.is_sign_negative() && other.is_sign_negative() && other.as_f64() == 0.0);
+        // Past the largest finite binary32 value by more than half an ulp: infinity and the
+        // largest finite value.
+        let big = BigInt::from(2).pow(128u32);
+        let (own, other) = floats("FLOAT.int2float", &[int_term(big.clone()), int(24), int(8)]);
+        assert_eq!(
+            (own.as_f64(), other.as_f64()),
+            (f64::INFINITY, f64::from(f32::MAX))
+        );
+        let (own, other) = floats("FLOAT.int2float", &[int_term(-big), int(24), int(8)]);
+        assert_eq!(
+            (own.as_f64(), other.as_f64()),
+            (f64::NEG_INFINITY, -f64::from(f32::MAX))
+        );
+        // roundFloat: the binary32 neighbours of binary64 0.1, and of a value below the least
+        // subnormal, whose neighbours are a zero and the least subnormal.
+        for (token, source) in [
+            ("0.1", 0.1_f64),
+            ("1.0e-50", 1.0e-50),
+            ("-1.0e-50", -1.0e-50),
+            ("1.0e300", 1.0e300),
+        ] {
+            let (own, other) = floats("FLOAT.round", &[float(token), int(24), int(8)]);
+            let (KFloat::Binary32(own), KFloat::Binary32(other)) = (own, other) else {
+                panic!("binary32 results");
+            };
+            assert!(
+                other == own.next_up() || other == own.next_down(),
+                "{source}: {own} and {other} are adjacent"
+            );
+            assert!(
+                (f64::from(own) - source).signum() != (f64::from(other) - source).signum(),
+                "{source}: {own} and {other} enclose it"
+            );
+        }
+        // Float2Int at a tie: the other integer.
+        for (tie, own, other) in [("2.5", 2, 3), ("-2.5", -2, -3), ("3.5", 4, 3)] {
+            assert_eq!(
+                both("FLOAT.float2int", &[float(tie)]),
+                (int(own), int(other)),
+                "{tie}"
+            );
+        }
+        // An inexact root, native (2) and computed (3) degrees, both formats: the neighbours
+        // enclose the real root.
+        for (radicand, degree, real) in [
+            ("2.0f", 3, 2.0_f64.cbrt()),
+            ("2.0f", 2, 2.0_f64.sqrt()),
+            ("3.0f", 3, 3.0_f64.cbrt()),
+            ("0.5f", 5, 0.5_f64.powf(0.2)),
+        ] {
+            let (own, other) = floats("FLOAT.root", &[float(radicand), int(degree)]);
+            assert!(
+                other.as_f64() == own.adjacent(true).as_f64()
+                    || other.as_f64() == own.adjacent(false).as_f64(),
+                "rootFloat({radicand}, {degree}): {own:?} and {other:?} are adjacent"
+            );
+            assert!(
+                (own.as_f64() - real).signum() != (other.as_f64() - real).signum(),
+                "rootFloat({radicand}, {degree}): {own:?} and {other:?} enclose {real}"
+            );
+        }
+        // binary64, decided exactly: the cubes of the two neighbours enclose 3.
+        let cube_exceeds_three = |root: KFloat| {
+            let bits = root.as_f64().to_bits();
+            let exponent = i64::try_from(bits >> 52).unwrap() - 1075;
+            let significand = BigInt::from((bits & ((1 << 52) - 1)) | (1 << 52));
+            let shift = usize::try_from(-3 * exponent).unwrap();
+            significand.pow(3) > (BigInt::from(3) << shift)
+        };
+        let (own, other) = floats("FLOAT.root", &[float("3.0"), int(3)]);
+        assert!(
+            other.as_f64() == own.adjacent(true).as_f64()
+                || other.as_f64() == own.adjacent(false).as_f64()
+        );
+        assert_ne!(cube_exceeds_three(own), cube_exceeds_three(other));
+        // Outside the domain: another value of the format.
+        let (own, other) = floats("FLOAT.root", &[float("-4.0"), int(2)]);
+        assert!(own.is_nan() && other.as_f64() == 0.0);
+        let (own, other) = floats("FLOAT.root", &[float("0.0"), int(3)]);
+        assert!(own.as_f64() == 0.0 && other.is_nan());
+        let (own, other) = floats("FLOAT.floor", &[float("0.5")]);
+        assert!(own.as_f64() == 0.0 && !own.is_sign_negative());
+        assert!(other.as_f64() == 0.0 && other.is_sign_negative());
+        let (own, other) = floats("FLOAT.ceil", &[float("Infinity")]);
+        assert!(own.as_f64() == f64::INFINITY && other.as_f64() == 0.0);
+        // Determined values do not move.
+        for (hook, arguments) in [
+            ("FLOAT.int2float", vec![int(3), int(24), int(8)]),
+            ("FLOAT.round", vec![float("0.5"), int(24), int(8)]),
+            ("FLOAT.float2int", vec![float("2.4")]),
+            ("FLOAT.root", vec![float("4.0"), int(2)]),
+            ("FLOAT.floor", vec![float("1.5")]),
+        ] {
+            let (own, other) = both(hook, &arguments);
+            assert_eq!(own, other, "{hook}");
+        }
     }
 
     /// `mixed_destination` names exactly the pairs the evaluator reads as one binary32 and one

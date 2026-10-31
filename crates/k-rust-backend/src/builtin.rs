@@ -1056,7 +1056,50 @@ fn evaluate_composed(
             crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(chosen));
         }
     }
+    // Under a `choice_sampling` seed that says so, the `\bottom` an evaluator gives outside the
+    // inputs its hook's description covers is replaced by a value of the result sort, which is
+    // as much a model's answer there (`undescribed_value`). It is replaced only where the outcome
+    // is taken: a proof route withheld it above, and at a `total` symbol there is no pick. The
+    // mark above is the one k-rust's own outcome notes; so a run whose definedness check of such
+    // an application dropped its mark (a `suspend`ed evaluation, `crate::path_facts`) changes
+    // under the seed without one.
+    if result == BuiltinResult::Bottom(Undefinedness::Undescribed)
+        && let Some(seed) = choice_sampling::seed()
+        && let Some(value) = undescribed_value(hook, arguments)
+    {
+        choice_sampling::taken(ChosenClass::OutsideDomain);
+        if choice_sampling::defines(seed)
+            && built
+                .as_ref()
+                .zip(facts)
+                .is_none_or(|(built, facts)| built.of_their_sorts_kinds(facts))
+            && let Some(value) = hook_signature::member_of_result(value, Some(result_sort), facts)
+        {
+            return Ok(BuiltinResult::Value(value));
+        }
+    }
     Ok(result)
+}
+
+/// A value of `hook`'s result sort that some model gives the application to `arguments`, where
+/// the evaluator's `\bottom` is one model's answer outside the inputs the description covers
+/// (`Undefinedness::Undescribed`), for the test-only chooser (`crate::choice_sampling`). The
+/// description says nothing there, so every value of the sort is a model's; the one built is
+/// the simplest the arguments give: `0` for an `Int`, `""` for a `String`, and the destination
+/// list or `Bytes` unchanged for an update, a range or a replacement. `None` where none is built:
+/// `String2Token` of a text naming no element of its declared sort, whose values are tokens of
+/// that sort's lexical syntax, which the arguments do not give, and the BN128 hooks, whose
+/// `\bottom` of a non-point is a pick of the curve (class `curve`), which has no other
+/// implementation here.
+fn undescribed_value(hook: &str, arguments: &[Term]) -> Option<Term> {
+    match hook {
+        "STRING.ord" | "STRING.string2int" | "STRING.string2base" => Some(int_term(BigInt::ZERO)),
+        "STRING.base2string" | "BYTES.decodeBytes" => Some(Term::string(String::new())),
+        "LIST.update" | "LIST.range" | "LIST.updateAll" | "BYTES.replaceAt" => {
+            arguments.first().cloned()
+        }
+        _ => None,
+    }
 }
 
 /// Whether `hook` reads its arguments as builtin values, which its evaluator recognises by their

@@ -153,6 +153,23 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ));
     };
+    // Under a `choice_sampling` seed, an empty range strictly inside the string, to which no
+    // text gives a value, takes the one the seed chooses (class `outside-domain`): k-rust's
+    // `""`, or the code point at `START`, a value of the sort another model may give.
+    if start_offset == end_offset
+        && start_offset > 0
+        && end_offset < value.len()
+        && let Some(seed) = choice_sampling::seed()
+    {
+        choice_sampling::taken(super::ChosenClass::OutsideDomain);
+        if choice_sampling::bit(seed) {
+            let next = value[start_offset..]
+                .chars()
+                .next()
+                .expect("a code point starts inside the string");
+            return Ok(BuiltinResult::Value(string_term(next.to_string())));
+        }
+    }
     Ok(BuiltinResult::Value(string_term(
         &value[start_offset..end_offset],
     )))
@@ -292,10 +309,37 @@ fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
     let Some(start) = read_int(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if reverse && start.sign() == Sign::Minus {
-        return Ok(BuiltinResult::Value(int_term(BigInt::from(-1))));
+    // Under a `choice_sampling` seed, a start that is no position of the haystack takes the value
+    // the seed chooses (class `outside-domain`): k-rust's, or another value of the sort, -1 where
+    // k-rust's is a position and the start clamped to the haystack where k-rust's is -1.
+    if let Some(seed) = choice_sampling::seed()
+        && (start.sign() == Sign::Minus || start > BigInt::from(haystack.chars().count()))
+    {
+        choice_sampling::taken(super::ChosenClass::OutsideDomain);
+        if choice_sampling::bit(seed) {
+            let picked = search(haystack, needle, &start, reverse)?;
+            let clamped = if start.sign() == Sign::Minus {
+                0
+            } else {
+                i64::try_from(haystack.chars().count()).unwrap_or(i64::MAX)
+            };
+            return Ok(BuiltinResult::Value(int_term(BigInt::from(
+                if picked == -1 { clamped } else { -1 },
+            ))));
+        }
     }
-    let start = saturating_i64(&start);
+    Ok(BuiltinResult::Value(int_term(BigInt::from(search(
+        haystack, needle, &start, reverse,
+    )?))))
+}
+
+/// k-rust's `findString(haystack, needle, start)` (`reverse` false) or `rfindString` ([`find`]):
+/// the code point index of the occurrence, or -1.
+fn search(haystack: &str, needle: &str, start: &BigInt, reverse: bool) -> HookResult<i64> {
+    if reverse && start.sign() == Sign::Minus {
+        return Ok(-1);
+    }
+    let start = saturating_i64(start);
     let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
     // `starts[unit]` is the byte offset at which code point `unit` starts, the end of the
     // haystack after the last. The UTF-8 of the needle occurring at the start of a code point
@@ -319,11 +363,9 @@ fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
             break;
         }
     }
-    Ok(BuiltinResult::Value(int_term(BigInt::from(
-        found
-            .and_then(|index| i64::try_from(index).ok())
-            .unwrap_or(-1),
-    ))))
+    Ok(found
+        .and_then(|index| i64::try_from(index).ok())
+        .unwrap_or(-1))
 }
 
 /// Whether `findString(S, N, I)` or `rfindString(S, N, I)` searches from an `I` that is no

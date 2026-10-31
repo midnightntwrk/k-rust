@@ -432,6 +432,8 @@ The exit status is 0 when the job reached a verdict (a witness, none within the 
   - `fresh-association`: the run applied a rule with two or more `!` variables, and which of them gets which fresh value is the compiler's choice (or a rule that sets `<generatedCounter>` in a form k-rust cannot read as an advance by zero or one, which it marks too); the hook is the rule's `UNIQUE_ID` (64 hex digits). Choose values or a program whose run does not apply that rule.
 - `client-refused`: kink's rules refused the hit; see `client-refusals`.
 
+A run without a mark is evidence because k-rust marks every value it chooses where the definition leaves it open; a test-only chooser in k-rust checks this by computing another admitted value of every class but `curve` and `literal`, whose marks are their only record, and requiring every unmarked run to stay the same ([Marks in executions](compatibility.md#marks-in-executions)).
+
 The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `totals.baseline-incomplete-reasons`, and the hooks behind them in `totals.unsupported-hooks` and `totals.baseline-incomplete-hooks` ([Why a case is unsupported](../crates/k-rust-fuzz/README.md#why-a-case-is-unsupported)).
 
 **Warnings** are information, not refusals:

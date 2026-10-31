@@ -10,8 +10,23 @@
 //! value, whose stored order is canonical; the length a read may take; the substitution's terms;
 //! the rule), so one seed is one model: one listing order per collection value, one item, one
 //! letter case, one NaN sign, one zero, one destination format for operands of two formats, one
-//! renaming of the binders of each substitution, one association of each rule's fresh names.
-//! The exception is `#read`, an effect, whose count another implementation may choose per call.
+//! renaming of the binders of each substitution, one association of each rule's fresh names,
+//! one case per letter digit of a hex output, one byte encoding (k-rust's, or UTF-8), one
+//! rounding neighbour per inexact conversion or root, one value per hook application outside
+//! its described domain, and a value of the sort for each `\bottom` k-rust takes there where the
+//! hook's arguments give one. The exception is `#read`, an effect, whose count another
+//! implementation may choose per call.
+//!
+//! Three classes have no other value here. `curve`: no other curve than alt_bn128 is
+//! implemented, so no other model's sums, products, pairings or point tests can be computed.
+//! `literal`: a literal's element is fixed when the definition is loaded, before any seed scope
+//! of a run, and the load runs in `Proof`, so no execution computes it. `effect-order` is not a
+//! value. Within `outside-domain`, `String2Token` of a text that names no element of its sort
+//! keeps k-rust's `\bottom`: a value of the declared sort is a token the sort's lexical syntax
+//! admits, which the hook's arguments do not give; a `total` symbol's application there is
+//! defined and unknown on every route, so it has no pick to replace. The matcher's refutation of
+//! a list-update pattern (`matching::collections`) reads the evaluator's own `\bottom` through
+//! the context-free `builtin::evaluate_hook`, which does not take the sampled value.
 //!
 //! Only the cargo feature `choice-sampling` (enabled by no shipped crate) has a seed; without it
 //! [`seed`] is the constant `None`, every site computes k-rust's value, and nothing changes.
@@ -131,6 +146,23 @@ pub(crate) fn item(seed: u64, n: usize) -> usize {
 /// One binary choice: the other letter case, NaN sign or zero.
 pub(crate) fn bit(seed: u64) -> bool {
     seed & 1 == 1
+}
+
+/// A second binary choice, independent of [`bit`]: whether an application k-rust leaves
+/// undefined outside the inputs its description covers takes a value of its sort instead
+/// (`super::builtin`'s `undescribed_value`). A site that may itself choose `\bottom` under [`bit`]
+/// (`replaceAtBytes` up to the end) composes with it, so every combination is one model's.
+pub(crate) fn defines(seed: u64) -> bool {
+    seed & 2 == 2
+}
+
+/// The case of the letter digit at `position` of one hex output: uppercase when this is `true`.
+/// `krypto.md` names no case and no consistency clause, so each letter digit's case is a model's
+/// own choice; the choice is a function of the seed and the position, so one application has one
+/// spelling per seed.
+pub(crate) fn upper_case_at(seed: u64, position: usize) -> bool {
+    let mut state = seed ^ (position as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
+    split_mix_64(&mut state) & 1 == 1
 }
 
 /// How many of the `n >= 2` characters a read may take it takes: from 1 to `n - 1`.
