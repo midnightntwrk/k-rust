@@ -34,7 +34,7 @@ for line in sys.stdin:
         }}
     elif mode == "load_digest" and request["operation"] == "definition.load":
         response = {"id": request["id"], "result": {"module": "MAIN", "definition_kore_sha256": "abc123"}}
-    elif mode == "marked" and request["operation"] in ("execute", "search", "exec.run", "exec.search"):
+    elif mode == "marked" and (request["operation"].startswith("exec.") or "marks" in request):
         if request["operation"].startswith("exec."):
             key, marks = "implementation_chosen_values", [{"hook": "MAP.keys_list", "class": "order"}]
         else:
@@ -221,8 +221,12 @@ class ClientTests(unittest.TestCase):
                 self.assertEqual(session.take_chosen_values(), [])
                 session.execute("opaque pattern", keep="case", marks=[case])
                 session.search("opaque pattern", marks=[order, case])
-                session.request("execute", pattern="unrecorded", marks=[{"hook": "X", "class": "item"}])
-                self.assertEqual(session.take_chosen_values(), ["MAP.keys_list order", "STRING.base2string letter-case"])
+                session.request("execute", pattern="raw", marks=[{"hook": "X", "class": "item"}])
+                session.request("observe", state="case", cells=["k"], marks=[{"hook": "Y", "class": "item"}])
+                self.assertEqual(
+                    session.take_chosen_values(),
+                    ["MAP.keys_list order", "STRING.base2string letter-case", "X item"],
+                )
                 session.execute("opaque pattern", marks=[])
                 self.assertEqual(session.take_chosen_values(), [])
                 session.exec_run(program="p")

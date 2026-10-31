@@ -167,6 +167,10 @@ def ir_queries(
         return [session.ir_query(artifacts, query) for query in queries]
 
 
+RUN_OPERATIONS = frozenset({"execute", "search", "exec.run", "exec.search"})
+"""The gate operations that run or search a program; their responses carry the run's open values."""
+
+
 def chosen_values(result: Mapping[str, Any]) -> set[str]:
     """The open values a k-rust run or search read, as k-rust marks them, each spelled `<hook> <class>`.
 
@@ -186,9 +190,10 @@ def chosen_values(result: Mapping[str, Any]) -> set[str]:
 class Session:
     """Exchange requests with a gate session, serializing concurrent callers.
 
-    Every `execute`, `search`, `exec.run`, and `exec.search` response adds the open values its run
-    read (`chosen_values`) to the session's set, which `take_chosen_values` returns and empties;
-    a caller that pins them per case uses the session from one thread.
+    Every response to a run operation (`RUN_OPERATIONS`), through a typed wrapper or a raw `request`,
+    adds the open values its run read (`chosen_values`) to the session's set, which
+    `take_chosen_values` returns and empties; a caller that pins them per case uses the session
+    from one thread.
     """
 
     def __init__(self, krs_gate: Path, *, environment: Mapping[str, str] | None = None) -> None:
@@ -258,11 +263,15 @@ class Session:
         """Send one operation and return its result, or raise ``GateError``.
 
         Concurrent callers hold one lock across the complete write and read.
+        A response to one of ``RUN_OPERATIONS`` adds its run's open values to the session's set.
         A request that has no response within ``timeout`` seconds kills the session's process group.
         """
 
         with self._request_lock:
-            return self._request(operation, timeout=timeout, **fields)
+            result = self._request(operation, timeout=timeout, **fields)
+            if operation in RUN_OPERATIONS:
+                self._chosen_values |= chosen_values(result)
+            return result
 
     def _request(self, operation: str, *, timeout: float, **fields: Any) -> Any:
         child = self._process
@@ -365,11 +374,6 @@ class Session:
 
         return self.request("configure", variables=dict(variables))
 
-    def _run(self, operation: str, **fields: Any) -> Any:
-        result = self.request(operation, **fields)
-        self._chosen_values |= chosen_values(result)
-        return result
-
     def take_chosen_values(self) -> list[str]:
         """The sorted open values every run and search since the last call read; empties the set."""
 
@@ -379,12 +383,12 @@ class Session:
     def execute(self, pattern: str, **options: Any) -> dict[str, Any]:
         """Execute an opaque KORE pattern and return the serialized result."""
 
-        return self._run("execute", pattern=pattern, **options)
+        return self.request("execute", pattern=pattern, **options)
 
     def search(self, pattern: str, **options: Any) -> dict[str, Any]:
         """Search final states from an opaque KORE pattern and return the result."""
 
-        return self._run("search", pattern=pattern, **options)
+        return self.request("search", pattern=pattern, **options)
 
     def read(self, text: str, keep: str) -> dict[str, Any]:
         """Retain a Java KORE result under a session state name."""
@@ -456,7 +460,7 @@ class Session:
         fields: dict[str, Any] = {}
         if print_style is not None:
             fields["print"] = print_style
-        return self._run(
+        return self.request(
             "exec.run", program=program, program_name=program_name,
             variables=dict(variables or {}), depth=depth, trace=trace, **fields,
         )
@@ -486,7 +490,7 @@ class Session:
     ) -> dict[str, Any]:
         """Search surface inputs through krs-exec, as `krs search` does, and return its search report."""
 
-        return self._run(
+        return self.request(
             "exec.search", program=program, program_name=program_name,
             variables=dict(variables or {}), mode=mode, depth=depth, max_solutions=max_solutions,
         )
