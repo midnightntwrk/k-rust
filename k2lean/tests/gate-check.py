@@ -228,6 +228,16 @@ def refuted_marks(path):
     return out
 
 
+def lean_name(n):
+    """A Lean name as `Name.toString` writes it, which the result does: an atom in `«»` that is an
+    identifier (`«end»`, a keyword escaped where the generator writes it) loses the quotes, and one
+    that is not (`«resume-lit»`) keeps them, so an open list's spelling and the result's compare."""
+    def atom(m):
+        a = m.group(1)
+        return a if a.translate(str.maketrans("", "", "'!?")).isidentifier() else m.group(0)
+    return re.sub(r"«([^«».\s]+)»", atom, n)
+
+
 def slot_statuses(path, ns, prefixes, lst):
     """({name: {status, id}}, problems) of a demo's obligations (DEMOS slots): the entries of its
     result (`k2l-eval --result`) whose names relative to NS start with one of PREFIXES. Status:
@@ -243,10 +253,10 @@ def slot_statuses(path, ns, prefixes, lst):
     marks = {}
     for name, rest in (listed_names(lst) if lst else []):
         rest = rest.split("#")[0]
-        marks[name] = rest.split("|", 1)[1].split()[0] if "|" in rest and rest.split("|", 1)[1].split() else "open"
+        marks[lean_name(name)] = rest.split("|", 1)[1].split()[0] if "|" in rest and rest.split("|", 1)[1].split() else "open"
     out = {}
     for e in json.loads(text)["entries"]:
-        n = rel(e["name"])
+        n = lean_name(rel(e["name"]))
         if not any(n.startswith(x) for x in prefixes):
             continue
         st = e["status"]
