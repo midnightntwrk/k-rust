@@ -110,7 +110,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // at a constructor's argument and at an alias's pattern, and 5 at an alternative;
             // and the 7 keys an equation's function context and a context alias look up each, the
             // 2 conditions of a `cells!` rule that restates its cells, and the list brackets at a
-            // fn's `List` subject (NT-18).
+            // fn's `List` subject (NT-18); and the 4 spellings a desugar's subject holds beside a
+            // second clause of its production (NT-22: two names that overlap it, two terms that do
+            // not).
             (
                 Family::Terms,
                 106 * 48
@@ -126,7 +128,8 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 2
                     + 1,
             ),
-            // 93 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
+            // 93 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
+            // subject beside a second clause one too) × 2 bare variants.
             (Family::Import, 93 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's), and a

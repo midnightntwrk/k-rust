@@ -1753,6 +1753,11 @@ const ALIAS_SUBJECT: &str = "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE
 
 const DESUGAR_SUBJECT: &str = "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
+/// [`DESUGAR_SUBJECT`] beside a second clause of the case's production, whose subject holds a
+/// pair no spelling's witness or counter-witness writes, `pair(7, 7)`, and whose result,
+/// `Cmd::Pair(x, x)`, tells which clause applied.
+const DESUGAR_SUBJECT_BESIDE: &str = "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n\n#[k::desugar]\nfn beside_TAG(k::term![Cmd::NAME(x, Cmd::Pair(7, 7))]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Pair(x, x)\n}\n";
+
 /// A rule of the case's own that writes its static clause's production applied to the witness,
 /// `Cmd::NAME(1, WITNESS)`, which kompile expands as it expands every rule: a term KRS writes,
 /// meeting the subject KRS writes. `drive(DRIVE)`, the case's own number, applies it.
@@ -2439,6 +2444,19 @@ fn slots() -> Vec<Slot> {
         )
         .marked("#[k::desugar]")
         .holding(Holds::Only(&["x", "1"])),
+        // The subject beside a second clause of the same production, `Cmd::NAME(x, Cmd::Pair(7,
+        // 7))` ([`DESUGAR_SUBJECT_BESIDE`]): a static clause states no order, so two clauses whose
+        // subjects some term matches are refused (`overlapping-static-clauses`), and two that no
+        // term matches both of each apply where its own subject matches.
+        slot(
+            "desugar",
+            "subject-beside",
+            Side::Subject,
+            (Desugar, Part::Subject, &[Argument]),
+            DESUGAR_SUBJECT_BESIDE,
+        )
+        .marked("#[k::desugar]")
+        .holding(Holds::Only(&["x", "_", "1", "Cmd::Hold(x)"])),
         slot(
             "desugar",
             "subject-root",

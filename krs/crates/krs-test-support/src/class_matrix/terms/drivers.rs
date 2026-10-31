@@ -105,6 +105,9 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
     ) {
         return static_counter_plans(slot, spelling, command);
     }
+    if (slot.form, slot.position, slot.opener) == ("desugar", "subject-beside", None) {
+        return beside_plans(slot, spelling, command);
+    }
     // An equation whose function context reads the configuration leaves, where it does not
     // apply, its application with the configuration it read, which the generator does not state.
     if undriven(slot).is_some()
@@ -198,6 +201,23 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             status: Status::Unexpanded,
         });
     }
+    runs
+}
+
+/// The counter runs of a subject beside a second clause of its production
+/// (`DESUGAR_SUBJECT_BESIDE`): those of the subject alone ([`static_counter_plans`]), and the
+/// program the second clause's subject matches, `NAME(1, pair(7, 7))`, which that clause expands
+/// to `pair(1, 1)`, the case's own clause not matching it.
+fn beside_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
+    let mut runs = static_counter_plans(slot, spelling, command);
+    runs.push(Run {
+        program: format!("{}(1, pair(7, 7))", command.terminal()),
+        variables: Vec::new(),
+        depth: 0,
+        steps: 0,
+        cells: vec![("k".to_owned(), Ground::Seq(vec![pair(int(1), int(1))]))],
+        status: Status::Liveness,
+    });
     runs
 }
 
@@ -1036,7 +1056,7 @@ impl Driver<'_> {
                 )
             }
             // A static clause expands what a program writes as `krs run` parses it: no step.
-            ("desugar" | "alias", "subject" | "subject-typed") => {
+            ("desugar" | "alias", "subject" | "subject-typed") | ("desugar", "subject-beside") => {
                 let witness = self.witness()?;
                 literal(&witness.term)?;
                 Self::expanded(

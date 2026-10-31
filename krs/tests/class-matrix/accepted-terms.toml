@@ -1738,6 +1738,24 @@ rule cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
 
+[accept."import/desugar/subject-beside/Go()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 7 , 7 ) ) => pair ( V0:KItem , V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/desugar/subject-beside/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 7 , 7 ) ) => pair ( V0:KItem , V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."import/desugar/subject-typed/Go()"]
 k = """
 rule cTAG ( V0:Int , go ) => hold ( V0:Int ) [label(krsRule_DIGEST)]
@@ -7179,6 +7197,24 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 [accept."terms/desugar/result/{ let y = x; y }"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-beside/1"]
+k = """
+rule cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 7 , 7 ) ) => pair ( V0:KItem , V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-beside/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 7 , 7 ) ) => pair ( V0:KItem , V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """

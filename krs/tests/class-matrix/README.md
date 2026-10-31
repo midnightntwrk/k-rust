@@ -70,11 +70,15 @@ ends, and `Cmd::Pb(Cmd::Go())`, whose expansion would apply a clause that is not
 on one path), the class `unexpandable-static-application`; alternatives at two arguments; and
 Bytes tokens holding each character K escapes. Openers at depth 2 put the static applications
 below a constructor, an alias and an alternative there (`terms/desugar/subject/or-branch/..`), and
-`set-concat` a set's concatenation. Two slots of their own: `subject-typed`, a binder a typed
-parameter restricts, the form `sort-test-in-pattern` advises there; and `subject-written`, where a
+`set-concat` a set's concatenation. Three slots of their own: `subject-typed`, a binder a typed
+parameter restricts, the form `sort-test-in-pattern` advises there; `subject-written`, where a
 rule of the case's own writes the clause's production applied to the witness (`drive(N) =>
 cNAME(1, w)`, `N` the case's own number), which kompile expands as it expands every rule, so a
-term KRS writes must meet the subject KRS writes, or the definition does not build (K6). A static
+term KRS writes must meet the subject KRS writes, or the definition does not build (K6); and
+`subject-beside` (NT-22), the desugar's subject beside a second clause of its production,
+`cNAME(x, pair(7, 7)) => pair(x, x)`: a name or `_` in the hole overlaps it and is refused (class
+`overlapping-static-clauses`, since a static clause states no order), while `1` and `hold(x)` do
+not, and K7 also runs `cNAME(1, pair(7, 7))`, which the second clause expands. A static
 subject's counter runs are programs its subject does not match, whose expansion must leave the
 case's production unexpanded ("survived expansion", the status `unexpanded`); and a builtin
 token witness is also written in a second spelling of its value (`01`, `1.50`, `"\x73"`,
