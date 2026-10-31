@@ -2193,7 +2193,7 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidRulePriority(id) => write!(
                 formatter,
-                "rule priority cannot occur on {} sentence `{}`",
+                "rule priority is invalid on {} sentence `{}`: only an equation or a transition takes one, and an `owise` one has the value 200",
                 id.item_kind(),
                 id.item_name()
             ),

@@ -2176,7 +2176,7 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::InvalidRulePriority(id) => write!(
                 formatter,
-                "rule priority cannot occur on unsupported sentence {id}"
+                "rule priority is invalid on sentence {id}: only an equation or a transition takes one, and an `owise` one has the value 200"
             ),
             Self::InvalidClaimMetadata(id) => {
                 write!(formatter, "claim metadata disagrees with sentence {id}")

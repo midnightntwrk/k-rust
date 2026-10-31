@@ -17,12 +17,12 @@ use krs_ir::{
 use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
     ContextAliasSentence, DeclarationPath, DefinitionClaim, DefinitionIr, DefinitionModule,
-    DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence,
-    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
-    DefinitionValidationError, LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem,
-    ProductionSentence, RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule,
-    SemanticProduction, SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory,
-    SemanticVariable, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    DefinitionRuleCondition, DefinitionScopedBinder, DefinitionSentence, DefinitionSimplification,
+    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
+    LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem, ProductionSentence,
+    RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
+    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
     k_surface::{ImportPolicy, builtin_imports},
 };
 use sha2::{Digest, Sha256};
@@ -2112,10 +2112,12 @@ fn lower_rule_metadata(
     sentence = sentence.with_priority(
         rule.priority()
             .map(|priority| -> Result<_, LoweringError> {
-                Ok(DefinitionRulePriority::new(
-                    origins.lower(priority.origin(), "rule-priority", Some(rule.id()), None)?,
-                    priority.value(),
-                ))
+                Ok(priority.with_origin(origins.lower(
+                    priority.origin(),
+                    "rule-priority",
+                    Some(rule.id()),
+                    None,
+                )?))
             })
             .transpose()?,
     )?;

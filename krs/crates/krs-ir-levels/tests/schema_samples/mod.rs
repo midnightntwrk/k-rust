@@ -4049,7 +4049,7 @@ impl Sample for SemanticRuleLabel {
 }
 impl Sample for IrRulePriority {
     fn samples() -> Vec<Self> {
-        vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
+        vec![Self::owise(sample::<NodeOrigin>())]
     }
 }
 impl Sample for IrSimplification {

@@ -176,26 +176,29 @@ pub(super) fn check_group_descendants(
 
 /// Lowers an optional rule priority; its origin label names the authored key.
 ///
-/// `owise` lowers to the value 200 on transitions and equations alike, under
-/// the label [`SemanticRulePriority::RULE_OWISE_ORIGIN`] or
-/// [`SemanticRulePriority::EQUATION_OWISE_ORIGIN`], which the emitters read to
-/// state `owise` itself; `priority = N` lowers to N.
+/// `owise` lowers to an `owise` priority (value 200) on transitions and
+/// equations alike, which every emitter states as `owise` itself;
+/// `priority = N` lowers to a written N, never `owise`, even when N is 200.
 pub(super) fn lower_rule_priority(
     descriptor: &Descriptor,
     priority: Option<&DescriptorRulePriority>,
 ) -> Result<Option<SemanticRulePriority>, DescriptorLoweringError> {
     priority
         .map(|priority| -> Result<_, DescriptorLoweringError> {
-            let role = match priority.key.role() {
-                ProvenanceRole::RuleOwise => SemanticRulePriority::RULE_OWISE_ORIGIN,
-                ProvenanceRole::RulePriority => "rule-priority",
-                ProvenanceRole::EquationOwise => SemanticRulePriority::EQUATION_OWISE_ORIGIN,
-                _ => "equation-priority",
+            let (label, owise) = match priority.key.role() {
+                ProvenanceRole::RuleOwise => (SemanticRulePriority::RULE_OWISE_ORIGIN, true),
+                ProvenanceRole::RulePriority => ("rule-priority", false),
+                ProvenanceRole::EquationOwise => {
+                    (SemanticRulePriority::EQUATION_OWISE_ORIGIN, true)
+                }
+                _ => ("equation-priority", false),
             };
-            Ok(SemanticRulePriority::new(
-                semantic_origin(descriptor, priority.key.clone(), role)?,
-                priority.value,
-            ))
+            let origin = semantic_origin(descriptor, priority.key.clone(), label)?;
+            Ok(if owise {
+                SemanticRulePriority::owise(origin)
+            } else {
+                SemanticRulePriority::written(origin, priority.value)
+            })
         })
         .transpose()
 }

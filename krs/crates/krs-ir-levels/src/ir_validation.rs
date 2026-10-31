@@ -1301,7 +1301,10 @@ pub(crate) fn validate_rule<L: Validation>(
         )?;
     }
     if let Some(priority) = rule.priority {
-        if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition) {
+        // An `owise` priority has the one value `owise` ranks at.
+        if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition)
+            || (priority.owise && priority.value != krs_ir::DescriptorRulePriority::OWISE)
+        {
             return Err(L::error(ValidationError::InvalidRulePriority(
                 rule.id.clone(),
             )));

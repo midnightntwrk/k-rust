@@ -440,6 +440,9 @@ impl<L: IrLevel> IrClaim<L> {
 pub struct IrRulePriority {
     pub(crate) origin: NodeOrigin,
     pub(crate) value: u32,
+    /// Whether the authored key is `owise` rather than `priority = N`; always
+    /// written, so a reader never infers it from the value or the origin.
+    pub(crate) owise: bool,
 }
 
 /// Simplifier classification and optional ordering hint.
@@ -692,42 +695,55 @@ impl IrRulePriority {
     /// The Semantic IR origin label of an equation's `owise` key.
     pub const EQUATION_OWISE_ORIGIN: &'static str = "equation-owise";
 
-    /// Creates a provenance-bearing priority.
+    /// Creates a written `priority = value`.
     #[must_use]
-    pub const fn new(origin: NodeOrigin, value: u32) -> Self {
-        Self { origin, value }
+    pub const fn written(origin: NodeOrigin, value: u32) -> Self {
+        Self {
+            origin,
+            value,
+            owise: false,
+        }
+    }
+    /// Creates an authored `owise`, whose value is
+    /// [`krs_ir::DescriptorRulePriority::OWISE`].
+    #[must_use]
+    pub const fn owise(origin: NodeOrigin) -> Self {
+        Self {
+            origin,
+            value: krs_ir::DescriptorRulePriority::OWISE,
+            owise: true,
+        }
+    }
+    /// The same priority under the origin of the next IR level: the value and
+    /// whether it is `owise` carry over unchanged.
+    #[must_use]
+    pub const fn with_origin(&self, origin: NodeOrigin) -> Self {
+        Self {
+            origin,
+            value: self.value,
+            owise: self.owise,
+        }
     }
     /// Whether this is an authored `owise`, not a written `priority = N`.
     ///
     /// `owise` states that its sentence applies where no other equation of its
     /// function, or no other transition, applies. Its value is 200, which a
-    /// written `priority = 200` shares; only the Semantic IR frame of its
-    /// origin names the `owise` key
-    /// ([`Self::RULE_OWISE_ORIGIN`], [`Self::EQUATION_OWISE_ORIGIN`]); every
-    /// later level keeps that frame, so an emitter can state `owise` itself.
+    /// written `priority = 200` shares, so the IR states it as a field of its
+    /// own, set where the key is lowered and carried by every later level.
     ///
     /// In a debug build the answer is checked against the generated
     /// descriptor's frame, where the origin carries one: it names the key's
     /// role, `rule_owise` or `equation_owise` for an `owise`.
     #[must_use]
     pub fn is_owise(&self) -> bool {
-        let owise = self.origin.origin().frames().iter().any(|frame| {
-            matches!(
-                frame,
-                krs_ir::OriginFrame::Transformation {
-                    kind: krs_ir::TransformationOriginKind::SemanticIr,
-                    label: Some(label),
-                    ..
-                } if label == Self::RULE_OWISE_ORIGIN || label == Self::EQUATION_OWISE_ORIGIN
-            )
-        });
         debug_assert!(
             self.descriptor_owise()
-                .is_none_or(|descriptor| descriptor == owise),
-            "the semantic origin of priority {} says owise is {owise}, its descriptor key does not",
-            self.value
+                .is_none_or(|descriptor| descriptor == self.owise),
+            "priority {} says owise is {}, its descriptor key does not",
+            self.value,
+            self.owise
         );
-        owise
+        self.owise
     }
 
     /// Whether the generated descriptor frame of the origin names an `owise`

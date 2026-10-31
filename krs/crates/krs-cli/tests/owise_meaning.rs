@@ -358,6 +358,63 @@ fn is_not_two(k::term![IsTwo(_)]: Term<Bool>) -> Term<Bool> {
     assert_eq!(k.matches("priority(200)").count(), 2, "{k}");
     assert_eq!(k.matches("priority(210)").count(), 1, "{k}");
     assert_eq!(k.matches("owise").count(), 3, "{k}");
+
+    // The IR states `owise` as a field of every priority, never as a reading of its value or
+    // its origin, so a priority whose field is dropped fails to load rather than reading as a
+    // written 200.
+    let mut json: serde_json::Value =
+        serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();
+    let mut stated = Vec::new();
+    priority_objects(&mut json, &mut |priority| {
+        stated.push((
+            priority["value"].as_u64().unwrap(),
+            priority["owise"].clone(),
+        ));
+    });
+    stated.sort_by_key(|(value, owise)| (*value, owise.to_string()));
+    assert_eq!(
+        stated,
+        [
+            (200, serde_json::Value::Bool(false)),
+            (200, serde_json::Value::Bool(false)),
+            (200, serde_json::Value::Bool(true)),
+            (200, serde_json::Value::Bool(true)),
+            (200, serde_json::Value::Bool(true)),
+            (210, serde_json::Value::Bool(false)),
+        ]
+    );
+    let mut dropped = json.clone();
+    let mut first = true;
+    priority_objects(&mut dropped, &mut |priority| {
+        if std::mem::take(&mut first) {
+            priority.as_object_mut().unwrap().remove("owise");
+        }
+    });
+    assert!(serde_json::from_value::<SemanticTheory>(dropped).is_err());
+}
+
+/// Calls `visit` on every rule priority object of an IR JSON document: an object holding exactly
+/// `origin`, `value` and `owise`.
+fn priority_objects(value: &mut serde_json::Value, visit: &mut impl FnMut(&mut serde_json::Value)) {
+    match value {
+        serde_json::Value::Object(object) => {
+            let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+            keys.sort_unstable();
+            if keys == ["origin", "owise", "value"] {
+                visit(value);
+                return;
+            }
+            for child in object.values_mut() {
+                priority_objects(child, visit);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                priority_objects(child, visit);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// `krs check` of the package: its `error[..]` headlines with the locations they point at and
