@@ -542,10 +542,10 @@ fn a_bytes_token_is_written_in_one_spelling() {
     );
     let (_, seen) = emitted_and_run_with(BYTES, "", &["mk(0)"], "seen");
     expect_test::expect![[r#"
-        rule bz ( b"a\"\\\n\f'\x00\xff" ) => red [label(krsRule_DIGEST)]
+        rule bz ( b"a\x22\\\n\f'\x00\xff" ) => red [label(krsRule_DIGEST)]
         mk(0) => red ~> .K
         mk(1) => one(red) ~> .K
-        bz(b"a\"\\\n\f'\x00\xff") => red ~> .K
+        bz(b"a\x22\\\n\f'\x00\xff") => red ~> .K
         mk(0) => red"#]]
     .assert_eq(&[rules(&k, &["bz"]), printed.join("\n"), seen.join("\n")].join("\n"));
 }
