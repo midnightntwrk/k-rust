@@ -183,12 +183,12 @@ fn initializers_hold_builtin_literals_and_lexemes() {
     // distinct ordinals in source order: transport checks every key.
     expect_test::expect![[r#"
         <k> $PGM:Stmt </k>
-        <mem> #token("b\"\x7f\x45\x4c\x46\"","Bytes") </mem>
+        <mem> #token("b\"\x7fELF\"","Bytes") </mem>
         <who> #token("$main","Id") </who>
         <label> #token("entry","Label") </label>
         <labels> ListItem(#token("exit","Label")) </labels>
         <env> #token("$x","Id") |-> #token("b\"\x00\xff\"","Bytes") #token("$y","Id") |-> 1 </env>
-        <stack> ListItem(#token("b\"\"","Bytes")) ListItem(#token("b\"\x61\x62\"","Bytes")) </stack>"#]]
+        <stack> ListItem(#token("b\"\"","Bytes")) ListItem(#token("b\"ab\"","Bytes")) </stack>"#]]
     .assert_eq(&configuration(&definition));
 
     // The rule's literal patterns match the initializer's literals.

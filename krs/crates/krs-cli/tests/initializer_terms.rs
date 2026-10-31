@@ -472,8 +472,8 @@ fn sibling_cells_each_start_with_their_own_structure() {
         <slot> 1 ~> 2 </slot>
         <env> $N:Id |-> 1 </env>
         <env2> $N:Id |-> 2 </env2>
-        <mem> b"\x61" </mem>
-        <mem2> b"\x62" </mem2>
+        <mem> b"a" </mem>
+        <mem2> b"b" </mem2>
         <stack> ListItem(wrap ( 1 )) </stack>
         <stack2> ListItem(wrap ( 2 )) </stack2>
         <frame>
