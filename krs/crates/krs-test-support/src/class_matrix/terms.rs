@@ -1658,7 +1658,9 @@ impl Slot {
         }
     }
 
-    /// The slot, whose cases are rules over the whole subject, each rendered alone.
+    /// The slot, each of whose cases is rendered alone: a rule over the whole subject, which can
+    /// match another case's command, or a sentence that changes what another case's sentences
+    /// denote.
     fn alone(self) -> Self {
         Self {
             own_package: true,
@@ -2284,7 +2286,11 @@ fn slots() -> Vec<Slot> {
         )
         .arity(0),
         // A key the equation's function context looks up (finding M1 of NT-18's review): its
-        // guards are the equation's condition, as a rule's are.
+        // guards are the equation's condition, as a rule's are. The function context makes
+        // `Probe` a function of the configuration too, so every application of `Probe` in the
+        // case's definition holds the configuration it is evaluated in: a case sharing its package
+        // would see the `Probe` its run leaves unevaluated carry a configuration its plan does
+        // not state. Each case is rendered alone.
         slot(
             "equation",
             "context-map-key",
@@ -2301,6 +2307,7 @@ fn slots() -> Vec<Slot> {
             ),
         )
         .arity(0)
+        .alone()
         .holding(Holds::Only(LOOKED_UP_KEYS)),
         // A table row names its function in the table's header, so its subject has no root of
         // its own; its result is the function's sort, `Int`, whose root the shorthand's covers.

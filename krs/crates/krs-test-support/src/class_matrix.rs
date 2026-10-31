@@ -70,7 +70,10 @@
 //! there to tell it from the other cases. A case whose construct is a rule's whole subject, or
 //! the computation item before its command, keeps its command but is rendered alone
 //! ([`Packaging::Alone`]): its construct can match what another case's subject matches (`_`,
-//! `x`), which the overlap check refuses when the two are printed together.
+//! `x`), which the overlap check refuses when the two are printed together. So is a case whose
+//! sentence changes what the base's sentences denote, as an equation's function context makes
+//! its function one of the configuration too, which every other case's application of it would
+//! then carry.
 //!
 //! **Count.** [`cases`] asserts at most [`FRONT_CASE_CAP`] cases, whose documentation argues the
 //! budget: the fast tier runs every case in-process, and the cap, not a timed assertion, keeps it
@@ -491,7 +494,9 @@ pub enum Packaging {
     /// A case with its own command constructor, rendered alone on its base: its construct is a
     /// rule's whole subject, or the computation item before its command, so a construct that
     /// matches what another case's subject matches (`_`, `x`) makes the two rules' heads overlap,
-    /// which the overlap check refuses when they are printed together.
+    /// which the overlap check refuses when they are printed together; or its sentence changes
+    /// what the base's sentences denote (an equation's function context makes its function one
+    /// of the configuration too, in every case printed with it).
     Alone(Command),
 }
 
