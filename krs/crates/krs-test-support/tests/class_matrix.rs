@@ -94,9 +94,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × (13 subject + 13 result spellings).
             (Family::Cells, 182),
             // 7 kinds × 18 values, the computation cell's remainder, 3 field orders and the
-            // nested group's, the optional cell declared `initial` written present, and 8 typed
-            // cells × 4 contents.
-            (Family::Init, 126 + 1 + 3 + 1 + 1 + 32),
+            // nested group's, the optional cell declared `initial` written present, the 4 main-cell
+            // shapes, 8 typed cells × 4 contents, and the typed `stmt` written after it starts.
+            (Family::Init, 126 + 1 + 3 + 1 + 1 + 4 + 32 + 1),
             // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings
@@ -253,7 +253,10 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
             .iter()
             .filter(|case| case.base == base && matches!(case.packaging, Packaging::Shared(_)))
             .collect::<Vec<&Case>>();
-        if matches!(base, Base::Nested | Base::Initial) {
+        if matches!(
+            base,
+            Base::Nested | Base::Initial | Base::MainCell | Base::MainK
+        ) {
             // Its only case is an initializer, rendered alone.
             assert!(shared.is_empty(), "{base:?} has no shared case");
             continue;

@@ -340,6 +340,11 @@ code = "krs::analysis::invalid-list-notation"
 doc = "list brackets at a position whose sort is no list (a `KItem` hole), so they name no list"
 advice = "none"
 
+[class.main-cell-not-k]
+code = "krs::analysis::main-cell"
+doc = "a cell named `k` that is not the configuration's main cell (the `KSequence` cell that holds the program): K takes the cell named `k` as the computation cell by its name, so the definition would run its cell-free sentences in another cell than its initializer states"
+advice = "init/main-k/k/k::k![pgm]"
+
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"
 doc = "map notation (`{ k -> v, .. }`, `k::map![..]`) on a cell that is no Map"
@@ -911,6 +916,12 @@ at = "entry"
 match = '{claim,readable}/subject/{job,k}/[..]'
 class = "no-effect-entry"
 at = "entry"
+
+# main-cell-not-k
+[[refuse]]
+match = 'init/main-k/code/k::k![pgm]'
+class = "main-cell-not-k"
+at = "item"
 
 # none-in-initializer
 [[refuse]]
@@ -2617,6 +2628,33 @@ configuration
 
 [accept."init/k/[pgm]"]
 
+[accept."init/main/code/k::k![pgm]"]
+k = """
+configuration
+<prog> .K </prog>
+<frame>
+<code maincell=""> $PGM:Stmt </code>
+</frame>
+"""
+
+[accept."init/main/prog/k::k![pgm]"]
+k = """
+configuration
+<prog maincell=""> $PGM:Stmt </prog>
+<frame>
+<code> .K </code>
+</frame>
+"""
+
+[accept."init/main-k/k/k::k![pgm]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<frame>
+<code> .K </code>
+</frame>
+"""
+
 [accept."init/k/k::k![pgm]"]
 k = """
 configuration
@@ -3074,6 +3112,26 @@ configuration
 <k> $PGM:Stmt </k>
 <leaf> unit </leaf>
 <stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
+
+[accept."init/typed/stmt-written/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> ( unit ):Stmt </stmt>
 <any> $ANY:KItem </any>
 <list> .List </list>
 <map> .Map </map>

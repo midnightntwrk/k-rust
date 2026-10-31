@@ -223,11 +223,18 @@ pub enum Base {
     /// again ([`Family::ReadableRun`], [`Family::CellsRun`]), so that K7 runs them while the machine
     /// base's cases, and the K they record, stay as they are.
     Run,
+    /// A computation cell `prog`, not named `k`, and a second one, `code`, in a group, with a
+    /// cell-free sentence that K runs in the main cell: its cases are initializers that place the
+    /// program in one or the other.
+    MainCell,
+    /// The main-cell base with its top-level computation cell named `k`, which K takes as the
+    /// computation cell by its name: its cases place the program in `k` or in `code` beside it.
+    MainK,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
@@ -235,6 +242,8 @@ impl Base {
         Self::Nested,
         Self::Initial,
         Self::Run,
+        Self::MainCell,
+        Self::MainK,
     ];
 
     /// The base's own source, with no case: its default initializer and no command.
@@ -252,6 +261,8 @@ impl Base {
             Self::Nested => machine::nested_base(),
             Self::Initial => machine::initial_base(),
             Self::Run => machine::run_base(),
+            Self::MainCell => machine::main_base(),
+            Self::MainK => machine::main_k_base(),
         }
     }
 }
@@ -757,6 +768,16 @@ pub fn run_counterless(case: &Case) -> Option<&'static str> {
         _ => return None,
     };
     plans.counters.err()
+}
+
+/// Why an initializer case's run reads nothing of its spelling (K7 checks the configuration's
+/// other cells, and that the run starts), `None` for a case whose run reads it or of another
+/// family: a collection's template, of the machine base's `job` or the typed base's `slot`.
+#[must_use]
+pub fn initializer_unread(case: &Case) -> Option<&'static str> {
+    (case.family == Family::Init
+        && (case.kind == Some(CellKind::Collection) || case.id.starts_with("init/typed/slot/")))
+    .then_some(machine::TEMPLATE_UNREAD)
 }
 
 /// The collections a run family's subject case reads (`Obj { key: 1, m: map![1 -> 2] }` reads the

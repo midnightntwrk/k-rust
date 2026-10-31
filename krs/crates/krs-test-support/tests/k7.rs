@@ -146,6 +146,38 @@ fn every_cases_k7_status_is_counted() {
     assert_eq!(listed, STATUSES, "{listed:#?}");
 }
 
+/// The initializer cases whose run reads nothing of their spelling, by reason: their plans are
+/// liveness only (the run starts, and the configuration's other cells hold the base's values).
+#[test]
+fn every_initializer_case_that_reads_nothing_of_its_spelling_says_why() {
+    let cases = class_matrix::cases();
+    let mut unread = BTreeMap::<&str, Vec<&str>>::new();
+    for case in &cases {
+        let Some(reason) = class_matrix::initializer_unread(case) else {
+            continue;
+        };
+        assert!(
+            matches!(&case.k7, K7::Run(run) if run.status == Status::Liveness),
+            "{}: {:?}",
+            case.id,
+            case.k7
+        );
+        unread
+            .entry(reason)
+            .or_default()
+            .push(case.id.strip_prefix("init/").expect("an initializer case"));
+    }
+    let listed = unread
+        .iter()
+        .map(|(reason, cases)| format!("{reason}: {}", cases.join(" | ")))
+        .collect::<Vec<_>>();
+    assert_eq!(listed, UNREAD, "{listed:#?}");
+}
+
+const UNREAD: &[&str] = &[
+    "a collection's initializer writes one instance's template, and the collection starts with no instance: no driver command of the machine or the typed base creates one, so no run reads the template: job/0 | job/Frame { ret: 0 } | job/Job { payload: 0 } | job/None | job/Some(0) | job/[0] | job/[] | job/[pgm] | job/k::builtin::map::empty() | job/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2) | job/k::k![0] | job/k::k![] | job/k::k![pgm] | job/k::map![0 -> 1] | job/k::map![] | job/k::map![pgm -> 1, 0 -> 2] | job/list::empty() | job/pgm | typed/slot/1 | typed/slot/Cmd::Go() | typed/slot/Val::Unit() | typed/slot/any",
+];
+
 const STATUSES: &[&str] = &[
     "818 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
     "178 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
@@ -161,6 +193,7 @@ const STATUSES: &[&str] = &[
     "107 no value: a matching-logic predicate, which only a prover reads",
     "170 no value: a pattern, which names or tests a term and builds none",
     "34 no value: an anonymous variable, which names no value",
+    "17 no value: refused at K2, so no definition is emitted to run",
     "5 no value: the condition's stated value, \"s\", is no Bool",
     "5 no value: the condition's stated value, $x, is no Bool",
     "5 no value: the condition's stated value, -1, is no Bool",
@@ -200,8 +233,8 @@ const STATUSES: &[&str] = &[
     "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "6 no witness: the program would hold a value the generator does not state",
     "1144 runs a counter-witness",
-    "1632 runs, liveness",
-    "2502 runs, value",
+    "1639 runs, liveness",
+    "2483 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern

@@ -10,7 +10,7 @@
 use std::sync::LazyLock;
 
 use super::config_drivers;
-use super::k7::{Ground, K7, Run, Status};
+use super::k7::{Ground, K7, Run, SkipKind, Status};
 use super::{
     Base, BaseText, Case, CaseSpec, CellKind, Command, Family, ItemBuilder, OwnReason, Packaging,
     Side,
@@ -193,6 +193,180 @@ pub(super) fn nested_base() -> BaseText {
         after_commands: NESTED_AFTER_COMMANDS.as_str(),
         initializer: NESTED_INITIALIZER.as_str(),
         after_initializer: "",
+    }
+}
+
+/// The main-cell bases: a computation cell `prog`, not named `k`, and a second one, `code`, in
+/// the group `frame`, with the cell-free sentence `step` (a `#[k::rule]` fn, `go => done`),
+/// which K runs in the configuration's main cell (`k_surface::main_cell`): the `KSequence` cell
+/// that holds the program. Its cases are initializers that place the program in one cell or the
+/// other, and the run shows which cell is the main cell.
+const MAIN_BEFORE_COMMANDS: &str = r#"use k::builtin::{Int, KSequence};
+use k::{KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("go")] Go(),
+    #[k::syntax("done")] Done(),
+"#;
+
+const MAIN_AFTER_COMMANDS: &str = r"}
+
+/// A cell-free sentence, which K runs in the main cell.
+#[k::rule]
+fn step(k::term![Cmd::Go()]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Done()
+}
+
+/// A group whose one child is a second computation cell.
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub code: KSequence,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub prog: KSequence,
+    #[k::cell(nested)]
+    pub frame: Frame,
+}
+
+";
+
+/// The main-cell base's top-level computation cell, and the `k` base's, named `k`.
+const MAIN_TOP: &str = "pub prog: KSequence";
+const MAIN_K_TOP: &str = "pub k: KSequence";
+
+/// The main-cell base with its top-level computation cell named `k`, which K takes as the main
+/// cell by its name.
+static MAIN_K_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
+    assert!(
+        MAIN_AFTER_COMMANDS.contains(MAIN_TOP),
+        "the main-cell base declares its top-level computation cell"
+    );
+    MAIN_AFTER_COMMANDS.replacen(MAIN_TOP, MAIN_K_TOP, 1)
+});
+
+/// The main-cell base's initializer, field by field: the program in the top-level cell.
+const MAIN_FIELDS: [(&str, &str); 2] =
+    [("prog", "k::k![pgm]"), ("frame", "Frame { code: k::k![] }")];
+const MAIN_K_FIELDS: [(&str, &str); 2] =
+    [("k", "k::k![pgm]"), ("frame", "Frame { code: k::k![] }")];
+
+static MAIN_INITIALIZER: LazyLock<String> =
+    LazyLock::new(|| base_initializer(MACHINE_HEADER, &MAIN_FIELDS));
+static MAIN_K_INITIALIZER: LazyLock<String> =
+    LazyLock::new(|| base_initializer(MACHINE_HEADER, &MAIN_K_FIELDS));
+
+pub(super) fn main_base() -> BaseText {
+    BaseText {
+        before_commands: MAIN_BEFORE_COMMANDS,
+        after_commands: MAIN_AFTER_COMMANDS,
+        initializer: MAIN_INITIALIZER.as_str(),
+        after_initializer: "",
+    }
+}
+
+pub(super) fn main_k_base() -> BaseText {
+    BaseText {
+        before_commands: MAIN_BEFORE_COMMANDS,
+        after_commands: MAIN_K_AFTER_COMMANDS.as_str(),
+        initializer: MAIN_K_INITIALIZER.as_str(),
+        after_initializer: "",
+    }
+}
+
+/// Why K7 does not run a case the table refuses at K2: no definition is emitted, so nothing runs.
+pub(super) const REFUSED_AT_K2: &str = "refused at K2, so no definition is emitted to run";
+
+/// The main-cell shapes: the program in the top-level computation cell `prog` (not named `k`),
+/// in the computation cell `code` inside the group `frame`, and on the `k` base in `k` and in
+/// `code`, beside `k`. Each case's run takes one step, the cell-free `go => done`, which applies
+/// in the main cell, the cell that holds the program; `code` beside `k` is refused
+/// (`main-cell`), since K would take `k` as the computation cell by its name.
+fn main_cells(cases: &mut Vec<Case>) {
+    for (base, top, in_code, refused) in [
+        (Base::MainCell, "prog", false, false),
+        (Base::MainCell, "prog", true, false),
+        (Base::MainK, "k", false, false),
+        (Base::MainK, "k", true, true),
+    ] {
+        let main = if in_code { "code" } else { top };
+        let spec = CaseSpec {
+            family: Family::Init,
+            base,
+            side: Side::Initializer,
+            kind: None,
+            slot: vec![
+                if base == Base::MainK {
+                    "main-k"
+                } else {
+                    "main"
+                }
+                .to_owned(),
+                main.to_owned(),
+            ],
+            construct: "k::k![pgm]".to_owned(),
+        };
+        let mut item = ItemBuilder::new();
+        let fields = if base == Base::MainK {
+            &MAIN_K_FIELDS
+        } else {
+            &MAIN_FIELDS
+        };
+        initializer(
+            &mut item,
+            MACHINE_HEADER,
+            fields,
+            |item, cell, value| match (cell == top, in_code) {
+                (true, false) => {
+                    item.entry(cell, "k::k![pgm]");
+                }
+                (true, true) => {
+                    item.push(cell).push(": k::k![]");
+                }
+                (false, false) => {
+                    item.push(cell).push(": ").push(value);
+                }
+                (false, true) => {
+                    item.push("frame: Frame { ")
+                        .entry("code", "k::k![pgm]")
+                        .push(" }");
+                }
+            },
+        );
+        let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+        let done = || Ground::Seq(vec![Ground::ctor("Cmd::Done", Vec::new())]);
+        let (top_value, code_value) = if in_code {
+            (Ground::Seq(Vec::new()), done())
+        } else {
+            (done(), Ground::Seq(Vec::new()))
+        };
+        case.k7 = if refused {
+            K7::skip(SkipKind::Value, REFUSED_AT_K2)
+        } else {
+            K7::Run(Run {
+                program: "go".to_owned(),
+                variables: Vec::new(),
+                depth: 1,
+                steps: 1,
+                cells: vec![
+                    (top.to_owned(), top_value),
+                    ("frame.code".to_owned(), code_value),
+                ],
+                status: Status::Value,
+            })
+        };
+        cases.push(case);
     }
 }
 
@@ -633,6 +807,7 @@ pub(super) fn initializers(cases: &mut Vec<Case>) {
     }
     cases.push(cell_value(CellKind::KSequence, COMPUTATION_REMAINDER));
     field_order(cases);
+    main_cells(cases);
 }
 
 /// The machine's initializer with `value` as the value of `kind`'s cell.
@@ -661,8 +836,28 @@ fn cell_value(kind: CellKind, value: &str) -> Case {
         },
     );
     let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
-    case.k7 = machine_start(&[(machine_cell(kind), machine_value(kind, value))], &[]);
+    case.k7 = if kind == CellKind::Optional && !matches!(value, "Some(0)" | "None") {
+        // An optional cell's value is `Some(..)` or `None`; the table refuses any other.
+        K7::skip(SkipKind::Value, REFUSED_AT_K2)
+    } else {
+        machine_start(&[(machine_cell(kind), machine_value(kind, value))], &[])
+    };
+    if kind == CellKind::Collection {
+        unread_template(&mut case.k7);
+    }
     case
+}
+
+/// Why an initializer case's run reads nothing of its spelling, for each case K7 runs as
+/// liveness only for that reason ([`super::initializer_unread`]).
+pub(super) const TEMPLATE_UNREAD: &str = "a collection's initializer writes one instance's template, and the collection starts with no instance: no driver command of the machine or the typed base creates one, so no run reads the template";
+
+/// A collection case's plan reads the configuration's other cells and nothing of the case's
+/// spelling, the template of an instance the run never creates ([`TEMPLATE_UNREAD`]).
+fn unread_template(plan: &mut K7) {
+    if let K7::Run(run) = plan {
+        run.status = Status::Liveness;
+    }
 }
 
 /// The program every initializer case starts with, `go`, which `pgm` is.
@@ -687,9 +882,10 @@ fn machine_cells() -> Vec<(&'static str, Ground)> {
 }
 
 /// What `value` gives the cell of `kind` when the run starts with the program `go`, or `None`
-/// where the generator states nothing: a value of another kind's notation (refused), the absent
-/// optional cell (no value to read), and a collection's instance template (the collection starts
-/// empty).
+/// where the generator states nothing: a value of another kind's notation (refused) and a
+/// collection's instance template (the collection starts empty). An optional cell written
+/// `Some(v)` starts present with `v` and one written `None` starts absent (decision NT-12-6); any
+/// other spelling of it is refused, and [`cell_value`] runs none.
 fn machine_value(kind: CellKind, value: &str) -> Option<Ground> {
     let items = |items: Vec<Ground>| match kind {
         CellKind::KSequence => Some(Ground::Seq(items)),
@@ -707,8 +903,10 @@ fn machine_value(kind: CellKind, value: &str) -> Option<Ground> {
         }
         (CellKind::KSequence, "k::k![Cmd::Go(), ..pgm]") => items(vec![go(), go()]),
         (CellKind::List, "list::empty()") => items(Vec::new()),
-        (CellKind::Leaf | CellKind::Optional, "0" | "Some(0)")
+        (CellKind::Leaf, "0")
+        | (CellKind::Optional, "Some(0)")
         | (CellKind::Group, "Frame { ret: 0 }") => Some(Ground::Int(0)),
+        (CellKind::Optional, "None") => Some(Ground::Absent),
         (CellKind::Map, "k::map![]" | "k::builtin::map::empty()") => Some(Ground::map(Vec::new())),
         (CellKind::Map, "k::map![0 -> 1]") => {
             Some(Ground::map(vec![(Ground::Int(0), Ground::Int(1))]))
@@ -932,6 +1130,7 @@ pub enum Val {
 #[rustfmt::skip]
 pub enum Cmd {
     #[k::syntax("go")] Go(),
+    #[k::syntax("setstmt")] SetStmt(),
 "#;
 
 const TYPED_AFTER_COMMANDS: &str = r#"}
@@ -979,10 +1178,20 @@ pub struct Machine {
     pub slots: Slots,
 }
 
+// K7's one driver command on the typed base: it writes a `Stmt` into `stmt`, whose declared sort
+// is `Stmt` whatever its initial value's sort (`Val::Unit()`, a `Value`).
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    set_stmt: { k: [SetStmt(), ..], stmt: _ } => { k: [..], stmt: Go() };
+}
+
 "#;
 
-/// The typed initializer, field by field. A leaf's initial value has exactly the cell's sort,
-/// so the `KItem` leaf starts from a configuration variable of that type.
+/// The typed initializer, field by field: each leaf starts from a value of the cell's own sort
+/// (the cases write a strict subsort's, decision NT-16), and the `KItem` leaf from a
+/// configuration variable of that type, since no constructor has the sort `KItem`.
 const TYPED_FIELDS: [(&str, &str); 9] = [
     ("k", "k::k![pgm]"),
     ("leaf", "Val::Unit()"),
@@ -1121,6 +1330,28 @@ pub(super) fn typed(cases: &mut Vec<Case>) {
             cases.push(typed_initializer(slot.cell, content));
         }
     }
+    cases.push(typed_written());
+}
+
+/// The typed initializer whose `stmt` starts as `Val::Unit()`, a `Value`, run on `setstmt`,
+/// which writes `Cmd::Go()`, a `Stmt` and no `Value`: the cell's sort is its declared `Stmt`,
+/// not its initial value's, so the run writes it (decision NT-7-2: K reads a leaf cell's sort
+/// from its initial value, and KRS states the declared sort where the value's is narrower).
+fn typed_written() -> Case {
+    let mut case = typed_initializer_named("stmt-written", "stmt", "Val::Unit()");
+    if let K7::Run(run) = &mut case.k7 {
+        "setstmt".clone_into(&mut run.program);
+        run.depth = 1;
+        run.steps = 1;
+        for (cell, value) in &mut run.cells {
+            match cell.as_str() {
+                "k" => *value = Ground::Seq(Vec::new()),
+                "stmt" => *value = go(),
+                _ => {}
+            }
+        }
+    }
+    case
 }
 
 fn typed_record(family: Family, slot: &TypedSlot, side: Side, content: &str) -> Case {
@@ -1182,12 +1413,17 @@ const TYPED_INITIAL_CONTENTS: [&str; 4] = ["1", "Val::Unit()", "Cmd::Go()", "any
 /// instance template where the cell has one. The collection `slot` is written in its parent
 /// `slots`.
 fn typed_initializer(cell: &str, content: &str) -> Case {
+    typed_initializer_named(cell, cell, content)
+}
+
+/// [`typed_initializer`] under the slot name `slot`.
+fn typed_initializer_named(slot: &str, cell: &str, content: &str) -> Case {
     let spec = CaseSpec {
         family: Family::Init,
         base: Base::Typed,
         side: Side::Initializer,
         kind: None,
-        slot: vec!["typed".to_owned(), cell.to_owned()],
+        slot: vec!["typed".to_owned(), slot.to_owned()],
         construct: content.to_owned(),
     };
     let field_of_cell = if cell == "slot" { "slots" } else { cell };
@@ -1261,7 +1497,11 @@ fn typed_start(cell: &str, content: &str) -> K7 {
     let changed = match cell {
         "list" => Some(Ground::List(vec![value])),
         "map" => Some(Ground::map(vec![(Ground::Int(0), value)])),
-        "slot" => return start_with(cells, &[], &[("ANY", "1")]),
+        "slot" => {
+            let mut plan = start_with(cells, &[], &[("ANY", "1")]);
+            unread_template(&mut plan);
+            return plan;
+        }
         _ => Some(value),
     };
     start_with(cells, &[(cell, changed)], &[("ANY", "1")])

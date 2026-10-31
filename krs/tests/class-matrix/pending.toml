@@ -6393,6 +6393,10 @@ deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = 1, any 
 finding = "NT-12-6"
 deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
 
+["k7/init/typed/stmt-written/Val::Unit()"]
+finding = "NT-12-6"
+deviation = "another value: k = k[], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[], leaf = Val::Unit(), stmt = Cmd::Go(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
+
 ["k7/init/typed/stmt/Val::Unit()"]
 finding = "NT-12-6"
 deviation = "another value: k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Val::Unit(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = absent, slots.slot[item] = [], where the plan states k = k[Cmd::Go()], leaf = Val::Unit(), stmt = Val::Unit(), any = 1, list = [], map = map{}, boxed.inner = Val::Unit(), opt = Val::Unit(), slots.slot[item] = []"
