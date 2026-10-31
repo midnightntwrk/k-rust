@@ -26,6 +26,7 @@ use std::cell::Cell;
 
 use super::super::Command;
 use super::super::k7::{Ground, K7, Meaning, Run, SkipKind, Status};
+use super::super::positions::Construct;
 use super::{Side, Slot, Spelling, go, hold, int, pair};
 
 /// The term a driver puts at its hole, and what it checks of it.
@@ -189,6 +190,7 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             steps: 0,
             cells: vec![("k".to_owned(), Ground::Seq(vec![hold(int(1))]))],
             status: Status::Liveness,
+            forward_only: base_forward_only(),
         });
     }
     for other in neighbour_values(witness) {
@@ -553,6 +555,7 @@ impl Driver<'_> {
                 .map(|(cell, term)| (cell.to_owned(), term))
                 .collect(),
             status,
+            forward_only: base_forward_only(),
         }))
     }
 
@@ -1085,27 +1088,27 @@ impl Driver<'_> {
             }
             ("alias", "result-root") => {
                 let value = self.value()?;
-                Self::expanded(
+                self.forward_only_if_computed(Self::expanded(
                     &self.command(vec![one()]),
                     vec![k(vec![value.term])],
                     value.status,
-                )
+                ))
             }
             ("alias", "result-root-ground") => {
                 let value = self.value()?;
-                Self::expanded(
+                self.forward_only_if_computed(Self::expanded(
                     &self.command(Vec::new()),
                     vec![k(vec![value.term])],
                     value.status,
-                )
+                ))
             }
             ("alias", "result") => {
                 let value = self.value()?;
-                Self::expanded(
+                self.forward_only_if_computed(Self::expanded(
                     &self.command(vec![one()]),
                     vec![k(vec![pair(one(), value.term)])],
                     value.status,
-                )
+                ))
             }
             // The initial configuration, before any step: the program `go`, then the item.
             ("init", "item" | "item-root" | "item-depth-2" | "variable-item") => {
@@ -1137,6 +1140,66 @@ impl Driver<'_> {
     /// its initializer as the configuration is built.
     fn expanded(program: &Ground, cells: Vec<(&str, Ground)>, status: Status) -> Result<K7, K7> {
         Self::applied(program, 0, cells, status)
+    }
+
+    /// `plan`, with the case's own command among the aliases no print writes where the case's
+    /// spelling, which stands in its alias clause's result, computes.
+    fn forward_only_if_computed(&self, mut plan: Result<K7, K7>) -> Result<K7, K7> {
+        if let Ok(K7::Run(run)) = &mut plan
+            && self
+                .spelling
+                .nodes
+                .iter()
+                .any(|node| computes(node.construct))
+        {
+            run.forward_only.push(self.command.name.clone());
+        }
+        plan
+    }
+}
+
+/// The base's aliases whose clauses' written results compute: `an => hold(1 - 1)`.
+fn base_forward_only() -> Vec<String> {
+    vec!["An".to_owned()]
+}
+
+/// Whether `construct`, where a term is built, computes it rather than writing it: an
+/// application of a function or a builtin operation, a notation form that applies an operation,
+/// a set's concatenation (the union of its parts), `let`, `k::matches!`, `k::or_bool!`, a sort
+/// test or a record update. A name, a constructor's application, a literal, a token, list brackets and a
+/// collection's unit or singleton write the term they denote.
+const fn computes(construct: Construct) -> bool {
+    match construct {
+        Construct::FunctionApplication
+        | Construct::BuiltinApplication
+        | Construct::Concatenation
+        | Construct::Let
+        | Construct::Matches
+        | Construct::SortTest
+        | Construct::OrBool
+        | Construct::RecordUpdate => true,
+        Construct::Notation(notation) => notation.applies_operation(),
+        Construct::Reference
+        | Construct::Fresh
+        | Construct::Constructor
+        | Construct::StaticApplication
+        | Construct::OpenStaticApplication
+        | Construct::Turbofish
+        | Construct::Literal
+        | Construct::CollectionValue
+        | Construct::Wildcard
+        | Construct::As
+        | Construct::Or
+        | Construct::MlPredicate
+        | Construct::Rewrite
+        | Construct::Anonymous
+        | Construct::Fragment
+        | Construct::OpenRecord
+        | Construct::ListBrackets
+        | Construct::Rest
+        | Construct::IdToken
+        | Construct::BytesToken
+        | Construct::Lexeme => false,
     }
 }
 

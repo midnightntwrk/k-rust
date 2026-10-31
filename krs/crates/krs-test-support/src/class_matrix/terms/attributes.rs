@@ -421,6 +421,7 @@ fn run(program: &Ground, steps: u64, items: Vec<Ground>, status: Status) -> Run 
         steps,
         cells: vec![("k".to_owned(), Ground::Seq(items))],
         status,
+        forward_only: Vec::new(),
     }
 }
 

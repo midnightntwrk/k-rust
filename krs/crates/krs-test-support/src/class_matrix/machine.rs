@@ -364,6 +364,7 @@ fn main_cells(cases: &mut Vec<Case>) {
                     ("frame.code".to_owned(), code_value),
                 ],
                 status: Status::Value,
+                forward_only: Vec::new(),
             })
         };
         cases.push(case);
@@ -972,6 +973,7 @@ fn start_with(
         steps: 0,
         cells: read,
         status,
+        forward_only: Vec::new(),
     })
 }
 

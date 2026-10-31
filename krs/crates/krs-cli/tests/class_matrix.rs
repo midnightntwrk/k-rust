@@ -1425,6 +1425,7 @@ fn k7_bounds_a_program_whose_expansion_or_run_does_not_end() {
             steps: 0,
             cells: Vec::new(),
             status: Status::Liveness,
+            forward_only: Vec::new(),
         };
         let ran = Mutex::new(None);
         let visit = |semantics: &mut krs_exec::Semantics| {

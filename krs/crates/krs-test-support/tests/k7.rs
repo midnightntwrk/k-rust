@@ -281,7 +281,7 @@ const COUNTERLESS: &[&str] = &[
 /// and no spelling writes them.
 #[test]
 fn every_static_production_of_the_terms_base_has_a_spelling() {
-    const PRINTING: &[&str] = &["Ah", "Am", "Av", "Ac", "Bp", "Bq", "Ak"];
+    const PRINTING: &[&str] = &["Ah", "Am", "Av", "Ac", "Bp", "Bq", "Ak", "An"];
     let base = Base::Terms.preamble();
     let cases = class_matrix::cases();
     // The variants of `Cmd` whose attributes mark them, read from the parsed base, so that a
@@ -324,6 +324,7 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
             ("#[k::alias]", "Bp".to_owned()),
             ("#[k::alias]", "Bq".to_owned()),
             ("#[k::alias]", "Ak".to_owned()),
+            ("#[k::alias]", "An".to_owned()),
             ("#[k::desugar]", "Dn".to_owned()),
             ("#[k::desugar]", "Rc".to_owned()),
             ("#[k::desugar]", "Tw".to_owned()),

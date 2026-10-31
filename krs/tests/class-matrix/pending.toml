@@ -7444,38 +7444,20 @@ deviation = "advice of anonymous-rest-in-map-literal: refused: krs::syntax::rust
 finding = "NT-19-2"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-# NT-23-1 (K7, the printed state): an alias whose result applies a function on ground arguments
-# reaches `macros.kore` with that application folded (`cTAG => 1 +Int 2` as `cTAG = 3`, k-rust's
-# constant folding runs on the alias's rule before the axiom is written), so printing reverses the
-# evaluated value: `3` prints `cTAG`, and `pair(1, 3)` prints `cTAG(1)`. The printed alias denotes
-# the value, but its expansion is the unevaluated application, and the reference says a value whose
-# applications are evaluated prints expanded. The printer sees only the folded axiom; an emission
-# question (fold an alias's macro axiom or not), outside NT-23.
 
-["k7/terms/alias/result-root-ground/k::builtin::int::add(1, 2)"]
-finding = "NT-23-1"
-deviation = "<k> head printed `c06de1b0f`, which reads back as 'UndsPlus'Int'Unds'(1, 2), where the state holds 3"
-
-["k7/terms/alias/result/k::builtin::int::add(1, 2)"]
-finding = "NT-23-1"
-deviation = "<k> head printed `c74e836cc(ak)`, which reads back as Cmd::Pair(1, 'UndsPlus'Int'Unds'(1, 2)), where the state holds Cmd::Pair(1, 3)"
-
-# NT-23-3 (K7, the printed state): an alias whose subject holds a token the grammar reads back as
-# another token or not at all prints a term that does not read back: `word`, a `Word`, at a `KItem`
-# position reads back as an `Id` (so the subject does not match), and the `Id` `$x` does not lex.
-# Printing writes a token's text only; whether to print the token's sort where its text is
-# ambiguous, or to refuse such a subject in an alias, is undecided (printer and oracle).
-
-["k7/terms/alias/subject-written/k::id!(\"$x\")"]
-finding = "NT-23-3"
-deviation = "<k> head printed `cab1ac25b(ak, $x)`, which does not read back: the printed <k> head does not parse at sort KItem: could not parse <k> head: could not parse program as KItem with module \"ORG-KRS-CLASS\": Scanner error: unexpected character sequence '$'."
+# NT-24-1 (K7, the printed state): K7 reads the printed `<k>` head back with the main module's
+# grammar, which reads `word` as an `Id` wherever it stands (and as `#LowerId` at a `Word`
+# position: the scanner picks one token whatever the parse expects); the program grammar, which
+# `krs run` reads a program with, has no `Id` here and reads `word` as the `Word` it is, so the
+# printer reverses the clause (NT-24: a clause whose subject token a program does not read back is
+# not reversed). The print reads back as a program; the check's grammar is the question.
 
 ["k7/terms/alias/subject-written/k::lexeme!(Word, \"word\")"]
-finding = "NT-23-3"
+finding = "NT-24-1"
 deviation = "<k> head printed `cade81b66(ak, word)`, which reads back as cmdCade81b66(1, word), where the state holds Cmd::Hold(1)"
 
 ["k7/terms/alias/subject/k::lexeme!(Word, \"word\")"]
-finding = "NT-23-3"
+finding = "NT-24-1"
 deviation = "<k> head printed `cced49ed0(ak, word)`, which reads back as cmdCced49ed0(1, word), where the state holds Cmd::Hold(1)"
 
 # NT-16 review S4: the update of a computed record that `record-update-base` now advises, a `let`

@@ -423,6 +423,11 @@ pub struct Run {
     pub cells: Vec<(String, Ground)>,
     /// What the run checks.
     pub status: Status,
+    /// The `Cmd` variants of the alias productions whose clauses' written results compute (`An`,
+    /// and a case's own command `C..` where the case's spelling stands in its clause's result),
+    /// which no print of the state may write: such an alias names an expression, and a value
+    /// that equals its value is no term written for it (decision NT-23-1).
+    pub forward_only: Vec<String>,
 }
 
 /// Why K7 does not run a case.

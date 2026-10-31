@@ -96,8 +96,10 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
         .map(|(cell, expected)| (cell, expected, read(view, index, cell)))
         .collect::<Vec<_>>();
     match verdict(run, &report, &observed) {
-        Ran::Conforms(status) => printed_reads_back(semantics, &report.state, own)
-            .map_or(Ran::Conforms(status), Ran::Deviates),
+        Ran::Conforms(status) => {
+            printed_reads_back(semantics, &report.state, own, &run.forward_only)
+                .map_or(Ran::Conforms(status), Ran::Deviates)
+        }
         deviates @ Ran::Deviates(_) => deviates,
     }
 }
@@ -113,12 +115,24 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
 /// and neither is a cell of a sort with parameters, nor a print that does not parse where the
 /// term printed without reversing an alias does not parse either. Tokens compare by text
 /// ([`untyped_tokens`]).
+///
+/// Before it is read back, a print must name no term the author did not write: it must be the
+/// print of the same printer without the aliases `forward_only` names, whose clauses' written
+/// results compute (the plan's [`Run::forward_only`]). Such an alias names an expression, so a
+/// value that merely equals its value is no term written for it, though the alias read back
+/// denotes the value.
 fn printed_reads_back(
     semantics: &mut Semantics,
     state: &Term,
     own: Option<&str>,
+    forward_only: &[String],
 ) -> Option<String> {
     let case = case_printer(semantics.unparser(), own);
+    let written = case.retaining_aliases(|symbol| {
+        !forward_only
+            .iter()
+            .any(|name| symbol.strip_prefix("Lblcmd") == Some(name.as_str()))
+    });
     let options = unparse::Options::new(unparse::Mode::Pretty);
     let as_held = unparse::Options {
         reverse_aliases: false,
@@ -144,6 +158,18 @@ fn printed_reads_back(
     }
     for (cell, sort, content) in cells {
         let printed = case.print_kore(content, &options);
+        let place = if sort.is_none() {
+            "<k> head"
+        } else {
+            cell.as_str()
+        };
+        let unnamed = written.print_kore(content, &options);
+        if unnamed.text != printed.text {
+            return Some(format!(
+                "{place} printed `{}` through an alias whose written result computes, where the state prints `{}`",
+                printed.text, unnamed.text
+            ));
+        }
         if !printed.warnings.is_empty() {
             continue;
         }
@@ -151,11 +177,6 @@ fn printed_reads_back(
         let mut read_back = |text: &str| match &sort {
             None => semantics.parse_k_head(text),
             Some(sort) => semantics.parse_cell(name, sort, text),
-        };
-        let place = if sort.is_none() {
-            "<k> head"
-        } else {
-            cell.as_str()
         };
         let read = match read_back(&printed.text) {
             Ok(read) => read,
