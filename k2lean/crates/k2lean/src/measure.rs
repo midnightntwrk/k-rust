@@ -53,10 +53,12 @@ pub fn emit(
         ));
     }
     let arg = &sig.args[0];
-    let cell = spec
-        .cell
-        .as_ref()
-        .ok_or_else(|| format!("--measure {}: name the cell it reads (NAME@CELL)", spec.name))?;
+    let cell = spec.cell.as_ref().ok_or_else(|| {
+        format!(
+            "--measure {}: name the cell it reads (NAME@CELL)",
+            spec.name
+        )
+    })?;
     let path = find_cell(m, top, cell)?;
     if !path.colls.is_empty() {
         return Err(format!(
@@ -80,8 +82,17 @@ pub fn emit(
     let mut defs = String::new();
     let mut unfold: Vec<String> = Vec::new();
     let mut read = "c".to_string();
-    let mut proj = |name: String, sort: &str, child: &str, lean: &str, arity: usize, index: usize, doc: String, read: &mut String| {
-        let pats: Vec<&str> = (0..arity).map(|i| if i == index { "x" } else { "_" }).collect();
+    let mut proj = |name: String,
+                    sort: &str,
+                    child: &str,
+                    lean: &str,
+                    arity: usize,
+                    index: usize,
+                    doc: String,
+                    read: &mut String| {
+        let pats: Vec<&str> = (0..arity)
+            .map(|i| if i == index { "x" } else { "_" })
+            .collect();
         defs.push_str(&format!(
             "/-- {doc} -/\ndef {name} : {sort} → {child}\n  | {lean} {} => x\n\n",
             pats.join(" ")
@@ -148,7 +159,9 @@ pub fn emit(
     }
     let lemmas: Vec<String> = stated
         .iter()
-        .filter(|s| (s.name.starts_with("Simp.") || s.name.starts_with("Lemma.")) && proved(&s.name))
+        .filter(|s| {
+            (s.name.starts_with("Simp.") || s.name.starts_with("Lemma.")) && proved(&s.name)
+        })
         .filter(|s| called.iter().any(|f| s.statement.contains(f.as_str())))
         .map(|s| s.name.clone())
         .collect();

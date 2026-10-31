@@ -1701,7 +1701,9 @@ fn measure_states_one_case_per_rule_with_the_authors_lemmas_and_a_listed_case_by
         "theorem loop : Step.Rel.loop (KPrelude.Measure.Lower Measure.value) := Measure.hand.loop"
     ));
     let hand = std::fs::read_to_string(d.join("Corout/MeasureHand.lean")).unwrap();
-    assert!(hand.contains("-- theorem Measure.hand.loop : Step.Rel.loop (KPrelude.Measure.Lower Measure.value) := by"));
+    assert!(hand.contains(
+        "-- theorem Measure.hand.loop : Step.Rel.loop (KPrelude.Measure.Lower Measure.value) := by"
+    ));
     std::fs::write(d.join("Corout/MeasureHand.lean"), "-- edited\n").unwrap();
     let o = gen_progress("corout", &d, "Corout", &args);
     assert!(o.status.success());

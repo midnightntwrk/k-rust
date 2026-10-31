@@ -2579,7 +2579,11 @@ theorem {name} (x : {arg}) :\n    {concl} := by\n  {split} x with {pat}\n  first
 }
 
 /// The functions an invariant function calls, transitively (itself included).
-pub(crate) fn closure(def: &Def, eqs: &BTreeMap<String, Vec<Equation>>, f: &str) -> BTreeSet<String> {
+pub(crate) fn closure(
+    def: &Def,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+    f: &str,
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let mut todo = vec![f.to_string()];
     while let Some(g) = todo.pop() {
