@@ -413,6 +413,82 @@ k::claims! {
     assert!(success, "{errors:#?}");
 }
 
+/// A collection's construction as a rule's whole subject (decision NT-11-2): the subject is the
+/// computation's first item, which the construction matches where the item is that collection,
+/// so the rule is stated over the computation cell, for a set and a list, in a fn rule and a
+/// single-body one. A context's subject root names the production whose argument the context
+/// evaluates, which a collection is not, so a collection there is refused.
+#[test]
+fn a_collection_at_a_rule_root_matches_the_computation_item_and_no_context_heats_one() {
+    let outcomes = outcomes([
+        (
+            "rule-set",
+            "#[k::rule]\nfn sone(x: Term<KItem>, k::term![k::builtin::set::item(x)]: Term<KItem>) -> Term<KItem> {\n    ExpSyntax::Wrap(x)\n}\n",
+        ),
+        (
+            "rule-list",
+            "#[k::rule]\nfn lone(x: Term<KItem>, k::term![[x, ..]]: Term<List>) -> Term<KItem> {\n    ExpSyntax::Done()\n}\n",
+        ),
+        (
+            "local-rule-set",
+            "#[k::rule]\nfn sloc(x: Term<KItem>, k::term![k::builtin::set::item(k::rewrite!(x => ExpSyntax::Done()))]: Term<KItem>) {}\n",
+        ),
+        (
+            "context-set",
+            "#[k::context(hole = x)]\nfn ctx(k::term![k::builtin::set::item(x)]: Term<KItem>) {}\n",
+        ),
+        (
+            "context-list",
+            "#[k::context(hole = x)]\nfn ctxl(k::term![k::builtin::list::item(x)]: Term<KItem>) {}\n",
+        ),
+    ]);
+    expect_test::expect![[r#"
+        [
+            (
+                "rule-set",
+                (
+                    true,
+                    [],
+                ),
+            ),
+            (
+                "rule-list",
+                (
+                    true,
+                    [],
+                ),
+            ),
+            (
+                "local-rule-set",
+                (
+                    true,
+                    [],
+                ),
+            ),
+            (
+                "context-set",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: `k::builtin::set::item`, a collection's construction, stands at the root of a context's subject: a context names the production whose argument is evaluated before the term it stands in, and a collection is a value its elements make up, not a production with an argument awaiting evaluation, so the context would evaluate nothing: root the context at the production whose argument it evaluates, and match the collection below that root",
+                        "--> src/lib.rs:50:17",
+                    ],
+                ),
+            ),
+            (
+                "context-list",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: `k::builtin::list::item`, a collection's construction, stands at the root of a context's subject: a context names the production whose argument is evaluated before the term it stands in, and a collection is a value its elements make up, not a production with an argument awaiting evaluation, so the context would evaluate nothing: root the context at the production whose argument it evaluates, and match the collection below that root",
+                        "--> src/lib.rs:50:18",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
 /// A map key is evaluated, so a name only a function application in a key reads binds nothing.
 #[test]
 fn a_name_only_a_function_in_a_map_key_reads_is_unbound() {

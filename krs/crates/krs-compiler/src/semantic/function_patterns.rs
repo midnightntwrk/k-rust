@@ -197,8 +197,8 @@ fn sentence_patterns<'t>(
             } else {
                 Root::Slot
             };
-            if rule.sentence_kind != SentenceKind::Equation {
-                patterns.term_root(&rule.subject)?;
+            if rule.sentence_kind == SentenceKind::Context {
+                patterns.context_root(&rule.subject)?;
             }
             patterns.term(&rule.subject, Some(root))?;
             rule.function_context
@@ -281,11 +281,8 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
             "{function} {}; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
             instance_place(found.place)
         ),
-        (Place::Pattern, Some(Root::Term)) if context_subject(descriptor) => format!(
-            "{function} stands at the root of a context's subject: there it is the application of one of K's collection functions (`SetItem`, `.Set`, `.Map` and the collection's concatenation), which evaluation computes, and a context is rooted at the production whose argument it evaluates, so the context heats nothing; a collection is matched where a term holds it, below the root"
-        ),
-        (Place::Pattern, Some(Root::Term)) => format!(
-            "{function} stands at the root of a rule's subject: there it is the application of one of K's collection functions (`SetItem`, `.Set`, `.Map` and the collection's concatenation), which evaluation computes, and a rule whose whole left side is a function's application is that function's equation, which a builtin collection's function is not open to, so the rule describes no step; a collection is matched where a term holds it, below a root: to match a set or a map as the computation's item, write the clause `for KItem` in a `k::rules!` block, whose subject is that item"
+        (Place::Pattern, Some(Root::Context)) => format!(
+            "{function} stands at the root of a context's subject: a context names the production whose argument is evaluated before the term it stands in, and a collection is a value its elements make up, not a production with an argument awaiting evaluation, so the context would evaluate nothing: root the context at the production whose argument it evaluates, and match the collection below that root"
         ),
         (Place::Pattern, root) => {
             let method = match found.application {
@@ -337,15 +334,6 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
         reason,
         range,
     }
-}
-
-/// Whether `descriptor` is a context, whose subject is rooted at the
-/// production it heats.
-fn context_subject(descriptor: &Descriptor) -> bool {
-    matches!(
-        descriptor.payload(),
-        DescriptorPayload::StructuredRule(rule) if rule.sentence_kind == SentenceKind::Context
-    )
 }
 
 /// Whether a sentence of `kind` matches every term it applies to with the
@@ -427,10 +415,9 @@ enum Root {
     /// The root of another matched slot: a single-body rule's subject, a
     /// computation item, a cell's content, a list cell's rest.
     Slot,
-    /// The whole left side of a term rule (a `#[k::rule]` fn's subject) or a
-    /// context, where a collection's unit, element or concatenation stands
-    /// for the function it applies ([`Patterns::term_root`]).
-    Term,
+    /// The whole subject of a context, which names the production whose
+    /// argument it evaluates ([`Patterns::context_root`]).
+    Context,
 }
 
 /// A construct that computes where a pattern matches a term.
@@ -484,17 +471,12 @@ impl Patterns<'_> {
         }
     }
 
-    /// The whole subject of a term rule or a context, its alternatives each
-    /// (decision NT-11-2). A collection's unit, element and concatenation
+    /// The whole subject of a context, its alternatives each (decision
+    /// NT-11-2). A collection's unit, element and concatenation
     /// (`set::item(x)`, `set![]`, `map![]`, `list::item(x)`, `set::concat`)
-    /// are a pattern below a root, which matches the collection a term holds
-    /// there. At a term rule's root they are what K writes them as, the
-    /// applications of the collection's functions (`SetItem`, `.Set`, `.Map`),
-    /// and a rule whose left side is a function's application is that
-    /// function's equation, which a builtin collection's function is not open
-    /// to: the sentence is no step. A context is rooted at the production
-    /// whose argument it heats, which a function is not.
-    fn term_root<'t>(&self, subject: &'t DescriptorTerm) -> Result<(), Found<'t>> {
+    /// are values a pattern matches; a context names the production whose
+    /// argument is evaluated first, which a collection is not.
+    fn context_root<'t>(&self, subject: &'t DescriptorTerm) -> Result<(), Found<'t>> {
         match subject {
             DescriptorTerm::Application { reference, .. } => {
                 match applied_function(&reference.application, self.catalog) {
@@ -502,7 +484,7 @@ impl Patterns<'_> {
                         key: &reference.key,
                         application: Some(&reference.application),
                         what: What::Function(collection_constructor(&reference.application)),
-                        root: Some(Root::Term),
+                        root: Some(Root::Context),
                         place: self.place,
                     }),
                     Applied::Function(_) | Applied::Constructor => Ok(()),
@@ -510,8 +492,8 @@ impl Patterns<'_> {
             }
             DescriptorTerm::Or { alternatives, .. } => alternatives
                 .iter()
-                .try_for_each(|alternative| self.term_root(alternative)),
-            DescriptorTerm::Rewrite { from, .. } => self.term_root(from),
+                .try_for_each(|alternative| self.context_root(alternative)),
+            DescriptorTerm::Rewrite { from, .. } => self.context_root(from),
             _ => Ok(()),
         }
     }
@@ -774,6 +756,29 @@ pub(super) fn applied_function(
         }
         // A predicate is no term; the term walker refuses it in a pattern.
         DescriptorApplicationRef::Ml(_) => Applied::Constructor,
+    }
+}
+
+/// Whether `subject`, a rule's whole subject, is rooted at a collection's
+/// unit, element or concatenation (`set::item(x)`, `map![]`, `list::item(x)`,
+/// `set::concat(a, b)`), in some alternative or the left side of a rewrite at
+/// its root. A rule's subject is the computation's first item, and such a
+/// subject matches that item when it is the collection the construction
+/// denotes (decision NT-11-2).
+pub(super) fn collection_rooted(
+    subject: &DescriptorTerm,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> bool {
+    match subject {
+        DescriptorTerm::Application { reference, .. } => matches!(
+            applied_function(&reference.application, catalog),
+            Applied::Collection | Applied::Elements
+        ),
+        DescriptorTerm::Or { alternatives, .. } => alternatives
+            .iter()
+            .any(|alternative| collection_rooted(alternative, catalog)),
+        DescriptorTerm::Rewrite { from, .. } => collection_rooted(from, catalog),
+        _ => false,
     }
 }
 

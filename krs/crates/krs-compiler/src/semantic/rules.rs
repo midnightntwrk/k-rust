@@ -2200,48 +2200,56 @@ pub(super) fn lower_structured_rule_descriptor(
     }
     variables.extend(builder.wildcards);
     variables.extend(context_wildcards);
-    // A single-body rule's body is its subject, whose rewrites sit below the
-    // root (KF-011); the rule body reads it through its images.
     let rule_origin_role = match rule.sentence_kind {
         krs_ir::SentenceKind::Alias => ProvenanceRole::AliasClause,
         krs_ir::SentenceKind::Desugar => ProvenanceRole::DesugarClause,
         _ => ProvenanceRole::RuleDeclaration,
     };
     let origin = semantic_origin(descriptor, role_key(rule_origin_role, 0), "rule")?;
-    let lowered = match result {
-        Some(result)
-            if rule.sentence_kind == krs_ir::SentenceKind::Transition
-                && function_context.is_none()
-                && is_cell_valued(&result)
-                && !is_cell_valued(&subject) =>
-        {
-            SemanticRule::new_configuration(
-                origin,
-                descriptor.id().clone(),
-                rule.sentence_kind,
-                variables,
-                computation_rewrite(descriptor, rule, declarations, subject, result)?,
-            )?
-        }
-        Some(result) => SemanticRule::new(
+    let transition = rule.sentence_kind == krs_ir::SentenceKind::Transition;
+    // A rule's subject is the computation's first item. A `#[k::rule]` fn
+    // whose result is a cell's value replaces that item by the cell; one
+    // rooted at a collection's construction (`set::item(x)`, `map![]`,
+    // `list::item(x)`) matches the item where it is the collection the
+    // construction denotes (decision NT-11-2). Both are stated over the
+    // computation cell, where the item is the cell's first and the
+    // construction a pattern below the cell, as in a `for KItem` clause.
+    let cell_result = transition
+        && function_context.is_none()
+        && result.as_ref().is_some_and(is_cell_valued)
+        && !is_cell_valued(&subject);
+    let collection_root = transition
+        && rule.anywhere.is_none()
+        && rule.evaluation.is_none()
+        && restriction.is_none()
+        && super::function_patterns::collection_rooted(&rule.subject, catalog);
+    let lowered = if cell_result || collection_root {
+        SemanticRule::new_configuration(
             origin,
             descriptor.id().clone(),
             rule.sentence_kind,
             variables,
-            SemanticTerm::rewrite(
+            computation_rewrite(descriptor, rule, declarations, subject, result)?,
+        )?
+    } else {
+        // A single-body rule's body is its subject, whose rewrites sit below
+        // the root (KF-011); the rule body reads it through its images.
+        let rewrite = match result {
+            Some(result) => SemanticTerm::rewrite(
                 semantic_origin_from_primary(descriptor, "rule-rewrite")?,
                 result_sort,
                 subject,
                 result,
             )?,
-        )?,
-        None => SemanticRule::new(
+            None => subject,
+        };
+        SemanticRule::new(
             origin,
             descriptor.id().clone(),
             rule.sentence_kind,
             variables,
-            subject,
-        )?,
+            rewrite,
+        )?
     };
     Ok(lowered
         .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
@@ -2273,23 +2281,28 @@ fn is_cell_valued(term: &SemanticTerm) -> bool {
     }
 }
 
-/// A `#[k::rule]` fn's rewrite of the computation's first item into `result`, a cell's value, as
-/// the computation cell's clause: `<k> SUBJECT => RESULT ... </k>`.
+/// A `#[k::rule]` fn's rewrite of the computation's first item, `subject`, into `result` (in
+/// place, for a single-body rule's subject, which holds its rewrites), as the computation cell's
+/// clause of the definition's one fixed configuration, its other cells left as they are:
+/// `<k> SUBJECT => RESULT ... </k>`.
 ///
-/// The fn replaces the item its subject matches by its result, and a cell is a value a
-/// computation holds, of its cell sort below `KItem`. K completes a bare rewrite to the
-/// configuration by the roots of its sides, where a cell at a side's root is the
-/// configuration's cell, so the rewrite is written inside the computation cell, as a `for Stmt`
-/// clause's is, where both sides are the computation's items.
+/// The fn replaces the item its subject matches by its result. Where the result is a cell's
+/// value, a cell is a value a computation holds, of its cell sort below `KItem`, but K completes
+/// a bare rewrite to the configuration by the roots of its sides, where a cell at a side's root
+/// is the configuration's cell. Where the subject is a collection's construction, a bare rule
+/// would match a collection at a rule's root, where no rewrite step meets a function's
+/// application. Inside the computation cell both sides are the computation's items, as a
+/// `for Stmt` clause's are.
 fn computation_rewrite(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
     declarations: &DescriptorIndex<'_>,
     subject: SemanticTerm,
-    result: SemanticTerm,
+    result: Option<SemanticTerm>,
 ) -> Result<FixedConfigurationRewrite<SemanticId, SemanticTerm>, DescriptorLoweringError> {
-    let shape =
-        |detail| DescriptorLoweringError::unsupported_shape("rule with a cell result", detail);
+    let shape = |detail| {
+        DescriptorLoweringError::unsupported_shape("rule stated over the computation cell", detail)
+    };
     let mut configurations = declarations
         .keys()
         .filter(|id| id.item_kind() == ItemKind::Configuration);
@@ -2299,22 +2312,30 @@ fn computation_rewrite(
     let configuration = require_fixed_configuration(
         configuration_id,
         declarations,
-        "rule with a cell result",
+        "rule stated over the computation cell",
         "a computation cell rewrite requires a fixed configuration",
     )?;
-    let computation = configuration
-        .declaration
-        .fields
-        .iter()
-        .find(|field| {
-            matches!(
-                &field.content,
-                ProtocolCellContent::Leaf { wrapper, sort, .. }
-                    if *wrapper == krs_ir::CellWrapper::KCell
-                        && sort.sort == DescriptorSortRef::Builtin(BuiltinSort::KSequence)
-            )
-        })
-        .ok_or_else(|| shape("the configuration has no computation cell"))?;
+    let mut leaves = Vec::new();
+    collect_declared_leaf_identities(
+        &configuration.declaration,
+        declarations,
+        &BTreeSet::new(),
+        &mut BTreeSet::new(),
+        &mut leaves,
+    )?;
+    let mut computation = Vec::new();
+    for leaf in leaves {
+        if let ProtocolCellContent::Leaf { wrapper, sort, .. } =
+            &require_cell_field(&leaf, declarations)?.content
+            && *wrapper == krs_ir::CellWrapper::KCell
+            && sort.sort == DescriptorSortRef::Builtin(BuiltinSort::KSequence)
+        {
+            computation.push(leaf);
+        }
+    }
+    let [computation] = computation.as_slice() else {
+        return Err(shape("the configuration has no one computation cell"));
+    };
     let result_key = rule
         .result_key
         .clone()
@@ -2324,16 +2345,19 @@ fn computation_rewrite(
         subject.sort().clone(),
         vec![subject],
     );
-    let post = CellPost::Replace {
-        term: SemanticTerm::k_sequence(
-            semantic_origin(descriptor, result_key, "completed-k-result")?,
-            result.sort().clone(),
-            vec![result],
-        ),
+    let post = match result {
+        Some(result) => CellPost::Replace {
+            term: SemanticTerm::k_sequence(
+                semantic_origin(descriptor, result_key, "completed-k-result")?,
+                result.sort().clone(),
+                vec![result],
+            ),
+        },
+        None => CellPost::Local,
     };
     let clause = FixedCellClause::new(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
-        semantic_cell_id(&computation.reference.cell)?,
+        semantic_cell_id(computation)?,
         before,
         post,
         CellContentFrame::KSequenceTail {
@@ -2341,7 +2365,7 @@ fn computation_rewrite(
             binding: None,
         },
     );
-    let selected = BTreeSet::from([computation.reference.cell.clone()]);
+    let selected = BTreeSet::from([computation.clone()]);
     let omitted = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     Ok(FixedConfigurationRewrite::new(
         semantic_origin(
@@ -2350,7 +2374,7 @@ fn computation_rewrite(
             "completed-configuration-rewrite",
         )?,
         generated_semantic_id("configuration", configuration_id, None)?,
-        vec![clause],
+        vec![ConfigurationClause::Fixed(clause)],
         omitted,
     )?)
 }
