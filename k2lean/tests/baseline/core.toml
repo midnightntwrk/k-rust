@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 131
+passed = 133
 
 [lib.kimp]
 tier = "light"
@@ -77,6 +77,14 @@ stated = 107
 open = []
 guarded = 122
 refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+overlaps = 0
+unwitnessed = 0
+
+[lib.indlemma]
+tier = "light"
+stated = 97
+open = []
+guarded = 112
 overlaps = 0
 unwitnessed = 0
 
@@ -172,6 +180,24 @@ allowed_axioms = []
 "generated/freekey/FreeKeyTest/Main.lean" = { tier = "light", sha256 = "433736cf64d8a907db31107a69cd161804cb873c7d512bf7090f35c25e887613" }
 "generated/freekey/lakefile.lean" = { tier = "light", sha256 = "884f1ebf1d2c6cb3c9dcd96b710a56fa7ac9faf624b1158fdeba62cd09b98c0a" }
 "generated/freekey/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/indlemma/IndLemma.lean" = { tier = "light", sha256 = "8d22e7999c7e7638b3f2b4f74343f1de4343933288088d620dd2d497acc4d46a" }
+"generated/indlemma/IndLemma/Adequacy.lean" = { tier = "light", sha256 = "b48ca91c510d5a452eee7c03846d39b5a0bed31fb95c92135b6dd8322fd0afa6" }
+"generated/indlemma/IndLemma/Determinism.lean" = { tier = "light", sha256 = "6b3d237f48c224f68acf0a007347a9afb7a6e34d1fc2533ebd6202265909d36b" }
+"generated/indlemma/IndLemma/Determinism/L1.lean" = { tier = "light", sha256 = "a8283818043f974e160e417238663016b1b26f57fc5adaa5096e8fd5c6c6b105" }
+"generated/indlemma/IndLemma/Determinism/Pre.lean" = { tier = "light", sha256 = "df0024a27e3cec75b406db271ab42de35bfacc2659023a5a54d3aa4a71496a51" }
+"generated/indlemma/IndLemma/EqBase.lean" = { tier = "light", sha256 = "73c136d131c65d984d2deffd458144387f1adee73414f6603465aeee449ccf39" }
+"generated/indlemma/IndLemma/Equations.lean" = { tier = "light", sha256 = "4cba7008ac59f4fddd55e0a9dce0f7b51d161773d0e55fc24488ca7d8bb0bf31" }
+"generated/indlemma/IndLemma/Functions.lean" = { tier = "light", sha256 = "5f87bd5fc8b8e53ac87013bc5f2732f6f3bec60955277b23ed598766a1cd6f86" }
+"generated/indlemma/IndLemma/Init.lean" = { tier = "light", sha256 = "5fc2ef7678dba28112ccad0cd9ae0e9e7aa2787841d39c559430577ec6ae8ee1" }
+"generated/indlemma/IndLemma/Preserves.lean" = { tier = "light", sha256 = "8db950b4d7a1b66b2679651343b5315de09eefe3a541bd06371eac12ad158b42" }
+"generated/indlemma/IndLemma/Rules.lean" = { tier = "light", sha256 = "ace8d2430f27e04984cbf432dbf455737a36bf7cc73ebc639f96cbbf8ac1134d" }
+"generated/indlemma/IndLemma/Terms.lean" = { tier = "light", sha256 = "7e7b7451016ac05e049ef713886f2053f43c6973e58081292f0e7fea0f3f09fa" }
+"generated/indlemma/IndLemmaBench/Main.lean" = { tier = "light", sha256 = "01f375c9741bd7e3f92f71eeb0e9f66caec692c5197179fe4bc187566f632507" }
+"generated/indlemma/IndLemmaTest/Axioms.lean" = { tier = "light", sha256 = "a131a51d03548d0373ed3f224121a333727dfa9dfa47c69455438d7641cafdc4" }
+"generated/indlemma/IndLemmaTest/DetAxioms.lean" = { tier = "light", sha256 = "5653b400e47f571e5b8ea513cd3abf8c686b8959c58c841f456071e4b47c756e" }
+"generated/indlemma/IndLemmaTest/Main.lean" = { tier = "light", sha256 = "eb6b1ce774a20614f99b0cca2f98de882e97e4e3848268e80c887d2c33e5b4eb" }
+"generated/indlemma/lakefile.lean" = { tier = "light", sha256 = "dc94ac6f8ef0acd862c9be6d642b4e0e8401945a48292b1751844cb3529435a3" }
+"generated/indlemma/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kimp-d2/KImp.lean" = { tier = "light", sha256 = "571fa3aa6670a404d0fcd3d3065fb85bb522fdde047c55c7613c8e87150f43cb" }
 "generated/kimp-d2/KImp/Adequacy.lean" = { tier = "light", sha256 = "9101b525be741c277317f3b4af79518d643975740516365a094fb62edc28c73f" }
 "generated/kimp-d2/KImp/Adequacy/Part1.lean" = { tier = "light", sha256 = "1131882e22e847a220e11ef3e779689004cc9d4d5c472ff7a41b9fbbec11c499" }
