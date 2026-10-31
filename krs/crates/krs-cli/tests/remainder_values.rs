@@ -234,7 +234,7 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
     );
     assert!(success, "{stderr}");
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         rule [park]:
             <k> park ~> Tail:K => bump ~> resume </k>
             <stack> S:List => ListItem(wrapk ( Tail:K )) S:List </stack>
@@ -246,7 +246,7 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
             <env> 0 |-> V:Int Rest:Map </env>
         rule [move]:
             <k> move ~> Tail:K => .K ~> Tail:K </k>
-            <env> 0 |-> V:Int Rest:Map => Rest:Map [ 1 <- V:Int ] </env>"#]]
+            <env> 0 |-> V:Int Rest:Map => Rest:Map [ 1 <- V:Int ] </env>"]]
     .assert_eq(
         &["park", "keep", "store", "move"]
             .map(|label| rule(&k, label))
