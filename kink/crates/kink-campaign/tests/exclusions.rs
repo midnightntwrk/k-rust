@@ -422,7 +422,14 @@ mod kink_tier {
     /// should-fix 3): an initial state that applies a hook the initial-state check keeps is still
     /// refused for it, `implementation-chosen-hook`: `refusals`' `val(lengthBytes(String2Bytes("a")))`
     /// reads the encoding `String2Bytes` chooses, which k-rust evaluates with no run-level record,
-    /// so the run's lists are empty and only the initial state's check excludes it.
+    /// so the run's lists are empty and only the initial state's check excludes it. GAP K1: k-rust
+    /// now marks every `String2Bytes` value (class `byte-encoding`: no text names the encoding) in
+    /// an execution, the initial state's normalization included, so that run's
+    /// `implementationChosenValues` list names it and the run-level exclusion, which the runner
+    /// reads before the initial state's, refuses it as `implementation-chosen-value`. The baseline
+    /// is refused as before (`BaselineOracleFailed`) for the same open value; only the reason
+    /// names the record k-rust now keeps. The initial-state check still reads the hook (it is on
+    /// the census until GK-1), but this state no longer reaches it.
     #[test]
     #[ignore = "kink"]
     fn an_excluded_baseline_is_refused() {
@@ -480,7 +487,8 @@ mod kink_tier {
                 )
                 .unwrap_or_else(|failure| panic!("{id}: {failure}"));
             }
-            // An initial state that applies `String2Bytes` is refused for that hook.
+            // An initial state that applies `String2Bytes` is refused for the value it reads: its
+            // run lists the `byte-encoding` mark (GAP K1) before the initial-state check is read.
             let encoded = parse_pattern(
                 r#"Lblval{}(LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes{}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{}(\dv{SortString{}}("a"))))"#,
             )
@@ -495,7 +503,7 @@ mod kink_tier {
             .expect_err("an initial state applying String2Bytes is refused");
             assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
             assert!(
-                failure.to_string().contains("implementation-chosen-hook"),
+                failure.to_string().contains("implementation-chosen-value"),
                 "{failure}"
             );
         });
@@ -503,7 +511,7 @@ mod kink_tier {
 
     /// kink27 R3-CENSUS-RUNLEVEL fix round 1 (review should-fix 1): a kill that rests on k-rust's
     /// reading of one NaN per format (kink README, premise P-F3), through arithmetic on symbolic
-    /// operands. `a1/onenan.k`'s `go(0)` compares, by `==K`, the NaN of `0.0 /Float 0.0` with the
+    /// operands. `a1/onenan.k`'s `go(1)` compares, by `==K`, the NaN of `0.0 /Float 0.0` with the
     /// NaN of `Infinity -Float Infinity`; under P-F3 they are one term and the baseline ends in
     /// `done(7)`. The mutant respells `2.0` to `-2.0`, which turns the second argument into an
     /// infinity, and ends in `done(0)` in every model; in a model where two NaNs computed by
@@ -512,14 +520,18 @@ mod kink_tier {
     /// empty, the census admits the definition, and the kill stands in both schedules. Before this
     /// ticket the census refused the baseline (`implementation-chosen-hook`, for `FLOAT.div` and
     /// `FLOAT.sub`), so P-F3 carried no run-time kill. This pins the kill as long as D-3 accepts
-    /// the reading; a decision against it changes this test's expected status.
+    /// the reading; a decision against it changes this test's expected status. GAP K1: the zero
+    /// each quotient divides by is `1.0 -Float 1.0` from `go(1)` (+0.0 by `fp.sub`), where it was
+    /// `Int2Float(0, 53, 11)` from `go(0)`, whose sign no text fixes and k-rust marks
+    /// `float-rounding`, so the baseline was refused; +0.0 is the element that conversion picked,
+    /// so both runs compute the elements they did, in every model.
     #[test]
     #[ignore = "kink"]
     fn a_kill_through_two_computed_nans_rests_on_one_nan_per_format() {
         on_a_big_stack(|| {
             let validator = a1_validator("onenan");
             let generation = respell(validator.baseline(), "ONENAN.go", "2.0", "-2.0", "Float");
-            let tests = [test("go", support::app("Lblgo", vec![support::int(0)]))];
+            let tests = [test("go", support::app("Lblgo", vec![support::int(1)]))];
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                 let run = run_campaign(
                     &campaign(&validator, "ONENAN", &tests),

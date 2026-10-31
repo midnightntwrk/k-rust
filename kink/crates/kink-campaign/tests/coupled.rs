@@ -8948,7 +8948,11 @@ mod kink_tier {
     /// mutant, which swaps one computation for the other on the one input its guard admits,
     /// Survives with its whole term agreeing, as before R0b (when the baseline's whole term was
     /// `done(7)`). Every row is measured before the first assertion. Before: every baseline refused
-    /// (`implementation-chosen-hook`).
+    /// (`implementation-chosen-hook`). GAP K1: `nan` and `negzero` build their zero as
+    /// `1.0 -Float 1.0` (+0.0 by `fp.sub`) where they converted `Int2Float(0, 53, 11)`, whose sign
+    /// no text fixes and k-rust marks `float-rounding`; +0.0 is the element that conversion picked,
+    /// so both computations of each row are the elements they were, in every model
+    /// (`t12hook.k`).
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t12_hook_only_computations_agree() {
@@ -9610,12 +9614,17 @@ mod kink_tier {
 
     /// R3-ADMIT-FLOAT: k-rust stores every Float domain value as the canonical text of its value,
     /// so a respelled literal is the same element in every rule k-rust applies. On `floatzero.k`
-    /// from `start(0)` (the binary64 zero), a respelling of `point`'s `0.0` that names the same
+    /// from `start(1)` (the binary64 +0.0, `1.0 -Float 1.0`), a respelling of `point`'s `0.0` that names the same
     /// element (`0.00e5`, `0e+00p53x11`) Survives, and one that names another element is killed,
     /// because the test's zero takes `pointow` instead. The `0.0f` kill is determined by K's text:
     /// the suffix fixes the format, and `precisionFloat` is a function. The `-0.0` kill rests on
     /// k-rust's reading that a zero literal keeps the sign written (kink README, premise P-F2): K's
     /// text reads `-0.0` as the rational 0, which both zeros are equally near.
+    /// GAP K1: the test's zero was `Int2Float(0, 53, 11)` from `start(0)`; no text fixes that
+    /// conversion's sign (both zeros hold the integer 0), so k-rust marks it `float-rounding` and
+    /// the baseline was refused. `start(1)` reaches it as `1.0 -Float 1.0`, which `fp.sub` under
+    /// roundNearestTiesToEven fixes as +0.0 (domains.md 1572), the element k-rust's conversion
+    /// picked: every row compares the same element as before, in every model, so keeps its status.
     /// Every row is measured before the first assertion.
     #[test]
     #[ignore = "kink"]
@@ -9626,7 +9635,7 @@ mod kink_tier {
             let label = "FLOATZERO.point";
             let tests = [case(
                 "zero",
-                support::initial_state(app("start", vec![support::int(0)]), "SortProg"),
+                support::initial_state(app("start", vec![support::int(1)]), "SortProg"),
                 &[whole_term()],
             )];
             let campaign = Campaign {
@@ -9675,7 +9684,7 @@ mod kink_tier {
 
     /// R3-ADMIT-FLOAT fix round 1: the TB-03 routes whose `t12probe.k` rows the census refuses
     /// (that fixture applies `String2Bytes`), on census-free rows of `floatzero.k` that reach their
-    /// values through `Int2Float` (of 1, and of 0 for F6) and one-format `/Float` and `-Float`.
+    /// values through `Int2Float` of 1 and one-format `/Float` and `-Float`.
     /// Each mutant respells a literal to another spelling of the element it names, or writes `==K`
     /// for `==Float` where both sides are one element, so each row runs and Survives, with the
     /// baseline's one comparison agreeing: the signed-zero respelling (F6), the NaN (F8; one NaN
@@ -9691,7 +9700,10 @@ mod kink_tier {
     /// negative value and an overflowing `Int2Float`, which no text fixes. The F8 control's kill
     /// rests on one NaN per format (P-F3, which domains.md fixes: the quotient is the NaN `NaN`
     /// names); the F9 control's on the `Infinity` lexeme naming the positive infinity, a reading of
-    /// an open literal (kink27 GAP class `literal`), not premise P-F1's rounding. Every row is
+    /// an open literal (kink27 GAP class `literal`), not premise P-F1's rounding. GAP K1: F6 reaches
+    /// its zero as `1.0 -Float 1.0` from `start(1)` (`fp.sub`, +0.0 in every model), where it went
+    /// through `Int2Float(0, 53, 11)`, whose sign no text fixes (k-rust marks it `float-rounding`);
+    /// +0.0 is the element that conversion picked, so the row keeps its verdict. Every row is
     /// measured before the first assertion.
     #[test]
     #[ignore = "kink"]
@@ -9701,7 +9713,7 @@ mod kink_tier {
             let validator = shared_validator("floatzero.k", "FLOATZERO");
             let baseline = validator.baseline();
             let routes = [
-                ("F6", "point", R("0.0", "0e+00p53x11"), "start", 0, true),
+                ("F6", "point", R("0.0", "0e+00p53x11"), "start", 1, true),
                 ("F8", "nanp", R("NaN", "NaNp53x11"), "nans", 1, true),
                 ("F8-control", "nanp", R("NaN", "NaNf"), "nans", 1, false),
                 (

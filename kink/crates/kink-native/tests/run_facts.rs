@@ -645,6 +645,15 @@ mod kink_tier {
     /// applying `#read` (class `read-count`, which without a console takes no value and notes no
     /// mark) or `Float2String` (a run-list hook) is flagged, and the run from `done(#read(0, 3))`
     /// lists `IO.read` on `unsupportedHooks` and no class value.
+    /// GAP K1: `nan`, `mz` and `mx` reach their zero as `1.0 -Float 1.0` from N = 1 (+0.0 by
+    /// `fp.sub`; their controls are N = 2), where they converted `Int2Float(0, 53, 11)`, whose sign
+    /// no text fixes, so k-rust marked that conversion too (`float-rounding`) and each probe listed
+    /// two marks; each now lists its own class alone. K1's Float classes have probes: `i2f`
+    /// converts 2^24 + 1 (no binary32 element holds it) and 0 (both zeros hold it) to binary32,
+    /// `float-rounding`, against the control 2^24, which binary32 holds; `rt` takes the square root
+    /// of 2 (not exact, `float-rounding`) and of -4 (no described value, `outside-domain`), against
+    /// the exact root of 4. Its other classes have no probe here, since their hooks are still on
+    /// the census (until GK-1), which would exclude `classes.k` as a whole.
     #[test]
     #[ignore = "kink"]
     fn every_k_rust_class_is_judged_per_run() {
@@ -658,6 +667,7 @@ mod kink_tier {
             );
             assert_eq!(exclusions.definition_exclusion(), None);
             let base2string = ("STRING.base2string", "letter-case");
+            let rounding = ("FLOAT.int2float", "float-rounding");
             let probes = [
                 ("keys", 1, Some(("MAP.keys_list", "order"))),
                 ("vals", 1, Some(("MAP.values", "order"))),
@@ -666,24 +676,30 @@ mod kink_tier {
                 ("choiceSet", 1, Some(("SET.choice", "item"))),
                 ("mixed", 1, Some(("FLOAT.add", "float-destination"))),
                 ("mdiv", 1, Some(("FLOAT.div", "float-destination"))),
-                ("nan", 0, Some(("FLOAT.sign", "nan-sign"))),
-                ("mz", 0, Some(("FLOAT.min", "signed-zero"))),
-                ("mx", 0, Some(("FLOAT.max", "signed-zero"))),
+                ("nan", 1, Some(("FLOAT.sign", "nan-sign"))),
+                ("mz", 1, Some(("FLOAT.min", "signed-zero"))),
+                ("mx", 1, Some(("FLOAT.max", "signed-zero"))),
                 ("b2s", 255, Some(base2string)),
                 ("lit", 0, Some(base2string)),
                 ("cond", 255, Some(base2string)),
                 ("eqn", 255, Some(base2string)),
                 ("req", 255, Some(base2string)),
+                ("i2f", 16_777_217, Some(rounding)),
+                ("i2f", 0, Some(rounding)),
+                ("rt", 2, Some(("FLOAT.root", "float-rounding"))),
+                ("rt", -4, Some(("FLOAT.root", "outside-domain"))),
                 ("keysOne", 1, None),
                 ("choiceOne", 1, None),
                 ("same", 1, None),
-                ("nan", 1, None),
-                ("mz", 1, None),
-                ("mx", 1, None),
+                ("nan", 2, None),
+                ("mz", 2, None),
+                ("mx", 2, None),
                 ("b2s", 9, None),
                 ("cond", 9, None),
                 ("eqn", 9, None),
                 ("req", 9, None),
+                ("i2f", 16_777_216, None),
+                ("rt", 4, None),
             ];
             let mut failures = Vec::new();
             let mut judge =

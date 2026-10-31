@@ -5,6 +5,16 @@
 // `eqn` through the equation `hex` and `req` in the condition of the equation `isff` (whose `owise`
 // equation is selected when that condition is false); `rd` applies `#read`, which a request
 // without a console leaves unevaluated.
+// GAP K1: `nan`, `mz` and `mx` build their zero as `Int2Float(N *Int N, 53, 11) -Float
+// Int2Float(N, 53, 11)`, +0.0 at N = 1 (`fp.sub` of 1.0 and 1.0 under roundNearestTiesToEven,
+// domains.md 1572) and 2.0 at N = 2, where they converted `Int2Float(0, 53, 11)`, whose sign no
+// text fixes (k-rust marks it `float-rounding`): the probe reads the element it read (+0.0, the
+// conversion's pick) through no open value but its own class, the control a nonzero value as before.
+// `i2f` converts to binary32 (`float-rounding` where the format does not hold N, or N is 0) and `rt`
+// takes a square root (`float-rounding` where it is not exact, `outside-domain` for a negative
+// radicand). K1's other classes (`hex-case`, `byte-encoding`, `curve`, ECDSA's `outside-domain`)
+// have no rule here: their hooks are still on the census (until kink27 GK-1), which would exclude
+// this definition as a whole.
 module CLASSES-SYNTAX
   imports BASIC-K
   imports INT-SYNTAX
@@ -13,7 +23,8 @@ module CLASSES-SYNTAX
                 | mixed(Int) [symbol(mixed)] | same(Int) [symbol(same)] | nan(Int) [symbol(nan)] | mz(Int) [symbol(mz)]
                 | b2s(Int) [symbol(b2s)] | lit(Int) [symbol(lit)] | cond(Int) [symbol(cond)] | eqn(Int) [symbol(eqn)]
                 | vals(Int) [symbol(vals)] | mdiv(Int) [symbol(mdiv)] | mx(Int) [symbol(mx)] | req(Int) [symbol(req)]
-                | rd(Int) [symbol(rd)] | done(KItem) [symbol(done)] | "yes" [symbol(yes)] | "no" [symbol(no)]
+                | rd(Int) [symbol(rd)] | i2f(Int) [symbol(i2f)] | rt(Int) [symbol(rt)]
+                | done(KItem) [symbol(done)] | "yes" [symbol(yes)] | "no" [symbol(no)]
 endmodule
 module CLASSES
   imports CLASSES-SYNTAX
@@ -41,9 +52,9 @@ module CLASSES
   rule [mixed]: <k> mixed(N) => done(Int2Float(N, 24, 8) +Float Int2Float(N, 53, 11)) </k>
   rule [mdiv]: <k> mdiv(N) => done(Int2Float(N, 24, 8) /Float Int2Float(N, 53, 11)) </k>
   rule [same]: <k> same(N) => done(Int2Float(N, 53, 11) +Float Int2Float(N, 53, 11)) </k>
-  rule [nan]: <k> nan(N) => done(signFloat(Int2Float(N, 53, 11) /Float Int2Float(N, 53, 11))) </k>
-  rule [mz]: <k> mz(N) => done(minFloat(Int2Float(N, 53, 11), --Float Int2Float(N, 53, 11))) </k>
-  rule [mx]: <k> mx(N) => done(maxFloat(Int2Float(N, 53, 11), --Float Int2Float(N, 53, 11))) </k>
+  rule [nan]: <k> nan(N) => done(signFloat((Int2Float(N *Int N, 53, 11) -Float Int2Float(N, 53, 11)) /Float (Int2Float(N *Int N, 53, 11) -Float Int2Float(N, 53, 11)))) </k>
+  rule [mz]: <k> mz(N) => done(minFloat(Int2Float(N *Int N, 53, 11) -Float Int2Float(N, 53, 11), --Float (Int2Float(N *Int N, 53, 11) -Float Int2Float(N, 53, 11)))) </k>
+  rule [mx]: <k> mx(N) => done(maxFloat(Int2Float(N *Int N, 53, 11) -Float Int2Float(N, 53, 11), --Float (Int2Float(N *Int N, 53, 11) -Float Int2Float(N, 53, 11)))) </k>
   rule [b2s]: <k> b2s(N) => done(Base2String(N, 16)) </k>
   rule [lit]: <k> lit(_) => done(Base2String(255, 16)) </k>
   rule [cond]: <k> cond(N) => yes </k> requires Base2String(N, 16) ==String "ff"
@@ -51,4 +62,6 @@ module CLASSES
   rule [eqn]: <k> eqn(N) => done(hex(N)) </k>
   rule [req]: <k> req(N) => done(isff(N)) </k>
   rule [rd]: <k> rd(N) => done(#read(0, N)) </k>
+  rule [i2f]: <k> i2f(N) => done(Int2Float(N, 24, 8)) </k>
+  rule [rt]: <k> rt(N) => done(rootFloat(Int2Float(N, 53, 11), 2)) </k>
 endmodule

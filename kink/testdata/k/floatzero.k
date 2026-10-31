@@ -1,5 +1,7 @@
-// R3-ADMIT-FLOAT: Float literals are compared by value. `start(I)` reaches `chk` with the
-// binary64 value of I; `point` matches the binary64 zero. A respelling of `0.0` that names the
+// R3-ADMIT-FLOAT: Float literals are compared by value. `start(I)` reaches `chk` with
+// `Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11)`, from `start(1)` the binary64 +0.0 (`fp.sub`
+// of two equal finite values under roundNearestTiesToEven, domains.md 1572); `point` matches the
+// binary64 zero. A respelling of `0.0` that names the
 // same element (`0.00e5`, `0e+00p53x11`) is the baseline's rule. `0.0f` names the binary32 zero,
 // another element by K's text (the suffix fixes the format, and `precisionFloat` is a function).
 // `-0.0` names the other signed zero only by k-rust's reading that a zero literal keeps the sign
@@ -45,7 +47,10 @@ module FLOATZERO
   imports FLOAT
   imports K-EQUAL
   configuration <k> .K </k>
-  rule [start]: start(I) => chk(Int2Float(I, 53, 11))
+  // GAP K1: `start` reached the zero as `Int2Float(0, 53, 11)`, whose sign no text fixes (both
+  // zeros hold the integer 0; k-rust marks it `float-rounding`); `1.0 -Float 1.0` is +0.0 in
+  // every model, the element k-rust's conversion picked, so every row keeps its verdict.
+  rule [start]: start(I) => chk(Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11))
   rule [point]: chk(0.0) => done(7)
   rule [pointow]: chk(_) => done(0) [owise]
   // F8: the binary64 NaN, `(1.0 -Float 1.0) /Float (1.0 -Float 1.0)`, +0.0 over +0.0 (`fp.sub`,
