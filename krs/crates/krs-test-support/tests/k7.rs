@@ -590,7 +590,7 @@ const RUN_STATUSES: &[&str] = &[
     "74 cells-run: no witness: the spelling is no notation of its cell's kind, so it denotes nothing there",
     "14 cells-run: runs a counter-witness",
     "23 cells-run: runs, liveness",
-    "23 cells-run: runs, value",
+    "24 cells-run: runs, value",
     "4 readable-run: no counter-witness: `..` alone matches every value of the cell",
     "4 readable-run: no counter-witness: `_` matches every value of the cell",
     "4 readable-run: no counter-witness: a binder matches every value of the cell",

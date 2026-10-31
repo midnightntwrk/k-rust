@@ -4049,6 +4049,15 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."cells-run/result/env/k::configuration::Cell(k::map![y -> k::builtin::map::size(rest)])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V1:Int |-> size(V3:Map) </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y))"]
 k = """
 rule [case-TAG]:

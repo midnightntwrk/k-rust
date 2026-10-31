@@ -108,8 +108,8 @@ refused construct is the one a depth-2 case's construct stands in.
 
 **Size.** The term family is 5,063 cases, the import axis 172 and the attribute axis (`attrs/..`,
 18 forms × 26 attributes, 26 malformed attributes and 20 extra cases, in the first shard of the
-fast tier) 514, the run families (`readable-run/..` 194 and `cells-run/..` 200, in the first shard
-of the fast tier too) 394, of 6,981 in all, and
+fast tier) 514, the run families (`readable-run/..` 194 and `cells-run/..` 201, in the first shard
+of the fast tier too) 395, of 6,982 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
 collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
 denotes) 2,862. The generator caps
@@ -277,12 +277,13 @@ the descriptors of the base and its own. A case is judged by
   with `..` (`Obj { key: 1, .. }`), which select, and in a readable record the literal
   `map![1 -> 2, ..]`, whose anonymous rest names no map (the class `anonymous-rest-in-map-literal`,
   which advises the `{ 1 -> 2, .. }` case); on the result side, an instance written with each.
-  Seven `cells!` map results have no twin either: each is written over a framed subject of its
+  Eight `cells!` map results have no twin either: each is written over a framed subject of its
   own (`cells::FRAMED_MAP_RESULTS`, finding NT-9-1), `k::map![5 -> old, rest @ ..]` or
   `k::map![5 -> old, ..]` over `{5 ↦ 5, 1 ↦ 7}`, whose rest `{1 ↦ 7}` holds the key `x` = 1 the
   result writes: one key, two, one beside the matched key, one equal to it at run time
-  (`int::add(x, 4)`), the matched key spelled `0x5`, the rest moved into `map::update(rest, x, y)`,
-  and an anonymous rest; K7 checks the map each ends with.
+  (`int::add(x, 4)`), the matched key spelled `0x5`, the rest moved into `map::update(rest, x, y)`
+  or into the value of an exact map, `k::map![y -> map::size(rest)]`, which ends without the rest's
+  entries, and an anonymous rest; K7 checks the map each ends with.
 
   Their plans (`class_matrix::config_drivers`) state what each spelling denotes in its cell. A
   subject case's witness is written by the driver commands before the case's command

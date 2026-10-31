@@ -943,6 +943,9 @@ fn framed_map_written(spelling: &str) -> Option<Written> {
         // 5 at 5, then 2 at 1.
         "k::configuration::Cell(k::map![5 -> old, x -> y, ..rest])"
         | "k::configuration::Cell(k::map![5 -> old, x -> y])" => map(&[(1, 2), (5, 5)]),
+        // The rest's size, 1, at 2, and nothing else: the exact map moves the rest out of the
+        // cell, so its entry `1 ↦ 7` is gone.
+        "k::configuration::Cell(k::map![y -> k::builtin::map::size(rest)])" => map(&[(2, 1)]),
         // 9 at 5, then 2 at `x + 4` = 5: the later entry's value.
         "k::configuration::Cell(k::map![5 -> 9, k::builtin::int::add(x, 4) -> y, ..rest])"
         // `0x5` is the key 5.

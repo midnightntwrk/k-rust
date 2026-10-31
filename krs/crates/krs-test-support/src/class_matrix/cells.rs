@@ -99,8 +99,9 @@ const BAG_RESULTS: [&str; 5] = [
 /// subject matches key 5 and leaves the rest of the map, bound (`rest @ ..`) or anonymous (`..`);
 /// the result writes its entries over that rest, at keys the subject did not match (one, two,
 /// beside the matched one, one equal to it at run time), at the matched key spelled another way
-/// (`0x5`), or moves the rest into the term it writes (no `..rest`).
-pub(super) const FRAMED_MAP_RESULTS: [(&str, &str); 7] = [
+/// (`0x5`), or moves the rest into the term it writes (no `..rest`): an update of the rest, or an
+/// exact map that reads the rest only in a value, so the rest's entries are gone.
+pub(super) const FRAMED_MAP_RESULTS: [(&str, &str); 8] = [
     (
         "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
         "k::configuration::Cell(k::map![x -> y, ..rest])",
@@ -124,6 +125,10 @@ pub(super) const FRAMED_MAP_RESULTS: [(&str, &str); 7] = [
     (
         "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
         "k::configuration::Cell(k::builtin::map::update(rest, x, y))",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::map![y -> k::builtin::map::size(rest)])",
     ),
     (
         "k::configuration::Cell(k::map![5 -> old, ..])",

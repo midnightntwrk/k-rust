@@ -2051,8 +2051,8 @@ fn slots() -> Vec<Slot> {
             "",
         )
         .holding(Holds::Only(&["Cmd::Go()", "Cmd::Hold(x)"])),
-        // The form NT-9-1's refusal advises: entries written over a map the subject binds whole,
-        // `map![x -> HOLE, ..m]` over `Cell(m)`.
+        // Entries written over a map the subject binds whole, `map![x -> HOLE, ..m]` over
+        // `Cell(m)`: the update chain over `m`.
         slot(
             "cells",
             "result-map-whole",

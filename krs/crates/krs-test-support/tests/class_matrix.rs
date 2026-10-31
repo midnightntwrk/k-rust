@@ -141,10 +141,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Attributes, 18 * 26 + 26 + 20),
             // The readable records and the `cells!` rules on the run base, and the Set collection's
             // spellings: 7 subject (a map literal with an anonymous rest among them) and 5 result
-            // spellings in a readable record, 6 and 5 in a `cells!` rule; and 7 map results over a
+            // spellings in a readable record, 6 and 5 in a `cells!` rule; and 8 map results over a
             // framed `cells!` subject (finding NT-9-1).
             (Family::ReadableRun, 182 + 7 + 5),
-            (Family::CellsRun, 182 + 6 + 5 + 7),
+            (Family::CellsRun, 182 + 6 + 5 + 8),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
