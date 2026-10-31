@@ -2074,6 +2074,7 @@ pub(super) fn lower_structured_rule_descriptor(
         declarations,
     )?;
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
+    check_cell_result(descriptor, rule, &subject_sort)?;
     // A single-body rule (KF-011) has no result: its subject's rewrites
     // say what changes, and the rule's sort is the subject's.
     let result_sort = rule.result_sort.as_ref().map_or_else(
@@ -2193,6 +2194,46 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_fresh(fresh)
     .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
     .with_requires(requires)?)
+}
+
+/// Checks that a `#[k::rule]` fn whose subject is no cell does not write a cell as its whole
+/// result.
+///
+/// The fn rewrites the term its subject matches into its result, in the place the subject stands,
+/// and KRS emits the rewrite bare, which K completes to the configuration by the roots of its
+/// sides: a term goes into the computation cell, and a cell term at a side's root is the
+/// configuration's cell. So with a cell fragment as the whole result the rewrite would not
+/// replace the subject's item by the cell's value, which a `KItem` position holds (inside a
+/// computation, a `for Stmt` clause writes it so), but put the subject and the result in different
+/// cells, which no route can build. Term inference reads a complete cell term as a `KItem`
+/// wherever the position admits one, so the shape is told here, by the result's root.
+fn check_cell_result(
+    descriptor: &Descriptor,
+    rule: &StructuredRuleDescriptor,
+    subject_sort: &SemanticSortRef,
+) -> Result<(), DescriptorLoweringError> {
+    let (
+        krs_ir::SentenceKind::Transition,
+        Some(DescriptorTerm::Cell {
+            key, declaration, ..
+        }),
+    ) = (rule.sentence_kind, &rule.result)
+    else {
+        return Ok(());
+    };
+    if matches!(rule.subject, DescriptorTerm::Cell { .. }) {
+        return Ok(());
+    }
+    let sort = super::overload::sort_name(subject_sort);
+    Err(DescriptorLoweringError::InvalidTerm {
+        id: Box::new(descriptor.id().clone()),
+        detail: format!(
+            "the result of rule `{}` is the cell `{}`, a `k::fragment!`, at its root, while its subject is a `{sort}` term: K completes a `#[k::rule]` fn's rewrite to the configuration by the roots of its sides, and a cell at a side's root is the configuration's cell, so the rule would not replace the item its subject matches by this value; write the clause in a `k::rules! {{ for {sort}; .. }}` block, which writes the value inside the computation cell, or write the cell in a `k::cells!` rule's result to rewrite the configuration's cell",
+            descriptor.id().item_name(),
+            declaration.item_name(),
+        ),
+        range: key_range(descriptor, key).map(Box::new),
+    })
 }
 
 /// The subject's bindings in first-occurrence order, which a predicate

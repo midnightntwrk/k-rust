@@ -25,6 +25,11 @@
 //!   desugar runs only forward, so `A | B` means "either", which one clause
 //!   each states exactly. An alias clause's subject holds no `|` (NT-Q5);
 //!
+//! A clause's result is the term a program's expansion writes in place of the production's
+//! application, which then evaluates as the same term in a rule's result does; so it is a term of
+//! the production's sort or of a sort below it ([`check_result_sort`]), since the production's
+//! sort is what the application's place requires.
+//!
 //! An alias clause also runs backwards: when a result is printed, each term its result matches
 //! prints as its subject, built from what the match bound. So below its root the subject holds
 //! nothing printing cannot build (`reversible_subject`); the constructs the expander's walker
@@ -43,6 +48,7 @@ use krs_ir_levels::{
 
 use super::catalog::semantic_is_subsort;
 use super::error::DescriptorLoweringError;
+use super::overload::sort_name;
 use crate::partition::production_display_name;
 
 /// The most static applications KRS expands in one clause's subject, counting
@@ -209,6 +215,7 @@ pub(super) fn static_clauses(
         let Some(body) = rule.body() else {
             continue;
         };
+        check_result_sort(rule, mode, body.from(), body.to(), &productions)?;
         let mut expansion = Expansion {
             productions: &productions,
             clause: rule,
@@ -317,6 +324,46 @@ fn check_head<'m>(
             at,
         )),
     }
+}
+
+/// Checks that the result of an alias or desugar clause, of mode `clause`, is a term of the sort
+/// of the production its subject's root applies, or of a sort below it.
+///
+/// The clause says that the production's application is its result: a program's application is
+/// replaced by the result where it stands, before anything evaluates, and the expanded term
+/// evaluates as the same term in a rule's result does. Where the application stands, the
+/// production's sort is required (a program's root, a constructor's field of that sort), and a
+/// term of a sort not below it is no term there: `#[k::desugar] Cp() => "s"` makes a program's
+/// `cp` the projection of `"s"` to `Stmt`, which has no value. The sort judges the result, not
+/// the value one binding gives it: a `KItem` result is no `Stmt` for the bindings that are none.
+fn check_result_sort(
+    rule: &SemanticRule,
+    clause: Mode,
+    subject: &SemanticTerm,
+    result: &SemanticTerm,
+    productions: &Productions<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    let (sort, result_sort) = (subject.sort(), result.sort());
+    if productions.is_subsort(result_sort, sort) {
+        return Ok(());
+    }
+    let production = clause_head(rule).map_or_else(String::new, |head| {
+        format!(" `{}`", production_display_name(head))
+    });
+    let (sort, result_sort) = (sort_name(sort), sort_name(result_sort));
+    Err(DescriptorLoweringError::InvalidTerm {
+        id: Box::new(rule.id().clone()),
+        detail: format!(
+            "the result of {} clause `{}` has sort `{result_sort}`, which is not below `{sort}`, the sort of the production{production} it expands: a program's application of the production is replaced by the result where a `{sort}` stands, and a term of sort `{result_sort}` is none there; write a result of sort `{sort}`, or of a sort below it",
+            clause.clause(),
+            rule.id().item_name(),
+        ),
+        range: result
+            .origin()
+            .origin()
+            .exact_authored_range()
+            .map(Box::new),
+    })
 }
 
 /// Checks every alias and desugar production for a clause that expands it.
