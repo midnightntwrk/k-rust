@@ -686,15 +686,54 @@ pub fn EcrecOutput(public_key: k::Term<Bytes>) -> k::Term<Bytes> {
     }
 }
 
+/// secp256k1's group order n: ECREC recovers only signatures whose r and s lie in (0, n).
+#[k::constant]
+pub const SECP256K1_N: Int =
+    0xffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe_baae_dce6_af48_a03b_bfd2_5e8c_d036_4141;
+
+/// secp256k1's field prime p: the curve is y^2 = x^3 + 7 over the integers modulo p.
+#[k::constant]
+pub const SECP256K1_P: Int =
+    0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe_ffff_fc2f;
+
+/// ECREC's recoverability: v is 27 or 28, 0 < r < n, 0 < s < n, and r is the x-coordinate of a
+/// curve point.
+///
+/// Since r < n < p, r is a field element, and it is an x-coordinate exactly when r^3 + 7 is a
+/// square modulo p. p is an odd prime, so by Euler's criterion a value a with p not dividing a is
+/// a square exactly when a^((p - 1) / 2) is 1 modulo p (it is p - 1 otherwise). The case p | a
+/// cannot occur: a root x of x^3 + 7 would give the point (x, 0), of order 2, and the group's
+/// order n is odd. So the residue test below is exact. The modulus is the nonzero constant p, so
+/// every operation applied here has a determined value.
+#[k::function(total, syntax = "#kevmEcrecRecoverable({v}, {r}, {s})")]
+pub fn EcrecRecoverable(v: k::Term<Int>, r: k::Term<Int>, s: k::Term<Int>) -> k::Term<Bool> {
+    (v == 27 || v == 28)
+        && 0 < r
+        && r < SECP256K1_N
+        && 0 < s
+        && s < SECP256K1_N
+        && int::pow_mod(r * r * r + 7, (SECP256K1_P - 1) / 2, SECP256K1_P) == 1
+}
+
+/// ECREC's output: the EVM's precompile yields the empty output on a signature that is not
+/// recoverable, so the ECDSA hook is applied only to a recoverable one.
 #[k::function(total, syntax = "#kevmEcrecPrecompileOutput({data})")]
 pub fn EcrecPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
-    EcrecOutput {
-        public_key: EcdsaRecover {
-            hash: ReturnBytes(data, 0, 32),
-            recovery: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
-            r: ReturnBytes(data, 64, 32),
-            s: ReturnBytes(data, 96, 32),
-        },
+    if EcrecRecoverable(
+        BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
+        BytesToInt(ReturnBytes(data, 64, 32), 0, 0),
+        BytesToInt(ReturnBytes(data, 96, 32), 0, 0),
+    ) {
+        EcrecOutput {
+            public_key: EcdsaRecover {
+                hash: ReturnBytes(data, 0, 32),
+                recovery: BytesToInt(ReturnBytes(data, 32, 32), 0, 0),
+                r: ReturnBytes(data, 64, 32),
+                s: ReturnBytes(data, 96, 32),
+            },
+        }
+    } else {
+        bytes::empty()
     }
 }
 
@@ -5628,5 +5667,81 @@ mod tests {
         assert!(storage_load.contains("\n    requires "));
         assert!(!storage_load.contains("\n    <acctID>"));
         assert!(!storage_load.contains("\n    <storage>"));
+    }
+
+    /// The emitted rules whose left-hand side applies `name`: each rule's first line and its
+    /// indented continuation lines (its side condition).
+    fn rules_of<'a>(source: &'a str, name: &str) -> Vec<&'a str> {
+        let head = format!("# {name} (");
+        source
+            .split("\n  rule ")
+            .skip(1)
+            .filter(|rule| rule.starts_with(&head))
+            .map(|rule| {
+                let end = rule
+                    .match_indices('\n')
+                    .find(|(index, _)| !rule[index + 1..].starts_with("    "))
+                    .map_or(rule.len(), |(index, _)| index);
+                &rule[..end]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ecrec_applies_the_ecdsa_hook_only_to_recoverable_signatures() {
+        let bundle = collect_host_descriptors_with_builtins(
+            [package_context()],
+            k::host_descriptors(),
+            &k::builtin_registry(),
+        )
+        .expect("KEVM slice lowers");
+        let semantic = lower_descriptor_bundle(&bundle).expect("KEVM descriptors lower");
+        let definition = lower_semantic_theory(&semantic).expect("KEVM theory lowers");
+        let source = emit_k(&definition).expect("KEVM definition emits");
+        let source = source.source();
+        let guard = "# kevmEcrecRecoverable ( # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 32 , 32 ) , 0 , 0 ) , # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 64 , 32 ) , 0 , 0 ) , # kevmBytesToInt ( # kevmReturnBytes ( Data:Bytes , 96 , 32 ) , 0 , 0 ) )";
+
+        let outputs = rules_of(source, "kevmEcrecPrecompileOutput");
+        assert_eq!(outputs.len(), 2, "{outputs:#?}");
+        let (recovered, empty): (Vec<&str>, Vec<&str>) = outputs
+            .iter()
+            .copied()
+            .partition(|rule| rule.contains("# kevmEcdsaRecover ("));
+        assert_eq!(recovered.len(), 1, "{outputs:#?}");
+        assert!(
+            recovered[0].contains(&format!("\n    requires {guard} [label(")),
+            "the ECDSA hook is applied without the recoverability guard: {}",
+            recovered[0]
+        );
+        assert_eq!(empty.len(), 1, "{outputs:#?}");
+        assert!(
+            empty[0].starts_with("# kevmEcrecPrecompileOutput ( Data:Bytes ) => .Bytes\n"),
+            "{}",
+            empty[0]
+        );
+        assert!(
+            empty[0].contains(&format!("\n    requires notBool {guard} [label(")),
+            "{}",
+            empty[0]
+        );
+
+        let n = "115792089237316195423570985008687907852837564279074904382605163141518161494337";
+        let p = "115792089237316195423570985008687907853269984665640564039457584007908834671663";
+        let recoverable = rules_of(source, "kevmEcrecRecoverable");
+        assert_eq!(recoverable.len(), 1, "{recoverable:#?}");
+        let body = recoverable[0];
+        for conjunct in [
+            "(V:Int ==Int 27) orElseBool (V:Int ==Int 28)".to_owned(),
+            "0 <Int R:Int".to_owned(),
+            format!("R:Int <Int {n}"),
+            "0 <Int S:Int".to_owned(),
+            format!("S:Int <Int {n}"),
+            format!(
+                "(((R:Int *Int R:Int) *Int R:Int) +Int 7) ^%Int (({p} -Int 1) /Int 2) {p}) ==Int 1"
+            ),
+        ] {
+            assert!(body.contains(&conjunct), "missing `{conjunct}` in {body}");
+        }
+        assert!(!body.contains("requires"), "{body}");
     }
 }

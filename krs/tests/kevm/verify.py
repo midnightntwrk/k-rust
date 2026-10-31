@@ -57,7 +57,7 @@ PORT = semantics.Port(
     label="KEVM",
     key="kevm",
     checkout=INSPIRATIONS / "runtimeverification/evm-semantics",
-    descriptors=937,
+    descriptors=943,
     clippy_allow=("clippy::too_many_arguments",),
     hook_namespaces=("KRYPTO",),
     lsp_probes=PROBES,
@@ -69,8 +69,7 @@ CLAIM_COUNT = 8
 # concretely. The K-Rust route still executes them; the Java reference route
 # skips them and compares the remaining cases with native outcomes.
 # upstream haskell-backend/krypto-raw-hash-and-bn128-hooks-missing (_NO_HOOK),
-# upstream haskell-backend/keccak256raw-result-rejected-by-bytes-length (_KECCAK),
-# upstream haskell-backend/ecdsarecover-invalid-signature-assertion (ecrec invalid signature).
+# upstream haskell-backend/keccak256raw-result-rejected-by-bytes-length (_KECCAK).
 _NO_HOOK = "the Haskell backend implements no {} hook"
 _KECCAK = "the Haskell backend's KRYPTO.keccak256raw result is rejected by BYTES.length"
 HASKELL_BACKEND_GAPS: Mapping[str, str] = {
@@ -80,9 +79,6 @@ HASKELL_BACKEND_GAPS: Mapping[str, str] = {
     "extcodehash-nonce-nonempty-warm": _KECCAK,
     "extcodehash-balance-nonempty-cold": _KECCAK,
     "staticcall-ecrec-precompile-success": _KECCAK,
-    "staticcall-ecrec-precompile-invalid-signature": (
-        "the Haskell backend's KRYPTO.ecdsaRecover fails an internal assertion"
-    ),
     "staticcall-sha256-precompile-success": _NO_HOOK.format("KRYPTO.sha256raw"),
     "staticcall-ripemd160-precompile-success": _NO_HOOK.format("KRYPTO.ripemd160raw"),
     **{
