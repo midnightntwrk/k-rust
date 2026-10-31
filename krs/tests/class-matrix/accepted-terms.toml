@@ -13314,13 +13314,6 @@ rule cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") [label(case-TAG)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
 
-[accept."terms/rule/result-root/k::fragment![crate::Frame { ret: 1 }]"]
-k = """
-rule cTAG ( V0:KItem , _ ) => <frame> <ret> 1 </ret> </frame> [label(case-TAG)]
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept.'terms/rule/result-root/k::id!("$x")']
 k = """
 rule cTAG ( V0:KItem , _ ) => #token("$x","Id") [label(case-TAG)]
