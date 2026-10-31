@@ -1,5 +1,6 @@
 import TwoParamConf
 import Corout.Determinism
+import Corout.Equations
 import TwoParamInst.Tr
 import TwoParamInst.Back
 import KPrelude.Paths
@@ -103,6 +104,48 @@ example :
     Corout.Step.add 2 _ 1 _
   have e := (seg_of_ends (Paths.FirstReach.step (fun t => t _ st) st (Paths.FirstReach.here stuck)))
   exact ⟨e.1, e.2⟩
+
+/-- `loop(2, {dbl}) ; yield`, the code a process keeps after the first segment of `prog`. -/
+def rest : TwoParam.SortStmts :=
+  .«_;_» (.«loop(_,_)» 2 (.«{_}» (.«_;_» .dbl .«.List{"_;__TWOPARAM-SYNTAX_Stmts_Stmt_Stmts"}_Stmts»)))
+    (.«_;_» .yield .«.List{"_;__TWOPARAM-SYNTAX_Stmts_Stmt_Stmts"}_Stmts»)
+
+/-- `add(1) ; yield ; loop(2, {dbl}) ; yield`. -/
+def prog : TwoParam.SortStmts := .«_;_» (.«add(_)» 1) (.«_;_» .yield rest)
+
+/-- `app` of a one-statement body, by corout's equations (`app` recurs on its first argument, so it
+does not reduce by `rfl`). -/
+theorem app_one {S : Corout.SortStmt} {T : Corout.SortStmts} :
+    Corout.K.«app(_,_)_COROUT_Stmts_Stmts_Stmts»
+      (.«_;_» S .«.List{"_;__COROUT-SYNTAX_Stmts_Stmt_Stmts"}_Stmts») T = some (.«_;_» S T) := by
+  simp [Corout.Eqn.«app(_,_)_COROUT_Stmts_Stmts_Stmts_1», Corout.Eqn.«app(_,_)_COROUT_Stmts_Stmts_Stmts_2»]
+
+/-- A run of corout to a segment's end, step by step: each step is corout's `step` computed
+(`Corout.step_sound`), or a `loop` whose body is one statement (`app_one`), and the end is a
+configuration no rule matches. -/
+local macro "k2l_seg_run" : tactic => `(tactic| (simp only [Ends, start, prog, rest, k2l_tr]; repeat (first
+  | (refine Paths.FirstReach.here ?_; intro _ h; cases h <;> done)
+  | (refine Paths.FirstReach.step ?_ (Corout.step_sound rfl) ?_
+     · intro t; exact t _ (Corout.step_sound rfl))
+  | (refine Paths.FirstReach.step ?_ (Corout.Step.loop _ _ _ _ _ _ (by rfl) app_one) ?_
+     · intro t; exact t _ (Corout.Step.loop _ _ _ _ _ _ (by rfl) app_one)))))
+
+/-- Two segments of one process: resumed with 1 from register 0, `prog` yields 2 and keeps `rest`,
+the code after the `yield`; resumed again with 1, from register 3, `rest` runs its loop and yields
+12, keeping nothing. -/
+example :
+    TwoParam.Hooks.«fn.segReg(_,_)_TWOPARAM_Int_Int_Stmts» 1 prog = some 2 ∧
+    TwoParam.Hooks.«fn.segCode(_,_)_TWOPARAM_Stmts_Int_Stmts» 1 prog = some rest ∧
+    TwoParam.Hooks.«fn.segReg(_,_)_TWOPARAM_Int_Int_Stmts» 3 rest = some 12 ∧
+    TwoParam.Hooks.«fn.segCode(_,_)_TWOPARAM_Stmts_Int_Stmts» 3 rest =
+      some .«.List{"_;__TWOPARAM-SYNTAX_Stmts_Stmt_Stmts"}_Stmts» :=
+  -- the first segment stops at the `yield` with register 2, the second at the last `yield` with 12
+  have s₁ := seg_of_ends (show Ends 1 (Tr.tr_SortStmts prog)
+    (start 2 (.«_;_» .yield (Tr.tr_SortStmts rest))) by k2l_seg_run)
+  have s₂ := seg_of_ends (show Ends 3 (Tr.tr_SortStmts rest)
+    (start 12 (.«_;_» .yield .«.List{"_;__COROUT-SYNTAX_Stmts_Stmt_Stmts"}_Stmts»)) by k2l_seg_run)
+  ⟨s₁.1, s₁.2.trans (by simp [codeOf, after, start, rest, k2l_tr]), s₂.1,
+    s₂.2.trans (by simp [codeOf, after, start, k2l_tr])⟩
 
 end TwoParamInst
 

@@ -221,7 +221,7 @@ gate_confluence() {
   # TwoParamConf's phase
   if runs demo TwoParamInst; then
     phase "scaffold TwoParamInst"
-    partlib corout Corout.Determinism
+    partlib corout Corout
     scaffold relate-TwoParamInst libs_confluence TwoParamInst
     dbuild TwoParamInst
   fi
