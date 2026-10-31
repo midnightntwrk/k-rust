@@ -434,19 +434,19 @@ fn programs_share_one_input_grammar() {
     let builds = kink_corpus::input::input_grammar_builds;
 
     let before = builds();
-    let idle = inputs.session();
+    let idle = inputs.session(&spec);
     for program in programs {
         idle.text(program).unwrap();
     }
     drop(idle);
     assert_eq!(builds(), before, "a session that assembles no program");
 
-    let mut session = inputs.session();
+    let mut session = inputs.session(&spec);
     let shared = programs
         .iter()
         .map(|program| {
             let text = session.text(program).unwrap();
-            (session.test_case(&spec, program, text.clone()), text)
+            (session.test_case(program, text.clone()), text)
         })
         .collect::<Vec<_>>();
     assert_eq!(
@@ -472,6 +472,34 @@ fn programs_share_one_input_grammar() {
         assert!(test.oracles.is_empty());
         assert_eq!(test.initial_state, fresh, "{}", program.id);
     }
+}
+
+/// Program inputs keep the input grammar of the specification admitted beside them, so they open
+/// a session only on that specification (or a clone of it): a session on the specification of
+/// another admission, even of the same manifest, is refused before any program is assembled.
+#[test]
+fn a_session_takes_only_the_specification_admitted_beside_its_inputs() {
+    let manifest = FlowManifest::read(&flow("calc/FLOW.toml")).unwrap();
+    let (spec, mut inputs) = kink_flow::admit_spec(&manifest)
+        .1
+        .expect("calc is admitted");
+    let clone = spec.clone();
+    drop(inputs.session(&clone));
+    let (other, _) = kink_flow::admit_spec(&manifest)
+        .1
+        .expect("calc is admitted");
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        drop(inputs.session(&other));
+    }))
+    .expect_err("a session on another admission's specification");
+    let message = refused
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .unwrap_or_default();
+    assert!(
+        message.contains("the specification is not the one these inputs were admitted with"),
+        "{message}"
+    );
 }
 
 fn binary(args: &[&std::ffi::OsStr]) -> (Option<i32>, String, String) {

@@ -35,6 +35,7 @@ use std::{
     cell::OnceCell,
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 /// The record name of a flow specification in its [`AdmissionRecord`].
@@ -54,6 +55,21 @@ pub struct AdmittedSpec {
     /// be killed (`baseline-findings`), no comparable program can kill, and no query `no` is
     /// given.
     pub data: DataFacts,
+    /// Which admission produced this specification; the [`ProgramInputs`] admitted beside it
+    /// carry the same value, and only this specification opens a session on them.
+    admission: AdmissionId,
+}
+
+/// The identity of one admission (`admit_spec_with` call): unique within the process, shared
+/// by its [`AdmittedSpec`] (and the specification's clones) and its [`ProgramInputs`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdmissionId(u64);
+
+impl AdmissionId {
+    fn fresh() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
 }
 
 /// The admission of one program.
@@ -90,7 +106,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             programs: Vec::new(),
         };
     };
-    let mut session = inputs.session();
+    let mut session = inputs.session(&spec);
     let programs = manifest
         .programs
         .iter()
@@ -98,7 +114,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             id: program.id.clone(),
             outcome: session
                 .text(program)
-                .and_then(|text| session.test_case(&spec, program, text)),
+                .and_then(|text| session.test_case(program, text)),
         })
         .collect();
     FlowAdmission {
@@ -129,17 +145,15 @@ pub fn admit_spec_with(
     let mut record = AdmissionRecord::new(SPEC_RECORD_NAME);
     let admitted = admit_definition(manifest, &mut record, census);
     match admitted {
-        Ok((spec, backend)) => (
-            record,
-            Some((
-                spec,
-                ProgramInputs {
-                    root: spec_root(manifest),
-                    backend,
-                    grammar: OnceCell::new(),
-                },
-            )),
-        ),
+        Ok((spec, backend)) => {
+            let inputs = ProgramInputs {
+                admission: spec.admission,
+                root: spec_root(manifest),
+                backend,
+                grammar: OnceCell::new(),
+            };
+            (record, Some((spec, inputs)))
+        }
         Err(refusal) => {
             record.refusal = Some(refusal);
             (record, None)
@@ -151,8 +165,12 @@ pub fn admit_spec_with(
 /// an [`InputSession`]: the manifest's canonical directory, the input gate's backend, and the
 /// specification's input grammar, built on the first program assembled.
 pub struct ProgramInputs {
+    /// The admission these inputs came from; only its [`AdmittedSpec`] opens a session.
+    admission: AdmissionId,
     root: Result<PathBuf, AdmissionRefusal>,
     backend: Backend,
+    /// The input grammar of the specification of `admission`, the only one sessions accept,
+    /// so it outlives every session.
     grammar: OnceCell<Result<InputGrammar, InputError>>,
 }
 
@@ -163,9 +181,23 @@ impl ProgramInputs {
         read_text(&self.root, program)
     }
 
-    /// A session that admits programs of the specification these inputs were admitted with.
-    pub fn session(&mut self) -> InputSession<'_> {
+    /// A session that admits programs of `spec`, which must be the specification these inputs
+    /// were admitted with (the other half of the pair `admit_spec` returned, or a clone of
+    /// it): the input grammar is a function of the specification, and these inputs keep the
+    /// one they built for it.
+    ///
+    /// # Panics
+    ///
+    /// If `spec` comes from another admission: initial states assembled with another
+    /// specification's grammar would be wrong inputs, not a refusal.
+    pub fn session<'a>(&'a mut self, spec: &'a AdmittedSpec) -> InputSession<'a> {
+        assert_eq!(
+            spec.admission, self.admission,
+            "ProgramInputs::session: the specification is not the one these inputs were \
+             admitted with (pass the AdmittedSpec that admit_spec returned beside them)"
+        );
         InputSession {
+            spec,
             root: &self.root,
             backend: &mut self.backend,
             grammar: &self.grammar,
@@ -191,6 +223,7 @@ fn read_text(
 /// program, so a program's initial configuration and refusal are those a fresh assembly gives
 /// (k-rust `ConfigurationAssembler`).
 pub struct InputSession<'a> {
+    spec: &'a AdmittedSpec,
     root: &'a Result<PathBuf, AdmissionRefusal>,
     backend: &'a mut Backend,
     grammar: &'a OnceCell<Result<InputGrammar, InputError>>,
@@ -204,19 +237,18 @@ impl InputSession<'_> {
     }
 
     /// The program's concrete initial configuration (`text` is [`Self::text`]'s result):
-    /// assembled with the specification's own baseline compile (re-pin L1-4: no compile per
-    /// program), then the concrete-state check and the input gate. `spec` is the specification
-    /// these inputs were admitted with; a failure to build its grammar refuses every program
-    /// with the same refusal.
+    /// assembled with the session's specification's own baseline compile (re-pin L1-4: no
+    /// compile per program), then the concrete-state check and the input gate. A failure to
+    /// build the specification's grammar refuses every program with the same refusal.
     pub fn test_case(
         &mut self,
-        spec: &AdmittedSpec,
         program: &Program,
         text: String,
     ) -> Result<TestCase, AdmissionRefusal> {
         let assembler = match &mut self.assembler {
             Some(assembler) => assembler,
             None => {
+                let spec = self.spec;
                 let grammar = self
                     .grammar
                     .get_or_init(|| InputGrammar::prepare(&spec.loaded, Some(&spec.compiled)))
@@ -305,6 +337,7 @@ fn admit_definition(
             compiled,
             validator,
             data,
+            admission: AdmissionId::fresh(),
         },
         backend,
     ))

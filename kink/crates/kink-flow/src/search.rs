@@ -384,13 +384,14 @@ impl Search<'_, '_> {
         let row = &self.rows[index];
         let mut test = match (&row.test, &row.text) {
             (Some(test), _) => test.clone(),
-            (None, Some(text)) => self
-                .inputs
-                .test_case(self.spec, program, text.clone())
-                .map_err(|refusal| CorpusError {
-                    reason: format!("program-refused:{}", program.id),
-                    detail: format!("{}/{}: {}", refusal.stage, refusal.reason, refusal.detail),
-                })?,
+            (None, Some(text)) => {
+                self.inputs
+                    .test_case(program, text.clone())
+                    .map_err(|refusal| CorpusError {
+                        reason: format!("program-refused:{}", program.id),
+                        detail: format!("{}/{}: {}", refusal.stage, refusal.reason, refusal.detail),
+                    })?
+            }
             (None, None) => {
                 return Err(CorpusError {
                     reason: format!("program-refused:{}", program.id),
@@ -1547,7 +1548,7 @@ pub fn run_with(
     let Some((spec, mut inputs)) = admitted else {
         return refused(&record, &census_mismatch);
     };
-    let mut inputs = inputs.session();
+    let mut inputs = inputs.session(&spec);
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
         Err(e) => {

@@ -1515,9 +1515,9 @@ mod tests {
                     .lower("<k> 3 </k>", searcher.definition())
                     .unwrap();
                 let program = manifest.programs.iter().find(|p| p.id == "add").unwrap();
-                let mut inputs = inputs.session();
+                let mut inputs = inputs.session(&spec);
                 let text = inputs.text(program).unwrap();
-                let test = inputs.test_case(&spec, program, text).unwrap();
+                let test = inputs.test_case(program, text).unwrap();
                 let response = searcher
                     .backend
                     .search_pattern_json(SearchPatternRequest {

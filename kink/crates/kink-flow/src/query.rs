@@ -233,7 +233,7 @@ pub(crate) fn query_with(
     let Some((spec, mut inputs)) = admitted else {
         return (refused_document(&record), false);
     };
-    let mut inputs = inputs.session();
+    let mut inputs = inputs.session(&spec);
     let cache = cache_directory(manifest, options.cache.as_deref());
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
@@ -414,7 +414,7 @@ fn ask(
     };
     let test = match &result.test {
         Some(test) => test.clone(),
-        None => match inputs.test_case(spec, program, text) {
+        None => match inputs.test_case(program, text) {
             Ok(test) => test,
             Err(refusal) => {
                 let answer = Answer::error(format!(

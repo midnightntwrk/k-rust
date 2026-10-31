@@ -1115,8 +1115,9 @@ mod kink_tier {
         let checks = on_stack(move || {
             let (_, admitted) = kink_flow::admit_spec(&manifest);
             let (spec, mut inputs) = admitted.expect("the specification is admitted");
+            let mut inputs = inputs.session(&spec);
             let mut check = |case: &k_rust_fuzz::report::WitnessCase, text: &str| {
-                check_assembly(&spec, &mut inputs, &program, text, case)
+                check_assembly(&mut inputs, &program, text, case)
             };
             let unchanged = check(&case, &program_text);
             // The mutant's input with `x = 5` read as `x = 6`.

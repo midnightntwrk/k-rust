@@ -1019,13 +1019,12 @@ impl AssemblyCheck {
 /// case is no witness for kink (`assembly-mismatch`). The hole values are covered, since the
 /// check reads the instantiated program.
 pub fn check_assembly(
-    spec: &AdmittedSpec,
     inputs: &mut InputSession<'_>,
     program: &Program,
     text: &str,
     case: &WitnessCase,
 ) -> AssemblyCheck {
-    let kink = match inputs.test_case(spec, program, text.to_owned()) {
+    let kink = match inputs.test_case(program, text.to_owned()) {
         Ok(test) => test.initial_state,
         Err(refusal) => {
             return AssemblyCheck::Refused {
@@ -1396,7 +1395,7 @@ pub fn fuzz_job(
         Ok(instance) => instance,
         Err(refusal) => return refuse(document, refusal, "fix the template"),
     };
-    let mut inputs = inputs.session();
+    let mut inputs = inputs.session(&spec);
     document["template"] = json!({
         "id": template.id,
         "source": match &template.source {
@@ -1752,7 +1751,7 @@ pub fn fuzz_job(
         anchor(k_rust_fuzz::report::DefinitionRole::Mutant),
     );
     let template_input = template_program(template, &instance);
-    let kink_template = inputs.test_case(&spec, &template_input, instance.text.clone());
+    let kink_template = inputs.test_case(&template_input, instance.text.clone());
     let kink_digest = kink_template
         .as_ref()
         .ok()
@@ -1982,8 +1981,7 @@ pub fn fuzz_job(
                 }
                 let mut candidate = serde_json::to_value(case).expect("a witness case encodes");
                 candidate["case"] = json!(which);
-                let assembly =
-                    check_assembly(&spec, &mut inputs, &fragment.program, &fragment.text, case);
+                let assembly = check_assembly(&mut inputs, &fragment.program, &fragment.text, case);
                 candidate["assembly"] = assembly.value();
                 if assembly != AssemblyCheck::Match {
                     if offered.is_none() && refused.is_empty() {

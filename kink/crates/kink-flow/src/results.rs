@@ -1133,7 +1133,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
             false,
         );
     };
-    let mut inputs = inputs.session();
+    let mut inputs = inputs.session(&spec);
     let cache = cache_directory(manifest, options.cache.as_deref());
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
@@ -1333,7 +1333,7 @@ fn program_row(
             test: None,
         };
     }
-    let test = match inputs.test_case(spec, program, text.clone()) {
+    let test = match inputs.test_case(program, text.clone()) {
         Ok(test) => test,
         Err(refusal) => return refused(Some(digest), refusal),
     };
