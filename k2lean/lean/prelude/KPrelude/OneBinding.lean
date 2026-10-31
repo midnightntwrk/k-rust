@@ -19,6 +19,15 @@ def bindingOf? (t : Expr) : Option (Expr × Expr) := do
   unless e.isAppOf ``MapHook.element && e.getAppNumArgs ≥ 2 do none
   return (e.appFn!.appArg!, r.appArg!)
 
+/-- A proof of an equation that is `h`, or one of its conjuncts (`h : t`, nested `∧`). -/
+partial def eqConjunct? (h t : Expr) : MetaM (Option Expr) := do
+  let t ← whnfR t
+  if t.consumeMData.isEq then return some h
+  if let some (a, b) := t.consumeMData.and? then
+    if let some e ← eqConjunct? (mkProj ``And 0 h) a then return some e
+    return ← eqConjunct? (mkProj ``And 1 h) b
+  return none
+
 /-- What computes the claims of a binding in `e`: the definitions of the namespace `ns` (the
 generated invariant's projections and claims, `Invariant.F_g`) and the proved equations
 (`@[k2l_equation]`) of the functions that occur. -/
@@ -36,8 +45,11 @@ with `k₁`, `k₂` different terms, and a hypothesis `h` that a `@[k2l_claims_a
 (`Invariant.F_apart`) applies to: the theorem gives `k₁ = k₂` from a claim of both bindings. Each
 binding's claims are computed with the definitions and the proved equations of the functions that
 occur, round by round as the unfolding reveals them, an equation's premises from the hypotheses
-(`k2l_arith_omega`: the rule's side conditions). When the claims share an element the keys are made
-one (`cases`). Repeats while a pair is found; fails if none is. -/
+(`k2l_arith_omega`: the rule's side conditions). A binding with several claims gives a premise
+`x = a ∨ x = b ∨ …`, taken apart claim by claim (`forall_eq_or_imp`), so the result is a conjunction,
+one conjunct per claim of the first binding, and a conjunct whose claim the other binding shares is
+the keys' equation. When the claims share an element the keys are made one (`cases`). Repeats while
+a pair is found; fails if none is. -/
 elab "k2l_one_binding" : tactic => do
   let thms := claimsApartTheorems (← getEnv)
   let mut any := false
@@ -73,13 +85,18 @@ elab "k2l_one_binding" : tactic => do
                   evalTactic (← `(tactic| try simp (disch := k2l_arith_omega) only
                     [$[$ids:ident],*, ListHook.element, ListHook.unit, ListIso.toList_ofList, Option.map_some,
                      Option.bind_some, Option.bind_fun_some, Option.getD_some, List.mem_cons, List.mem_singleton,
-                     List.not_mem_nil, forall_eq, forall_eq', true_implies, or_false, false_or]
+                     List.not_mem_nil, ListHook.concat, List.mem_append, forall_eq_or_imp, forall_eq, forall_eq',
+                     true_implies, or_false, false_or, eq_self_iff_true, true_or, or_true, and_true,
+                     true_and, and_self, reduceCtorEq]
                     at $(mkIdent `k2l_ob):ident))
-                let isEq ← (← getMainGoal).withContext do
-                  let t ← instantiateMVars ((← getLCtx).findFromUserName? `k2l_ob |>.map (·.type) |>.getD (mkConst ``True))
-                  return t.consumeMData.isEq
-                if isEq then
-                  evalTactic (← `(tactic| cases $(mkIdent `k2l_ob):ident))
+                let eq? ← (← getMainGoal).withContext do
+                  let some d := (← getLCtx).findFromUserName? `k2l_ob | return none
+                  eqConjunct? d.toExpr (← instantiateMVars d.type)
+                if let some e := eq? then
+                  let (_, g) ← (← getMainGoal).withContext do
+                    (← getMainGoal).assert `k2l_eq (← inferType e) e >>= (·.intro1P)
+                  replaceMainGoal [g]
+                  evalTactic (← `(tactic| (clear $(mkIdent `k2l_ob):ident; cases $(mkIdent `k2l_eq):ident)))
                   return true
                 restoreState saved
               catch _ => restoreState saved

@@ -5,8 +5,9 @@
 # ledger, library utxo; HandoffConf: the same for the fixture handoff, tasks of a coordination
 # script run when their inputs are ready, library handoff; HandoffSeqRel: the script run in its
 # order, the fixture handoffseq, into handoff, library handoffseq; DrfConf: workers writing one
-# cell, the fixture drf, a slot refuted by two runs of a program, library drf). Registry:
-# confluence.py.
+# cell, the fixture drf, a slot refuted by two runs of a program, library drf; TwoConf: the
+# two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
+# coordination script, library twolayer). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -15,6 +16,7 @@ name_confluence() {
     handoff) echo Handoff ;;
     handoffseq) echo HandoffSeq ;;
     drf) echo Drf ;;
+    twolayer) echo TwoLayer ;;
     *) return 1 ;;
   esac
 }
@@ -33,6 +35,9 @@ gen_confluence() {
     # workers writing one cell, the last write winning (tests/fixtures/drf), with its data-race
     # freedom `drfOk` as a kind 1 invariant (at most one write to <acc> pending)
     drf) libs_fixture_args "$1"; GEN_ARGS+=(--invariant drfOk@T) ;;
+    # the two-layer prototype (tests/fixtures/twolayer, docs/direction.md §8 step 4): the script's
+    # tasks run the segments of a coroutine language, with the script's well-formedness `wf`
+    twolayer) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
     *) return 1 ;;
   esac
   return 0
@@ -74,6 +79,17 @@ libs_confluence() {
         --threads workers --obs acc --assume-invariant Drf.Invariant --views-module DrfConf.Legal.Views \
         --slots "$DEMOS/DrfConf/DrfConf/Legal/Slots.lean" \
         --out "$DEMOS/DrfConf/DrfConf/Legal/Views.lean" --report "$DEMOS/DrfConf/legal.toml" ;;
+    # the two-layer prototype: the races of two tasks refuted together by two runs of each witness
+    # (`Open.refuted`), and every slot generic under the script's well-formedness `wf` (`TwoConf.Legal`)
+    TwoConf) "$G" confluence --kore "$(libs_fixture twolayer)/definition.kore" --name TwoLayer --ns TwoConf \
+        --threads tasks --obs vals --slots "$DEMOS/TwoConf/TwoConf/Slots.lean" \
+        --open-joins "$DEMOS/TwoConf/open-joins.txt" --witnesses "$(libs_fixture twolayer)/witnesses" \
+        --out "$DEMOS/TwoConf/TwoConf/Views.lean" --report "$DEMOS/TwoConf/confluence.toml" &&
+      mkdir -p "$DEMOS/TwoConf/TwoConf/Legal" &&
+      "$G" confluence --kore "$(libs_fixture twolayer)/definition.kore" --name TwoLayer --ns TwoConf.Legal \
+        --threads tasks --obs vals --assume-invariant TwoLayer.Invariant --views-module TwoConf.Legal.Views \
+        --slots "$DEMOS/TwoConf/TwoConf/Legal/Slots.lean" \
+        --out "$DEMOS/TwoConf/TwoConf/Legal/Views.lean" --report "$DEMOS/TwoConf/legal.toml" ;;
     SimpleConf) simple_witnesses "$W/simple-witnesses" &&
       "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --slots "$DEMOS/SimpleConf/SimpleConf/Slots.lean" \
@@ -151,6 +167,16 @@ gate_confluence() {
     partlib drf Drf.Adequacy
     scaffold confluence-DrfConf libs_confluence DrfConf
     dbuild_slots DrfConf
+  fi
+  # the two-layer prototype (docs/direction.md §8 step 4): the views by task of the fixture twolayer,
+  # a resume running the process's segment in the resuming task; the races of two tasks for one
+  # creation, resume or spend refuted together by two runs of each witness; under the script's
+  # well-formedness `wf` (`TwoLayer.Invariant`, preserved by every rule) every slot generic
+  if runs demo TwoConf; then
+    phase "scaffold TwoConf"
+    partlib twolayer TwoLayer
+    scaffold confluence-TwoConf libs_confluence TwoConf
+    dbuild_slots TwoConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;

@@ -13,7 +13,8 @@
 //! a premise (`views::emit_plain`). With `--slots` each pair in a premise is an obligation of its
 //! own (`join.K.r₁.r₂`), attempted by generic arguments, in order: the instances are refuted (the
 //! left-hand sides do not unify, `cases`, or once unified, with the sort projections computed, a
-//! side condition computes to false, `k2l_proj_compute` and `k2l_refute_computed`) or are one instance (`k2l_det`); or they act at two
+//! side condition computes to false, `k2l_proj_compute` and `k2l_refute_computed`, or two side
+//! conditions contradict as arithmetic, `k2l_arith_omega`) or are one instance (`k2l_det`); or they act at two
 //! bindings of a cell map matched at a free key and commute (`MapHook.concat_element_same_or_comm`),
 //! or one updates a binding and the other inserts a fresh one (`concat_element_comm_insert`), or
 //! each applies after the other unchanged; the two final states are closed by `k2l_join_eq`
@@ -3566,7 +3567,8 @@ def SameThreadJoins : Prop :=
             .values()
             .any(|h| matches!(h, super::Mark::Hand | super::Mark::Refuted));
         let mut m = String::new();
-        // `k2l_refute_computed`: two instances refuted by a side condition that computes
+        // `k2l_refute_computed`: two instances refuted by a side condition that computes; and
+        // (`KPrelude.Tactic`) `k2l_arith_omega`: by two side conditions that contradict as arithmetic
         writeln!(m, "import {}\nimport KPrelude.Progress", so.views).unwrap();
         // `k2l_one_binding`: under the invariant, two bindings that claim one thing are one
         if so.inv.is_some() {
@@ -3650,7 +3652,7 @@ def SameThreadJoins : Prop :=
                     }
                 };
                 format!(
-                    "  intro c c₁ c₂ a₁ a₂ k {hinv}s₁ s₂ l₁ l₂\n  obtain ⟨{}, rfl, rfl, {}⟩ := s₁\n  obtain ⟨{}, e, rfl, {}⟩ := s₂\n  cases e\n  {}\n  all_goals {}\n  all_goals (subst e₁; try cases e₂)\n  all_goals k2l_det\n  all_goals first\n    | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n    | (k2l_proj_compute; k2l_refute_computed)",
+                    "  intro c c₁ c₂ a₁ a₂ k {hinv}s₁ s₂ l₁ l₂\n  obtain ⟨{}, rfl, rfl, {}⟩ := s₁\n  obtain ⟨{}, e, rfl, {}⟩ := s₂\n  cases e\n  {}\n  all_goals {}\n  all_goals (subst e₁; try cases e₂)\n  all_goals k2l_det\n  all_goals first\n    | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n    | (k2l_proj_compute; k2l_refute_computed)\n    | (exfalso; k2l_arith_omega)",
                     us(i),
                     last(b1, "hp₁"),
                     us(j),
@@ -3677,7 +3679,7 @@ def SameThreadJoins : Prop :=
                     v.join(", ")
                 };
                 let mut p = format!(
-                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  have i₁ := Inst.of s₁\n  have i₂ := Inst.of s₂\n  obtain ⟨{}⟩ := i₁\n  obtain ⟨{}⟩ := i₂\n  cases e\n  first\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed))",
+                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  have i₁ := Inst.of s₁\n  have i₂ := Inst.of s₂\n  obtain ⟨{}⟩ := i₁\n  obtain ⟨{}⟩ := i₂\n  cases e\n  first\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed)\n         | (exfalso; k2l_arith_omega))",
                     pat(a1, "rfl"),
                     pat(&a2, "e")
                 );
@@ -3692,7 +3694,7 @@ def SameThreadJoins : Prop :=
                 // two changes of a cell holding a map at their keys (`k2l_keyed`): at one key the
                 // instances agree or clash, at two the changes commute; else the instances alone
                 format!(
-                    "  intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n  have x₁ := ChOf.cells o₁\n  have x₂ := ChOf.cells o₂\n  have i₁ := o₁.2.2\n  have i₂ := o₂.2.2\n  simp only [Rule.cls, InClass] at i₁ i₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n  try simp only [{}] at x₁ x₂\n  first\n    | (k2l_keyed hk\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed))",
+                    "  intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n  have x₁ := ChOf.cells o₁\n  have x₂ := ChOf.cells o₂\n  have i₁ := o₁.2.2\n  have i₂ := o₂.2.2\n  simp only [Rule.cls, InClass] at i₁ i₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n  try simp only [{}] at x₁ x₂\n  first\n    | (k2l_keyed hk\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)\n    | (k2l_det\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_proj_compute; k2l_refute_computed)\n         | (exfalso; k2l_arith_omega))",
                     us(i),
                     us(j),
                     cells.join(", ")
@@ -3840,7 +3842,7 @@ def SameThreadJoins : Prop :=
                     }
                 ),
                 format!(
-                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`), each step after the other (`k2l_join_eq`)",
+                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)",
                     if *any_keyed {
                         "the keys of two changes of a cell holding a map (`k2l_keyed`), "
                     } else {
@@ -3852,7 +3854,7 @@ def SameThreadJoins : Prop :=
             (
                 "--slots",
                 format!("{} of `OpenJoins`", total[1]),
-                "each rule's instance (`k2l_det`), a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`), each step after the other (`k2l_join_eq`)"
+                "each rule's instance (`k2l_det`), a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)"
                     .to_string(),
             )
         };

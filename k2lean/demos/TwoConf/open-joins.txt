@@ -1,0 +1,15 @@
+# The slots of TwoConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
+# each is a field of `Open`, the premise of `terminal_unique`; two runs of each witness (`--witnesses`:
+# two tasks creating one process, resuming it once twice, spending one output twice) show they are
+# false together (`Open.refuted`). The two-segment pairs (`yield`, `end`) are false only where two
+# segments of one process run at once, which no script reaches. Under the script's well-formedness
+# `wf` every slot is proved (`TwoConf.Legal`).
+join.key.new.new
+join.key.yield.yield
+join.key.yield.«end»
+join.key.«end».yield
+join.key.«end».«end»
+join.key.«resume-lit».«resume-lit»
+join.key.«resume-lit».«resume-oid»
+join.key.«resume-oid».«resume-lit»
+join.key.«resume-oid».«resume-oid»

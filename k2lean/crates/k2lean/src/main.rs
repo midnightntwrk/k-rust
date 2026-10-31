@@ -226,6 +226,12 @@ fn open_from_log(args: &[String]) {
             if pos > 0 && !l[..pos].ends_with('/') && !l[..pos].ends_with(' ') {
                 continue;
             }
+            // and the whole path the log names (relative to the package) ends the file's,
+            // component by component: an error of `NS/Legal/Slots.lean` is not one of `NS/Slots.lean`
+            let start = l[..pos].rfind(' ').map_or(0, |i| i + 1);
+            if !file.ends_with(&l[start..pos + suffix.len()]) {
+                continue;
+            }
             let rest = &l[pos + suffix.len() + 1..];
             let Some(line) = rest.split(':').next().and_then(|n| n.parse::<usize>().ok()) else {
                 continue;
@@ -1448,13 +1454,13 @@ mod tests {
     #[test]
     fn open_from_log_finds_the_enclosing_theorem() {
         let d = std::env::temp_dir().join(format!("k2lean-open-from-log-{}", std::process::id()));
-        std::fs::create_dir_all(&d).unwrap();
-        let eq = d.join("Equations.lean");
+        std::fs::create_dir_all(d.join("N")).unwrap();
+        let eq = d.join("N/Equations.lean");
         std::fs::write(&eq, "namespace N\n\ntheorem Eqn.a_1 (x : Nat) :\n    x = x := by\n  rfl\n\ntheorem Eqn.«b_c_1» :\n    1 = 1 := by\n  intros\n  first\n  | rfl\n\ntheorem uses :\n    1 = 1 := by\n  exact Eqn.a_1 1\n\nend N\n").unwrap();
         let log = d.join("build.log");
         std::fs::write(
             &log,
-            "error: N/Equations.lean:10:2: unsolved goals\n  error: Equations.lean:4:0: indented error lines count too\nwarning: Equations.lean:5:2: ignored\nerror: Other.lean:4:0: another file\nerror: Equations.lean:15:2: (kernel) unknown constant 'N.Eqn.a_1'\n",
+            "error: N/Equations.lean:10:2: unsolved goals\n  error: Equations.lean:4:0: indented error lines count too\nwarning: Equations.lean:5:2: ignored\nerror: Other.lean:4:0: another file\nerror: M/Equations.lean:14:0: another module of one name\nerror: Equations.lean:15:2: (kernel) unknown constant 'N.Eqn.a_1'\n",
         )
         .unwrap();
         let open = d.join("open.txt");

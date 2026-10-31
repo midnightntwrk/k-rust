@@ -41,6 +41,14 @@ DEMOS = {
                                              "demos/DrfConf/DrfConf/Legal/Slots.lean",
                                              "demos/DrfConf/confluence.toml", "demos/DrfConf/legal.toml"],
                 "slots": {"prefixes": ["join.", "Legal.join."], "list": "demos/DrfConf/open-joins.txt"}},
+    # the two-layer prototype: a coordination script's tasks running a coroutine language's segments;
+    # the races of two tasks refuted together by two runs, and every slot generic under `wf`
+    "TwoConf": {"tier": "light", "sources": ["generated/twolayer",
+                                             "demos/TwoConf/TwoConf/Views.lean", "demos/TwoConf/TwoConf/Slots.lean",
+                                             "demos/TwoConf/TwoConf/Legal/Views.lean",
+                                             "demos/TwoConf/TwoConf/Legal/Slots.lean",
+                                             "demos/TwoConf/confluence.toml", "demos/TwoConf/legal.toml"],
+                "slots": {"prefixes": ["join.", "Legal.join."], "list": "demos/TwoConf/open-joins.txt"}},
 }
 
 # SIMPLE's pairs of rules classified, and its slots by premise and class with their statuses

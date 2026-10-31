@@ -1,0 +1,1 @@
+new(1, { add(1) }) & new(1, { add(2) }) & resume(1, 0, 0)

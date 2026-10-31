@@ -133,7 +133,7 @@ Adjacent layers connect in three ways, each needing its own mechanism:
    Its confluence with no premise (`demos/UtxoConf`) is therefore already "every order the DAG allows gives the same result" for that fixture.
    A DAG explicit in the configuration, with legality "a transition's predecessors have run", is the restriction-of-steps reading of `product.md` §8 question 3.
    As a feature, independent of any consumer, it is confluence under a readiness condition: any segment whose inputs are ready may run.
-   The shape that needs it is a coroutine handoff: a resume makes the resumer wait until the child yields, so a step of the interleaving is a whole segment; no fixture has it yet (C).
+   The shape that needs it is a coroutine handoff: a resume makes the resumer wait until the child yields, so a step of the interleaving is a whole segment. The fixture `handoff` has it with the segment's next state and output as parameters (`demos/HandoffConf`), and `twolayer` with a concrete coroutine language run by the resuming task: §8 step 4's combined form, confluent under the script's well-formedness with every slot generic (`demos/TwoConf`, `design.md` §3.6).
 
 Some layers are not K: a ledger written in Lean is an imported library (`product.md` §3.6), and a runtime is related by conformance tests rather than proofs.
 **Principle (proposed):** one specification per layer.

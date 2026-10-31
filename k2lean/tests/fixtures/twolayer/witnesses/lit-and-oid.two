@@ -1,0 +1,1 @@
+new(1, { yield }) & new(2, { yield }) & resume(2, 0, 7) & resume(1, 0, 1) & resume(1, 0, o(2, 0))
