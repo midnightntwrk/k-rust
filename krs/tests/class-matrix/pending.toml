@@ -2360,6 +2360,13 @@ step = "S5"
 # The value's kind (a cell wrapper, map notation, presence, a group or instance record, a leaf
 # value) must be judged against the cell's declared kind, which the `#[k::init]` macro cannot see
 # and only the collector knows: S5's, with S0-9's other cell-entry spellings.
+# NT-17: `k::absent!(t)` on a plain cell is checked as the `Some(t)` it expands to, so an author who
+# wrote no `Option` reads "expected `T`, found `Option<..>`". The expansion could word it in KRS's
+# terms without seeing the field's type: expand to a facade fn generic in its result, bounded by a
+# trait only `Option<T>` implements and marked `#[diagnostic::on_unimplemented]`, so rustc infers
+# the field's type and says "`k::absent!` starts an optional (`?`) cell absent; `T` is not an
+# `Option`". That is rustc's E0277, still not `presence-on-plain-cell`, so the six
+# `init/*/k::absent!(0)` entries stay pending for S5 either way; only the wording would move.
 
 ["init/counter/0"]
 finding = "B2"

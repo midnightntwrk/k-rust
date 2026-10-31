@@ -534,6 +534,7 @@ pub(super) fn lower_instances_clause(
     let mut lowered = LoweredInstances {
         lowering,
         descriptor: &descriptor,
+        declarations,
         declaration: &instance_declaration,
         configuration,
         collection: cell,
@@ -683,6 +684,7 @@ fn configuration_owner(
 struct LoweredInstances<'a, 'b, L: StateLowering> {
     lowering: &'a mut L,
     descriptor: &'a Descriptor,
+    declarations: &'a DescriptorIndex<'b>,
     declaration: &'a InstanceDeclaration<'b>,
     configuration: &'a DescriptorFixedConfiguration,
     collection: &'a DescriptorCellReference,
@@ -992,10 +994,10 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         if defaults {
             let templates = instance_templates(self.configuration, &self.collection.cell);
             for field in missing {
-                if templates
-                    .get(&field.reference.cell)
-                    .is_some_and(|template| reads_variable(template))
-                {
+                let Some(template) = templates.get(&field.reference.cell) else {
+                    continue;
+                };
+                if reads_variable(template) {
                     return Err(collection_error(
                         descriptor,
                         codes::analysis::NO_CELL_DEFAULT,
@@ -1003,6 +1005,20 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                         format!(
                             "`..` cannot default `{}` of a new `{}`: its template reads a configuration variable, so K has no default for it; write `{}: ..`",
                             field.rust_field, self.declaration.name, field.rust_field
+                        ),
+                    ));
+                }
+                // The template says the optional cell is there, and a created instance's `..`
+                // leaves its optional cells out; an instance record cannot name one to say
+                // otherwise, so the default the template states is not what the rule writes.
+                if let Some(optional) = present_optional_cell(template, self.declarations)? {
+                    return Err(collection_error(
+                        descriptor,
+                        codes::analysis::NO_CELL_DEFAULT,
+                        &result.key,
+                        format!(
+                            "`..` cannot default `{}` of a new `{}`: its template starts the optional cell `{optional}` present, which `..` does not write and an instance record cannot name yet; start it absent in the template with `k::absent!(..)`",
+                            field.rust_field, self.declaration.name
                         ),
                     ));
                 }
@@ -1042,6 +1058,35 @@ fn instance_templates<'a>(
         .iter()
         .map(|child| (child.field.cell.clone(), child))
         .collect()
+}
+
+/// The first optional cell an instance child's template starts present: the child itself
+/// when it is optional, else a cell inside it. An absent optional cell's template and a
+/// collection's instance template say what a created cell holds, not what the instance holds,
+/// so the search stops at them.
+fn present_optional_cell<'t>(
+    template: &'t DescriptorInitializerCell,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<&'t str>, DescriptorLoweringError> {
+    let declared = require_cell_field(&template.field.cell, declarations)?;
+    match multiplicity(declared) {
+        Some("?") => {
+            return Ok(template
+                .absent
+                .is_none()
+                .then_some(template.field.cell.field.as_str()));
+        }
+        Some(_) => return Ok(None),
+        None => {}
+    }
+    if let ProtocolInitializerCellContent::Nested { children, .. } = &template.content {
+        for child in children {
+            if let Some(optional) = present_optional_cell(child, declarations)? {
+                return Ok(Some(optional));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Whether an initializer template reads a configuration variable.

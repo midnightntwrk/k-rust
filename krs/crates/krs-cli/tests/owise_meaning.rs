@@ -390,7 +390,10 @@ fn is_not_two(k::term![IsTwo(_)]: Term<Bool>) -> Term<Bool> {
             priority.as_object_mut().unwrap().remove("owise");
         }
     });
-    assert!(serde_json::from_value::<SemanticTheory>(dropped).is_err());
+    let error = serde_json::from_value::<SemanticTheory>(dropped)
+        .expect_err("a priority without `owise` does not load")
+        .to_string();
+    assert!(error.contains("missing field `owise`"), "{error}");
 }
 
 /// Calls `visit` on every rule priority object of an IR JSON document: an object holding exactly

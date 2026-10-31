@@ -9,7 +9,8 @@ use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     BuiltinSort, CellStream, CellWrapper, DescriptorCellExit, DescriptorCellField,
-    DescriptorCellReference, DescriptorCellStream, DescriptorFixedConfiguration,
+    DescriptorCellInitial, DescriptorCellMultiplicity, DescriptorCellReference,
+    DescriptorCellStream, DescriptorFixedConfiguration, DescriptorInitializerAbsent,
     DescriptorInitializerCell, DescriptorPayload, DescriptorSortRef, DescriptorTerm, ItemKind,
     ProtocolCellContent, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
     ProtocolInitializerTerm, ProtocolRuleFrame, ProtocolRuleMap, ProtocolRuleMapBody,
@@ -487,6 +488,73 @@ fn initializer_cells_in_any_order_lower_in_declaration_order() {
     assert_eq!(
         emitted.source(),
         assert_lowering_contract(&in_order).1.source()
+    );
+}
+
+/// Edit the configuration descriptor, refresh its provenance, and return the lowering error text,
+/// which is `krs::analysis::optional-presence`.
+fn presence_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String {
+    let error = lower_descriptor_bundle(&edited_bundle(edit).build().unwrap()).unwrap_err();
+    assert_eq!(
+        krs_diagnostic::ToDiagnostic::to_diagnostic(&error).code,
+        krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
+        "{error}"
+    );
+    error.to_string()
+}
+
+/// Only an optional cell starts absent, and an optional cell's initializer alone says whether
+/// it starts present: a descriptor that says `absent` on another cell, or `initial` on an
+/// optional one, is refused, whoever built it.
+#[test]
+fn presence_belongs_to_an_optional_cell_s_initializer() {
+    let absent = || DescriptorInitializerAbsent {
+        key: key(ProvenanceRole::InitializerAbsent, 1),
+    };
+    let error = presence_error(|configuration| {
+        configuration.initializer.cells[1].absent = Some(absent());
+    });
+    assert!(
+        error.contains("`env` is not an optional cell: `k::absent!(..)` starts a cell declared"),
+        "{error}"
+    );
+    let error = presence_error(|configuration| {
+        configuration.declaration.fields[1].multiplicity = Some(DescriptorCellMultiplicity {
+            key: key(ProvenanceRole::ConfigurationCellMultiplicity, 1),
+            value: "?".to_owned(),
+        });
+        configuration.declaration.fields[1].initial = Some(DescriptorCellInitial {
+            key: key(ProvenanceRole::ConfigurationCellInitial, 1),
+        });
+    });
+    assert!(
+        error.contains("`initial` on the optional cell `env` repeats what its initializer says"),
+        "{error}"
+    );
+}
+
+/// `absent` is optional on the wire, as every flag of a descriptor is, yet a descriptor that
+/// loses it still anchors its key, which then names no node, so the descriptor is refused
+/// rather than read as an optional cell that starts present.
+#[test]
+fn a_dropped_absent_flag_leaves_its_provenance_unclaimed() {
+    let mut bundle = edited_bundle(|configuration| {
+        configuration.initializer.cells[1].absent = Some(DescriptorInitializerAbsent {
+            key: key(ProvenanceRole::InitializerAbsent, 1),
+        });
+    });
+    for descriptor in &mut bundle.descriptors {
+        if let DescriptorPayload::FixedConfiguration(configuration) = &mut descriptor.payload {
+            configuration.initializer.cells[1].absent = None;
+        }
+    }
+    let error = match bundle.build() {
+        Err(error) => error.to_string(),
+        Ok(built) => lower_descriptor_bundle(&built).unwrap_err().to_string(),
+    };
+    assert!(
+        error.contains("unexpected provenance entry `initializer_absent#1`"),
+        "{error}"
     );
 }
 

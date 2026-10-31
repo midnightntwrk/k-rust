@@ -1013,10 +1013,6 @@ impl Machine {{
 /// `krust kcompile` reads it, and the KORE axiom of the cell-free rule `step`, which compilation
 /// places in the main cell.
 fn text_route_step_axiom(definition: &str) -> String {
-    use k_rust::builtin;
-    use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
-    use k_rust::outer::{LoadOptions, ResolvedSource, load_for_compilation};
-
     let label = definition
         .lines()
         .find(|line| line.contains("rule cmd") || line.contains("rule go"))
@@ -1024,6 +1020,16 @@ fn text_route_step_axiom(definition: &str) -> String {
         .and_then(|rest| rest.split(')').next())
         .unwrap_or_else(|| panic!("the rule `step` is emitted:\n{definition}"))
         .to_owned();
+    text_route_axiom(definition, &label)
+}
+
+/// The text route's KORE axiom labelled `label`: the emitted `definition.k` loaded and compiled by
+/// k-rust's text frontend, as `krust kcompile` reads it.
+fn text_route_axiom(definition: &str, label: &str) -> String {
+    use k_rust::builtin;
+    use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
+    use k_rust::outer::{LoadOptions, ResolvedSource, load_for_compilation};
+
     let mut resolver =
         |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
     let (loaded, _) = load_for_compilation(
@@ -1046,9 +1052,13 @@ fn text_route_step_axiom(definition: &str) -> String {
         .unwrap_or_else(|error| panic!("the text route compiles the definition: {error}"))
         .definition_kore;
     let needle = format!("label{{}}(\"{label}\")");
-    let at = kore
-        .find(&needle)
-        .unwrap_or_else(|| panic!("no axiom {label}"));
+    let at = kore.find(&needle).unwrap_or_else(|| {
+        let labels = kore
+            .match_indices("label{}(")
+            .map(|(at, _)| kore[at..].split(')').next().unwrap_or_default())
+            .collect::<Vec<_>>();
+        panic!("no axiom {label} among {labels:?}")
+    });
     let start = kore[..at].rfind("axiom{").expect("an axiom");
     kore[start..at].to_owned()
 }
@@ -1125,4 +1135,154 @@ fn the_main_cell_is_the_computation_cell_that_holds_the_program_on_both_routes()
         "{stderr}"
     );
     assert!(!stderr.contains("internal error"), "{stderr}");
+}
+
+/// A machine whose List collection `job` starts with one instance of its template: a `Job` holds
+/// `payload`, the group `info` with the optional `mark`, and the optional `note`, their templates
+/// `{note}` and `{mark}`; `{rules}` are the machine's rules.
+fn jobs_source(note: &str, mark: &str, rules: &str) -> String {
+    format!(
+        r#"
+use k::KResult;
+use k::builtin::{{Int, KSequence}};
+
+k::sorts! {{
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {{
+    #[k::syntax("spawn")]
+    Spawn(),
+}}
+
+#[k::cell]
+pub struct Queue {{
+    #[k::cell(multiplicity = "*", cell_type = "List", nested, initial)]
+    pub job: Job,
+}}
+
+#[k::cell]
+pub struct Job {{
+    #[k::cell]
+    pub payload: Int,
+    #[k::cell(nested)]
+    pub info: Info,
+    #[k::cell(multiplicity = "?")]
+    pub note: Option<Int>,
+}}
+
+#[k::cell]
+pub struct Info {{
+    #[k::cell(multiplicity = "?")]
+    pub mark: Option<Int>,
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub queue: Queue,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {{
+        Self {{
+            k: k::k![pgm],
+            queue: Queue {{ job: Job {{ payload: 0, info: Info {{ mark: {mark} }}, note: {note} }} }},
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// `spawn` appends a `Job` whose other cells take their template defaults.
+const SPAWN: &str = "k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    spawn: { k: [Spawn(), ..], job: [..] } => { k: [..], job: [.., Job { payload: 5, .. }] };
+}";
+
+/// An optional cell inside a collection's template says whether each instance holds it: the
+/// instance `initial` starts holds `Some(v)`'s cell and not `k::absent!(t)`'s. A created
+/// instance's `..` writes no optional cell, so it defaults one whose template starts absent, on
+/// both routes, and one whose template starts present, the child itself or a cell inside it, is
+/// refused: an instance record cannot name an optional cell to write it.
+#[test]
+fn a_created_instance_s_defaults_are_its_template_s_optional_cells_included() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    fs::write(temporary.path().join("program.txt"), "spawn\n").unwrap();
+    let program = temporary.path().join("program.txt");
+    let run = |manifest: &Path| {
+        let (_, stdout, stderr) = krs(target.path(), manifest, "run", &[program.to_str().unwrap()]);
+        let stdout = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        (stdout, stderr)
+    };
+
+    // The instance `initial` starts holds the optional cells written `Some(..)`.
+    let manifest = package(
+        temporary.path(),
+        "jobs-present",
+        &jobs_source("Some(1)", "Some(2)", ""),
+    );
+    let (stdout, stderr) = run(&manifest);
+    assert!(
+        stdout.contains(
+            "<job> <payload> 0 </payload> <info> <mark> 2 </mark> </info> <note> 1 </note> </job>"
+        ),
+        "{stdout}\n{stderr}"
+    );
+
+    // Written `k::absent!(..)`, neither the instance at the start nor a created one holds them.
+    let manifest = package(
+        temporary.path(),
+        "jobs-absent",
+        &jobs_source("k::absent!(1)", "k::absent!(2)", SPAWN),
+    );
+    let definition = emit(target.path(), &manifest);
+    let created =
+        "(.Bag => <job>\n            <payload> 5 </payload>\n            ...\n        </job>)";
+    assert!(definition.contains(created), "{definition}");
+    let axiom = text_route_axiom(&definition, "ORG-KRS-INIT-TERMS.spawn");
+    assert!(
+        axiom.contains("Lbl'-LT-'payload'-GT-'{}(\\dv{SortInt{}}(\"5\"))")
+            && !axiom.contains("Lbl'-LT-'note'-GT-'")
+            && !axiom.contains("Lbl'-LT-'mark'-GT-'"),
+        "the text route creates the job without its optional cells:\n{axiom}"
+    );
+    let (stdout, stderr) = run(&manifest);
+    assert!(
+        stdout.contains("<job> <payload> 0 </payload> <info> .MarkCell </info> .NoteCell </job> <job> <payload> 5 </payload> <info> .MarkCell </info> .NoteCell </job>"),
+        "{stdout}\n{stderr}"
+    );
+
+    // Started present, an optional cell `..` would leave out is refused, at the created instance.
+    for (name, note, mark, child, optional) in [
+        ("jobs-note", "Some(1)", "k::absent!(2)", "note", "note"),
+        ("jobs-mark", "k::absent!(1)", "Some(2)", "info", "mark"),
+    ] {
+        let manifest = package(temporary.path(), name, &jobs_source(note, mark, SPAWN));
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: accepted:\n{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "error[krs::analysis::no-cell-default]: `..` cannot default `{child}` of a new `Job`: its template starts the optional cell `{optional}` present, which `..` does not write and an instance record cannot name yet; start it absent in the template with `k::absent!(..)`"
+            )),
+            "{name}:\n{stderr}"
+        );
+        assert!(
+            stderr.contains("Job { payload: 5, .. }"),
+            "{name}:\n{stderr}"
+        );
+        assert!(!stderr.contains("internal error"), "{name}:\n{stderr}");
+    }
 }

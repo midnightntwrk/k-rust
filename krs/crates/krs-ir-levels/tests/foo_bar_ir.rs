@@ -438,3 +438,29 @@ fn adapter_specific_fields_are_rejected() {
         "unknown field `k_rust_resolved_production_id`",
     );
 }
+
+/// An `owise` priority ranks at the one value `owise` means, 200: a priority that says `owise`
+/// at another value is refused when the IR is read, whatever wrote it, and a written priority
+/// takes any value.
+#[test]
+fn an_owise_priority_has_the_owise_value() {
+    let with_priority = |value: u32, owise: bool| {
+        let mut json = serde_json::to_value(definition_ir(None).unwrap()).unwrap();
+        let rule = json["modules"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .flat_map(|module| module["sentences"].as_array_mut().unwrap())
+            .find(|sentence| sentence["sentence_kind"] == "rule")
+            .unwrap();
+        let mut origin = rule["sentence"]["origin"].clone();
+        origin["key"] = serde_json::json!("def.rule.foo-to-bar.priority");
+        rule["sentence"]["priority"] =
+            serde_json::json!({ "origin": origin, "value": value, "owise": owise });
+        serde_json::from_value::<DefinitionIr>(json)
+    };
+    with_priority(200, true).unwrap();
+    with_priority(250, false).unwrap();
+    with_priority(200, false).unwrap();
+    assert_rejects_with_message(with_priority(250, true), "an `owise` one has the value 200");
+}

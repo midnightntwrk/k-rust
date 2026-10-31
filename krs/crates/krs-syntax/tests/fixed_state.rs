@@ -153,6 +153,40 @@ fn optional_and_collection_cell_attributes_are_checked() {
     }
 }
 
+/// An optional cell's initializer is `Some(value)` or `k::absent!(template)` around a value
+/// itself: neither nests the other, and `k::absent!` takes exactly one expression.
+#[test]
+fn optional_initializers_hold_one_value_or_template() {
+    let nested = "an optional cell's initializer holds its value or template itself, not another `Some(..)` or `k::absent!(..)`";
+    let one = "`k::absent!` takes one expression, the template of the absent optional cell: `k::absent!(<template>)`";
+    for (value, reason, at) in [
+        ("Some(k::absent!(0))", nested, "k::absent!(0)"),
+        ("k::absent!(Some(0))", nested, "Some(0)"),
+        ("k::absent!(k::absent!(0))", nested, "k::absent!(0)"),
+        ("k::absent!()", one, "k::absent!()"),
+        ("k::absent!(a, b)", one, "k::absent!(a, b)"),
+    ] {
+        let source = format!("fn init() -> Self {{ Self {{ counter: {value} }} }}");
+        let error = krs_syntax::InitializerFunction::parse_source(&source).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::UnsupportedInitializerBody { reason },
+            "{value}"
+        );
+        assert_eq!(
+            error.span().start().column,
+            source.find(at).unwrap(),
+            "{value}"
+        );
+    }
+    for value in ["Some(0)", "k::absent!(0)"] {
+        krs_syntax::InitializerFunction::parse_source(&format!(
+            "fn init() -> Self {{ Self {{ counter: {value} }} }}"
+        ))
+        .unwrap();
+    }
+}
+
 #[test]
 fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
     let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
