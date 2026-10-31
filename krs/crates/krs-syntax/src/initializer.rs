@@ -1012,12 +1012,10 @@ fn parse_initializer_cell(
     // `list::empty()`), is a readable plain term, as a path is, and so is the notation for a
     // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call. A
     // compiler-owned island (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`) is a term too,
-    // so a constant can be a cell's whole value and any other island reports its own error.
-    if let Some(reason) = unsorted_cell_value(&field.expr) {
-        return Err(unsupported_body(reason, field.expr.span()));
-    }
+    // so a constant can be a cell's whole value and any other island reports its own error. A
+    // `let` block is the term it computes, as in a result.
     let readable_term = match &field.expr {
-        Expr::Lit(_) | Expr::Unary(_) => true,
+        Expr::Lit(_) | Expr::Unary(_) | Expr::Block(_) => true,
         // A collection literal is the term its calls build; a cell's own map without a rest is
         // the cell's own map, below.
         Expr::Macro(ExprMacro { mac, .. }) => is_term_macro(mac),
@@ -1177,43 +1175,6 @@ fn parse_initializer_cell(
         field_key: None,
         constructor_key: None,
     })
-}
-
-/// Why `expression` cannot be a leaf cell's whole initial value, though it is an initializer
-/// term below one: K reads each leaf cell's sort from its initial content, the native frontend
-/// from the content's head production as it reads the configuration, and a `let` block (K's
-/// `#let`), `k::matches!` (`:=K`) and `k::is!` (a sort predicate K generates later) head none it
-/// knows then; Java K infers no sort for `#let` there either (finding NT-7-2).
-fn unsorted_cell_value(expression: &Expr) -> Option<&'static str> {
-    match expression {
-        Expr::Block(_) => Some(
-            "a `let` block is an initializer term, but no K frontend reads a cell's sort from it: K takes a cell's sort from its initial content, and neither Java K's kompile (`#let` gets no sort there) nor the native frontend (no production heads `#let` as it reads the configuration) finds one; write the block below a constructor or an operation of the cell's sort, as in `{ .. } && true` for a `Bool` cell",
-        ),
-        Expr::Macro(ExprMacro { mac, .. })
-            if mac
-                .path
-                .segments
-                .last()
-                .is_some_and(|segment| segment.ident == "matches")
-                && !crate::term::is_std_matches(&mac.path) =>
-        {
-            Some(
-                "`k::matches!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and no production heads K's `:=K` as the native frontend reads the configuration; write `k::matches!(..) && true` for the `Bool` cell, or the test below a constructor",
-            )
-        }
-        Expr::Macro(ExprMacro { mac, .. })
-            if mac
-                .path
-                .segments
-                .last()
-                .is_some_and(|segment| segment.ident == "is") =>
-        {
-            Some(
-                "`k::is!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and the sort predicate it applies is generated after the native frontend reads the configuration; write `k::is!(..) && true` for the `Bool` cell, or the test below a constructor",
-            )
-        }
-        _ => None,
-    }
 }
 
 /// Whether `path` is `Some`/`None` alone or under `Option::`.

@@ -523,10 +523,12 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
                     nodes,
                 )?;
                 // Unlike a rule clause's content, an initializer leaf
-                // declares its cell: the emitted configuration gives the
-                // cell the sort of this term, so a term of a strict
-                // subsort would declare a narrower cell than the IR's.
-                if term.sort() != sort {
+                // declares its cell: the emitted configuration states the
+                // cell's sort, by a cast where the term's own sort is a
+                // strict subsort of it
+                // (`k_surface::initial_value_needs_cell_sort`), so the term
+                // has the cell's sort or a subsort.
+                if !is_subsort::<L>(term.sort(), sort, sort_parents) {
                     crate::failure_site::report(term.origin());
                     return Err(L::error(ValidationError::InitializerLeafSortMismatch));
                 }

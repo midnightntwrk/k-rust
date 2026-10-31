@@ -730,10 +730,7 @@ fn an_initializer_holds_what_a_result_holds() {
 /// What an initializer's local terms cannot be, and why: a pattern's `@`, which K's right side
 /// does not hold; an open record, which leaves fields no initializer builds; a base of another
 /// constructor, or of a sort no record of the update's shares, which has none of the update's
-/// fields; a parametric constructor's update, whose fields take its instance's sort; and, as a
-/// leaf cell's whole value, a
-/// `let` block, `k::matches!` and `k::is!`, from which K's frontends read no cell sort (finding
-/// NT-7-2), while `k::project!` there is the cast K reads one from.
+/// fields; and a parametric constructor's update, whose fields take its instance's sort.
 #[test]
 fn an_initializer_refuses_what_has_no_meaning_or_no_tool_there() {
     let target = shared_fixture_target();
@@ -774,27 +771,6 @@ fn an_initializer_refuses_what_has_no_meaning_or_no_tool_there() {
             "true",
             "error[krs::analysis::invalid-record-update]: an initializer's record update takes its base's fields by matching the base against the record's constructor, which needs the fields' sorts; a parametric constructor's fields take its instance's sort, so name every field",
         ),
-        (
-            "whole-let",
-            "p",
-            "{ let w = v; k::project!(Int, w) }",
-            "true",
-            "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: a `let` block is an initializer term, but no K frontend reads a cell's sort from it: K takes a cell's sort from its initial content, and neither Java K's kompile (`#let` gets no sort there) nor the native frontend (no production heads `#let` as it reads the configuration) finds one; write the block below a constructor or an operation of the cell's sort, as in `{ .. } && true` for a `Bool` cell",
-        ),
-        (
-            "whole-matches",
-            "p",
-            "k::project!(Int, v)",
-            "k::matches!(p, ExpSyntax::Pair(_, _))",
-            "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `k::matches!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and no production heads K's `:=K` as the native frontend reads the configuration; write `k::matches!(..) && true` for the `Bool` cell, or the test below a constructor",
-        ),
-        (
-            "whole-is",
-            "p",
-            "k::project!(Int, v)",
-            "k::is!(Int, v)",
-            "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `k::is!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and the sort predicate it applies is generated after the native frontend reads the configuration; write `k::is!(..) && true` for the `Bool` cell, or the test below a constructor",
-        ),
     ];
     for (name, items, proj, flag, headline) in cases {
         let manifest = package(
@@ -810,6 +786,123 @@ fn an_initializer_refuses_what_has_no_meaning_or_no_tool_there() {
             .unwrap_or_else(|| panic!("{name}: {stderr}"));
         assert_eq!(first, headline, "{name}: {stderr}");
     }
+}
+
+/// A leaf cell's whole value is any initializer term of the cell's sort or a subsort. K reads a
+/// leaf cell's sort from its initial content's head, and a `let` block (`#let`), `k::matches!`
+/// (`:=K`), `k::is!` (a sort predicate) and a parametric constructor's application head no
+/// production that gives it, so KRS states the cell's sort by a cast, `( .. ):Int`, as it does
+/// for a value of a strict subsort (finding NT-7-2). Each starts the cell with its value.
+#[test]
+fn a_leaf_cell_s_whole_value_is_cast_to_the_cell_s_sort() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "let-matches",
+            "{ let w = v; k::project!(Int, w) }",
+            "k::matches!(p, ExpSyntax::Pair(_, _))",
+            [
+                "<proj> ( #let W:Val = $V:Val #in {W:Val}:>Int ):Int </proj>",
+                "<flag> ( pair ( _ , _ ) :=K $P:Exp ):Bool </flag>",
+            ],
+            ["<proj> 7 </proj>", "<flag> true </flag>"],
+        ),
+        (
+            "is",
+            "k::project!(Int, v)",
+            "k::is!(Int, v)",
+            [
+                "<proj> {$V:Val}:>Int </proj>",
+                "<flag> ( isInt($V:Val) ):Bool </flag>",
+            ],
+            ["<proj> 7 </proj>", "<flag> true </flag>"],
+        ),
+    ];
+    for (name, proj, flag, emitted, started) in cases {
+        let manifest = package(
+            temporary.path(),
+            &format!("whole-{name}"),
+            &local_initializer("p", proj, flag),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}: {stderr}");
+        let definition = emit(target.path(), &manifest);
+        for cell in emitted {
+            assert!(definition.contains(cell), "{name}: {cell}\n{definition}");
+        }
+        let state = start(target.path(), &manifest);
+        for cell in started {
+            assert!(state.contains(cell), "{name}: {cell}\n{state}");
+        }
+        // The expanded initializer reads back to the same configuration.
+        let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+        assert!(success, "{name}: {stderr}");
+        let reference = package(
+            temporary.path(),
+            &format!("whole-{name}-expanded"),
+            &expanded,
+        );
+        assert_eq!(
+            configuration(&emit(target.path(), &reference)),
+            configuration(&definition),
+            "{name}"
+        );
+    }
+
+    // A `let` block whose body is a strict subsort of the cell's, and a parametric constructor
+    // whose instance is the cell's sort.
+    let manifest = package(
+        temporary.path(),
+        "whole-exp",
+        &format!(
+            "{}{}",
+            LOCAL_TERMS.replace(
+                "    #[k::cell]\n    pub flag: Bool,\n",
+                "    #[k::cell]\n    pub flag: Bool,\n    #[k::cell]\n    pub swapped: Exp,\n    #[k::cell]\n    pub wrapped: Exp,\n",
+            ),
+            "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Exp, p: Exp, v: Val) -> Self {\n        Self {\n            k: k::k![pgm],\n            proj: k::project!(Int, v),\n            flag: true,\n            swapped: { let w = v; w },\n            wrapped: crate::Wrap::<dyn ExpSort>(p),\n        }\n    }\n}\n",
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let definition = emit(target.path(), &manifest);
+    for cell in [
+        "<swapped> ( #let W:Val = $V:Val #in W:Val ):Exp </swapped>",
+        "<wrapped> ( wrap ( $P:Exp ) ):Exp </wrapped>",
+    ] {
+        assert!(definition.contains(cell), "{cell}\n{definition}");
+    }
+    let state = start(target.path(), &manifest);
+    for cell in [
+        "<swapped> 7 </swapped>",
+        "<wrapped> wrap ( pair(1, 2) ) </wrapped>",
+    ] {
+        assert!(state.contains(cell), "{cell}\n{state}");
+    }
+}
+
+/// The configuration `krs run` starts from on the program `done` with `P` bound to `pair(1, 2)`
+/// and `V` to 7, flattened, with the run's messages after it.
+fn start(target: &Path, manifest: &Path) -> String {
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "done").unwrap();
+    let (_, stdout, stderr) = krs(
+        target,
+        manifest,
+        "run",
+        &[
+            "--depth",
+            "0",
+            "-c",
+            "P=pair(1, 2)",
+            "-c",
+            "V=7",
+            program.to_str().unwrap(),
+        ],
+    );
+    let state = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{state}\n{stderr}")
 }
 
 /// A configuration variable read inside a local term's scope, a `let` body or a `k::matches!`

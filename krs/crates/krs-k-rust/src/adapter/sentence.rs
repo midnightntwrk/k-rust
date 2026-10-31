@@ -603,13 +603,22 @@ impl Adapter<'_> {
             SentenceNodeRole::ConfigurationInitializer,
         );
         let contents = match (cell.content(), initializer.content()) {
-            (FixedCellContent::Term { .. }, FixedInitializerContent::Term { term }) => self.term(
-                term,
-                module,
-                sentence_index,
-                Vec::new(),
-                TermContext::ConfigurationInitializer,
-            )?,
+            (FixedCellContent::Term { sort, .. }, FixedInitializerContent::Term { term }) => {
+                let content = self.term(
+                    term,
+                    module,
+                    sentence_index,
+                    Vec::new(),
+                    TermContext::ConfigurationInitializer,
+                )?;
+                // A value whose head does not give K the cell's sort states it, as the text does.
+                if krs_ir_levels::k_surface::initial_value_needs_cell_sort(term, sort) {
+                    let sort = self.sort(sort, cell.origin())?;
+                    NativeTerm::apply(format!("#SemanticCastTo{}", sort.name), vec![content])
+                } else {
+                    content
+                }
+            }
             (
                 FixedCellContent::Children { children },
                 FixedInitializerContent::Children {

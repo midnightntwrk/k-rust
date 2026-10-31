@@ -2749,54 +2749,6 @@ finding = "B8"
 deviation = "accepted"
 step = "S5"
 
-# N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator (located at the value since S1)
-
-["init/typed/any/1"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/any/Cmd::Go()"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/any/Val::Unit()"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/boxed/1"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/leaf/1"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/opt/1"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/slot/1"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/stmt/1"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-["init/typed/stmt/Val::Unit()"]
-finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-step = "S4"
-
-
 # NT-2-4: an open record in a built term or a `cells!` value is admitted and fails in lowering with an internal descriptor message
 # `Ctor { f: e, .. }` leaves the unlisted fields open, which only a pattern can: a result or a
 # condition has no value for them, and a `cells!` term names every field. The table admits it outside

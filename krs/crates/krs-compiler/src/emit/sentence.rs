@@ -667,9 +667,23 @@ fn emit_fixed_cell(
     }
     writer.push(">");
     match (cell.content(), initializer_cell.content()) {
-        (FixedCellContent::Term { .. }, FixedInitializerContent::Term { term }) => {
+        (FixedCellContent::Term { sort, .. }, FixedInitializerContent::Term { term }) => {
             writer.push(" ");
+            // A value whose head does not give K the cell's sort states it, `( 1 ):Value`; a
+            // `#let` and a `:=K` test are printed in parentheses of their own.
+            let cast = krs_ir_levels::k_surface::initial_value_needs_cell_sort(term, sort);
+            let parenthesized = matches!(
+                term.kind(),
+                DefinitionTermKind::Let { .. } | DefinitionTermKind::Matches { .. }
+            );
+            if cast && !parenthesized {
+                writer.push("( ");
+            }
             emit_initializer_term(term, variables, names, context, writer)?;
+            if cast {
+                writer.push(if parenthesized { ":" } else { " ):" });
+                writer.push(&context.sort_name_ref(sort)?);
+            }
             writer.push(" </");
             writer.push(cell.name());
             writer.push(">");

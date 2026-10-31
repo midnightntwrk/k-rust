@@ -2769,10 +2769,64 @@ configuration
 """
 
 [accept."init/typed/any/1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $ANY:KItem </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> ( 1 ):KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/any/Cmd::Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $ANY:KItem </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> ( go ):KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/any/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $ANY:KItem </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> ( unit ):KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/any/any"]
 k = """
@@ -2795,6 +2849,24 @@ configuration
 """
 
 [accept."init/typed/boxed/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> ( 1 ):Value </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/boxed/Val::Unit()"]
 k = """
@@ -2817,6 +2889,24 @@ configuration
 """
 
 [accept."init/typed/leaf/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> ( 1 ):Value </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/leaf/Val::Unit()"]
 k = """
@@ -2919,6 +3009,24 @@ configuration
 """
 
 [accept."init/typed/opt/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> ( 1 ):Value </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/opt/Val::Unit()"]
 k = """
@@ -2941,6 +3049,24 @@ configuration
 """
 
 [accept."init/typed/slot/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> go </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> ( 1 ):Value </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/slot/Val::Unit()"]
 k = """
@@ -2963,6 +3089,24 @@ configuration
 """
 
 [accept."init/typed/stmt/1"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> ( 1 ):Stmt </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."init/typed/stmt/Cmd::Go()"]
 k = """
@@ -2985,6 +3129,24 @@ configuration
 """
 
 [accept."init/typed/stmt/Val::Unit()"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<leaf> unit </leaf>
+<stmt> ( unit ):Stmt </stmt>
+<any> $ANY:KItem </any>
+<list> .List </list>
+<map> .Map </map>
+<boxed>
+<inner> unit </inner>
+</boxed>
+<opt multiplicity="?"> unit </opt>
+<slots>
+<slot multiplicity="*" type="List">
+<item> unit </item>
+</slot>
+</slots>
+"""
 
 [accept."readable/result/counter/None"]
 k = """

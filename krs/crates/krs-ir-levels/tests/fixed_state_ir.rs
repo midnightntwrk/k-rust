@@ -605,22 +605,28 @@ fn a_leaf_cell_holds_any_subsort_of_its_sort() {
 }
 
 #[test]
-fn an_initializer_leaf_has_exactly_its_cell_sort() {
-    // The initial content declares the cell's sort, so even a `Value` would
-    // declare a narrower cell than `Expr`.
-    for initializer in [AccSort::Value, AccSort::Stmt] {
-        assert_eq!(
-            calc_definition(Variants {
-                acc: Some(AccContent {
-                    initializer,
-                    rule: AccSort::Expr,
-                }),
-                ..Variants::default()
-            })
-            .unwrap_err(),
-            DefinitionValidationError::InitializerLeafSortMismatch
-        );
-    }
+fn an_initializer_leaf_has_its_cell_sort_or_a_subsort() {
+    // `Value ≤ Expr`: the emitted configuration casts a `Value` leaf to the
+    // cell's `Expr`, so the cell keeps its declared sort; `Stmt` is unrelated.
+    calc_definition(Variants {
+        acc: Some(AccContent {
+            initializer: AccSort::Value,
+            rule: AccSort::Expr,
+        }),
+        ..Variants::default()
+    })
+    .unwrap();
+    assert_eq!(
+        calc_definition(Variants {
+            acc: Some(AccContent {
+                initializer: AccSort::Stmt,
+                rule: AccSort::Expr,
+            }),
+            ..Variants::default()
+        })
+        .unwrap_err(),
+        DefinitionValidationError::InitializerLeafSortMismatch
+    );
 }
 
 #[test]

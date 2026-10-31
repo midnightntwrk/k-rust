@@ -1,9 +1,9 @@
 //! A leaf cell holds any term of its declared sort or of a subsort, in every
 //! rule form and in claims: `2` or a binder a guard narrows to `Int` fills a
 //! `Value` cell, a `Value` fills a `Stmt` cell, and any term fills a `KItem`
-//! cell. A term of an unrelated sort is still refused at the term, and an
-//! initializer leaf, which declares its cell's sort, must have exactly that
-//! sort.
+//! cell. A term of an unrelated sort is still refused at the term. An
+//! initializer leaf of a strict subsort is cast to its cell's sort, which K
+//! otherwise reads from the initial content.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -294,10 +294,11 @@ fn a_leaf_cell_holds_any_term_of_a_subsort() {
     assert!(stdout.contains("SPEC.picks: proven"), "{stdout}");
 }
 
-/// A content of a sort that is not below the cell's is refused at the term,
-/// and an initializer leaf must have exactly its cell's sort: the configuration
-/// gives the cell the sort of its initial content, so `prog: Unit()` would
-/// declare a `Value` cell.
+/// A content of a sort that is not below the cell's is refused at the term.
+/// K gives a cell the sort of its initial content, so `prog: Unit()`, a
+/// `Value` in a `Stmt` cell, is emitted cast to the cell's sort,
+/// `( unit ):Stmt`, and the cell stays the `Stmt` cell the rules read and
+/// write.
 #[test]
 fn a_cell_content_outside_the_cell_sort_is_refused() {
     let target = shared_fixture_target();
@@ -328,12 +329,18 @@ fn a_cell_content_outside_the_cell_sort_is_refused() {
     let narrower = package(
         temporary.path(),
         "narrower",
-        &INIT.replace("StmtSyntax::Skip()", "ValueSyntax::Unit()"),
+        &format!(
+            "{}{RULES}",
+            INIT.replace("StmtSyntax::Skip()", "ValueSyntax::Unit()")
+        ),
     );
-    let (success, _, stderr) = krs(target.path(), &narrower, "check", &["--backend", "haskell"]);
-    assert!(!success, "{stderr}");
+    let (success, _, stderr) = krs(target.path(), &narrower, "check", &[]);
+    assert!(success, "{stderr}");
+    let (definition, _) = emitted(target.path(), &narrower);
     assert!(
-        stderr.contains("initializer leaf term must match its cell content sort"),
-        "{stderr}"
+        definition.contains("<prog> ( unit ):Stmt </prog>"),
+        "{definition}"
     );
+    let state = run(target.path(), &narrower, "copy", "1");
+    assert!(state.contains("<prog> 1 </prog>"), "{state}");
 }

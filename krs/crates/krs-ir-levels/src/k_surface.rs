@@ -565,6 +565,37 @@ impl BuiltinRequirements {
     }
 }
 
+/// Whether a leaf cell's whole initial value `term`, in a cell of declared sort `cell_sort`, is
+/// written cast to that sort, `( term ):Sort`.
+///
+/// K reads a leaf cell's sort from its initial content as it reads the configuration: the sort
+/// of the production the content's head names. That is the cell's declared sort only where the
+/// content has exactly that sort and its head gives one. A term of a strict subsort (`1` in a
+/// `Value` cell) would declare a narrower cell, and a `let` block (`#let`), a `k::matches!` test
+/// (`:=K`), a sort predicate (`isS`, generated after the configuration is read) and a parametric
+/// production's application (whose result sort is one of its parameters) head no production that
+/// gives one sort. There the cell's sort is stated by a cast, a sort annotation: the value is the
+/// term's, which has the cell's sort or a subsort of it, as every initial value does.
+#[must_use]
+pub fn initial_value_needs_cell_sort(term: &DefinitionTerm, cell_sort: &DefinitionSortRef) -> bool {
+    term.sort() != cell_sort
+        || match term.kind() {
+            DefinitionTermKind::Let { .. } | DefinitionTermKind::Matches { .. } => true,
+            DefinitionTermKind::Application {
+                application,
+                instance,
+                ..
+            } => {
+                !instance.is_empty()
+                    || matches!(
+                        application,
+                        ApplicationRef::Generated(krs_ir::GeneratedOperation::SortPredicate(_))
+                    )
+            }
+            _ => false,
+        }
+}
+
 /// K's generated sort name of a cell: each hyphen-separated word of the cell
 /// name capitalised and joined, followed by `Cell` (`<call-stack>` has sort
 /// `CallStackCell`). It matches k-rust's `cell_sort_name` function.
