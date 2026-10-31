@@ -44,12 +44,16 @@ pub fn decode(token: &str) -> Result<Vec<u8>, InvalidBytesToken> {
         .collect()
 }
 
-/// Spells bytes as a program writes them: the token K's `kprint` prints for a Bytes value
-/// (`krs-unparse`'s `enquote` after a `b`), each printable ASCII byte as itself, `\\`, `\"`,
-/// `\n`, `\t`, `\r` and `\f` escaped, and every other byte `\xHH`. A program's parse keeps a
-/// Bytes token as it is written, and static expansion compares tokens as written, so a static
-/// clause's subject holds the token in this spelling, which a program writing the value as KRS
-/// prints it matches (`b"ab"`, where the transport spelling is `b"\x61\x62"`).
+/// Spells bytes as KRS writes them wherever a term holds them, and as a program writes them to
+/// meet a static clause's subject: each printable ASCII byte as itself but `\` and `"`, a
+/// backslash `\\`, a newline, a tab, a carriage return and a form feed `\n`, `\t`, `\r` and `\f`,
+/// as `krs run` prints them (`krs-unparse`'s `enquote`), and every other byte `\xHH`, `"`
+/// included: K's `#token("..", "Bytes")`, which emitted K writes a token in where a bare literal
+/// would not lex, keeps a string's text but turns each `\"` into `"`, so a token holding `\"` has
+/// no spelling there, and `\x22` is the one spelling every route carries. A program's parse keeps
+/// a Bytes token as it is written, and static expansion compares tokens as written, so one
+/// spelling wherever KRS writes them is what makes a term KRS writes meet a static subject KRS
+/// writes (`b"ab"`, where the transport spelling is `b"\x61\x62"`).
 #[must_use]
 pub fn program_spelling(bytes: &[u8]) -> String {
     use fmt::Write as _;
@@ -59,7 +63,7 @@ pub fn program_spelling(bytes: &[u8]) -> String {
     for &byte in bytes {
         match byte {
             b'\\' => token.push_str("\\\\"),
-            b'"' => token.push_str("\\\""),
+            b'"' => token.push_str("\\x22"),
             b'\n' => token.push_str("\\n"),
             b'\t' => token.push_str("\\t"),
             b'\r' => token.push_str("\\r"),
@@ -102,7 +106,7 @@ mod tests {
         assert_eq!(program_spelling(&[]), r#"b"""#);
         assert_eq!(
             program_spelling(b"a\"\\\n\t\r\x0c\x01\xc3"),
-            r#"b"a\"\\\n\t\r\f\x01\xc3""#
+            r#"b"a\x22\\\n\t\r\f\x01\xc3""#
         );
     }
 

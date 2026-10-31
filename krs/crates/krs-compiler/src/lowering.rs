@@ -2831,6 +2831,20 @@ fn lower_rule_rewrite(
     )?)
 }
 
+/// The text of a token of `sort` whose value the semantic IR carries as `value`, as every route
+/// reads it. A Bytes value has one spelling wherever KRS writes it, the one a program writes and
+/// `krs run` prints ([`krs_ir::bytes_token::program_spelling`], `b"ab"`), rather than the
+/// transport's `b"\x61\x62"`: static expansion compares tokens as they are written, so a term
+/// KRS writes meets a static clause's subject KRS writes, and a program's `b"ab"` meets it too.
+fn written_token(sort: &SemanticSortRef, value: &str) -> String {
+    if *sort == SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bytes)
+        && let Ok(bytes) = krs_ir::bytes_token::decode(value)
+    {
+        return krs_ir::bytes_token::program_spelling(&bytes);
+    }
+    value.to_owned()
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Exhaustive lowering over the closed semantic term sum."
@@ -2877,7 +2891,7 @@ fn lower_term(
         SemanticTermKind::Token { value } => Ok(DefinitionTerm::token(
             origin,
             lower_sort_ref(term.sort(), names)?,
-            value.clone(),
+            written_token(term.sort(), value),
         )?),
         SemanticTermKind::KSequence { item_sort, items } => Ok(DefinitionTerm::k_sequence(
             origin,
