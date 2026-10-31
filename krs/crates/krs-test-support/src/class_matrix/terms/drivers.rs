@@ -201,6 +201,7 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             steps: 0,
             cells: Vec::new(),
             status: Status::Unexpanded,
+            forward_only: base_forward_only(),
         });
     }
     runs
@@ -219,6 +220,7 @@ fn beside_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run>
         steps: 0,
         cells: vec![("k".to_owned(), Ground::Seq(vec![pair(int(1), int(1))]))],
         status: Status::Liveness,
+        forward_only: base_forward_only(),
     });
     runs
 }
