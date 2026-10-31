@@ -9,14 +9,13 @@
 //! pattern in `requires`) must be proved by `krs prove` and by Java `kprove`; `off-by-one` ends
 //! with a block one more than the length, which no run reaches, and must fail on both routes.
 
-use k::KResult;
 use k::builtin::{Bytes, Int, KSequence, bytes};
 
 k::sorts! {
     Exp: k::KItem;
 }
 
-#[k::constructors(sort = Exp, result = KResult)]
+#[k::constructors(sort = Exp, result = k::KResult)]
 pub enum Op {
     #[k::syntax("load")]
     Load(),
@@ -47,7 +46,14 @@ k::rules! {
     for Machine;
     use Op::*;
 
-    load: { k: [Load(), ..], program: p, pc: n } => { k: [..], pc: bytes::length(p) };
+    load: {
+        k: [Load(), ..],
+        program: p,
+        pc: n,
+    } => {
+        k: [..],
+        pc: bytes::length(p),
+    };
 }
 
 k::claims! {
@@ -55,23 +61,71 @@ k::claims! {
     use Op::*;
 
     #[k::claim(all_paths)]
-    starts: { k: [Load()], program: p, pc: bytes::length({ let q = p; q }) } => { k: [], program: p, pc: bytes::length(p) };
+    starts: {
+        k: [Load()],
+        program: p,
+        pc: bytes::length({ let q = p; q }),
+    } => {
+        k: [],
+        program: p,
+        pc: bytes::length(p),
+    };
 
     #[k::claim(all_paths)]
-    ends: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: { let m = bytes::length(p); m } };
+    ends: {
+        k: [Load()],
+        program: p,
+        pc: 0,
+    } => {
+        k: [],
+        program: p,
+        pc: { let m = bytes::length(p); m },
+    };
 
     #[k::claim(all_paths)]
     #[k::requires(k::matches!(n, 0))]
-    tests: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) };
+    tests: {
+        k: [Load()],
+        program: p,
+        pc: n,
+    } => {
+        k: [],
+        program: p,
+        pc: bytes::length(p),
+    };
 
     #[k::claim(all_paths)]
     #[k::ensures({ let m = 0; m == 0 })]
-    ensured: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: bytes::length(p) };
+    ensured: {
+        k: [Load()],
+        program: p,
+        pc: 0,
+    } => {
+        k: [],
+        program: p,
+        pc: bytes::length(p),
+    };
 
     #[k::claim(all_paths)]
     #[k::requires({ let 0 = n; true })]
-    refutes: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) };
+    refutes: {
+        k: [Load()],
+        program: p,
+        pc: n,
+    } => {
+        k: [],
+        program: p,
+        pc: bytes::length(p),
+    };
 
     #[k::claim(all_paths)]
-    off_by_one: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: { let m = bytes::length(p); m + 1 } };
+    off_by_one: {
+        k: [Load()],
+        program: p,
+        pc: 0,
+    } => {
+        k: [],
+        program: p,
+        pc: { let m = bytes::length(p); m + 1 },
+    };
 }
