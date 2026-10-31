@@ -134,7 +134,13 @@ fn optional_and_collection_cell_attributes_are_checked() {
         (
             "initial",
             SyntaxErrorKind::InvalidCellAttribute {
-                reason: "`initial` belongs to an optional (`multiplicity = \"?\"`) or collection (`multiplicity = \"*\"`) cell",
+                reason: "`initial` belongs to a collection (`multiplicity = \"*\"`) cell",
+            },
+        ),
+        (
+            r#"multiplicity = "?", initial"#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "`initial` on an optional (`multiplicity = \"?\"`) cell repeats what its initializer says, so drop `initial`: `Some(value)` starts it present and `k::absent!(template)` absent",
             },
         ),
         (

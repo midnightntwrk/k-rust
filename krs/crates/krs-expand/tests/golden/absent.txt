@@ -1,0 +1,1 @@
+:: core :: compile_error ! ("[krs::syntax::unsupported-initializer-body] `k::absent!(template)` is the initializer of an optional (`multiplicity = \"?\"`) cell that starts absent; it is valid only as a cell's value in a `#[k::init]` initializer")

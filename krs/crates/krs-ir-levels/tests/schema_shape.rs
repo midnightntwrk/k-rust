@@ -708,6 +708,7 @@ fn registry() -> Registry {
     trace!(DescriptorCellStream: DescriptorCellStream);
     trace!(DescriptorCellExit: DescriptorCellExit);
     trace!(DescriptorCellInitial: DescriptorCellInitial);
+    trace!(DescriptorInitializerAbsent: DescriptorInitializerAbsent);
     trace!(InstanceOrdering: InstanceOrdering);
     trace!(InstanceDelimiter: InstanceDelimiter);
     trace!(DescriptorCellName: DescriptorCellName);

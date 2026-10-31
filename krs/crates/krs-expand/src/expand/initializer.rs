@@ -249,8 +249,20 @@ fn inject_initializer_cell_list(
                 "initializer field disappeared during wrapper injection",
             ));
         };
-        // `Some(template)` of an optional cell: the template takes the wrapper
-        // (KF-023, R7).
+        // `Some(value)` of an optional cell: the value takes the wrapper
+        // (KF-023, R7). `k::absent!(template)` is checked as the
+        // `Some(template)` it would be present, so its template has the
+        // field's type.
+        if let (Some(absent), syn::Expr::Macro(_)) = (cell.absent(), &field.expr) {
+            // rustc reports a template of another type at the invocation.
+            let span = absent.span();
+            let template = &cell.field().expr;
+            let some = respanned(quote!(::core::option::Option::Some), span);
+            let mut argument =
+                proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, quote!(#template));
+            argument.set_span(span);
+            field.expr = parse_quote!(#some #argument);
+        }
         let expression = if cell.is_optional() {
             match &mut field.expr {
                 syn::Expr::Call(call) if call.args.len() == 1 => {
@@ -260,7 +272,7 @@ fn inject_initializer_cell_list(
                     return Err(ExpandError::new(
                         expand::INITIALIZER_CELL_SHAPE,
                         other.span(),
-                        "an optional cell's initializer is `Some(template)`",
+                        "an optional cell's initializer is `Some(value)` or `k::absent!(template)`",
                     ));
                 }
             }
@@ -464,10 +476,19 @@ impl<'a> InitializerBuilder<'a> {
                     }
                 }
             };
+            let absent = cell
+                .absent()
+                .map(|_| -> crate::Result<_> {
+                    Ok(krs_ir::DescriptorInitializerAbsent {
+                        key: ledger.define(cell.absent_key())?,
+                    })
+                })
+                .transpose()?;
             output.push(WireInitializerCell {
                 key: ledger.define(cell.key())?,
                 field,
                 content,
+                absent,
             });
         }
         Ok(output)

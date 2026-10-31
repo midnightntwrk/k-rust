@@ -399,8 +399,8 @@ advice = "none"
 
 [class.none-in-initializer]
 code = "krs::syntax::unsupported-initializer-body"
-doc = "`None` as an initial value: K needs a template for every cell"
-advice = "init/initial/Some(0)"
+doc = "`None` as an initial value: K needs a template for every cell, so an optional cell that starts absent is written `k::absent!(template)` (decision NT-12-6)"
+advice = "init/counter/k::absent!(0)"
 
 [class.notation-in-pattern]
 code = "krs::syntax::invalid-expression-notation"
@@ -424,7 +424,7 @@ advice = "none"
 
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
-doc = "an optional (`?`) cell written without `Some(..)`/`None`: a binder, `_`, a literal, a record, a wrapper or a template"
+doc = "an optional (`?`) cell written without `Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`): a binder, `_`, a literal, a record, a wrapper or a template"
 advice = "cells/result/counter/Some(k::configuration::Cell(x))"
 
 [class.order-on-unordered-sentence]
@@ -439,13 +439,18 @@ advice = "none"
 
 [class.presence-on-plain-cell]
 code = "krs::analysis::optional-presence"
-doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
+doc = "`Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`) on a cell that is not `multiplicity = \"?\"`"
 advice = "none"
 
 [class.priority-range]
 code = "krs::syntax::invalid-rule-key"
 doc = "a priority outside the range rule priorities are ranked in, `0..=254`"
 advice = "none"
+
+[class.redundant-initial]
+code = "krs::syntax::invalid-cell-attribute"
+doc = "`initial` on an optional (`?`) cell, whose initializer already says whether it starts present: `Some(value)` present, `k::absent!(template)` absent (decision NT-12-6)"
+advice = "init/counter/Some(0)"
 
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
@@ -940,9 +945,15 @@ class = "presence-on-plain-cell"
 at = "entry"
 
 [[refuse]]
-match = 'init/{env,frame,job,k,pc,stack}/Some(0)'
+match = 'init/{env,frame,job,k,pc,stack}/{Some(0),k::absent!(0)}'
 class = "presence-on-plain-cell"
 at = "entry"
+
+# redundant-initial
+[[refuse]]
+match = 'init/initial/initial'
+class = "redundant-initial"
+at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/{result,subject}/{env,frame,job,k,pc,stack}/{None,Some(x)}'
@@ -2484,6 +2495,24 @@ configuration
 <frame>
 <ret> 0 </ret>
 </frame>
+<counter multiplicity="?" initial=""> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
+[accept."init/counter/k::absent!(0)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
 <counter multiplicity="?"> 0 </counter>
 <queue>
 <job multiplicity="*" type="List">
@@ -2659,24 +2688,6 @@ configuration
 <ret> 0 </ret>
 </frame>
 <counter multiplicity="?"> 0 </counter>
-<queue>
-<job multiplicity="*" type="List">
-<payload> 0 </payload>
-</job>
-</queue>
-"""
-
-[accept."init/initial/Some(0)"]
-k = """
-configuration
-<k> $PGM:Stmt </k>
-<pc> 0 </pc>
-<stack> .List </stack>
-<env> .Map </env>
-<frame>
-<ret> 0 </ret>
-</frame>
-<counter multiplicity="?" initial=""> 0 </counter>
 <queue>
 <job multiplicity="*" type="List">
 <payload> 0 </payload>
@@ -3051,7 +3062,7 @@ configuration
 <boxed>
 <inner> unit </inner>
 </boxed>
-<opt multiplicity="?"> ( 1 ):Value </opt>
+<opt multiplicity="?" initial=""> ( 1 ):Value </opt>
 <slots>
 <slot multiplicity="*" type="List">
 <item> unit </item>
@@ -3071,7 +3082,7 @@ configuration
 <boxed>
 <inner> unit </inner>
 </boxed>
-<opt multiplicity="?"> unit </opt>
+<opt multiplicity="?" initial=""> unit </opt>
 <slots>
 <slot multiplicity="*" type="List">
 <item> unit </item>

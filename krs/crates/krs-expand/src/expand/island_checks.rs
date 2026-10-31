@@ -21,15 +21,23 @@ pub(super) fn initializer_state_island_import_checks(
     island_import_checks(paths)
 }
 
-/// Appends the bare `k!` and `map!` that write a cell's own content: the
-/// cell's whole value, or the argument of its `Cell::new`/`KCell::new`, under
-/// `Some(..)` too. A cell's own `map!` that writes entries is read as a
+/// Appends a bare `absent!` around an optional cell's template, and the bare
+/// `k!` and `map!` that write a cell's own content: the cell's whole value, or
+/// the argument of its `Cell::new`/`KCell::new`, under `Some(..)` or
+/// `k::absent!(..)` too. A cell's own `map!` that writes entries is read as a
 /// collection literal, but it is still the macro the initializer consumes, so
 /// it credits its import as the empty map does. A macro below a term's call
 /// (`list::item(map![..])`) is a term, a collection literal, which rustc
 /// receives as calls.
 fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut Vec<Path>) {
     for cell in cells {
+        // `k::absent!` is consumed whole, so a bare `absent!` credits its import.
+        if let Some(absent) = cell.absent()
+            && absent.path.leading_colon.is_none()
+            && absent.path.segments.len() == 1
+        {
+            output.push(absent.path.clone());
+        }
         match cell.content() {
             InitializerCellContent::Leaf { value, .. } => {
                 let island = match value.unwrap_present() {

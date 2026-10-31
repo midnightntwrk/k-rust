@@ -152,6 +152,13 @@ impl Sample for DescriptorCellInitial {
         }]
     }
 }
+impl Sample for DescriptorInitializerAbsent {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+        }]
+    }
+}
 impl Sample for ProtocolInstanceRest {
     fn samples() -> Vec<Self> {
         checked_samples(
@@ -3926,6 +3933,7 @@ impl<
             key: sample::<ProvenanceKey>(),
             field: sample::<I>(),
             content: sample::<ProtocolInitializerCellContent<I, N, T>>(),
+            absent: Some(sample::<DescriptorInitializerAbsent>()),
         }]
     }
 }

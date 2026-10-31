@@ -928,6 +928,7 @@ mod tests {
                 main_key: None,
             }],
             cells: vec![ProtocolInitializerCell {
+                absent: None,
                 key: key(ProvenanceRole::InitializerCell),
                 field: wire_cell(),
                 content: ProtocolInitializerCellContent::Nested {
@@ -936,6 +937,7 @@ mod tests {
                         declaration: wire_nominal(0, "Nested"),
                     },
                     children: vec![ProtocolInitializerCell {
+                        absent: None,
                         key: key(ProvenanceRole::InitializerCell),
                         field: wire_cell(),
                         content: ProtocolInitializerCellContent::Leaf {
@@ -973,6 +975,7 @@ mod tests {
                 main_key: None,
             }],
             cells: vec![ProtocolInitializerCell {
+                absent: None,
                 key: key(ProvenanceRole::InitializerCell),
                 field: host_cell(),
                 content: ProtocolInitializerCellContent::Nested {
@@ -981,6 +984,7 @@ mod tests {
                         declaration: host_nominal("Nested"),
                     },
                     children: vec![ProtocolInitializerCell {
+                        absent: None,
                         key: key(ProvenanceRole::InitializerCell),
                         field: host_cell(),
                         content: ProtocolInitializerCellContent::Leaf {

@@ -1,5 +1,5 @@
 //! K needs a template for a `?` cell even when it starts absent, so the
-//! initializer writes `Some(template)`, not `None`.
+//! initializer writes `k::absent!(template)`, not `None`.
 
 use k::KResult;
 use k::builtin::{Int, KSequence};

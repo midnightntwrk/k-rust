@@ -87,12 +87,12 @@ pub use krs_ir::{
     ProtocolHeadRuleResult,
 };
 pub use krs_macros::{
-    alias, anonymous, associativity, bracket, bytes, cell, cells, claim, claims, configuration,
-    constant, constructor, constructors, context, context_alias, desugar, ensures, equation,
-    equations, exists, fragment, fresh, function, id, init, is, k, layout, lexeme, lexical, map,
-    matches, or_bool, precedence, priority, project, raw_k, requires, rewrite, rule, rules,
-    seqstrict, simplification, sort, sorts, spec_module, strict, subsort, symbol, syntax_list,
-    term, token,
+    absent, alias, anonymous, associativity, bracket, bytes, cell, cells, claim, claims,
+    configuration, constant, constructor, constructors, context, context_alias, desugar, ensures,
+    equation, equations, exists, fragment, fresh, function, id, init, is, k, layout, lexeme,
+    lexical, map, matches, or_bool, precedence, priority, project, raw_k, requires, rewrite, rule,
+    rules, seqstrict, simplification, sort, sorts, spec_module, strict, subsort, symbol,
+    syntax_list, term, token,
 };
 
 // Framework identities are ordinary readable sorts that every definition

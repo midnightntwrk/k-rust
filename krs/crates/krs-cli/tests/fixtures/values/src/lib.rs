@@ -138,7 +138,7 @@ impl Machine {
             label,
             ident,
             val,
-            timer: Some(0),
+            timer: k::absent!(0),
             threads: Threads {
                 thread: Thread { id: 0, count: 0 },
             },

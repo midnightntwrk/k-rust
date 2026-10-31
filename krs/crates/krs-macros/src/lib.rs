@@ -539,6 +539,15 @@ pub fn rewrite(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Rewrite, input)
 }
 
+/// The initializer of an optional (`multiplicity = "?"`) cell that starts
+/// absent: `counter: k::absent!(0)` gives the template a created cell takes,
+/// where `counter: Some(0)` starts the cell present with 0. A `#[k::init]`
+/// initializer consumes it; used anywhere else it is a compile error.
+#[proc_macro]
+pub fn absent(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Absent, input)
+}
+
 /// Declares an evaluation context, K's `context`: where evaluation may
 /// happen. `#[k::context(hole = h)] fn add_rhs(k::term![Op::Add(e, h)]: Term<Expr>) {}`
 /// is K's `context E + HOLE`; K turns it into a heat rule and a cool rule

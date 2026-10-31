@@ -92,6 +92,7 @@ fn declaration<S: Stage>(reference: S::Cell, sort: S::Sort) -> StageCellDeclarat
 
 fn initializer_cell<S: Stage>(field: S::Cell) -> StageInitializerCell<S> {
     ProtocolInitializerCell {
+        absent: None,
         key: key(ProvenanceRole::InitializerCell),
         field,
         content: ProtocolInitializerCellContent::Leaf {

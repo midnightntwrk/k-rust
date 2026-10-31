@@ -1,6 +1,6 @@
 //! A `?` cell whose template reads the configuration variable `$START`
-//! says `initial`, so its text and its meaning agree: it starts present,
-//! holding `$START`, and `go n` reads it and computes it plus `n`.
+//! is written `Some(start)`, so its text and its meaning agree: it starts
+//! present, holding `$START`, and `go n` reads it and computes it plus `n`.
 
 use k::KResult;
 use k::builtin::{Int, KSequence, int};
@@ -22,7 +22,7 @@ pub enum Cmd {
 pub struct Machine {
     #[k::cell]
     pub k: KSequence,
-    #[k::cell(multiplicity = "?", initial)]
+    #[k::cell(multiplicity = "?")]
     pub counter: Option<Int>,
 }
 

@@ -2,8 +2,8 @@
 //!
 //! A `multiplicity = "?"` cell is declared `Option<T>`: a rule matches it
 //! with `Some(..)` when it is present and with `None` when it is absent.
-//! `<counter>` starts absent (it has no `initial`); its init value
-//! `Some(0)` is K's template, not a starting state.
+//! `<counter>` starts absent: its initializer `k::absent!(0)` gives K's
+//! template, what a created counter holds, not a starting state.
 //!
 //! - `enable` creates the counter: `{ counter: None } => { counter: Some(0) }`
 //!   emits `(.Bag => <counter> 0 </counter>)`. K tests that a `?` cell is
@@ -67,8 +67,8 @@ impl Machine {
     pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
         Self {
             k: k::k![pgm],
-            counter: Some(0),
-            mark: Some(Mark { seen: 0 }),
+            counter: k::absent!(0),
+            mark: k::absent!(Mark { seen: 0 }),
         }
     }
 }

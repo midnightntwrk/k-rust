@@ -8169,6 +8169,12 @@
         },
         "cells": [
           {
+            "absent": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
             "content": {
               "constructor_key": {
                 "ordinal": 0,
@@ -9860,6 +9866,12 @@
           },
           "cells": [
             {
+              "absent": {
+                "key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                }
+              },
               "content": {
                 "constructor_key": {
                   "ordinal": 0,
@@ -21299,6 +21311,12 @@
   ],
   "ProtocolInitializerCell": [
     {
+      "absent": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
       "content": {
         "constructor_key": {
           "ordinal": 0,
@@ -21386,6 +21404,12 @@
     {
       "children": [
         {
+          "absent": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          },
           "content": {
             "constructor_key": {
               "ordinal": 0,
@@ -22630,7 +22654,8 @@
     "inlined_constant",
     "initializer_record_field_name",
     "configuration_variable_type_argument",
-    "initializer_term_literal"
+    "initializer_term_literal",
+    "initializer_absent"
   ],
   "RawSentence": [
     {
@@ -31802,6 +31827,12 @@
         },
         "cells": [
           {
+            "absent": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
             "content": {
               "constructor_key": {
                 "ordinal": 0,

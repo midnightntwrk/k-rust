@@ -37,7 +37,7 @@ impl Machine {
     pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
         Self {
             k: k::k![pgm],
-            console: Some(Console {
+            console: k::absent!(Console {
                 output: list::empty(),
             }),
         }

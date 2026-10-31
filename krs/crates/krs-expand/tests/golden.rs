@@ -1320,6 +1320,7 @@ k::term![Check(a.lt(b))];
     ("project", "k::project!(Int, e);"),
     ("matches", "k::matches!(e, Pair(_, _) | Unit());"),
     ("rewrite", "k::rewrite!(a => b);"),
+    ("absent", "k::absent!(0);"),
     (
         "syntax_list",
         r#"

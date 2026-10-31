@@ -86,6 +86,16 @@ pub(crate) fn rewrite() -> TokenStream {
     quote!(::core::compile_error!(#message))
 }
 
+/// `k::absent!(template)` outside an initializer: the initializer consumes
+/// every invocation it holds, so one that reaches here stands elsewhere.
+pub(crate) fn absent() -> TokenStream {
+    let message = krs_diagnostic::tag_rustc_message(
+        &krs_diagnostic::codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
+        "`k::absent!(template)` is the initializer of an optional (`multiplicity = \"?\"`) cell that starts absent; it is valid only as a cell's value in a `#[k::init]` initializer",
+    );
+    quote!(::core::compile_error!(#message))
+}
+
 /// Compiler-owned associative object-Bool disjunction.
 pub(crate) fn or_bool() -> TokenStream {
     quote!(::core::panic!("or_bool! has no runtime value"))

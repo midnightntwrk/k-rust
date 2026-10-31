@@ -216,9 +216,10 @@ pub enum Base {
     /// The machine base with a two-child group, `Frame { ret, aux }`, for the order of a nested
     /// initializer's children: its only case is an initializer.
     Nested,
-    /// The machine base with its optional cell declared `initial`, for an initializer that
-    /// writes it present (`counter: Some(0)`, which `none-in-initializer` advises): its only case
-    /// is that initializer.
+    /// The machine base, whose one case writes the declarations after the commands itself, its
+    /// optional cell declared `initial`, before an initializer that writes it present
+    /// (`counter: Some(0)`): the flag repeats what the initializer says, which
+    /// `redundant-initial` refuses ([`Base::case_writes_declarations`]).
     Initial,
     /// The machine base's cells, with the same names and declarations, a Set collection whose
     /// instances hold a map cell (`shelf.bag` of `Obj { key, m }`), and K7's driver commands, which
@@ -253,6 +254,12 @@ impl Base {
     #[must_use]
     pub fn preamble(self) -> String {
         self.text().assemble(&[], None)
+    }
+
+    /// Whether a case of this base writes the declarations after the commands in its item, in
+    /// place of its base's own.
+    const fn case_writes_declarations(self) -> bool {
+        matches!(self, Self::Initial)
     }
 
     fn text(self) -> BaseText {
@@ -299,6 +306,15 @@ impl BaseText {
     /// The base up to its initializer, with `commands` declared, and the range of each
     /// command's declaration in it.
     fn declaring(&self, commands: &[&Command]) -> (String, Vec<Range<usize>>) {
+        self.declaring_with(commands, self.after_commands)
+    }
+
+    /// [`Self::declaring`] with `after_commands` in place of the base's own.
+    fn declaring_with(
+        &self,
+        commands: &[&Command],
+        after_commands: &str,
+    ) -> (String, Vec<Range<usize>>) {
         let mut text = String::from(self.before_commands);
         let mut declarations = Vec::with_capacity(commands.len());
         for command in commands {
@@ -306,7 +322,7 @@ impl BaseText {
             command.declare(&mut text);
             declarations.push(start..text.len());
         }
-        text.push_str(self.after_commands);
+        text.push_str(after_commands);
         (text, declarations)
     }
 }
@@ -555,9 +571,7 @@ impl Case {
     }
 
     /// The text the case writes of its own, which K8 reads for the form an advice proposes
-    /// (`advice::followed_in`): its command's declaration, its item, and, on a base that changes
-    /// the machine base's declarations for its case ([`Base::Initial`]), the declarations after
-    /// its commands.
+    /// (`advice::followed_in`): its command's declaration and its item.
     #[must_use]
     pub fn own_source(&self) -> String {
         let mut text = String::new();
@@ -565,9 +579,6 @@ impl Case {
             command.declare(&mut text);
         }
         text.push_str(&self.item);
-        if self.base == Base::Initial {
-            text.push_str(self.base.text().after_commands);
-        }
         text
     }
 
@@ -689,7 +700,12 @@ pub fn render<'a>(cases: &[&'a Case]) -> Rendered<'a> {
         .iter()
         .filter_map(|case| case.command())
         .collect::<Vec<_>>();
-    let (mut source, declarations) = base.declaring(&commands);
+    // A case that writes the declarations after the commands holds them in its item.
+    let (mut source, declarations) = if first.base.case_writes_declarations() {
+        base.declaring_with(&commands, "")
+    } else {
+        base.declaring(&commands)
+    };
     let mut declarations = declarations.into_iter();
     if first.replaces_initializer() {
         let start = source.len();

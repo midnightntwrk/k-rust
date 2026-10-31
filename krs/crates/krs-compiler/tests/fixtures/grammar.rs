@@ -137,6 +137,7 @@ pub fn machine_configuration(start: StableItemId) -> DescriptorInputs {
             variables: Vec::new(),
             body_key: key(ProvenanceRole::InitializerBody, 0),
             cells: vec![krs_ir::DescriptorInitializerCell {
+                absent: None,
                 key: key(ProvenanceRole::InitializerCell, 0),
                 field: krs_ir::DescriptorCellReference {
                     key: key(ProvenanceRole::InitializerField, 0),

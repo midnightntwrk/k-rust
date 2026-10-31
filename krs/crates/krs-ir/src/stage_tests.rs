@@ -165,6 +165,7 @@ fn map_initializer_state(
 
 fn initializer_cell(ordinal: u32) -> DescriptorInitializerCell {
     DescriptorInitializerCell {
+        absent: None,
         key: key(ordinal),
         field: cell(ordinal),
         content: cfg::ProtocolInitializerCellContent::Leaf {
@@ -258,6 +259,7 @@ fn initializer() -> DescriptorConfigurationInitializer {
         variables: vec![variable()],
         body_key: key(2),
         cells: vec![DescriptorInitializerCell {
+            absent: None,
             key: key(3),
             field: cell(4),
             content: cfg::ProtocolInitializerCellContent::Nested {

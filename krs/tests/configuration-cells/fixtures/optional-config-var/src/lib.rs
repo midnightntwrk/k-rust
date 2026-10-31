@@ -1,6 +1,6 @@
 //! A `?` cell whose template reads the configuration variable `$START`
-//! starts present although it is not `initial`, which KRS refuses: the
-//! text says absent and the cell is present.
+//! starts present although its initializer writes `k::absent!(..)`, which
+//! KRS refuses: the text says absent and the cell is present.
 
 use k::KResult;
 use k::builtin::{Int, KSequence};
@@ -34,7 +34,7 @@ impl Machine {
     ) -> Self {
         Self {
             k: k::k![pgm],
-            counter: Some(start),
+            counter: k::absent!(start),
         }
     }
 }

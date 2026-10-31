@@ -39,6 +39,8 @@ pub(super) fn lower_fixed_configuration_descriptor(
     };
     let mut visiting = BTreeSet::new();
     let mut console = ConsoleCells::default();
+    let present =
+        present_optional_cells(descriptor, &configuration.initializer.cells, declarations)?;
     let cells = lower_cell_declaration(
         descriptor,
         &configuration.declaration,
@@ -47,6 +49,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
         &mut CellScope {
             console: &mut console,
             repeated: None,
+            present: &present,
         },
     )?;
     check_unambiguous_cell_sorts(&cells)?;
@@ -245,6 +248,64 @@ struct ConsoleCells {
 struct CellScope<'a> {
     console: &'a mut ConsoleCells,
     repeated: Option<String>,
+    /// The optional cells the initializer starts present ([`present_optional_cells`]).
+    present: &'a BTreeMap<SemanticId, NodeOrigin>,
+}
+
+/// Each optional (`?`) cell of `cells` and the cells inside them that starts present, with the
+/// origin of its initializer, which states that: an optional cell's initializer `Some(value)`
+/// starts it present with the value, and `k::absent!(template)` starts it absent, `template`
+/// being what a created cell looks like. Only an optional cell starts absent, so `k::absent!`
+/// on another cell is refused.
+fn present_optional_cells(
+    descriptor: &Descriptor,
+    cells: &[DescriptorInitializerCell],
+    declarations: &DescriptorIndex<'_>,
+) -> Result<BTreeMap<SemanticId, NodeOrigin>, DescriptorLoweringError> {
+    let mut present = BTreeMap::new();
+    add_present_optional_cells(descriptor, cells, declarations, &mut present)?;
+    Ok(present)
+}
+
+fn add_present_optional_cells(
+    descriptor: &Descriptor,
+    cells: &[DescriptorInitializerCell],
+    declarations: &DescriptorIndex<'_>,
+    present: &mut BTreeMap<SemanticId, NodeOrigin>,
+) -> Result<(), DescriptorLoweringError> {
+    for cell in cells {
+        let declared = require_cell_field(&cell.field.cell, declarations)?;
+        let optional = declared
+            .multiplicity
+            .as_ref()
+            .is_some_and(|multiplicity| multiplicity.value == "?");
+        match (&cell.absent, optional) {
+            (Some(absent), false) => {
+                return Err(super::cell_states::collection_error(
+                    descriptor,
+                    codes::analysis::OPTIONAL_PRESENCE,
+                    &absent.key,
+                    format!(
+                        "`{}` is not an optional cell: `k::absent!(..)` starts a cell declared `#[k::cell(multiplicity = \"?\")]` with an `Option<T>` field absent",
+                        cell.field.cell.field
+                    ),
+                ));
+            }
+            (None, true) => {
+                // The cell's own node is the initializer cell's key; the presence its value
+                // states is located at the field it initializes.
+                present.insert(
+                    semantic_cell_id(&cell.field.cell)?,
+                    semantic_origin(descriptor, cell.field.key.clone(), "initializer-present")?,
+                );
+            }
+            _ => {}
+        }
+        if let ProtocolInitializerCellContent::Nested { children, .. } = &cell.content {
+            add_present_optional_cells(descriptor, children, declarations, present)?;
+        }
+    }
+    Ok(())
 }
 
 /// How a `stream` or `exit` cell sits in its repeated ancestor, which may be the cell itself.
@@ -419,6 +480,7 @@ fn cell_attributes(
     declaration: &DescriptorCellDeclaration,
     field: &DescriptorCellField,
     name: &str,
+    present: Option<&NodeOrigin>,
 ) -> Result<Vec<CellAttribute>, DescriptorLoweringError> {
     let mut attributes = Vec::with_capacity(5);
     if let Some(color) = &field.color {
@@ -468,12 +530,32 @@ fn cell_attributes(
             "cell-exit",
         )?));
     }
+    let optional = field
+        .multiplicity
+        .as_ref()
+        .is_some_and(|multiplicity| multiplicity.value == "?");
     if let Some(initial) = &field.initial {
+        // An optional cell's initializer says whether it starts present, so the flag would
+        // repeat it or contradict it.
+        if optional {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                codes::analysis::OPTIONAL_PRESENCE,
+                &initial.key,
+                format!(
+                    "`initial` on the optional cell `{name}` repeats what its initializer says, so drop `initial`: `Some(value)` starts it present and `k::absent!(template)` absent"
+                ),
+            ));
+        }
         attributes.push(CellAttribute::initial(semantic_origin(
             descriptor,
             initial.key.clone(),
             "cell-initial",
         )?));
+    }
+    // An optional cell its initializer starts present is K's `initial` cell.
+    if let Some(origin) = present.filter(|_| optional) {
+        attributes.push(CellAttribute::initial(origin.clone()));
     }
     Ok(attributes)
 }
@@ -492,7 +574,13 @@ fn lower_cell_declaration(
             .emitted_name
             .as_ref()
             .map_or_else(|| field.rust_field.clone(), |name| name.value.clone());
-        let attributes = cell_attributes(descriptor, declaration, field, &name)?;
+        let attributes = cell_attributes(
+            descriptor,
+            declaration,
+            field,
+            &name,
+            scope.present.get(&id),
+        )?;
         let repeated = if field.multiplicity.is_some() {
             Some(name.clone())
         } else {
@@ -540,6 +628,7 @@ fn lower_cell_declaration(
                     &mut CellScope {
                         console: scope.console,
                         repeated,
+                        present: scope.present,
                     },
                 )?;
                 visiting.remove(&declaration.declaration);
@@ -679,12 +768,13 @@ fn check_configuration_variables_read(
 
 /// Refuses every optional or collection cell that starts present without saying so (KF-023).
 ///
-/// Such a cell starts absent unless it is `initial`, with one exception: a template that reads a
-/// configuration variable has to be instantiated at the start, or the variable's input would have
-/// nowhere to go, so that cell starts present whatever its attributes say. Its text then says
-/// absent and means present, and `initial` is the word that makes the two agree, without
-/// changing the meaning. Each cell lacks its own `initial`, so every such cell is reported,
-/// including one inside another.
+/// A collection starts with no instance unless it is `initial`, and an optional cell starts
+/// absent when its initializer is `k::absent!(template)`, with one exception: a template that
+/// reads a configuration variable has to be instantiated at the start, or the variable's input
+/// would have nowhere to go, so that cell starts present whatever its text says. Its text then
+/// says absent and means present: `initial` on a collection, and `Some(..)` for an optional
+/// cell, are the words that make the two agree, without changing the meaning. Each cell says it
+/// on its own, so every such cell is reported, including one inside another.
 fn check_explicit_presence(
     cells: &[FixedCell<SemanticSortRef, SemanticId>],
     initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
@@ -717,12 +807,20 @@ fn check_explicit_presence(
                 .into_iter()
                 .any(|variable| variables.contains_key(variable))
             {
-                present.push(ImplicitPresentCell {
-                    reason: format!(
+                let reason = if multiplicity == CellMultiplicity::Optional {
+                    format!(
+                        "the `multiplicity = \"?\"` cell `{}` reads a configuration variable, so it starts present although its initializer writes `k::absent!(..)`; write `Some(..)` to say so",
+                        cell.name(),
+                    )
+                } else {
+                    format!(
                         "the `multiplicity = \"{}\"` cell `{}` reads a configuration variable, so it starts present although it is not `initial`; add `initial` to its `#[k::cell]` to say so",
                         multiplicity.as_str(),
                         cell.name(),
-                    ),
+                    )
+                };
+                present.push(ImplicitPresentCell {
+                    reason,
                     range: cell.origin().origin().exact_authored_range().map(Box::new),
                 });
             }

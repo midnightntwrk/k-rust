@@ -596,13 +596,20 @@ fn validate_multiplicity(
             ));
         }
     }
-    if let Some(flag) = initial
-        && multiplicity.is_none()
-    {
-        return Err(invalid(
-            "`initial` belongs to an optional (`multiplicity = \"?\"`) or collection (`multiplicity = \"*\"`) cell",
-            flag.span(),
-        ));
+    if let Some(flag) = initial {
+        if multiplicity.is_none() {
+            return Err(invalid(
+                "`initial` belongs to a collection (`multiplicity = \"*\"`) cell",
+                flag.span(),
+            ));
+        }
+        // An optional cell's initializer says whether it starts present.
+        if !star {
+            return Err(invalid(
+                "`initial` on an optional (`multiplicity = \"?\"`) cell repeats what its initializer says, so drop `initial`: `Some(value)` starts it present and `k::absent!(template)` absent",
+                flag.span(),
+            ));
+        }
     }
     Ok(())
 }

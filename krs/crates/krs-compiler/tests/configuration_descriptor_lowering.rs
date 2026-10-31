@@ -593,6 +593,7 @@ fn at_most_one_cell_reads_standard_input() {
             .initializer
             .cells
             .push(DescriptorInitializerCell {
+                absent: None,
                 key: key(ProvenanceRole::InitializerCell, 2),
                 field: DescriptorCellReference {
                     key: key(ProvenanceRole::InitializerField, 2),

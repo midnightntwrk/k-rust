@@ -141,6 +141,7 @@ fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
         body_key: key(ProvenanceRole::InitializerBody, 0),
         cells: vec![
             DescriptorInitializerCell {
+                absent: None,
                 key: key(ProvenanceRole::InitializerCell, 0),
                 field: DescriptorCellReference {
                     key: key(ProvenanceRole::InitializerField, 0),
@@ -161,6 +162,7 @@ fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
                 },
             },
             DescriptorInitializerCell {
+                absent: None,
                 key: key(ProvenanceRole::InitializerCell, 1),
                 field: DescriptorCellReference {
                     key: key(ProvenanceRole::InitializerField, 1),

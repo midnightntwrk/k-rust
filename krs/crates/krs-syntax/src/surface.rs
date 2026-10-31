@@ -196,6 +196,8 @@ entry_points! {
         Matches = "matches",
         /// `k::rewrite!`.
         Rewrite = "rewrite",
+        /// `k::absent!`.
+        Absent = "absent",
     }
 }
 

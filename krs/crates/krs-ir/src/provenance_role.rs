@@ -580,6 +580,9 @@ provenance_roles! {
     /// Integer, Boolean, float, or string literal in an initializer's terms,
     /// in preorder across the terms in expansion order.
     InitializerTermLiteral => "initializer_term_literal",
+    /// `k::absent!` around an optional cell's initializer template: the cell
+    /// starts absent. Numbered as the cell is.
+    InitializerAbsent => "initializer_absent",
 }
 
 impl Serialize for ProvenanceRole {

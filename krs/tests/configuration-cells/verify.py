@@ -72,10 +72,11 @@ the outcomes must agree:
   labelled instance, braces on a List collection, one List rule changing
   both ends, a created Map instance without its key, a stream cell inside
   a `?` group, and a `?` template that reads a configuration variable
-  without `initial`;
-- `optional-config-var-initial`: the same `?` template with `initial` is
+  written `k::absent!(..)`;
+- `optional-config-var-initial`: the same `?` cell written `Some(start)` is
   accepted without a warning and starts present on both routes, holding
-  `$START`: from `-cSTART=3`, `go 2` writes 5 to the computation cell.
+  `$START`: from `-cSTART=3`, `go 2` writes 5 to the computation cell
+  (`initial=""` in K: an optional cell its initializer starts present).
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -212,7 +213,7 @@ OPTIONAL_K = (
 )
 OPTIONAL_REFERENCE = (
     "    pub counter: Option<k::configuration::Cell<Int>>,\n",
-    "            counter: Some(k::configuration::Cell::new(0)),\n",
+    "            counter: k::absent!(k::configuration::Cell::new(0)),\n",
     "        k : k::configuration::KCell(crate ::Cmd::Enable(), tail @ ..), counter : None,\n",
     "        k : k::configuration::KCell(..tail), counter : Some(k::configuration::Cell(0)),\n",
     "        k : k::configuration::KCell(..tail), mark : Some(k::fragment![crate ::Mark { seen\n",
@@ -429,7 +430,7 @@ NEGATIVE = (
     "optional-config-var",
 )
 
-# Accepted: a `?` template that reads a configuration variable, with `initial`.
+# Accepted: a `?` cell that reads a configuration variable, written `Some(..)`.
 PRESENT = "optional-config-var-initial"
 PRESENT_PROGRAMS = (Program("go", "go 2", "accepted", "5", variables=(("START", "3"),)),)
 PRESENT_K = "    <counter multiplicity=\"?\" initial=\"\">"
@@ -600,7 +601,7 @@ def main() -> int:
         if PRESENT_K not in source:
             raise GateError(f"{PRESENT}: the emitted counter is not `initial`:\n{source}")
         harness.compare(emitted, PRESENT_PROGRAMS, sort="Stmt")
-        print(f"PASS {PRESENT}: the `initial` counter starts as $START on both routes, without a warning")
+        print(f"PASS {PRESENT}: the counter written `Some(start)` starts as $START on both routes, without a warning")
 
     pins.finish("configuration-cells")
     print("PASS configuration-cells")

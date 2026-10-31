@@ -1037,7 +1037,7 @@ pub enum Op {
 
 #[krs::cell]
 pub struct Frame {
-    #[krs::cell(multiplicity = "?"{initial})]
+    #[krs::cell(multiplicity = "?")]
     pub saved: Option<Int>,
 }
 
@@ -1060,13 +1060,12 @@ impl Machine {
 "#;
 
 #[test]
-fn an_optional_cell_that_reads_a_configuration_variable_says_initial() {
+fn an_optional_cell_that_reads_a_configuration_variable_starts_present() {
     let target = shared_fixture_target();
-    let present = |cells: &str, templates: &str, initial: &str| {
+    let present = |cells: &str, templates: &str| {
         let source = PRESENT_CELLS
             .replace("{cells}", cells)
-            .replace("{templates}", templates)
-            .replace("{initial}", initial);
+            .replace("{templates}", templates);
         let temporary = temp_dir();
         let manifest = materialize_fixture(temporary.path(), &source);
         let check = command(target.path(), &manifest, "check", None, &[]);
@@ -1074,15 +1073,16 @@ fn an_optional_cell_that_reads_a_configuration_variable_says_initial() {
         let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
         (check.status.success(), diagnostics, stderr)
     };
-    let program = r#"#[krs::cell(multiplicity = "?"{initial})] pub program: Option<Step>,"#;
-    let count = r#"#[krs::cell(multiplicity = "?"{initial})] pub count: Option<Int>,"#;
-    let frame = r#"#[krs::cell(multiplicity = "?", nested{initial})] pub frame: Option<Frame>,"#;
+    let program = r#"#[krs::cell(multiplicity = "?")] pub program: Option<Step>,"#;
+    let count = r#"#[krs::cell(multiplicity = "?")] pub count: Option<Int>,"#;
+    let frame = r#"#[krs::cell(multiplicity = "?", nested)] pub frame: Option<Frame>,"#;
 
-    // One cell that lacks `initial`, reading `$PGM`, is one KRS error, at the cell, and no
-    // native diagnostic.
-    let cells = format!("{} {count}", program.replace("{initial}", ""));
-    let templates = "program: Some(program), count: Some(start)";
-    let (accepted, diagnostics, stderr) = present(&cells, templates, ", initial");
+    // A template that reads `$PGM` must be there at the start, so `k::absent!` around it says
+    // absent where the cell starts present: one KRS error, at the cell, and no native
+    // diagnostic.
+    let cells = format!("{program} {count}");
+    let templates = "program: krs::absent!(program), count: Some(start)";
+    let (accepted, diagnostics, stderr) = present(&cells, templates);
     assert!(!accepted, "accepted:\n{stderr}");
     assert_eq!(diagnostics.len(), 1, "{stderr}");
     let error = &diagnostics[0];
@@ -1094,15 +1094,14 @@ fn an_optional_cell_that_reads_a_configuration_variable_says_initial() {
     assert_eq!(error.kind, krs_diagnostic::codes::CodeKind::Author);
     assert_eq!(
         error.message,
-        "the `multiplicity = \"?\"` cell `program` reads a configuration variable, so it starts present although it is not `initial`; add `initial` to its `#[k::cell]` to say so"
+        "the `multiplicity = \"?\"` cell `program` reads a configuration variable, so it starts present although its initializer writes `k::absent!(..)`; write `Some(..)` to say so"
     );
     assert!(error.authored_range.is_some(), "{stderr}");
 
-    // Each cell lacks its own `initial`, so a cell inside another is reported too.
+    // Each cell says it on its own, so a cell inside another is reported too.
     let cells = format!("{program} {count} {frame}");
-    let templates =
-        "program: Some(program), count: Some(start), frame: Some(Frame { saved: Some(start) })";
-    let (accepted, diagnostics, stderr) = present(&cells, templates, "");
+    let absent = "program: krs::absent!(program), count: krs::absent!(start), frame: krs::absent!(Frame { saved: krs::absent!(start) })";
+    let (accepted, diagnostics, stderr) = present(&cells, absent);
     assert!(!accepted, "accepted:\n{stderr}");
     let named = diagnostics
         .iter()
@@ -1116,10 +1115,30 @@ fn an_optional_cell_that_reads_a_configuration_variable_says_initial() {
         .collect::<Vec<_>>();
     assert_eq!(named, ["program", "count", "frame", "saved"], "{stderr}");
 
-    // With `initial`, KRS accepts the cells and k-rust has nothing to warn about.
-    let (accepted, diagnostics, stderr) = present(&cells, templates, ", initial");
+    // Written `Some(..)`, the cells start present, KRS accepts them, and k-rust has nothing to
+    // warn about.
+    let templates =
+        "program: Some(program), count: Some(start), frame: Some(Frame { saved: Some(start) })";
+    let (accepted, diagnostics, stderr) = present(&cells, templates);
     assert!(accepted, "rejected:\n{stderr}");
     assert!(diagnostics.is_empty(), "{stderr}");
+
+    // `initial` on an optional cell repeats what its initializer says, and is refused.
+    let cells = format!(
+        "{} {count} {frame}",
+        program.replace(r#""?")"#, r#""?", initial)"#)
+    );
+    let (accepted, diagnostics, stderr) = present(&cells, templates);
+    assert!(!accepted, "accepted:\n{stderr}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "krs::syntax::invalid-cell-attribute"
+                && diagnostic
+                    .message
+                    .contains("repeats what its initializer says")
+        }),
+        "{stderr}"
+    );
 }
 
 /// A machine whose rules read several computation items; `{rules}` are the

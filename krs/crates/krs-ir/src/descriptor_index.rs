@@ -575,6 +575,7 @@ mod tests {
                     variables: Vec::new(),
                     body_key: ProvenanceKey::new(ProvenanceRole::InitializerBody, 0),
                     cells: vec![DescriptorInitializerCell {
+                        absent: None,
                         key: ProvenanceKey::new(ProvenanceRole::InitializerCell, 0),
                         field: DescriptorCellReference {
                             key: ProvenanceKey::new(ProvenanceRole::InitializerField, 0),

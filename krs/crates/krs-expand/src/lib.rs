@@ -115,5 +115,6 @@ pub fn expand_function(
         FunctionMacro::Project => islands::sort_test(krs_ir::SortTestKind::Projection, input),
         FunctionMacro::Matches => islands::matches(input),
         FunctionMacro::Rewrite => Ok(islands::rewrite()),
+        FunctionMacro::Absent => Ok(islands::absent()),
     }
 }

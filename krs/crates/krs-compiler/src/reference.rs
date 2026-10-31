@@ -1793,13 +1793,16 @@ fn materialize_initializer_cells(
                     "initializer field disappeared during reference projection",
                 ))
             })?;
-        // An optional cell's template is `Some(template)` (KF-023, R7).
+        // An optional cell's value is `Some(value)` or `k::absent!(template)` (KF-023, R7); the
+        // template is materialized as a value is, and written back as `k::absent!`'s.
         let has_colon = field.colon_token.is_some();
-        let expression = match (&mut field.expr, cell.is_optional()) {
-            (syn::Expr::Call(call), true) if call.args.len() == 1 => {
+        let mut absent_template = cell.absent().map(|_| cell.field().expr.clone());
+        let expression = match (&mut absent_template, &mut field.expr, cell.is_optional()) {
+            (Some(template), _, _) => template,
+            (None, syn::Expr::Call(call), true) if call.args.len() == 1 => {
                 call.args.first_mut().expect("`Some(..)` has one argument")
             }
-            (expression, _) => expression,
+            (None, expression, _) => expression,
         };
         qualify_reference_initializer_state_macro(expression)?;
         match cell.content() {
@@ -1830,6 +1833,12 @@ fn materialize_initializer_cells(
                     )));
                 };
                 materialize_initializer_cells(nested, children)?;
+            }
+        }
+        if let Some(template) = absent_template {
+            field.expr = syn::parse_quote!(k::absent!(#template));
+            if !has_colon {
+                field.colon_token = Some(syn::token::Colon::default());
             }
         }
     }

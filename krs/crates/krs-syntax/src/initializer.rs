@@ -219,9 +219,11 @@ pub struct FixedCellInitializer {
     name: Ident,
     content: InitializerCellContent,
     optional: bool,
+    absent: Option<syn::Macro>,
     key: Option<ProvenanceKey>,
     field_key: Option<ProvenanceKey>,
     constructor_key: Option<ProvenanceKey>,
+    absent_key: Option<ProvenanceKey>,
 }
 
 impl FixedCellInitializer {
@@ -245,12 +247,20 @@ impl FixedCellInitializer {
         self.constructor_key.as_ref()
     }
 
+    /// The key of the `k::absent!` invocation of an optional cell that starts
+    /// absent, numbered as the cell is.
+    #[must_use]
+    pub const fn absent_key(&self) -> Option<&ProvenanceKey> {
+        self.absent_key.as_ref()
+    }
+
     /// Forgets the keys of the cell and of everything inside it, before the
     /// initializer's pass keys them.
     fn clear_keys(&mut self) {
         self.key = None;
         self.field_key = None;
         self.constructor_key = None;
+        self.absent_key = None;
         match &mut self.content {
             InitializerCellContent::Leaf { value, .. } => value.clear_keys(),
             InitializerCellContent::Nested { children, .. } => {
@@ -279,12 +289,20 @@ impl FixedCellInitializer {
         &self.content
     }
 
-    /// Whether the value was written `Some(template)`: the template of an
-    /// optional (`?`) cell (KF-023, R7). [`Self::field`] then holds the
-    /// template expression.
+    /// Whether the value was written `Some(value)` or `k::absent!(template)`,
+    /// an optional (`?`) cell's (KF-023, R7). [`Self::field`] then holds the
+    /// value or template expression.
     #[must_use]
     pub const fn is_optional(&self) -> bool {
         self.optional
+    }
+
+    /// The `k::absent!(template)` invocation of an optional cell that starts
+    /// absent; `None` for one written `Some(value)`, which starts present, and
+    /// for every other cell.
+    #[must_use]
+    pub const fn absent(&self) -> Option<&syn::Macro> {
+        self.absent.as_ref()
     }
 
     /// Whether a readable plain expression caused its leaf constructor to be inferred.
@@ -993,18 +1011,52 @@ fn parse_initializer_cell(
     field: syn::FieldValue,
     name: Ident,
 ) -> Result<FixedCellInitializer, SyntaxError> {
-    // An optional cell's value is `Some(template)`: K's declaration template
-    // (KF-023, R7). The cell starts absent unless it carries `initial`.
-    if let Some(template) = optional_template(&field.expr) {
+    // An optional cell's value is `Some(value)`, the cell present with that
+    // value, or `k::absent!(template)`, the cell absent; either way the
+    // expression inside is what a created cell looks like, K's declaration
+    // template (KF-023, R7).
+    if let Some(value) = optional_template(&field.expr) {
         let mut inner = field.clone();
-        inner.expr = template.clone();
+        inner.expr = value.clone();
         let mut parsed = parse_initializer_cell(inner, name)?;
+        if parsed.optional {
+            return Err(unsupported_body(
+                "an optional cell's initializer holds its value or template itself, not another `Some(..)` or `k::absent!(..)`",
+                value.span(),
+            ));
+        }
         parsed.optional = true;
+        return Ok(parsed);
+    }
+    if let Expr::Macro(ExprMacro { attrs, mac, .. }) = &field.expr
+        && is_absent_macro(&mac.path)
+    {
+        let template = mac
+            .parse_body::<Expr>()
+            .ok()
+            .filter(|_| attrs.is_empty())
+            .ok_or_else(|| {
+                unsupported_body(
+                    "`k::absent!` takes one expression, the template of the absent optional cell: `k::absent!(<template>)`",
+                    mac.span(),
+                )
+            })?;
+        let mut inner = field.clone();
+        inner.expr = template;
+        let mut parsed = parse_initializer_cell(inner, name)?;
+        if parsed.optional {
+            return Err(unsupported_body(
+                "an optional cell's initializer holds its value or template itself, not another `Some(..)` or `k::absent!(..)`",
+                mac.tokens.span(),
+            ));
+        }
+        parsed.optional = true;
+        parsed.absent = Some(mac.clone());
         return Ok(parsed);
     }
     if is_option_none(&field.expr) {
         return Err(unsupported_body(
-            "K needs a template for a `?` cell; write Some(<template>) and add `initial` if the cell starts present",
+            "`None` gives the `?` cell no template, which K needs to know what a created cell looks like; write `k::absent!(<template>)` for a cell that starts absent, or `Some(<value>)` for one that starts present",
             field.expr.span(),
         ));
     }
@@ -1038,9 +1090,11 @@ fn parse_initializer_cell(
             name,
             content,
             optional: false,
+            absent: None,
             key: None,
             field_key: None,
             constructor_key: None,
+            absent_key: None,
         });
     }
     let content = match &field.expr {
@@ -1171,9 +1225,11 @@ fn parse_initializer_cell(
         name,
         content,
         optional: false,
+        absent: None,
         key: None,
         field_key: None,
         constructor_key: None,
+        absent_key: None,
     })
 }
 
@@ -1206,6 +1262,11 @@ fn optional_template(expression: &Expr) -> Option<&Expr> {
         return None;
     };
     (attrs.is_empty() && args.len() == 1 && is_option_variant(path, "Some")).then(|| &args[0])
+}
+
+/// Whether `path` names `k::absent!`, an optional cell's absent start.
+fn is_absent_macro(path: &syn::Path) -> bool {
+    plain_path_last(path).is_some_and(|last| last.ident == "absent")
 }
 
 fn is_option_none(expression: &Expr) -> bool {
@@ -1306,6 +1367,13 @@ fn allocate_initializer_keys(
         let range = TokenRange::for_tokens(&cell.field.member)?;
         let key = keys.key(ProvenanceRole::InitializerCell, range)?;
         cell.field_key = Some(keys.key(ProvenanceRole::InitializerField, range)?);
+        if let Some(absent) = &cell.absent {
+            cell.absent_key = Some(keys.paired(
+                ProvenanceRole::InitializerAbsent,
+                &key,
+                TokenRange::for_tokens(absent)?,
+            )?);
+        }
         match &mut cell.content {
             InitializerCellContent::Leaf {
                 constructor,

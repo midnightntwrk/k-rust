@@ -217,6 +217,16 @@ pub struct DescriptorCellInitial {
     pub key: ProvenanceKey,
 }
 
+/// `k::absent!(template)`, the initializer of an optional (`?`) cell that
+/// starts absent; an optional cell whose initializer lacks it starts present
+/// with its value.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorInitializerAbsent {
+    /// Exact macro-invocation provenance.
+    pub key: ProvenanceKey,
+}
+
 /// Plain string wire shape for the repeated-cell collection attribute.
 #[doc(hidden)]
 #[derive(Deserialize)]
@@ -596,8 +606,13 @@ protocol_shape! {
         pub field: I => [cell_map],
         /// Leaf or nested content.
         pub content: ProtocolInitializerCellContent<I, N, T> => [nested cell_map nominal_map term_map],
+        /// `k::absent!` around an optional cell's template: the cell starts
+        /// absent. Absent on every other cell, and on an optional cell that
+        /// starts present with its value (`Some(value)`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub absent: Option<DescriptorInitializerAbsent> => [keep],
     }
-    map_order: [content, key, field];
+    map_order: [content, key, field, absent];
 }
 
 /// Stable initializer cell.
@@ -1595,6 +1610,9 @@ fn validate_initializer_cell<S: ConfigurationValidationStage>(
     }
     keys.define(&cell.key, ProvenanceRole::InitializerCell)?;
     keys.define(S::cell_key(&cell.field), ProvenanceRole::InitializerField)?;
+    if let Some(absent) = &cell.absent {
+        keys.define(&absent.key, ProvenanceRole::InitializerAbsent)?;
+    }
     match (&cell.content, declaration.map(|field| &field.content)) {
         (
             ProtocolInitializerCellContent::Leaf {

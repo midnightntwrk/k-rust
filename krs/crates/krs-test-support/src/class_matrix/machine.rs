@@ -87,7 +87,7 @@ const MACHINE_FIELDS: [(&str, &str); 7] = [
     ("stack", "list::empty()"),
     ("env", "k::map![]"),
     ("frame", "Frame { ret: 0 }"),
-    ("counter", "Some(0)"),
+    ("counter", "k::absent!(0)"),
     ("queue", "Queue { job: Job { payload: 0 } }"),
 ];
 
@@ -100,7 +100,7 @@ const MACHINE_INITIALIZER: &str = r#"impl Machine {
             stack: list::empty(),
             env: k::map![],
             frame: Frame { ret: 0 },
-            counter: Some(0),
+            counter: k::absent!(0),
             queue: Queue { job: Job { payload: 0 } },
         }
     }
@@ -149,7 +149,7 @@ const NESTED_FIELDS: [(&str, &str); 7] = [
     ("stack", "list::empty()"),
     ("env", "k::map![]"),
     ("frame", "Frame { ret: 0, aux: 1 }"),
-    ("counter", "Some(0)"),
+    ("counter", "k::absent!(0)"),
     ("queue", "Queue { job: Job { payload: 0 } }"),
 ];
 
@@ -165,11 +165,12 @@ static NESTED_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
 static NESTED_INITIALIZER: LazyLock<String> =
     LazyLock::new(|| base_initializer(MACHINE_HEADER, &NESTED_FIELDS));
 
-/// The machine base's optional cell, and the initial base's, which starts present.
+/// The machine base's optional cell, and the initial base's case's, declared `initial`.
 const MACHINE_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\")]\n    pub counter";
 const INITIAL_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\", initial)]\n    pub counter";
 
-/// The machine base with its optional cell declared `initial`.
+/// The machine base's declarations after its commands, with its optional cell declared
+/// `initial`.
 static INITIAL_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
     assert!(
         MACHINE_AFTER_COMMANDS.contains(MACHINE_OPTIONAL),
@@ -178,13 +179,10 @@ static INITIAL_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
     MACHINE_AFTER_COMMANDS.replacen(MACHINE_OPTIONAL, INITIAL_OPTIONAL, 1)
 });
 
+/// The initial base alone is the machine base; its case writes the declarations after the
+/// commands itself, with the optional cell declared `initial` ([`initial_present`]).
 pub(super) fn initial_base() -> BaseText {
-    BaseText {
-        before_commands: MACHINE_BEFORE_COMMANDS,
-        after_commands: INITIAL_AFTER_COMMANDS.as_str(),
-        initializer: MACHINE_INITIALIZER,
-        after_initializer: "",
-    }
+    machine_base()
 }
 
 pub(super) fn nested_base() -> BaseText {
@@ -455,7 +453,7 @@ const RUN_FIELDS: [(&str, &str); 8] = [
     ("stack", "list::empty()"),
     ("env", "k::map![]"),
     ("frame", "Frame { ret: 0 }"),
-    ("counter", "Some(0)"),
+    ("counter", "k::absent!(0)"),
     ("queue", "Queue { job: Job { payload: 0 } }"),
     ("shelf", "Shelf { bag: Obj { key: 0, m: k::map![] } }"),
 ];
@@ -770,7 +768,7 @@ fn record_case(spec: CaseSpec, kind: CellKind, side: Side) -> Case {
 /// entry, emitted as K's join, and two whose keys may be equal, emitted as the calls) and the
 /// calls the second denotes, the optional spellings, and a group record and a collection
 /// instance.
-const INITIALIZER_VALUES: [&str; 18] = [
+const INITIALIZER_VALUES: [&str; 19] = [
     "0",
     "pgm",
     "k::k![]",
@@ -786,6 +784,7 @@ const INITIALIZER_VALUES: [&str; 18] = [
     "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)",
     "k::builtin::map::empty()",
     "Some(0)",
+    "k::absent!(0)",
     "None",
     "Frame { ret: 0 }",
     "Job { payload: 0 }",
@@ -796,7 +795,7 @@ const INITIALIZER_VALUES: [&str; 18] = [
 /// stands in the computation cell alone.
 const COMPUTATION_REMAINDER: &str = "k::k![Cmd::Go(), ..pgm]";
 
-/// Initializers: 7 kinds × 18 values, each value in place of the base's value of that kind's
+/// Initializers: 7 kinds × 19 values, each value in place of the base's value of that kind's
 /// cell (for the collection, in place of its parent's instance template), the computation
 /// cell's remainder, and the field-order axis: the base's initializer with its fields
 /// reordered.
@@ -837,8 +836,8 @@ fn cell_value(kind: CellKind, value: &str) -> Case {
         },
     );
     let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
-    case.k7 = if kind == CellKind::Optional && !matches!(value, "Some(0)" | "None") {
-        // An optional cell's value is `Some(..)` or `None`; the table refuses any other.
+    case.k7 = if kind == CellKind::Optional && !matches!(value, "Some(0)" | "k::absent!(0)") {
+        // An optional cell's value is `Some(..)` or `k::absent!(..)`; the table refuses any other.
         K7::skip(SkipKind::Value, REFUSED_AT_K2)
     } else {
         machine_start(&[(machine_cell(kind), machine_value(kind, value))], &[])
@@ -868,8 +867,8 @@ fn go() -> Ground {
 
 /// What the machine base's cells hold when the run starts, by cell path: every cell of the
 /// configuration, with the values the base's own initializer denotes and the program `go`. The
-/// optional `counter` written `Some(0)` holds 0 (decision NT-12-6), and the collection `job`,
-/// whose initializer writes an instance's template, starts with no instance.
+/// optional `counter` written `k::absent!(0)` is absent (decision NT-12-6), and the collection
+/// `job`, whose initializer writes an instance's template, starts with no instance.
 fn machine_cells() -> Vec<(&'static str, Ground)> {
     vec![
         ("k", Ground::Seq(vec![go()])),
@@ -877,7 +876,7 @@ fn machine_cells() -> Vec<(&'static str, Ground)> {
         ("stack", Ground::List(Vec::new())),
         ("env", Ground::map(Vec::new())),
         ("frame.ret", Ground::Int(0)),
-        ("counter", Ground::Int(0)),
+        ("counter", Ground::Absent),
         ("queue.job[payload]", Ground::List(Vec::new())),
     ]
 }
@@ -885,8 +884,8 @@ fn machine_cells() -> Vec<(&'static str, Ground)> {
 /// What `value` gives the cell of `kind` when the run starts with the program `go`, or `None`
 /// where the generator states nothing: a value of another kind's notation (refused) and a
 /// collection's instance template (the collection starts empty). An optional cell written
-/// `Some(v)` starts present with `v` and one written `None` starts absent (decision NT-12-6); any
-/// other spelling of it is refused, and [`cell_value`] runs none.
+/// `Some(v)` starts present with `v` and one written `k::absent!(t)` starts absent (decision
+/// NT-12-6); any other spelling of it, `None` included, is refused, and [`cell_value`] runs none.
 fn machine_value(kind: CellKind, value: &str) -> Option<Ground> {
     let items = |items: Vec<Ground>| match kind {
         CellKind::KSequence => Some(Ground::Seq(items)),
@@ -907,7 +906,7 @@ fn machine_value(kind: CellKind, value: &str) -> Option<Ground> {
         (CellKind::Leaf, "0")
         | (CellKind::Optional, "Some(0)")
         | (CellKind::Group, "Frame { ret: 0 }") => Some(Ground::Int(0)),
-        (CellKind::Optional, "None") => Some(Ground::Absent),
+        (CellKind::Optional, "k::absent!(0)") => Some(Ground::Absent),
         (CellKind::Map, "k::map![]" | "k::builtin::map::empty()") => Some(Ground::map(Vec::new())),
         (CellKind::Map, "k::map![0 -> 1]") => {
             Some(Ground::map(vec![(Ground::Int(0), Ground::Int(1))]))
@@ -1019,8 +1018,10 @@ fn field_order(cases: &mut Vec<Case>) {
     cases.push(initial_present());
 }
 
-/// The initial base's initializer, its optional cell declared `initial`, writing that cell
-/// present: the form `none-in-initializer` advises. The run starts with the cell holding `0`.
+/// The initial base's case: the declarations after the commands with the optional cell
+/// declared `initial`, the construct, and the initializer writing the cell present, `Some(0)`.
+/// The flag repeats what the initializer says (decision NT-12-6), so `redundant-initial` refuses
+/// it, and no run starts.
 fn initial_present() -> Case {
     let spec = CaseSpec {
         family: Family::Init,
@@ -1028,23 +1029,32 @@ fn initial_present() -> Case {
         side: Side::Initializer,
         kind: Some(CellKind::Optional),
         slot: vec!["initial".to_owned()],
-        construct: "Some(0)".to_owned(),
+        construct: "initial".to_owned(),
     };
+    let declarations = INITIAL_AFTER_COMMANDS.as_str();
+    let entry = declarations
+        .find(INITIAL_OPTIONAL)
+        .expect("the declarations declare the optional cell");
+    let spelling = entry
+        + INITIAL_OPTIONAL
+            .find("initial")
+            .expect("the optional cell is declared `initial`");
     let mut item = ItemBuilder::new();
+    item.push(declarations);
+    item.entry = Some(entry..entry + INITIAL_OPTIONAL.len());
+    item.spelling = Some(spelling..spelling + "initial".len());
     initializer(
         &mut item,
         MACHINE_HEADER,
         &MACHINE_FIELDS,
         |item, cell, value| {
-            if cell == "counter" {
-                item.entry(cell, "Some(0)");
-            } else {
-                item.push(cell).push(": ").push(value);
-            }
+            item.push(cell)
+                .push(": ")
+                .push(if cell == "counter" { "Some(0)" } else { value });
         },
     );
     let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
-    case.k7 = start_with(machine_cells(), &[], &[]);
+    case.k7 = K7::skip(SkipKind::Value, REFUSED_AT_K2);
     case
 }
 
@@ -1202,7 +1212,7 @@ const TYPED_FIELDS: [(&str, &str); 9] = [
     ("list", "list::empty()"),
     ("map", "k::map![]"),
     ("boxed", "Boxed { inner: Val::Unit() }"),
-    ("opt", "Some(Val::Unit())"),
+    ("opt", "k::absent!(Val::Unit())"),
     ("slots", "Slots { slot: Slot { item: Val::Unit() } }"),
 ];
 
@@ -1223,7 +1233,7 @@ const TYPED_INITIALIZER: &str = r#"impl Machine {
             list: list::empty(),
             map: k::map![],
             boxed: Boxed { inner: Val::Unit() },
-            opt: Some(Val::Unit()),
+            opt: k::absent!(Val::Unit()),
             slots: Slots { slot: Slot { item: Val::Unit() } },
         }
     }
@@ -1470,7 +1480,8 @@ fn typed_initializer_named(slot: &str, cell: &str, content: &str) -> Case {
 
 /// K7's plan for a typed initializer case: the run starts with the program `go` and `ANY` bound
 /// to 1, takes no step, and every cell holds the typed base's value with `content`'s in `cell`:
-/// the optional `opt` written `Some(Val::Unit())` holds the unit (decision NT-12-6), and the
+/// the optional `opt` written `k::absent!(Val::Unit())` is absent, the cases' `Some(..)` holds
+/// its content (decision NT-12-6), and the
 /// collection `slot`, whose initializer writes an instance's template, starts with no instance.
 fn typed_start(cell: &str, content: &str) -> K7 {
     let unit = || Ground::ctor("Val::Unit", Vec::new());
@@ -1493,7 +1504,7 @@ fn typed_start(cell: &str, content: &str) -> K7 {
         ("list", Ground::List(Vec::new())),
         ("map", Ground::map(Vec::new())),
         ("boxed.inner", unit()),
-        ("opt", unit()),
+        ("opt", Ground::Absent),
         ("slots.slot[item]", Ground::List(Vec::new())),
     ];
     let changed = match cell {

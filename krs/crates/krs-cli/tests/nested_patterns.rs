@@ -745,7 +745,7 @@ pub struct Machine {
 impl Machine {
     #[k::init]
     pub fn init(pgm: Stmt) -> Self {
-        Self { k: k::k![pgm], counter: Some(0), mark: Some(Mark { seen: 0 }) }
+        Self { k: k::k![pgm], counter: k::absent!(0), mark: k::absent!(Mark { seen: 0 }) }
     }
 }
 "#;

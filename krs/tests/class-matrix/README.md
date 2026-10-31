@@ -238,7 +238,7 @@ the descriptors of the base and its own. A case is judged by
   token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
   which the run's parse expands, and its result read in the expansion; an initializer, of the
   term family or of the configuration families' `init` (the machine and typed bases, with `$PGM`
-  bound to `go` and `-c ANY=1`), is read before any step, and every cell of the initial configuration is compared with the value its initializer denotes: the case's own spelling in its cell, the base's values elsewhere, an optional cell written `Some(v)` holding `v` (decision NT-16, finding NT-12-6) and a collection, whose initializer writes an instance's template, holding none. Values the program grammar cannot write (a map, a set, a list, `$x`,
+  bound to `go` and `-c ANY=1`), is read before any step, and every cell of the initial configuration is compared with the value its initializer denotes: the case's own spelling in its cell, the base's values elsewhere, an optional cell written `Some(v)` holding `v` and one written `k::absent!(t)` absent (decision NT-12-6; the bases write `k::absent!(..)`) and a collection, whose initializer writes an instance's template, holding none. Values the program grammar cannot write (a map, a set, a list, `$x`,
   `Wrap::<KItem>(..)`) are written through the base's makers, functions that build exactly them,
   which a static clause's expansion meets unevaluated, so a witness only a maker writes is no
   witness for a desugar's or an alias's subject. Claims and simplifications need a prover (L4
@@ -461,9 +461,11 @@ the descriptors of the base and its own. A case is judged by
   shards took `init` 75 s, `readable` 66 s, `cells` 56 s, `import` 65 s, `notation` 203 s and
   `terms` 351 s at 15 workers. Of the advice verdicts, 849 refusals follow their class's advised
   case and 480 propose only forms no generated case writes (`unchecked`, 440 of them in `terms`,
-  mostly `notation-in-pattern`'s calls such as `int::bit_and(..)`). The optional cell written
-  present that `none-in-initializer` advises has a base of its own (`Base::Initial`, the machine
-  base with `counter` declared `initial`), so no other case's K moves.
+  mostly `notation-in-pattern`'s calls such as `int::bit_and(..)`). `none-in-initializer`
+  advises `k::absent!(template)` (`init/counter/k::absent!(0)`). The redundant `initial` that
+  `redundant-initial` refuses is the one case of a base of its own (`Base::Initial`, the machine
+  base, whose case writes its declarations with `counter` declared `initial`), so no other case
+  moves.
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about

@@ -1856,6 +1856,7 @@ mod tests {
     #[test]
     fn initializer_resolves_content_before_field_identity() {
         let cell = krs_ir::HostInitializerCell {
+            absent: None,
             key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 0),
             field: unresolved_cell(),
             content: krs_ir::ProtocolInitializerCellContent::Leaf {

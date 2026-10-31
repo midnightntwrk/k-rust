@@ -100,7 +100,7 @@ impl Machine {
             empty: map![],
             based: map![0 -> 1, ..base],
             ground: map![1 -> 10, 0x2 -> 20],
-            opt: Some(map![1 -> 1]),
+            opt: k::absent!(map![1 -> 1]),
             objs: Objs { obj: Obj { oid: 0, slots: map![] } },
         }
     }

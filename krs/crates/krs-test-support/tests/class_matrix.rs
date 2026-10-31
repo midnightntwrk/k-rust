@@ -93,10 +93,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Claim, 182 + 64),
             // 7 kinds × (13 subject + 13 result spellings).
             (Family::Cells, 182),
-            // 7 kinds × 18 values, the computation cell's remainder, 3 field orders and the
+            // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes, 8 typed cells × 4 contents, and the typed `stmt` written after it starts.
-            (Family::Init, 126 + 1 + 3 + 1 + 1 + 4 + 32 + 1),
+            (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 + 32 + 1),
             // (81 positions of depth 1 + 25 positions constructs open) × 48 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings
@@ -244,7 +244,8 @@ fn assert_placed(source: &str, placed: &Placed<'_>) {
     } else {
         assert_eq!(written, case.construct, "{}", case.id);
     }
-    if case.kind.is_some() {
+    // The initial base's case writes its construct, `initial`, in a cell's declaration.
+    if case.kind.is_some() && case.base != Base::Initial {
         let entry = &source[placed.entry.clone()];
         assert!(
             entry.ends_with(&format!(": {}", case.construct)),

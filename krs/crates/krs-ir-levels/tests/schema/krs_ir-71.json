@@ -914,6 +914,15 @@
       }
     ]
   },
+  "DescriptorInitializerAbsent": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      }
+    ]
+  },
   "DescriptorKSequenceNotation": {
     "ENUM": {
       "0": {
