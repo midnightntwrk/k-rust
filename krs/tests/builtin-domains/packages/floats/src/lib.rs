@@ -195,7 +195,8 @@ fn rounding(k::term![Rounding(a)]: Term<Bool>) -> Term<Bool> {
     )
 }
 
-/// `float::to_int`, which rounds ties to even.
+/// `float::to_int`, the nearest integer; `domains.md` names no rule for a tie, so a tie is open:
+/// k-rust rounds it to even and marks the run.
 #[k::function(total, sort = Int, syntax = "toInt({a})")]
 pub struct ToInt {
     pub a: Term<Float>,
