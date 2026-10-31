@@ -34,7 +34,9 @@ pub mod report;
 pub mod results;
 pub mod search;
 
-pub use admit::{AdmittedSpec, FlowAdmission, ProgramAdmission, ProgramInputs, admit, admit_spec};
+pub use admit::{
+    AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, ProgramInputs, admit, admit_spec,
+};
 pub use manifest::{Budget, FlowManifest, ManifestError, Program, SpecSection};
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, Mutation, MutationList,

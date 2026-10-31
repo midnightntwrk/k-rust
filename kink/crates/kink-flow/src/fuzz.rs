@@ -77,7 +77,7 @@
 
 use crate::fuzz_filter::{FilterJob, FilterSide, KinkJudgement};
 use crate::{
-    admit::{AdmittedSpec, ProgramInputs, admit_spec},
+    admit::{AdmittedSpec, InputSession, ProgramInputs, admit_spec},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
     mutation::{MutationList, RuleText, resolve, rule_texts},
@@ -1020,7 +1020,7 @@ impl AssemblyCheck {
 /// check reads the instantiated program.
 pub fn check_assembly(
     spec: &AdmittedSpec,
-    inputs: &mut ProgramInputs,
+    inputs: &mut InputSession<'_>,
     program: &Program,
     text: &str,
     case: &WitnessCase,
@@ -1396,6 +1396,7 @@ pub fn fuzz_job(
         Ok(instance) => instance,
         Err(refusal) => return refuse(document, refusal, "fix the template"),
     };
+    let mut inputs = inputs.session();
     document["template"] = json!({
         "id": template.id,
         "source": match &template.source {

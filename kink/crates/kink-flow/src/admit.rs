@@ -17,11 +17,11 @@ use crate::manifest::{FlowManifest, Program};
 use k_rust::backend::Backend;
 use kink_campaign::TestCase;
 use kink_corpus::{
-    CorpusSource, LoadedSource, ProgramSource, TestInputSpec,
+    CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
     admission::{
         AdmissionRecord, AdmissionRefusal, below_floor_exclusions, check_exclusions,
         check_initial_state, check_loaded_exclusions, check_loaded_semantic_input,
-        compile_definition_with, input_backend, path_names_case, program_input,
+        compile_definition_with, input_backend, input_refusal, path_names_case,
     },
     load_source,
     manifest::Exclusion,
@@ -32,6 +32,7 @@ use kink_native::{
 };
 use kink_patch::SemanticInput;
 use std::{
+    cell::OnceCell,
     fs,
     path::{Path, PathBuf},
 };
@@ -89,14 +90,15 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             programs: Vec::new(),
         };
     };
+    let mut session = inputs.session();
     let programs = manifest
         .programs
         .iter()
         .map(|program| ProgramAdmission {
             id: program.id.clone(),
-            outcome: inputs
+            outcome: session
                 .text(program)
-                .and_then(|text| inputs.test_case(&spec, program, text)),
+                .and_then(|text| session.test_case(&spec, program, text)),
         })
         .collect();
     FlowAdmission {
@@ -134,6 +136,7 @@ pub fn admit_spec_with(
                 ProgramInputs {
                     root: spec_root(manifest),
                     backend,
+                    grammar: OnceCell::new(),
                 },
             )),
         ),
@@ -144,35 +147,93 @@ pub fn admit_spec_with(
     }
 }
 
-/// Admits the programs of an admitted specification, one at a time and in any order: the
-/// manifest's canonical directory and the input gate's backend.
+/// Admits the programs of an admitted specification, one at a time and in any order, through
+/// an [`InputSession`]: the manifest's canonical directory, the input gate's backend, and the
+/// specification's input grammar, built on the first program assembled.
 pub struct ProgramInputs {
     root: Result<PathBuf, AdmissionRefusal>,
     backend: Backend,
+    grammar: OnceCell<Result<InputGrammar, InputError>>,
 }
 
 impl ProgramInputs {
     /// The program's text: its file read inside the manifest's directory (stage `load`,
     /// reason `load-error`), or its inline text.
     pub fn text(&self, program: &Program) -> Result<String, AdmissionRefusal> {
-        let root = self.root.clone()?;
-        match &program.source {
-            ProgramSource::Text(text) => Ok(text.clone()),
-            ProgramSource::File(name) => read_program(&root, name),
+        read_text(&self.root, program)
+    }
+
+    /// A session that admits programs of the specification these inputs were admitted with.
+    pub fn session(&mut self) -> InputSession<'_> {
+        InputSession {
+            root: &self.root,
+            backend: &mut self.backend,
+            grammar: &self.grammar,
+            assembler: None,
         }
+    }
+}
+
+fn read_text(
+    root: &Result<PathBuf, AdmissionRefusal>,
+    program: &Program,
+) -> Result<String, AdmissionRefusal> {
+    let root = root.clone()?;
+    match &program.source {
+        ProgramSource::Text(text) => Ok(text.clone()),
+        ProgramSource::File(name) => read_program(&root, name),
+    }
+}
+
+/// Admits the programs of one admitted specification. The program grammar and the
+/// configuration assembler are built once, on the first program, and serve every later one:
+/// each is a function of the specification alone, and the assembler is cleared before each
+/// program, so a program's initial configuration and refusal are those a fresh assembly gives
+/// (k-rust `ConfigurationAssembler`).
+pub struct InputSession<'a> {
+    root: &'a Result<PathBuf, AdmissionRefusal>,
+    backend: &'a mut Backend,
+    grammar: &'a OnceCell<Result<InputGrammar, InputError>>,
+    assembler: Option<InputAssembler<'a>>,
+}
+
+impl InputSession<'_> {
+    /// The program's text, as [`ProgramInputs::text`].
+    pub fn text(&self, program: &Program) -> Result<String, AdmissionRefusal> {
+        read_text(self.root, program)
     }
 
     /// The program's concrete initial configuration (`text` is [`Self::text`]'s result):
-    /// assembled, then the concrete-state check and the input gate.
+    /// assembled with the specification's own baseline compile (re-pin L1-4: no compile per
+    /// program), then the concrete-state check and the input gate. `spec` is the specification
+    /// these inputs were admitted with; a failure to build its grammar refuses every program
+    /// with the same refusal.
     pub fn test_case(
         &mut self,
         spec: &AdmittedSpec,
         program: &Program,
         text: String,
     ) -> Result<TestCase, AdmissionRefusal> {
-        let test = initial_state(spec, program, text)?;
-        check_initial_state(&mut self.backend, &test.initial_state)?;
-        Ok(test)
+        let assembler = match &mut self.assembler {
+            Some(assembler) => assembler,
+            None => {
+                let grammar = self
+                    .grammar
+                    .get_or_init(|| InputGrammar::prepare(&spec.loaded, Some(&spec.compiled)))
+                    .as_ref()
+                    .map_err(|e| input_refusal(e.clone()))?;
+                self.assembler.insert(InputAssembler::new(grammar))
+            }
+        };
+        let initial_state = assembler
+            .assemble(&text, program.start_sort.as_deref(), &program.variables)
+            .map_err(input_refusal)?;
+        check_initial_state(self.backend, &initial_state)?;
+        Ok(TestCase {
+            id: program.id.clone(),
+            initial_state,
+            oracles: Vec::new(),
+        })
     }
 }
 
@@ -294,27 +355,4 @@ fn read_program(root: &Path, name: &str) -> Result<String, AdmissionRefusal> {
     }
     let bytes = fs::read(&path).map_err(|e| load_refusal(format!("cannot read {name}: {e}")))?;
     String::from_utf8(bytes).map_err(|e| load_refusal(format!("{name} is not UTF-8: {e}")))
-}
-
-/// The program's initial configuration, assembled with the specification's own baseline compile
-/// (re-pin L1-4: no compile per program).
-fn initial_state(
-    spec: &AdmittedSpec,
-    program: &Program,
-    text: String,
-) -> Result<TestCase, AdmissionRefusal> {
-    let initial_state = program_input(
-        &spec.loaded,
-        &spec.compiled,
-        &TestInputSpec {
-            program: ProgramSource::Text(text),
-            start_sort: program.start_sort.clone(),
-            variables: program.variables.clone(),
-        },
-    )?;
-    Ok(TestCase {
-        id: program.id.clone(),
-        initial_state,
-        oracles: Vec::new(),
-    })
 }

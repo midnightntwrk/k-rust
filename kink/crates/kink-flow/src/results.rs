@@ -33,7 +33,7 @@
 //! record is read or written. Deleting the cache is always safe.
 
 use crate::{
-    admit::{AdmittedSpec, ProgramInputs, admit_spec},
+    admit::{AdmittedSpec, InputSession, admit_spec},
     digest::{program_digest, spec_digest},
     manifest::{Budget, FlowManifest, Program},
 };
@@ -1076,7 +1076,7 @@ pub fn runner_refusal(detail: String) -> kink_corpus::admission::AdmissionRefusa
 pub fn update_results(
     spec: &AdmittedSpec,
     manifest: &FlowManifest,
-    inputs: &mut ProgramInputs,
+    inputs: &mut InputSession<'_>,
     runner: &BaselineRunner<'_>,
     cache: &Path,
     verify: bool,
@@ -1133,6 +1133,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
             false,
         );
     };
+    let mut inputs = inputs.session();
     let cache = cache_directory(manifest, options.cache.as_deref());
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
@@ -1220,7 +1221,7 @@ struct ProgramContext<'a> {
 pub fn rerun_timeout_record(
     spec: &AdmittedSpec,
     manifest: &FlowManifest,
-    inputs: &mut ProgramInputs,
+    inputs: &mut InputSession<'_>,
     runner: &BaselineRunner<'_>,
     cache: &Path,
     program: &Program,
@@ -1252,7 +1253,7 @@ pub fn rerun_timeout_record(
 fn program_row(
     spec: &AdmittedSpec,
     manifest: &FlowManifest,
-    inputs: &mut ProgramInputs,
+    inputs: &mut InputSession<'_>,
     runner: &BaselineRunner<'_>,
     context: &ProgramContext<'_>,
     program: &Program,

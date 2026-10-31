@@ -421,6 +421,59 @@ fn below_floor_paths_are_excluded_for_the_entry_and_every_loaded_file() {
     );
 }
 
+/// The programs of one admitted specification share one input grammar and one assembler
+/// (`InputSession`): the grammar is built once, on the first program a session assembles, and
+/// not at all by a session that assembles none; each program's test case is the one a fresh
+/// assembly of the same program gives.
+#[test]
+fn programs_share_one_input_grammar() {
+    let manifest = FlowManifest::read(&flow("calc/FLOW.toml")).unwrap();
+    let (_, admitted) = kink_flow::admit_spec(&manifest);
+    let (spec, mut inputs) = admitted.expect("calc is admitted");
+    let programs = &manifest.programs[..3];
+    let builds = kink_corpus::input::input_grammar_builds;
+
+    let before = builds();
+    let idle = inputs.session();
+    for program in programs {
+        idle.text(program).unwrap();
+    }
+    drop(idle);
+    assert_eq!(builds(), before, "a session that assembles no program");
+
+    let mut session = inputs.session();
+    let shared = programs
+        .iter()
+        .map(|program| {
+            let text = session.text(program).unwrap();
+            (session.test_case(&spec, program, text.clone()), text)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        builds(),
+        before + 1,
+        "one grammar for {} programs",
+        programs.len()
+    );
+
+    for (program, (test, text)) in programs.iter().zip(shared) {
+        let test = test.unwrap_or_else(|refusal| panic!("{}: {refusal:?}", program.id));
+        let fresh = kink_corpus::assemble_input_with(
+            &spec.loaded,
+            Some(&spec.compiled),
+            &kink_corpus::TestInputSpec {
+                program: kink_corpus::ProgramSource::Text(text),
+                start_sort: program.start_sort.clone(),
+                variables: program.variables.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(test.id, program.id);
+        assert!(test.oracles.is_empty());
+        assert_eq!(test.initial_state, fresh, "{}", program.id);
+    }
+}
+
 fn binary(args: &[&std::ffi::OsStr]) -> (Option<i32>, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_kink-flow"))
         .args(args)

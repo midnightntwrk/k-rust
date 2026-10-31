@@ -83,7 +83,7 @@
 //! and for a census also when the live census refuses the specification; re-pin L1-4 fix 1).
 
 use crate::{
-    admit::{AdmittedSpec, ProgramInputs, admit_spec_with},
+    admit::{AdmittedSpec, InputSession, admit_spec_with},
     digest::{execution_digest, hint_key_of, mutation_identity, outcome_context, spec_digest},
     hints::{HintEntry, Hints},
     manifest::{Budget, FlowManifest},
@@ -349,10 +349,10 @@ enum Live {
 
 /// The command's state: the admitted specification, its one validator, the corpus, the
 /// caches.
-struct Search<'a> {
+struct Search<'a, 's> {
     spec: &'a AdmittedSpec,
     manifest: &'a FlowManifest,
-    inputs: &'a mut ProgramInputs,
+    inputs: &'a mut InputSession<'s>,
     /// The command's campaign calls, through its one baseline session.
     runner: &'a BaselineRunner<'a>,
     rows: &'a [ProgramRow],
@@ -374,7 +374,7 @@ struct Search<'a> {
     support: ClaimSupport,
 }
 
-impl Search<'_> {
+impl Search<'_, '_> {
     fn test(&mut self, candidate: usize) -> Result<TestCase, CorpusError> {
         if let Some(test) = &self.tests[candidate] {
             return Ok(test.clone());
@@ -1547,6 +1547,7 @@ pub fn run_with(
     let Some((spec, mut inputs)) = admitted else {
         return refused(&record, &census_mismatch);
     };
+    let mut inputs = inputs.session();
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
         Err(e) => {
@@ -1632,7 +1633,7 @@ pub fn run_with(
         order: options.order,
         support: ClaimSupport::new(spec.validator.baseline()),
     };
-    let outcome_cache = |search: &Search<'_>| {
+    let outcome_cache = |search: &Search<'_, '_>| {
         json!({
             "context_sha256": search.tier1.as_ref().map(OutcomeStore::context_sha256),
             "enabled": search.tier1.is_some() && !verify,

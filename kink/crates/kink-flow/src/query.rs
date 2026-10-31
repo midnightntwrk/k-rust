@@ -233,6 +233,7 @@ pub(crate) fn query_with(
     let Some((spec, mut inputs)) = admitted else {
         return (refused_document(&record), false);
     };
+    let mut inputs = inputs.session();
     let cache = cache_directory(manifest, options.cache.as_deref());
     let runner = match BaselineRunner::new(&spec, manifest) {
         Ok(runner) => runner,
@@ -389,7 +390,7 @@ struct Context<'a> {
 #[allow(clippy::too_many_arguments)]
 fn ask(
     context: &Context<'_>,
-    inputs: &mut crate::admit::ProgramInputs,
+    inputs: &mut crate::admit::InputSession<'_>,
     spec: &crate::admit::AdmittedSpec,
     searcher: &mut Searcher,
     index: usize,
