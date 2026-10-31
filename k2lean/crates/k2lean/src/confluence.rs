@@ -3497,6 +3497,13 @@ def SameThreadJoins : Prop :=
     /// as the fields of `Open`, the premises from them and `terminal_unique`. `bindings` is the
     /// number of bindings of the thread map a rule matches. Returns the module and the report's
     /// section.
+    /// Under the invariant (`--assume-invariant`), the last alternative of an open slot's
+    /// attempt: two bindings of a map that claim one thing are one (`k2l_one_binding`, from a
+    /// fold of claims in the invariant), and the two instances are then one (`k2l_det`).
+    const ONE_BINDING_OPEN: &str = "\n    | (k2l_one_binding\n       k2l_det\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)";
+    /// The same for a keyed slot, at each key `k2l_keyed` leaves.
+    const ONE_BINDING_KEYED: &str = "\n    | (k2l_keyed hk\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_one_binding\n            k2l_det\n            all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩))";
+
     fn emit_slots(
         o: &mut String,
         cx: &SlotCx,
@@ -3561,6 +3568,10 @@ def SameThreadJoins : Prop :=
         let mut m = String::new();
         // `k2l_refute_computed`: two instances refuted by a side condition that computes
         writeln!(m, "import {}\nimport KPrelude.Progress", so.views).unwrap();
+        // `k2l_one_binding`: under the invariant, two bindings that claim one thing are one
+        if so.inv.is_some() {
+            writeln!(m, "import KPrelude.OneBinding").unwrap();
+        }
         if hand_any {
             let hand = so.hand.clone().unwrap_or(format!("{ns}.Hand"));
             writeln!(m, "import {hand}").unwrap();
@@ -3673,6 +3684,9 @@ def SameThreadJoins : Prop :=
                 for a in super::commute_alts(name, &rs[i], &rs[j], (&roles[i], &roles[j]), &sfx) {
                     write!(p, "\n    | {a}").unwrap();
                 }
+                if so.inv.is_some() {
+                    p.push_str(ONE_BINDING_OPEN);
+                }
                 p
             } else {
                 // two changes of a cell holding a map at their keys (`k2l_keyed`): at one key the
@@ -3682,7 +3696,11 @@ def SameThreadJoins : Prop :=
                     us(i),
                     us(j),
                     cells.join(", ")
-                )
+                ) + if so.inv.is_some() {
+                    ONE_BINDING_KEYED
+                } else {
+                    ""
+                }
             };
             writeln!(
                 body,

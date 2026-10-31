@@ -1,4 +1,5 @@
 import KPrelude.InvColl
+import KPrelude.ClaimsAttr
 
 /-!
 # Claims disjoint across the bindings of a map
@@ -24,6 +25,8 @@ order, `chooseFirst`) agrees with K here, and why every statement below is up to
 - `nodup_fn`: K's `noDup` is `List.Nodup`.
 - `nodup_claimsOf_iff`: the order-free reading, each binding's claims without repetition and
   two distinct bindings' claims disjoint.
+- `same_key_of_claimsOK`: two bindings that claim one thing are one binding, which the generated
+  `Invariant.F_apart` states for a configuration under the invariant (`k2l_one_binding`).
 - `claimsOf_concat`, `claimsOf_element`, `nodup_of_subperm_claims`: what a rule's case needs: the
   claims a rule writes are among those it removes (as multisets), so no claim is duplicated.
 -/
@@ -394,6 +397,19 @@ theorem claimsOK_iff_of_unit (hD : ∀ l, D l = some (decide (toList l).Nodup))
     simp only [Option.bind_some, hD, ListHook.concat, ListHook.unit, toList_ofList, List.append_nil]
 
 end Bridge
+
+/-- Two bindings of a map whose claims are disjoint (`ClaimsOK`, with any claims `o` of the
+configuration's other parts) that claim one thing are one binding: their keys are equal. -/
+theorem same_key_of_claimsOK {T : K → V → Prop} {g : K → V → Option L} {m : M} {o : Option L}
+    (hw : WF m) (h : ClaimsOK T g m o) {k₁ k₂ : K} {v₁ v₂ : V} {D₁ D₂ : M}
+    (h₁ : concat (element k₁ v₁) D₁ = some m) (h₂ : concat (element k₂ v₂) D₂ = some m) (x : E)
+    (x₁ : x ∈ ((g k₁ v₁).map toList).getD []) (x₂ : x ∈ ((g k₂ v₂).map toList).getD []) : k₁ = k₂ := by
+  obtain ⟨-, hd⟩ := (nodup_claimsOf_iff hw).1 (List.nodup_append.1 h.2.2).1
+  have mem : ∀ {k v}, lookup m k = some v → (k, v) ∈ toList m := by
+    intro k v hk; rw [lookup_def] at hk; exact SAL.lookup_mem hk
+  refine Classical.byContradiction fun hne => ?_
+  exact hd _ (mem (lookup_of_concat_element h₁)) _ (mem (lookup_of_concat_element h₂))
+    (fun e => hne (Prod.ext_iff.1 e).1) x x₁ x₂
 
 end MapHook
 

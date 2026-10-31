@@ -30,8 +30,9 @@ gen_confluence() {
     handoff) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
     # the same script run in its order (tests/fixtures/handoffseq)
     handoffseq) libs_fixture_args "$1" ;;
-    # workers writing one cell, the last write winning (tests/fixtures/drf)
-    drf) libs_fixture_args "$1" ;;
+    # workers writing one cell, the last write winning (tests/fixtures/drf), with its data-race
+    # freedom `drfOk` as a kind 1 invariant (at most one write to <acc> pending)
+    drf) libs_fixture_args "$1"; GEN_ARGS+=(--invariant drfOk@T) ;;
     *) return 1 ;;
   esac
   return 0
@@ -62,13 +63,17 @@ libs_confluence() {
         --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
     HandoffConf) "$G" confluence --kore "$(libs_fixture handoff)/definition.kore" --name Handoff --ns HandoffConf \
         --threads tasks --obs vals --assume-invariant Handoff.Invariant \
-        --slots "$DEMOS/HandoffConf/HandoffConf/Slots.lean" --hand-module HandoffConf.Hand \
-        --open-joins "$DEMOS/HandoffConf/open-joins.txt" \
+        --slots "$DEMOS/HandoffConf/HandoffConf/Slots.lean" \
         --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
     DrfConf) "$G" confluence --kore "$(libs_fixture drf)/definition.kore" --name Drf --ns DrfConf \
         --threads workers --obs acc --slots "$DEMOS/DrfConf/DrfConf/Slots.lean" \
         --open-joins "$DEMOS/DrfConf/open-joins.txt" --witnesses "$(libs_fixture drf)/witnesses" \
-        --out "$DEMOS/DrfConf/DrfConf/Views.lean" --report "$DEMOS/DrfConf/confluence.toml" ;;
+        --out "$DEMOS/DrfConf/DrfConf/Views.lean" --report "$DEMOS/DrfConf/confluence.toml" &&
+      mkdir -p "$DEMOS/DrfConf/DrfConf/Legal" &&
+      "$G" confluence --kore "$(libs_fixture drf)/definition.kore" --name Drf --ns DrfConf.Legal \
+        --threads workers --obs acc --assume-invariant Drf.Invariant --views-module DrfConf.Legal.Views \
+        --slots "$DEMOS/DrfConf/DrfConf/Legal/Slots.lean" \
+        --out "$DEMOS/DrfConf/DrfConf/Legal/Views.lean" --report "$DEMOS/DrfConf/legal.toml" ;;
     SimpleConf) simple_witnesses "$W/simple-witnesses" &&
       "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --slots "$DEMOS/SimpleConf/SimpleConf/Slots.lean" \
@@ -117,8 +122,8 @@ gate_confluence() {
   # the views by task of the fixture handoff (`confluence --threads tasks`): readiness in the rules,
   # a resume's whole segment one step; under the script's well-formedness `wf` (no step of a process
   # named twice), a K function of the fixture whose preservation `gen --invariant` proves
-  # (`Handoff.Invariant`), read order-free by `HandoffConf/Claims.lean` for the slots the generic
-  # attempts leave (`Hand.lean`)
+  # (`Handoff.Invariant`), every slot generic: two tasks claiming one step are one task
+  # (`k2l_one_binding`); `HandoffConf/Claims.lean` reads it order-free for `Live.lean`
   if runs demo HandoffConf; then
     phase "scaffold HandoffConf"
     partlib handoff Handoff.Invariants
@@ -137,7 +142,10 @@ gate_confluence() {
   fi
   # the views by worker of the fixture drf, whose workers each write one cell: two runs of the
   # program `spawn(1); spawn(2); done` end with `<acc>` 2 and 1 (`witness.«two-workers».refutes`,
-  # tests/fixtures/drf/witnesses), which refutes the slot of two writes, the only one not proved
+  # tests/fixtures/drf/witnesses), which refutes the slot of two writes, the only one not proved;
+  # under its data-race freedom `drfOk`, a K function of the fixture whose preservation
+  # `gen --invariant` proves (`Drf.Invariant`), every slot generic (`DrfConf.Legal`: two pending
+  # writes claim the accumulator, so they are one worker's, `k2l_one_binding`)
   if runs demo DrfConf; then
     phase "scaffold DrfConf"
     partlib drf Drf.Adequacy

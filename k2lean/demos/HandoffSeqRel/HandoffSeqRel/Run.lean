@@ -1,5 +1,6 @@
 import HandoffSeqRel.Sim
 import HandoffConf.Slots
+import HandoffConf.Claims
 import KPrelude.Forward
 import Handoff.Init
 import HandoffSeq.Init

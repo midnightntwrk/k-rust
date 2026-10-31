@@ -2296,6 +2296,9 @@ struct CellTree {
     /// Whether the right-hand side binds partial calls (`Option.bind`), which
     /// `KPrelude.bind_bool_eq_some_true` splits.
     binds: bool,
+    /// The projections, innermost first, that read each variable the right-hand side uses off
+    /// the function's argument.
+    reads: BTreeMap<String, Vec<String>>,
 }
 
 /// What splits a chain of `Option.bind`s over partial `Bool` calls equated to `some true`
@@ -2464,16 +2467,20 @@ fn cell_tree(
     let mut used = Vec::new();
     free_vars(&e.rhs, &mut used);
     let mut lw = Lower::new(m, cx.fns, &["x"]);
+    let mut reads = BTreeMap::new();
     for (v, path) in &vars {
         if !used.contains(v) {
             continue;
         }
         let mut r = "x".to_string();
+        let mut ps = Vec::new();
         for (s, i) in path {
             let n = proj_arg(m, s, *i, projections, proj_names)?;
             r = format!("({n} {r})");
+            ps.push(n);
         }
         lw.vars.insert(v.clone(), r);
+        reads.insert(v.clone(), ps);
     }
     let rhs = lw.expr(&e.rhs, &sig.result).ok()?;
     let steps = std::mem::take(&mut lw.steps);
@@ -2567,6 +2574,7 @@ theorem {name} (x : {arg}) :\n    {concl} := by\n  {split} x with {pat}\n  first
         vars,
         rhs: e.rhs.clone(),
         binds,
+        reads,
     })
 }
 
@@ -4187,6 +4195,92 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
     for ct in &cell_trees {
         d.push_str(&ct.theorem);
         d.push('\n');
+    }
+    // two bindings of a fold's map that claim one thing are one binding (`Invariant.F_apart`,
+    // `@[k2l_claims_apart]`, which `k2l_one_binding` applies in a confluence slot): only for a
+    // fold whose `noDup` is a whole part, `f(…) => noDup(F(V) …)` with `V` a variable of the cells
+    // `f` matches, so that its map is a projection of the configuration; one per fold, from the
+    // first such part. A fold read under a walk (`_in_`) or a condition has no such theorem.
+    // The filter and the proof agree: the part's `simp only [part, f_cells, Option.bind_fun_some]`
+    // must leave the bridge's left-hand side, which holds for these three right-hand sides; a
+    // shape with more binds would need its own proof, not a wider filter. The conjunct is read
+    // off `Invariant` as emitted below it: the right-nested `∧` of every part, in order.
+    let mut apart: BTreeSet<String> = BTreeSet::new();
+    for (pi, p) in parts.iter().enumerate() {
+        let (Some(ct), None, Some((_, true))) = (&p.cells, &p.elem_path, &p.func) else {
+            continue;
+        };
+        let P::App(nd, _, a) = &ct.rhs else { continue };
+        let ([arg], Some((_, n))) = (a.as_slice(), nodups.iter().find(|(s, _)| s == nd)) else {
+            continue;
+        };
+        let fold_var = |q: &P| match q {
+            P::App(f, _, b) => match b.as_slice() {
+                [P::Var(v, _)] => claims
+                    .iter()
+                    .find(|(s, _, _)| s == f)
+                    .map(|(_, c, us)| (c, us, v.clone())),
+                _ => None,
+            },
+            _ => None,
+        };
+        let found = match arg {
+            P::App(cc, _, b) if hook(m, cc) == Some("LIST.concat") && b.len() == 2 => {
+                fold_var(&b[0])
+                    .map(|x| (x, ClaimsUse::First))
+                    .or_else(|| fold_var(&b[1]).map(|x| (x, ClaimsUse::Second)))
+            }
+            q => fold_var(q).map(|x| (x, ClaimsUse::Alone)),
+        };
+        let Some(((c, uses, v), u)) = found else {
+            continue;
+        };
+        let Some(ps) = ct.reads.get(&v) else { continue };
+        if !uses.contains(&u) || !apart.insert(c.base.clone()) {
+            continue;
+        }
+        let b = &c.base;
+        let mut at = paren(&p.read);
+        for pn in ps {
+            at = format!("({pn} {at})");
+        }
+        let sfx = claims_use_suffix(u);
+        let (map, bridge) = match &c.cell {
+            Some(_) => (
+                format!("(Invariant.{b}_map {at})"),
+                format!("Invariant.{b}_{}{sfx}_cell", n.base),
+            ),
+            None => (at, format!("Invariant.{b}_{}{sfx}", n.base)),
+        };
+        let o = if u == ClaimsUse::Alone { "" } else { " _" };
+        let last = parts.len() - 1;
+        let conj = match (parts.len(), pi) {
+            (1, _) => String::new(),
+            (_, i) if i == last => ".2".repeat(i),
+            (_, i) => format!("{}.1", ".2".repeat(i)),
+        };
+        d.push_str(&format!(
+            "/-- Two bindings of the map that the fold `{l}` walks, in a configuration under the invariant, that\n\
+claim one thing are one binding (`{part}`: no claim twice; `KPrelude.MapHook.same_key_of_claimsOK`).\n\
+Stated only for a fold whose `noDup` is a whole part of the invariant, over a map that projections of\n\
+the configuration reach: a fold read under a walk or a condition has no such theorem. -/\n\
+@[k2l_claims_apart]\n\
+theorem Invariant.{b}_apart {{c : {top}}} (h : Invariant c) {{k₁ k₂ : {key}}} {{v₁ v₂ : {val}}}\n    \
+{{D₁ D₂ : {mty}}} (h₁ : KPrelude.MapHook.concat (KPrelude.MapHook.element k₁ v₁) D₁ = some {map})\n    \
+(h₂ : KPrelude.MapHook.concat (KPrelude.MapHook.element k₂ v₂) D₂ = some {map}) (x : _)\n    \
+(x₁ : x ∈ ((Invariant.{b}_g k₁ v₁).map KPrelude.ListIso.toList).getD [])\n    \
+(x₂ : x ∈ ((Invariant.{b}_g k₂ v₂).map KPrelude.ListIso.toList).getD []) : k₁ = k₂ := by\n  \
+have h : {part} c := by unfold Invariant at h; exact h{conj}\n  \
+simp only [{part}, {cells}, Option.bind_fun_some] at h\n  \
+obtain ⟨hw, hc⟩ := ({bridge} _{o}).1 h\n  \
+exact KPrelude.MapHook.same_key_of_claimsOK hw hc h₁ h₂ x x₁ x₂\n\n",
+            l = c.lean,
+            part = p.name,
+            key = c.key,
+            val = c.val,
+            mty = c.map,
+            cells = ct.name,
+        ));
     }
     d.push_str(&format!("end {ns}\n"));
     // `Equations` exactly when something names an equation: these definitions (a lemma proved from

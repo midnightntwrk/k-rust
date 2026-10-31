@@ -1186,19 +1186,19 @@ preserve = []
 
 [demo.HandoffConf]
 tier = "light"
-guarded = 46
+guarded = 41
 preserve = []
 
 [demo.HandoffConf.slots]
-"join.key.new.new" = { status = "hand", id = "a39e9507dd685560" }
+"join.key.new.new" = { status = "generic", id = "a39e9507dd685560" }
 "join.key.new.«resume-lit»" = { status = "generic", id = "b296e50331b8eb51" }
 "join.key.new.«resume-oid»" = { status = "generic", id = "ca4cb4f4f4aba277" }
 "join.key.«resume-lit».new" = { status = "generic", id = "46be790a9308183e" }
-"join.key.«resume-lit».«resume-lit»" = { status = "hand", id = "e6fb566c34cb5f76" }
-"join.key.«resume-lit».«resume-oid»" = { status = "hand", id = "76225f8b8a4f1365" }
+"join.key.«resume-lit».«resume-lit»" = { status = "generic", id = "e6fb566c34cb5f76" }
+"join.key.«resume-lit».«resume-oid»" = { status = "generic", id = "76225f8b8a4f1365" }
 "join.key.«resume-oid».new" = { status = "generic", id = "26fde594c0550245" }
-"join.key.«resume-oid».«resume-lit»" = { status = "hand", id = "35816b8a0f1f7400" }
-"join.key.«resume-oid».«resume-oid»" = { status = "hand", id = "1740ca78b57c6373" }
+"join.key.«resume-oid».«resume-lit»" = { status = "generic", id = "35816b8a0f1f7400" }
+"join.key.«resume-oid».«resume-oid»" = { status = "generic", id = "1740ca78b57c6373" }
 "join.open.fork.fork" = { status = "generic", id = "c3533fd645e2f031" }
 "join.same.done.done" = { status = "generic", id = "bae9c18f5a868ad8" }
 "join.same.fork.fork" = { status = "generic", id = "2aa977331bc25ad3" }
@@ -1211,15 +1211,23 @@ preserve = []
 
 [demo.HandoffSeqRel]
 tier = "light"
-guarded = 50
+guarded = 45
 preserve = []
 
 [demo.DrfConf]
 tier = "light"
-guarded = 23
+guarded = 49
 preserve = []
 
 [demo.DrfConf.slots]
+"Legal.join.open.put.put" = { status = "generic", id = "e7394f92f018e84f" }
+"Legal.join.open.put.spawn" = { status = "generic", id = "aa7312dbfc4d8949" }
+"Legal.join.open.spawn.put" = { status = "generic", id = "64a9fc2841e5f5fc" }
+"Legal.join.open.spawn.spawn" = { status = "generic", id = "e017803010e43de0" }
+"Legal.join.open.spawn.stop" = { status = "generic", id = "8e80074ee8b66e9c" }
+"Legal.join.open.stop.spawn" = { status = "generic", id = "769e452b590cccd9" }
+"Legal.join.open.stop.stop" = { status = "generic", id = "42e83d5d1b90cab1" }
+"Legal.join.same.put.put" = { status = "generic", id = "f5988cb6afed3978" }
 "join.open.put.put" = { status = "refuted", id = "56dec6eb47d1741f" }
 "join.open.put.spawn" = { status = "generic", id = "e12f9e6177f6163b" }
 "join.open.spawn.put" = { status = "generic", id = "d037e60528af8336" }
@@ -1235,12 +1243,15 @@ preserve = []
 [sources]
 
 [sources.sha256]
+"demos/DrfConf/DrfConf/Legal/Slots.lean" = { tier = "light", sha256 = "98813365380a9c4ac6fbeadb4b85129dcc19f3f56a5063b374c10bb807380543" }
+"demos/DrfConf/DrfConf/Legal/Views.lean" = { tier = "light", sha256 = "87a26794eebcd9d7011095506b4844f610e5372d9885da29915788883a3acc05" }
 "demos/DrfConf/DrfConf/Slots.lean" = { tier = "light", sha256 = "18cca443c3f2fa66c674fde4e4b7cad7ad449c8c48a6532c12cdef0cf20bb837" }
 "demos/DrfConf/DrfConf/Views.lean" = { tier = "light", sha256 = "c0a365e9e33f09691cec99f06676d52490cf4ff6e0db76aba0c0256cdd6b6bd9" }
 "demos/DrfConf/confluence.toml" = { tier = "light", sha256 = "3fda15f4e999c9f5eb23779b166257d8fa3c3bdb9b6eac6d98656bad3497cfde" }
-"demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "930258a3c545530436ac7d937989493e776a635f93cf71114fc5eb2d50f04b09" }
+"demos/DrfConf/legal.toml" = { tier = "light", sha256 = "3e65931c685981d369fb2862b426ea793f84cafe19bee98b4be6f9c75aded0cb" }
+"demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "f50a6b0527d1052c4c76bd8fd0f2e7c2102292a51f6e7fade7e87dd5ecd37283" }
 "demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "1ec04076ac4c55636d29a044c45299b5ff1e6ecec72f00d3f3db8afab7f639d0" }
-"demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "80c9b3eac2ea452a5b6e50ba68cff6e90cb2a4500a2d4116a3361631962b6245" }
+"demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "d1139ac197761802cf7be5fcda277dafa7543234aacf2cbbc15f062b5dd8d2f6" }
 "demos/RaceConf/RaceConf/Pairs/Slots.lean" = { tier = "light", sha256 = "9a0b27bf2218d4ef65ac2c8bb9396e9c95e910a0f10066820c5cc7f7fa2103ad" }
 "demos/RaceConf/RaceConf/Pairs/Views.lean" = { tier = "light", sha256 = "354f75fa3c5b5d2711a67dd2b534440b7d10eb36189f7d020cb907b31723ac97" }
 "demos/RaceConf/RaceConf/Slots.lean" = { tier = "light", sha256 = "e48462233672d2ed665f47da94804f525661cd218a186aab23b63c848ed5fcfb" }
@@ -1255,17 +1266,20 @@ preserve = []
 "generated/drf/Drf.lean" = { tier = "light", sha256 = "86614fa19a31a71943757ed7d9432dabb9c000928af4e20050cfb5ee653bd5da" }
 "generated/drf/Drf/Adequacy.lean" = { tier = "light", sha256 = "b3bdc95d8130ef1736ae6cf0a580d3748e718696a0ed6c589b5f09684b807006" }
 "generated/drf/Drf/Determinism.lean" = { tier = "light", sha256 = "a7ca8f109b6e6bca95646221a5401560be6890b39888605f84fe940a06c410fc" }
-"generated/drf/Drf/EqBase.lean" = { tier = "light", sha256 = "e7578fa1ee4c25a5c16f9265df3268a81c9df7b12136a3f2174b29d05427233c" }
-"generated/drf/Drf/Equations.lean" = { tier = "light", sha256 = "1f81b05fcfe21212400ebfc38ae240213aa5f84b7d52158b85d2c4a20607e60a" }
-"generated/drf/Drf/Functions.lean" = { tier = "light", sha256 = "a794237887eef4746bc338953a636ee2635c9ff707b72a90479c2327ac952271" }
+"generated/drf/Drf/EqBase.lean" = { tier = "light", sha256 = "9d8d0f925a1d42baecb636e72a51f5a32c8c3b900c2ab1844a9dc05c2bdbf422" }
+"generated/drf/Drf/Equations.lean" = { tier = "light", sha256 = "3ac7746e90d6453277363c4b1e9e06e8ae60af0917554789240b2d7bbc2adeeb" }
+"generated/drf/Drf/Functions.lean" = { tier = "light", sha256 = "dfca35f4b6a0affb5dee3de386161197751255f7448aa9fe1d877f98413f18ff" }
 "generated/drf/Drf/Init.lean" = { tier = "light", sha256 = "3246cb29e6bd5836b19a906536bc2b203e00dac6e5f2dbd51b2e01ca970a2a29" }
+"generated/drf/Drf/InvariantDefs.lean" = { tier = "light", sha256 = "de5476334271eeefb89c884f1b284ee0470528aa653e664673fa09ac0a525dfa" }
+"generated/drf/Drf/Invariants.lean" = { tier = "light", sha256 = "85a3f078c5bde5040b8d53c275debdcf29f1a7dd9db0ac579ce0f46941e87975" }
 "generated/drf/Drf/Preserves.lean" = { tier = "light", sha256 = "2e9365d7c6362b175619ac22e07c4c48203ea713d830e90d2a0c4651c2b58d9b" }
 "generated/drf/Drf/Rules.lean" = { tier = "light", sha256 = "feaf4adfacba4441b9441efe2733c56d11b0d7c9bf5dac41b633d3b557eec287" }
 "generated/drf/Drf/Terms.lean" = { tier = "light", sha256 = "97760649592ce1bffaa1ea2304311d6a04cb0aad3ee1965af974fe090b46b9ac" }
 "generated/drf/DrfBench/Main.lean" = { tier = "light", sha256 = "54d5e2d48042335a3b60c2dbfcaa9d9f9e464f2747b60ce381331f289a6010cf" }
 "generated/drf/DrfBench/Programs.lean" = { tier = "light", sha256 = "803663b158e4ed23e78ae72b938e08a51888e7a1dba709d3e6ae4f05003142cf" }
-"generated/drf/DrfTest/Axioms.lean" = { tier = "light", sha256 = "6d028331ac7fcf8959e04d1b80241dac6ed349ca4fd63b29a12bfce0218e6830" }
+"generated/drf/DrfTest/Axioms.lean" = { tier = "light", sha256 = "e14523bad25736c9d6d22d1030d861a81136080ff42c2a6cd4676a7b9e46e726" }
 "generated/drf/DrfTest/Main.lean" = { tier = "light", sha256 = "e0fae749d3038efde11baf8e4854dfde84e78f91c32dfcd96c970764174333e4" }
+"generated/drf/invariant-unfold.txt" = { tier = "light", sha256 = "0758b07507df0142e53d26666d78045b095d555b5dd6158c189ba477e613861a" }
 "generated/drf/lakefile.lean" = { tier = "light", sha256 = "01c3f9ab6cc3cd1d7787ab8059cd2453980e0bc7824c144544a37f6e6fdbb635" }
 "generated/drf/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/handoff/Handoff.lean" = { tier = "light", sha256 = "fc225125e6cd2a9ee167f14c2741d445f5a4dada20a7982ee1ad71353afd7672" }
@@ -1275,7 +1289,7 @@ preserve = []
 "generated/handoff/Handoff/Equations.lean" = { tier = "light", sha256 = "19108ff7bb86ab5ccc2c3b9f59749153cf1072bccadde201a084911f0605941d" }
 "generated/handoff/Handoff/Functions.lean" = { tier = "light", sha256 = "70a5c2013fce2713a30b30d879a715e7d94e00ef8845d3b01868008f0137cf21" }
 "generated/handoff/Handoff/Init.lean" = { tier = "light", sha256 = "f2263152413fd5c3aaf94ffa5f3d12f519469e052f9af7d5e52413705b7c8526" }
-"generated/handoff/Handoff/InvariantDefs.lean" = { tier = "light", sha256 = "71049c86478fcd55b2b61f8507af520c4abb29191c85b9944948d14736823744" }
+"generated/handoff/Handoff/InvariantDefs.lean" = { tier = "light", sha256 = "b82ba489f9a9f0f11937c4f2a6f280f68e7065a4113f6ae5ec2ff0d5415b1bcb" }
 "generated/handoff/Handoff/Invariants.lean" = { tier = "light", sha256 = "e77ca909f871d2202f84fd319a5b76877a6b9a9eb011577dfcc3f3e1feb431cd" }
 "generated/handoff/Handoff/Preserves.lean" = { tier = "light", sha256 = "7e08427b81ae529a8418da35eafda42eb81f07b29b489416a018c0c1c9ddcdf2" }
 "generated/handoff/Handoff/Rules.lean" = { tier = "light", sha256 = "6a3201729b303934053534d71fcf85084e76aca7e520058645ece3e5298da235" }

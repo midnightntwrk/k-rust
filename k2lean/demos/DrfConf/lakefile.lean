@@ -2,7 +2,8 @@ import Lake
 open Lake DSL
 
 /-- The fixture `drf` (workers writing one cell): the slot of two writes is refuted by two runs of a
-program that end with different `<acc>`. -/
+program that end with different `<acc>`, and under the data-race freedom `drfOk` every slot is proved
+(`DrfConf.Legal`). -/
 package «DrfConf» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 

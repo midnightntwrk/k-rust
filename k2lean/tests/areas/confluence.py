@@ -28,16 +28,19 @@ DEMOS = {
                                                  "demos/HandoffConf/HandoffConf/Views.lean",
                                                  "demos/HandoffConf/HandoffConf/Slots.lean",
                                                  "demos/HandoffConf/confluence.toml"],
-                    "slots": {"prefixes": ["join."], "list": "demos/HandoffConf/open-joins.txt"}},
+                    "slots": {"prefixes": ["join."]}},
     # the same script run in its order into it, the simulation by hand, composed by the prelude's
     # `KPrelude.Forward` (`HandoffSeqRel.result_unique`), and every order ends there
     # (`HandoffSeqRel.transaction`, with HandoffConf's `terminates`); built against HandoffConf's phase
     "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq"]},
-    # workers writing one cell: the slot of two writes refuted by two runs of a program
+    # workers writing one cell: the slot of two writes refuted by two runs of a program, and every
+    # slot generic under the data-race freedom `drfOk` (`DrfConf.Legal`)
     "DrfConf": {"tier": "light", "sources": ["generated/drf",
                                              "demos/DrfConf/DrfConf/Views.lean", "demos/DrfConf/DrfConf/Slots.lean",
-                                             "demos/DrfConf/confluence.toml"],
-                "slots": {"prefixes": ["join."], "list": "demos/DrfConf/open-joins.txt"}},
+                                             "demos/DrfConf/DrfConf/Legal/Views.lean",
+                                             "demos/DrfConf/DrfConf/Legal/Slots.lean",
+                                             "demos/DrfConf/confluence.toml", "demos/DrfConf/legal.toml"],
+                "slots": {"prefixes": ["join.", "Legal.join."], "list": "demos/DrfConf/open-joins.txt"}},
 }
 
 # SIMPLE's pairs of rules classified, and its slots by premise and class with their statuses
