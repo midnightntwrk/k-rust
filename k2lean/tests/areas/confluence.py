@@ -16,7 +16,7 @@ DEMOS = {
     # generic attempts do not prove open (`confluence --threads threads --slots`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean",
                                                 "demos/SimpleConf/SimpleConf/Slots.lean"],
-                   "slots": {"prefixes": ["join."], "list": "demos/SimpleConf/open-joins.txt"}},
+                   "slots": {"prefixes": ["join.", "flush."], "list": "demos/SimpleConf/open-joins.txt"}},
     # coroutines over a UTXO ledger, the same views with the joins they leave as slots
     # (`confluence --threads procs --slots`)
     "UtxoConf": {"tier": "light", "sources": ["generated/utxo",
@@ -64,6 +64,13 @@ DEMOS = {
     "TwoParamInst": {"tier": "light", "sources": ["generated/corout",
                                                   "demos/TwoParamInst/TwoParamInst/Tr.lean",
                                                   "demos/TwoParamInst/TwoParamInst/Back.lean"]},
+    # IMP++'s threads joined generically up to the flush of K's stdout stream, the theorem the
+    # observation's (`confluence --threads threads --obs output --slots`)
+    "ImpPlusConf": {"tier": "light", "sources": ["generated/impplus",
+                                                 "demos/ImpPlusConf/ImpPlusConf/Views.lean",
+                                                 "demos/ImpPlusConf/ImpPlusConf/Slots.lean",
+                                                 "demos/ImpPlusConf/confluence.toml"],
+                    "slots": {"prefixes": ["join.", "flush."], "list": "demos/ImpPlusConf/open-joins.txt"}},
 }
 
 # SIMPLE's pairs of rules classified, and its slots by premise and class with their statuses

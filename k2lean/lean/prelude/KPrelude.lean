@@ -30,3 +30,4 @@ import KPrelude.Determinism
 import KPrelude.Soundness
 import KPrelude.Progress
 import KPrelude.Scaffold
+import KPrelude.Flush

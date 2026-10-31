@@ -9,8 +9,8 @@
 # two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
 # coordination script, library twolayer; TwoParamConf: its parameterized form, the fixture twoparam,
 # a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
-# from the coroutine language on its own, the fixture corout, library corout). Registry:
-# confluence.py.
+# from the coroutine language on its own, the fixture corout, library corout; ImpPlusConf: IMP++'s
+# threads joined up to the flush of K's stdout stream, library impplus). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -133,6 +133,10 @@ libs_confluence() {
         --threads threads --obs output --slots "$DEMOS/SimpleConf/SimpleConf/Slots.lean" \
         --open-joins "$DEMOS/SimpleConf/open-joins.txt" --witnesses "$W/simple-witnesses" --witness-fuel 64 \
         --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
+    ImpPlusConf) "$G" confluence --kore "$(kore_dir impplus)/definition.kore" --name KImpPlus --ns ImpPlusConf \
+        --threads threads --obs output --slots "$DEMOS/ImpPlusConf/ImpPlusConf/Slots.lean" \
+        --open-joins "$DEMOS/ImpPlusConf/open-joins.txt" \
+        --out "$DEMOS/ImpPlusConf/ImpPlusConf/Views.lean" --report "$DEMOS/ImpPlusConf/confluence.toml" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -237,6 +241,15 @@ gate_confluence() {
     partlib corout Corout
     scaffold relate-TwoParamInst libs_confluence TwoParamInst
     dbuild TwoParamInst
+  fi
+  # IMP++ (the soundness area's library impplus): threads, `print`, K's stdout stream at priorities 25
+  # and 30 before the language's rules, and the store a map changed at some bindings; up to the
+  # flush of the stream (docs/design.md, section 3.6, "Priorities and the flush") `print` and a step
+  # of another thread join generically, and the theorem is the observation's (`obs_unique`)
+  if runs demo ImpPlusConf; then
+    phase "scaffold ImpPlusConf"
+    kc impplus && partlib impplus KImpPlus.Preserves &&
+      scaffold confluence-ImpPlusConf libs_confluence ImpPlusConf && dbuild_slots ImpPlusConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;

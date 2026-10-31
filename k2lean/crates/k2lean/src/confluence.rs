@@ -2407,6 +2407,50 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 writeln!(o, "  | .c{c} => {}", safe_tbl(j, c)).unwrap();
             }
         }
+        // flush mode (design.md §3.6, "Priorities and the flush"): `R`, the first rank with a rule
+        // that does not step the shared cells alone, when a rule of rank `R` may enable a rule of a
+        // rank before it, those rules are compatible with every class that leaves alone what they read, and
+        // the observed cells are read by the rules of one of those ranks (`jo`): the steps are then
+        // compressed (`KPrelude.FStep`) and the theorem is the observation's (`obs_unique_of`)
+        let safe_r = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
+        let flush: Option<(usize, usize)> = (|| {
+            let so = slots?;
+            if so.inv.is_some() {
+                return None;
+            }
+            let ofs: Vec<usize> = obs?.iter().map(|c| field_of(c)).collect::<Option<_>>()?;
+            let rs = &lib.rules;
+            // the first rank with a rule that does not step the shared cells alone
+            let fr = (0..rs.len())
+                .filter(|&ri| kinds[ri] != Kind::Shared)
+                .map(|ri| rank(&rs[ri]))
+                .min()?;
+            let high: Vec<usize> = (0..rs.len()).filter(|&ri| rank(&rs[ri]) < fr).collect();
+            let enables = (0..rs.len())
+                .any(|ri| rank(&rs[ri]) == fr && kinds[ri] != Kind::Global && !safe_r(cls[ri], fr));
+            // and leave the cells holding a map alone, so they commute with every change of those
+            let shared_only = enables
+                && (0..fr).all(|j| reads[j].is_some())
+                && high
+                    .iter()
+                    .all(|&h| (0..n).all(|f| !is_keyed(f) || classes[cls[h]][f] == Touch::None));
+            let compatible = (0..classes.len())
+                .filter(|&c| safe_r(c, fr))
+                .all(|c| high.iter().all(|&h| compat(&classes[c], &classes[cls[h]])));
+            let jo = (0..fr).find(|&j| {
+                reads[j]
+                    .as_ref()
+                    .is_some_and(|fs| ofs.iter().all(|f| fs.contains(f)))
+            })?;
+            (fr > 0 && !high.is_empty() && shared_only && compatible).then_some((fr, jo))
+        })();
+        if flush.is_some() {
+            o = o.replacen(
+                "import KPrelude.Scaffold\n",
+                "import KPrelude.Scaffold\nimport KPrelude.Flush\n",
+                1,
+            );
+        }
         let mut ite = "false".to_string();
         for j in (0..max_rank).rev() {
             ite = format!("if j = {j} then appSafe{j} c else {ite}");
@@ -2437,17 +2481,31 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             } else {
                 format!("⟨{}⟩", hs.join(", "))
             };
-            for (nm, def) in [
-                ("app_back", "MStep a b ch c c'"),
-                ("app_back_s", "SStep ch c c'"),
-            ] {
-                let binders = if nm == "app_back" { "{a b ch}" } else { "{ch}" };
-                let (destr, s1) = if nm == "app_back" {
-                    ("⟨m, R, r, s, rfl, -, -, -, rfl⟩", "r")
+            // in flush mode also the converse (`app_fwd`): the step keeps a rule of rank `j` applying
+            let dirs: &[(&str, &str, bool)] = if flush.is_some() {
+                &[
+                    ("app_back", "MStep a b ch c c'", false),
+                    ("app_back_s", "SStep ch c c'", false),
+                    ("app_fwd", "MStep a b ch c c'", true),
+                    ("app_fwd_s", "SStep ch c c'", true),
+                ]
+            } else {
+                &[
+                    ("app_back", "MStep a b ch c c'", false),
+                    ("app_back_s", "SStep ch c c'", false),
+                ]
+            };
+            for &(nm, def, fwd) in dirs {
+                let binders = if def.starts_with("MStep") {
+                    "{a b ch}"
                 } else {
-                    ("⟨tc, s, rfl, -, rfl⟩", "tc")
+                    "{ch}"
                 };
-                let _ = s1;
+                let destr = if def.starts_with("MStep") {
+                    "⟨m, R, r, s, rfl, -, -, -, rfl⟩"
+                } else {
+                    "⟨tc, s, rfl, -, rfl⟩"
+                };
                 let mut body = if hs.len() == 1 {
                     format!("  have hf0 := hf\n  obtain {destr} := h\n")
                 } else {
@@ -2457,7 +2515,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     writeln!(body, "  have e{i} : (ch.apply s).{} = s.{} := by simp only [Change.apply, {}.apply, {}]", shared[f].field, shared[f].field, chn(f), hs[i]).unwrap();
                 }
                 let es: Vec<String> = (0..fs.len()).map(|i| format!("e{i}")).collect();
-                writeln!(body, "  generalize ch.apply s = s' at ha{}\n  cases s; cases s'\n  simp only [mk, mkc] at ha{} ⊢", es.iter().map(|e| format!(" {e}")).collect::<String>(), es.iter().map(|e| format!(" {e}")).collect::<String>()).unwrap();
+                writeln!(body, "  generalize ch.apply s = s' at ha{}{}\n  cases s; cases s'\n  simp only [mk, mkc] at ha{} ⊢", es.iter().map(|e| format!(" {e}")).collect::<String>(), if fwd { " ⊢" } else { "" }, es.iter().map(|e| format!(" {e}")).collect::<String>()).unwrap();
                 if !es.is_empty() {
                     writeln!(body, "  subst {}", es.join(" ")).unwrap();
                 }
@@ -2471,7 +2529,8 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     }
                 )
                 .unwrap();
-                writeln!(o, "\ntheorem {nm}_{j} {binders} {{c c' : {topt}}} (h : {def}) (hf : {hyp})\n    (ha : {}) : {} := by\n{body}", app(&j.to_string(), "c'"), app(&j.to_string(), "c")).unwrap();
+                let (from, to) = if fwd { ("c", "c'") } else { ("c'", "c") };
+                writeln!(o, "\ntheorem {nm}_{j} {binders} {{c c' : {topt}}} (h : {def}) (hf : {hyp})\n    (ha : {}) : {} := by\n{body}", app(&j.to_string(), from), app(&j.to_string(), to)).unwrap();
             }
             // the cells, from the class
             let arms: Vec<String> = (0..classes.len())
@@ -2540,6 +2599,17 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
         .unwrap();
         writeln!(o, "\ntheorem app_back {{a b ch}} {{c c' : {topt}}} : ∀ (j : Nat) (cl : Cls), appSafe j cl = true → InClass cl ch →\n    MStep a b ch c c' → {} → {}\n{arms_t}", app("j", "c'"), app("j", "c")).unwrap();
         writeln!(o, "\ntheorem app_back_s {{ch}} {{c c' : {topt}}} : ∀ (j : Nat) (cl : Cls), appSafe j cl = true → InClass cl ch →\n    SStep ch c c' → {} → {}\n{arms_s}", app("j", "c'"), app("j", "c")).unwrap();
+        if flush.is_some() {
+            for (nm, def) in [
+                ("app_fwd", "MStep a b ch c c'"),
+                ("app_fwd_s", "SStep ch c c'"),
+            ] {
+                let arms =
+                    if nm == "app_fwd" { &arms_t } else { &arms_s }.replace("app_back", "app_fwd");
+                let binders = if nm == "app_fwd" { "{a b ch}" } else { "{ch}" };
+                writeln!(o, "\ntheorem {nm} {binders} {{c c' : {topt}}} : ∀ (j : Nat) (cl : Cls), appSafe j cl = true → InClass cl ch →\n    {def} → {} → {}\n{arms}", app("j", "c"), app("j", "c'")).unwrap();
+            }
+        }
         writeln!(o, "\ndef safe (cl : Cls) (i : Nat) : Bool := (List.range i).all (fun j => appSafe j cl)\n\ntheorem safe_spec {{cl : Cls}} {{i j : Nat}} (h : safe cl i = true) (hj : j < i) : appSafe j cl = true := by\n  unfold safe at h\n  rw [List.all_eq_true] at h\n  exact h j (List.mem_range.2 hj)").unwrap();
         // the rules
         let rs = &lib.rules;
@@ -2970,8 +3040,29 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             } else {
                 ("Q", "hQ")
             };
-            writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, ViewOf r c c') := by\n  intro {}\n  refine ⟨.{l}, {name}.App.{l}{app_named} .., {pri}, fun {q} {hq} => {hq} {}, ?_⟩\n{vpart}",
-                args.join(" "), args.join(" ")).unwrap();
+            // a step that calls an I/O hook the library leaves undefined (`IOHook.undefN`) does not
+            // exist: its condition is false
+            let undefs: BTreeSet<String> = r
+                .step
+                .hyps
+                .iter()
+                .flat_map(|(_, h)| {
+                    h.match_indices("IOHook.undef")
+                        .filter_map(|(at, _)| {
+                            let d = h[at + 12..].chars().next()?;
+                            d.is_ascii_digit()
+                                .then(|| format!("KPrelude.IOHook.undef{d}"))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            if undefs.is_empty() {
+                writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, ViewOf r c c') := by\n  intro {}\n  refine ⟨.{l}, {name}.App.{l}{app_named} .., {pri}, fun {q} {hq} => {hq} {}, ?_⟩\n{vpart}",
+                    args.join(" "), args.join(" ")).unwrap();
+            } else {
+                writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, ViewOf r c c') := by\n  intro {}\n  exfalso\n  simp only [{}, reduceCtorEq] at *",
+                    args.join(" "), undefs.into_iter().collect::<Vec<_>>().join(", ")).unwrap();
+            }
             frame_names.push(format!("frame.{l}"));
         }
         writeln!(o, "\ntheorem view_of {{c c' : {topt}}} (h : {name}.Step c c') : ∃ r, ViewOf r c c' :=\n  {name}.Step.rel_of {} h", frame_names.join(" ")).unwrap();
@@ -3172,22 +3263,44 @@ def SameThreadJoins : Prop :=
         }
         o.push_str(&js);
         o.push('\n');
-        writeln!(o, "\n/-- The joins the generic arguments leave in every configuration: one per ordered pair of rules that
-`staticOK` rejects. -/\ndef OpenJoins : Prop :=\n  ∀ r₁ r₂, staticOK r₁ r₂ = false → ∀ {{c c₁ c₂ : {topt}}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod {name}.Step Eq c₁ c₂").unwrap();
         let (kb, ka) = if any_keyed {
             (" (K : KeyJoins)", " K")
         } else {
             ("", "")
         };
-        writeln!(o, "\ntheorem joins_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c c₁ c₂ : {topt}}} (h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by\n  obtain ⟨r₁, v₁⟩ := view_of h₁\n  obtain ⟨r₂, v₂⟩ := view_of h₂\n  cases hs : staticOK r₁ r₂\n  · exact O r₁ r₂ hs v₁.2.2.1 v₂.2.2.1\n  · exact join_static S{ka} hs v₁ v₂").unwrap();
-        writeln!(o, "\n/-- Given the joins left open, two runs that end in terminal configurations end in the same one. -/\ntheorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)\n    (fun _ h₁ h₂ => joins_of O S{ka} h₁ h₂) trivial h₁ t₁ h₂ t₂").unwrap();
-        let mut guard = "mstep_comm compat_of app_back app_back_s view_of join_static joins_of terminal_unique_of".to_string();
-        if let Some(cells) = obs {
-            o.push('\n');
-            o.push_str(&super::proj_def(lib, name, "obs", cells, None));
-            writeln!(o, "\n/-- A corollary of `terminal_unique_of`: the observed cells of the two terminal configurations agree. -/\ntheorem obs_confluent_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique_of O S{ka} h₁ t₁ h₂ t₂)").unwrap();
-            guard.push_str(" obs_confluent_of");
-        }
+        let guard = if let Some((fr, jo)) = flush {
+            flush_views(
+                &mut o,
+                &FlushCx {
+                    lib,
+                    name,
+                    topt: &topt,
+                    shared: &shared,
+                    ti,
+                    top: &top,
+                    cells: obs.unwrap(),
+                    reads: &reads,
+                    fr,
+                    jo,
+                    field_of: &field_of,
+                    keyed: &(0..n).filter(|&f| is_keyed(f)).collect::<Vec<_>>(),
+                },
+            );
+            "mstep_comm compat_of app_back app_back_s app_fwd app_fwd_s view_of join_static join_flush fjoins_of obs_unique_of".to_string()
+        } else {
+            writeln!(o, "\n/-- The joins the generic arguments leave in every configuration: one per ordered pair of rules that
+`staticOK` rejects. -/\ndef OpenJoins : Prop :=\n  ∀ r₁ r₂, staticOK r₁ r₂ = false → ∀ {{c c₁ c₂ : {topt}}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod {name}.Step Eq c₁ c₂").unwrap();
+            writeln!(o, "\ntheorem joins_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c c₁ c₂ : {topt}}} (h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by\n  obtain ⟨r₁, v₁⟩ := view_of h₁\n  obtain ⟨r₂, v₂⟩ := view_of h₂\n  cases hs : staticOK r₁ r₂\n  · exact O r₁ r₂ hs v₁.2.2.1 v₂.2.2.1\n  · exact join_static S{ka} hs v₁ v₂").unwrap();
+            writeln!(o, "\n/-- Given the joins left open, two runs that end in terminal configurations end in the same one. -/\ntheorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)\n    (fun _ h₁ h₂ => joins_of O S{ka} h₁ h₂) trivial h₁ t₁ h₂ t₂").unwrap();
+            let mut guard = "mstep_comm compat_of app_back app_back_s view_of join_static joins_of terminal_unique_of".to_string();
+            if let Some(cells) = obs {
+                o.push('\n');
+                o.push_str(&super::proj_def(lib, name, "obs", cells, None));
+                writeln!(o, "\n/-- A corollary of `terminal_unique_of`: the observed cells of the two terminal configurations agree. -/\ntheorem obs_confluent_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique_of O S{ka} h₁ t₁ h₂ t₂)").unwrap();
+                guard.push_str(" obs_confluent_of");
+            }
+            guard
+        };
         writeln!(o, "\n#k2l_assert_axioms {guard}").unwrap();
         // the views' shape, and the slots: each ordered pair of rules of one rank in the premises
         // left to it, with the class that leaves it there
@@ -3200,11 +3313,39 @@ def SameThreadJoins : Prop :=
         };
         let safe = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
         let ins = |k: usize| vroles[k].as_ref().is_some_and(|v| v.inserts());
+        // the pairs `flushOK` decides (as the views' `flushOK`)
+        let flush_ok = |i: usize, j: usize| {
+            flush.is_some_and(|(fr, _)| {
+                rank(&rs[i]) == fr
+                    && rank(&rs[j]) == fr
+                    && !safe(cls[i], fr)
+                    && safe(cls[j], fr)
+                    && compat(&classes[cls[i]], &classes[cls[j]])
+                    && !(0..n).any(|f| {
+                        is_keyed(f)
+                            && classes[cls[i]][f] != Touch::None
+                            && classes[cls[j]][f] != Touch::None
+                    })
+                    && match (kinds[i], kinds[j]) {
+                        (Kind::Thread, Kind::Thread) => !(ins(i) && ins(j)),
+                        (Kind::Global, _) | (_, Kind::Global) => false,
+                        _ => true,
+                    }
+            })
+        };
         let premises = Premises {
-            present: [true, true, any_keyed],
+            present: [true, true, any_keyed, flush.is_some(), flush.is_some()],
             slots: slots_of(rs.len(), &|i, j| {
+                // `flush.ends`: one slot, at the first pair
+                let ends = (flush.is_some() && i == 0 && j == 0).then_some("measure");
                 if rank(&rs[i]) != rank(&rs[j]) {
-                    return [None; 3];
+                    return [None, None, None, None, ends];
+                }
+                // in flush mode the pairs of a rank before it: the flush's determinism only
+                if let Some((fr, _)) = flush
+                    && rank(&rs[i]) < fr
+                {
+                    return [None, None, None, Some("flush"), ends];
                 }
                 let pdisj = keyps[i].iter().all(|p| keyps[j].iter().all(|q| p.disj(q)));
                 let same = kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !pdisj;
@@ -3219,6 +3360,7 @@ def SameThreadJoins : Prop :=
                 } else {
                     None
                 };
+                let open = open.filter(|_| !flush_ok(i, j) && !flush_ok(j, i));
                 // `kcompat_of`: the classes may both change one cell holding a map
                 let key = any_keyed
                     && open.is_none()
@@ -3227,7 +3369,13 @@ def SameThreadJoins : Prop :=
                             && classes[cls[i]][f] != Touch::None
                             && classes[cls[j]][f] != Touch::None
                     });
-                [same.then_some("keys"), open, key.then_some("keys")]
+                [
+                    same.then_some("keys"),
+                    open,
+                    key.then_some("keys"),
+                    None,
+                    ends,
+                ]
             }),
         };
         if slots.is_some() {
@@ -3260,15 +3408,20 @@ def SameThreadJoins : Prop :=
                     "  ∀ r₁ r₂, r₁.rank = r₂.rank → staticOK r₁ r₂ = true → KeySlot r₁ r₂",
                 );
             }
-            swap(
-                &mut o,
-                "OpenJoins",
-                format!(
-                    "/-- The join of two steps by `r₁` and `r₂` from one configuration: a slot of `OpenJoins`. -/\ndef OpenSlot (r₁ r₂ : Rule) : Prop :=\n  ∀ {{c c₁ c₂ : {topt}}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod {name}.Step Eq c₁ c₂"
-                ),
-                "  ∀ r₁ r₂, staticOK r₁ r₂ = false → OpenSlot r₁ r₂",
-            );
+            if flush.is_none() {
+                swap(
+                    &mut o,
+                    "OpenJoins",
+                    format!(
+                        "/-- The join of two steps by `r₁` and `r₂` from one configuration: a slot of `OpenJoins`. -/\ndef OpenSlot (r₁ r₂ : Rule) : Prop :=\n  ∀ {{c c₁ c₂ : {topt}}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod {name}.Step Eq c₁ c₂"
+                    ),
+                    "  ∀ r₁ r₂, staticOK r₁ r₂ = false → OpenSlot r₁ r₂",
+                );
+            }
         }
+        let high: Vec<usize> = flush.map_or(vec![], |(fr, _)| {
+            (0..rs.len()).filter(|&ri| rank(&rs[ri]) < fr).collect()
+        });
         let cells_of: Vec<String> = (0..n)
             .filter(|&f| is_keyed(f))
             .map(|f| format!("{}Of", shared[f].field))
@@ -3288,6 +3441,7 @@ def SameThreadJoins : Prop :=
                     cells: &cells_of,
                     roles,
                     threads: true,
+                    flush: flush.map(|f| (f.0, high.as_slice())),
                 },
                 &premises.slots,
                 &|i| match &vroles[i] {
@@ -3301,6 +3455,229 @@ def SameThreadJoins : Prop :=
     }
 
     /// A rule's instance (`Inst`): its binders, if any, and the configurations it relates.
+    /// The views' section on the flush (design.md §3.6, "Priorities and the flush").
+    const FLUSH: &str = include_str!("conf_flush/flush.lean");
+
+    /// What the flush section needs of the views.
+    struct FlushCx<'a> {
+        lib: &'a Lib,
+        name: &'a str,
+        topt: &'a str,
+        shared: &'a [&'a Leaf],
+        /// the leaf of the threads' cell
+        ti: usize,
+        top: &'a TopTerm,
+        /// the observed cells (`--obs`)
+        cells: &'a [String],
+        /// per rank before the last, the fields its rules read (`None`: the threads)
+        reads: &'a [Option<Vec<usize>>],
+        /// the first rank whose rules may enable a rule of a rank before it
+        fr: usize,
+        /// a rank before `fr` whose rules read every observed cell
+        jo: usize,
+        field_of: &'a dyn Fn(&str) -> Option<usize>,
+        /// the cells holding a map changed at some bindings (`MCh`), which the flush leaves alone
+        keyed: &'a [usize],
+    }
+
+    /// The flush section: `FLUSH` at the definition, with its per-cell parts (each shared cell's
+    /// `Ch.pre_unapply`, the observed cells kept by a step that leaves them alone) and the size the
+    /// flush decreases (`flushSize`: the items of the lists in the cells the ranks before `fr` read).
+    fn flush_views(o: &mut String, cx: &FlushCx) {
+        let FlushCx {
+            lib,
+            name,
+            topt,
+            shared,
+            ti,
+            top,
+            cells,
+            reads,
+            fr,
+            jo,
+            field_of,
+            keyed,
+        } = cx;
+        let n = shared.len();
+        o.push('\n');
+        o.push_str(&super::proj_def(lib, name, "obs", cells, None));
+        let proj = |h: &str, i: usize| -> String {
+            let mut t = h.to_string();
+            for _ in 0..i {
+                t.push_str(".2");
+            }
+            if i + 1 < n {
+                t.push_str(".1");
+            }
+            t
+        };
+        // a cell holding a map: the later change leaves it alone (`hn`, the flush's)
+        let nk = keyed.len();
+        let pk = |h: &str, i: usize| -> String {
+            let mut t = h.to_string();
+            for _ in 0..i {
+                t.push_str(".2");
+            }
+            if i + 1 < nk {
+                t.push_str(".1");
+            }
+            t
+        };
+        let pu: Vec<String> = (0..n)
+            .map(|i| match keyed.iter().position(|&f| f == i) {
+                Some(k) => format!("(by rw [{}]; exact MCh.pre_none)", pk("hn", k)),
+                None => format!(
+                    "Ch.pre_unapply {} {} {}",
+                    proj("h", i),
+                    proj("ha", i),
+                    proj("hb", i)
+                ),
+            })
+            .collect();
+        let none_of = |ch: &str| {
+            keyed
+                .iter()
+                .map(|&f| format!("{ch}.{} = none", shared[f].field))
+                .collect::<Vec<_>>()
+                .join(" ∧ ")
+        };
+        let hn_bind = if keyed.is_empty() {
+            String::new()
+        } else {
+            format!(" (hn : {})", none_of("ch₂"))
+        };
+        let preun = format!(
+            "/-- A change that applies after another it is compatible with applies before it{}. -/\ntheorem Change.pre_unapply {{a b : Change}} {{s : Shared}} (h : a.Compat b) (ha : a.pre s)\n    (hb : b.pre (a.apply s)){} : b.pre s :=\n  ⟨{}⟩",
+            if keyed.is_empty() {
+                ""
+            } else {
+                ", when it leaves alone the cells\nholding a map"
+            },
+            if keyed.is_empty() {
+                String::new()
+            } else {
+                format!(" (hn : {})", none_of("b"))
+            },
+            pu.join(",\n    ")
+        );
+        // a step that leaves the cells the rules of rank `jo` read alone keeps the observed ones
+        let fs0 = reads[*jo].as_ref().unwrap();
+        let ofs: Vec<usize> = cells.iter().map(|c| field_of(c).unwrap()).collect();
+        let hyp = fs0
+            .iter()
+            .map(|&f| format!("ch.{} = none", shared[f].field))
+            .collect::<Vec<_>>()
+            .join(" ∧ ");
+        let destr_hf = if fs0.len() == 1 {
+            "  have hf0 := hf".to_string()
+        } else {
+            let hs: Vec<String> = (0..fs0.len()).map(|i| format!("hf{i}")).collect();
+            format!("  obtain ⟨{}⟩ := hf", hs.join(", "))
+        };
+        let mut es = vec![];
+        let mut elines = String::new();
+        for &f in &ofs {
+            let k = fs0.iter().position(|&g| g == f).unwrap();
+            let fl = &shared[f].field;
+            writeln!(
+                elines,
+                "  have e{k} : (ch.apply s).{fl} = s.{fl} := by simp only [Change.apply, Ch.apply, hf{k}]"
+            )
+            .unwrap();
+            es.push(format!("e{k}"));
+        }
+        let es = es.join(" ");
+        let mut obsframe = String::new();
+        for (nm, binders, def, destr) in [
+            (
+                "obs_frame",
+                "{a b ch}",
+                "MStep a b ch y y'",
+                "⟨m, R, r, s, rfl, -, -, -, rfl⟩",
+            ),
+            (
+                "obs_frame_s",
+                "{ch}",
+                "SStep ch y y'",
+                "⟨tc, s, rfl, -, rfl⟩",
+            ),
+        ] {
+            writeln!(obsframe, "/-- A step that leaves alone the cells the rules of rank {jo} read keeps the observation. -/\ntheorem {nm} {binders} {{y y' : {topt}}} (h : {def}) (hf : {hyp}) :\n    obs y = obs y' := by\n{destr_hf}\n  obtain {destr} := h\n{elines}  generalize ch.apply s = s' at {es} ⊢\n  cases s; cases s'\n  simp only [mk, mkc, obs] at {es} ⊢\n  subst {es}\n  rfl\n").unwrap();
+        }
+        // the cells holding a map: what the flush leaves alone, and each change's `Small` in the views
+        let k = !keyed.is_empty();
+        let pick = |a: &str| if k { a.to_string() } else { String::new() };
+        let high_k = pick(&format!(
+            "\n/-- The rules of the ranks before {fr} leave the cells holding a map alone. -/\ntheorem high_keyed : ∀ r : Rule, r.rank < {fr} → ∀ cl, keyedTbl cl r.cls = false := by\n  intro r h cl; cases r <;> simp [Rule.rank] at h <;> cases cl <;> decide\n\ntheorem high_keyed_none : ∀ (r : Rule) (ch : Change), r.rank < {fr} → InClass r.cls ch →\n    {} := by\n  intro r ch h i; cases r <;> simp [Rule.rank] at h <;> simp_all [Rule.cls, InClass]\n",
+            none_of("ch")
+        ));
+        let text = FLUSH
+            .replace("@HN_BIND@", &hn_bind)
+            .replace("@HN_ARG@", &pick(" hn"))
+            .replace("@HN_HI@", &pick(" (high_keyed_none r ch₂ hr i₂)"))
+            .replace(
+                "@KC_HI@",
+                &pick(" (kcompat_of _ _ (high_keyed r hr cl) _ _ hi i₂)"),
+            )
+            .replace("@HIGH_K@", &high_k)
+            .replace("@FOK_K@", &pick(" && !keyedTbl r₁.cls r₂.cls"))
+            .replace("@FOK_OPEN@", &pick("⟨"))
+            .replace("@FOK_PAT@", &pick(", hk₁₂⟩"))
+            .replace("@KC12@", &pick(" (kcompat_of _ _ hk₁₂ _ _ i₁ i₂)"))
+            .replace("@KC21@", &pick(" (kcompat_of _ _ hk₁₂ _ _ i₁ i₂).symm"))
+            .replace("@K_BIND@", &pick(" (K : KeyJoins)"))
+            .replace("@K_ARG@", &pick(" K"))
+            .replace("@SM@", &pick(", -"))
+            .replace("@PREUNAPPLY@", &preun)
+            .replace("@OBSFRAME@", &obsframe)
+            .replace("@TOP@", topt)
+            .replace("@NA@", name)
+            .replace("@R@", &fr.to_string())
+            .replace("@JO@", &jo.to_string());
+        o.push('\n');
+        o.push_str(&text);
+        // the size: the lists in the cells the ranks before `fr` read
+        let lists: Vec<usize> = (0..n)
+            .filter(|&f| {
+                (0..*fr).any(|j| reads[j].as_ref().is_some_and(|fs| fs.contains(&f)))
+                    && is_cell_sort(&lib.m, &shared[f].sort).is_some_and(|c| {
+                        lib.m.sorts.get(&lib.m.ctors[&c].args[0]).is_some_and(|si| {
+                            si.kind == crate::model::Kind::Coll(crate::model::Coll::List)
+                        })
+                    })
+            })
+            .collect();
+        let doc = format!(
+            "/-- What the flush consumes: the items of the lists in the cells the rules of the ranks before {fr}\nread. The flush stops when every step of it decreases this (`flush.ends`). -/"
+        );
+        if lists.is_empty() {
+            writeln!(o, "\n{doc}\ndef flushSize (_ : {topt}) : Nat := 0").unwrap();
+        } else {
+            let pat = top(&|i| {
+                if i == *ti {
+                    return "_".to_string();
+                }
+                let f = if i < *ti { i } else { i - 1 };
+                match lists.iter().position(|&g| g == f) {
+                    Some(k) => {
+                        let c = is_cell_sort(&lib.m, &shared[f].sort).unwrap();
+                        format!("({name}.{} x{k})", lib.m.ctor_path(&c))
+                    }
+                    None => "_".to_string(),
+                }
+            });
+            let size: Vec<String> = (0..lists.len())
+                .map(|k| format!("(ListIso.toList x{k}).length"))
+                .collect();
+            writeln!(
+                o,
+                "\n{doc}\ndef flushSize : {topt} → Nat\n  | {pat} => {}",
+                size.join(" + ")
+            )
+            .unwrap();
+        }
+    }
+
     fn inst_body(c: &crate::preserves::Ctor) -> (&'static str, String) {
         if c.binders.is_empty() {
             ("", format!("c = {} ∧ c' = {}", c.lhs, c.rhs))
@@ -3351,8 +3728,8 @@ def SameThreadJoins : Prop :=
         let rs = &lib.rules;
         // every ordered pair of rules is a slot of `OpenJoins`
         let premises = Premises {
-            present: [false, true, false],
-            slots: slots_of(rs.len(), &|_, _| [None, Some("pairs"), None]),
+            present: [false, true, false, false, false],
+            slots: slots_of(rs.len(), &|_, _| [None, Some("pairs"), None, None, None]),
         };
         let ctors = crate::preserves::ctors(rs, lib.ranked.then_some(&lib.prios[..]));
         let mut o = String::new();
@@ -3410,6 +3787,7 @@ def SameThreadJoins : Prop :=
                 ctors: &ctors,
                 cells: &[],
                 roles,
+                flush: None,
             },
             &premises.slots,
             &|_| 0,
@@ -3420,7 +3798,13 @@ def SameThreadJoins : Prop :=
 
     /// The premises of `terminal_unique_of`, by index: the joins at one thread, the joins the views
     /// leave, the changes of a cell holding a map at overlapping keys.
-    pub(super) const PREMISES: [&str; 3] = ["SameThreadJoins", "OpenJoins", "KeyJoins"];
+    pub(super) const PREMISES: [&str; 5] = [
+        "SameThreadJoins",
+        "OpenJoins",
+        "KeyJoins",
+        "FlushDet",
+        "FlushEnds",
+    ];
 
     /// A slot: the ordered pair of rules `i`, `j` in premise `k` (`PREMISES`), with the class of
     /// pairs that leaves it there.
@@ -3435,17 +3819,17 @@ def SameThreadJoins : Prop :=
     /// The premises a run states (`present`, by index) and their slots, in order: by premise,
     /// then by the first rule, then by the second.
     pub(super) struct Premises {
-        pub(super) present: [bool; 3],
+        pub(super) present: [bool; 5],
         pub(super) slots: Vec<Slot>,
     }
 
     /// The slots of `n` rules, given each pair's class in each premise (`None`: not a slot there).
-    fn slots_of(n: usize, class: &dyn Fn(usize, usize) -> [Option<&'static str>; 3]) -> Vec<Slot> {
-        let pairs: Vec<(usize, usize, [Option<&'static str>; 3])> = (0..n)
+    fn slots_of(n: usize, class: &dyn Fn(usize, usize) -> [Option<&'static str>; 5]) -> Vec<Slot> {
+        let pairs: Vec<(usize, usize, [Option<&'static str>; 5])> = (0..n)
             .flat_map(|i| (0..n).map(move |j| (i, j)))
             .map(|(i, j)| (i, j, class(i, j)))
             .collect();
-        (0..3)
+        (0..5)
             .flat_map(|k| {
                 pairs
                     .iter()
@@ -3464,11 +3848,14 @@ def SameThreadJoins : Prop :=
         Refuted,
     }
 
-    /// A slot's name: `join.K.r₁.r₂`.
+    /// A slot's name: `join.K.r₁.r₂`, or `flush.ends`.
     pub(super) fn slot_name(rs: &[Rule], s: &Slot) -> String {
+        if s.k == 4 {
+            return "flush.ends".into();
+        }
         format!(
             "join.{}.{}.{}",
-            ["same", "open", "key"][s.k],
+            ["same", "open", "key", "flush"][s.k],
             rs[s.i].lean,
             rs[s.j].lean
         )
@@ -3489,6 +3876,9 @@ def SameThreadJoins : Prop :=
         roles: &'a [MapRole],
         /// whether a cell map holds the threads (`--threads`): else no `SameThreadJoins`
         threads: bool,
+        /// flush mode: the first rank whose rules may enable a rule of a rank before it, and the
+        /// rules of the ranks before it
+        flush: Option<(usize, &'a [usize])>,
     }
 
     /// The slots (`--slots`): one obligation per ordered pair of rules in a premise of
@@ -3554,6 +3944,7 @@ def SameThreadJoins : Prop :=
             cells,
             roles,
             threads,
+            flush,
         } = cx;
         let rs = &lib.rules;
         let raw = |r: &Rule| {
@@ -3563,9 +3954,12 @@ def SameThreadJoins : Prop :=
                 .to_string()
         };
         // the slots, in order: (kind, i, j)
-        let kinds = ["same", "open", "key"];
+        let kinds = ["same", "open", "key", "flush"];
         let slots: Vec<(usize, usize, usize)> = pslots.iter().map(|s| (s.k, s.i, s.j)).collect();
         let slot_name = |(k, i, j): (usize, usize, usize)| {
+            if k == 4 {
+                return "flush.ends".to_string();
+            }
             format!("join.{}.{}.{}", kinds[k], rs[i].lean, rs[j].lean)
         };
         let names: BTreeSet<String> = slots.iter().map(|s| slot_name(*s)).collect();
@@ -3609,8 +4003,12 @@ def SameThreadJoins : Prop :=
             "\n/-! ## The slots: one join per ordered pair of rules in a premise -/\n"
         )
         .unwrap();
-        let fam = ["SameSlot", "OpenSlot", "KeySlot"];
+        let fam = ["SameSlot", "OpenSlot", "KeySlot", "FlushSlot"];
         for &(k, i, j) in &slots {
+            if k == 4 {
+                writeln!(o, "def flush.ends.statement : Prop := FlushEnds").unwrap();
+                continue;
+            }
             writeln!(
                 o,
                 "def {}.statement : Prop := {} .{} .{}",
@@ -3694,7 +4092,63 @@ def SameThreadJoins : Prop :=
                 }
                 None => status.push(Status::Generic),
             }
-            let proof = if k == 0 {
+            // the I/O hooks the library leaves undefined (`IOHook.undefN`) that the rules' conditions
+            // call: such a condition never holds
+            let undef_alt = |rr: &[usize], indent: &str| {
+                let us: BTreeSet<String> = rr
+                    .iter()
+                    .flat_map(|&x| rs[x].step.hyps.iter())
+                    .flat_map(|(_, h)| {
+                        h.match_indices("IOHook.undef")
+                            .filter_map(|(at, _)| {
+                                let d = h[at + 12..].chars().next()?;
+                                d.is_ascii_digit()
+                                    .then(|| format!("KPrelude.IOHook.undef{d}"))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                if us.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "\n{indent}| (exfalso; simp only [{}, reduceCtorEq] at *)",
+                        us.into_iter().collect::<Vec<_>>().join(", ")
+                    )
+                }
+            };
+            let proof = if k == 4 {
+                // the flush decreases `flushSize`: per rule of a rank before the flush's, its
+                // instance's lists, or a condition that never holds
+                let (fr, high) = flush.unwrap();
+                let mut p = format!(
+                    "  refine flush_ends flushSize ?_\n  intro c c' f\n  obtain ⟨hn, hs⟩ := f\n  obtain ⟨r, ar, pr, sb, -⟩ := view_of hs\n  have hr : r.rank < {fr} := Nat.lt_of_not_le fun hge => hn fun j hj => pr j (by omega)\n  have i := Inst.of sb\n  cases r <;> simp only [Rule.rank] at hr <;> (try omega)"
+                );
+                for &x in high {
+                    let r = &rs[x];
+                    write!(p, "\n  case {} =>\n    obtain ⟨{}, rfl, rfl⟩ := i\n    first\n      | (subst_vars\n         simp only [flushSize, ListHook.concat, ListHook.element, ListHook.unit, ListHook.push,\n           ListIso.toList_ofList, List.length_append, List.length_cons, List.length_nil]\n         omega){}", r.lean, us(x), undef_alt(&[x], "      ")).unwrap();
+                }
+                p
+            } else if k == 3 {
+                // two steps of the flush from one configuration: one instance (`k2l_list_det`,
+                // `k2l_det`), or a condition that never holds
+                let a1 = &ctors[i].args;
+                let mut sfx = "_r".to_string();
+                while ctors[j]
+                    .args
+                    .iter()
+                    .any(|x| a1.contains(&format!("{x}{sfx}")))
+                {
+                    sfx.push('\'');
+                }
+                let a2: Vec<String> = ctors[j].args.iter().map(|x| format!("{x}{sfx}")).collect();
+                format!(
+                    "  intro c c₁ c₂ s₁ s₂\n  have i₁ := Inst.of s₁\n  have i₂ := Inst.of s₂\n  obtain ⟨{}, rfl, rfl⟩ := i₁\n  obtain ⟨{}, e, rfl⟩ := i₂\n  cases e\n  first\n    | rfl\n    | (k2l_list_det; all_goals rfl)\n    | (k2l_det; all_goals rfl){}",
+                    a1.join(", "),
+                    a2.join(", "),
+                    undef_alt(&[i, j], "    ")
+                )
+            } else if k == 0 {
                 // two steps at one binding: their keys are the one key, then the instances agree
                 let (b1, b2) = (bindings(i), bindings(j));
                 let last = |b: usize, h: &str| {
@@ -3775,6 +4229,9 @@ def SameThreadJoins : Prop :=
             guard.push(sn);
         }
         let field = |(k, i, j): (usize, usize, usize)| {
+            if k == 4 {
+                return "«flush.ends»".to_string();
+            }
             format!("«{}.{}.{}»", kinds[k], raw(&rs[i]), raw(&rs[j]))
         };
         let (pb, pa) = if open_slots.is_empty() {
@@ -3817,7 +4274,11 @@ def SameThreadJoins : Prop :=
         // each premise from its slots, or refuted by a refuted slot: the premise at the slot's
         // rules, its guards decided, is the slot's statement
         let mut prems: Vec<(usize, &str, String, &str)> = vec![];
-        if *threads {
+        if flush.is_some() {
+            // in flush mode `OpenJoins` also leaves the pairs `flushOK` decides and the ranks before
+            prems.push((1, "openJoins", format!("by\n  intro r₁ r₂ hs hf hf' hr\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hs hf hf' hr; decide))\n{}", cases_of(1)), " (by decide) (by decide) (by decide) (by decide)"));
+            prems.push((0, "sameThreadJoins", format!("by\n  intro r₁ r₂ k₁ k₂ hr hd\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert k₁ k₂ hr hd; decide))\n{}", cases_of(0)), " (by decide) (by decide) (by decide) (by decide)"));
+        } else if *threads {
             prems.push((1, "openJoins", format!("by\n  intro r₁ r₂ hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hs; decide))\n{}", cases_of(1)), " (by decide)"));
             prems.push((0, "sameThreadJoins", format!("by\n  intro r₁ r₂ k₁ k₂ hr hd\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert k₁ k₂ hr hd; decide))\n{}", cases_of(0)), " (by decide) (by decide) (by decide) (by decide)"));
         } else {
@@ -3834,11 +4295,21 @@ def SameThreadJoins : Prop :=
         if *any_keyed {
             prems.push((2, "keyJoins", format!("by\n  intro r₁ r₂ hr hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hr hs; decide))\n{}  all_goals\n    intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n    exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim\n", cases_of(2)), " (by decide) (by decide)"));
         }
+        if flush.is_some() {
+            prems.push((3, "flushDet", format!("by\n  intro r₁ r₂ hr he\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hr he; decide))\n{}", cases_of(3)), " (by decide) (by decide)"));
+            let s = *slots.iter().find(|s| s.0 == 4).unwrap();
+            prems.push((4, "flushEnds", by(s), ""));
+        }
         let mut args = String::new();
         for (k, p, proof, guards) in &prems {
             let premise = super::views::PREMISES[*k];
             if let Some(&s) = refuted.iter().find(|s| s.0 == *k) {
-                writeln!(body, "/-- `{premise}` is false: its slot `{}` is refuted. -/\ntheorem {p}_refuted : ¬ {premise} :=\n  fun h => {}.refuted (h .{} .{}{guards})\n", slot_name(s), slot_name(s), rs[s.1].lean, rs[s.2].lean).unwrap();
+                let at = if *k == 4 {
+                    "h".to_string()
+                } else {
+                    format!("(h .{} .{}{guards})", rs[s.1].lean, rs[s.2].lean)
+                };
+                writeln!(body, "/-- `{premise}` is false: its slot `{}` is refuted. -/\ntheorem {p}_refuted : ¬ {premise} :=\n  fun h => {}.refuted {at}\n", slot_name(s), slot_name(s)).unwrap();
                 guard.push(format!("{p}_refuted"));
                 continue;
             }
@@ -3863,6 +4334,11 @@ def SameThreadJoins : Prop :=
         if !refuted.is_empty() {
             // a premise is false: `terminal_unique_of` is not had from the slots. The premises are
             // sufficient, not necessary, so this says nothing of whether the definition is confluent
+        } else if flush.is_some() {
+            // the steps compressed up to the flush: the observation's theorem only
+            let args = args.trim_start();
+            writeln!(body, "/-- Two runs that end in terminal configurations end with one observation{premise}. -/\ntheorem obs_unique {pb}{{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  obs_unique_of {args} h₁ t₁ h₂ t₂\n").unwrap();
+            guard.push("obs_unique".into());
         } else {
             let args = args.trim_start();
             writeln!(body, "/-- Two runs that end in terminal configurations end in the same one{premise}. -/\ntheorem terminal_unique {pb}{{c n₁ n₂ : {topt}}}{hb}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of {args}{ha} h₁ t₁ h₂ t₂\n").unwrap();
@@ -3880,6 +4356,7 @@ def SameThreadJoins : Prop :=
                 name,
                 topt,
                 obs.is_some(),
+                flush.is_some(),
                 &open_slots,
                 &refuted,
                 &by_runs,
@@ -3888,7 +4365,7 @@ def SameThreadJoins : Prop :=
         } else if !by_runs.is_empty() {
             super::fail("--open-joins: `NAME | refuted WITNESS` needs --witnesses");
         }
-        let total: Vec<usize> = (0..3)
+        let total: Vec<usize> = (0..5)
             .map(|k| slots.iter().filter(|s| s.0 == k).count())
             .collect();
         let (cmd, premises, attempts) = if *threads {
@@ -3900,14 +4377,24 @@ def SameThreadJoins : Prop :=
                     total[1],
                     if *any_keyed {
                         format!(", {} of `KeyJoins`", total[2])
+                    } else if flush.is_some() {
+                        format!(
+                            ", {} of `FlushDet`, and `flush.ends`\n(`FlushEnds`)",
+                            total[3]
+                        )
                     } else {
                         String::new()
                     }
                 ),
                 format!(
-                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)",
+                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`){}",
                     if *any_keyed {
                         "the keys of two changes of a cell holding a map (`k2l_keyed`), "
+                    } else {
+                        ""
+                    },
+                    if flush.is_some() {
+                        "; two steps of the flush,\none instance (`k2l_list_det`) or a condition on an undefined I/O hook; the flush decreasing\n`flushSize`"
                     } else {
                         ""
                     }
@@ -3931,7 +4418,12 @@ def SameThreadJoins : Prop :=
         };
         writeln!(
             m,
-            "\n/-! Generated by `k2lean confluence {cmd}`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {premises}.\nA slot is proved by the generic attempts ({attempts}), by the hand module\n(`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins list), or open: a field of `Open`, the premise\nof `terminal_unique`.{refutes} -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n"
+            "\n/-! Generated by `k2lean confluence {cmd}`; do not edit.\n\nThe premises of `{ns}.{thm}_of`, one slot per ordered pair of rules: {premises}.\nA slot is proved by the generic attempts ({attempts}), by the hand module\n(`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins list), or open: a field of `Open`, the premise\nof `{thm}`.{refutes} -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n",
+            thm = if flush.is_some() {
+                "obs_unique"
+            } else {
+                "terminal_unique"
+            }
         )
         .unwrap();
         m.push_str(&body);
@@ -3963,6 +4455,7 @@ def SameThreadJoins : Prop :=
         name: &str,
         topt: &str,
         obs: bool,
+        flushed: bool,
         open_slots: &[(usize, usize, usize)],
         refuted: &[(usize, usize, usize)],
         by_runs: &[(usize, usize, usize)],
@@ -4021,7 +4514,13 @@ def SameThreadJoins : Prop :=
         let w = crate::names::ident(open_witness(so));
         writeln!(
             body,
-            "/-- The open slots are not all true: with them, the two runs of `witness.{w}` would end alike\n(`terminal_unique`). -/\ntheorem Open.refuted : ¬ Open := fun P =>\n  witness.{w}.refutes fun h₁ t₁ h₂ t₂ => congrArg {obsf} (terminal_unique P h₁ t₁ h₂ t₂)\n"
+            "/-- The open slots are not all true: with them, the two runs of `witness.{w}` would end alike\n(`{}`). -/\ntheorem Open.refuted : ¬ Open := fun P =>\n  witness.{w}.refutes fun h₁ t₁ h₂ t₂ => {}\n",
+            if flushed { "obs_unique" } else { "terminal_unique" },
+            if flushed {
+                "obs_unique P h₁ t₁ h₂ t₂".to_string()
+            } else {
+                format!("congrArg {obsf} (terminal_unique P h₁ t₁ h₂ t₂)")
+            }
         )
         .unwrap();
         guard.push("Open.refuted".into());
@@ -4129,7 +4628,7 @@ fn premises_report(rs: &[Rule], p: &views::Premises, status: Option<&[views::Sta
             writeln!(rep, "{key} = {names:?}").unwrap();
         }
     }
-    let classes: [&[&str]; 3] = [
+    let classes: [&[&str]; 5] = [
         &["keys"],
         if p.present[0] {
             &["global", "cells", "priority", "insert"]
@@ -4137,6 +4636,8 @@ fn premises_report(rs: &[Rule], p: &views::Premises, status: Option<&[views::Sta
             &["pairs"]
         },
         &["keys"],
+        &["flush"],
+        &["measure"],
     ];
     for (k, cs) in classes.iter().enumerate() {
         if !p.present[k] {

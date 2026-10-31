@@ -64,6 +64,9 @@ lake-manifest.json
 /demos/RaceConf/pairs.toml
 /demos/SimpleConf/SimpleConf/Views.lean
 /demos/SimpleConf/SimpleConf/Slots.lean
+/demos/ImpPlusConf/ImpPlusConf/Views.lean
+/demos/ImpPlusConf/ImpPlusConf/Slots.lean
+/demos/ImpPlusConf/confluence.toml
 /demos/UtxoConf/UtxoConf/Views.lean
 /demos/UtxoConf/UtxoConf/Slots.lean
 /demos/HandoffConf/HandoffConf/Views.lean
