@@ -11317,12 +11317,25 @@ fn a_default_options_execution_with_a_console_serves_no_condition_verdict() {
         result
             .leaves
             .iter()
-            .map(|leaf| (leaf.pattern.clone(), leaf.halt_reason.clone(), leaf.io.cursor()))
+            .map(|leaf| {
+                (
+                    leaf.pattern.clone(),
+                    leaf.halt_reason.clone(),
+                    leaf.io.cursor(),
+                )
+            })
             .collect::<Vec<_>>()
     };
-    assert_eq!(leaves(&proof), leaves(&execution), "{proof:#?}\n{execution:#?}");
+    assert_eq!(
+        leaves(&proof),
+        leaves(&execution),
+        "{proof:#?}\n{execution:#?}"
+    );
     assert!(!proof.leaves.is_empty(), "{proof:#?}");
-    assert!(proof.leaves.iter().all(|leaf| leaf.io.cursor() == 0), "{proof:#?}");
+    assert!(
+        proof.leaves.iter().all(|leaf| leaf.io.cursor() == 0),
+        "{proof:#?}"
+    );
     assert!(
         proof
             .unsupported_hooks
