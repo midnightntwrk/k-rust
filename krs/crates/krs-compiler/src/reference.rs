@@ -317,7 +317,11 @@ pub fn expand_reference_source(
                 // A record update is written in full, as its fields (F5).
                 let rule = crate::semantic::structured_rule_long_form(descriptor, rule, bundle)
                     .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
-                    .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
+                    .try_map_refs(&mut OperatorCalls::new(
+                        descriptor,
+                        semantic_rule,
+                        &semantic_rules,
+                    ))?;
                 items.push(syn::Item::Fn(render_equation_row(
                     row, &rule, package, bundle,
                 )?));
@@ -372,7 +376,11 @@ pub fn expand_reference_source(
             // A record update is written in full, as its fields (F5).
             let rule = crate::semantic::head_rule_long_form(descriptor, rule, bundle)
                 .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
-                .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
+                .try_map_refs(&mut OperatorCalls::new(
+                    descriptor,
+                    semantic_rule,
+                    &semantic_rules,
+                ))?;
             items.push(syn::Item::Fn(render_rule(
                 clause,
                 &rule,
@@ -2289,7 +2297,11 @@ fn restate_requires(
     let condition = condition
         .term
         .clone()
-        .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
+        .try_map_refs(&mut OperatorCalls::new(
+            descriptor,
+            semantic_rule,
+            semantic_rules,
+        ))?;
     let term = render_term(&condition, false, package, bundle)?;
     for attribute in &mut item.attrs {
         if attribute.path().segments.len() > 1
@@ -3081,13 +3093,24 @@ struct OperatorCalls<'a> {
 }
 
 impl<'a> OperatorCalls<'a> {
-    fn new(descriptor: &'a Descriptor, rule: &SemanticRule) -> Self {
+    /// The calls of `descriptor`, read from `rule`, the semantic rule lowered from it, and from the
+    /// equations of the functions lifted out of it (NT-15), which `rules` holds: a `let` block or
+    /// `k::matches!` of a claim or a static clause's result is an equation's term there, with the
+    /// choices lowering made in it.
+    fn new(
+        descriptor: &'a Descriptor,
+        rule: &SemanticRule,
+        rules: &BTreeMap<&StableItemId, &SemanticRule>,
+    ) -> Self {
         let mut operations = BTreeMap::new();
         let mut collection_operations = BTreeMap::new();
         let mut constructors = BTreeMap::new();
         let mut list_units = BTreeSet::new();
         let mut list_terms = BTreeSet::new();
-        let mut pending = semantic_rule_terms(rule);
+        let mut pending = with_local_functions(rule, rules)
+            .into_iter()
+            .flat_map(semantic_rule_terms)
+            .collect::<Vec<_>>();
         while let Some(term) = pending.pop() {
             match term.kind() {
                 IrTermKind::Application {
@@ -3139,6 +3162,28 @@ impl<'a> OperatorCalls<'a> {
             list_terms,
         }
     }
+}
+
+/// `rule` and the equations of the functions lifted out of its `let` blocks and `k::matches!`
+/// tests (NT-15), which `rules` holds under the identities [`krs_ir::local_function_ids`] derives
+/// from `rule`'s and each function's place, from the first on: the lifting numbers them without a
+/// gap, so the first place without an equation ends them.
+fn with_local_functions<'r>(
+    rule: &'r SemanticRule,
+    rules: &BTreeMap<&StableItemId, &'r SemanticRule>,
+) -> Vec<&'r SemanticRule> {
+    let mut found = vec![rule];
+    for index in 0.. {
+        let Some(equation) = krs_ir::local_function_ids(rule.id(), index)
+            .ok()
+            .and_then(|ids| Some((rules.get(&ids.equation)?, rules.get(&ids.otherwise))))
+        else {
+            break;
+        };
+        found.push(equation.0);
+        found.extend(equation.1.copied());
+    }
+    found
 }
 
 /// Every term of a semantic rule, equation, or claim.

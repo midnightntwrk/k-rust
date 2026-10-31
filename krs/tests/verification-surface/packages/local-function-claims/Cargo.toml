@@ -1,6 +1,6 @@
 [package]
 name = "krs-verification-surface-local-function-claims"
-description = "Claims holding `let` blocks and `k::matches!` in their states and conditions: five proved, one that must stay unproven"
+description = "Claims holding `let` blocks and `k::matches!` in their states and conditions: eight proved, four that must stay unproven"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

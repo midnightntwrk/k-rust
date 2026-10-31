@@ -6,7 +6,8 @@
     "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
     "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973",
     "krs-verification-surface-cell-maps": "9da3300801b9c0c01be084ed0a91a36c57a2712feb7db8ca3075b376e64fe226",
-    "krs-verification-surface-set-instance-claims": "dd30f58cae0e148a8c2dc7de9c5a2864e8f9f055d70f88f2b9e2dbe6c329f827"
+    "krs-verification-surface-set-instance-claims": "dd30f58cae0e148a8c2dc7de9c5a2864e8f9f055d70f88f2b9e2dbe6c329f827",
+    "krs-verification-surface-local-function-claims": "924f05d4cd6852ee4cea0f9189bc4e08df711ee167d15f54443da5bf7bce572d"
   },
   "emitted": {
     "krs-verification-surface-l21": {
@@ -59,6 +60,10 @@
     "krs-verification-surface-set-instance-claims": {
       "definition.k": "6c84c189861a9e6ed902db18403c65a9af8394587d6e3050d805bbc898c8ffd3",
       "spec.k": "a817f845bca0e3d000026a94badea64347f03cba5a9411ed3de598b9402ef815"
+    },
+    "krs-verification-surface-local-function-claims": {
+      "definition.k": "271cc30930c7ac4be3fbb90d015918bca0b4bac69cd377fe131273fa8b170aeb",
+      "spec.k": "644c3190886a9aa9ad6846393f6fe5f0f877c01b44dd76018115fbace7f4cce4"
     }
   },
   "capability_refusals": {
@@ -78,7 +83,8 @@
     "krs-verification-surface-l22-verification": "1688167f61d3576b87aa98cf60d3053461d0fc23310cfe7d1b78cc0f14ddcaaf",
     "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f",
     "krs-verification-surface-cell-maps": "985a5d89ae1f1acb1599fa85a0d17b70baf5a1f1477534cd7449e178e968553c",
-    "krs-verification-surface-set-instance-claims": "4eb9157a327572b8fc0d9eef58a4306bbc9f9d7cf9894009ede7ec8b35b34c3a"
+    "krs-verification-surface-set-instance-claims": "4eb9157a327572b8fc0d9eef58a4306bbc9f9d7cf9894009ede7ec8b35b34c3a",
+    "krs-verification-surface-local-function-claims": "e1572270d5cf7c0b04408f549d6a0960c30c13ceda9310a301d7a388e95e39c5"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -522,6 +528,45 @@
     },
     "krs-verification-surface-l21-readable": {
       "zero": []
+    }
+  },
+  "local_function_proofs": {
+    "krs-verification-surface-local-function-claims": {
+      "statuses": {
+        "aliased": "proven",
+        "aliased-requires": "proven",
+        "aliased-wrong": "disproved",
+        "ends": "proven",
+        "ensured": "proven",
+        "off-by-one": "failed",
+        "refutes": "proven",
+        "starts": "proven",
+        "starts-wrong": "failed",
+        "tests": "proven",
+        "tests-wrong": "failed",
+        "twice": "proven"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 8 of 12 claims proven"
+      ],
+      "warnings": []
+    }
+  },
+  "local_function_kprove": {
+    "krs-verification-surface-local-function-claims": {
+      "aliased": true,
+      "aliased-requires": true,
+      "aliased-wrong": false,
+      "ends": true,
+      "ensured": true,
+      "off-by-one": false,
+      "refutes": true,
+      "starts": true,
+      "starts-wrong": false,
+      "tests": true,
+      "tests-wrong": false,
+      "twice": true
     }
   }
 }

@@ -592,12 +592,15 @@ K compiles `P :=K T` into a fresh function with two equations, one returning `tr
 A name that occurs twice tests equality, as `Pair(x, x)` does; a name read once is rejected (``write `_` ``).
 The trap is a pattern name that is also a rule binder: in K, `pair(X, _) :=K E` binds a new `X` and ignores the rule's `X`, so KRS rejects it (`krs::analysis::invalid-matches`) and points to `int::eq` or `bool::eq` for a comparison.
 A pattern whose sort cannot meet the subject's, which would always be false, is rejected as well.
-K rejects `#as` in a rule's right-hand side, so `name @ pattern` inside `k::matches!` is accepted only in conditions, as in `k::matches!(e, Pair(p @ Pair(_, _), p))`.
+K rejects `#as` in a rule's right-hand side, so `name @ pattern` inside `k::matches!` is accepted only in conditions (and in a claim's start state, below), as in `k::matches!(e, Pair(p @ Pair(_, _), p))`.
 It is also an [initializer term](#declarations-and-sentence-forms), evaluated when the configuration is built.
-`k::matches!` in a left-hand side or inside a pattern, a map's key included, std's bare `matches!` (which tests a host value; ``did you mean `k::matches!`?``), and an `if` guard are syntax errors, as is `k::matches!` in a `cells!` cell value.
+`k::matches!` in a rule's left-hand side or inside a pattern, a map's key included, std's bare `matches!` (which tests a host value; ``did you mean `k::matches!`?``), and an `if` guard are syntax errors, as is `k::matches!` in a `cells!` cell value.
 A claim's states are terms over its variables and its conditions Bools, so `k::matches!` means there what it means in a rule, in its start state too, and in an alias's or a desugar's result it means what it means in a rule's result.
-The native prover and Java K's `kprove` lower `:=K` to its generated function only in a definition's sentences, and a program's expansion writes a static clause's result into the program as it is, so in those two places KRS lifts the test into a function of its own: `krsLocal_<digest>(x, ..)`, over the names the test reads, declared in the sentence's module (the definition's, or an author spec module's for a claim written there) with the one equation `krsLocal_<digest>(X, ..) => ( P :=K T )`, and writes its application where the test stood.
+The native prover and Java K's `kprove` lower `:=K` to its generated function only in a definition's sentences, and a program's expansion writes a static clause's result into the program as it is, so in those two places KRS lifts every test, wherever it stands (inside a `let` block too), into a function of its own over the names the test reads, `krsLocal_<digest>(x, ..)`, and writes its application where the test stood.
+The function's two equations are the test's meaning: `krsLocal_<digest>(X, ..) => true requires ( P :=K T )`, and `krsLocal_<digest>(_, ..) => false` with `owise`; the pattern stays a pattern, in a condition, so `name @ pattern` means there what it means in any condition, and the function is total, as the test is.
+The definition declares the function, beside the sentence's module's own sentences, since K takes no syntax declaration in a proof module; a claim in an author spec module (`#[k::spec_module]`) that holds a test or a block is not provable yet (finding NT-15-1).
 The digest is derived from the sentence's identity and the test's place in it, so it is the same in every build.
+A test in a claim's start state computes from the names the state binds, as a map key that applies a function does in a rule's subject: it binds none, so a name read only inside it is `krs::expand::unbound-name`; bind it elsewhere in the start state, as `pc: n` binds `n` in `{ k: [Load(), Pr({ let a = n; a }, 0)], pc: n }`.
 
 ### Local bindings
 
@@ -614,7 +617,9 @@ A `let` pattern reads its value by one shape, whose names the rest of the block 
 A block is also an [initializer term](#declarations-and-sentence-forms), evaluated when the configuration is built.
 A block in a pattern, a map's key included ([map reads](#rules-that-leave-the-computation-cell-out)), a let-bound name used outside its block, and a pattern whose sort cannot meet its value's (`krs::analysis::invalid-let`) are rejected, as is a block in a `cells!` cell value.
 A claim's states and conditions hold a block as a rule's do, its start state too, and an alias's or a desugar's result holds one as a rule's result does.
-There, as for [`k::matches!`](#shape-tests), KRS lifts the block into a function `krsLocal_<digest>(x, ..)` of the names it reads, whose one equation's result is the block, `krsLocal_<digest>(X, ..) => ( #let P = A #in B )`, and writes its application where the block stood: the claim proves, and the program runs, as the same block in a rule does, undefined where a refutable pattern fails.
+There, as for [`k::matches!`](#shape-tests), KRS lifts the outermost block into a function `krsLocal_<digest>(x, ..)` of the names it reads, whose one equation's result is the block, `krsLocal_<digest>(X, ..) => ( #let P = A #in B )`, after lifting each test inside it into a function of its own, and writes its application where the block stood: the claim proves, and the program runs, as the same block in a rule does, undefined where a refutable pattern fails.
+A block's pattern takes no `name @ pattern`, so only its tests hold one, and those are lifted.
+In a claim's start state a block reads the names the state binds and binds none outside itself: a name read only inside it is `krs::expand::unbound-name`, as for a test.
 
 ### Function contexts
 

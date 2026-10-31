@@ -358,3 +358,89 @@ fn twin_equal(k::term![Tw::Twin(Pair::<dyn StmtSort>(a, a))]: Term<Stmt>) -> Ter
         twin(pair(go, go)) => got(3) ~> .K"]]
     .assert_eq(&runs(source, &["same(go)", "twin(pair(go, go))"]));
 }
+
+/// The clauses of [`a_static_result_s_local_functions_have_their_values`].
+const LOCAL_FUNCTIONS: &str = "
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Local {
+    #[k::syntax(\"res({a}, {b})\")] Res { a: Int, b: Int },
+    #[k::syntax(\"two({a}, {b})\")] #[k::desugar] Two { a: Int, b: Int },
+    #[k::syntax(\"zero({a})\")] #[k::desugar] Zero { a: Int },
+    #[k::syntax(\"nested({a})\")] #[k::desugar] Nested { a: Int },
+    #[k::syntax(\"flag({a})\")] Flag { a: KItem },
+}
+
+#[k::desugar]
+fn two(k::term![Local::Two(x, y)]: Term<Stmt>) -> Term<Stmt> {
+    Local::Res({ let d = x - y; d }, { let e = y - x; e })
+}
+
+#[k::desugar]
+fn zero(k::term![Local::Zero(x)]: Term<Stmt>) -> Term<Stmt> {
+    Local::Flag(k::matches!(x, 0))
+}
+
+#[k::desugar]
+fn nested(k::term![Local::Nested(x)]: Term<Stmt>) -> Term<Stmt> {
+    Local::Flag({ let y = x + 1; k::matches!(y, 1) })
+}
+";
+
+/// A `let` block or `k::matches!` in a static result is lifted into a function of the names it
+/// reads (NT-15), which the program's expansion writes applied where the construct stood; it
+/// evaluates as the construct does in a rule's result. `two(5, 2)` reads both names in each of
+/// its two blocks, in opposite orders, so each function's parameters are in the order its block
+/// reads them: `res(3, -3)`. A test is `true` where its pattern matches and `false` elsewhere,
+/// also inside a block, where it is lifted on its own. `krs expand` prints every clause, its
+/// operators among them. `name @ pattern` in a result's test is refused, as in a rule's result:
+/// a result only builds.
+#[test]
+fn a_static_result_s_local_functions_have_their_values() {
+    expect_test::expect![[r"
+        two(5, 2) => res(3, -3) ~> .K
+        zero(0) => flag(true) ~> .K
+        zero(1) => flag(false) ~> .K
+        nested(0) => flag(true) ~> .K
+        nested(3) => flag(false) ~> .K"]]
+    .assert_eq(&runs(
+        LOCAL_FUNCTIONS,
+        &["two(5, 2)", "zero(0)", "zero(1)", "nested(0)", "nested(3)"],
+    ));
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), LOCAL_FUNCTIONS);
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let two = expanded.find("fn two(").expect("`two` is printed");
+    expect_test::expect![[r"
+        fn two(k::term![Local::Two(x, y)]: Term<Stmt>) -> Term<Stmt> {
+            Local::Res(
+                {
+                    let d = x - y;
+                    d
+                },
+                {
+                    let e = y - x;
+                    e
+                },
+            )
+        }"]]
+    .assert_eq(&expanded[two..two + expanded[two..].find("\n}\n").unwrap() + 2]);
+    let aliased = package(
+        &temporary.path().join("aliased"),
+        &LOCAL_FUNCTIONS.replace(
+            "k::matches!(x, 0)",
+            "k::matches!(Local::Res(x, x), Local::Res(m @ 0, m))",
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &aliased, "check", &[]);
+    assert!(!success);
+    expect_test::expect!["error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `#[k::desugar]` clause"]
+    .assert_eq(
+        stderr
+            .lines()
+            .find(|line| line.starts_with("error"))
+            .unwrap_or_default(),
+    );
+}

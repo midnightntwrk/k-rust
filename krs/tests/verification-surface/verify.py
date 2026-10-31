@@ -170,11 +170,13 @@ must fail it.
 
 Local functions in claims (NT-15): `local-function-claims` holds `let` blocks
 and `k::matches!` in claims' start states, end states, `requires` and
-`ensures`, a refutable `let` pattern among them, which KRS lifts into
-functions the definition declares (no prover lowers `#let` or `:=K` in a
-claim). The five claims are proved by `krs prove` and by Java
-`kprove --claims`; `off-by-one` ends with the length plus one, which no run
-reaches, and both routes must fail it.
+`ensures`, a refutable `let` pattern and a test whose pattern holds `@` among
+them, which KRS lifts into functions the definition declares (no prover
+lowers `#let` or `:=K` in a claim). Each claim's truth depends on its
+construct's value: eight are proved by `krs prove` and by Java
+`kprove --claims`, and the four that state a value their construct does not
+have (`starts-wrong`, `tests-wrong`, `aliased-wrong`, `off-by-one`) must fail
+on both routes.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -407,12 +409,18 @@ SET_INSTANCE_CLAIMS_STATUSES = {"found": "proven", "found-among-two": "proven", 
 LOCAL_FUNCTION_CLAIMS = Fixture(MANIFEST, "krs-verification-surface-local-function-claims")
 LOCAL_FUNCTION_CLAIMS_SPEC = "KRS-LOCAL-FUNCTION-CLAIMS-SPEC"
 LOCAL_FUNCTION_CLAIMS_STATUSES = {
+    "aliased": "proven",
+    "aliased-requires": "proven",
+    "aliased-wrong": "disproved",
     "ends": "proven",
     "ensured": "proven",
     "off-by-one": "failed",
     "refutes": "proven",
     "starts": "proven",
+    "starts-wrong": "failed",
     "tests": "proven",
+    "tests-wrong": "failed",
+    "twice": "proven",
 }
 
 NEGATIVE = (
@@ -1384,7 +1392,7 @@ def verify_local_function_claims(harness: FixtureGate, fixture: Fixture) -> None
     harness.check(fixture)
     harness.expand(fixture)
     emitted = harness.emit(fixture)
-    for construct in ("#let", ":=K"):
+    for construct in ("#let", ":=K", "#as"):
         if construct in (emitted.directory / "spec.k").read_text(encoding="utf-8"):
             raise GateError(f"{fixture.package}: the emitted spec holds {construct}, which no prover lowers in a claim")
     native = native_trusted_proof(harness, fixture, LOCAL_FUNCTION_CLAIMS_SPEC)
@@ -1396,7 +1404,7 @@ def verify_local_function_claims(harness: FixtureGate, fixture: Fixture) -> None
     if java != expected:
         raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
     harness.pins.expect(("local_function_kprove", fixture.package), java)
-    print(f"PASS {fixture.package}: five claims proven, off-by-one failed, on both routes")
+    print(f"PASS {fixture.package}: eight claims proven, the four wrong ones failed, on both routes")
 
 
 def main() -> int:

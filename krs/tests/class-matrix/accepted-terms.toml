@@ -2714,7 +2714,11 @@ syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 k = """
 rule cTAG ( V0:KItem ) => pair ( V0:KItem , krsLocal_DIGEST ( V0:KItem ) ) [label(krsRule_DIGEST)]
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -7118,7 +7122,11 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( krsLocal_DIGEST ( V0:KItem ) ) [label(krsRule_DIGEST)]
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -33448,7 +33456,11 @@ claim [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 requires krsLocal_DIGEST ( V0:KItem )
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -33460,7 +33472,11 @@ k = """
 claim [case-TAG]:
 <k> krsLocal_DIGEST ( V0:KItem ) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -33496,7 +33512,11 @@ k = """
 claim [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => krsLocal_DIGEST ( V0:KItem ) ... </k>
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -33532,7 +33552,11 @@ k = """
 claim [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => hold ( krsLocal_DIGEST ( V0:KItem ) ) ... </k>
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -33568,7 +33592,11 @@ k = """
 claim [case-TAG]:
 <k> cTAG ( V0:KItem , krsLocal_DIGEST ( V0:KItem ) ) => .K ... </k>
 
-rule krsLocal_DIGEST ( V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 

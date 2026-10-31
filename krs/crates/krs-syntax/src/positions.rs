@@ -951,8 +951,8 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // `k::matches!` tests and `let` computes, each by applying a function generated for it
         // alone, which no term holds: a pattern, which matches terms as they are, never meets
         // one. A claim's states hold applications, which denote their values, so its start state
-        // holds either, as its end state and conditions do; KRS lifts a claim's into functions its
-        // spec module declares, since the provers lower them only in a definition's sentences
+        // holds either, as its end state and conditions do; KRS lifts a claim's into functions the
+        // definition declares, since the provers lower them only in a definition's sentences
         // (NT-15). A `cells!` value is a cell's content (S6 decides whether that changes for
         // readable rules written as `cells!` rules). A key a pattern looks up computes its value,
         // but `#let` and `:=K` bind their patterns' names, which in a rule's left side would read

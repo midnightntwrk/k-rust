@@ -33,7 +33,7 @@
 //! **Meaning, not tools.** An entry states what the construct means where it stands, not
 //! whether every tool that reads the emitted K takes it: `let` and `k::matches!` in a claim mean
 //! what they mean in a rule, which KRS makes every prover read by lifting them into functions the
-//! claim's spec module declares (NT-15). The `cells!` cell value's boundary for `let` and
+//! definition declares (NT-15). The `cells!` cell value's boundary for `let` and
 //! `k::matches!` is finding S0-17's, owned by S6, and is kept here as a refusal.
 //!
 //! **Stages.** A refusal's [`Stage`] says what the mistake is told by. A [`Stage::Placement`]

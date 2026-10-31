@@ -1091,39 +1091,79 @@ fn a_readable_claim_reads_islands_inside_list_elements() {
     .assert_debug_eq(&proved(target.path(), &native, &[]));
 }
 
-/// The claims of [`a_claim_proves_with_let_and_matches_in_its_states_and_conditions`]: a `let`
-/// block or `k::matches!` in the start state, the end state, `requires` and `ensures`, and a
-/// refutable `let` in `requires`.
+/// [`BYTES_MACHINE`] with a pair constructor, `pr(a, b)`, for a start state's computation to
+/// leave, and for a test's pattern.
+fn local_machine() -> String {
+    BYTES_MACHINE.replace(
+        "    Load(),\n}",
+        "    Load(),\n    #[k::syntax(\"pr({a}, {b})\")]\n    Pr { a: Int, b: Int },\n}",
+    )
+}
+
+/// The claims of [`a_claim_proves_with_let_and_matches_in_its_states_and_conditions`]. Each
+/// claim's truth depends on its construct's value, and each `_wrong` claim states the value its
+/// construct does not have: `load` sets `pc` to the length of `program`, and leaves the rest of
+/// the computation, so a start state's block is read in the `pr` the end state names, and a
+/// `requires` that fixes `n` decides whether `pc` ends at the length plus `n`.
 const LOCAL_CLAIMS: &str = r"k::claims! {
     for Machine;
     use Op::*;
 
     #[k::claim(all_paths)]
-    starts: { k: [Load()], program: p, pc: bytes::length({ let q = p; q }) } => { k: [], program: p, pc: bytes::length(p) };
+    starts: { k: [Load(), Pr({ let a = n; a }, 0)], program: p, pc: n } => { k: [Pr(n, 0)], program: p, pc: bytes::length(p) };
+
+    #[k::claim(all_paths)]
+    starts_wrong: { k: [Load(), Pr({ let a = n; a + 1 }, 0)], program: p, pc: n } => { k: [Pr(n, 0)], program: p, pc: bytes::length(p) };
 
     #[k::claim(all_paths)]
     ends: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: { let m = bytes::length(p); m } };
 
     #[k::claim(all_paths)]
     #[k::requires(k::matches!(n, 0))]
-    tests: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) };
+    tests: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) + n };
 
     #[k::claim(all_paths)]
-    #[k::ensures({ let m = 0; m == 0 })]
-    ensured: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: bytes::length(p) };
+    #[k::requires(k::matches!(n, 1))]
+    tests_wrong: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) + n };
+
+    #[k::claim(all_paths)]
+    #[k::exists(left: Int)]
+    #[k::ensures({ let l = left; l == bytes::length(p) })]
+    ensured: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: left };
 
     #[k::claim(all_paths)]
     #[k::requires({ let 0 = n; true })]
-    refutes: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) };
+    refutes: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) + n };
+
+    #[k::claim(all_paths)]
+    #[k::exists(left: Int)]
+    #[k::ensures({ let zero = k::matches!(Pr(left, left), Pr(m @ 0, m)); zero })]
+    aliased: { k: [Load()], program: bytes::empty(), pc: 5 } => { k: [], program: bytes::empty(), pc: left };
+
+    #[k::claim(all_paths)]
+    #[k::exists(left: Int)]
+    #[k::ensures(k::matches!(Pr(left, left), Pr(m @ 1, m)))]
+    aliased_wrong: { k: [Load()], program: bytes::empty(), pc: 5 } => { k: [], program: bytes::empty(), pc: left };
+
+    #[k::claim(all_paths)]
+    #[k::requires(k::matches!(Pr(n, n), Pr(m @ 0, m)))]
+    aliased_requires: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) };
+
+    #[k::claim(all_paths)]
+    twice: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: k::builtin::int::add({ let a = bytes::length(p); a }, { let b = 0; b }) };
 }
 ";
 
 /// A claim's states are terms over its variables and its conditions Bools, as a rule's are, so a
 /// `let` block (the term it computes) and `k::matches!` (a Bool) mean there what they mean in a
 /// rule. Neither prover lowers K's `#let` and `:=K` in a claim, so KRS lifts each into a function
-/// of the names it reads, `krsLocal_<digest>`, which the claim's module declares with the one
-/// equation whose result is the construct: here the definition, whose sentences both provers
-/// lower (NT-15). Every claim proves.
+/// of the names it reads, `krsLocal_<digest>`, which the definition declares (NT-15): a block's
+/// one equation's result is the block, and a test's two equations are `true` where its condition,
+/// the test, holds and `false` otherwise, so its pattern stays a pattern, `name @ pattern`
+/// included, even inside a block. The claims whose constructs have the stated values prove, the
+/// `_wrong` ones do not; `aliased_requires`'s end state holds whatever `n` is, and only shows the
+/// aliased test in `requires` lifted (the native prover does not invert a test whose pattern binds
+/// names to fix `n`). `krs expand` prints every claim, with its operators' calls.
 #[test]
 fn a_claim_proves_with_let_and_matches_in_its_states_and_conditions() {
     let target = shared_fixture_target();
@@ -1132,27 +1172,85 @@ fn a_claim_proves_with_let_and_matches_in_its_states_and_conditions() {
         temporary.path(),
         "claim-locals",
         "ORG-KRS-CLAIM-LOCALS",
-        &format!("{BYTES_MACHINE}{LOCAL_CLAIMS}"),
+        &format!("{}{LOCAL_CLAIMS}", local_machine()),
     );
     let spec = emitted_spec(target.path(), &manifest);
-    for absent in ["#let", ":=K"] {
+    for absent in ["#let", ":=K", "#as"] {
         assert!(!spec.contains(absent), "{spec}");
     }
-    assert_eq!(spec.matches("krsLocal_").count(), 5, "{spec}");
     let definition = emitted(target.path(), &manifest, "definition.k");
     assert_eq!(
         definition.matches("[symbol(krsLocal_").count(),
-        5,
-        "{definition}"
+        spec.matches("krsLocal_").count() + 1,
+        "one function per construct, the nested test's among them:\n{definition}\n{spec}"
     );
+    let (success, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
+    assert!(!success, "the `_wrong` claims fail:\n{stdout}");
+    let statuses = stdout
+        .lines()
+        .filter(|line| line.starts_with("ORG-KRS-CLAIM-LOCALS-SPEC."))
+        .collect::<Vec<_>>();
     expect_test::expect![[r#"
-        [
-            "ORG-KRS-CLAIM-LOCALS-SPEC.ends: proven",
-            "ORG-KRS-CLAIM-LOCALS-SPEC.ensured: proven",
-            "ORG-KRS-CLAIM-LOCALS-SPEC.refutes: proven",
-            "ORG-KRS-CLAIM-LOCALS-SPEC.starts: proven",
-            "ORG-KRS-CLAIM-LOCALS-SPEC.tests: proven",
-        ]
+        (
+            [
+                "ORG-KRS-CLAIM-LOCALS-SPEC.aliased: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.aliased-requires: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.aliased-wrong: disproved",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.ends: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.ensured: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.refutes: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.starts: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.starts-wrong: failed",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.tests: proven",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.tests-wrong: failed",
+                "ORG-KRS-CLAIM-LOCALS-SPEC.twice: proven",
+            ],
+            [],
+        )
     "#]]
-    .assert_debug_eq(&proved(target.path(), &manifest, &[]));
+    .assert_debug_eq(&(
+        statuses,
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>(),
+    ));
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    expect_test::expect![[r#"
+        #[k::claim(all_paths, label = "tests")]
+        #[k::requires(k::matches!(n, 0))]
+        pub fn tests(
+            p: k::Term<k::builtin::Bytes>,
+            n: k::Term<k::builtin::Int>,
+            k::cells! {
+                k : k::configuration::KCell(crate ::Op::Load()), program :
+                k::configuration::Cell(p), pc : k::configuration::Cell(n), state @ ..
+            }: crate::Machine,
+        ) -> crate::Machine {
+            k::cells! {
+                k : k::configuration::KCell(), program : k::configuration::Cell(p), pc :
+                k::configuration::Cell(k::builtin::int::add(k::builtin::bytes::length(p), n)),
+                ..state
+            }
+        }
+        #[k::claim(all_paths, label = "twice")]
+        pub fn twice(
+            p: k::Term<k::builtin::Bytes>,
+            k::cells! {
+                k : k::configuration::KCell(crate ::Op::Load()), program :
+                k::configuration::Cell(p), pc : k::configuration::Cell(0), state @ ..
+            }: crate::Machine,
+        ) -> crate::Machine {
+            k::cells! {
+                k : k::configuration::KCell(), program : k::configuration::Cell(p), pc :
+                k::configuration::Cell(k::builtin::int::add({ let a =
+                k::builtin::bytes::length(p); a }, { let b = 0; b })), ..state
+            }
+        }"#]]
+    .assert_eq(&format!(
+        "{}\n{}",
+        expanded_claim(&expanded, "tests"),
+        expanded_claim(&expanded, "twice")
+    ));
 }
