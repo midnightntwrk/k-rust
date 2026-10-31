@@ -95,6 +95,42 @@ const BAG_RESULTS: [&str; 5] = [
     "{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 }",
 ];
 
+/// Map results over a framed subject on the run base, each with its subject (finding NT-9-1): the
+/// subject matches key 5 and leaves the rest of the map, bound (`rest @ ..`) or anonymous (`..`);
+/// the result writes its entries over that rest, at keys the subject did not match (one, two,
+/// beside the matched one, one equal to it at run time), at the matched key spelled another way
+/// (`0x5`), or moves the rest into the term it writes (no `..rest`).
+pub(super) const FRAMED_MAP_RESULTS: [(&str, &str); 7] = [
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::map![x -> y, ..rest])",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::map![x -> 3, y -> 4, ..rest])",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::map![5 -> old, x -> y, ..rest])",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::map![5 -> 9, k::builtin::int::add(x, 4) -> y, ..rest])",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::map![0x5 -> y, ..rest])",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, rest @ ..])",
+        "k::configuration::Cell(k::builtin::map::update(rest, x, y))",
+    ),
+    (
+        "k::configuration::Cell(k::map![5 -> old, ..])",
+        "k::configuration::Cell(k::map![5 -> old, x -> y])",
+    ),
+];
+
 /// The `cells!` key of each kind's cell: a collection is named through its parent.
 const fn key(kind: CellKind) -> &'static str {
     match kind {
@@ -143,9 +179,17 @@ fn declare(binders: Binders, kind: CellKind) -> Vec<(&'static str, &'static str)
 }
 
 /// How a result case's subject binds the cell it rewrites, and the binders that declares: the
-/// reference spelling of the readable `CELL: old`, and for the collection its front instance,
-/// labelled `old`, with the others as `instances0`.
-fn old(kind: CellKind) -> (&'static str, Vec<(&'static str, &'static str)>) {
+/// reference spelling of the readable `CELL: old`, for the collection its front instance,
+/// labelled `old`, with the others as `instances0`, and a framed map result's own subject
+/// ([`FRAMED_MAP_RESULTS`]), whose `old` is the value at key 5.
+fn old(kind: CellKind, construct: &str) -> (&'static str, Vec<(&'static str, &'static str)>) {
+    if kind == CellKind::Map
+        && let Some((subject, _)) = FRAMED_MAP_RESULTS
+            .iter()
+            .find(|(_, result)| *result == construct)
+    {
+        return (subject, vec![("old", "k::Term<k::builtin::Int>")]);
+    }
     match kind {
         CellKind::KSequence => {
             unreachable!("the computation cell's result case binds the command")
@@ -192,6 +236,13 @@ pub(super) fn runs(cases: &mut Vec<Case>) {
         cases.push(at.case(Side::Subject, construct, &[]));
     }
     for construct in BAG_RESULTS {
+        cases.push(at.case(Side::Result, construct, &[]));
+    }
+    let at = Placement {
+        kind: CellKind::Map,
+        ..at
+    };
+    for (_, construct) in FRAMED_MAP_RESULTS {
         cases.push(at.case(Side::Result, construct, &[]));
     }
 }
@@ -307,7 +358,7 @@ fn case(
             ));
         }
         (_, _) => {
-            let (bound, old_binders) = old(kind);
+            let (bound, old_binders) = old(kind, construct);
             parameters.extend(old_binders);
             push_parameters(&mut item, &parameters);
             item.push(&format!(

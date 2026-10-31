@@ -240,18 +240,6 @@ code = "krs::expand::initializer-fragment"
 doc = "`k::fragment!` in an initializer, which builds nested cells with their structs"
 advice = "none"
 
-# A class no generated case is expected to make: a framed `cells!` result's entry at a key the
-# subject does not match (`map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]`) means the
-# remainder with the entry written over it, which the oracle admits; the product refuses it for want
-# of a remainder frame bound on the left only (a schema step), finding NT-9-1's
-# (`terms/cells/result-map-framed-key/..`, pending). Its message advises binding the whole map and
-# writing over it, the advised case.
-
-[class.framed-map-unmatched-key]
-code = "krs::analysis::invalid-term"
-doc = "a framed `cells!` result's whole `map![..]` writing an entry at a key the subject does not match over the remainder the subject leaves unread (finding NT-9-1)"
-advice = "terms/cells/result-map-whole/Cmd::Hold(x)"
-
 [class.fresh-outside-step]
 code = "krs::expand::fresh-placement"
 doc = "`#[k::fresh]`, a value a transition step draws, on a sentence that is no transition: a claim, an equation, a simplification, a static clause, a context, a context alias"
@@ -4057,6 +4045,69 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
 <env> V2:Map => V0:Int |-> V1:Int </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V3:Map [ V0:Int <- V1:Int ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![0x5 -> y, ..rest])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => 5 |-> V1:Int V3:Map </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![5 -> 9, k::builtin::int::add(x, 4) -> y, ..rest])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V3:Map [ 5 <- 9 ] [ V0:Int +Int 4 <- V1:Int ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![5 -> old, x -> y, ..rest])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V3:Map [ 5 <- V2:Int ] [ V0:Int <- V1:Int ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![5 -> old, x -> y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V3:Map [ 5 <- V2:Int ] [ V0:Int <- V1:Int ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![x -> 3, y -> 4, ..rest])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V3:Map [ V0:Int <- 3 ] [ V1:Int <- 4 ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![x -> y, ..rest])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> 5 |-> V2:Int V3:Map => V3:Map [ V0:Int <- V1:Int ] </env>
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

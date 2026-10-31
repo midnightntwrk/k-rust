@@ -5562,8 +5562,8 @@ deviation = "krs::analysis::invalid-constant @ spelling"
 
 
 
-# K8 (NT-13): the attribute axis's cases (`attrs/..`), the terms slots writing NT-9-1's key, and
-# the advice check's verdicts (`k8/..`), grouped by finding. A `k8/` entry of a case whose K2
+# K8 (NT-13): the attribute axis's cases (`attrs/..`) and the advice check's verdicts (`k8/..`),
+# grouped by finding. A `k8/` entry of a case whose K2
 # entry is pending above belongs to that entry's finding (the refusal it reads is that finding's).
 # First run on main `580dca4a2`; regenerated after the NT-13 review.
 
@@ -5669,35 +5669,6 @@ deviation = "alternatives-bind-unequally advises none, and its refusal advises `
 finding = "NT-5-1"
 deviation = "alternatives-bind-unequally advises none, and its refusal advises `a.bit_or::<Int>(b)`"
 
-
-# NT-9-1 (K8's generated case): a framed `cells!` result writing a key the subject did not match,
-# over the remainder: `map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]` at a key other than
-# `x`, refused at the key (`krs::analysis::invalid-term`) advising `map![k -> v, ..m]` over
-# `Cell(m)` (class `framed-map-unmatched-key`, advised case `terms/cells/result-map-whole/..`).
-
-["import/cells/result-map-framed-key/Go()"]
-finding = "NT-9-1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["import/cells/result-map-framed-key/Hold(x)"]
-finding = "NT-9-1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["k8/import/cells/result-map-framed-key/Go()"]
-finding = "NT-9-1"
-deviation = "refused where the table accepts, advising `env: Cell(m)`, `map![k -> v, ..m]`"
-
-["k8/import/cells/result-map-framed-key/Hold(x)"]
-finding = "NT-9-1"
-deviation = "refused where the table accepts, advising `env: Cell(m)`, `map![k -> v, ..m]`"
-
-["k8/terms/cells/result-map-framed-key/1"]
-finding = "NT-9-1"
-deviation = "refused where the table accepts, advising `env: Cell(m)`, `map![k -> v, ..m]`"
-
-["terms/cells/result-map-framed-key/1"]
-finding = "NT-9-1"
-deviation = "krs::analysis::invalid-term @ spelling"
 
 
 # NT-13-1 (K8): a key a claim's `#[k::claim(..)]` does not take (`owise`, `heat`, `concrete`, an

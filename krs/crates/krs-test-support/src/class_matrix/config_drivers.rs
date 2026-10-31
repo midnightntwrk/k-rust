@@ -306,15 +306,21 @@ struct Computation {
     extent: Extent,
 }
 
-/// What a result spelling writes: the cell's value after the step, and the value of `y`.
+/// What a result spelling writes: the cell's value after the step, the value of `y`, and the
+/// program that writes the cell's old value, where it is not the kind's ([`old`]).
 struct Written {
     value: Ground,
     y: i64,
+    old: Option<Setup>,
 }
 
 impl Written {
     const fn value(value: Ground) -> Self {
-        Self { value, y: 2 }
+        Self {
+            value,
+            y: 2,
+            old: None,
+        }
     }
 }
 
@@ -571,7 +577,10 @@ fn result(kind: CellKind, written: Result<Written, &'static str>, command: &Comm
         Ok(written) => written,
         Err(reason) => return Plans::skip(SkipKind::Value, reason),
     };
-    let program = old(kind).then(apply(command, written.y));
+    let program = written
+        .old
+        .unwrap_or_else(|| old(kind))
+        .then(apply(command, written.y));
     let plan = K7::Run(Run {
         program: program.text(),
         variables: Vec::new(),
@@ -904,7 +913,11 @@ fn cells_written(kind: CellKind, spelling: &str) -> Result<Written, &'static str
         ) => Written {
             value: map(&[(1, 2)]),
             y: 1,
+            old: None,
         },
+        (Map, _) if framed_map_written(spelling).is_some() => {
+            return framed_map_written(spelling).ok_or(NOTATION);
+        }
         (Optional, "None") => Written::value(Ground::Absent),
         // Over the subject's front job `old`, 5, beside 6: `..old` keeps its other cells and
         // `..instances0` the other jobs.
@@ -913,6 +926,33 @@ fn cells_written(kind: CellKind, spelling: &str) -> Result<Written, &'static str
         }
         (SetCollection, _) => bag_written(spelling)?,
         _ => return Err(NOTATION),
+    })
+}
+
+/// What a map result over a framed subject writes ([`super::cells::FRAMED_MAP_RESULTS`]): the
+/// subject matches key 5 of `{5 ↦ 5, 1 ↦ 7}`, so `old` = 5 and the rest it leaves is `{1 ↦ 7}`,
+/// which holds the key `x` = 1. Each entry is written over the map before it, the first over that
+/// rest; the matched key 5 is gone unless the result writes it.
+fn framed_map_written(spelling: &str) -> Option<Written> {
+    let value = match spelling {
+        // `{1 ↦ 7}` with 2 at 1.
+        "k::configuration::Cell(k::map![x -> y, ..rest])"
+        | "k::configuration::Cell(k::builtin::map::update(rest, x, y))" => map(&[(1, 2)]),
+        // 3 at 1, then 4 at 2.
+        "k::configuration::Cell(k::map![x -> 3, y -> 4, ..rest])" => map(&[(1, 3), (2, 4)]),
+        // 5 at 5, then 2 at 1.
+        "k::configuration::Cell(k::map![5 -> old, x -> y, ..rest])"
+        | "k::configuration::Cell(k::map![5 -> old, x -> y])" => map(&[(1, 2), (5, 5)]),
+        // 9 at 5, then 2 at `x + 4` = 5: the later entry's value.
+        "k::configuration::Cell(k::map![5 -> 9, k::builtin::int::add(x, 4) -> y, ..rest])"
+        // `0x5` is the key 5.
+        | "k::configuration::Cell(k::map![0x5 -> y, ..rest])" => map(&[(1, 7), (5, 2)]),
+        _ => return None,
+    };
+    Some(Written {
+        value,
+        y: 2,
+        old: Some(set_env(&[(5, 5), (1, 7)])),
     })
 }
 
