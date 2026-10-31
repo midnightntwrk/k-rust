@@ -387,6 +387,13 @@ impl<'d> Search<'d> {
     /// Whether `rule`'s left-hand side matches `redex` with its `requires` true (`Some(true)`),
     /// does not match or matches with its `requires` false (`Some(false)`), or neither is decided.
     fn matches(&self, rule: &RewriteRule, redex: &Term) -> Option<bool> {
+        // An equation holding a literal whose element the definition leaves open is decided
+        // nowhere: its match and its `requires` may rest on that element (`crate::literal`). So
+        // it applies at no instance, keeps every lower-priority equation from applying, and
+        // keeps an application it is offered from being stuck.
+        if !rule.computed_attributes.open_literals.is_empty() {
+            return None;
+        }
         match match_terms_in_definition(MatchMode::Evaluate, self.definition, &rule.lhs, redex) {
             MatchResult::Failed(_) => Some(false),
             MatchResult::Success(substitution) => self.truth(&rule.requires, &substitution),

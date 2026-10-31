@@ -14546,19 +14546,33 @@ endmodule
 
 /// GAP K3: a definition whose rules hold literals whose element the literal rule leaves open:
 /// `1.0e400` is the largest finite binary64 value by "nearest" and infinity by k-rust's IEEE
-/// overflow, in a rewrite rule (`big`) and in a function equation (`lim`).
+/// overflow, in a rewrite rule (`big`), in a function equation (`lim`), on the left-hand side of
+/// a function's equation above an `owise` one (`g`, an `Int` function read in a rule's `requires`
+/// and on a rule's right-hand side, and `gp`, a constructor-valued one read by `==K`).
 const OPEN_LITERALS: &str = r#"
 module LIT
   imports INT
   imports FLOAT
+  imports BOOL
+  imports K-EQUAL
   syntax Float ::= lim() [function]
+  syntax Int ::= g(Float) [function]
   syntax Pgm ::= big(Int) | plain(Int) | eq(Int) | id(Float) | r(KItem)
+               | w(Float) | v(Float) | vp(Float) | done() | bad()
+  syntax Pgm ::= gp(Float) [function]
   configuration <k> $PGM:Pgm </k>
   rule big(_) => r(1.0e400)
   rule plain(_) => r(0.1)
   rule lim() => 1.0e400
   rule eq(_) => r(lim())
   rule id(F) => r(F)
+  rule g(1.0e400) => 1
+  rule g(_) => 0 [owise]
+  rule w(X) => done() requires g(X) ==Int 0
+  rule v(X) => r(g(X))
+  rule gp(1.0e400) => bad()
+  rule gp(_) => done() [owise]
+  rule vp(X) => done() requires gp(X) ==K done()
 endmodule
 "#;
 
@@ -14567,6 +14581,12 @@ endmodule
 /// value, false in k-rust's) is neither proven nor disproved: the proof stops the rule's attempt;
 /// a claim holding one itself (`id-lit`, proven at the base on k-rust's element) is refused with
 /// the literal named; a claim through determined literals is proven (`plain`, `id-max`).
+///
+/// Fix round 1: a function whose equation's left-hand side holds one (`g(1.0e400) = 1` above
+/// `g(_) = 0 [owise]`) is not summarised for the solver on k-rust's element, which would read
+/// `g(MAX)` as `0`, so no claim through `g(MAX)` is proven: `gidx` through a `requires`, `grhs`
+/// through a right-hand side and `gctor` through a constructor-valued `gp` read by `==K` (all
+/// three proven at the base, false where `1.0e400` is MAX).
 #[test]
 fn kprove_proves_no_claim_through_an_open_literal() {
     let source = format!(
@@ -14578,11 +14598,14 @@ module LIT-SPEC
   claim [id-lit]: <k> id(1.0e400) => r(1.0e400) </k>
   claim [plain]: <k> plain(1) => r(0.1) </k>
   claim [id-max]: <k> id(1.7976931348623157e308) => r(1.7976931348623157e308) </k>
+  claim [gidx]: <k> w(1.7976931348623157e308) => done() </k>
+  claim [grhs]: <k> v(1.7976931348623157e308) => r(0) </k>
+  claim [gctor]: <k> vp(1.7976931348623157e308) => done() </k>
 endmodule
 "
     );
     let (verdicts, output) = order_claim_verdicts(&source, "LIT", "LIT-SPEC");
-    for claim in ["big-max", "eq-max", "id-lit"] {
+    for claim in ["big-max", "eq-max", "id-lit", "gidx", "grhs", "gctor"] {
         assert_undecided(&verdicts, claim, &output);
     }
     assert_eq!(
@@ -14591,7 +14614,59 @@ endmodule
         "{output}"
     );
     assert!(output.contains("1.0e400"), "{output}");
+    // No claim rests on these equations, so the load names none of them (it named each as never
+    // applied at the base, although an execution applies it).
+    assert!(!output.contains("never applied"), "{output}");
     for claim in ["plain", "id-max"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+}
+
+/// GAP K3 fix round 1: two rewrite rules holding an open literal, beside rules that hold none,
+/// whose `<k>` cell holds a `Float`: one holds it only in its `requires` (`F:Float`, whose
+/// match does not depend on any literal's element), one on its left-hand side (`1.0e400`, which
+/// matches some `Float` in each model, and no subject that is no `Float`).
+const OPEN_LITERAL_GUARDS: &str = r#"
+module GUARD
+  imports INT
+  imports FLOAT
+  imports BOOL
+  syntax Pgm ::= done() | bad() | z(Bool) | s(Int)
+  syntax Pgm ::= Float
+  configuration <k> $PGM:Pgm </k>
+  rule z(true) => done()
+  rule s(I) => done() requires I >Int 0
+  rule <k> 1.0e400 => bad() </k>
+  rule <k> F:Float => done() </k> requires F =/=Float 1.0e400
+endmodule
+"#;
+
+/// GAP K3 fix round 1: a proof refutes a rule holding an open literal by a failed match before
+/// it stops the rule's attempt: a match of its left-hand side, or, where that holds the literal,
+/// of the left-hand side with the literal's value replaced by a variable of its sort. A subject
+/// neither rule can match in any model goes on to the other rules (`ctl` and `pos`, stopped at
+/// depth 0 at the base, since `z(..)` and `s(..)` are no `Float`); one they may match stops there
+/// (`kval`: where `1.0e400` is the largest finite value, the first rule rewrites MAX to `bad()`
+/// and the second's `requires` is false).
+#[test]
+fn kprove_refutes_a_rule_holding_an_open_literal_by_a_failed_match_first() {
+    let source = format!(
+        "{OPEN_LITERAL_GUARDS}
+module GUARD-SPEC
+  imports GUARD
+  claim [ctl]: <k> z(1.0 <Float 2.0) => done() </k>
+  claim [pos]: <k> s(1) => done() </k>
+  claim [kval]: <k> 1.7976931348623157e308 => done() </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "GUARD", "GUARD-SPEC");
+    assert_undecided(&verdicts, "kval", &output);
+    for claim in ["ctl", "pos"] {
         assert_eq!(
             claim_verdict(&verdicts, claim, &output),
             "proven",

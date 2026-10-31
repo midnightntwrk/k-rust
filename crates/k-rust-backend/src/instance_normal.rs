@@ -147,10 +147,13 @@ impl BackendDefinition {
     /// evaluator whether an equation applies to a term, fails on the subject: a failure holds
     /// for every instance of the subject (`matching::match_terms_in_definition`). The second
     /// test knows what the first does not: the sorts of injections and the productions of an
-    /// overload family.
+    /// overload family. An equation holding a literal whose element the definition leaves open
+    /// (`crate::literal`) is never excluded: both tests read its left-hand side with k-rust's
+    /// element of the literal.
     fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
-        !may_unify(self, &rule.lhs, arguments)
-            || self.matching_refutes(&rule.lhs, arguments.subject())
+        rule.computed_attributes.open_literals.is_empty()
+            && (!may_unify(self, &rule.lhs, arguments)
+                || self.matching_refutes(&rule.lhs, arguments.subject()))
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching

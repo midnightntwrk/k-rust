@@ -626,11 +626,37 @@ pub(super) fn apply_rule_with_match(
     // A rule holding a literal whose element the definition leaves open: an execution marks the
     // attempt from its own scope, whatever becomes of it; every other route stops it undecided,
     // never skips it, as a skipped successor would be read as one no model has
-    // (`crate::literal`).
+    // (`crate::literal`). It is stopped only where its left-hand side may match the subject in
+    // some model: where the left-hand side holds no open literal
+    // (`ComputedRuleAttributes::open_literal_in_lhs`), its match is the same in every model, and
+    // otherwise the left-hand side with each value an open literal may have written replaced by
+    // a variable (`literal::generalized`) matches whatever it matches in any of them. A failed
+    // match of that pattern refutes the rule in every model, as in any attempt; a match that
+    // succeeds or is undecided (the attempt would go on to read the literal) stops it.
     if crate::literal::withheld(
         &rule.computed_attributes.open_literals,
         &rule.attributes.unique_id,
     ) {
+        // The rule is apart from the subject here: the renaming above re-entered otherwise. The
+        // generalized pattern's own variables are checked apart by the matcher.
+        let refuted = matched.is_none()
+            && matches!(
+                if rule.computed_attributes.open_literal_in_lhs {
+                    crate::matching::match_terms_in_definition(
+                        crate::matching::MatchMode::Rewrite,
+                        definition,
+                        &crate::literal::generalized(definition, &rule.lhs, &pattern.term),
+                        &pattern.term,
+                    )
+                } else {
+                    match_rule_in_definition(definition, &rule.lhs, &pattern.term)
+                },
+                MatchResult::Failed(_)
+            );
+        if refuted {
+            measure::bump(Counter::RewriteMatchFailures);
+            return Ok(RuleAttempt::NotApplicable);
+        }
         return Ok(RuleAttempt::Indeterminate(
             IndeterminateReason::OpenLiteral {
                 rule_id: rule.attributes.unique_id.clone(),

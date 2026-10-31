@@ -354,9 +354,11 @@ pub struct ValueClaimFinding {
 /// it, and the equation heads and overloaded symbols that get no value claim. An equation the
 /// evaluator does not apply to every subject it describes (`ComputedBelowRoot`,
 /// `UnboundResultVariables`) is named
-/// as such whether or not the definition makes claims, with the claims it withdraws if any;
-/// an equation paired with itself because its map or set pattern matches one subject in several
-/// ways (`SeveralMatches`) is named as that pair. An inner pair whose second equation, rooted at
+/// as such whether or not the definition makes claims, with the claims it withdraws if any; an
+/// equation holding a literal whose element the definition leaves open (`OpenLiteral`), which an
+/// execution applies and marks, is named only where it withdraws a claim; an equation paired
+/// with itself because its map or set pattern matches one subject in several ways
+/// (`SeveralMatches`) is named as that pair. An inner pair whose second equation, rooted at
 /// an equation head or an overloaded symbol, rewrites some instances of an argument of the first
 /// (`UnjoinedPair::in_argument`) names the first as not shown consistent with the second, whether
 /// or not the definition makes claims, with the claims it withdraws if any.
@@ -444,6 +446,14 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                     "the equation {} is at a symbol hooked to `{hook}`, which the evaluator applies before any equation, and is not shown to agree with that hook ({}){claims}",
                     equation(&pair.first),
                     pair.reason,
+                )
+            } else if let UnjoinedReason::OpenLiteral(literal) = &pair.reason {
+                // Reported only where it withdraws a claim (`UnjoinedPair::reported`): an
+                // execution applies the equation, with k-rust's element of the literal, and marks
+                // the run; every other evaluation withholds it.
+                format!(
+                    "the equation {} holds the literal `{literal}`, whose element the definition leaves open: an execution applies it with k-rust's element and marks the run (class literal), no other evaluation applies it, and no overlap of it is decided on that element{claims}",
+                    equation(&pair.first),
                 )
             } else if matches!(pair.reason, UnjoinedReason::ComputedBelowRoot(_)) {
                 // The equation matches the application as written: it applies where the subject
@@ -2459,6 +2469,56 @@ mod value_claim_finding_tests {
                 ),
             ]
         );
+    }
+
+    /// GAP K3: `f(c(1.0e400)) = 1` (`open`), an equation holding a literal whose element the
+    /// definition leaves open, beside the equation head `c` (`c(MAX) = m(MAX)`, `anywhere`), and
+    /// `big() = 1.0e400`, which no claim rests on.
+    const OPEN_LITERAL_EQUATIONS: &str = r#"[] module MAIN
+        hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        sort SortS{} []
+        symbol c{}(SortFloat{}) : SortS{} [anywhere{}()]
+        symbol m{}(SortFloat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol f{}(SortS{}) : SortInt{} [function{}(), total{}()]
+        symbol big{}() : SortFloat{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, c{}(\dv{SortFloat{}}("1.0e400"))), \top{R}())),
+            \equals{SortInt{}, R}(f{}(X0:SortS{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
+        ) [UNIQUE'Unds'ID{}("open")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortFloat{}, R}(X0:SortFloat{}, \dv{SortFloat{}}("1.7976931348623157e308")), \top{R}())),
+            \equals{SortS{}, R}(c{}(X0:SortFloat{}), \and{SortS{}}(m{}(X0:SortFloat{}), \top{SortS{}}()))
+        ) [anywhere{}(), UNIQUE'Unds'ID{}("b")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \top{R}()),
+            \equals{SortFloat{}, R}(big{}(), \and{SortFloat{}}(\dv{SortFloat{}}("1.0e400"), \top{SortFloat{}}()))
+        ) [UNIQUE'Unds'ID{}("big")]
+    endmodule []"#;
+
+    /// GAP K3 fix round 1: an equation holding an open literal is named only where it withdraws a
+    /// claim, and then as one an execution applies and marks and no other evaluation applies, not
+    /// as one the evaluator never applies; `big`, which withdraws none, is not named.
+    #[test]
+    fn an_equation_holding_an_open_literal_is_named_only_where_it_withdraws_a_claim() {
+        use super::value_claim_findings;
+        let syntax = k_rust_kore::kore::parser::parse_definition(OPEN_LITERAL_EQUATIONS)
+            .expect("the definition parses");
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN")
+                .expect("the definition internalizes");
+        let findings = value_claim_findings(&definition);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let finding = &findings[0];
+        assert_eq!(finding.first.as_deref(), Some("open"), "{finding:?}");
+        assert!(finding.withdrawn.contains(&"c".to_owned()), "{finding:?}");
+        assert!(
+            finding.message.starts_with(
+                "the equation open holds the literal `1.0e400`, whose element the definition leaves open: an execution applies it with k-rust's element and marks the run (class literal), no other evaluation applies it"
+            ),
+            "{finding:?}"
+        );
+        assert!(!finding.message.contains("never applied"), "{finding:?}");
     }
 
     /// No equation head: a declared function `gg` with two equations at `gg(z)`, one of which

@@ -2883,10 +2883,12 @@ impl BackendDefinition {
                 InternalizedRule::Term(RuleKind::Rewrite, rule) => {
                     result.declares_claims |= rule.attributes.preserves_definedness;
                     let index = rule_index(&result, &rule.lhs);
-                    let index = if rule.computed_attributes.open_literals.is_empty() {
-                        index
-                    } else {
+                    // A key read from a domain value an open literal may have put there is
+                    // widened; a left-hand side holding none is keyed the same in every model.
+                    let index = if rule.computed_attributes.open_literal_in_lhs {
                         index.reading_no_value()
+                    } else {
+                        index
                     };
                     insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
                 }

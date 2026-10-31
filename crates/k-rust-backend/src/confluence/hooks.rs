@@ -794,7 +794,10 @@ pub(crate) fn replace_symbols(definition: &BackendDefinition) -> Vec<Arc<Symbol>
         let truth_holds = matches!(truth.kind(), TermKind::DomainValue { sort, value }
             if *sort == Sort::builtin(BuiltinSort::Bool) && value.as_bytes() == b"true");
         let mut bound = BTreeMap::new();
-        rule.ensures.is_empty()
+        // A row holding a literal whose element the definition leaves open is not the written
+        // meaning's (`crate::literal`): the template would be matched on k-rust's element.
+        rule.computed_attributes.open_literals.is_empty()
+            && rule.ensures.is_empty()
             && rule.existentials.is_empty()
             && truth_holds
             && matches_row(definition, replace, lhs, &rule.lhs, &mut bound)

@@ -15,14 +15,22 @@
 //! execution, marked on every leaf (`definition::Admitted`). An attempt of a rule or an equation
 //! holding one asks [`withheld`]: an execution marks it, with the rule's `UNIQUE_ID`, and goes on;
 //! every other evaluation stops the attempt there, undecided.
+//!
+//! No hook builds a `Float` from text: `STRING.string2float` and `STRING.float2string` have no
+//! evaluator (their applications are the unsupported-hook outcome). An evaluator added for them
+//! must classify `String2Float`'s argument by [`crate::builtin::float_literal_open`] (class
+//! `literal` or a hook class, marked in an execution and withheld elsewhere), and treat
+//! `Float2String`'s spelling of every value as open: the round trip `domains.md` states fixes
+//! the value a text reads back as, not the text.
 
 use std::{cell::RefCell, sync::Arc};
 
 use crate::{
     builtin::{ChosenClass, ChosenValue},
+    definition::BackendDefinition,
     evaluation::EvaluationMode,
     path_facts::PathFact,
-    term::DomainKind,
+    term::{DomainKind, Term, TermKind},
 };
 
 /// Whether the domain value text `text` of `kind` names an element the literal rules leave open.
@@ -83,6 +91,77 @@ pub(crate) fn observe(kind: DomainKind, text: &[u8]) {
             frame.push(Arc::from(text));
         }
     });
+}
+
+/// Whether the domain value `term` may be an open literal's element: one of `Float` or
+/// machine-integer sort, or of a sort whose kind the definition does not name (a sort-parametric
+/// value, say).
+fn may_be_open(definition: &BackendDefinition, term: &Term) -> bool {
+    matches!(term.kind(), TermKind::DomainValue { sort, .. }
+    if !matches!(
+        definition.domain_kind(sort),
+        Some(
+            DomainKind::Int
+                | DomainKind::Bool
+                | DomainKind::String
+                | DomainKind::Bytes
+                | DomainKind::Token
+        )
+    ))
+}
+
+/// `term` with every domain value that may be an open literal's element ([`may_be_open`])
+/// replaced by a variable of its sort, each its own, named apart from the variables of `term` and
+/// of `subject`. In every model of the literals' elements the term's instances are instances of
+/// this pattern (a variable of the value's sort matches whatever the value matches), so where it
+/// does not match a subject, the term matches it in none: a proof route reads a failed match of
+/// it as the rule's refutation (`rewrite::apply`).
+pub(crate) fn generalized(definition: &BackendDefinition, term: &Term, subject: &Term) -> Term {
+    let taken = term
+        .attributes()
+        .variables
+        .iter()
+        .chain(subject.attributes().variables.iter())
+        .map(|variable| variable.name.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut next = 0usize;
+    let mut fresh = |sort: crate::term::Sort| loop {
+        let name = crate::term::Name::from(format!("VarLiteral{next}"));
+        next += 1;
+        if !taken.contains(&name) {
+            return Term::variable(crate::term::Variable::new(name, sort));
+        }
+    };
+    fn walk(
+        definition: &BackendDefinition,
+        term: &Term,
+        fresh: &mut impl FnMut(crate::term::Sort) -> Term,
+    ) -> Term {
+        if may_be_open(definition, term) {
+            return fresh(term.sort());
+        }
+        term.try_map_children::<std::convert::Infallible>(|child| {
+            Ok(walk(definition, child, fresh))
+        })
+        .unwrap_or_else(|never| match never {})
+    }
+    walk(definition, term, &mut fresh)
+}
+
+/// Whether `term` holds a domain value of a sort whose literals can be open (`Float`, a machine
+/// integer, or a sort whose kind the definition does not name): the only terms an open literal
+/// can have put in a sentence's internalized term. A term holding none matches a subject, and is
+/// indexed, the same whatever element a literal of its sentence names. Evaluated once per
+/// left-hand side at load (`rule::internalize_axiom`).
+pub(crate) fn may_hold_open_literal(definition: &BackendDefinition, term: &Term) -> bool {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if may_be_open(definition, term) {
+            return true;
+        }
+        pending.extend(crate::term::immediate_children(term.kind()));
+    }
+    false
 }
 
 /// The mark of an open literal: `hook` is the `UNIQUE_ID` of the rule or equation holding it, or,
@@ -279,6 +358,55 @@ mod tests {
                 .unjoined()
                 .iter()
                 .all(|pair| pair.reason.describes_one_equation())
+        );
+    }
+
+    /// `f(c(literal)) = 1` (`a`) beside the `anywhere` equation `c(MAX) = m(MAX)` (`b`), where
+    /// `c` is an `anywhere` head, `m` a constructor and `f` a total function.
+    fn overlapping(literal: &str) -> BackendDefinition {
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortFloat{{}} [hook{{}}("FLOAT.Float"), hasDomainValues{{}}()]
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                sort SortS{{}} []
+                symbol c{{}}(SortFloat{{}}) : SortS{{}} [anywhere{{}}()]
+                symbol m{{}}(SortFloat{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol f{{}}(SortS{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortS{{}}, R}}(X0:SortS{{}}, c{{}}(\dv{{SortFloat{{}}}}("{literal}"))), \top{{R}}())),
+                    \equals{{SortInt{{}}, R}}(f{{}}(X0:SortS{{}}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))
+                ) [UNIQUE'Unds'ID{{}}("a")]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortFloat{{}}, R}}(X0:SortFloat{{}}, \dv{{SortFloat{{}}}}("1.7976931348623157e308")), \top{{R}}())),
+                    \equals{{SortS{{}}, R}}(c{{}}(X0:SortFloat{{}}), \and{{SortS{{}}}}(m{{}}(X0:SortFloat{{}}), \top{{SortS{{}}}}()))
+                ) [anywhere{{}}(), UNIQUE'Unds'ID{{}}("b")]
+            endmodule []"#
+        );
+        BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap()
+    }
+
+    /// The critical-pair check computes no overlap of `a` and `b` where `a`'s literal is
+    /// `1.0e400`: k-rust's element, infinity, is apart from MAX, while in the model where the
+    /// literal is MAX the two overlap at `f(c(MAX))` (`1` against `f(m(MAX))`). Seeding `a` alone
+    /// taints `c`, which `a` mentions, and so `b`, whose left-hand side is rooted at `c`, as
+    /// seeding that pair would (`confluence.rs`, the `OpenLiteral` report). With `1.0`, apart
+    /// from MAX in every model, `c` keeps its claims.
+    #[test]
+    fn an_open_literal_taints_the_equations_its_element_may_overlap() {
+        let name = |text: &str| crate::term::Name::from(text);
+        let open = overlapping("1.0e400").value_claims_in_scope(CheckScope::All);
+        assert!(open.tainted_symbols().contains(&name("c")), "{open:?}");
+        let report = open
+            .unjoined()
+            .iter()
+            .find(|pair| pair.reason == UnjoinedReason::OpenLiteral("1.0e400".to_owned()))
+            .expect("the open equation is reported");
+        assert!(report.withdrawn.contains(&name("c")), "{report:?}");
+        let determined = overlapping("1.0").value_claims_in_scope(CheckScope::All);
+        assert!(
+            !determined.tainted_symbols().contains(&name("c")),
+            "{determined:?}"
         );
     }
 

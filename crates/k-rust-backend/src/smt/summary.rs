@@ -415,6 +415,15 @@ impl<'d> Catalog<'d> {
             }
             for group in applicable_groups(theory, &index).into_values() {
                 for rule in group {
+                    // An equation holding a literal whose element the definition leaves open
+                    // (`crate::literal`): whether its left-hand side matches the formal, its
+                    // `requires` and its value may all rest on that element, and a summary that
+                    // read it, or dropped it on a failed match, would give the solver k-rust's
+                    // element as the definition's. Refused whether or not it matches, in every
+                    // mode (an execution's solver then reads the application opaquely).
+                    if !rule.computed_attributes.open_literals.is_empty() {
+                        return Ok(Err(Rejected::Unsupported));
+                    }
                     admitted!(self.work());
                     if offered.len() == self.limits.rows {
                         return Ok(Err(Rejected::Limit));

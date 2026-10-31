@@ -454,6 +454,12 @@ pub struct ComputedRuleAttributes {
     /// every other evaluation stops it there. Set when the definition is loaded, for every rule
     /// of the sentence; empty for every other rule.
     pub open_literals: Arc<[Arc<str>]>,
+    /// Whether the left-hand side may hold one of [`Self::open_literals`]: the sentence holds one
+    /// and the left-hand side holds a domain value of a sort whose literals can be open (`Float`,
+    /// a machine integer; `crate::literal::may_hold_open_literal`). When false, whether the
+    /// left-hand side matches a subject does not depend on any literal's element, so a proof
+    /// route decides a failed match before it stops the attempt. Set with `open_literals`.
+    pub open_literal_in_lhs: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2214,6 +2220,8 @@ pub fn internalize_axiom(
         match rule {
             InternalizedRule::Term(_, rule) => {
                 rule.computed_attributes.open_literals = Arc::clone(&open_literals);
+                rule.computed_attributes.open_literal_in_lhs = !open_literals.is_empty()
+                    && crate::literal::may_hold_open_literal(definition, &rule.lhs);
             }
             InternalizedRule::Predicate(rule) => rule.open_literals = Arc::clone(&open_literals),
         }
@@ -4539,6 +4547,7 @@ where
             identity: computed.identity.sharing(),
             association_open: computed.association_open,
             open_literals: Arc::clone(&computed.open_literals),
+            open_literal_in_lhs: computed.open_literal_in_lhs,
         },
         existentials: rename_set(&rule.existentials),
     };

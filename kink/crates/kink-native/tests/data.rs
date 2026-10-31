@@ -484,6 +484,19 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// refuted. The change removes a route to `no` and adds no route to `\top`, so `ground_defined`
 /// stays one-sided; the element-index branch (`L[I]`, determined `\bottom` past the end) is
 /// unchanged. `list_domain` is re-pinned; the rest is byte-identical.
+///
+/// GAP K3 (`draft/kink27/gap`, ticket K3, with its fix round 1): an equation or a source row
+/// holding a literal whose element the definition leaves open (`k_rust_backend::literal`) is read
+/// by none of these routes, as each would decide a match, an image or a condition on k-rust's
+/// element. `value_production_ceil_equations` returns `None` at such a ceil equation (the
+/// `\ceil` stays owed, as at an undecided matching); `ceil_theory_condition` passes over one (a
+/// later usable instance's condition, or none); `excluded` never excludes such an equation, so a
+/// term it is offered is not instance-normal; `observation::plain` refuses such a row, so the
+/// selector, product and map catalogs admit fewer rows. Each change removes a route to `\top`, an
+/// exclusion or a catalog contract and adds none: `ground_defined` and `instance_normal` stay
+/// one-sided (some states move from `hit` to `unknown`, none to `no`), and the answers are still
+/// functions of the term and the definition. The four pins are re-pinned; the rest is
+/// byte-identical.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -693,7 +706,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "excluded",
-                "641b47e1929c88a6e3f66d0234fca49119e0f6a7d86ab1b1321b772182e58136"
+                "55e69a88c1f1b008ae1331b735ba560e094d3f83fdb0adb6d0cc118d6c523ce4"
             ),
             (
                 "ground_defined",
@@ -725,11 +738,11 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "value_production_ceil_equations",
-                "635cdc006a7ca7922b73f2b0419f9c49756077a152b8c2799ac7575967c3683f"
+                "53e203bd5de23f6317e7c93b32f9875a5eb7d53ab8524268b70128306ceb04d2"
             ),
             (
                 "ceil_theory_condition",
-                "590b7d321c3a2ed3e72cb3d1cd516d34bd0f1044dfa7c93beec837d3d7cdb92d"
+                "917875e100627969be09c80931a05c3ecd6e756262cb5fe4e2a69f9e686a3630"
             ),
             (
                 "irreducible_application_is_defined",
@@ -797,7 +810,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "observation_plain",
-                "bf474fa5e06fe8c069396d737b4ec2c3ac628e5089b2b2d9aef8607bc8438328"
+                "828e4ac3f6b7e62ed0113094bb6b541ad4a5210df943fc2bc7eb60ddf513bcbd"
             ),
             (
                 "embedding_shape",

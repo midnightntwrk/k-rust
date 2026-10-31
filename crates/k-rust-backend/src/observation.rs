@@ -442,8 +442,12 @@ impl Selectors {
     }
 }
 
+/// A source row a catalog may read: executable, unconstrained, without `ensures` or existentials,
+/// and holding no literal whose element the definition leaves open (`crate::literal`), as the
+/// catalog would decide an image or a field on k-rust's element of it.
 fn plain(rule: &RewriteRule) -> bool {
-    rule.attributes.executable
+    rule.computed_attributes.open_literals.is_empty()
+        && rule.attributes.executable
         && rule.attributes.concreteness == crate::rule::Concreteness::Unconstrained
         && rule.ensures.is_empty()
         && rule.existentials.is_empty()

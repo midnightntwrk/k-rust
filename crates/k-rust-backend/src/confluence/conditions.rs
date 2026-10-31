@@ -603,6 +603,9 @@ fn membership_sort(
         },
         _ => None,
     };
+    // The two rows read here hold no domain value but the Booleans of their results (an
+    // argument that is a variable or `kseq(inj(V), dotk)`, no condition), so no literal whose
+    // element the definition leaves open (`crate::literal`) can decide what they state.
     let (high, low) = (argument(high)?, argument(low)?);
     if !matches!(low.kind(), TermKind::Variable(_)) || low.sort() != high.sort() {
         return None;

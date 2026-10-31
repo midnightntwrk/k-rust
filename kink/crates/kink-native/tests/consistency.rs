@@ -569,7 +569,16 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// every evaluation of the check withholds it, so the check joins or refutes no overlap on that
 /// element and withdraws at least the claims it withdrew; the probe head, the pairing and the
 /// premise are unchanged.
-const CONFLUENCE_RS: &str = "d8b337c070f584c42eb88c4a17879abcd38a798caaa4dd997299c29dbe15d328";
+/// GAP K3 fix round 1: d8b337c0 -> 5f92763a. (1) Where an equation holding an open literal
+/// mentions an overloaded symbol on its left-hand side, every equation rooted at an overloaded
+/// symbol is seeded beside it: more seeds, so the closure taints at least what it tainted and
+/// the check withdraws at least as much. (2) The comment at the `OpenLiteral` report states why
+/// seeding the equation alone otherwise covers its partners (T-sym, then T1). (3)
+/// `UnjoinedPair::reported` no longer reports such an equation that withdraws no claim (an
+/// execution applies it), which changes the warnings printed, not the verdict, the seeds or the
+/// counts kink reads; its documentation was rewrapped. The stages, the early return, the probe
+/// head and the premise are unchanged.
+const CONFLUENCE_RS: &str = "5f92763aac23dea009e03ad93661304c98c7a86494bc5dbc317c6a2e7a625e2e";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

@@ -1033,15 +1033,21 @@ impl UnjoinedPair {
     /// Whether the backend reports the pair: it withdraws a value claim, it is a report on one
     /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
     /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
-    /// hold whether or not the definition makes claims. A pair over a sort with no normal form
-    /// ([`Self::over_uninhabited_sort`]) is reported by the same rule. A hook pair
-    /// ([`Self::hook`]) is reported at load only when it withdraws a claim: the load classifies
-    /// the hook pairs of relevant equations only, by the owner's gate decision on FZ-CONFLUENCE
-    /// (2026-10-24: "hook disagreements are not named at load; `UnmodelledHook` always is"); the
-    /// full check lists every one in [`ValueClaims::unjoined`].
+    /// hold whether or not the definition makes claims. An equation holding an open literal
+    /// ([`UnjoinedReason::OpenLiteral`]) is reported only where it withdraws a claim, like a pair:
+    /// an execution applies it as written (and marks the run), so it is no equation the evaluator
+    /// never applies, and the evaluations that withhold it say so where they meet it. A pair over
+    /// a sort with no normal form ([`Self::over_uninhabited_sort`]) is reported by the same rule.
+    /// A hook pair ([`Self::hook`]) is reported at load only when it withdraws a claim: the load
+    /// classifies the hook pairs of relevant equations only, by the owner's gate decision on
+    /// FZ-CONFLUENCE (2026-10-24: "hook disagreements are not named at load; `UnmodelledHook`
+    /// always is"); the full check lists every one in [`ValueClaims::unjoined`].
     #[must_use]
     pub fn reported(&self) -> bool {
-        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
+        self.relevant()
+            || (self.reason.describes_one_equation()
+                && !matches!(self.reason, UnjoinedReason::OpenLiteral(_)))
+            || self.in_argument()
     }
 
     /// Whether the pair's overlap ranges over a sort with no normal form
@@ -2824,6 +2830,20 @@ fn check_pass(
             {
                 // The literal is not apart from any value, so no overlap of the equation is
                 // refuted or joined on its element: the equation is joined with nothing.
+                //
+                // Seeding it alone taints every equation it could overlap in some model, so the
+                // pairs whose overlap the literal's element hides (a unifier that fails only on
+                // k-rust's element, `f(h(1.0e400))` against `h(MAX)`) need no seed of their own:
+                // an overlap of two equations puts the head of one at a non-variable position of
+                // the other's left-hand side (the root included), and the closure's T-sym taints
+                // every symbol this equation mentions, its own head and its left-hand side's
+                // symbols, each an equation head where the other equation is rooted (taintable);
+                // T1 then taints the other equation, whose left-hand side mentions its own head
+                // or this equation's head. An equation indexed at a collection or a bare variable
+                // is seeded by its precondition row, and one rooted at another member of an
+                // overload family below. So the closure is what seeding both equations of every
+                // such pair would give
+                // (`an_open_literal_taints_the_equations_its_element_may_overlap`).
                 UnjoinedReason::OpenLiteral(literal.to_string())
             } else if equation
                 .rule
@@ -2851,6 +2871,31 @@ fn check_pass(
             })
         })
         .collect::<Vec<_>>();
+
+    // The overload axioms identify an application of one member of a family with an injection of
+    // another's, so an equation rooted at another member may overlap an equation holding an open
+    // literal without mentioning a symbol that equation taints. Where such an equation's
+    // left-hand side mentions an overloaded symbol, every equation rooted at an overloaded symbol
+    // is seeded with it (more than its pairs would seed; the case is rare).
+    let overloaded = |name: &Name| definition.overloads().is_overloaded(name);
+    let mentions_overloaded = |term: &Term| {
+        let mut found = false;
+        term.visit_symbols(&mut |symbol| found |= overloaded(&symbol.name));
+        found
+    };
+    if equations.iter().any(|equation| {
+        !equation.rule.computed_attributes.open_literals.is_empty()
+            && mentions_overloaded(&equation.rule.lhs)
+    }) {
+        row_seeds.extend(
+            equations
+                .iter()
+                .filter(|equation| {
+                    matches!(&equation.group.index, TermIndex::Symbol(name) if overloaded(name))
+                })
+                .map(|equation| Arc::clone(&equation.rule)),
+        );
+    }
 
     // The equations at hooked symbols: each at a hook the evaluator applies is paired with the
     // hook's written meaning below, or reported here, whatever the scope, when the hook has none
