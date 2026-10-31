@@ -303,24 +303,40 @@ fn rules(body: &str) -> String {
     format!("k::rules! {{\n    for Machine;\n    use StmtSyntax::*;\n\n    {body}\n}}\n")
 }
 
-/// A key a pattern looks up in a typed map, computed by a read of an untyped
-/// one: K's read returns a `KItem`, which KRS projects to the key's sort, and
-/// no native route reads a projection on a left side (finding NT-11-1). The
-/// key is a fresh name of the key's sort, which the rule's guard equates with
-/// the projected read, so the entry the read computes is the one matched:
-/// `krs check` passes.
+/// A key a pattern looks up, computed by a read of an untyped map: K's read
+/// returns a `KItem`, which KRS projects to the sort the position needs, and no
+/// native route reads a projection on a left side (finding NT-11-1). The
+/// projection denotes the read where the read has that sort, so the sentence
+/// requires that instead: at a typed map's key root the key is the read, as a
+/// map holds it, with the guard `isId(read)` (S2 of NT-18's review); below a
+/// function the projected read is the function's argument and the guard is
+/// `isSet(read)` (M2). An equation's function context guards its keys in the
+/// equation's condition as a rule does (M1): `k::project!(Int, n)` is the key
+/// `n` where `isInt(n)` holds. `krs check` passes.
 #[test]
-fn a_typed_key_computed_by_a_read_is_a_guarded_name() {
+fn a_key_computed_by_a_projected_read_is_guarded() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(
         temporary.path(),
         "typed-key",
         &format!(
-            "{PREAMBLE}{}",
-            rules(
-                "typed_key: { k: [Op(20), Hold(m), ..], env: { map::get(m, 1) -> v, .. } } => { k: [v, ..] };"
-            )
+            "{PREAMBLE}{}{}",
+            concat!(
+                "#[k::function(partial, sort = k::KItem, syntax = \"rd({n})\")]\n",
+                "pub struct Rd {\n    pub n: Term<k::KItem>,\n}\n\n",
+                "#[k::equation]\n",
+                "fn rd(\n",
+                "    n: Term<k::KItem>,\n",
+                "    v: Term<k::KItem>,\n",
+                "    k::term![Rd(n)]: Term<k::KItem>,\n",
+                "    k::cells! { raw: k::configuration::Cell(k::map![k::project!(Int, n) -> v, ..]), .. }: Machine,\n",
+                ") -> Term<k::KItem> {\n    v\n}\n\n",
+            ),
+            rules(concat!(
+                "typed_key: { k: [Op(20), Hold(m), ..], env: { map::get(m, 1) -> v, .. } } => { k: [v, ..] };\n",
+                "    sized_key: { k: [Op(21), Hold(m), ..], raw: { set::size(map::get(m, 1)) -> v, .. } } => { k: [v, ..] };",
+            ))
         ),
     );
     let (success, _, check_stderr) = krs(target.path(), &manifest, "check", &[]);
@@ -335,10 +351,27 @@ fn a_typed_key_computed_by_a_read_is_a_guarded_name() {
     );
     assert!(success, "{stderr}");
     let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let equation = definition
+        .lines()
+        .skip_while(|line| !line.contains("rule [[ rd"))
+        .take(3)
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ");
+    // The equation's label is a hash of the sentence.
+    let equation = equation.split(" [label(").next().unwrap_or_default();
     expect_test::expect![[r#"
-        "<k> op 20 ~> hold M:Map => V:Value ... </k> <env> Krs_Instance0:Id |-> V:Value ... </env> requires Krs_Instance0:Id ==K {M:Map [ 1 ]}:>Id"
+        [
+            "<k> op 20 ~> hold M:Map => V:Value ... </k> <env> (M:Map [ 1 ]) |-> V:Value ... </env> requires isId(M:Map [ 1 ])",
+            "<k> op 21 ~> hold M:Map => V:KItem ... </k> <raw> size({M:Map [ 1 ]}:>Set) |-> V:KItem ... </raw> requires isSet(M:Map [ 1 ])",
+            "rule [[ rd ( N:KItem ) => V:KItem ]] <raw> N:KItem |-> V:KItem ... </raw> requires isInt(N:KItem)",
+        ]
     "#]]
-    .assert_debug_eq(&rule(&definition, "typed-key").trim_end_matches(" endmodule"));
+    .assert_debug_eq(&[
+        rule(&definition, "typed-key").trim_end_matches(" endmodule"),
+        rule(&definition, "sized-key").trim_end_matches(" endmodule"),
+        equation,
+    ]);
 }
 
 /// Every write of an ill-sorted element or of a collection whose element

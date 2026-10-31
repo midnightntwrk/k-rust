@@ -33,19 +33,30 @@
 //! computes ([`super::function_patterns`] refuses one), so only a computed
 //! instance has guards.
 //!
-//! A key a pattern looks up (decision D2) is guarded the same way where it
-//! holds a sort projection, which both K frontends refuse on a left side
-//! although they read a function's application there by value (finding
-//! NT-11-1). `{t}:>S` denotes `t` where `t` has sort `S`, and nothing
-//! otherwise, so a key that is the projection is the key `t` with the guard
-//! `isS(t)`: the entry at `t` is looked up exactly when the projection is
-//! defined, and its value is the one the projection computes. A projection
-//! below a key's root stands where its sort `S` is needed, which `t` need not
-//! have, so it is a fresh variable of sort `S` equated with it, as an
-//! instance's computed cell is.
-
+//! A key a pattern looks up (decision D2) is guarded too, where it holds a
+//! sort projection or a collection read KRS projects below the `KItem` K's
+//! read returns (finding NT-11-1). `{t}:>S` denotes `t` where `t` has sort
+//! `S`, and nothing otherwise, so the guard states that `t` has sort `S`
+//! wherever the projection stands, and no guard holds a projection:
+//!
+//! - at the key's root the key is `t` with the guard `isS(t)`: a map's key is
+//!   a `KItem`, so the entry at `t` is looked up exactly when the projection
+//!   is defined, and its value is the one the projection computes;
+//! - at a matched position below a constructor, where the key's sort `S` is
+//!   needed and `t` need not have it, the projection is a fresh variable `V`
+//!   of sort `S` with the guard `V ==K t`: `V`'s sort already tests `t`, so
+//!   the guard holds exactly when `t` is the `S` the entry's key holds there,
+//!   and `==K` is defined on every pair of terms;
+//! - below a function's application the key is computed, the projection is
+//!   read by value as the function's argument, and it is defined only where
+//!   `isS(t)` holds, which the guard states.
+//!
+//! The guards are conjoined ahead of the sentence's condition, so a sentence
+//! that has no condition to hold them cannot look such a key up: its lowering
+//! receives the guards and refuses them ([`SentenceGuards`]).
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, DescriptorTerm, ProvenanceKey, SemanticId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, DescriptorTerm, GeneratedOperation, NodeOrigin,
+    ProvenanceKey, SemanticId, SourceMapKey,
 };
 use krs_ir_levels::{
     SemanticCondition, SemanticRuleCondition, SemanticSortRef, SemanticTerm, SemanticVariable,
@@ -68,9 +79,9 @@ pub(super) struct InstanceGuards {
     /// rule's one builder keeps the rule's guards from its first instance to
     /// its condition, and guards only while it lowers such a cell.
     active: bool,
-    /// How many function applications enclose the term being lowered in a
+    /// How many constructs that compute enclose the term being lowered in a
     /// looked-up key: below one a term is computed, not matched, and a
-    /// projection there is read by value as the function's argument.
+    /// projection there is read by value as the construct's operand.
     computed: usize,
 }
 
@@ -108,7 +119,7 @@ impl InstanceGuards {
         self.active = active;
     }
 
-    /// Enters (`true`) or leaves a function application's arguments.
+    /// Enters (`true`) or leaves the operands of a construct that computes.
     pub(super) fn compute(&mut self, entering: bool) {
         if entering {
             self.computed += 1;
@@ -117,7 +128,7 @@ impl InstanceGuards {
         }
     }
 
-    /// Whether no function application encloses the term being lowered.
+    /// Whether no construct that computes encloses the term being lowered.
     pub(super) const fn matched(&self) -> bool {
         self.computed == 0
     }
@@ -131,15 +142,52 @@ impl InstanceGuards {
     pub(super) fn into_guards(self) -> Vec<Guard> {
         self.guards
     }
+}
 
-    /// Adds `condition`, a Bool the sentence requires of what it matched,
-    /// anchored at the construct `key` names.
-    pub(super) fn require(&mut self, condition: SemanticTerm, key: ProvenanceKey) {
-        self.guards.push(Guard {
-            variable: None,
-            equation: condition,
-            key,
-        });
+/// The guards one sentence's pattern made, which its condition must hold:
+/// the only ways to spend them are [`guarded_requires`] and
+/// [`SentenceGuards::refuse`], so a sentence's lowering cannot drop one.
+#[derive(Debug, Default)]
+#[must_use = "a sentence's guards are its lookup: conjoin them with its condition or refuse them"]
+pub(super) struct SentenceGuards(Vec<Guard>);
+
+impl SentenceGuards {
+    /// Adds the guards one builder made.
+    pub(super) fn extend(&mut self, guards: Vec<Guard>) {
+        self.0.extend(guards);
+    }
+
+    /// The number of guards.
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// `Ok` when there are no guards; otherwise `refusal` of the construct
+    /// the first guard is anchored at, a sentence `sentence` names, which has
+    /// no condition to hold them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DescriptorLoweringError::InvalidSortTest`] at the construct.
+    pub(super) fn refuse(
+        self,
+        descriptor: &krs_ir::Descriptor,
+        sentence: &str,
+    ) -> Result<(), DescriptorLoweringError> {
+        let Some(first) = self.0.into_iter().next() else {
+            return Ok(());
+        };
+        Err(DescriptorLoweringError::InvalidSortTest {
+            item: Box::new(descriptor.id().clone()),
+            reason: format!(
+                "this key holds a sort projection, or a read projected to a sort below `KItem`, which denotes a value only where its operand has that sort; a pattern that looks the key up must also require that, and {sentence} has no condition to hold it: bind the key's name at its sort instead (`x: Term<Int>`), so the key is matched at that sort"
+            ),
+            range: descriptor
+                .provenance()
+                .origin_for(&first.key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        })
     }
 }
 
@@ -184,23 +232,25 @@ impl StructuredTermBuilder<'_> {
         let guards = self.instance_guards.take();
         let value = self.lower(term, expected_sort, subject);
         self.instance_guards = guards;
-        self.guard_value(key, value?)
+        let value = value?;
+        let sort = value.sort().clone();
+        self.guard_equal(key, sort, value)
     }
 
-    /// `value`, a construct's lowered value, written as a fresh variable
-    /// whose guard equates it with `value`, anchored at `key`.
-    pub(super) fn guard_value(
+    /// A fresh variable of `sort` whose guard equates it with `value`, a
+    /// construct's lowered value, anchored at `key`.
+    pub(super) fn guard_equal(
         &mut self,
         key: ProvenanceKey,
+        sort: SemanticSortRef,
         value: SemanticTerm,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let guards = self
             .instance_guards
             .as_mut()
-            .expect("a guarded construct stands in a looked-up instance");
+            .expect("a guarded construct stands in a looked-up instance or key");
         let ordinal = guards.len();
         let id = SemanticId::new(format!("{}instance{ordinal}", krs_ir::ir::RESERVED_MARKER))?;
-        let sort = value.sort().clone();
         let descriptor = self.descriptor;
         let read = SemanticTerm::variable(
             semantic_origin(descriptor, key.clone(), "instance-guard-variable")?,
@@ -224,6 +274,46 @@ impl StructuredTermBuilder<'_> {
             id,
         ))
     }
+
+    /// Adds the guard `isS(operand)`, `S` being `sort`, anchored at the
+    /// projection `key` names: the projection of `operand` to `S` is defined.
+    /// The guard reads a copy of `operand` under source-map keys of its own,
+    /// since `operand` stands in the key too.
+    pub(super) fn require_sort(
+        &mut self,
+        key: ProvenanceKey,
+        sort: SemanticSortRef,
+        operand: &SemanticTerm,
+    ) -> Result<(), DescriptorLoweringError> {
+        let guards = self
+            .instance_guards
+            .as_mut()
+            .expect("a key's projection is guarded where the sentence gathers guards");
+        let suffix = format!("~key-guard-{}", guards.len());
+        let tested = operand.map_origins(&mut |origin| suffixed(origin, &suffix));
+        let defined = SemanticTerm::application(
+            semantic_origin(self.descriptor, key.clone(), "key-projection-guard")?,
+            SemanticSortRef::Builtin(BuiltinSort::Bool),
+            ApplicationRef::Generated(GeneratedOperation::SortPredicate(sort)),
+            vec![tested],
+        );
+        guards.guards.push(Guard {
+            variable: None,
+            equation: defined,
+            key,
+        });
+        Ok(())
+    }
+}
+
+/// `origin` under the source-map key extended by `suffix`, which no node of
+/// the sentence has.
+fn suffixed(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
+    NodeOrigin::new(
+        SourceMapKey::new(format!("{}{suffix}", origin.key().as_str()))
+            .expect("a source-map key extended by a separator-free suffix is a key"),
+        origin.origin().clone(),
+    )
 }
 
 /// `requires` with the guards of the sentence's looked-up instances before
@@ -239,8 +329,9 @@ impl StructuredTermBuilder<'_> {
 pub(super) fn guarded_requires(
     descriptor: &krs_ir::Descriptor,
     requires: Option<SemanticCondition>,
-    guards: Vec<Guard>,
+    guards: impl Into<SentenceGuards>,
 ) -> Result<Option<SemanticCondition>, DescriptorLoweringError> {
+    let SentenceGuards(guards) = guards.into();
     let Some(first) = guards.first() else {
         return Ok(requires);
     };
@@ -253,7 +344,7 @@ pub(super) fn guarded_requires(
         Some(SemanticCondition::Predicate(_)) => {
             return Err(DescriptorLoweringError::invalid_term(
                 descriptor.id(),
-                "a sentence that looks a Set collection's instance up has a Bool condition",
+                "a sentence that looks a Set collection's instance or a guarded key up has a Bool condition",
             ));
         }
     };
@@ -276,4 +367,10 @@ pub(super) fn guarded_requires(
     Ok(Some(SemanticCondition::Bool(SemanticRuleCondition::new(
         origin, term,
     ))))
+}
+
+impl From<Vec<Guard>> for SentenceGuards {
+    fn from(guards: Vec<Guard>) -> Self {
+        Self(guards)
+    }
 }

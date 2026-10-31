@@ -2149,13 +2149,23 @@ pub(super) fn lower_structured_rule_descriptor(
             )
         })
         .transpose()?;
-    let (function_context, context_wildcards) = function_context.unzip();
+    let (function_context, context_wildcards, context_guards) = match function_context {
+        Some((context, wildcards, guards)) => (Some(context), wildcards, guards),
+        None => (
+            None,
+            Vec::new(),
+            super::set_instances::SentenceGuards::default(),
+        ),
+    };
     let result = rule
         .result
         .as_ref()
         .map(|result| builder.lower(result, Some(&result_sort), false))
         .transpose()?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    // The function context's guarded keys hold only where the equation's
+    // condition holds their guards.
+    let requires = super::set_instances::guarded_requires(descriptor, requires, context_guards)?;
     let (existentials, ensures) =
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
     let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
@@ -2189,7 +2199,7 @@ pub(super) fn lower_structured_rule_descriptor(
         ));
     }
     variables.extend(builder.wildcards);
-    variables.extend(context_wildcards.into_iter().flatten());
+    variables.extend(context_wildcards);
     // A single-body rule's body is its subject, whose rewrites sit below the
     // root (KF-011); the rule body reads it through its images.
     let rule_origin_role = match rule.sentence_kind {

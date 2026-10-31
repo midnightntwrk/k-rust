@@ -294,103 +294,185 @@ impl StructuredTermBuilder<'_> {
         inferred
     }
 
-    /// [`Self::lower`] for the key of a map a pattern looks up. A key that is
-    /// a sort projection of a name, `k::project!(S, x)`, is the key `x` with
-    /// the guard `isS(x)` ([`super::set_instances`]), in a sentence whose
-    /// pattern meets evaluated terms and gathers guards; any other projection
-    /// there is guarded below the key's root.
+    /// [`Self::lower`] for the key of a map a pattern looks up. In a sentence
+    /// whose pattern meets evaluated terms and gathers guards, the key's sort
+    /// projections, and the collection reads KRS projects below `KItem`, are
+    /// guarded ([`super::set_instances`]).
     pub(super) fn lower_key(
         &mut self,
         term: &DescriptorTerm,
         expected_sort: Option<&SemanticSortRef>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let enclosing = std::mem::replace(&mut self.in_key, true);
-        let lowered = match term {
-            DescriptorTerm::SortTest {
-                key,
-                kind: SortTestKind::Projection,
-                sort,
-                operand,
-            } if self.guards_key_projections()
-                && matches!(**operand, DescriptorTerm::Variable { .. }) =>
-            {
-                self.projected_key(key, sort, operand)
-                    .map_err(|error| self.locate(error, term))
-            }
-            _ => self.lower(term, expected_sort, true),
+        let lowered = if self.in_guarded_key() {
+            self.lower_key_root(term, expected_sort, true)
+        } else {
+            self.lower(term, expected_sort, true)
         };
         self.in_key = enclosing;
         lowered
     }
 
-    /// Whether the sentence's looked-up keys have their sort projections
-    /// guarded: a pattern over evaluated terms, which the native frontends
-    /// read with no projection on its left side, and a sentence that gathers
-    /// guards.
-    fn guards_key_projections(&self) -> bool {
-        self.instance_guards.is_some()
+    /// Whether the term being lowered stands in a looked-up key whose
+    /// projections are guarded: a key of a pattern over evaluated terms,
+    /// which the native frontends read with no projection on its left side,
+    /// in a sentence that gathers guards.
+    fn in_guarded_key(&self) -> bool {
+        self.in_key
+            && self.instance_guards.is_some()
             && super::function_patterns::matches_evaluated_sentence(self.descriptor.payload())
     }
 
-    /// Whether a term lowered at `subject` stands at a matched position of a
-    /// looked-up key whose projections are guarded: in the key, below no
-    /// function application, whose arguments are computed.
-    fn at_matched_key_position(&self, subject: bool) -> bool {
-        subject
-            && self.in_key
-            && self.guards_key_projections()
-            && self
-                .instance_guards
-                .as_ref()
-                .is_some_and(super::set_instances::InstanceGuards::matched)
+    /// Whether no construct that computes encloses the term being lowered in
+    /// a guarded key, where it is matched.
+    fn key_matched(&self) -> bool {
+        self.instance_guards
+            .as_ref()
+            .is_some_and(super::set_instances::InstanceGuards::matched)
     }
 
-    /// Whether `lowered` is a collection read projected to a sort below the
-    /// `KItem` K's read returns (a read of a typed collection, or at a typed
-    /// position), which is a projection on a left side as `k::project!` is.
-    fn narrowing_read(&self, lowered: &SemanticTerm) -> bool {
-        use krs_ir_levels::SemanticTermKind as Kind;
-        let projected = match lowered.kind() {
-            Kind::Map(operands) => operands.operation().spec().is_projected(),
-            Kind::List(operands) => operands.operation().spec().is_projected(),
-            Kind::Set(operands) => operands.operation().spec().is_projected(),
-            _ => false,
+    /// Enters (`true`) or leaves the operands of a construct that computes in
+    /// a guarded key.
+    fn key_computes(&mut self, entering: bool) {
+        if let Some(guards) = self.instance_guards.as_mut() {
+            guards.compute(entering);
+        }
+    }
+
+    /// The root of a guarded key, which a map holds as a `KItem`: a
+    /// projection `k::project!(S, t)` there is the key `t` with the guard
+    /// `isS(t)`, and a read KRS projects below `KItem` is the read itself
+    /// with the guard that it has the sort.
+    fn lower_key_root(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let active = self
+            .instance_guards
+            .as_ref()
+            .is_some_and(super::set_instances::InstanceGuards::active);
+        match term {
+            DescriptorTerm::SortTest {
+                key,
+                kind: SortTestKind::Projection,
+                sort,
+                operand,
+            } if !active => {
+                let lowered = (|| {
+                    self.sort_test_result(key, SortTestKind::Projection, sort, false)?;
+                    let operand_sort = self.sort_test_operand_sort(operand, false);
+                    let operand = self.lower_key_root(operand, operand_sort.as_ref(), false)?;
+                    self.require_sort(key.clone(), semantic_sort_ref(&sort.sort), &operand)?;
+                    Ok(operand)
+                })();
+                lowered.map_err(|error| self.locate(error, term))
+            }
+            DescriptorTerm::Application { .. } if !active => {
+                self.lower_key_application(term, expected_sort, subject, true)
+            }
+            _ => self.lower(term, expected_sort, subject),
+        }
+    }
+
+    /// An application in a guarded key. A collection read KRS projects to a
+    /// sort `S` below `KItem` (a typed collection's, or one at a typed
+    /// position) is a projection on a left side as `k::project!` is, and is
+    /// guarded as one: at the key's `root` it is the read at `KItem`, the
+    /// sort K's read has, with the guard `isS(read)`; at a matched position
+    /// below it, a fresh variable of sort `S` equated with the read; below a
+    /// construct that computes, the projected read with the guard `isS(read)`.
+    fn lower_key_application(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+        root: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let DescriptorTerm::Application { reference, .. } = term else {
+            unreachable!("only an application is lowered as one");
         };
-        projected && *lowered.sort() != self.k_item_sort
+        let matched = self.key_matched();
+        let computes = self.computes(term);
+        if computes {
+            self.key_computes(true);
+        }
+        let lowered = self.lower_term(term, expected_sort, subject);
+        if computes {
+            self.key_computes(false);
+        }
+        let lowered = lowered.map_err(|error| self.locate(error, term))?;
+        let Some(read) = self.narrowing_read(&lowered) else {
+            return Ok(lowered);
+        };
+        let sort = lowered.sort().clone();
+        let key = reference.key.clone();
+        let guarded = if root {
+            self.require_sort(key, sort, &read).map(|()| read)
+        } else if matched {
+            self.guard_equal(key, sort, read)
+        } else {
+            self.require_sort(key, sort, &read).map(|()| lowered)
+        };
+        guarded.map_err(|error| self.locate(error, term))
     }
 
-    /// The key `k::project!(S, x)`: `x`, with the guard `isS(x)` that the
-    /// projection is defined.
-    fn projected_key(
+    /// A projection `k::project!(S, t)` below a guarded key's root: at a
+    /// matched position, where the key's sort `S` is needed, a fresh variable
+    /// `V` of sort `S` with the guard `V ==K t`, which holds exactly when `t`
+    /// is that `S` and holds no projection; below a construct that computes,
+    /// the projection, read by value, with the guard `isS(t)`.
+    fn lower_key_projection(
         &mut self,
         key: &ProvenanceKey,
         sort: &krs_ir::DescriptorSortReference,
         operand: &DescriptorTerm,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        self.sort_test_result(key, SortTestKind::Projection, sort, false)?;
+        let result = self.sort_test_result(key, SortTestKind::Projection, sort, false)?;
+        let target = semantic_sort_ref(&sort.sort);
         let operand_sort = self.sort_test_operand_sort(operand, false);
-        let operand = self.lower(operand, operand_sort.as_ref(), false)?;
-        let krs_ir_levels::SemanticTermKind::Variable { variable } = operand.kind() else {
-            return Err(self.invalid_term("a projected name was lowered as no variable"));
-        };
-        let tested = SemanticTerm::variable(
-            semantic_origin(self.descriptor, key.clone(), "key-projection-operand")?,
-            operand.sort().clone(),
-            variable.clone(),
-        );
-        let defined = SemanticTerm::application(
-            semantic_origin(self.descriptor, key.clone(), "key-projection-guard")?,
-            SemanticSortRef::Builtin(BuiltinSort::Bool),
-            ApplicationRef::Generated(GeneratedOperation::SortPredicate(semantic_sort_ref(
-                &sort.sort,
-            ))),
-            vec![tested],
-        );
-        self.instance_guards
-            .as_mut()
-            .expect("a key's projection is guarded where the sentence gathers guards")
-            .require(defined, key.clone());
-        Ok(operand)
+        let matched = self.key_matched();
+        // The operand is computed: the guard or the projection reads its value.
+        self.key_computes(true);
+        let lowered = self.lower(operand, operand_sort.as_ref(), false);
+        self.key_computes(false);
+        let operand = lowered?;
+        if matched {
+            return self.guard_equal(key.clone(), result, operand);
+        }
+        self.require_sort(key.clone(), target.clone(), &operand)?;
+        Ok(SemanticTerm::application(
+            semantic_origin(self.descriptor, key.clone(), "term-sort-test")?,
+            result,
+            ApplicationRef::Generated(GeneratedOperation::SortProjection(target)),
+            vec![operand],
+        ))
+    }
+
+    /// The read `lowered` is at `KItem`, the sort K's read returns, when KRS
+    /// projects it to a sort below (a read of a typed collection, or at a
+    /// typed position), which is a projection on a left side as `k::project!`
+    /// is.
+    fn narrowing_read(&self, lowered: &SemanticTerm) -> Option<SemanticTerm> {
+        use krs_ir_levels::SemanticTermKind as Kind;
+        if *lowered.sort() == self.k_item_sort {
+            return None;
+        }
+        let origin = lowered.origin().clone();
+        let sort = self.k_item_sort.clone();
+        match lowered.kind() {
+            Kind::Map(operands) if operands.operation().spec().is_projected() => {
+                Some(SemanticTerm::typed_map(origin, sort, (**operands).clone()))
+            }
+            Kind::List(operands) if operands.operation().spec().is_projected() => {
+                Some(SemanticTerm::list(origin, sort, (**operands).clone()))
+            }
+            Kind::Set(operands) if operands.operation().spec().is_projected() => {
+                Some(SemanticTerm::set(origin, sort, (**operands).clone()))
+            }
+            _ => None,
+        }
     }
 
     #[expect(
@@ -1926,32 +2008,12 @@ impl StructuredTermBuilder<'_> {
                 .guarded(term, expected_sort, subject)
                 .map_err(|error| self.locate(error, term));
         }
-        // In a looked-up key, a function application's arguments are
-        // computed; a collection read KRS projects below `KItem` at a matched
-        // position there is guarded, as a projection the author writes is.
-        let key_application = match term {
-            DescriptorTerm::Application { reference, .. }
-                if self.at_matched_key_position(subject) =>
-            {
-                Some(reference.key.clone())
-            }
-            _ => None,
-        };
-        let computed = key_application.is_some() && self.computes(term);
-        if computed && let Some(guards) = self.instance_guards.as_mut() {
-            guards.compute(true);
+        // An application in a guarded key may hold a projection KRS writes.
+        if matches!(term, DescriptorTerm::Application { .. }) && self.in_guarded_key() {
+            return self.lower_key_application(term, expected_sort, subject, false);
         }
-        let lowered = self.lower_term(term, expected_sort, subject);
-        if computed && let Some(guards) = self.instance_guards.as_mut() {
-            guards.compute(false);
-        }
-        let lowered = lowered.map_err(|error| self.locate(error, term))?;
-        match key_application {
-            Some(key) if self.narrowing_read(&lowered) => self
-                .guard_value(key, lowered)
-                .map_err(|error| self.locate(error, term)),
-            _ => Ok(lowered),
-        }
+        self.lower_term(term, expected_sort, subject)
+            .map_err(|error| self.locate(error, term))
     }
 
     #[expect(
@@ -2152,15 +2214,14 @@ impl StructuredTermBuilder<'_> {
                 };
                 self.lower_cell_term(key, declaration, fields, *open, expected_sort, &record)
             }
-            // A projection below the root of a key a pattern looks up is a
-            // fresh variable its guard equates with the projection's value
+            // A projection below the root of a guarded key
             // ([`super::set_instances`]).
             DescriptorTerm::SortTest {
+                key,
                 kind: SortTestKind::Projection,
-                ..
-            } if self.at_matched_key_position(subject) => {
-                self.guarded(term, expected_sort, subject)
-            }
+                sort,
+                operand,
+            } if self.in_guarded_key() => self.lower_key_projection(key, sort, operand),
             DescriptorTerm::SortTest {
                 key,
                 kind,

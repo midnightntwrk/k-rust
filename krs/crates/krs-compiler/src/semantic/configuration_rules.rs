@@ -59,9 +59,9 @@ struct StateRuleTerms<'a> {
     /// Whether a cell of a Set collection's instance the pattern looks up is
     /// being lowered ([`super::set_instances`]).
     looking_up: bool,
-    /// The guards of the instances the pattern looks up, which the rule's
-    /// condition holds.
-    guards: Vec<super::set_instances::Guard>,
+    /// The guards of the instances and the keys the pattern looks up, which
+    /// the sentence's condition must hold: [`Self::finish`] hands them back.
+    guards: super::set_instances::SentenceGuards,
 }
 
 impl<'a> StateRuleTerms<'a> {
@@ -84,8 +84,26 @@ impl<'a> StateRuleTerms<'a> {
             variables: Vec::new(),
             moved_remainders: Vec::new(),
             looking_up: false,
-            guards: Vec::new(),
+            guards: super::set_instances::SentenceGuards::default(),
         }
+    }
+
+    /// The sentence's variables, and the guards its pattern made, which the
+    /// sentence's condition must hold or the sentence must refuse.
+    fn finish(self) -> (Vec<SemanticVariable>, super::set_instances::SentenceGuards) {
+        (self.variables, self.guards)
+    }
+
+    /// The variables of `sentence`, which states no condition: a pattern that
+    /// made a guard is refused at the guarded construct.
+    fn finish_unconditioned(
+        self,
+        sentence: &str,
+    ) -> Result<Vec<SemanticVariable>, DescriptorLoweringError> {
+        let descriptor = self.descriptor;
+        let (variables, guards) = self.finish();
+        guards.refuse(descriptor, sentence)?;
+        Ok(variables)
     }
 
     /// Infers and lowers one ordinary term; its wildcards join `variables`.
@@ -671,13 +689,10 @@ pub(super) fn lower_configuration_rule_descriptor(
             )
         })
         .transpose()?;
-    let requires = super::set_instances::guarded_requires(
-        descriptor,
-        requires,
-        std::mem::take(&mut terms.guards),
-    )?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
+    let (variables, guards) = terms.finish();
+    let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
     check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
@@ -694,7 +709,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         )?,
         descriptor.id().clone(),
         rule.sentence_kind.into(),
-        terms.variables,
+        variables,
         body,
     )?
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
@@ -1356,6 +1371,7 @@ pub(super) fn lower_context_alias_descriptor(
         .map(|pattern| lower_context_alias_cell(&mut terms, pattern, &binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
     check_here_in_computation_cell(descriptor, alias, &cells)?;
+    let variables = terms.finish_unconditioned("a context alias")?;
     let selected = alias
         .pattern
         .cells
@@ -1386,7 +1402,7 @@ pub(super) fn lower_context_alias_descriptor(
         alias.name.clone(),
         semantic_origin(descriptor, alias.here_key.clone(), "context-alias-here")?,
         SemanticId::new(alias.here.clone())?,
-        terms.variables,
+        variables,
         body,
     )
     .with_result(
@@ -1430,8 +1446,9 @@ fn check_here_in_computation_cell(
 
 /// Lowers an equation's function context (KF-025): its leaf cells as a
 /// one-sided pattern over the fixed configuration, whose term binders have
-/// the sorts in `binding_sorts`. Returns the context and its wildcards, which
-/// continue after the first `wildcard_ordinal` of the sentence.
+/// the sorts in `binding_sorts`. Returns the context, its wildcards, which
+/// continue after the first `wildcard_ordinal` of the sentence, and the
+/// guards of the keys it looks up, which the equation's condition holds.
 pub(super) fn lower_function_context(
     descriptor: &Descriptor,
     context: &krs_ir::DescriptorFunctionContext,
@@ -1443,6 +1460,7 @@ pub(super) fn lower_function_context(
     (
         krs_ir_levels::SemanticFunctionContext,
         Vec<SemanticVariable>,
+        super::set_instances::SentenceGuards,
     ),
     DescriptorLoweringError,
 > {
@@ -1484,12 +1502,14 @@ pub(super) fn lower_function_context(
         cells,
         omitted_siblings,
     )?;
+    let (variables, guards) = terms.finish();
     Ok((
         krs_ir_levels::SemanticFunctionContext::new(
             semantic_origin(descriptor, context.key.clone(), "function-context")?,
             body,
         ),
-        terms.variables,
+        variables,
+        guards,
     ))
 }
 
