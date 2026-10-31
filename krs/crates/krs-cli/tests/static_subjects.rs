@@ -478,12 +478,13 @@ fn whole(k::term![Al::Whole(a)]: Term<Value>) -> Term<Value> {
 /// with that literal (NT-14-1): with `whole(box(1)) => tag(1)` and `whole(box(2)) => tag(2)`,
 /// `tag(1)` and `tag(2)` print as their own clause's subject, and `tag(3)`, which no clause
 /// matches, prints as it is, never as `whole(box(1 #And 3))`. The clauses are written without a
-/// static application, so only the printer decides it.
+/// static application, so only the printer decides it, and without the catch-all `whole(a)` of
+/// [`OTHER_CLAUSES`], whose subject overlaps theirs.
 #[test]
 fn an_alias_whose_subject_holds_a_literal_prints_only_what_it_matches() {
     let (_, printed) = emitted_and_run(
         &format!(
-            "{NEST}{OTHER_CLAUSES}#[k::alias]\nfn whole_one(k::term![Al::Whole(Data::Box(1))]: Term<Value>) -> Term<Value> {{\n    Data::Tag(1)\n}}\n\n#[k::alias]\nfn whole_two(k::term![Al::Whole(Data::Box(2))]: Term<Value>) -> Term<Value> {{\n    Data::Tag(2)\n}}\n"
+            "{NEST}#[k::desugar]\nfn picks(k::term![Sugar::Pick(a, b)]: Term<Value>) -> Term<Value> {{\n    Data::Pair(a, b)\n}}\n\n#[k::alias]\nfn whole_one(k::term![Al::Whole(Data::Box(1))]: Term<Value>) -> Term<Value> {{\n    Data::Tag(1)\n}}\n\n#[k::alias]\nfn whole_two(k::term![Al::Whole(Data::Box(2))]: Term<Value>) -> Term<Value> {{\n    Data::Tag(2)\n}}\n"
         ),
         &["tag(1)", "tag(2)", "tag(3)"],
     );

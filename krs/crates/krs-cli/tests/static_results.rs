@@ -272,8 +272,10 @@ fn dui(k::term![More::Dui(x)]: Term<Stmt>) -> Term<Stmt> {
 /// A later clause's subject matches a parametric constructor's application by its instance, and
 /// a binding an earlier clause placed at its binder's sort as what it places (NT-22 review M1):
 /// `mk(vv, go)` expands to the pair at `Stmt` over `vv` injected into `Stmt`, which the subject
-/// `pick(Pair::<Stmt>(vv, y))` matches, as it matches the program's own `pick(pair(vv, go))`,
-/// before the catch-all `pick(w)` is tried; `mk(go, go)` falls to the catch-all.
+/// `pick(Pair::<Stmt>(vv, y))` matches, as it matches the program's own `pick(pair(vv, go))`;
+/// `mk(go, go)` meets the other clause, `pick(Pair::<Stmt>(go, y))`. The two subjects are
+/// disjoint, as a static production's clauses must be, so a program's term that neither matched
+/// would survive expansion and fail the run.
 #[test]
 fn a_static_subject_matches_a_placed_binding_by_its_instance() {
     let source = "
@@ -302,7 +304,7 @@ fn pick_vv(k::term![More::Pick(Pair::<dyn StmtSort>(Val::Vv(), y))]: Term<Stmt>)
 }
 
 #[k::desugar]
-fn pick_any(k::term![More::Pick(w)]: Term<Stmt>) -> Term<Stmt> {
+fn pick_go(k::term![More::Pick(Pair::<dyn StmtSort>(Cmd::Go(), y))]: Term<Stmt>) -> Term<Stmt> {
     Cmd::Got(2)
 }
 ";
@@ -314,4 +316,45 @@ fn pick_any(k::term![More::Pick(w)]: Term<Stmt>) -> Term<Stmt> {
         source,
         &["mk(vv, go)", "pick(pair(vv, go))", "mk(go, go)"],
     ));
+}
+
+/// A later desugar's subject with a repeated binder matches the term an earlier desugar's result
+/// writes with one binding twice: `same(go)` expands to `twin(pair(go, go))`, whose two arguments
+/// are one term, so the subject `twin(Pair::<Stmt>(a, a))` matches it and the run ends at
+/// `got(3)`, as it does for the program's own `twin(pair(go, go))`. Finding NT-22-F1 was this
+/// program beside a catch-all clause `twin(w)`: `krs run` applied the catch-all, krust's `krun`
+/// of the same emitted K the other clause, each by its own order of two clauses that both match.
+/// Two such clauses are now refused (`alias_clauses.rs`,
+/// `two_static_clauses_whose_subjects_overlap_are_refused`), and the production here has one.
+#[test]
+fn a_later_desugar_matches_a_repeated_binder_against_an_earlier_one_s_result() {
+    let source = "
+/// A parametric pair, whose turbofish names its instance.
+#[k::constructor(sort = S, syntax = \"pair({a}, {b})\")]
+pub struct Pair<S: ?Sized> {
+    pub a: Term<S>,
+    pub b: Term<S>,
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Tw {
+    #[k::syntax(\"same({a})\")] #[k::desugar] Same { a: Stmt },
+    #[k::syntax(\"twin({a})\")] #[k::desugar] Twin { a: Stmt },
+}
+
+#[k::desugar]
+fn same(k::term![Tw::Same(x)]: Term<Stmt>) -> Term<Stmt> {
+    Tw::Twin(Pair::<dyn StmtSort>(x, x))
+}
+
+#[k::desugar]
+fn twin_equal(k::term![Tw::Twin(Pair::<dyn StmtSort>(a, a))]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Got(3)
+}
+";
+    expect_test::expect![[r"
+        same(go) => got(3) ~> .K
+        twin(pair(go, go)) => got(3) ~> .K"]]
+    .assert_eq(&runs(source, &["same(go)", "twin(pair(go, go))"]));
 }

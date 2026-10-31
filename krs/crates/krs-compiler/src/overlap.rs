@@ -2477,6 +2477,53 @@ fn chosen_clauses_overlap(
     !unifier.guards_separate(left_guard.as_ref(), right_guard.as_ref())
 }
 
+/// Whether two static clauses' subjects overlap: some term matches both.
+///
+/// A program's expansion applies one clause of an alias or desugar production to each of its
+/// applications, and a static clause states no order (it takes no `priority` or `owise`), so
+/// where two clauses match one term which of them applies is not stated. The subjects are
+/// unified as the transitions' patterns are: by sort, with tokens compared by the value they
+/// denote, a repeated binder standing for one term, and an or-pattern contributing each of its
+/// alternatives.
+pub(crate) struct StaticSubjects {
+    graph: SortGraph,
+}
+
+impl StaticSubjects {
+    /// The overlap judge over `modules`' sorts.
+    pub(crate) fn of(modules: &[SemanticModule]) -> Self {
+        Self {
+            graph: SortGraph::from_modules(modules),
+        }
+    }
+
+    /// Whether some term matches both `left` and `right`, two subjects of one production.
+    pub(crate) fn overlap(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
+        let mut left_nodes = Vec::new();
+        or_nodes(left, &mut left_nodes);
+        let mut right_nodes = Vec::new();
+        or_nodes(right, &mut right_nodes);
+        let right_choices = choices(&right_nodes);
+        choices(&left_nodes).into_iter().any(|left_choice| {
+            right_choices.iter().any(|right_choice| {
+                let mut catalog = VariableCatalog {
+                    choices: [left_choice.clone(), right_choice.clone()],
+                    ..VariableCatalog::default()
+                };
+                let mut unifier = Unifier::new(&self.graph);
+                let left_pattern = pattern(left, 0, &mut catalog);
+                let right_pattern = pattern(right, 1, &mut catalog);
+                unifier.unify(left_pattern, right_pattern)
+                    && std::mem::take(&mut catalog.aliases).into_iter().all(
+                        |(key, sort, aliased)| {
+                            unifier.unify(Pattern::Variable { key, sort }, aliased)
+                        },
+                    )
+            })
+        })
+    }
+}
+
 /// A violation of the F2 overlap check (decisions.md, F2 amendment).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum OverlapViolation {

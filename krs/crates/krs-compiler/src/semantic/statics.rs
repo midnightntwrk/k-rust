@@ -243,6 +243,7 @@ pub(super) fn static_clauses(
         restated.insert(rule.id().clone(), clauses);
     }
     check_every_production_expanded(&productions, &expanded)?;
+    check_disjoint_clauses(&modules, &productions, &restated)?;
     Ok(modules
         .into_iter()
         .map(|module| {
@@ -403,6 +404,72 @@ fn check_every_production_expanded(
                 ),
                 origin,
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Checks that no two clauses of one alias or desugar production overlap: that no term matches
+/// both subjects, as KRS writes them (`restated`, each clause's subjects with their static
+/// applications expanded and a desugar's alternatives apart).
+///
+/// A program's expansion writes one clause's result in place of each application of the
+/// production. The clauses of a production state no order between them: a static clause takes
+/// no `priority` and no `owise`. So where two clauses match one term, which result the program
+/// holds is not stated, and the definition would choose one by an order the author never wrote.
+/// The alternatives of one clause's or-pattern share its result, so they are not compared.
+fn check_disjoint_clauses(
+    modules: &[SemanticModule],
+    productions: &Productions<'_>,
+    restated: &BTreeMap<StableItemId, Vec<SemanticRule>>,
+) -> Result<(), DescriptorLoweringError> {
+    if productions
+        .clauses
+        .values()
+        .all(|clauses| clauses.len() < 2)
+    {
+        return Ok(());
+    }
+    let judge = crate::overlap::StaticSubjects::of(modules);
+    let subjects = |rule: &SemanticRule| {
+        restated
+            .get(rule.id())
+            .into_iter()
+            .flatten()
+            .filter_map(|clause| clause.body().map(krs_ir_levels::IrRewrite::from))
+            .collect::<Vec<_>>()
+    };
+    for (production, clauses) in &productions.clauses {
+        let Some(StaticProduction { mode, .. }) = productions.statics.get(production) else {
+            continue;
+        };
+        for (index, first) in clauses.iter().enumerate() {
+            let first_subjects = subjects(first);
+            for second in &clauses[index + 1..] {
+                let overlapping = subjects(second)
+                    .into_iter()
+                    .any(|right| first_subjects.iter().any(|left| judge.overlap(left, right)));
+                if !overlapping {
+                    continue;
+                }
+                let at = second
+                    .body()
+                    .map(|body| body.from().origin())
+                    .filter(|origin| origin.origin().exact_authored_range().is_some())
+                    .unwrap_or_else(|| second.origin());
+                return Err(invalid(
+                    second.id(),
+                    format!(
+                        "{} clauses `{}` and `{}` of `{}` overlap: some term matches both subjects, and the clauses of a production marked `{}` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both",
+                        mode.clause(),
+                        first.id().item_name(),
+                        second.id().item_name(),
+                        production_display_name(production),
+                        mode.attribute(),
+                    ),
+                    at,
+                ));
+            }
         }
     }
     Ok(())

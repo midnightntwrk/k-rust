@@ -323,6 +323,61 @@ fn a_static_result_of_a_sort_not_below_its_productions_is_refused() {
     ]));
 }
 
+/// Two clauses of one static production whose subjects some term matches are refused at the later
+/// one: a static clause takes no `priority` or `owise`, so nothing states which of the two a
+/// program's expansion applies where both match, and the emitted definition would pick one by an
+/// order the author never wrote (NT-22). A literal beside a binder (`pairs(1, y)` and
+/// `pairs(x, y)` both match `pairs(1, 2)`), two spellings of one value (`01` is `1`), and one
+/// subject written twice overlap. Subjects no term matches both of are accepted: other literals,
+/// and a repeated binder beside two different values (`pairs(x, x)` and `pairs(1, 2)`).
+#[test]
+fn two_static_clauses_whose_subjects_overlap_are_refused() {
+    expect_test::expect![[r"
+        literal-and-binder:
+        error[krs::analysis::invalid-static-clause]: alias clauses `any_first` and `one_first` of `Al::Pairs` overlap: some term matches both subjects, and the clauses of a production marked `#[k::alias]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both
+        --> src/lib.rs:85:23
+        one-value:
+        error[krs::analysis::invalid-static-clause]: alias clauses `one_two` and `padded` of `Al::Pairs` overlap: some term matches both subjects, and the clauses of a production marked `#[k::alias]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both
+        --> src/lib.rs:90:20
+        written-twice:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `nought` and `nought_again` of `Sugar::Nought` overlap: some term matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both
+        --> src/lib.rs:90:26"]]
+    .assert_eq(&refusals([
+        (
+            "literal-and-binder",
+            &format!("{OTHER_CLAUSES}#[k::alias]\nfn one_first(k::term![Al::Pairs(1, y)]: Term<Value>) -> Term<Value> {{\n    Data::Box(y)\n}}\n\n#[k::alias]\nfn any_first(k::term![Al::Pairs(x, y)]: Term<Value>) -> Term<Value> {{\n    Data::Pair(x, y)\n}}\n"),
+        ),
+        (
+            "one-value",
+            &format!("{OTHER_CLAUSES}#[k::alias]\nfn one_two(k::term![Al::Pairs(1, 2)]: Term<Value>) -> Term<Value> {{\n    Data::Red()\n}}\n\n#[k::alias]\nfn padded(k::term![Al::Pairs(01, y)]: Term<Value>) -> Term<Value> {{\n    Data::Box(y)\n}}\n"),
+        ),
+        (
+            "written-twice",
+            &format!("{OTHER_CLAUSES}#[k::alias]\nfn pairs(k::term![Al::Pairs(x, y)]: Term<Value>) -> Term<Value> {{\n    Data::Pair(y, x)\n}}\n\n#[k::desugar]\nfn nought_again(k::term![Sugar::Nought()]: Term<Value>) -> Term<Value> {{\n    Data::Box(1)\n}}\n"),
+        ),
+    ]));
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (name, source) in [
+        (
+            "other-literals",
+            format!(
+                "{OTHER_CLAUSES}#[k::alias]\nfn one(k::term![Al::Pairs(1, y)]: Term<Value>) -> Term<Value> {{\n    Data::Box(y)\n}}\n\n#[k::alias]\nfn two(k::term![Al::Pairs(2, y)]: Term<Value>) -> Term<Value> {{\n    Data::Tag(y)\n}}\n"
+            ),
+        ),
+        (
+            "repeated-binder",
+            format!(
+                "{OTHER_CLAUSES}#[k::alias]\nfn same(k::term![Al::Pairs(x, x)]: Term<Value>) -> Term<Value> {{\n    Data::Box(x)\n}}\n\n#[k::alias]\nfn one_two(k::term![Al::Pairs(1, 2)]: Term<Value>) -> Term<Value> {{\n    Data::Red()\n}}\n"
+            ),
+        ),
+    ] {
+        let manifest = package(&temporary.path().join(name), &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}: {stderr}");
+    }
+}
+
 /// The emitted rules that mention `needle`, one per line.
 fn rules(k: &str, needle: &str) -> String {
     k.lines()
