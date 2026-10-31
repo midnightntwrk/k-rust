@@ -586,15 +586,6 @@ impl Semantics {
             Configuration::new(&frontend_definition, configuration_variables)
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
-        let unparser = timings.try_span("exec.unparser", |_| {
-            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
-                .map(|unparser| unparser.with_program_grammar(&frontend_definition))
-                .map(|unparser| {
-                    let reversed = reversal::reversed(definition, &unparser, &mut configuration);
-                    unparser.reversing_only(|label| reversed.contains(label))
-                })
-                .map_err(|error| ExecError::Backend(error.to_string()))
-        })?;
         let mut backend = timings.try_span("exec.backend", |_| {
             Backend::new(
                 &definition_kore,
@@ -611,6 +602,18 @@ impl Semantics {
             let values = ValueIndex::new(definition, &backend_definition, &sort_hooks);
             let cell_types = cell_types::CellTypes::new(definition, &backend_definition, &values);
             Ok::<_, ExecError>((Arc::new(values), cell_types))
+        })?;
+        // The printer reverses the alias clauses `reversal` judges by the definition's reading
+        // of their tokens' values, so it is built after the values.
+        let unparser = timings.try_span("exec.unparser", |_| {
+            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
+                .map(|unparser| unparser.with_program_grammar(&frontend_definition))
+                .map(|unparser| {
+                    let reversed =
+                        reversal::reversed(definition, &unparser, &mut configuration, &values);
+                    unparser.reversing_only(|label| reversed.contains(label))
+                })
+                .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);

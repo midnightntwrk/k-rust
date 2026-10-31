@@ -820,6 +820,13 @@ pub enum Rv {
     #[k::syntax("prj({a})")] #[k::alias] Prj { a: Value },
     #[k::syntax("mt({a})")] #[k::alias] Mt { a: Int },
     #[k::syntax("lt({a})")] #[k::alias] Lt { a: Value },
+    #[k::syntax("ft({a}, {b})")] Ft { a: Int, b: k::builtin::Float },
+    #[k::syntax("fz({a}, {b})")] #[k::alias] Fz { a: Int, b: KItem },
+}
+
+#[k::alias]
+fn fz(k::term![Rv::Fz(x, 1.5)]: Term<Value>) -> Term<Value> {
+    Data::Box(x)
 }
 
 #[k::alias]
@@ -936,8 +943,10 @@ fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
 /// would come from how the list nests, not from a term the author wrote. So do a set union
 /// (`su`), a map update (`mu`), a projection (`prj`), `k::matches!` (`mt`) and `let` (`lt`):
 /// where the program writes the alias, the state holds the result's own application, stuck on an
-/// argument no equation decides (`noset(red)`, `nomap(red)`, `red`, `size(red)`), and it prints
-/// expanded, as the state holds it.
+/// argument no equation decides (`noset(red)`, `nomap(red)`, `noval(red)`, `size(red)`), and it
+/// prints expanded, as the state holds it. A subject's token is judged by the text a reversal
+/// prints, the clause's own `1.5` (a run prints the floats it holds as `0.15000000000000000e1`),
+/// which reads back as that `Float`, so `fz` prints backwards.
 #[test]
 fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
     let target = shared_fixture_target();
@@ -955,6 +964,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         "make(10)",
         "make(12)",
         "prj(noval(red))",
+        "box(5)",
     ]
     .map(|program| {
         let file = manifest.with_file_name("program.txt");
@@ -983,6 +993,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         make(9) => fl(9, #lambdaX__2 ( size ( zero() ) )) ~> .K
         make(10) => tag(#lambdaX__ ( noval ( zero() ) )) ~> .K
         make(12) => elems(SetItem ( 12 )) ~> .K
-        prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K"]]
+        prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K
+        box(5) => fz(5, 1.5) ~> .K"]]
     .assert_eq(&printed);
 }

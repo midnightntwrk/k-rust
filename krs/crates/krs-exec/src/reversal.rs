@@ -17,7 +17,7 @@
 //!   value that merely equals it. In a pattern the alias still means that value. A result built
 //!   only of constructors, tokens, names and those collection terms is the very term a matched
 //!   state holds, so its clause is reversed.
-//! - **A list concatenation whose split the term does not determine.** A list's items and units
+//! - **Which collection terms construct.** A list's items and units
 //!   fix their own places, so a concatenation of them and at most one named list gives that list
 //!   exactly the elements the others leave: `[x, ..rest]` matches `[5, 6, 7]` only with `x = 5`
 //!   and `rest = [6, 7]`. With two named lists, `lc(a, b) => two(1, list::concat(a, b))`, the
@@ -32,12 +32,16 @@
 //!   The printed alias would then read back as another application, which its clause does not
 //!   expand. Whether the text reads back is the grammar's answer, so each token is parsed at its
 //!   position with the grammar a printed term is read back with, a program's
-//!   ([`Configuration::reads_back_token`]), and compared by the value it denotes, as a program's
-//!   expansion matches a token. Each token is judged alone, not inside the printed application:
-//!   the two differ only where a token sort's regex can take in what is printed after the token
-//!   (a `)`, a `,`, or the next argument's text), so that the scanner reads a longer token in
-//!   context. Such a clause is reversed though its print may not read back; judging the whole
-//!   printed subject would need its arguments, which only a print has.
+//!   ([`Configuration::read_token`]), and compared with the token by the value each denotes
+//!   (`same_token`): a token's text is one spelling of its value (`b"a\x22b"` and `b"a\"b"` are
+//!   one byte string), and a value is what a program's expansion matches a token by. The text
+//!   judged is the one a reversal prints, the token as the clause wrote it. A position that
+//!   cannot be judged (a sort with parameters) does not read back. Each token is judged alone,
+//!   not inside the printed application: the two differ only where a token sort's regex can take
+//!   in what is printed after the token (a `)`, a `,`, or the next argument's text), so that the
+//!   scanner reads a longer token in context. Such a clause is reversed though its print may not
+//!   read back; judging the whole printed subject would need its arguments, which only a print
+//!   has.
 //!
 //! Such a clause still expands wherever a program or a rule writes it; a term it would have
 //! printed prints expanded, which is the state as it is.
@@ -50,7 +54,10 @@ use krs_ir_levels::{
     ListOperands, MapOperands, SetOperands, SymbolId,
 };
 
+use k_rust::kore::ast::Pattern;
+
 use crate::configuration::Configuration;
+use crate::values::{Value, ValueIndex};
 
 /// The labels of the alias clauses printing reverses: those whose written result constructs and
 /// whose subject writes only tokens `configuration` reads back as themselves where they stand.
@@ -58,6 +65,7 @@ pub(crate) fn reversed(
     definition: &DefinitionIr,
     unparser: &krs_unparse::Unparser,
     configuration: &mut Configuration,
+    values: &ValueIndex,
 ) -> BTreeSet<String> {
     let (constructing, computing) = alias_clauses(definition);
     debug_assert!(
@@ -78,11 +86,31 @@ pub(crate) fn reversed(
                 .tokens
                 .iter()
                 .all(|token| {
-                    configuration.reads_back_token(&token.position, &token.printed, &token.token)
+                    configuration
+                        .read_token(&token.position, &token.printed)
+                        .is_some_and(|read| same_token(values, &read, &token.token))
                 })
                 .then_some(label)
         })
         .collect()
+}
+
+/// Whether `read` and `token`, two tokens, are one term: of one sort and denoting one value as
+/// the definition reads them (`0.15000000000000000e1` and `1.5` are one `Float`), or, where
+/// either denotes no value it reads, the same pattern.
+fn same_token(values: &ValueIndex, read: &Pattern, token: &Pattern) -> bool {
+    let value = |pattern: &Pattern| match pattern {
+        Pattern::DomainValue { sort, .. } => values
+            .decode(pattern)
+            .ok()
+            .filter(|value| !matches!(value, Value::Opaque(_)))
+            .map(|value| (sort.clone(), value)),
+        _ => None,
+    };
+    match (value(read), value(token)) {
+        (Some(read), Some(token)) => read == token,
+        _ => read == token,
+    }
 }
 
 /// The labels of the definition's alias clauses: those whose written result constructs, and

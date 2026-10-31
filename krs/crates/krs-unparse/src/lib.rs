@@ -303,11 +303,16 @@ impl Unparser {
                         .into_iter()
                         .filter_map(|(position, token)| {
                             let pattern = to_pattern(token)?;
+                            // A reversal writes the subject's token as the axiom holds it, after
+                            // a run's floats are converted to the runtime's form, so the token
+                            // is printed without that conversion, which only `Mode::Pretty`
+                            // makes: `1.5`, not `0.15000000000000000e1`.
                             let printed = self
                                 .print_kore(
                                     &pattern,
                                     &Options {
                                         reverse_aliases: false,
+                                        mode: Mode::Program,
                                         ..Options::default()
                                     },
                                 )
