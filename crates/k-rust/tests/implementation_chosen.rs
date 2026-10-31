@@ -1562,6 +1562,105 @@ fn a_two_name_rule_compiles_without_an_attribute_for_its_association() {
     );
 }
 
+/// GAP K3: literals whose element the literal rule leaves open (class `literal`): a Float literal
+/// at or beyond half an ulp past the largest finite value (`big`), at a tie of "nearest"
+/// (`tie`, 2^53 + 1), a nonzero literal rounding to a zero (`tiny`) and an `Infinity` lexeme (`inf`),
+/// in a rewrite rule, in a function
+/// equation (`lim`), and in a left-hand side whose match fails (`miss` on 2.0). Beside them the
+/// determined literals: a unique nearest value (`plain`), a zero's written sign (`negzero`), the
+/// one NaN (`nan`), a value between the largest finite one and the overflow threshold (`near`,
+/// which rounds to the largest finite value). Machine-integer literals are tested on KORE
+/// definitions (`k-rust-backend`, `tests/backend`), as the frontend's parse of a literal of a
+/// parametric sort needs the solver's inference.
+const LITERALS: &str = r#"
+module MAIN
+  imports INT
+  imports FLOAT
+  syntax Float ::= lim() [function]
+  syntax Pgm ::= big(Int) | tie(Int) | tiny(Int) | inf(Int) | plain(Int) | negzero(Int)
+               | nan(Int) | near(Int) | miss(Float) | eq(Int) | id(Float) | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule [big]: big(_) => done(1.0e400)
+  rule [tie]: tie(_) => done(9007199254740993.0)
+  rule [tiny]: tiny(_) => done(-1.0e-400)
+  rule [inf]: inf(_) => done(Infinity)
+  rule [plain]: plain(_) => done(0.1)
+  rule [negzero]: negzero(_) => done(-0.0)
+  rule [nan]: nan(_) => done(NaN)
+  rule [near]: near(_) => done(1.7976931348623158e308)
+  rule [miss]: miss(1.0e400) => done(0)
+  rule [miss-owise]: miss(_) => done(1) [owise]
+  rule [lim]: lim() => 1.0e400
+  rule [eq]: eq(_) => done(lim())
+  rule [id]: id(F) => done(F)
+endmodule
+"#;
+
+/// GAP K3: the literal's element is fixed when the definition is loaded, so no evaluation marks
+/// it; the load records it per sentence, and an execution marks every attempt of a rule or an
+/// equation holding one with the rule's `UNIQUE_ID` (class `literal`), a failed match included.
+#[test]
+fn every_attempt_of_a_sentence_holding_an_open_literal_is_marked() {
+    let (kore, _) = compile(LITERALS, "plain(1)");
+    let literal = |label: &str| [mark(&unique_id(&kore, &format!("MAIN.{label}")), "literal")];
+    for label in ["big", "tie", "tiny", "inf"] {
+        assert_marked(LITERALS, &format!("{label}(1)"), &literal(label));
+    }
+    for label in ["plain", "negzero", "nan", "near"] {
+        assert_marked(LITERALS, &format!("{label}(1)"), &[]);
+    }
+    assert_marked(LITERALS, "eq(1)", &literal("lim"));
+    assert_marked(LITERALS, "miss(2.0)", &literal("miss"));
+}
+
+/// GAP K3: a request's own literal (here the program's) is marked with its text as written, on
+/// every leaf of an execution and every state of a search.
+#[test]
+fn an_open_literal_of_the_request_is_marked_with_its_text() {
+    let literal = [mark("1.0e400", "literal")];
+    assert_marked(LITERALS, "id(1.0e400)", &literal);
+    assert_marked(LITERALS, "id(0.5)", &[]);
+    let (kore, initial) = compile(LITERALS, "id(1.0e400)");
+    let search = SearchRequest {
+        search_type: SearchTypeArg::All,
+        ..SearchRequest::new(initial)
+    };
+    let response = serde_json::to_value(backend(&kore).search(search.clone()).unwrap()).unwrap();
+    let states = response["states"].as_array().unwrap();
+    assert!(!states.is_empty(), "{response:#}");
+    for state in states {
+        assert_eq!(
+            marks(state),
+            BTreeSet::from(literal.clone()),
+            "{response:#}"
+        );
+    }
+    assert_eq!(run_marks(&response), literal, "{response:#}");
+    let paths = serde_json::to_value(backend(&kore).search_paths(search).unwrap()).unwrap();
+    assert_eq!(run_marks(&paths), literal, "{paths:#}");
+}
+
+/// GAP K3: the `<k>` cell key of a rule holding an open literal does not read the literal's
+/// value, so the rule is attempted on a configuration whose head is the largest finite value,
+/// which the literal names in another model, and the stuck leaf is marked.
+const KEYED_LITERAL: &str = r#"
+module MAIN
+  imports INT
+  imports FLOAT
+  syntax Pgm ::= go(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [top]: <k> 1.0e400 => 0 ... </k>
+  rule [go]: <k> go(_) => 1.7976931348623157e308 ... </k>
+endmodule
+"#;
+
+#[test]
+fn a_rule_keyed_by_an_open_literal_is_attempted_whatever_the_head() {
+    let (kore, _) = compile(KEYED_LITERAL, "go(1)");
+    let top = unique_id(&kore, "MAIN.top");
+    assert_marked(KEYED_LITERAL, "go(1)", &[mark(&top, "literal")]);
+}
+
 /// The backend's own executions, for what the facade does not reach: several initial patterns
 /// sharing one run, and a console.
 mod backend_runs {

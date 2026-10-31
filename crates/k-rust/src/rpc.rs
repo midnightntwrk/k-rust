@@ -800,8 +800,18 @@ impl RpcService {
                 definition
                     .validate_executable_pattern(&syntax)
                     .map_err(|error| pattern_fault(error, &syntax))?;
-                let initial = definition
-                    .admit_unverified(&syntax, &[])
+                // An execution takes k-rust's element of a literal the definition leaves open and
+                // marks every leaf with it; in the default mode a state holding one is refused,
+                // as no answer outside an execution may rest on that element.
+                let evaluation: EvaluationMode = evaluation_mode.into();
+                let literals = k_rust_backend::definition::RequestLiterals::new();
+                let admitted = definition.admit_unverified(&syntax, &[]);
+                let admitted = if evaluation == EvaluationMode::Execution {
+                    admitted.for_execution(&literals)
+                } else {
+                    admitted
+                };
+                let initial = admitted
                     .internalize_pattern()
                     .map_err(|error| pattern_fault(error, &syntax))?;
                 let configuration_variables = pattern_variables(&initial);
@@ -824,7 +834,8 @@ impl RpcService {
                         // The state as received: an executable state applies no alias, but every
                         // path names its request the same way.
                         request_names: RequestNames::of_received(&[&syntax]),
-                        evaluation: evaluation_mode.into(),
+                        evaluation,
+                        request_literals: literals.to_vec(),
                         ..ExecutionOptions::default()
                     },
                     solver,
@@ -1737,6 +1748,10 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
             k_rust_backend::rewrite::IndeterminateReason::Remainder { rule_ids, .. } => (
                 "Uncertain about the remainder after applying a rule",
                 rule_ids.first(),
+            ),
+            k_rust_backend::rewrite::IndeterminateReason::OpenLiteral { rule_id, .. } => (
+                "A rule holds a literal whose element the definition leaves open",
+                Some(rule_id),
             ),
         },
         HaltReason::Simplification(_) => ("Internal match error", None),

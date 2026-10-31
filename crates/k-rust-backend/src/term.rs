@@ -111,7 +111,7 @@ pub use items::Items;
 #[cfg(test)]
 pub(crate) use k_rust_domain::mint_text_parses;
 pub use k_rust_domain::{DomainKind, MIntWidth};
-pub(crate) use k_rust_domain::{mint_width, mint_width_digits};
+pub(crate) use k_rust_domain::{mint_literal_open, mint_width, mint_width_digits};
 pub use sort::{Sort, SortNode, Sorts};
 pub use variables::{VariableLookup, Variables};
 

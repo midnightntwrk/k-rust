@@ -1206,6 +1206,10 @@ pub enum UnjoinedReason {
     /// a hook, sort or literal it names is not declared at the needed signature), so the equation
     /// is not shown to agree with the hook where the hook gives a value; yet it is an axiom.
     UnmodelledHook(Name),
+    /// The equation holds this literal, as written, whose element the definition leaves open
+    /// (`crate::literal`, class `literal`): no overlap of the equation is refuted or joined on
+    /// that element, so it is paired with no equation; yet it is an axiom.
+    OpenLiteral(String),
 }
 
 impl UnjoinedReason {
@@ -1215,7 +1219,10 @@ impl UnjoinedReason {
     pub fn describes_one_equation(&self) -> bool {
         matches!(
             self,
-            Self::UnboundResultVariables | Self::ComputedBelowRoot(_) | Self::UnmodelledHook(_)
+            Self::UnboundResultVariables
+                | Self::ComputedBelowRoot(_)
+                | Self::UnmodelledHook(_)
+                | Self::OpenLiteral(_)
         )
     }
 }
@@ -1249,6 +1256,10 @@ impl std::fmt::Display for UnjoinedReason {
             Self::UnmodelledHook(hook) => write!(
                 formatter,
                 "the equation is at a symbol hooked to `{hook}`, which the evaluator applies before any equation, and the check has no written meaning for `{hook}` to pair it with"
+            ),
+            Self::OpenLiteral(literal) => write!(
+                formatter,
+                "the equation holds the literal `{literal}`, whose element the definition leaves open, so no overlap is decided on it"
             ),
         }
     }
@@ -2808,7 +2819,13 @@ fn check_pass(
     let mut unjoined = equations
         .iter()
         .filter_map(|equation| {
-            let reason = if equation
+            let reason = if let Some(literal) =
+                equation.rule.computed_attributes.open_literals.first()
+            {
+                // The literal is not apart from any value, so no overlap of the equation is
+                // refuted or joined on its element: the equation is joined with nothing.
+                UnjoinedReason::OpenLiteral(literal.to_string())
+            } else if equation
                 .rule
                 .computed_attributes
                 .unbound_result_variables

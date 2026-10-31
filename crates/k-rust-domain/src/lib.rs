@@ -27,7 +27,7 @@ pub use kind::{
 pub use text::mint_text_parses;
 pub use text::{
     DomainValueBound, InvalidDomainValueReason, MAX_INT_RESULT_BITS, TextRejection, canonical_text,
-    validate_text,
+    mint_literal_open, validate_text,
 };
 pub use token::{
     TokenValue, prelude_hook, prelude_token_value, same_prelude_token, token_payload, token_value,

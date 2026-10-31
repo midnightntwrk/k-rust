@@ -585,6 +585,36 @@ pub struct Admitted<'a> {
     pattern: &'a kore::Pattern,
     sort_variables: &'a [Name],
     admission: Admission,
+    /// Where an execution's internalization adds the open literals it reads
+    /// ([`Admitted::for_execution`]); `None` refuses them.
+    literals: Option<&'a RequestLiterals>,
+}
+
+/// The literals of a request whose element the definition leaves open (`crate::literal`), as
+/// written, in first-read order: the internalizations of an execution's patterns add them
+/// ([`Admitted::for_execution`]), and the run marks every leaf with each
+/// (`rewrite::ExecutionOptions::request_literals`).
+#[derive(Debug, Default)]
+pub struct RequestLiterals(std::cell::RefCell<Vec<std::sync::Arc<str>>>);
+
+impl RequestLiterals {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn extend(&self, literals: Vec<std::sync::Arc<str>>) {
+        let mut held = self.0.borrow_mut();
+        for literal in literals {
+            if !held.contains(&literal) {
+                held.push(literal);
+            }
+        }
+    }
+
+    /// The literals read so far.
+    pub fn to_vec(&self) -> Vec<std::sync::Arc<str>> {
+        self.0.borrow().clone()
+    }
 }
 
 impl<'a> Admitted<'a> {
@@ -608,6 +638,38 @@ impl<'a> Admitted<'a> {
         self.definition
     }
 
+    /// The pattern admitted for an execution, which takes k-rust's element of each literal the
+    /// definition leaves open (`crate::literal`) and marks it: every internalization adds the
+    /// pattern's open literals, as written, to `literals`, which the caller hands to the run
+    /// (`rewrite::ExecutionOptions::request_literals`). Without it an internalization refuses a
+    /// pattern holding one ([`DefinitionError::OpenLiteral`]), as every route but an execution
+    /// must not rest on k-rust's element.
+    pub fn for_execution(self, literals: &'a RequestLiterals) -> Self {
+        Self {
+            literals: Some(literals),
+            ..self
+        }
+    }
+
+    /// Run `internalize`, an internalization of the pattern, reading its literals as the
+    /// admission says ([`Self::for_execution`]).
+    fn reading_literals<T>(
+        self,
+        internalize: impl FnOnce() -> Result<T, DefinitionError>,
+    ) -> Result<T, DefinitionError> {
+        let (result, open) = crate::literal::recording(internalize);
+        let result = result?;
+        match self.literals {
+            Some(literals) => literals.extend(open),
+            None => {
+                if let Some(literal) = open.first() {
+                    return Err(DefinitionError::OpenLiteral(literal.to_string()));
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// `subpattern`, a subpattern of the admitted pattern, admitted as the pattern was: by the
     /// same definition, under the same sort variables, with the same admission.
     pub(crate) fn subpattern(self, subpattern: &'a kore::Pattern) -> Self {
@@ -619,17 +681,20 @@ impl<'a> Admitted<'a> {
 
     /// Internalize the pattern as a term, checking its sort injections.
     pub fn internalize_term(self) -> Result<Term, DefinitionError> {
-        self.definition
-            .internalize_term(self.pattern, self.sort_variables)
+        self.reading_literals(|| {
+            self.definition
+                .internalize_term(self.pattern, self.sort_variables)
+        })
     }
 
     /// Internalize a constrained KORE pattern into its term and predicate components.
     ///
     /// The constraints are definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_pattern(self) -> Result<Pattern, DefinitionError> {
-        let pattern = self
-            .definition
-            .internalize_pattern(self.pattern, self.sort_variables)?;
+        let pattern = self.reading_literals(|| {
+            self.definition
+                .internalize_pattern(self.pattern, self.sort_variables)
+        })?;
         self.explicit_pattern(pattern)
     }
 
@@ -639,10 +704,10 @@ impl<'a> Admitted<'a> {
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_pattern_or_predicate(self) -> Result<PatternOrPredicate, DefinitionError> {
         Ok(
-            match self
-                .definition
-                .internalize_pattern_or_predicate(self.pattern, self.sort_variables)?
-            {
+            match self.reading_literals(|| {
+                self.definition
+                    .internalize_pattern_or_predicate(self.pattern, self.sort_variables)
+            })? {
                 PatternOrPredicate::Term(pattern) => {
                     PatternOrPredicate::Term(self.explicit_pattern(pattern)?)
                 }
@@ -657,9 +722,10 @@ impl<'a> Admitted<'a> {
     ///
     /// The predicate is definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_predicate(self) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
-        let (predicate, sort) = self
-            .definition
-            .internalize_predicate(self.pattern, self.sort_variables)?;
+        let (predicate, sort) = self.reading_literals(|| {
+            self.definition
+                .internalize_predicate(self.pattern, self.sort_variables)
+        })?;
         Ok((self.explicit_predicate(predicate)?, sort))
     }
 
@@ -669,10 +735,12 @@ impl<'a> Admitted<'a> {
     pub fn internalize_model_predicate(
         self,
     ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
-        self.definition
-            .internalize_model_predicate(self.pattern, self.sort_variables)?
-            .map(|(predicate, sort)| Ok((self.explicit_predicate(predicate)?, sort)))
-            .transpose()
+        self.reading_literals(|| {
+            self.definition
+                .internalize_model_predicate(self.pattern, self.sort_variables)
+        })?
+        .map(|(predicate, sort)| Ok((self.explicit_predicate(predicate)?, sort)))
+        .transpose()
     }
 
     /// Internalize one side of an implication, peeling its leading existential binders.
@@ -681,9 +749,10 @@ impl<'a> Admitted<'a> {
     pub fn internalize_implication_pattern(
         self,
     ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
-        let (pattern, existentials) = self
-            .definition
-            .internalize_implication_pattern(self.pattern, self.sort_variables)?;
+        let (pattern, existentials) = self.reading_literals(|| {
+            self.definition
+                .internalize_implication_pattern(self.pattern, self.sort_variables)
+        })?;
         Ok((self.explicit_pattern(pattern)?, existentials))
     }
 
@@ -692,11 +761,13 @@ impl<'a> Admitted<'a> {
     /// The constraints of each alternative are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_disjunction(self) -> Result<Vec<Pattern>, DefinitionError> {
-        self.definition
-            .internalize_disjunction(self.pattern, self.sort_variables)?
-            .into_iter()
-            .map(|pattern| self.explicit_pattern(pattern))
-            .collect()
+        self.reading_literals(|| {
+            self.definition
+                .internalize_disjunction(self.pattern, self.sort_variables)
+        })?
+        .into_iter()
+        .map(|pattern| self.explicit_pattern(pattern))
+        .collect()
     }
 
     /// The predicates a request brings in, in definedness-explicit form: every method that
@@ -1460,6 +1531,10 @@ pub enum DefinitionError {
     /// A request's predicate whose definedness the backend cannot state as an equivalent
     /// predicate ([`Admitted`]), so it is refused rather than decided as written.
     UnstatedDefinedness(UnstatedDefinedness),
+    /// A request outside an execution holds this literal, as written, whose element the
+    /// definition leaves open (`crate::literal`, class `literal`): no answer but an execution's,
+    /// which marks it, may rest on k-rust's element ([`Admitted::for_execution`]).
+    OpenLiteral(String),
 }
 
 /// Why a request's predicate has no definedness-explicit form ([`Admitted`]).
@@ -1473,6 +1548,11 @@ pub enum UnstatedDefinedness {
     /// definedness is more than its operands' (`Y /\ Z` of two variables is empty unless
     /// `Y = Z`), so the atom's definedness cannot be stated beside it.
     TermConjunction,
+    /// Not a definedness: a claim holds this literal, as written, whose element the definition
+    /// leaves open (`crate::literal`, class `literal`), so the claim states one configuration
+    /// per element, and no proof decision answers for all of them. It is refused as a claim
+    /// whose meaning cannot be stated is, and is no assumption either.
+    OpenLiteral(String),
     /// An `\equals` whose operands are not both terms holds a term where a predicate is read
     /// (`\equals{Bool, R}(\and{Bool}(B1, B2), false)`, `\equals{Bool, R}(B, \top{Bool}())`):
     /// that equality would be read as the `\iff` of its operands taken as predicates, which is
@@ -1517,6 +1597,10 @@ impl fmt::Display for UnstatedDefinedness {
                  read",
             ),
             Self::RefusedReading(error) => write!(formatter, "{error}"),
+            Self::OpenLiteral(literal) => write!(
+                formatter,
+                "the claim holds the literal `{literal}`, whose element the definition leaves open (class literal)"
+            ),
         }
     }
 }
@@ -1810,6 +1894,14 @@ impl fmt::Display for DefinitionError {
                 "The definedness of a predicate of the request cannot be stated: an atom holds a \
                  term-level \\and",
             ),
+            Self::UnstatedDefinedness(reason @ UnstatedDefinedness::OpenLiteral(_)) => {
+                write!(formatter, "The pattern cannot be read faithfully: {reason}")
+            }
+            Self::OpenLiteral(literal) => write!(
+                formatter,
+                "The request holds the literal `{literal}`, whose element the definition leaves \
+                 open (class literal): only an execution takes k-rust's element, and marks it"
+            ),
         }
     }
 }
@@ -1977,11 +2069,14 @@ fn ground_equation_head_patterns(definition: &BackendDefinition) -> Vec<(Term, V
         &definition.simplification_theory,
         &definition.ceil_theory,
     ];
+    // A left-hand side holding a literal whose element the definition leaves open denotes no
+    // value the load may record (`crate::literal`).
     let mut predicate_terms = Vec::new();
     for rule in definition
         .predicate_simplification_theory
         .values()
         .flatten()
+        .filter(|rule| rule.open_literals.is_empty())
     {
         rule.lhs
             .visit_terms(&mut |term| predicate_terms.push(term.clone()));
@@ -1991,6 +2086,7 @@ fn ground_equation_head_patterns(definition: &BackendDefinition) -> Vec<(Term, V
         .flat_map(BTreeMap::values)
         .flat_map(BTreeMap::values)
         .flatten()
+        .filter(|rule| rule.computed_attributes.open_literals.is_empty())
         .map(|rule| crate::term::immediate_children(rule.lhs.kind()))
         .chain(predicate_terms.iter().map(|term| vec![term]));
     for start in starts {
@@ -2104,11 +2200,15 @@ impl BackendDefinition {
                             // when it was built, so its discharge succeeds without showing
                             // anything: the load records no discharge for it.
                             let declared = rule.rule.attributes.preserves_definedness;
+                            // A rule holding a literal whose element the definition leaves open
+                            // keeps its obligation: whether its terms are defined may depend on
+                            // that element (`crate::literal`).
+                            let open = !rule.rule.computed_attributes.open_literals.is_empty();
                             discharged.push((
                                 index.clone(),
                                 *priority,
                                 position,
-                                is_defined && !stops.any() && !declared,
+                                is_defined && !stops.any() && !declared && !open,
                                 coverage,
                             ));
                         }
@@ -2783,6 +2883,11 @@ impl BackendDefinition {
                 InternalizedRule::Term(RuleKind::Rewrite, rule) => {
                     result.declares_claims |= rule.attributes.preserves_definedness;
                     let index = rule_index(&result, &rule.lhs);
+                    let index = if rule.computed_attributes.open_literals.is_empty() {
+                        index
+                    } else {
+                        index.reading_no_value()
+                    };
                     insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
                 }
                 InternalizedRule::Term(kind, rule) => {
@@ -3245,6 +3350,7 @@ impl BackendDefinition {
             pattern,
             sort_variables,
             admission: Admission::Verified,
+            literals: None,
         })
     }
 
@@ -3264,6 +3370,7 @@ impl BackendDefinition {
             pattern,
             sort_variables,
             admission: Admission::Unverified,
+            literals: None,
         }
     }
 
@@ -3684,7 +3791,12 @@ impl BackendDefinition {
             .domain_kind(sort)
             .ok_or_else(|| invalid(InvalidDomainValueReason::NoWidth))?;
         match validate_text(kind, sort, value) {
-            Ok(()) => Ok(kind),
+            Ok(()) => {
+                // A text of a sentence or a request is classified as it is read
+                // (`crate::literal`).
+                crate::literal::observe(kind, value.as_bytes());
+                Ok(kind)
+            }
             Err(TextRejection::NamesNoElement(reason)) => Err(invalid(reason)),
             Err(TextRejection::BeyondBound(bound)) => Err(DefinitionError::DomainValueTooLarge {
                 sort: Box::new(externalize::sort(sort)),

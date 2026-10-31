@@ -420,6 +420,9 @@ pub struct InitialTerm {
     /// The definition's function symbols ([`BackendDefinition::function_symbol_names`]), which a
     /// run takes in [`crate::backend::execution::BackendRunOptions::function_symbols`].
     pub function_symbols: BTreeSet<String>,
+    /// The configuration's literals whose element the definition leaves open, as written, which
+    /// the run marks ([`crate::backend::execution::BackendRunOptions::request_literals`]).
+    pub request_literals: Vec<std::sync::Arc<str>>,
 }
 
 /// krun's preparation of `initial`: the function symbols, the check that it is an executable
@@ -431,8 +434,10 @@ fn prepare_initial(
 ) -> Result<InitialTerm, Box<dyn Error>> {
     let function_symbols = definition.function_symbol_names();
     definition.validate_executable_pattern(initial)?;
+    let literals = k_rust_backend::definition::RequestLiterals::new();
     let term = definition
         .admit_unverified(initial, &[])
+        .for_execution(&literals)
         .internalize_term()?;
     Ok(InitialTerm {
         pattern: rewrite::Pattern {
@@ -440,6 +445,7 @@ fn prepare_initial(
             constraints: Vec::new(),
         },
         function_symbols,
+        request_literals: literals.to_vec(),
     })
 }
 

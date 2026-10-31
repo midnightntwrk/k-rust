@@ -449,6 +449,11 @@ pub struct ComputedRuleAttributes {
     /// any other form. False for every other rule. Set when the definition is loaded, on every
     /// route.
     pub association_open: bool,
+    /// The literals of the sentence whose element the literal rules leave open, as written, in
+    /// first-read order (`crate::literal`): an execution marks every attempt of the rule, and
+    /// every other evaluation stops it there. Set when the definition is loaded, for every rule
+    /// of the sentence; empty for every other rule.
+    pub open_literals: Arc<[Arc<str>]>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -478,6 +483,9 @@ pub struct PredicateRewriteRule {
     /// The variable sets `rename_predicate_rule_apart` tests, computed once from the three
     /// parts above by [`PredicateRewriteRule::new`].
     pub variables: PredicateRuleVariables,
+    /// The sentence's open literals, as [`ComputedRuleAttributes::open_literals`] states them for
+    /// a term equation; empty from [`PredicateRewriteRule::new`].
+    pub open_literals: Arc<[Arc<str>]>,
 }
 
 /// Every variable a predicate equation mentions, free or bound, and those free variables of
@@ -518,6 +526,7 @@ impl PredicateRewriteRule {
             attributes,
             unbound_result_variables,
             variables: PredicateRuleVariables { all, unbound },
+            open_literals: Arc::from([]),
         }
     }
 }
@@ -614,6 +623,23 @@ impl CellIndex {
 pub struct RuleIndex(Vec<CellIndex>);
 
 impl RuleIndex {
+    /// These keys with every key that reads a domain value's text made `Anything`: a value key,
+    /// and a `None` that a conjunction of a value with another rigid head gives. The keys of a
+    /// rule holding a literal whose element the definition leaves open (`crate::literal`), whose
+    /// value keys hold k-rust's element: in another model the rule may match a subject they
+    /// reject, so it is attempted there, and the attempt is marked.
+    pub(crate) fn reading_no_value(self) -> Self {
+        Self(
+            self.0
+                .into_iter()
+                .map(|key| match key {
+                    CellIndex::Value(_) | CellIndex::None => CellIndex::Anything,
+                    key => key,
+                })
+                .collect(),
+        )
+    }
+
     /// Whether a rule with these keys may match the subject `subject` was computed from: every
     /// cell key covers the keys of one of the subject's `<k>` cells.
     pub fn covers(&self, subject: &SubjectKey) -> bool {
@@ -2180,9 +2206,17 @@ pub fn internalize_axiom(
             )])
         }
     };
+    let (rules, open_literals) = crate::literal::recording(internalize);
     let mut rules =
-        internalize().map_err(|error| located_axiom_error(error, axiom.attributes(), sentence))?;
+        rules.map_err(|error| located_axiom_error(error, axiom.attributes(), sentence))?;
+    let open_literals = Arc::<[Arc<str>]>::from(open_literals);
     for rule in &mut rules {
+        match rule {
+            InternalizedRule::Term(_, rule) => {
+                rule.computed_attributes.open_literals = Arc::clone(&open_literals);
+            }
+            InternalizedRule::Predicate(rule) => rule.open_literals = Arc::clone(&open_literals),
+        }
         if let InternalizedRule::Term(
             RuleKind::Function | RuleKind::Simplification | RuleKind::Ceil,
             rule,
@@ -4504,6 +4538,7 @@ where
             // A renaming of variables keeps the rule's id, label, origin and claim.
             identity: computed.identity.sharing(),
             association_open: computed.association_open,
+            open_literals: Arc::clone(&computed.open_literals),
         },
         existentials: rename_set(&rule.existentials),
     };
@@ -4553,6 +4588,7 @@ pub(crate) fn rename_predicate_rule_apart(
             all: rename_set(variables),
             unbound: rename_set(unbound),
         },
+        open_literals: Arc::clone(&rule.open_literals),
     };
     Some((renamed, renaming))
 }

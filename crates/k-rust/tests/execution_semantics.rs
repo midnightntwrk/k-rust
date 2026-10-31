@@ -804,7 +804,7 @@ fn run_driver(
     use k_rust_backend::{rewrite::ExecutionMode, simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS};
 
     let mut backend = Backend::new(&compiled.kore, main, BackendOptions::default()).unwrap();
-    let initial = backend
+    let (initial, request_literals) = backend
         .internalize_executable(None, &compiled.initial)
         .unwrap();
     let function_symbols = backend
@@ -830,6 +830,7 @@ fn run_driver(
             moving_average_timeout: false,
             capture_stdout: false,
             execution_input: None,
+            request_literals,
         },
     )
 }

@@ -271,6 +271,15 @@ impl Display for AtSort<'_, IndeterminateReason> {
                 }
                 write!(formatter, "):{}", predicate_lines(predicates, self.sort))
             }
+            IndeterminateReason::OpenLiteral { rule_id, literals } => write!(
+                formatter,
+                "rule {rule_id} holds {}, whose element the definition leaves open (class literal)",
+                literals
+                    .iter()
+                    .map(|literal| format!("the literal `{literal}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }

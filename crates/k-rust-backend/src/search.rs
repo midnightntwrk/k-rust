@@ -191,6 +191,10 @@ pub struct SearchOptions {
     /// evaluation of the search sees it, the conditions of rules and equations and the matching
     /// of the target included.
     pub evaluation: EvaluationMode,
+    /// The literals of the request whose element the definition leaves open, as written
+    /// (`definition::Admitted::for_execution`): every state of the search, and the run's list,
+    /// carries the mark `literal` of each (empty by default).
+    pub request_literals: Vec<std::sync::Arc<str>>,
     /// Whether every state the configuration search reports carries its path's trace
     /// (`SearchState::trace`), as by default. A caller that reads no trace passes `false`: the
     /// search then records no entry, and every state it reports has an empty trace. Nothing the
@@ -210,6 +214,7 @@ impl Default for SearchOptions {
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
+            request_literals: Vec::new(),
             retain_trace: true,
         }
     }
@@ -811,6 +816,21 @@ fn search_graph_using(
     result
 }
 
+/// The marks of a request's own open literals (`SearchOptions::request_literals`), noted for the
+/// run's record, as the diagnostics every initial state starts with: every path reads them.
+fn request_literal_marks(
+    literals: &[std::sync::Arc<str>],
+) -> Vec<crate::diagnostic::BackendDiagnostic> {
+    let ((), facts) = crate::path_facts::collect(|| {
+        for literal in literals {
+            crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(
+                crate::literal::mark(literal),
+            ));
+        }
+    });
+    crate::path_facts::diagnostics(&facts.all())
+}
+
 /// The chosen values among a search's run record (`crate::path_facts::run`).
 fn chosen_values(facts: &[crate::path_facts::PathFact]) -> Vec<ChosenValue> {
     facts
@@ -876,10 +896,11 @@ fn search_graph_collecting(
     let initial_count = initial.len();
     let mut initial_without_instance = 0;
     let mut pending = SearchFrontier::with_capacity(initial.len());
+    let request_marks = request_literal_marks(&options.request_literals);
     // Invariant: `pending` holds, in input order, the initial states without a surviving macro or
     // alias symbol, and `incomplete` one entry per other initial state.
     for pattern in initial {
-        let work = SearchWorkState {
+        let mut work = SearchWorkState {
             state: SearchState {
                 pattern,
                 depth: 0,
@@ -895,6 +916,7 @@ fn search_graph_collecting(
             rule: None,
             parent: None,
         };
+        work.diagnostics.extend(&request_marks);
         if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
             incomplete.push(IncompleteSearch::Indeterminate {
                 state: work.materialize(&observation_log),
@@ -2081,7 +2103,8 @@ fn search_paths_collecting(
 
     // The state keys this search has met, numbered: a path's `visited` holds the numbers.
     let mut state_keys = StateKeyIds::default();
-    let initial = PathSearchState {
+    let request_marks = request_literal_marks(&options.request_literals);
+    let mut initial = PathSearchState {
         state: SearchState {
             pattern: initial,
             depth: 0,
@@ -2098,6 +2121,7 @@ fn search_paths_collecting(
         kind: QueuedStateKind::Rewritable,
         rule: None,
     };
+    initial.diagnostics.extend(&request_marks);
     let mut pending = VecDeque::with_capacity(1);
     // `pending` holds the initial path unless its state has a surviving macro or alias symbol,
     // in which case `incomplete` reports it.

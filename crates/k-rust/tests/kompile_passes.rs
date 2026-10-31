@@ -4556,6 +4556,61 @@ module MAIN
     assert!(unfolded.is_empty(), "{unfolded:#?}");
 }
 
+/// GAP K3: the fold writes no literal whose element the literal rule leaves open, and reads none.
+/// An infinite result would be written `Infinity`, whose element no rule of the text fixes; an
+/// argument written `1.0e400` (the largest finite value by "nearest", infinity by k-rust's
+/// overflow), `Infinity`, or `-1.0e-400` (which zero is not said) is one of several, so the
+/// application stays as written. A finite result of determined arguments still folds, a written zero's sign included.
+#[test]
+fn the_fold_writes_and_reads_no_open_literal() {
+    let open = [
+        "1.0e308 *Float 10.0",
+        "--Float (1.0e308 *Float 10.0)",
+        "1.0e400 *Float 0.5",
+        "absFloat(-1.0e400)",
+        "Infinity <Float 1.0",
+        "signFloat(-1.0e-400)",
+    ];
+    let determined = ["1.0e308 *Float 1.5", "--Float 0.0"];
+    let rules = open
+        .iter()
+        .chain(&determined)
+        .enumerate()
+        .map(|(index, application)| format!("  rule go({index}) => res({application})\n"))
+        .collect::<String>();
+    let results = folded_results(&format!(
+        r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= go(Int) [symbol(go)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K) [symbol(res)]
+{rules}endmodule
+"#
+    ));
+    assert_eq!(results.len(), open.len() + determined.len(), "{results:?}");
+    let (open_results, determined_results) = results.split_at(open.len());
+    let folded = open
+        .iter()
+        .zip(open_results)
+        .filter(|(_, result)| result.starts_with("res(#token("))
+        .map(|(application, result)| format!("{application} folded to {result}"))
+        .collect::<Vec<_>>();
+    assert!(folded.is_empty(), "{folded:#?}");
+    let unfolded = determined
+        .iter()
+        .zip(determined_results)
+        .filter(|(_, result)| !result.starts_with("res(#token("))
+        .map(|(application, result)| format!("{application} left as {result}"))
+        .collect::<Vec<_>>();
+    assert!(unfolded.is_empty(), "{unfolded:#?}");
+}
+
 /// The right-hand sides of the `res(...)` rules of `source`, printed, before the fold (`false`)
 /// or after it (`true`).
 fn right_hand_sides(source: &str, fold: bool) -> Vec<String> {

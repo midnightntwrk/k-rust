@@ -881,6 +881,12 @@ pub enum SearchFailureOutput<K = Value> {
         predicates: Vec<K>,
         satisfiability: SatisfiabilityOutput<K>,
     },
+    /// A rule holds literals whose element the definition leaves open (class `literal`), as
+    /// written: outside an execution its attempt stops there. Not a solver query.
+    OpenLiteral {
+        rule: String,
+        literals: Vec<String>,
+    },
 }
 
 impl SearchFailureOutput {
@@ -1842,6 +1848,12 @@ fn indeterminate_failure_output<K: WireKore>(
             predicates: predicates_output(predicates, result_sort)?,
             satisfiability: satisfiability_output(satisfiability, result_sort)?,
         },
+        IndeterminateReason::OpenLiteral { rule_id, literals } => {
+            SearchFailureOutput::OpenLiteral {
+                rule: rule_id,
+                literals: literals.iter().map(ToString::to_string).collect(),
+            }
+        }
     })
 }
 
@@ -3550,6 +3562,7 @@ endmodule []"#;
                 &k_rust_kore::kore::parser::parse_pattern("value{}()").unwrap(),
             )
             .unwrap()
+            .0
             .remove(0);
         let state = SearchState {
             pattern,

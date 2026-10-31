@@ -623,6 +623,21 @@ pub(super) fn apply_rule_with_match(
     }
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
     measure::bump(Counter::RewriteRuleAttempts);
+    // A rule holding a literal whose element the definition leaves open: an execution marks the
+    // attempt from its own scope, whatever becomes of it; every other route stops it undecided,
+    // never skips it, as a skipped successor would be read as one no model has
+    // (`crate::literal`).
+    if crate::literal::withheld(
+        &rule.computed_attributes.open_literals,
+        &rule.attributes.unique_id,
+    ) {
+        return Ok(RuleAttempt::Indeterminate(
+            IndeterminateReason::OpenLiteral {
+                rule_id: rule.attributes.unique_id.clone(),
+                literals: rule.computed_attributes.open_literals.to_vec(),
+            },
+        ));
+    }
     // Every contradicted claim the attempt observes, in its match, its conditions or its
     // right-hand side, names this rule (`crate::path_facts`).
     crate::path_facts::observed_by(

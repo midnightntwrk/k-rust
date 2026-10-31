@@ -841,7 +841,8 @@ pub fn halt_cause(
                 | F::Instantiation { .. }
                 | F::Requires { .. }
                 | F::Concreteness { .. }
-                | F::Remainder { .. } => internal(cause_site(
+                | F::Remainder { .. }
+                | F::OpenLiteral { .. } => internal(cause_site(
                     "unexpected-cause",
                     &["simplification-error", &cause_kind(cause)],
                 )),
@@ -870,7 +871,10 @@ pub fn halt_cause(
             | F::Instantiation { .. }
             | F::Requires { .. }
             | F::Concreteness { .. }
-            | F::Remainder { .. } => None,
+            | F::Remainder { .. }
+            // A rule holding a literal whose element the definition leaves open, outside an
+            // execution: no answer, as for any other undecided step.
+            | F::OpenLiteral { .. } => None,
         },
         HaltReasonOutput::Stuck
         | HaltReasonOutput::Trivial

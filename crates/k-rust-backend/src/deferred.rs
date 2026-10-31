@@ -1304,6 +1304,14 @@ fn ceil_equation(
     );
     for (_, rules) in selection.groups() {
         for rule in rules {
+            // A ceil equation holding an open literal is marked in an execution and not used
+            // elsewhere (`crate::literal`); each ceil equation is an axiom of its own.
+            if crate::literal::withheld(
+                &rule.computed_attributes.open_literals,
+                &rule.attributes.unique_id,
+            ) {
+                continue;
+            }
             if let Some(decision) = ceil_equation_decision(definition, term, arguments, rule)? {
                 return Ok(Some(decision));
             }
@@ -1550,6 +1558,14 @@ fn select_single_step(
             {
                 // The selection gives up before trying this equation.
                 selection.give_back();
+                return Ok(None);
+            }
+            // A function equation holding an open literal: marked in an execution, and outside
+            // one the single step gives up, as for an undecided matching (`crate::literal`).
+            if crate::literal::withheld(
+                &rule.computed_attributes.open_literals,
+                &rule.attributes.unique_id,
+            ) {
                 return Ok(None);
             }
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);

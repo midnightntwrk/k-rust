@@ -26,6 +26,7 @@ pub mod evaluation;
 pub mod externalize;
 pub mod fresh;
 pub mod implication;
+pub mod literal;
 pub mod matching;
 pub mod model;
 pub mod path_facts;

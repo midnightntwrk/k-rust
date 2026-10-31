@@ -1978,10 +1978,16 @@ fn kprove_single_claim(source: &str, spec: &str, definition_module: &str) -> (St
     (verdict, stdout)
 }
 
-/// Two spellings of one machine integer are one term: a claim that holds only if `-1p8` (or a
-/// symbolic `X` equal to `511p8`) were another element than `255p8` is not proven, and its proof
-/// ends at the `bad()` state the rules on `255p8` reach. On the ground claims that state is a
-/// certified counterexample, so they are disproved.
+/// Two spellings of one machine integer are one term: a claim that holds only if `-1p8` were
+/// another element than `255p8` is not proven, and its proof ends at the `bad()` state the rules
+/// on `255p8` reach. On the ground claims that state is a certified counterexample, so they are
+/// disproved.
+///
+/// GAP K3 re-pin: `FP-A2` (`X ==K 511p8`) failed at its `bad()` state, on k-rust's residue. 511 is
+/// outside `[-128, 256)`, and "Machine integer of bit width and value" gives no element of
+/// `MInt{8}` to a value the width cannot hold, so which pattern `511p8` names is open (class
+/// `literal`): the claim states one configuration per pattern, and is refused with the literal
+/// named, neither proven nor disproved, as before.
 #[test]
 fn kprove_proves_nothing_through_two_spellings_of_one_mint_element() {
     // Each claim states that a spelling of `255p8` reaches `done()`: `-1p8` and `511p8` are the
@@ -1996,7 +2002,7 @@ fn kprove_proves_nothing_through_two_spellings_of_one_mint_element() {
         (
             "FP-A2",
             "claim <k> step(X) => done() ... </k> requires X ==K 511p8",
-            "failed",
+            "refused",
         ),
         (
             "FP-B",
@@ -2007,6 +2013,10 @@ fn kprove_proves_nothing_through_two_spellings_of_one_mint_element() {
         let source = format!("{MINT_SPELLINGS}module {spec}\n  imports FP\n  {claim}\nendmodule\n");
         let (verdict, stdout) = kprove_single_claim(&source, spec, "FP");
         assert_eq!(verdict, expected, "{spec}: {stdout}");
+        if expected == "refused" {
+            assert!(stdout.contains("`511p8`"), "{spec}: {stdout}");
+            continue;
+        }
         assert!(
             stdout.contains(r"Lblbad'LParRParUnds'FP-SYNTAX'Unds'Pgm{}()"),
             "{spec}: no bad() leaf in {stdout}"
@@ -9357,7 +9367,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         &[
             &["0.1", "0.2"],
             &["0.1f", "0.2f"],
-            &["1.0e308", "1.0e308"],
+            &["1.0e308", "5.0e307"],
             &["4.9406564584124654e-324", "4.9406564584124654e-324"],
             &["-0.0", "0.0"],
         ],
@@ -9370,7 +9380,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         &[
             &["1.0", "3.0"],
             &["0.0", "0.0"],
-            &["-1.0", "0.0"],
+            &["-1.0", "4.0"],
             &["0.0f", "0.0f"],
         ],
     ),
@@ -9431,7 +9441,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "FLOAT.lt",
         &["Float", "Float"],
         "Bool",
-        &[&["1.0", "2.0"], &["Infinity", "1.0"]],
+        &[&["1.0", "2.0"], &["1.7976931348623157e308", "1.0"]],
     ),
     (
         "FLOAT.max",
@@ -9449,7 +9459,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "FLOAT.min",
         &["Float", "Float"],
         "Float",
-        &[&["1.0", "2.0"], &["-Infinity", "0.0"]],
+        &[&["1.0", "2.0"], &["-1.7976931348623157e308", "0.0"]],
     ),
     (
         "FLOAT.mul",
@@ -9458,7 +9468,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         &[
             &["4.9406564584124654e-324", "0.5"],
             &["1.4e-45f", "1.5f"],
-            &["3.4028235e38f", "2.0f"],
+            &["3.4028235e38f", "0.5f"],
             &["-0.0", "1.0"],
         ],
     ),
@@ -9490,17 +9500,13 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "FLOAT.sign",
         &["Float"],
         "Bool",
-        &[&["-0.0"], &["-1.0e-400"], &["1.0p113x15"]],
+        &[&["-0.0"], &["-4.9406564584124654e-324"], &["1.0p113x15"]],
     ),
     (
         "FLOAT.sub",
         &["Float", "Float"],
         "Float",
-        &[
-            &["-0.0", "0.0"],
-            &["1.0f", "0.5f"],
-            &["Infinity", "Infinity"],
-        ],
+        &[&["-0.0", "0.0"], &["1.0f", "0.5f"], &["NaN", "1.0"]],
     ),
     ("FLOAT.trunc", &["Float"], "Float", &[&["-2.7"], &["2.7f"]]),
 ];
@@ -9563,6 +9569,14 @@ endmodule
 /// run time give one value: the fold writes the value the backend's evaluation entry computes,
 /// and the emitted token reads back as that value. Every hook the fold evaluates is exercised,
 /// and the `lits` rule of the compiled definition keeps none of its hooked applications.
+///
+/// GAP K3 re-pin: the fold writes and reads no literal whose element the literal rules leave open,
+/// so the cases with an `Infinity` argument (`FLOAT.lt`, `FLOAT.min`, `FLOAT.sub`), an argument
+/// rounding to a zero (`FLOAT.sign` of `-1.0e-400`), or an infinite result (`FLOAT.add` of two
+/// `1.0e308`, `FLOAT.mul` of the largest binary32 value by 2, `FLOAT.div` of -1 by 0, whose
+/// infinity is determined but written `-Infinity`) no longer fold; each is replaced by
+/// a determined neighbour (the largest finite value, the least subnormal, a finite sum,
+/// product or quotient, a NaN operand), and the open ones are pinned unfolded in `kompile_passes`.
 #[test]
 fn folded_and_evaluated_applications_agree() {
     let manifest: toml::Value =
@@ -14528,6 +14542,62 @@ endmodule
         );
     }
     assert!(!output.contains("undefined step"), "{output}");
+}
+
+/// GAP K3: a definition whose rules hold literals whose element the literal rule leaves open:
+/// `1.0e400` is the largest finite binary64 value by "nearest" and infinity by k-rust's IEEE
+/// overflow, in a rewrite rule (`big`) and in a function equation (`lim`).
+const OPEN_LITERALS: &str = r#"
+module LIT
+  imports INT
+  imports FLOAT
+  syntax Float ::= lim() [function]
+  syntax Pgm ::= big(Int) | plain(Int) | eq(Int) | id(Float) | r(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule big(_) => r(1.0e400)
+  rule plain(_) => r(0.1)
+  rule lim() => 1.0e400
+  rule eq(_) => r(lim())
+  rule id(F) => r(F)
+endmodule
+"#;
+
+/// GAP K3: no proof goes through an open literal. A claim reached through a rule or an equation
+/// holding one (`big-max`, `eq-max`: true in the model where the literal is the largest finite
+/// value, false in k-rust's) is neither proven nor disproved: the proof stops the rule's attempt;
+/// a claim holding one itself (`id-lit`, proven at the base on k-rust's element) is refused with
+/// the literal named; a claim through determined literals is proven (`plain`, `id-max`).
+#[test]
+fn kprove_proves_no_claim_through_an_open_literal() {
+    let source = format!(
+        "{OPEN_LITERALS}
+module LIT-SPEC
+  imports LIT
+  claim [big-max]: <k> big(1) => r(1.7976931348623157e308) </k>
+  claim [eq-max]: <k> eq(1) => r(1.7976931348623157e308) </k>
+  claim [id-lit]: <k> id(1.0e400) => r(1.0e400) </k>
+  claim [plain]: <k> plain(1) => r(0.1) </k>
+  claim [id-max]: <k> id(1.7976931348623157e308) => r(1.7976931348623157e308) </k>
+endmodule
+"
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "LIT", "LIT-SPEC");
+    for claim in ["big-max", "eq-max", "id-lit"] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    assert_eq!(
+        claim_verdict(&verdicts, "id-lit", &output),
+        "refused",
+        "{output}"
+    );
+    assert!(output.contains("1.0e400"), "{output}");
+    for claim in ["plain", "id-max"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
 }
 
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`

@@ -199,6 +199,45 @@ impl<'a> MIntLiteral<'a> {
     }
 }
 
+/// Whether the machine-integer literal `text` of the width `width` names an integer outside
+/// `[-2^(W-1), 2^W)`. "Machine integer of bit width and value", "represented in 2's complement"
+/// (`domains.md`, "MInt"), gives an element to every value the width holds, read as unsigned or
+/// as two's complement (`-1p8` and `255p8` are one pattern), and none to a value it cannot hold
+/// (`256p8`, `-129p8`, `0377p8`, leading zeros being a decimal's): which pattern such a literal
+/// names is open (class `literal`, the backend's `builtin::ChosenClass::Literal`); k-rust's is the residue modulo `2^W`. `false`
+/// for a text that is no literal of a width the backend computes, which the load refuses or
+/// which names no element (a width beyond `u64`, which every literal's value fits, included).
+pub fn mint_literal_open(text: &str, width: MIntWidth) -> bool {
+    let MIntWidth::Bits(bits) = width else {
+        return false;
+    };
+    let Some(literal) = MIntLiteral::parse(text) else {
+        return false;
+    };
+    let magnitude = literal.magnitude.trim_start_matches('0');
+    if magnitude.is_empty() {
+        return false;
+    }
+    // `10^(L-1) <= m < 10^L` for `L` digits, `log2(10)` between 3.3219 and 3.3220: a magnitude
+    // below `2^(W-1)`, or at least `2^(W+1)`, is decided by its length alone.
+    let length = magnitude.len() as u128;
+    let bits = u128::from(bits);
+    if bits >= 1 && length * 3_322 <= (bits - 1) * 1_000 {
+        return false;
+    }
+    if (length - 1) * 33_219 >= (bits + 1) * 10_000 {
+        return true;
+    }
+    let value: BigUint = magnitude.parse().expect("decimal digits");
+    let bits = u64::try_from(bits).expect("a width of u64 bits");
+    if literal.is_negative() {
+        // Above `2^(W-1)`: more than `W` bits, or `W` bits and another bit than the top one.
+        value.bits() > bits || (value.bits() == bits && value.count_ones() > 1)
+    } else {
+        value.bits() > bits
+    }
+}
+
 /// True when a negative literal of a machine-integer sort of `width` is refused by the bound on
 /// the integers the backend computes: its residue would be a decimal of about `width` bits.
 fn mint_width_beyond_bound(width: MIntWidth) -> bool {

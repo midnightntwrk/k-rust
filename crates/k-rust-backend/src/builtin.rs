@@ -454,6 +454,13 @@ pub enum ChosenClass {
     /// infinity, or of a non-integer whose rounding is a zero (which zero is not said); and the
     /// evaluators' `\bottom` at their scoped sites ([`Undefinedness::Undescribed`]).
     OutsideDomain,
+    /// The element of a literal the literal rules leave open (`crate::literal`): a Float literal
+    /// at a tie of "nearest", at or beyond half an ulp past the largest finite value, a nonzero
+    /// one rounding to a zero, an `Infinity` lexeme, and a machine-integer literal its width
+    /// cannot hold. Not a hook value: [`chosen_value`] never returns it, and the mark's `hook` is
+    /// the `UNIQUE_ID` of the rule or equation holding the literal, which an execution marks on
+    /// every attempt, or a request's own literal as written.
+    Literal,
 }
 
 impl ChosenClass {
@@ -475,16 +482,19 @@ impl ChosenClass {
             Self::FloatRounding => "float-rounding",
             Self::Curve => "curve",
             Self::OutsideDomain => "outside-domain",
+            Self::Literal => "literal",
         }
     }
 
     /// Whether the hook's description may leave an application of this class without a value,
     /// so that its definedness is open too unless the symbol is declared `total`: `curve` (a
     /// pair of integers is a point on some curves and not on others) and `outside-domain` (the
-    /// description gives no value there, so `\bottom` is a model). Every other class is a choice
-    /// among values the description gives.
+    /// description gives no value there, so `\bottom` is a model), and `literal`, whose element
+    /// can decide whether what a sentence holding it computes is defined (`Float2Int` of the
+    /// largest finite value or of infinity). Every other class is a choice among values the
+    /// description gives.
     pub fn may_be_undefined(self) -> bool {
-        matches!(self, Self::Curve | Self::OutsideDomain)
+        matches!(self, Self::Curve | Self::OutsideDomain | Self::Literal)
     }
 }
 
@@ -1174,7 +1184,7 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 pub use k_rust_domain::{
     FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, MAX_INT_RESULT_BITS, canonical_float_text,
-    float_canonical_bits_estimate, is_float_syntax,
+    float::literal_open as float_literal_open, float_canonical_bits_estimate, is_float_syntax,
 };
 
 /// Evaluate `hook` on `arguments` without an applied symbol, so without a declared result sort:
@@ -4966,6 +4976,7 @@ mod tests {
                 ChosenClass::FloatRounding,
                 ChosenClass::Curve,
                 ChosenClass::OutsideDomain,
+                ChosenClass::Literal,
             ]
             .map(ChosenClass::name),
             [
@@ -4984,6 +4995,7 @@ mod tests {
                 "float-rounding",
                 "curve",
                 "outside-domain",
+                "literal",
             ]
         );
     }

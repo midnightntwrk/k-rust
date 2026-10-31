@@ -83,6 +83,7 @@ fn matched(target: &str, searching: bool) -> String {
                     pattern: target,
                     generated_anonymous_variables: BTreeSet::new(),
                     request_names,
+                    request_literals: Vec::new(),
                 }),
                 function_symbols: BTreeSet::new(),
                 stop_leaves: None,
@@ -90,6 +91,7 @@ fn matched(target: &str, searching: bool) -> String {
                 moving_average_timeout: false,
                 capture_stdout: false,
                 execution_input: None,
+                request_literals: Vec::new(),
             },
         )
         .unwrap();
@@ -193,6 +195,7 @@ fn default_target_answers(
                 moving_average_timeout: false,
                 capture_stdout: false,
                 execution_input: None,
+                request_literals: Vec::new(),
             },
         )
         .unwrap();

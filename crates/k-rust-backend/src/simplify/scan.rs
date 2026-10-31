@@ -156,6 +156,17 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 SetAsideRequires::Unused
             };
         match scan_group(rules, indeterminate, |rule| {
+            // An equation holding a literal whose element the definition leaves open: marked in
+            // an execution, undecided elsewhere, so that no lower group fires in its place
+            // (`crate::literal`).
+            if crate::literal::withheld(
+                &rule.computed_attributes.open_literals,
+                &rule.attributes.unique_id,
+            ) {
+                return Ok(EquationAttempt::Indeterminate(
+                    ConditionIndeterminacy::ImplicationIndeterminate,
+                ));
+            }
             Ok(match attempt(rule, set_aside)? {
                 EquationAttempt::Applied(result) => {
                     EquationAttempt::Applied((result, Arc::clone(rule)))

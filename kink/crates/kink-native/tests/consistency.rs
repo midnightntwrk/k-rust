@@ -563,7 +563,13 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// `60e618a0`.
 /// Algorithm-card refresh 8ff88a783 adds only the `produces` metadata line naming
 /// `ValueClaims`; removing that line recovers the previous pinned bytes exactly.
-const CONFLUENCE_RS: &str = "7fb6bdb457e5204a9042564844e68384c337f5b8f799e88e4dbc1ee94bb580d5";
+/// GAP K3 (`draft/kink27/gap`, ticket K3): 7fb6bdb4 -> d8b337c0. An equation holding a literal
+/// whose element the definition leaves open is reported on its own (`UnjoinedReason::OpenLiteral`,
+/// a per-equation report like `UnboundResultVariables`) and seeded into the taint closure, and
+/// every evaluation of the check withholds it, so the check joins or refutes no overlap on that
+/// element and withdraws at least the claims it withdrew; the probe head, the pairing and the
+/// premise are unchanged.
+const CONFLUENCE_RS: &str = "d8b337c070f584c42eb88c4a17879abcd38a798caaa4dd997299c29dbe15d328";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

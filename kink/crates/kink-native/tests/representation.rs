@@ -730,6 +730,19 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// another element, and every value the fold writes is one it wrote before; the premises the
 /// README states for these hooks (P-F1 to P-F4) are narrower than needed now, which the kink
 /// session's GK-1/GK-2 restate.
+///
+/// GAP K3 re-pin (ticket K3): five passages changed, each narrowing what admission takes on.
+/// (1) The literal line of Backend scope and (2) the Float literal paragraph of Domain values no
+/// longer state a reading used on every route: a literal at a tie, at or beyond half an ulp past
+/// the largest finite value, of a nonzero value rounding to a zero, and an `Infinity` lexeme are
+/// class `literal`, which an execution marks on every attempt of the sentence holding one (so
+/// such a run is excluded as for any mark) and every other route withholds; the element k-rust
+/// builds is the one it built before, and the sign of a zero literal is now stated as fixed by
+/// `domains.md`. (3) The `precisionFloat` line drops the sign of an underflowing literal, which is
+/// that class. (4) A machine-integer literal its width cannot hold is that class too; an in-range
+/// one keeps its residue reading. (5) The fold writes no infinite result and reads no literal of
+/// the class, so it writes a subset of the values it wrote. So no unmarked run reads a literal
+/// whose element is open, and every value the fold writes is one it wrote before.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -771,7 +784,7 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Backend scope",
                 "The arithmetic hooks are not affected: their `smt-hook`s name",
-                "68ee38a9b1f2fed645c9d0ee18204e6033ec9967d9d8a5d11a1e45cf78c5a105",
+                "37b6af1d53e9037e9999ca961a4a5aa83441fe2f0773652c7f275e17ed69536e",
             ),
             passage(
                 "## Backend scope",
@@ -787,22 +800,22 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Backend scope",
                 "`precisionFloat`, `exponentBitsFloat`, `signFloat` and `isNaN` are evaluated",
-                "04406fecbbe1a33902834983f6620e151ec27fb1106efd9c5b425d934c4fc749",
+                "420d340cb7da9f6af25a8876f30f2767649e3c059c456cbb9932d8b81487b614",
             ),
             passage(
                 "## Domain values",
                 "A machine-integer literal of `MInt{W}`",
-                "a24fb364c8c47aeb758e29034c3c3b47e0c23fbce9260e66eea5279a34a1d1f8",
+                "d083c9e98d89142a548e389f0bc97ccfe16f509a3a5c61df1e65d2acc256fa28",
             ),
             passage(
                 "## Domain values",
                 "A `Float` literal names a rational number",
-                "29985a65ce3811f6078b179bf932a108a776dccb3bed69091535423c4c8c93dc",
+                "0c0ab74d018d2c0f6e66e3be42bc36ad2eb584ee9683a0a7d5a6950664bfbfdb",
             ),
             passage(
                 "## Constant folding",
                 "The `FLOAT` hooks are folded exactly where the backend computes them",
-                "487dfcf7b1f4e45e21f00696e1b3f56de0799efec9a4021f4f55792249b626f0",
+                "099e0422e034b24c857051e1f2d94bef215124ca866bc9c230e995c010a240a2",
             ),
             passage(
                 "## Hook values at the edges of their domains",

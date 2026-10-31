@@ -822,9 +822,10 @@ impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutpu
 /// definition leaves open about it (`class`, docs/compatibility.md, "Implementation-chosen hook
 /// values": `order`, `item`, `float-destination`, `nan-sign`, `letter-case`, `signed-zero`,
 /// `fresh-name`, `read-count`, `effect-order`, `fresh-association`, `hex-case`, `byte-encoding`,
-/// `float-rounding`, `curve`, `outside-domain`). For `fresh-association`, the
+/// `float-rounding`, `curve`, `outside-domain`, `literal`). For `fresh-association`, the
 /// compiler's association of a rule's two or more `!` names with counter offsets, `hook` is that
-/// rule's `UNIQUE_ID`.
+/// rule's `UNIQUE_ID`; for `literal`, the element of a literal the literal rules leave open, the
+/// `UNIQUE_ID` of the rule or equation holding it, or a request's own literal as written.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ChosenValueOutput {
@@ -2135,8 +2136,12 @@ impl Backend {
                     "invalid executable state",
                     BackendErrorKind::InvalidState,
                 ))?;
+            // `execute` runs a program, which takes k-rust's element of a literal the definition
+            // leaves open and marks every leaf with it, the state-match target's included.
+            let literals = k_rust_backend::definition::RequestLiterals::new();
             let initial = definition
                 .admit_unverified(&syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(kinded(
                     "could not internalize execution state",
@@ -2151,6 +2156,7 @@ impl Backend {
                 .map(|matching| {
                     definition
                         .admit_unverified(&matching.pattern, &[])
+                        .for_execution(&literals)
                         .internalize_pattern()
                         .map(|target| StateMatchOptions {
                             target,
@@ -2195,6 +2201,7 @@ impl Backend {
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
                 match_states,
                 collect_committed: request.collect_committed,
+                request_literals: literals.to_vec(),
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -2247,13 +2254,21 @@ impl Backend {
                     "invalid executable state",
                     BackendErrorKind::InvalidState,
                 ))?;
+            // A search of a program marks the literals it reads whose element the definition
+            // leaves open, on every state, the target's included.
+            let literals = k_rust_backend::definition::RequestLiterals::new();
             let initial = definition
                 .admit_unverified(&syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(kinded(
                     "could not internalize search state",
                     BackendErrorKind::StateNotInternalized,
                 ))?;
+            let options = SearchOptions {
+                request_literals: literals.to_vec(),
+                ..options
+            };
             let result = match observation_rules {
                 Some(rules) => {
                     let observation = observation_options(definition, rules)?;
@@ -2314,13 +2329,21 @@ impl Backend {
                     "invalid executable state",
                     BackendErrorKind::InvalidState,
                 ))?;
+            // A search of a program marks the literals it reads whose element the definition
+            // leaves open, on every state, the target's included.
+            let literals = k_rust_backend::definition::RequestLiterals::new();
             let initial = definition
                 .admit_unverified(&syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(kinded(
                     "could not internalize path-search state",
                     BackendErrorKind::StateNotInternalized,
                 ))?;
+            let options = SearchOptions {
+                request_literals: literals.to_vec(),
+                ..options
+            };
             let result = match observation_rules {
                 Some(rules) => {
                     let observation = observation_options(definition, rules)?;
@@ -2385,8 +2408,12 @@ impl Backend {
                     "invalid executable state",
                     BackendErrorKind::InvalidState,
                 ))?;
+            // A search of a program marks the literals it reads whose element the definition
+            // leaves open, on every state, the target's included.
+            let literals = k_rust_backend::definition::RequestLiterals::new();
             let initial = definition
                 .admit_unverified(&initial_syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(kinded(
                     "could not internalize pattern-search state",
@@ -2394,8 +2421,13 @@ impl Backend {
                 ))?;
             let target = definition
                 .admit_unverified(&target_syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
+            let options = SearchOptions {
+                request_literals: literals.to_vec(),
+                ..options
+            };
             let result = match observation_rules {
                 Some(rules) => {
                     let observation = observation_options(definition, rules)?;
@@ -2456,8 +2488,12 @@ impl Backend {
                     "invalid executable state",
                     BackendErrorKind::InvalidState,
                 ))?;
+            // A search of a program marks the literals it reads whose element the definition
+            // leaves open, on every state, the target's included.
+            let literals = k_rust_backend::definition::RequestLiterals::new();
             let initial = definition
                 .admit_unverified(&initial_syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(kinded(
                     "could not internalize path-pattern-search state",
@@ -2465,8 +2501,13 @@ impl Backend {
                 ))?;
             let target = definition
                 .admit_unverified(&target_syntax, &[])
+                .for_execution(&literals)
                 .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
+            let options = SearchOptions {
+                request_literals: literals.to_vec(),
+                ..options
+            };
             let result = match observation_rules {
                 Some(rules) => {
                     let observation = observation_options(definition, rules)?;
@@ -3072,6 +3113,8 @@ fn bounded_search_options(
         // `search`, `search_paths` and `search_pattern*` explore the runs of a program, so they
         // list collections in k-rust's order.
         evaluation: EvaluationMode::Execution,
+        // Each search sets the open literals its patterns hold.
+        request_literals: Vec::new(),
         // The responses carry each reported state's trace.
         retain_trace: true,
     }
@@ -3792,6 +3835,7 @@ mod tests {
             ChosenClass::FloatRounding,
             ChosenClass::Curve,
             ChosenClass::OutsideDomain,
+            ChosenClass::Literal,
         ]
         .map(|class| class.name().to_owned())
         .into_iter()

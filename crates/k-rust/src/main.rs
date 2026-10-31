@@ -2774,6 +2774,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                     moving_average_timeout: options.moving_average_timeout,
                     capture_stdout: options.output == KrunOutputArg::Captured,
                     execution_input,
+                    request_literals: term.request_literals,
                 },
             )?;
             let execute_seconds = started.elapsed().as_secs_f64();
@@ -2928,7 +2929,8 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
     let initial = load_kore_syntax(&options.pattern, "initial")?;
     let zone = definition.operation_depth(&[&initial]);
     k_rust_backend::nesting::with_stack(zone, || -> Result<ExitCode, Box<dyn Error>> {
-        let initial = backend.internalize_executable(Some(&options.module), &initial)?;
+        let (initial, request_literals) =
+            backend.internalize_executable(Some(&options.module), &initial)?;
         let search_pattern = search
             .as_ref()
             .and_then(|search| search.pattern.as_deref())
@@ -2958,6 +2960,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
                     moving_average_timeout: options.timeout.moving_average,
                     capture_stdout: false,
                     execution_input: None,
+                    request_literals,
                 },
             )?;
             output

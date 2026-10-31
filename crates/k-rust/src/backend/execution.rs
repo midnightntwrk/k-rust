@@ -93,6 +93,10 @@ pub struct BackendRunOptions {
     pub moving_average_timeout: bool,
     pub capture_stdout: bool,
     pub execution_input: Option<Vec<u8>>,
+    /// The initial patterns' literals whose element the definition leaves open, as written
+    /// (`k_rust_backend::definition::Admitted::for_execution`): the run marks every leaf with
+    /// each, beside the match target's.
+    pub request_literals: Vec<std::sync::Arc<str>>,
 }
 
 pub struct BackendRunOutput {
@@ -909,6 +913,19 @@ fn chosen_value_met(
             rule_named_by_id(definition, hook),
             class.name()
         ),
+        // `hook` is the `UNIQUE_ID` of the rule or equation holding the literal, or the request's
+        // own literal as written.
+        k_rust_backend::builtin::ChosenClass::Literal if names_an_axiom(definition, hook) => {
+            format!(
+                "attempted rule {}, which holds a literal whose element the definition leaves open ({})",
+                rule_named_by_id(definition, hook),
+                class.name()
+            )
+        }
+        k_rust_backend::builtin::ChosenClass::Literal => format!(
+            "read the literal {hook} of the request, whose element the definition leaves open ({})",
+            class.name()
+        ),
         k_rust_backend::builtin::ChosenClass::Curve
         | k_rust_backend::builtin::ChosenClass::OutsideDomain => format!(
             "read an outcome of {hook} the definition leaves open: its value and, where the definition also admits no value, whether it has one ({})",
@@ -946,6 +963,14 @@ fn rule_named_by_id(definition: &BackendDefinition, rule_id: &str) -> String {
             || rule_id.to_owned(),
             |attributes| attributes.diagnostic_name(k_label),
         )
+}
+
+/// Whether an axiom of the definition has the `UNIQUE_ID` `id`.
+fn names_an_axiom(definition: &BackendDefinition, id: &str) -> bool {
+    definition
+        .classified_axioms()
+        .iter()
+        .any(|axiom| axiom.attributes().unique_id == id)
 }
 
 /// The warning for an `ImplementationChosenValue` diagnostic, printed once per run: a path to a
@@ -1396,12 +1421,15 @@ impl Backend {
         .map_err(Into::into)
     }
 
+    /// The executable patterns of the file `path`, for a run of a program, with their literals
+    /// whose element the definition leaves open, as written, which the run marks
+    /// ([`BackendRunOptions::request_literals`]).
     pub fn load_patterns(
         &mut self,
         module: Option<&str>,
         path: &Path,
         purpose: &str,
-    ) -> Result<Vec<Pattern>, BackendError> {
+    ) -> Result<ExecutablePatterns, BackendError> {
         self.with_solver(module, |definition, _| {
             load_backend_patterns(definition, path, purpose)
                 .map_err(|error| BackendError::new(error.to_string()))
@@ -1409,7 +1437,8 @@ impl Backend {
     }
 
     /// [`Self::load_patterns`] for a pattern already decoded: verify `syntax` as an executable
-    /// pattern of the definition of `module` and internalize its disjuncts.
+    /// pattern of the definition of `module` and internalize its disjuncts, for a run of a
+    /// program, with their open literals.
     ///
     /// The internal patterns are as deep as `syntax`, and so are the passes that later execute
     /// or drop them, so a caller runs this and everything it does with the result on the stack
@@ -1418,7 +1447,7 @@ impl Backend {
         &mut self,
         module: Option<&str>,
         syntax: &KorePattern,
-    ) -> Result<Vec<Pattern>, BackendError> {
+    ) -> Result<ExecutablePatterns, BackendError> {
         self.with_solver(module, |definition, _| {
             internalize_executable(definition, syntax)
                 .map_err(|error| BackendError::new(error.to_string()))
@@ -1430,6 +1459,26 @@ impl Backend {
 /// result is not one the rules produced: the constraints of its variables, or a function it
 /// applies (a refuted `#let` in a function's equation among them), left it no instance.
 const INITIAL_BOTTOM_WARNING: &str = "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables and the functions it applies";
+
+/// The executable patterns of a request for a run of a program, with their literals whose
+/// element the definition leaves open, as written, which the run marks
+/// ([`BackendRunOptions::request_literals`]).
+pub type ExecutablePatterns = (Vec<Pattern>, Vec<std::sync::Arc<str>>);
+
+/// The open literals of a run's initial patterns, then those of its target not among them.
+fn joined_literals(
+    initial: &[std::sync::Arc<str>],
+    target: &[std::sync::Arc<str>],
+) -> Vec<std::sync::Arc<str>> {
+    let mut literals = initial.to_vec();
+    literals.extend(
+        target
+            .iter()
+            .filter(|literal| !initial.contains(literal))
+            .cloned(),
+    );
+    literals
+}
 
 /// Run a program: `krun` and `kore-exec`, search included. The whole run is an execution
 /// (`EvaluationMode::Execution`): the engine's execution or search, and the facade's work on its
@@ -1469,6 +1518,7 @@ fn run_backend_in_execution(
                         .ok_or_else(|| io::Error::other("initial pattern has no live disjuncts"))?,
                     generated_anonymous_variables: BTreeSet::new(),
                     request_names: RequestNames::default(),
+                    request_literals: Vec::new(),
                 },
             },
         };
@@ -1484,6 +1534,10 @@ fn run_backend_in_execution(
                 max_simplification_iterations: options.max_simplification_iterations,
                 request_names: target.request_names.clone(),
                 evaluation: EvaluationMode::Execution,
+                request_literals: joined_literals(
+                    &options.request_literals,
+                    &target.request_literals,
+                ),
                 // The output below reads each match's substitution, constraints, pattern, depth
                 // and diagnostics, and an incomplete entry's description; none reads a trace.
                 retain_trace: false,
@@ -1568,6 +1622,12 @@ fn run_backend_in_execution(
             .unwrap_or_default(),
         // A run of a program: `Default` is a request whose states a proof may read.
         evaluation: EvaluationMode::Execution,
+        request_literals: joined_literals(
+            &options.request_literals,
+            match_target
+                .as_ref()
+                .map_or(&[][..], |target| &target.request_literals),
+        ),
         ..ExecutionOptions::default()
     };
     let live_io = options.execution_input.is_some();
@@ -1942,13 +2002,17 @@ fn load_backend_target(
 ) -> Result<BackendMatchTarget, Box<dyn Error>> {
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
+    // The target of a run of a program, which marks an open literal it reads.
+    let literals = k_rust_backend::definition::RequestLiterals::new();
     let pattern = definition
         .verify_standalone_pattern(&syntax, &[])?
+        .for_execution(&literals)
         .internalize_pattern()?;
     Ok(BackendMatchTarget {
         pattern,
         generated_anonymous_variables: BTreeSet::new(),
         request_names: RequestNames::of_received(&[&syntax]),
+        request_literals: literals.to_vec(),
     })
 }
 
@@ -1956,7 +2020,7 @@ fn load_backend_patterns(
     definition: &BackendDefinition,
     path: &Path,
     purpose: &str,
-) -> Result<Vec<Pattern>, Box<dyn Error>> {
+) -> Result<ExecutablePatterns, Box<dyn Error>> {
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
     internalize_executable(definition, &syntax)
@@ -1965,10 +2029,14 @@ fn load_backend_patterns(
 fn internalize_executable(
     definition: &BackendDefinition,
     syntax: &KorePattern,
-) -> Result<Vec<Pattern>, Box<dyn Error>> {
+) -> Result<ExecutablePatterns, Box<dyn Error>> {
     let admitted = definition.verify_standalone_pattern(syntax, &[])?;
     definition.validate_executable_pattern(syntax)?;
-    admitted.internalize_disjunction().map_err(Into::into)
+    let literals = k_rust_backend::definition::RequestLiterals::new();
+    let patterns = admitted
+        .for_execution(&literals)
+        .internalize_disjunction()?;
+    Ok((patterns, literals.to_vec()))
 }
 
 fn decode_kore_syntax(

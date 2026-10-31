@@ -566,6 +566,13 @@ pub enum IndeterminateReason {
         predicates: Vec<Predicate>,
         satisfiability: Result<Satisfiability, SmtError>,
     },
+    /// The rule holds literals whose element the definition leaves open (`crate::literal`,
+    /// class `literal`), as written: outside an execution its attempt stops there, as whether
+    /// and how it applies may differ in another model.
+    OpenLiteral {
+        rule_id: String,
+        literals: Vec<std::sync::Arc<str>>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -713,6 +720,11 @@ pub struct ExecutionOptions {
     /// committed to (off by default; ignored without `collect_coverage`). Asking costs one set
     /// insert per normalized successor and changes nothing else in the result.
     pub collect_committed: bool,
+    /// The literals of the request whose element the definition leaves open, as written
+    /// (`definition::Admitted::for_execution`): every path reads them, so each initial state, and
+    /// every leaf after it, carries the mark `literal` of each, and so does the run's list
+    /// (empty by default).
+    pub request_literals: Vec<std::sync::Arc<str>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -752,6 +764,7 @@ impl Default for ExecutionOptions {
             discard_stopped: false,
             match_states: None,
             collect_committed: false,
+            request_literals: Vec::new(),
         }
     }
 }

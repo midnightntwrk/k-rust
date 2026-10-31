@@ -356,6 +356,12 @@ impl<'a> Execution<'a> {
             // unevaluated. One over an operand whose definedness depends on an impure
             // application is the unsupported-hook outcome.
             let (resumed, facts) = crate::path_facts::collect(|| {
+                // The request's own open literals are read by every path (`crate::literal`).
+                for literal in &options.request_literals {
+                    crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(
+                        crate::literal::mark(literal),
+                    ));
+                }
                 crate::deferred::resumed_constraints(
                     definition,
                     std::mem::take(&mut state.pattern.constraints),

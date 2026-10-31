@@ -124,28 +124,41 @@ pub(crate) fn internalize_reachability_claim(
     // `ensures` after the right-hand side's. A claim with a predicate that reading refuses has
     // no faithful reading, so it is refused alone, as unstated, and keeps its sides as the
     // reading without refusals gives them; the definition and its other claims load.
-    let (unstated, lhs, rhs) = match claim_sides(
-        definition,
-        &claim.parameters,
-        left,
-        right,
-        PredicateReading::Written,
-    ) {
-        Ok((lhs, rhs)) => (None, lhs, rhs),
-        Err(error) => {
-            let Some(refusal) = refused_reading(&error) else {
-                return Err(error);
-            };
-            let (lhs, rhs) = claim_sides(
+    // A literal whose element the definition leaves open makes the claim one per element, and no
+    // proof decides them all: the claim is refused, with the first such literal read
+    // (`crate::literal`), unless its reading already refused it.
+    let (sides, open_literals) = crate::literal::recording(|| {
+        Ok::<_, DefinitionError>(
+            match claim_sides(
                 definition,
                 &claim.parameters,
                 left,
                 right,
-                PredicateReading::Unchecked,
-            )?;
-            (Some(refusal), lhs, rhs)
-        }
-    };
+                PredicateReading::Written,
+            ) {
+                Ok((lhs, rhs)) => (None, lhs, rhs),
+                Err(error) => {
+                    let Some(refusal) = refused_reading(&error) else {
+                        return Err(error);
+                    };
+                    let (lhs, rhs) = claim_sides(
+                        definition,
+                        &claim.parameters,
+                        left,
+                        right,
+                        PredicateReading::Unchecked,
+                    )?;
+                    (Some(refusal), lhs, rhs)
+                }
+            },
+        )
+    });
+    let (unstated, lhs, rhs) = sides?;
+    let unstated = unstated.or_else(|| {
+        open_literals
+            .first()
+            .map(|literal| UnstatedDefinedness::OpenLiteral(literal.to_string()))
+    });
     if rhs.is_empty() {
         return Err(DefinitionError::Claim(ClaimError::MissingRightHandSide));
     }

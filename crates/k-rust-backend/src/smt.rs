@@ -1872,9 +1872,14 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
             .flatten()
             .map(AsRef::as_ref)
     }
+    // A lemma holding a literal whose element the definition leaves open states a fact of one
+    // model, and the solver answers every route: it is not given to the solver
+    // (`crate::literal`).
     theory_rules(definition.function_theory())
         .chain(theory_rules(definition.simplification_theory()))
-        .filter(|rule| rule.attributes.smt_lemma)
+        .filter(|rule| {
+            rule.attributes.smt_lemma && rule.computed_attributes.open_literals.is_empty()
+        })
         .collect()
 }
 

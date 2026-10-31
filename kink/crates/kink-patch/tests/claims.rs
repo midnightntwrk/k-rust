@@ -544,6 +544,12 @@ fn trusted_claims_are_pinned() {
 /// translation of `bitRangeInt`, `>>Int` and low-bit masks of `&Int` by literal amounts, which
 /// precedes it in the file. Only its lines are re-pinned.
 ///
+/// Re-pin GAP K3 (`draft/kink27/gap`, ticket K3): `smt_lemmas` no longer gives the solver a lemma
+/// holding a literal whose element the definition leaves open (class `literal`), a fact of one
+/// model only; the function grows from 12 to 18 lines. The solver is given a subset of the
+/// lemmas it was given, each still the author's trusted axiom, so the trust the `smt-lemma` row
+/// cites only narrows.
+///
 /// Re-pin FZ-DATAEND (fz26/dataend): compatibility.md's passages after "Anywhere rules"' value
 /// claims are byte-identical and moved down 6 lines, by the data-term paragraph
 /// (`k_rust_backend::data_term`) inserted before "When a definition is loaded the backend checks
@@ -751,8 +757,8 @@ const TRUSTED_CLAIM_PASSAGES: [passage::Passage; 18] = [
         file: "crates/k-rust-backend/src/smt.rs",
         anchor: "fn smt_lemmas(",
         opening: "fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {",
-        lines: 12,
-        digest: "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
+        lines: 18,
+        digest: "54eeec1ad230a9ddb12cfed3ba8041ee71f64b21580ed09782a3a3023777fda8",
     },
     passage::Passage {
         file: "crates/k-rust/src/kompile/module_to_kore.rs",

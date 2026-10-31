@@ -587,7 +587,9 @@ export interface ContradictedClaimFields {
 /**
  * A value the definition leaves open that a run read: the hook that computed it and what is open
  * about it. For `fresh-association`, a choice of the compiler, `hook` is the `UNIQUE_ID` of the
- * rule with two or more `!` names whose candidate a step built.
+ * rule with two or more `!` names whose candidate a step built. For `literal`, a literal whose
+ * element the literal rules leave open, `hook` is the `UNIQUE_ID` of the rule or equation holding
+ * it, which a step attempted, or the request's own literal as written.
  */
 export interface ChosenValue {
   hook: string
@@ -610,6 +612,7 @@ export type ChosenClass =
   | 'float-rounding'
   | 'curve'
   | 'outside-domain'
+  | 'literal'
 
 /**
  * The `UNIQUE_ID`s of the rules and equations a run used, each list sorted: `applied` those it
@@ -993,6 +996,8 @@ export type SearchFailure =
       predicates: Kore[]
       satisfiability: SearchSatisfiability
     }
+  /** A rule holds literals whose element the definition leaves open (class literal); not a solver query. */
+  | { kind: 'open-literal'; rule: string; literals: string[] }
 
 export type SearchIncomplete =
   | { kind: 'result-bound' }

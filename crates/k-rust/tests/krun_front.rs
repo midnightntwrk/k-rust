@@ -513,6 +513,7 @@ mod cli {
                 moving_average_timeout: false,
                 capture_stdout: false,
                 execution_input: None,
+                request_literals: term.request_literals,
             },
         )
     }

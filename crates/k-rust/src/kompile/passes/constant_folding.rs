@@ -370,6 +370,15 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         {
             return None;
         }
+        // A token whose text names an element the literal rules leave open (an infinity, in
+        // `Infinity`'s lexeme, which no rule of the text gives a value) would make the emitted
+        // definition hold one of several elements where the source computes a value, so the
+        // application stays as written (`k_rust_backend::literal`).
+        if let (Some(kind), Ok(text)) = (self.facts.domain_kind(&result_sort), value.as_utf8())
+            && k_rust_backend::literal::open(kind, text)
+        {
+            return None;
+        }
         Some(Term::Token {
             token: token_text(value, self.facts.hook(&application.result_sort), encoding)?,
             sort: application.result_sort.clone(),
@@ -384,6 +393,14 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     fn argument(&self, token: &str, sort: &Sort, declared: Option<&Sort>) -> Option<BackendTerm> {
         let (backend, encoding) = emitted(sort);
         let payload = token_payload(token, self.facts.hook(sort), encoding).ok()?;
+        // An argument whose element the literal rules leave open is one of several elements, and
+        // the fold's value would be one of several values: the application stays as written
+        // (`k_rust_backend::literal`).
+        if let (Some(kind), Ok(text)) = (self.facts.domain_kind(&backend), payload.as_utf8())
+            && k_rust_backend::literal::open(kind, text)
+        {
+            return None;
+        }
         let value = BackendTerm::domain_value_in(self.facts, backend, payload)?;
         let Some(declared) = declared
             .map(backend_sort)

@@ -1176,6 +1176,14 @@ fn value_production_ceil_equations(
         crate::simplify::scan::equation_probe(definition, term),
     );
     for rule in selection.groups().flat_map(|(_, rules)| rules) {
+        // A ceil equation holding an open literal leaves the existence opaque outside an
+        // execution, as an undecided matching does (`crate::literal`).
+        if crate::literal::withheld(
+            &rule.computed_attributes.open_literals,
+            &rule.attributes.unique_id,
+        ) {
+            return None;
+        }
         let (rule, instances) = equation_instances(definition, rule, term, &[]);
         let instances = match instances {
             EquationInstances::NotMatched(_) => continue,
@@ -1275,6 +1283,14 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
     );
     for (_, rules) in selection.groups() {
         for rule in rules {
+            // A ceil equation holding an open literal is marked in an execution and not used
+            // elsewhere (`crate::literal`); each ceil equation is an axiom of its own.
+            if crate::literal::withheld(
+                &rule.computed_attributes.open_literals,
+                &rule.attributes.unique_id,
+            ) {
+                continue;
+            }
             let (rule, instances) = equation_instances(definition, rule, term, &[]);
             let instances = match instances {
                 EquationInstances::NotMatched(_) => continue,

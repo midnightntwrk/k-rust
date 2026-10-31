@@ -535,6 +535,11 @@ impl Join<'_, '_> {
     /// Whether no instance of `subject` (its variables read as normal forms) is an instance of
     /// `rule`'s left-hand side at which its `requires` may hold.
     fn refuted_at(&mut self, rule: &RewriteRule, subject: &Term) -> bool {
+        // An equation holding a literal whose element the definition leaves open is apart from
+        // no subject on that element, so it is never refuted (`crate::literal`).
+        if !rule.computed_attributes.open_literals.is_empty() {
+            return false;
+        }
         let renamed =
             rename_apart(rule, &subject.attributes().variables, &[]).map(|(renamed, _)| renamed);
         let rule = renamed.as_ref().unwrap_or(rule);
@@ -670,6 +675,10 @@ impl Join<'_, '_> {
         subject: &Term,
         restore: &Substitution,
     ) -> Option<Step> {
+        // Nor does it step: its result is one element's (`crate::literal`).
+        if !rule.computed_attributes.open_literals.is_empty() {
+            return None;
+        }
         if !rule.ensures.is_empty() || !rule.computed_attributes.unbound_result_variables.is_empty()
         {
             return None;

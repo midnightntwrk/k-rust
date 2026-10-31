@@ -3414,6 +3414,16 @@ fn apply_ceil_theory(
     );
     for (_, rules) in selection.groups() {
         match scan_group(rules, indeterminate, |rule| {
+            // A ceil equation holding an open literal (`crate::literal`): undecided outside an
+            // execution.
+            if crate::literal::withheld(
+                &rule.computed_attributes.open_literals,
+                &rule.attributes.unique_id,
+            ) {
+                return Ok(EquationAttempt::Indeterminate(
+                    ConditionIndeterminacy::ImplicationIndeterminate,
+                ));
+            }
             apply_ceil_equation(
                 definition,
                 rule,
@@ -3845,6 +3855,13 @@ fn apply_predicate_theory(
     );
     for (_, rules) in selection.groups() {
         match scan_group(rules, indeterminate, |rule| {
+            // A predicate equation holding an open literal (`crate::literal`): undecided outside
+            // an execution.
+            if crate::literal::withheld(&rule.open_literals, &rule.attributes.unique_id) {
+                return Ok(EquationAttempt::Indeterminate(
+                    ConditionIndeterminacy::ImplicationIndeterminate,
+                ));
+            }
             apply_predicate_equation(
                 definition,
                 rule,
@@ -5939,6 +5956,14 @@ fn matches_top_equation(
     );
     for (_, rules) in selection.groups() {
         for rule in rules {
+            // A lemma holding an open literal is marked in an execution and not used elsewhere
+            // (`crate::literal`); a lemma not used leaves the operand as it is.
+            if crate::literal::withheld(
+                &rule.computed_attributes.open_literals,
+                &rule.attributes.unique_id,
+            ) {
+                continue;
+            }
             let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
             let instances = match instances {
                 EquationInstances::NotMatched(_) => continue,

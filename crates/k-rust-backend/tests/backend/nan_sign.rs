@@ -25,6 +25,8 @@ module MAIN
   hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
   hooked-symbol signFloat{}(SortFloat{}) : SortBool{}
     [function{}(), total{}(), hook{}("FLOAT.sign")]
+  hooked-symbol mulFloat{}(SortFloat{}, SortFloat{}) : SortFloat{}
+    [function{}(), total{}(), hook{}("FLOAT.mul")]
 endmodule []"#;
 
 fn definition() -> BackendDefinition {
@@ -95,24 +97,35 @@ fn the_sign_of_a_nan_is_false_inside_an_execution() {
 }
 
 /// The sign of every other value is its sign bit, in every mode.
+///
+/// GAP K3 re-pin: the infinities are reached by the product's overflow, which `fp.mul` with
+/// `roundNearestTiesToEven` fixes, no longer written `-Infinity`: no value rule names the element
+/// of an `Infinity` lexeme, so a request holding one is refused outside an execution
+/// (`definition::DefinitionError::OpenLiteral`). `Infinityp113x15`, of a format whose arithmetic
+/// k-rust does not compute, gives way to a positive finite value of that format.
 #[test]
 fn every_other_sign_is_evaluated_in_every_mode() {
     let definition = definition();
+    let float = |token: &str| format!(r#"\dv{{SortFloat{{}}}}("{token}")"#);
+    let product =
+        |left: &str, right: &str| format!("mulFloat{{}}({}, {})", float(left), float(right));
     for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
-        for (token, negative) in [
-            ("-0.0", true),
-            ("-Infinity", true),
-            ("-Infinityf", true),
-            ("-1e0p113x15", true),
-            ("0.0", false),
-            ("Infinityp113x15", false),
-            ("1.5f", false),
+        for (operand, negative) in [
+            (float("-0.0"), true),
+            (product("-1.0e308", "10.0"), true),
+            (product("-3.0e38f", "10.0f"), true),
+            (float("-1e0p113x15"), true),
+            (float("0.0"), false),
+            (product("1.0e308", "10.0"), false),
+            (float("1e0p113x15"), false),
+            (float("1.5f"), false),
         ] {
-            let (term, _) = with_evaluation(mode, || simplified(&definition, &sign(token)));
+            let source = format!("signFloat{{}}({operand})");
+            let (term, _) = with_evaluation(mode, || simplified(&definition, &source));
             assert_eq!(
                 term,
                 internal_term(&definition, &boolean(negative)),
-                "{mode:?} {token}"
+                "{mode:?} {operand}"
             );
         }
     }

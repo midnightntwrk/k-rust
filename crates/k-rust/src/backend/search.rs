@@ -56,6 +56,10 @@ pub struct BackendMatchTarget {
     /// (`RequestNames::of_received`): names of the request that the execution or search
     /// matched against it mints none of.
     pub request_names: RequestNames,
+    /// The target's literals whose element the definition leaves open, as written: the
+    /// execution or search matched against it reads them, and marks every path
+    /// (`k_rust_backend::definition::Admitted::for_execution`).
+    pub request_literals: Vec<std::sync::Arc<str>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -237,13 +241,17 @@ pub fn prepare_backend_match_target(
         ))
         .into());
     }
-    let pattern = admitted.internalize_pattern()?;
+    // A target is matched by an execution or a search of a program (`krun`), which takes
+    // k-rust's element of an open literal and marks it.
+    let literals = k_rust_backend::definition::RequestLiterals::new();
+    let pattern = admitted.for_execution(&literals).internalize_pattern()?;
     let generated_anonymous_variables =
         map_generated_anonymous_variables(&pattern, &compiled.generated_anonymous_variables)?;
     Ok(BackendMatchTarget {
         pattern,
         generated_anonymous_variables,
         request_names: RequestNames::of_received(&[&compiled.pattern]),
+        request_literals: literals.to_vec(),
     })
 }
 
