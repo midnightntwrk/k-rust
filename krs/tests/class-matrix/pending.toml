@@ -7413,7 +7413,7 @@ deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
 
 ["k8/terms/readable/map-key/or-branch/k::is!(Int, x)"]
 finding = "S0-14"
-deviation = "sort-test-in-pattern's refusal advises `a || b`, which cells/subject/pc/k::configuration::Cell(x), terms/rule/guard/k::is!(Int, x) does not write (terms/alias/result/x || true does)"
+deviation = "sort-test-in-pattern's refusal advises `a || b`, which cells/subject/pc/k::configuration::Cell(x), terms/rule/guard/k::is!(Int, x), terms/desugar/subject-typed/x does not write (terms/alias/result/x || true does)"
 
 ["k8/terms/readable/map-key/or-branch/k::lexeme!(Word, \"word\")"]
 finding = "S0-14"
@@ -7959,3 +7959,19 @@ deviation = "advice of anonymous-rest-in-map-literal: refused: krs::syntax::rust
 ["readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
 finding = "NT-19-2"
 deviation = "krs::syntax::rust-syntax @ spelling"
+
+
+# NT-14-2 (K7): static expansion compares a token's text, not its value: the subject
+# `k::bytes!(b"ab")`, which KRS writes `b"ab"`, does not meet a program writing the same bytes
+# `b"\x61\x62"` ("survived expansion"). The run is the case's second witness of the same value,
+# listed with the counter runs (`terms::drivers::static_counter_plans`). So with other tokens'
+# spellings (`+1` and `1`, `1.50` and `1.5`, String escapes). A k-rust matcher question, outside
+# NT-14. Probe: `bz(k::bytes!(b"ab"))` with the program `bz(b"\x61\x62")`.
+
+["k7/terms/alias/subject/k::bytes!(b\"ab\")"]
+finding = "NT-14-2"
+deviation = "counter-witness `cf7f18262(1, b\"\\x61\\x62\")`: failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCf7f18262' survived expansion"
+
+["k7/terms/desugar/subject/k::bytes!(b\"ab\")"]
+finding = "NT-14-2"
+deviation = "counter-witness `cde9c5e43(1, b\"\\x61\\x62\")`: failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCde9c5e43' survived expansion"

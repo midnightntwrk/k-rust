@@ -165,9 +165,9 @@ code = "krs::collect::invalid-configuration"
 doc = "an item after the rest of the computation cell, which is matched from its front"
 advice = "none"
 
-[class.concatenation-in-alias-subject]
-code = "krs::analysis::irreversible-alias"
-doc = "a set's concatenation `set::concat(a, b)` in an alias clause's subject, which is also built when a result is printed: forward it matches only a set whose parts are disjoint, and the parts the result's match binds may overlap, which prints as a concatenation that denotes no set; told by the concatenation's head (NT-8)"
+[class.collection-in-static-subject]
+code = "krs::analysis::collection-in-static-subject"
+doc = "a collection of two or more parts below an alias's or a desugar's subject root, a set's or a list's concatenation (`set::concat(a, b)`, `[x, ..]`, `[1, 2]`) or a map of several entries: static expansion matches it as written, without reordering a set's parts or regrouping a list's (`[1, 2, 3]` misses `list::concat([1, 2], [3])`), so it stands for one of its spellings rather than for the collection; told by its head (NT-14)"
 advice = "terms/desugar/subject/k::builtin::set::item(x)"
 
 [class.condition-on-static-clause]
@@ -491,7 +491,7 @@ advice = ["readable/result/job/[..]", "claim/result/job/[..]"]
 
 [class.rest-in-alias-subject]
 code = "krs::expand::irreversible-alias"
-doc = "a list's anonymous rest `..` in an alias clause's subject, which is also built when a result is printed: the elements it leaves unnamed have no value from the result's match and print as a variable; a named rest `rest @ ..` the result uses prints as the list it bound (NT-8)"
+doc = "a list's anonymous rest `..` in an alias clause's subject, which is also built when a result is printed: the elements it leaves unnamed have no value from the result's match and print as a variable (NT-8); a list of an element and a rest, named or not, is moreover one spelling of the list (`collection-in-static-subject`)"
 advice = "terms/desugar/subject/x"
 
 [class.rest-outside-pattern]
@@ -549,7 +549,7 @@ advice = "attrs/{form}/smt_lemma of an smtlib function"
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
 doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern; or in an alias's or a desugar's subject, which static expansion matches as written, where the test would stand for its spelling (decision NT-11-5)"
-advice = ["cells/subject/pc/k::configuration::Cell(x)", "terms/rule/guard/k::is!(Int, x)"]
+advice = ["cells/subject/pc/k::configuration::Cell(x)", "terms/rule/guard/k::is!(Int, x)", "terms/desugar/subject-typed/x"]
 
 [class.static-result-sort]
 code = "krs::analysis::invalid-term"
@@ -561,12 +561,10 @@ code = "krs::analysis::invalid-static-clause"
 doc = "a desugar or alias clause whose subject's root is no production marked as the clause is (a constructor of an unmarked production, a function, a value): the root is the production the clause expands"
 advice = ["terms/alias/subject/1", "terms/desugar/subject/x"]
 
-# A compiler class no generated case makes: the catalog's static applications (`Cmd::Dz()`,
-# `Cmd::Az()`) are ground, and expand.
 [class.unexpandable-static-application]
 code = "krs::analysis::invalid-static-clause"
 doc = "an application of an alias or desugar production below a static clause's subject root whose expansion needs a value: a program's application is expanded before the clause is tried, so the clause matches the expansion, which KRS writes in the clause where its arguments are ground, or the production is not recursive and has one clause whose parameters are plain names; otherwise which term the application stands for depends on what a program writes (NT-14)"
-advice = "none"
+advice = "terms/desugar/subject/Cmd::Dn(1)"
 
 [class.turbofish-instance-sort]
 code = "krs::analysis::parametric-instance"

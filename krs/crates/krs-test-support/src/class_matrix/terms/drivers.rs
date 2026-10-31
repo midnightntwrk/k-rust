@@ -90,10 +90,18 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
 /// counter-witnesses, where its plan reads the witness, and, where the hole stands in an exact
 /// collection (a set's singleton), on the hole's witness beside an item more, each of which must
 /// not apply the case's sentence. A run takes one step fewer than the sentence's plan (it stops
-/// before the sentence), and an equation's call leaves `Probe` unevaluated. None for a static
-/// clause, whose production a program that does not match its subject is left unexpanded, an
-/// error rather than an observation.
+/// before the sentence), and an equation's call leaves `Probe` unevaluated. A static clause's
+/// counter run is a program its subject does not match, whose expansion therefore leaves the
+/// case's production unexpanded ([`Status::Unexpanded`]); and the Bytes token `b"ab"` is also
+/// written `b"\x61\x62"`, the same value, which the clause must expand too (finding NT-14-2:
+/// static expansion compares the token's text).
 pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
+    if matches!(
+        (slot.form, slot.position, slot.opener),
+        ("desugar" | "alias", "subject", None)
+    ) {
+        return static_counter_plans(slot, spelling, command);
+    }
     if undriven(slot).is_some() || matches!(slot.form, "desugar" | "alias") {
         return Vec::new();
     }
@@ -128,6 +136,38 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
             Some(run)
         })
         .collect()
+}
+
+/// A static clause's counter runs ([`counter_plans`]).
+fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
+    let mut runs = spelling
+        .counter
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|counter| {
+            let K7::Run(mut run) = Driver::new(slot, spelling, command, Some(counter), false)
+                .plan()
+                .ok()?
+            else {
+                return None;
+            };
+            run.cells = Vec::new();
+            run.status = Status::Unexpanded;
+            Some(run)
+        })
+        .collect::<Vec<_>>();
+    if spelling.text == "k::bytes!(b\"ab\")" {
+        runs.push(Run {
+            program: format!("{}(1, b\"\\x61\\x62\")", command.terminal()),
+            variables: Vec::new(),
+            depth: 0,
+            steps: 0,
+            cells: vec![("k".to_owned(), Ground::Seq(vec![hold(int(1))]))],
+            status: Status::Liveness,
+        });
+    }
+    runs
 }
 
 impl<'a> Driver<'a> {
@@ -218,6 +258,7 @@ impl Driver<'_> {
                 ));
             }
             None | Some("as-body" | "or-branch" | "rewrite-left") => witness,
+            Some("argument") => Ground::ctor("Cmd::Hold", vec![witness]),
             // `z`, a name nothing else binds, is any term: 0.
             Some("beside-fresh") => pair(witness, int(0)),
             Some("set-element-beside-fresh") => singleton(pair(witness, int(0))),
@@ -819,8 +860,25 @@ impl Driver<'_> {
                 SkipKind::Form,
                 "the base applies no function but Probe and Size from a rule",
             )),
+            // The case's rule writes the clause's production applied to the witness, which
+            // kompile expanded: `drive(N)` takes one step to the clause's result.
+            ("desugar" | "alias", "subject-written") => {
+                let witness = self.witness()?;
+                super::written(&witness.term).ok_or_else(|| {
+                    K7::skip(
+                        SkipKind::Witness,
+                        format!("no rule writes {} as one term", witness.term),
+                    )
+                })?;
+                Self::applied(
+                    &Ground::ctor("Cmd::Drive", vec![int(i64::from(self.command.drive()))]),
+                    1,
+                    vec![k(vec![hold(one())])],
+                    witness.status,
+                )
+            }
             // A static clause expands what a program writes as `krs run` parses it: no step.
-            ("desugar" | "alias", "subject") => {
+            ("desugar" | "alias", "subject" | "subject-typed") => {
                 let witness = self.witness()?;
                 literal(&witness.term)?;
                 Self::expanded(

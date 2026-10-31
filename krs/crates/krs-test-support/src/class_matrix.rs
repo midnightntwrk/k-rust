@@ -402,6 +402,17 @@ impl Command {
         self.name.to_lowercase()
     }
 
+    /// The case's own number, the hash its name holds: what `Cmd::Drive` takes to apply a rule of
+    /// the case's own, as no other case's does.
+    ///
+    /// # Panics
+    ///
+    /// Never: a command's name is `C` and eight hexadecimal digits.
+    #[must_use]
+    pub fn drive(&self) -> u32 {
+        u32::from_str_radix(&self.name[1..], 16).expect("a command's name is `C` and a hash")
+    }
+
     fn declare(&self, text: &mut String) {
         let terminal = self.terminal();
         let marker = self

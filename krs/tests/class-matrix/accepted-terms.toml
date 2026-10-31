@@ -1295,6 +1295,24 @@ rule cTAG ( V0:KItem ) => pair ( V0:KItem , hold ( V0:KItem ) ) [label(krsRule_D
 syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 """
 
+[accept."import/alias/subject-written/Go()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 608129886 ) => cTAG ( 1 , go ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/alias/subject-written/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1603401745 ) => cTAG ( 1 , hold ( 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."import/alias/subject/Go()"]
 k = """
 rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
@@ -1698,6 +1716,38 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 [accept."import/desugar/result/Hold(x)"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/desugar/subject-typed/Go()"]
+k = """
+rule cTAG ( V0:Int , go ) => hold ( V0:Int ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/desugar/subject-typed/Hold(x)"]
+k = """
+rule cTAG ( V0:Int , hold ( V0:Int ) ) => hold ( V0:Int ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/desugar/subject-written/Go()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 829261835 ) => cTAG ( 1 , go ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/desugar/subject-written/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 95262454 ) => cTAG ( 1 , hold ( 1 ) ) [label(drive-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
@@ -2564,7 +2614,7 @@ syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 
 [accept.'terms/alias/result/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem ) => pair ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+rule cTAG ( V0:KItem ) => pair ( V0:KItem , #token("b\"ab\"","Bytes") ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 '''
@@ -2697,6 +2747,186 @@ rule cTAG ( V0:KItem ) => pair ( V0:KItem , ( #let V1:KItem = V0:KItem #in V1:KI
 syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 """
 
+[accept.'terms/alias/subject-written/"s"']
+k = '''
+rule cTAG ( V0:KItem , #token("\"s\"","String") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1410324814 ) => cTAG ( 1 , #token("\"s\"","String") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/alias/subject-written/-1"]
+k = """
+rule cTAG ( V0:KItem , -1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3738361097 ) => cTAG ( 1 , -1 ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/1"]
+k = """
+rule cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1860052318 ) => cTAG ( 1 , 1 ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/1.5"]
+k = """
+rule cTAG ( V0:KItem , 1.5 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1456790527 ) => cTAG ( 1 , 1.5 ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/Cmd::Az()"]
+k = """
+rule cTAG ( V0:KItem , pair ( 4 , 5 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3541867233 ) => cTAG ( 1 , pair ( 4 , 5 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , pair ( 1 , 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1761588203 ) => cTAG ( 1 , pair ( 1 , 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/Cmd::Dz()"]
+k = """
+rule cTAG ( V0:KItem , pair ( 2 , 3 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1306005076 ) => cTAG ( 1 , pair ( 2 , 3 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 4204440655 ) => cTAG ( 1 , hold ( 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/Cmd::Rc(1)"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2029511936 ) => cTAG ( 1 , hold ( go ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , pair ( V0:KItem , V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2313632083 ) => cTAG ( 1 , pair ( 1 , 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2644511129 ) => cTAG ( 1 , SetItem(1) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/k::bytes!(b\"'\")"]
+k = '''
+rule cTAG ( V0:KItem , #token("b\"'\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 92492274 ) => cTAG ( 1 , #token("b\"'\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject-written/k::bytes!(b"\\")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\\\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2735052307 ) => cTAG ( 1 , #token("b\"\\\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject-written/k::bytes!(b"\n\x0c")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\n\f\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1569778264 ) => cTAG ( 1 , #token("b\"\n\f\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject-written/k::bytes!(b"\x00\xff")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\x00\xff\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3005140335 ) => cTAG ( 1 , #token("b\"\x00\xff\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject-written/k::bytes!(b"a\"b")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"a\x22b\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1643393106 ) => cTAG ( 1 , #token("b\"a\x22b\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject-written/k::bytes!(b"ab")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1540222376 ) => cTAG ( 1 , #token("b\"ab\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject-written/k::id!("$x")']
+k = """
+rule cTAG ( V0:KItem , #token("$x","Id") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2870657627 ) => cTAG ( 1 , #token("$x","Id") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept.'terms/alias/subject-written/k::lexeme!(Word, "word")']
+k = """
+rule cTAG ( V0:KItem , #token("word","Word") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2917669734 ) => cTAG ( 1 , #token("word","Word") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject-written/true"]
+k = """
+rule cTAG ( V0:KItem , true ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3960483943 ) => cTAG ( 1 , true ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
 [accept.'terms/alias/subject/"s"']
 k = '''
 rule cTAG ( V0:KItem , #token("\"s\"","String") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
@@ -2746,9 +2976,79 @@ rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_D
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/alias/subject/Cmd::Qb(Cmd::Pair(0, 0))"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/Cmd::Rc(1)"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/Cmd::Tw(Cmd::Hold(x))"]
+k = """
+rule cTAG ( V0:KItem , pair ( hold ( V0:KItem ) , hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , pair ( V0:KItem , V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/alias/subject/Wrap::<dyn k::KItemSort>(x)"]
 k = """
 rule cTAG ( V0:KItem , wrap ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/argument/1"]
+k = """
+rule cTAG ( V0:KItem , hold ( 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/argument/Cmd::Az()"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( 4 , 5 ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/argument/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( 1 , 1 ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/argument/Cmd::Dz()"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( 2 , 3 ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/argument/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/alias/subject/argument/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( V0:KItem , V0:KItem ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
 """
@@ -2759,6 +3059,41 @@ rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_D
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
 """
+
+[accept."terms/alias/subject/k::bytes!(b\"'\")"]
+k = '''
+rule cTAG ( V0:KItem , #token("b\"'\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject/k::bytes!(b"\\")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\\\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject/k::bytes!(b"\n\x0c")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\n\f\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject/k::bytes!(b"\x00\xff")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\x00\xff\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/alias/subject/k::bytes!(b"a\"b")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"a\x22b\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+'''
 
 [accept.'terms/alias/subject/k::bytes!(b"ab")']
 k = '''
@@ -2954,7 +3289,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells-claim/item-root/k::bytes!(b"ab")']
 k = '''
 claim [case-TAG]:
-<k> #token("b\"\x61\x62\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> #token("b\"ab\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3098,7 +3433,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells-claim/result-item-root/k::bytes!(b"ab")']
 k = '''
 claim [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => #token("b\"\x61\x62\"","Bytes") ... </k>
+<k> cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3258,7 +3593,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells-claim/result/k::bytes!(b"ab")']
 k = '''
 claim [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3442,7 +3777,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells-claim/subject/k::bytes!(b"ab")']
 k = '''
 claim [case-TAG]:
-<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => .K ... </k>
+<k> cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3578,7 +3913,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells-local/subject/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( (V0:KItem => go) , #token("b\"\x61\x62\"","Bytes") ) ... </k>
+<k> cTAG ( (V0:KItem => go) , #token("b\"ab\"","Bytes") ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3706,7 +4041,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells/item-root/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> #token("b\"\x61\x62\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> #token("b\"ab\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3953,7 +4288,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> pair ( #token("b\"\x61\x62\"","Bytes") , V1:KItem ) |-> V2:KItem ... </env>
+<env> pair ( #token("b\"ab\"","Bytes") , V1:KItem ) |-> V2:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4025,7 +4360,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> #token("b\"\x61\x62\"","Bytes") |-> V1:KItem ... </env>
+<env> #token("b\"ab\"","Bytes") |-> V1:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4178,7 +4513,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> V0:KItem |-> #token("b\"\x61\x62\"","Bytes") ... </env>
+<env> V0:KItem |-> #token("b\"ab\"","Bytes") ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4319,7 +4654,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/cells/result-item-root/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => #token("b\"\x61\x62\"","Bytes") ... </k>
+<k> cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4494,7 +4829,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => #token("b\"\x61\x62\"","Bytes") |-> 1 </env>
+<env> _ => #token("b\"ab\"","Bytes") |-> 1 </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4665,7 +5000,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> #token("b\"\x61\x62\"","Bytes") </env>
+<env> _ => V0:KItem |-> #token("b\"ab\"","Bytes") </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4833,7 +5168,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/cells/result/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -4985,7 +5320,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/cells/subject/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => .K ... </k>
+<k> cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -5155,7 +5490,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/claim/item-root/k::bytes!(b"ab")']
 k = '''
 claim [case-TAG]:
-<k> #token("b\"\x61\x62\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> #token("b\"ab\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -5331,7 +5666,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/claim/result-item-root/k::bytes!(b"ab")']
 k = '''
 claim [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => #token("b\"\x61\x62\"","Bytes") ... </k>
+<k> cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -5589,7 +5924,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/claim/result/k::bytes!(b\"ab\")"]
 k = '''
 claim [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -5863,7 +6198,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/claim/subject/k::bytes!(b\"ab\")"]
 k = '''
 claim [case-TAG]:
-<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => .K ... </k>
+<k> cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -6395,7 +6730,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), forma
 
 [accept.'terms/context/subject/k::bytes!(b"ab")']
 k = '''
-context [case-TAG]: cTAG ( V0:KItem , V1:KItem , #token("b\"\x61\x62\"","Bytes") )
+context [case-TAG]: cTAG ( V0:KItem , V1:KItem , #token("b\"ab\"","Bytes") )
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
 '''
@@ -6642,7 +6977,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 
 [accept.'terms/desugar/result/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+rule cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 '''
@@ -6775,6 +7110,200 @@ rule cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in V1:KItem ) )
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/desugar/subject-typed/1"]
+k = """
+rule cTAG ( V0:Int , 1 ) => hold ( V0:Int ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-typed/x"]
+k = """
+rule cTAG ( V0:Int , V0:Int ) => hold ( V0:Int ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept.'terms/desugar/subject-written/"s"']
+k = '''
+rule cTAG ( V0:KItem , #token("\"s\"","String") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1593715793 ) => cTAG ( 1 , #token("\"s\"","String") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept."terms/desugar/subject-written/-1"]
+k = """
+rule cTAG ( V0:KItem , -1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2754275300 ) => cTAG ( 1 , -1 ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/1"]
+k = """
+rule cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1384316297 ) => cTAG ( 1 , 1 ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/1.5"]
+k = """
+rule cTAG ( V0:KItem , 1.5 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 4108942960 ) => cTAG ( 1 , 1.5 ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/Cmd::Az()"]
+k = """
+rule cTAG ( V0:KItem , pair ( 4 , 5 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3130176538 ) => cTAG ( 1 , pair ( 4 , 5 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , pair ( 1 , 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 4135167094 ) => cTAG ( 1 , pair ( 1 , 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/Cmd::Dz()"]
+k = """
+rule cTAG ( V0:KItem , pair ( 2 , 3 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2242347519 ) => cTAG ( 1 , pair ( 2 , 3 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2249147338 ) => cTAG ( 1 , hold ( 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/Cmd::Rc(1)"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 411735185 ) => cTAG ( 1 , hold ( go ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , pair ( V0:KItem , V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3721408542 ) => cTAG ( 1 , pair ( 1 , 1 ) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 270382504 ) => cTAG ( 1 , SetItem(1) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/k::bytes!(b\"'\")"]
+k = '''
+rule cTAG ( V0:KItem , #token("b\"'\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 4054814821 ) => cTAG ( 1 , #token("b\"'\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject-written/k::bytes!(b"\\")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\\\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 206276826 ) => cTAG ( 1 , #token("b\"\\\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject-written/k::bytes!(b"\n\x0c")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\n\f\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 98576293 ) => cTAG ( 1 , #token("b\"\n\f\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject-written/k::bytes!(b"\x00\xff")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\x00\xff\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3423366426 ) => cTAG ( 1 , #token("b\"\x00\xff\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject-written/k::bytes!(b"a\"b")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"a\x22b\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 2703889247 ) => cTAG ( 1 , #token("b\"a\x22b\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject-written/k::bytes!(b"ab")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 518226117 ) => cTAG ( 1 , #token("b\"ab\"","Bytes") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject-written/k::id!("$x")']
+k = """
+rule cTAG ( V0:KItem , #token("$x","Id") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 190580534 ) => cTAG ( 1 , #token("$x","Id") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept.'terms/desugar/subject-written/k::lexeme!(Word, "word")']
+k = """
+rule cTAG ( V0:KItem , #token("word","Word") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1195062191 ) => cTAG ( 1 , #token("word","Word") ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject-written/true"]
+k = """
+rule cTAG ( V0:KItem , true ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1609084974 ) => cTAG ( 1 , true ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
 [accept.'terms/desugar/subject/"s"']
 k = '''
 rule cTAG ( V0:KItem , #token("\"s\"","String") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
@@ -6840,6 +7369,54 @@ rule cTAG ( V0:KItem , pair ( V0:KItem , _ ) ) => hold ( V0:KItem ) [label(krsRu
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/desugar/subject/Cmd::Pair(1 | 2, 3 | 4)"]
+k = """
+rule cTAG ( V0:KItem , pair ( 1 , 3 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 1 , 4 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 2 , 3 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 2 , 4 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/Cmd::Qb(Cmd::Pair(0, 0))"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/Cmd::Rc(1)"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/Cmd::Tw(Cmd::Hold(x))"]
+k = """
+rule cTAG ( V0:KItem , pair ( hold ( V0:KItem ) , hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , pair ( V0:KItem , V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/Cmd::Tw(y @ Cmd::Hold(x))"]
+k = """
+rule cTAG ( V0:KItem , pair ( ( hold ( V0:KItem ) #as V1:Stmt ) , ( hold ( V0:KItem ) #as V1:Stmt ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/desugar/subject/Wrap::<dyn k::KItemSort>(x)"]
 k = """
 rule cTAG ( V0:KItem , wrap ( V0:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
@@ -6854,12 +7431,131 @@ rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/desugar/subject/argument/1"]
+k = """
+rule cTAG ( V0:KItem , hold ( 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/argument/Cmd::Az()"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( 4 , 5 ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/argument/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( 1 , 1 ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/argument/Cmd::Dz()"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( 2 , 3 ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/argument/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/argument/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( pair ( V0:KItem , V0:KItem ) ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/as-body/1"]
+k = """
+rule cTAG ( V0:KItem , ( 1 #as V1:KItem ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/as-body/Cmd::Az()"]
+k = """
+rule cTAG ( V0:KItem , ( pair ( 4 , 5 ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/as-body/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , ( pair ( 1 , 1 ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/as-body/Cmd::Dz()"]
+k = """
+rule cTAG ( V0:KItem , ( pair ( 2 , 3 ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/as-body/Cmd::Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , ( hold ( V0:KItem ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/as-body/Cmd::Tw(x)"]
+k = """
+rule cTAG ( V0:KItem , ( pair ( V0:KItem , V0:KItem ) #as V1:Stmt ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/desugar/subject/k::builtin::set::item(x)"]
 k = """
 rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
+
+[accept."terms/desugar/subject/k::bytes!(b\"'\")"]
+k = '''
+rule cTAG ( V0:KItem , #token("b\"'\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject/k::bytes!(b"\\")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\\\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject/k::bytes!(b"\n\x0c")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\n\f\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject/k::bytes!(b"\x00\xff")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"\x00\xff\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
+
+[accept.'terms/desugar/subject/k::bytes!(b"a\"b")']
+k = '''
+rule cTAG ( V0:KItem , #token("b\"a\x22b\"","Bytes") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+'''
 
 [accept.'terms/desugar/subject/k::bytes!(b"ab")']
 k = '''
@@ -6885,6 +7581,42 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 [accept.'terms/desugar/subject/k::lexeme!(Word, "word")']
 k = """
 rule cTAG ( V0:KItem , #token("word","Word") ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/or-branch/1"]
+k = """
+rule cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/or-branch/Cmd::Az()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 4 , 5 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/or-branch/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 1 , 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/or-branch/Cmd::Dz()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , pair ( 2 , 3 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
@@ -7082,7 +7814,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/equation/result/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+rule probe ( cTAG , V0:KItem ) => size ( #token("b\"ab\"","Bytes") ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -7301,7 +8033,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/equation/subject-depth-2/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => 0 [label(krsRule_DIGEST)]
+rule probe ( cTAG , hold ( #token("b\"ab\"","Bytes") ) ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -7441,7 +8173,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/equation/subject/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , #token("b\"\x61\x62\"","Bytes") ) => 0 [label(krsRule_DIGEST)]
+rule probe ( cTAG , #token("b\"ab\"","Bytes") ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -7687,7 +8419,7 @@ configuration
 [accept."terms/init/item-depth-2/k::bytes!(b\"ab\")"]
 k = '''
 configuration
-<k> $PGM:Stmt ~> hold ( hold ( #token("b\"\x61\x62\"","Bytes") ) ) </k>
+<k> $PGM:Stmt ~> hold ( hold ( #token("b\"ab\"","Bytes") ) ) </k>
 <env> .Map </env>
 <stack> .List </stack>
 <frame>
@@ -7995,7 +8727,7 @@ configuration
 [accept.'terms/init/item-root/k::bytes!(b"ab")']
 k = '''
 configuration
-<k> $PGM:Stmt ~> #token("b\"\x61\x62\"","Bytes") </k>
+<k> $PGM:Stmt ~> #token("b\"ab\"","Bytes") </k>
 <env> .Map </env>
 <stack> .List </stack>
 <frame>
@@ -8303,7 +9035,7 @@ configuration
 [accept."terms/init/item/k::bytes!(b\"ab\")"]
 k = '''
 configuration
-<k> $PGM:Stmt ~> hold ( #token("b\"\x61\x62\"","Bytes") ) </k>
+<k> $PGM:Stmt ~> hold ( #token("b\"ab\"","Bytes") ) </k>
 <env> .Map </env>
 <stack> .List </stack>
 <frame>
@@ -8491,7 +9223,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/local-rule/subject/k::bytes!(b\"ab\")"]
 k = '''
-rule cTAG ( (V0:KItem => go) , #token("b\"\x61\x62\"","Bytes") ) [label(case-TAG)]
+rule cTAG ( (V0:KItem => go) , #token("b\"ab\"","Bytes") ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -8603,7 +9335,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/local-rule/subject/rewrite-left/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( (V0:KItem => go) , (#token("b\"\x61\x62\"","Bytes") => go) ) [label(case-TAG)]
+rule cTAG ( (V0:KItem => go) , (#token("b\"ab\"","Bytes") => go) ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -8750,7 +9482,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/local-rule/subject/rewrite-right/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( (V0:KItem => go) , (_ => #token("b\"\x61\x62\"","Bytes")) ) [label(case-TAG)]
+rule cTAG ( (V0:KItem => go) , (_ => #token("b\"ab\"","Bytes")) ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -9071,7 +9803,7 @@ rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 <pool>
 <member>
-<item> hold ( #token("b\"\x61\x62\"","Bytes") ) </item>
+<item> hold ( #token("b\"ab\"","Bytes") ) </item>
 </member>
 ...
 </pool>
@@ -9275,7 +10007,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<seq> cons ( #token("b\"\x61\x62\"","Bytes") , V1:Items ) </seq>
+<seq> cons ( #token("b\"ab\"","Bytes") , V1:Items ) </seq>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -9506,7 +10238,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/readable/item-root/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> #token("b\"\x61\x62\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> #token("b\"ab\"","Bytes") ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -9671,7 +10403,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<stack> ListItem(#token("b\"\x61\x62\"","Bytes")) ... </stack>
+<stack> ListItem(#token("b\"ab\"","Bytes")) ... </stack>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -9879,7 +10611,7 @@ k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 <row>
-<id> hold ( #token("b\"\x61\x62\"","Bytes") ) </id>
+<id> hold ( #token("b\"ab\"","Bytes") ) </id>
 <value> go </value>
 </row>
 
@@ -10207,7 +10939,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> size ( #token("b\"\x61\x62\"","Bytes") ) |-> V1:KItem ... </env>
+<env> size ( #token("b\"ab\"","Bytes") ) |-> V1:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -10371,7 +11103,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> #token("b\"\x61\x62\"","Bytes") |-> V1:KItem ... </env>
+<env> #token("b\"ab\"","Bytes") |-> V1:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -10678,7 +11410,7 @@ rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 <row>
 <id> go </id>
-<value> hold ( #token("b\"\x61\x62\"","Bytes") ) </value>
+<value> hold ( #token("b\"ab\"","Bytes") ) </value>
 </row>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
@@ -10880,7 +11612,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/readable/result-item-root/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => #token("b\"\x61\x62\"","Bytes") ... </k>
+<k> cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -11161,7 +11893,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<stack> ListItem(_) V1:List => ListItem(#token("b\"\x61\x62\"","Bytes")) V1:List </stack>
+<stack> ListItem(_) V1:List => ListItem(#token("b\"ab\"","Bytes")) V1:List </stack>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -11445,7 +12177,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/readable/result/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -11733,7 +12465,7 @@ k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 <token>
-<mark> hold ( #token("b\"\x61\x62\"","Bytes") ) </mark>
+<mark> hold ( #token("b\"ab\"","Bytes") ) </mark>
 </token>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
@@ -11904,7 +12636,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/readable/subject-depth-2/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => .K ... </k>
+<k> cTAG ( V0:KItem , hold ( #token("b\"ab\"","Bytes") ) ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -12056,7 +12788,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/readable/subject/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => .K ... </k>
+<k> cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -12288,7 +13020,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/rule/guard/let-pattern/k::bytes!(b"ab")']
 k = '''
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
-requires ( #let #token("b\"\x61\x62\"","Bytes") = V0:KItem #in true ) [label(case-TAG)]
+requires ( #let #token("b\"ab\"","Bytes") = V0:KItem #in true ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -12392,7 +13124,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/rule/guard/matches-pattern/k::bytes!(b"ab")']
 k = '''
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
-requires ( #token("b\"\x61\x62\"","Bytes") :=K V0:KItem ) [label(case-TAG)]
+requires ( #token("b\"ab\"","Bytes") :=K V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -12577,7 +13309,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/rule/result-root/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem , _ ) => #token("b\"\x61\x62\"","Bytes") [label(case-TAG)]
+rule cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -12810,7 +13542,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/rule/result/k::bytes!(b\"ab\")"]
 k = '''
-rule cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) [label(case-TAG)]
+rule cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13029,7 +13761,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/rule/subject-depth-2/k::bytes!(b\"ab\")"]
 k = '''
-rule cTAG ( V0:KItem , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , hold ( #token("b\"ab\"","Bytes") ) ) => hold ( V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13316,7 +14048,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/rule/subject/as-body/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem , ( #token("b\"\x61\x62\"","Bytes") #as V1:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , ( #token("b\"ab\"","Bytes") #as V1:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13365,7 +14097,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/rule/subject/k::bytes!(b\"ab\")"]
 k = '''
-rule cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => hold ( V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13449,7 +14181,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/rule/subject/or-branch/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem , ( #token("b\"\x61\x62\"","Bytes") #Or go ) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , ( #token("b\"ab\"","Bytes") #Or go ) ) => hold ( V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13568,7 +14300,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/rule/subject/set-element-beside-fresh/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem , SetItem(pair ( #token("b\"\x61\x62\"","Bytes") , V1:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , SetItem(pair ( #token("b\"ab\"","Bytes") , V1:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13722,7 +14454,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/rule/subject/set-element/k::bytes!(b"ab")']
 k = '''
-rule cTAG ( V0:KItem , SetItem(#token("b\"\x61\x62\"","Bytes")) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , SetItem(#token("b\"ab\"","Bytes")) ) => hold ( V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -13918,7 +14650,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept.'terms/shorthand/result-root/k::bytes!(b"ab")']
 k = '''
-rule fTAG ( V0:KItem ) => #token("b\"\x61\x62\"","Bytes") [label(krsRule_DIGEST)]
+rule fTAG ( V0:KItem ) => #token("b\"ab\"","Bytes") [label(krsRule_DIGEST)]
 
 syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
 
@@ -14217,7 +14949,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/shorthand/result/k::bytes!(b\"ab\")"]
 k = '''
-rule fTAG ( V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+rule fTAG ( V0:KItem ) => size ( #token("b\"ab\"","Bytes") ) [label(krsRule_DIGEST)]
 
 syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
 
@@ -14568,7 +15300,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept.'terms/simplification/result-root/k::bytes!(b"ab")']
 k = '''
-rule probe ( cTAG , V0:KItem ) => #token("b\"\x61\x62\"","Bytes") [simplification, label(krsRule_DIGEST)]
+rule probe ( cTAG , V0:KItem ) => #token("b\"ab\"","Bytes") [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -14801,7 +15533,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/result/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [simplification, label(krsRule_DIGEST)]
+rule probe ( cTAG , V0:KItem ) => size ( #token("b\"ab\"","Bytes") ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -15055,7 +15787,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/subject/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , #token("b\"\x61\x62\"","Bytes") ) => 0 [simplification, label(krsRule_DIGEST)]
+rule probe ( cTAG , #token("b\"ab\"","Bytes") ) => 0 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -15231,7 +15963,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/result-root/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => #token("b\"\x61\x62\"","Bytes") ... </k>
+<k> cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -15585,7 +16317,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/result/function-argument/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( size ( #token("b\"\x61\x62\"","Bytes") ) ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( #token("b\"ab\"","Bytes") ) ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -15763,7 +16495,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/sort-rule/result/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"\x61\x62\"","Bytes") ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( #token("b\"ab\"","Bytes") ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -15931,7 +16663,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/result/let-body/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in #token("b\"\x61\x62\"","Bytes") ) ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in #token("b\"ab\"","Bytes") ) ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -16165,7 +16897,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/result/let-pattern/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( ( #let #token("b\"\x61\x62\"","Bytes") = V0:KItem #in V0:KItem ) ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let #token("b\"ab\"","Bytes") = V0:KItem #in V0:KItem ) ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -16269,7 +17001,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/result/matches-pattern/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => hold ( ( #token("b\"\x61\x62\"","Bytes") :=K V0:KItem ) ) ... </k>
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #token("b\"ab\"","Bytes") :=K V0:KItem ) ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -16429,7 +17161,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/result/update-field/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( #token("b\"\x61\x62\"","Bytes") , V1:KItem ) ) ... </k>
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( #token("b\"ab\"","Bytes") , V1:KItem ) ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -16769,7 +17501,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/sort-rule/subject-depth-2/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => hold ( V0:KItem ) ... </k>
+<k> cTAG ( V0:KItem , hold ( #token("b\"ab\"","Bytes") ) ) => hold ( V0:KItem ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -16914,7 +17646,7 @@ same_k_as = ["terms/sort-rule/subject-root/Wrap::<KItem>(x)"]
 [accept.'terms/sort-rule/subject-root-term/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> #token("b\"\x61\x62\"","Bytes") => go ... </k>
+<k> #token("b\"ab\"","Bytes") => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -17031,7 +17763,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept.'terms/sort-rule/subject-root/k::bytes!(b"ab")']
 k = '''
 rule [case-TAG]:
-<k> #token("b\"\x61\x62\"","Bytes") => go ... </k>
+<k> #token("b\"ab\"","Bytes") => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -17183,7 +17915,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/sort-rule/subject/k::bytes!(b\"ab\")"]
 k = '''
 rule [case-TAG]:
-<k> cTAG ( V0:KItem , #token("b\"\x61\x62\"","Bytes") ) => hold ( V0:KItem ) ... </k>
+<k> cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) => hold ( V0:KItem ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -17350,7 +18082,7 @@ same_k_as = ["terms/equation/result/k::builtin::set::item(x)"]
 
 [accept."terms/table/result/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , V0:KItem ) => size ( #token("b\"\x61\x62\"","Bytes") ) [label(krsRule_DIGEST)]
+rule probe ( cTAG , V0:KItem ) => size ( #token("b\"ab\"","Bytes") ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -17597,7 +18329,7 @@ same_k_as = ["terms/equation/subject-depth-2/k::builtin::set::item(x)"]
 
 [accept."terms/table/subject-depth-2/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , hold ( #token("b\"\x61\x62\"","Bytes") ) ) => 0 [label(krsRule_DIGEST)]
+rule probe ( cTAG , hold ( #token("b\"ab\"","Bytes") ) ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -17749,7 +18481,7 @@ same_k_as = ["terms/equation/subject/k::builtin::set::item(x)"]
 
 [accept."terms/table/subject/k::bytes!(b\"ab\")"]
 k = '''
-rule probe ( cTAG , #token("b\"\x61\x62\"","Bytes") ) => 0 [label(krsRule_DIGEST)]
+rule probe ( cTAG , #token("b\"ab\"","Bytes") ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
@@ -18282,7 +19014,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
-<env> pair ( #token("b\"\x61\x62\"","Bytes") , V1:KItem ) |-> V2:KItem ... </env>
+<env> pair ( #token("b\"ab\"","Bytes") , V1:KItem ) |-> V2:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -18588,7 +19320,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> pair ( #token("b\"\x61\x62\"","Bytes") , V1:KItem ) |-> V2:KItem ... </env>
+<env> pair ( #token("b\"ab\"","Bytes") , V1:KItem ) |-> V2:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -29350,6 +30082,15 @@ rule cTAG ( V0:KItem ) => pair ( V0:KItem , SetItem(V0:KItem) ) [label(krsRule_D
 syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 """
 
+[accept."notation/alias/subject-written/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 3465550436 ) => cTAG ( 1 , SetItem(1) ) [label(drive-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."notation/alias/subject/k::builtin::set::item(x)"]
 k = """
 rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
@@ -29998,6 +30739,15 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 same_k_as = ["notation/desugar/result/k::builtin::set::item(x)"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/subject-written/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+rule drive ( 1108144653 ) => cTAG ( 1 , SetItem(1) ) [label(drive-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
@@ -32644,7 +33394,7 @@ configuration
 [accept.'terms/init/variable-item/k::bytes!(b"ab")']
 k = '''
 configuration
-<k> $PGM:Stmt ~> $X:KItem ~> hold ( #token("b\"\x61\x62\"","Bytes") ) </k>
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( #token("b\"ab\"","Bytes") ) </k>
 <env> .Map </env>
 <stack> .List </stack>
 <frame>
@@ -33074,6 +33824,13 @@ rule cTAG ( V0:KItem , pair ( 4 , 5 ) ) => hold ( V0:KItem ) [label(krsRule_DIGE
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/alias/subject/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , pair ( 1 , 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/alias/subject/Cmd::Dz()"]
 k = """
 rule cTAG ( V0:KItem , pair ( 2 , 3 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
@@ -33296,6 +34053,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), forma
 [accept."terms/desugar/subject/Cmd::Az()"]
 k = """
 rule cTAG ( V0:KItem , pair ( 4 , 5 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/subject/Cmd::Dn(1)"]
+k = """
+rule cTAG ( V0:KItem , pair ( 1 , 1 ) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """

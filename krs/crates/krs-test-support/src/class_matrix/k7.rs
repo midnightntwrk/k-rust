@@ -223,7 +223,7 @@ impl Ground {
             Self::Bool(value) => value.to_string(),
             Self::String(text) => format!("{text:?}"),
             Self::Float(text) => text.clone(),
-            Self::Bytes(bytes) => format!("b\"{}\"", bytes.escape_ascii()),
+            Self::Bytes(bytes) => bytes_literal(bytes),
             Self::Token { sort, text } if sort == "Id" && text == "$x" => made("idx".to_owned())?,
             Self::Token { sort, text } if sort == "Word" => text.clone(),
             Self::Ctor { path, fields } => {
@@ -288,7 +288,7 @@ impl fmt::Display for Ground {
             Self::Bool(value) => write!(formatter, "{value}"),
             Self::String(text) => write!(formatter, "{text:?}"),
             Self::Float(text) | Self::Token { text, .. } => formatter.write_str(text),
-            Self::Bytes(bytes) => write!(formatter, "b\"{}\"", bytes.escape_ascii()),
+            Self::Bytes(bytes) => formatter.write_str(&bytes_literal(bytes)),
             Self::Ctor { path, fields } => {
                 write!(formatter, "{path}(")?;
                 list(formatter, fields)?;
@@ -331,6 +331,32 @@ impl fmt::Display for Ground {
     }
 }
 
+/// The Bytes literal a program writes for `bytes`, by K's lexical syntax for Bytes (`domains.md`,
+/// `BYTES-SYNTAX`), in the one spelling KRS writes a Bytes value in: a printable ASCII character
+/// but `"` and `\` as itself, `\` and a newline, a tab, a carriage return and a form feed by their
+/// one-letter escapes, and any other byte as `\xHH`, `"` included, which emitted K's `#token`
+/// cannot carry as `\"`. (Rust's `escape_ascii` writes `\'`, which K's lexer refuses.)
+fn bytes_literal(bytes: &[u8]) -> String {
+    let mut literal = String::from("b\"");
+    for &byte in bytes {
+        match byte {
+            b'\\' => literal.push_str("\\\\"),
+            b'"' => literal.push_str("\\x22"),
+            b'\n' => literal.push_str("\\n"),
+            b'\t' => literal.push_str("\\t"),
+            b'\r' => literal.push_str("\\r"),
+            0x0c => literal.push_str("\\f"),
+            b' '..=b'~' => literal.push(char::from(byte)),
+            _ => {
+                use std::fmt::Write as _;
+                write!(literal, "\\x{byte:02x}").expect("writing to a String cannot fail");
+            }
+        }
+    }
+    literal.push('"');
+    literal
+}
+
 /// What a spelling denotes where it is built, with the template's binders at their fixed values.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Meaning {
@@ -357,6 +383,9 @@ pub enum Status {
     /// The sentence applied: on the construct's witness, where it is matched, or to a value the
     /// generator does not state.
     Liveness,
+    /// A static clause's counter run: its subject does not match the program, so the program's
+    /// expansion leaves the case's production unexpanded, which `krs run` refuses to execute.
+    Unexpanded,
 }
 
 impl Status {
@@ -366,6 +395,7 @@ impl Status {
         match self {
             Self::Value => "value",
             Self::Liveness => "liveness",
+            Self::Unexpanded => "unexpanded",
         }
     }
 }

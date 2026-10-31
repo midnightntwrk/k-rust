@@ -61,8 +61,12 @@ k::sorts! {
 #[k::token(regex = r"w[a-z]*")]
 pub struct Word(pub String);
 
-/// The commands: three values the constructs build, the two static productions `Dz` and `Az`,
-/// and K7's driver commands (below the initializer), then one command per case.
+/// The commands: three values the constructs build, the static productions (`Dz` and `Az`,
+/// ground and of one clause each, and those whose expansion the clauses below decide: `Dn` of
+/// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
+/// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path), and K7's driver
+/// commands (below the initializer, and `Drive`, which a case's own rule writes its witness
+/// from), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -71,6 +75,13 @@ pub enum Cmd {
     #[k::syntax("pair({a}, {b})")] Pair { a: KItem, b: KItem },
     #[k::syntax("dz")] #[k::desugar] Dz(),
     #[k::syntax("az")] #[k::alias] Az(),
+    #[k::syntax("dn({a})")] #[k::desugar] Dn { a: Int },
+    #[k::syntax("rc({a})")] #[k::desugar(recursive)] Rc { a: Int },
+    #[k::syntax("tw({a})")] #[k::desugar] Tw { a: KItem },
+    #[k::syntax("lp({a})")] #[k::desugar(recursive)] Lp { a: Int },
+    #[k::syntax("pb({a})")] #[k::desugar] Pb { a: KItem },
+    #[k::syntax("qb({a})")] #[k::desugar] Qb { a: KItem },
+    #[k::syntax("drive({a})")] Drive { a: Int },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("sizeof({a})")] SizeOf { a: KItem },
@@ -104,8 +115,12 @@ k::sorts! {
 #[k::token(regex = r"w[a-z]*")]
 pub struct Word(pub String);
 
-/// The commands: three values the constructs build, the two static productions `Dz` and `Az`,
-/// and K7's driver commands (below the initializer), then one command per case.
+/// The commands: three values the constructs build, the static productions (`Dz` and `Az`,
+/// ground and of one clause each, and those whose expansion the clauses below decide: `Dn` of
+/// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
+/// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path), and K7's driver
+/// commands (below the initializer, and `Drive`, which a case's own rule writes its witness
+/// from), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -114,6 +129,13 @@ pub enum Cmd {
     #[k::syntax("pair({a}, {b})")] Pair { a: KItem, b: KItem },
     #[k::syntax("dz")] #[k::desugar] Dz(),
     #[k::syntax("az")] #[k::alias] Az(),
+    #[k::syntax("dn({a})")] #[k::desugar] Dn { a: Int },
+    #[k::syntax("rc({a})")] #[k::desugar(recursive)] Rc { a: Int },
+    #[k::syntax("tw({a})")] #[k::desugar] Tw { a: KItem },
+    #[k::syntax("lp({a})")] #[k::desugar(recursive)] Lp { a: Int },
+    #[k::syntax("pb({a})")] #[k::desugar] Pb { a: KItem },
+    #[k::syntax("qb({a})")] #[k::desugar] Qb { a: KItem },
+    #[k::syntax("drive({a})")] Drive { a: Int },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("sizeof({a})")] SizeOf { a: KItem },
@@ -282,6 +304,51 @@ fn az(k::term![Cmd::Az()]: Term<Stmt>) -> Term<Stmt> {
     Cmd::Pair(4, 5)
 }
 
+#[k::desugar]
+fn dn_zero(k::term![Cmd::Dn(0)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Go()
+}
+
+#[k::desugar]
+fn dn_one(k::term![Cmd::Dn(1)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Pair(1, 1)
+}
+
+#[k::desugar]
+fn rc_zero(k::term![Cmd::Rc(0)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Go()
+}
+
+#[k::desugar]
+fn rc_one(k::term![Cmd::Rc(1)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Hold(Cmd::Rc(0))
+}
+
+#[k::desugar]
+fn tw(k::term![Cmd::Tw(a)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Pair(a, a)
+}
+
+#[k::desugar]
+fn lp(k::term![Cmd::Lp(0)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Lp(0)
+}
+
+#[k::desugar]
+fn pb(k::term![Cmd::Pb(a)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Hold(Cmd::Qb(a))
+}
+
+#[k::desugar]
+fn qb_go(k::term![Cmd::Qb(Cmd::Go())]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Pb(Cmd::Pair(0, 0))
+}
+
+#[k::desugar]
+fn qb_pair(k::term![Cmd::Qb(Cmd::Pair(0, 0))]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Go()
+}
+
 k::rules! {
     for Machine;
 
@@ -395,6 +462,11 @@ struct Spelling {
     /// Whether the spelling stands only at the matched positions below a subject's root, as the
     /// applications of the static productions do ([`static_spellings`]).
     below_root_only: bool,
+    /// Whether the spelling stands only below a static clause's subject root, where KRS writes
+    /// what static expansion matches: the applications whose expansion the base's clauses decide
+    /// a program's way, and the Bytes spellings and alternatives that static expansion compares
+    /// as written ([`static_subject_spellings`]).
+    static_only: bool,
 }
 
 impl Spelling {
@@ -490,10 +562,13 @@ impl Spelling {
         }
     }
 
-    /// Whether the spelling stands at `slot`.
+    /// Whether the spelling stands at `slot`: a static subject's openers (depth 2) hold the
+    /// spellings that stand below a subject's root, as no other host's do.
     fn stands_at(&self, slot: &Slot) -> bool {
-        !self.below_root_only
-            || (slot.side == Side::Subject && !slot.path.is_empty() && slot.opener.is_none())
+        let below_root = slot.side == Side::Subject && !slot.path.is_empty();
+        let static_subject = below_root && matches!(slot.form, "desugar" | "alias");
+        (!self.below_root_only || (below_root && (slot.opener.is_none() || static_subject)))
+            && (!self.static_only || static_subject)
     }
 }
 
@@ -518,6 +593,7 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
         counter: Err("no counter-witness is stated"),
         matches_x: false,
         below_root_only: false,
+        static_only: false,
     }
 }
 
@@ -902,6 +978,7 @@ fn spellings() -> Vec<Spelling> {
         .refuting(Ground::List(Vec::new())),
     );
     spellings.extend(static_spellings());
+    spellings.extend(static_subject_spellings());
     spellings
 }
 
@@ -1221,6 +1298,115 @@ fn static_spellings() -> Vec<Spelling> {
     ]
 }
 
+/// The spellings that stand below a static clause's subject root only ([`Spelling::static_only`]):
+///
+/// - the applications of the base's static productions whose expansion its clauses decide: ground
+///   (`Cmd::Dn(1)`, the one of `dn`'s two clauses that matches 1, `Cmd::Rc(1)`, through `rc`'s
+///   recursion, `Cmd::Qb(..)`), and of `tw`, one clause of a plain name, over a name, a
+///   constructor and an alias, whose copies a name forces equal (each with its expansion as its
+///   value and witness, and a counter-witness whose copies differ);
+/// - those that stand for no one term (`Cmd::Dn(x)`, two clauses over a name; `Cmd::Tw(_)`, a
+///   copied `_`; `Cmd::Dn(2)`, no clause; `Cmd::Lp(0)`, never ending; `Cmd::Pb(Cmd::Go())`,
+///   whose expansion would apply `pb`'s clause twice on one path), the class
+///   `unexpandable-static-application`;
+/// - alternatives at two arguments, one clause each in a desugar's subject;
+/// - Bytes tokens holding each character a Bytes token escapes, which static expansion compares
+///   as written.
+///
+/// A static subject alone reads them this way: a rule's pattern is expanded by the definition's
+/// own expansion, which the matrix does not judge (NT-14 keeps to static subjects).
+fn static_subject_spellings() -> Vec<Spelling> {
+    let only = |spelling: Spelling| Spelling {
+        below_root_only: true,
+        static_only: true,
+        ..spelling
+    };
+    let closed = |text, argument: &[Node]| {
+        let mut nodes = vec![node(C::StaticApplication, &[])];
+        nodes.extend_from_slice(argument);
+        only(spelling(text, &nodes))
+    };
+    let open = |text, argument: &[Node]| {
+        let mut nodes = vec![node(C::OpenStaticApplication, &[])];
+        nodes.extend_from_slice(argument);
+        only(spelling(text, &nodes))
+            .unmatched("its expansion depends on what a program writes, or there is none")
+            .no_term("its expansion depends on what a program writes, or there is none")
+    };
+    let bytes = |text, value: &[u8], other: &[u8]| {
+        only(spelling(text, &[node(C::BytesToken, &[])]))
+            .value(Ground::Bytes(value.to_vec()))
+            .refuting(Ground::Bytes(other.to_vec()))
+    };
+    let held = |term| Ground::ctor("Cmd::Hold", vec![term]);
+    vec![
+        closed("Cmd::Dn(1)", &[node(C::Literal, &[Argument])])
+            .value(pair(int(1), int(1)))
+            .refuting(go()),
+        closed("Cmd::Rc(1)", &[node(C::Literal, &[Argument])])
+            .value(held(go()))
+            .refuting(held(int(0))),
+        closed(
+            "Cmd::Qb(Cmd::Pair(0, 0))",
+            &[
+                node(C::Constructor, &[Argument]),
+                node(C::Literal, &[Argument, Argument]),
+                node(C::Literal, &[Argument, Argument]),
+            ],
+        )
+        .value(go())
+        .refuting(pair(int(0), int(0))),
+        closed("Cmd::Tw(x)", &[node(C::Reference, &[Argument])])
+            .value(pair(int(1), int(1)))
+            .refuting(pair(int(1), int(2))),
+        closed(
+            "Cmd::Tw(Cmd::Hold(x))",
+            &[
+                node(C::Constructor, &[Argument]),
+                node(C::Reference, &[Argument, Argument]),
+            ],
+        )
+        .value(pair(held(int(1)), held(int(1))))
+        .refuting(pair(held(int(1)), held(int(2)))),
+        closed(
+            "Cmd::Tw(y @ Cmd::Hold(x))",
+            &[
+                node(C::As, &[Argument]),
+                node(C::Constructor, &[Argument, AsBody]),
+                node(C::Reference, &[Argument, AsBody, Argument]),
+            ],
+        )
+        .matching(pair(held(int(1)), held(int(1))))
+        .no_term(PATTERN_ONLY)
+        .refuting(pair(held(int(1)), held(int(2)))),
+        open("Cmd::Dn(x)", &[node(C::Reference, &[Argument])]),
+        open("Cmd::Tw(_)", &[node(C::Wildcard, &[Argument])]),
+        open("Cmd::Dn(2)", &[node(C::Literal, &[Argument])]),
+        open("Cmd::Lp(0)", &[node(C::Literal, &[Argument])]),
+        open("Cmd::Pb(Cmd::Go())", &[node(C::Constructor, &[Argument])]),
+        only(spelling(
+            "Cmd::Pair(1 | 2, 3 | 4)",
+            &[
+                node(C::Constructor, &[]),
+                node(C::Or, &[Argument]),
+                node(C::Literal, &[Argument, OrBranch]),
+                node(C::Literal, &[Argument, OrBranch]),
+                node(C::Or, &[Argument]),
+                node(C::Literal, &[Argument, OrBranch]),
+                node(C::Literal, &[Argument, OrBranch]),
+            ],
+        ))
+        .matching(pair(int(2), int(3)))
+        .no_term(PATTERN_ONLY)
+        .refuting(pair(int(1), int(5))),
+        bytes("k::bytes!(b\"a\\\"b\")", b"a\"b", b"ab"),
+        bytes("k::bytes!(b\"\\\\\")", b"\\", b"/"),
+        bytes("k::bytes!(b\"\\n\\x0c\")", b"\n\x0c", b"\n"),
+        bytes("k::bytes!(b\"'\")", b"'", b"\""),
+        bytes("k::bytes!(b\"\\x00\\xff\")", b"\x00\xff", b"\x00"),
+    ]
+}
+
 /// The binders a `cells!` sentence declares, in the order they first occur: `x`, the alias `y` of
 /// a subject construct `y @ P` (an alias counts before the binders inside its pattern), and the
 /// value `v` of a map entry the subject reads.
@@ -1379,6 +1565,15 @@ impl Slot {
         }
     }
 
+    /// The slot, whose case also writes its production applied to its witness in a rule of its
+    /// own ([`DRIVE_RULE`]).
+    fn driving(self) -> Self {
+        Self {
+            template: format!("{}{DRIVE_RULE}", self.template),
+            ..self
+        }
+    }
+
     /// The slot, holding only the spellings `holds` admits.
     fn holding(self, holds: Holds) -> Self {
         Self { holds, ..self }
@@ -1454,6 +1649,56 @@ const RULE_SUBJECT: &str = concat!(
 );
 
 const ALIAS_SUBJECT: &str = "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
+
+const DESUGAR_SUBJECT: &str = "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
+
+/// A rule of the case's own that writes its static clause's production applied to the witness,
+/// `Cmd::NAME(1, WITNESS)`, which kompile expands as it expands every rule: a term KRS writes,
+/// meeting the subject KRS writes. `drive(DRIVE)`, the case's own number, applies it.
+const DRIVE_RULE: &str = "\n#[k::rule(label = \"drive-TAG\")]\nfn drive_TAG(k::term![Cmd::Drive(DRIVE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::NAME(1, WITNESS)\n}\n";
+
+/// The spellings a static subject's openers (depth 2) hold: applications of static productions,
+/// expanded and not, and two values.
+const STATIC_DEPTH_TWO: &[&str] = &[
+    "Cmd::Dz()",
+    "Cmd::Az()",
+    "Cmd::Dn(1)",
+    "Cmd::Tw(x)",
+    "Cmd::Dn(x)",
+    "Cmd::Lp(0)",
+    "Cmd::Hold(x)",
+    "1",
+];
+
+/// The spellings an alternative of a static subject holds beside `Cmd::Go()`: ground ones, so
+/// that both alternatives bind the same names (none).
+const STATIC_ALTERNATIVES: &[&str] = &["Cmd::Dz()", "Cmd::Az()", "Cmd::Dn(1)", "Cmd::Lp(0)", "1"];
+
+/// The spellings a rule of the case's own writes the witness of, to meet a static subject KRS
+/// writes ([`DRIVE_RULE`]): the tokens and literals KRS spells, Bytes most of all, and
+/// applications of static productions.
+const WRITTEN_WITNESSES: &[&str] = &[
+    "1",
+    "-1",
+    "true",
+    "\"s\"",
+    "1.5",
+    "k::bytes!(b\"ab\")",
+    "k::bytes!(b\"a\\\"b\")",
+    "k::bytes!(b\"\\\\\")",
+    "k::bytes!(b\"\\n\\x0c\")",
+    "k::bytes!(b\"'\")",
+    "k::bytes!(b\"\\x00\\xff\")",
+    "k::id!(\"$x\")",
+    "k::lexeme!(Word, \"word\")",
+    "k::builtin::set::item(x)",
+    "Cmd::Hold(x)",
+    "Cmd::Dz()",
+    "Cmd::Az()",
+    "Cmd::Dn(1)",
+    "Cmd::Rc(1)",
+    "Cmd::Tw(x)",
+];
 
 const RULE_GUARD: &str = concat!(
     "#[k::rule(label = \"case-TAG\")]\n",
@@ -1983,9 +2228,35 @@ fn slots() -> Vec<Slot> {
             "subject",
             Side::Subject,
             (Desugar, Part::Subject, &[Argument]),
-            "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n",
+            DESUGAR_SUBJECT,
         )
         .marked("#[k::desugar]"),
+        // The same subject, beside a rule of the case's own that writes the clause's production
+        // applied to the witness ([`DRIVE_RULE`]): kompile expands the rule's term, so a Bytes
+        // token or an application KRS writes meets the subject KRS writes, or the definition
+        // does not build (K6).
+        slot(
+            "desugar",
+            "subject-written",
+            Side::Subject,
+            (Desugar, Part::Subject, &[Argument]),
+            DESUGAR_SUBJECT,
+        )
+        .driving()
+        .marked("#[k::desugar]")
+        .holding(Holds::Only(WRITTEN_WITNESSES)),
+        // A subject whose binder's sort a typed parameter restricts, the form a sort test's
+        // refusal there advises (`sort-test-in-pattern`): static expansion matches the binder
+        // only against a term of that sort.
+        slot(
+            "desugar",
+            "subject-typed",
+            Side::Subject,
+            (Desugar, Part::Subject, &[Argument]),
+            "#[k::desugar]\nfn case_TAG(x: Int, k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n",
+        )
+        .marked("#[k::desugar]")
+        .holding(Holds::Only(&["x", "1"])),
         slot(
             "desugar",
             "subject-root",
@@ -2019,6 +2290,16 @@ fn slots() -> Vec<Slot> {
             ALIAS_SUBJECT,
         )
         .marked("#[k::alias]"),
+        slot(
+            "alias",
+            "subject-written",
+            Side::Subject,
+            (Alias, Part::Subject, &[Argument]),
+            ALIAS_SUBJECT,
+        )
+        .driving()
+        .marked("#[k::alias]")
+        .holding(Holds::Only(WRITTEN_WITNESSES)),
         slot(
             "alias",
             "subject-root",
@@ -2624,21 +2905,57 @@ fn openers() -> Vec<Slot> {
             &[node(C::Fresh, &[Argument])],
         )
     };
-    vec![
-        alias_subject
-            .open(
-                "set-concat",
-                "k::builtin::set::concat(k::builtin::set::item(x), k::builtin::set::item(HOLE))",
-                &[
-                    node(C::Concatenation, &[]),
-                    node(C::Constructor, &[Argument]),
-                    node(C::Reference, &[Argument, SetElement]),
-                    node(C::Constructor, &[Argument]),
-                ],
-                &[Argument, SetElement],
-                &[],
-            )
-            .holding(Holds::Only(&["x", "1", "Cmd::Hold(x)"])),
+    // A static clause's subject: what a program writes around a static application or the
+    // alternatives a desugar distributes, a constructor's argument, an alias's pattern and an
+    // alternative, below the root, where static expansion reads them as written.
+    let desugar_subject = slot(
+        "desugar",
+        "subject",
+        Side::Subject,
+        (Desugar, Part::Subject, &[Argument]),
+        DESUGAR_SUBJECT,
+    )
+    .marked("#[k::desugar]");
+    let argument = |host: &Slot| {
+        host.open(
+            "argument",
+            "Cmd::Hold(HOLE)",
+            &[node(C::Constructor, &[])],
+            &[Argument],
+            &[],
+        )
+        .holding(Holds::Only(STATIC_DEPTH_TWO))
+    };
+    let static_openers = [&desugar_subject, &alias_subject]
+        .into_iter()
+        .flat_map(|host| {
+            [
+                argument(host),
+                as_body(host).holding(Holds::Only(STATIC_DEPTH_TWO)),
+                or_branch(host).holding(Holds::Only(STATIC_ALTERNATIVES)),
+            ]
+        })
+        .collect::<Vec<_>>();
+    // A set's concatenation in a static subject is one spelling of the set (NT-14), told by its
+    // head before the element it holds: three elements stand for every one.
+    let set_concat = |host: &Slot| {
+        host.open(
+            "set-concat",
+            "k::builtin::set::concat(k::builtin::set::item(x), k::builtin::set::item(HOLE))",
+            &[
+                node(C::Concatenation, &[]),
+                node(C::Constructor, &[Argument]),
+                node(C::Reference, &[Argument, SetElement]),
+                node(C::Constructor, &[Argument]),
+            ],
+            &[Argument, SetElement],
+            &[],
+        )
+        .holding(Holds::Only(&["x", "1", "Cmd::Hold(x)"]))
+    };
+    let mut openers = vec![
+        set_concat(&alias_subject),
+        set_concat(&desugar_subject),
         beside_fresh(&evaluated),
         beside_fresh(&cells_key),
         matched.open(
@@ -2692,7 +3009,38 @@ fn openers() -> Vec<Slot> {
         update_field(&update_evaluated),
         closure_body(&guard),
         closure_body(&claim_guard),
-    ]
+    ];
+    openers.extend(static_openers);
+    openers
+}
+
+/// `term` as a rule's result writes it in the terms base, or `None` for a term no KRS term
+/// writes as one value (a map, a set of several elements, an unevaluated function).
+fn written(term: &Ground) -> Option<String> {
+    let all = |terms: &[Ground]| {
+        terms
+            .iter()
+            .map(written)
+            .collect::<Option<Vec<_>>>()
+            .map(|terms| terms.join(", "))
+    };
+    Some(match term {
+        Ground::Int(value) => value.to_string(),
+        Ground::Bool(value) => value.to_string(),
+        Ground::String(text) => format!("{text:?}"),
+        Ground::Float(text) => text.clone(),
+        Ground::Bytes(bytes) => format!("k::bytes!(b\"{}\")", bytes.escape_ascii()),
+        Ground::Token { sort, text } if sort == "Id" => format!("k::id!({text:?})"),
+        Ground::Token { sort, text } => format!("k::lexeme!({sort}, {text:?})"),
+        Ground::Ctor { path, fields } => format!("{path}({})", all(fields)?),
+        Ground::Set(elements) => match elements.as_slice() {
+            [] => "k::builtin::set::empty()".to_owned(),
+            [element] => format!("k::builtin::set::item({})", written(element)?),
+            _ => return None,
+        },
+        Ground::List(items) => format!("[{}]", all(items)?),
+        _ => return None,
+    })
 }
 
 /// What each spelling of the term families matches and denotes ([`super::SpellingMeaning`]).
@@ -2765,6 +3113,16 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let template = slot
         .template
         .replace("TAG", &tag)
+        .replace("DRIVE", &command.drive().to_string())
+        .replace(
+            "WITNESS",
+            &spelling
+                .witness
+                .as_ref()
+                .ok()
+                .and_then(written)
+                .unwrap_or_else(|| "Cmd::Go()".to_owned()),
+        )
         .replace("NAME", &command.name)
         .replace("UPPER", &tag.to_uppercase())
         .replace("USES", if imported { "" } else { "    use Cmd::*;\n" })

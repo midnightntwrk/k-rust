@@ -277,7 +277,13 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
         marked,
         [
             ("#[k::desugar]", "Dz".to_owned()),
-            ("#[k::alias]", "Az".to_owned())
+            ("#[k::alias]", "Az".to_owned()),
+            ("#[k::desugar]", "Dn".to_owned()),
+            ("#[k::desugar]", "Rc".to_owned()),
+            ("#[k::desugar]", "Tw".to_owned()),
+            ("#[k::desugar]", "Lp".to_owned()),
+            ("#[k::desugar]", "Pb".to_owned()),
+            ("#[k::desugar]", "Qb".to_owned()),
         ],
         "the terms base's static productions"
     );

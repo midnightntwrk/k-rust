@@ -53,10 +53,32 @@ their application as the value it expands to (decision NT-14: a static applicati
 desugar's or an alias's subject root expands when the expansion needs no value, as a ground
 one's never does), KRS writes the expansion in the clause, and K7 runs it on a program writing
 the application; `cargo test -p krs-test-support --test k7` names a static production the base
-gains without a spelling. Below a static subject's root, which static expansion matches as a
-program writes it, a construct that computes (a function's application, a collection literal
-that builds, an index, a method, a sort test) would stand for its spelling rather than its value,
-and the oracle refuses it with the class a pattern's has (decision NT-11-5). The slot `terms/cells/result-map-framed/..` writes one key under two
+gains without a spelling. Below a static subject's root, which static expansion matches as
+written, a construct that computes (a function's application, a collection literal that builds,
+an index, a method, a sort test) would stand for its spelling rather than its value, and the
+oracle refuses it with the class a pattern's has (decision NT-11-5); a collection of two or more
+parts (a set's concatenation, a list of an element and a rest) is one of its spellings, since
+static expansion neither reorders nor regroups parts (`collection-in-static-subject`).
+
+The static subjects (`terms/{desugar,alias}/subject/..`) also hold spellings of their own
+(`static_subject_spellings`): applications of the base's static productions whose expansion its
+clauses decide, `Cmd::Dn(1)` (two clauses, one matching), `Cmd::Rc(1)` (recursive), `Cmd::Qb(..)`
+and `Cmd::Tw(x)`, `Cmd::Tw(Cmd::Hold(x))`, `Cmd::Tw(y @ Cmd::Hold(x))` (one clause copying a plain
+name), each with its expansion as its value and a counter-witness whose copies differ, and those
+that stand for no one term (`Cmd::Dn(x)`, `Cmd::Tw(_)`, `Cmd::Dn(2)`, `Cmd::Lp(0)`, which never
+ends, and `Cmd::Pb(Cmd::Go())`, whose expansion would apply a clause that is not recursive twice
+on one path), the class `unexpandable-static-application`; alternatives at two arguments; and
+Bytes tokens holding each character K escapes. Openers at depth 2 put the static applications
+below a constructor, an alias and an alternative there (`terms/desugar/subject/or-branch/..`), and
+`set-concat` a set's concatenation. Two slots of their own: `subject-typed`, a binder a typed
+parameter restricts, the form `sort-test-in-pattern` advises there; and `subject-written`, where a
+rule of the case's own writes the clause's production applied to the witness (`drive(N) =>
+cNAME(1, w)`, `N` the case's own number), which kompile expands as it expands every rule, so a
+term KRS writes must meet the subject KRS writes, or the definition does not build (K6). A static
+subject's counter runs are programs its subject does not match, whose expansion must leave the
+case's production unexpanded ("survived expansion", the status `unexpanded`); and the Bytes
+witness `b"ab"` is also written `b"\x61\x62"`, one value, which the subject should meet and
+does not, since static expansion compares token text (finding NT-14-2). The slot `terms/cells/result-map-framed/..` writes one key under two
 spellings over the map a framed `cells!` subject leaves (`map![x -> 1, (x) -> HOLE, ..rest]`); the
 slot `terms/cells/result-map-whole/..` writes an entry over a map the subject binds whole
 (`map![x -> HOLE, ..m]` over `Cell(m)`, the form the class `framed-map-unmatched-key` advises),

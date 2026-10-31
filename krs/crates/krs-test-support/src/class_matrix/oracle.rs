@@ -52,8 +52,8 @@
 //! which is written per position: `tests/positions.rs` compares the two case by case.
 
 use super::positions::{
-    Construct, Entry, Form, Kind, LocalPattern, Node, Notation, PatternRoot, Position, RewriteSide,
-    Slot,
+    Construct, Entry, Form, Kind, LocalPattern, Node, Notation, Opening, PatternRoot, Position,
+    RewriteSide, Slot,
 };
 
 /// Declares [`Class`]: each variant with its name in `expected.toml`. The attribute axis's oracle
@@ -93,7 +93,7 @@ classes! {
     AlternativesOutsidePattern => "alternatives-outside-pattern",
     ClaimOnlyTerm => "claim-only-term",
     ClaimSubjectOnlyTerm => "claim-subject-only-term",
-    ConcatenationInAliasSubject => "concatenation-in-alias-subject",
+    CollectionInStaticSubject => "collection-in-static-subject",
     ConstantAppliesFunction => "constant-applies-function",
     ConstantNotGround => "constant-not-ground",
     EquationRootNotFunction => "equation-root-not-function",
@@ -119,6 +119,7 @@ classes! {
     SimplificationRootNotFunction => "simplification-root-not-function",
     SortTestInPattern => "sort-test-in-pattern",
     StaticClauseRootNotMarked => "static-clause-root-not-marked",
+    UnexpandableStaticApplication => "unexpandable-static-application",
     WildcardAtSubjectRoot => "wildcard-at-subject-root",
     WildcardInAliasSubject => "wildcard-in-alias-subject",
     WildcardOutsidePattern => "wildcard-outside-pattern",
@@ -254,8 +255,25 @@ const fn in_selection(construct: Construct) -> Option<Refusal> {
     }
 }
 
+/// Whether `node`, list brackets in `nodes`, writes two or more parts: elements, or an element
+/// and a rest.
+fn list_of_parts(node: &Node, nodes: &[Node]) -> bool {
+    node.construct == Construct::ListBrackets
+        && nodes
+            .iter()
+            .filter(|other| {
+                other.path.len() == node.path.len() + 1
+                    && other.path.starts_with(&node.path)
+                    && other.path.last() == Some(&Opening::ListElement)
+            })
+            .count()
+            >= 2
+}
+
 /// Each node's refusal at its position in `nodes` at `hole`, the node's own entry
-/// ([`admits`]) read with its key's: a key that holds a selecting construct is a selection.
+/// ([`admits`]) read with its key's: a key that holds a selecting construct is a selection. A
+/// list of two or more parts below a static subject's root is one spelling of the list
+/// ([`concatenation`]), which its brackets' parts tell.
 #[must_use]
 pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
     let selection = nodes
@@ -265,6 +283,13 @@ pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
         .iter()
         .map(|node| {
             let position = hole.enter_all(&node.path);
+            if list_of_parts(node, nodes)
+                && matched_as_written(position)
+                && !at_subject_root(position)
+            {
+                return admits(node.construct, position)
+                    .or(Some(resolution(Class::CollectionInStaticSubject)));
+            }
             match in_selection(node.construct) {
                 // Below `@` or `|` the key is matched already, by the construct's own entry.
                 Some(refusal)
@@ -442,6 +467,18 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         Construct::FunctionApplication | Construct::BuiltinApplication => {
             application(construct, position)
         }
+        // Below a static clause's subject root, a program's application of a static production
+        // is expanded before the clause is tried, so the clause matches its expansion; where its
+        // clauses give it none, or one that depends on what a program writes, the subject stands
+        // for no one term (decision NT-14). Telling it needs the production's clauses, which
+        // resolution reads. The spellings that write one stand in static subjects only.
+        Construct::OpenStaticApplication => {
+            if matched_as_written(position) && !at_subject_root(position) {
+                Some(resolution(Class::UnexpandableStaticApplication))
+            } else {
+                value_at_root(position)
+            }
+        }
         Construct::Concatenation => concatenation(position),
         // An index, a collection method or a collection literal is the application of a
         // collection's function it denotes, decided as that application is wherever it stands: a
@@ -524,14 +561,16 @@ const fn application(construct: Construct, position: Position) -> Option<Refusal
 }
 
 /// A set's concatenation matches a set split into disjoint parts, a pattern as a constructor is
-/// (at a root too), and builds their union where the parts are disjoint. In an alias clause's
-/// subject it is also built, from what the clause's result matched in a printed term, whose parts
-/// may overlap, and their concatenation denotes no set: disjointness is a test of the term, which
-/// the backward reading cannot make, as `@`'s is. Telling a concatenation from another application
-/// takes its head. A constant's value applies no function.
+/// (at a root too), and builds their union where the parts are disjoint. Below a static clause's
+/// subject root it is matched as written, and static expansion neither reorders a set's parts nor
+/// regroups a list's (decision NT-14, finding S2 of its review: `[1, 2, 3]` misses
+/// `list::concat([1, 2], [3])`), so a collection of two or more parts there is one of its
+/// spellings, and stands for it rather than for the collection; the empty collection and one
+/// element have one spelling. Telling a concatenation from another application takes its head.
+/// A constant's value applies no function.
 const fn concatenation(position: Position) -> Option<Refusal> {
-    if built_backwards(position) {
-        Some(resolution(Class::ConcatenationInAliasSubject))
+    if matched_as_written(position) && !at_subject_root(position) {
+        Some(resolution(Class::CollectionInStaticSubject))
     } else if in_constant(position) {
         Some(resolution(Class::ConstantAppliesFunction))
     } else if matches!(position.kind, Kind::Matched | Kind::Evaluated) {

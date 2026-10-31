@@ -99,18 +99,26 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Init, 126 + 1 + 3 + 1 + 1 + 32),
             // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
-            // read `x`, 3 elements in an alias subject's set concatenation, and 2 spellings
+            // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings
             // reading an initializer's configuration variable in a `let` body; the 2 static
             // productions' applications at the 35 matched slots of depth 1 below a subject's
             // root; the 2 values a framed `cells!` result map writes at one key twice, the 2 it
             // writes over a map the subject binds whole, and the 2 keys it writes over a framed
-            // map's remainder.
-            (Family::Terms, 106 * 47 + 3 + 2 + 35 * 2 + 2 + 2 + 2),
-            // 86 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
-            (Family::Import, 86 * 2),
+            // map's remainder; and in the static subjects (NT-14), each of the desugar's and the
+            // alias's, the 17 spellings that stand there only, the 20 witnesses a rule of the
+            // case's own writes, the 2 a typed parameter binds (the desugar's), the 8 spellings
+            // at a constructor's argument and at an alias's pattern, and 5 at an alternative.
+            (
+                Family::Terms,
+                106 * 47 + 3 * 2 + 2 + 35 * 2 + 2 + 2 + 2 + 2 * (17 + 20 + 2 * 8 + 5) + 2,
+            ),
+            // 89 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
+            (Family::Import, 89 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
-            // 8 collection literals and the 7 calls they denote apart from the method's).
-            (Family::Notation, 106 * (12 + 15)),
+            // 8 collection literals and the 7 calls they denote apart from the method's), and a
+            // set's singleton as the witness a rule of the case's own writes, at each static
+            // subject.
+            (Family::Notation, 106 * (12 + 15) + 2),
             // 18 forms × 26 attributes, 26 malformed attributes, and 20 extra cases.
             (Family::Attributes, 18 * 26 + 26 + 20),
             // The readable records and the `cells!` rules on the run base, and the Set collection's
@@ -1411,7 +1419,7 @@ fn a_name_or_sort_rule_refuses_a_spelling_at_every_sibling() {
 
 /// The term positions where the table accepts no construct, and why that is the position's own
 /// fact rather than a generator's mistake.
-const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 6] = [
+const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 9] = [
     (
         "terms/alias/subject-root",
         "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct is refused for there",
@@ -1421,12 +1429,24 @@ const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 6] = [
         "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct that binds `x` is refused for there",
     ),
     (
+        "terms/alias/subject/as-body",
+        "`name @ pattern` in an alias clause's subject is refused (NT-8), whatever it aliases: the static applications show that it is told before them",
+    ),
+    (
+        "terms/alias/subject/or-branch",
+        "`A | B` in an alias clause's subject is refused (NT-8), whatever its alternatives: the static applications show that it is told before them",
+    ),
+    (
         "terms/alias/subject/set-concat",
-        "a set's concatenation in an alias clause's subject is refused by its head, whatever element it holds (NT-8): the three elements show that it is told before them",
+        "a set's concatenation in a static clause's subject is refused by its head, whatever element it holds (NT-14: static expansion matches it in one order of its parts): the three elements show that it is told before them",
     ),
     (
         "terms/desugar/subject-root",
         "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct is refused for there",
+    ),
+    (
+        "terms/desugar/subject/set-concat",
+        "a set's concatenation in a static clause's subject is refused by its head, whatever element it holds (NT-14: static expansion matches it in one order of its parts): the three elements show that it is told before them",
     ),
     (
         "terms/local-rule/subject-root",

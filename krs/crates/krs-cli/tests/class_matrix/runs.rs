@@ -54,6 +54,14 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
         stdin: None,
     };
     let report = match bounded(semantics, &inputs, run.depth, limit) {
+        Ok(_) if run.status == Status::Unexpanded => {
+            return Ran::Deviates("expanded where the subject should not match".to_owned());
+        }
+        Err(deviation)
+            if run.status == Status::Unexpanded && deviation.contains("survived expansion") =>
+        {
+            return Ran::Conforms(Status::Unexpanded);
+        }
         Ok(report) => report,
         Err(deviation) => return Ran::Deviates(deviation),
     };

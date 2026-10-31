@@ -703,6 +703,12 @@ pub enum Construct {
     /// expands (`Cmd::Dz()`): a constructor application to the syntax, and its expansion where a
     /// term is read.
     StaticApplication,
+    /// An application of a static production that stands for no one term: what its clauses
+    /// expand it to depends on what a program writes (an argument a name, with two clauses or a
+    /// clause whose parameter is a pattern, or `_` a clause copies), or there is none (no clause
+    /// matches its ground arguments, its expansion never ends, or a clause not marked recursive
+    /// would apply twice on one path). The base's clauses decide it (`Cmd::Dn(x)`, `Cmd::Lp(0)`).
+    OpenStaticApplication,
     /// A constructor application whose turbofish names its parametric production's instance,
     /// `Wrap::<KItem>(x)`.
     Turbofish,
@@ -758,11 +764,12 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 44] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
         Self::StaticApplication,
+        Self::OpenStaticApplication,
         Self::Turbofish,
         Self::Literal,
         Self::FunctionApplication,
