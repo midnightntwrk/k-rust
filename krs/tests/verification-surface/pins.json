@@ -5,7 +5,7 @@
     "krs-verification-surface-l21-readable": "2b92db2200faeeaa3dcbf588a5d6160dfbcc07e59f1564ba3c853e7c11d8fae7",
     "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
     "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973",
-    "krs-verification-surface-cell-maps": "9da3300801b9c0c01be084ed0a91a36c57a2712feb7db8ca3075b376e64fe226",
+    "krs-verification-surface-cell-maps": "e06a2bec7fc25f300edb1c3f4a0387e342b18f64ef3b3ec727c4103f2cde28cd",
     "krs-verification-surface-set-instance-claims": "dd30f58cae0e148a8c2dc7de9c5a2864e8f9f055d70f88f2b9e2dbe6c329f827",
     "krs-verification-surface-local-function-claims": "924f05d4cd6852ee4cea0f9189bc4e08df711ee167d15f54443da5bf7bce572d",
     "krs-verification-surface-owise": "1449c8fa4a5a945c041e5ce8e34f78fc2d88816b090187bed6785630acd9459a"
@@ -55,8 +55,8 @@
       "spec.k": "468c0248ecac21d91a67760cb8cfe046984ab633fcbf838a664f09840f72d149"
     },
     "krs-verification-surface-cell-maps": {
-      "definition.k": "1640404f8b89d224fac0a5f92aa5e0ac7743ed5f6bccb3d2e9d9ea5f7924416c",
-      "spec.k": "7e92c90442a89ed3acbae9ecb5f5f6f05891d2bee3d28a901c0b3e3ebc780f73"
+      "definition.k": "aa2768b8b1a6897f2407bddb1c0ab7fb26b96e9287cb25b450240ef7d8314185",
+      "spec.k": "68ad332c1d4b9bb5fb36bdd56012cd762fb3e63c6904a7260fa1634bc1ee94d4"
     },
     "krs-verification-surface-set-instance-claims": {
       "definition.k": "6c84c189861a9e6ed902db18403c65a9af8394587d6e3050d805bbc898c8ffd3",
@@ -87,7 +87,7 @@
     "krs-verification-surface-imp-sum": "79d0a9d46ca1a177bb29b3bce38c58fca476630a402d193fdfedd472616c5d17",
     "krs-verification-surface-l22-verification": "1688167f61d3576b87aa98cf60d3053461d0fc23310cfe7d1b78cc0f14ddcaaf",
     "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f",
-    "krs-verification-surface-cell-maps": "985a5d89ae1f1acb1599fa85a0d17b70baf5a1f1477534cd7449e178e968553c",
+    "krs-verification-surface-cell-maps": "83f575e4cc44736e727eb367c2f057cdfe2aeea9901266baac7b30020f2c57be",
     "krs-verification-surface-set-instance-claims": "4eb9157a327572b8fc0d9eef58a4306bbc9f9d7cf9894009ede7ec8b35b34c3a",
     "krs-verification-surface-local-function-claims": "e1572270d5cf7c0b04408f549d6a0960c30c13ceda9310a301d7a388e95e39c5",
     "krs-verification-surface-owise": "ccf91c020fecbfc4c24d835d98ebe2d6a8ba882a701935b50eb6d4f50c413d29"
@@ -478,6 +478,12 @@
   "cell_map_proofs": {
     "krs-verification-surface-cell-maps": {
       "statuses": {
+        "moved-anon": "proven",
+        "moved-anon-false": "indeterminate",
+        "moved-one": "proven",
+        "moved-one-false": "indeterminate",
+        "moved-rest": "proven",
+        "moved-rest-false": "indeterminate",
         "set-get": "proven",
         "set-get-false": "disproved",
         "sym-one": "proven",
@@ -489,7 +495,7 @@
       },
       "exit": 1,
       "summary": [
-        "krs prove: 4 of 8 claims proven"
+        "krs prove: 7 of 14 claims proven"
       ],
       "warnings": []
     }
@@ -500,10 +506,16 @@
       "sym-two": true,
       "set-get": true,
       "unmatched-keys": true,
+      "moved-one": true,
+      "moved-rest": true,
+      "moved-anon": true,
       "sym-one-false": false,
       "sym-two-false": false,
       "set-get-false": false,
-      "unmatched-keys-false": false
+      "unmatched-keys-false": false,
+      "moved-one-false": false,
+      "moved-rest-false": false,
+      "moved-anon-false": false
     }
   },
   "set_instance_proofs": {
