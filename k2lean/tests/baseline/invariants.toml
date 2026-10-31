@@ -111,6 +111,12 @@ stated = 139
 open = []
 refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
+[corout-measure]
+tier = "light"
+cases = 4
+auto = 4
+open = []
+
 [demo.KrsImpTyping]
 tier = "light"
 guarded = 17
