@@ -5579,184 +5579,6 @@ finding = "NT-7-1"
 deviation = "krs::expand::let-outside-term @ spelling"
 
 
-# NT-11-1 (K6): `k::project!(Int, x)` in a pattern's map key. By decision D2 a key of a matched
-# map is evaluated and the entry it computes is looked up, and KRS emits `{V0:KItem}:>Int |-> V1`;
-# the native routes read a function application by value in a key but refuse any sort projection
-# on a left side ("Illegal sort projection project:Int on LHS of rule"), so no `krs` command can
-# use the definition. Here the projection is the author's, to a sort below the term's.
-# Options for the ticket that fixes it: KRS drops a projection to the sort the term already has;
-# KRS lowers a projection in a key with a guard, as NT-10 lowers a computed instance's cells; or
-# the position table refuses it there. Emission is not changed here.
-
-["k6/terms/cells/map-key/k::project!(Int, x)"]
-finding = "NT-11-1"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/terms/readable/map-key/k::project!(Int, x)"]
-finding = "NT-11-1"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/terms/readable/map-key/update-field/k::project!(Int, x)"]
-finding = "NT-11-1"
-deviation = "every native route IllegalFunctionOnLhs"
-
-# NT-11-6 (K6): an index read or a `get` in a pattern's map key or set element (`m[k]`, `l[i]`,
-# `map::get`, `list::get`). KRS emits the lookup wrapped in a projection to the sort it already has,
-# `{.Map [ V0:KItem ]}:>KItem`, `{ListItem(V0:KItem) [ 0 ]}:>KItem`, and the native routes refuse
-# that projection on a left side, although they read the function application under it by value
-# there. Probe (2026-10-30, `notation/readable/map-key/k::builtin::map::empty()[x]`): the K KRS
-# emits is refused by `krust kcompile` on both backends; with only the identity projection
-# dropped, `<env> .Map [ X:KItem ] |-> V:KItem ... </env>`, it compiles on both (one
-# unused-variable warning). That probe compiles K text, not the Definition IR `krs check` compiles,
-# and does not load the definition for the run commands.
-# Options for the ticket that fixes it: KRS drops a projection to the sort the term already has;
-# KRS lowers a projection in a key with a guard, as NT-10 lowers a computed instance's cells; or
-# the position table refuses it there. Emission is not changed here.
-
-["k6/notation/cells/map-key/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/cells/map-key/k::builtin::list::item(x)[0]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/cells/map-key/k::builtin::map::empty()[x]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/cells/map-key/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/k::builtin::list::item(x)[0]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/k::builtin::map::empty()[x]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/update-field/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/update-field/k::builtin::list::item(x)[0]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/update-field/k::builtin::map::empty()[x]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/readable/map-key/update-field/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/rule/subject/set-element/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/rule/subject/set-element/k::builtin::list::item(x)[0]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/rule/subject/set-element/k::builtin::map::empty()[x]"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-["k6/notation/rule/subject/set-element/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-11-6"
-deviation = "every native route IllegalFunctionOnLhs"
-
-# NT-11-2 (K6): a collection's construction at the root of a `#[k::rule]` fn's or a context's
-# subject: `set::item(x)`, `set![x]`, `set![]`, `map![]` and the empty-collection calls. These are
-# K's collection functions (`SetItem`, `.Set`, `.Map`), whose applications their equations evaluate,
-# so no rewrite step meets one at a rule's or a context's root, as for any function at a matched
-# root (T3.10a). KRS admits them; the native routes refuse the rule (its `Set` or `Map` subject
-# meets a `Stmt` result, "not a subsort of the sort Set its position requires") and the context
-# ("Cannot compile a context rooted at `SetItem`"). Looks like a KRS acceptance gap: the position
-# table reads these spellings as constructors at a matched root.
-
-["k6/notation/context/subject-root/k::builtin::set::item(x)"]
-finding = "NT-11-2"
-deviation = "every native route InvalidContext"
-
-["k6/notation/context/subject-root/set![x]"]
-finding = "NT-11-2"
-deviation = "every native route InvalidContext"
-
-["k6/notation/rule/subject-root/k::builtin::map::empty()"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-["k6/notation/rule/subject-root/k::builtin::set::empty()"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-["k6/notation/rule/subject-root/k::builtin::set::item(x)"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-["k6/notation/rule/subject-root/map![]"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-["k6/notation/rule/subject-root/set![]"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-["k6/notation/rule/subject-root/set![x]"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-["k6/terms/context/subject-root/k::builtin::set::item(x)"]
-finding = "NT-11-2"
-deviation = "every native route InvalidContext"
-
-["k6/terms/rule/subject-root/k::builtin::set::item(x)"]
-finding = "NT-11-2"
-deviation = "every native route krs::native::compile"
-
-# NT-11-3 (K6): a `for Stmt` clause whose whole subject is `Cmd::Go`/`Go()`, the term its result
-# also is. The clause is the rewrite `go => go`, but KRS emits `rule <k> go ... </k>` with no
-# rewrite, and the native routes refuse a rule with none ("Rules must have at least one rewrite").
-# A KRS emission bug: the rule written is a step that changes nothing, and the K KRS writes is not
-# that rule; KRS should emit the rewrite or refuse the clause with an author code.
-
-["k6/import/sort-rule/subject-root-term/Go()"]
-finding = "NT-11-3"
-deviation = "every native route InvalidRewrite"
-
-["k6/import/sort-rule/subject-root/Go()"]
-finding = "NT-11-3"
-deviation = "every native route InvalidRewrite"
-
-["k6/terms/sort-rule/subject-root-term/Cmd::Go"]
-finding = "NT-11-3"
-deviation = "every native route InvalidRewrite"
-
-["k6/terms/sort-rule/subject-root-term/Cmd::Go()"]
-finding = "NT-11-3"
-deviation = "every native route InvalidRewrite"
-
-["k6/terms/sort-rule/subject-root/Cmd::Go"]
-finding = "NT-11-3"
-deviation = "every native route InvalidRewrite"
-
-["k6/terms/sort-rule/subject-root/Cmd::Go()"]
-finding = "NT-11-3"
-deviation = "every native route InvalidRewrite"
-
-
 # NT-8-1 (K7): a program writing an alias or a desugar production whose clause result holds `let`
 # or `k::matches!`: the program's expansion writes the result's `#let` or `:=K`, which k-rust lowers
 # only in a definition's sentences, and `krs run` fails ("cannot find a production for KLabel"). The
@@ -6862,36 +6684,6 @@ finding = "NT-13-6"
 deviation = "krs::syntax::rust-syntax @ item"
 
 
-# NT-13-7 (K6): `#[k::exists]` on a transition is accepted and emitted with an existential result;
-# the `native-llvm` route refuses it by capability (`RuleExistential`), and `krs check` without
-# `--backend`, which judges every native route and is K6's judgement, fails although
-# `native-rust` builds and runs it. A construct the docs record as route-limited should not fail
-# `krs check` without `--backend` when another route builds it. How `krs check` treats the other
-# route-limited constructs, by the capability table (`krs-k-rust` `ROUTE_CAPABILITIES`): an
-# `anywhere` rule (limited on `java-haskell-reference`, no native route) and console IO
-# (`browser`) pass it; a parametric function's equations (`native-llvm`) and the direct console
-# write hooks (`native-rust`) fail it as `#[k::exists]` does, each built by the other native route;
-# ground Float folding and Float formats beyond binary64 fail it on both native routes. For NT-18.
-# Probe: a `cells!` rule with `#[k::exists(m: Int)]` writing `m`: `krs check` exits 1
-# (`krs::capability::unavailable`, route `native-llvm`), `krs check --backend haskell` passes.
-
-["k6/attrs/cells/#[k::exists(n: Int)]"]
-finding = "NT-13-7"
-deviation = "native-llvm krs::capability::unavailable"
-
-["k6/attrs/readable/#[k::exists(n: Int)]"]
-finding = "NT-13-7"
-deviation = "native-llvm krs::capability::unavailable"
-
-["k6/attrs/rule/#[k::exists(n: Int)]"]
-finding = "NT-13-7"
-deviation = "native-llvm krs::capability::unavailable"
-
-["k6/attrs/sort-rule/#[k::exists(n: Int)]"]
-finding = "NT-13-7"
-deviation = "native-llvm krs::capability::unavailable"
-
-
 # NT-13-8 (K8, advice): a function shorthand's `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` and
 # `#[k::priority]` are refused advising "write the struct and `#[k::equation]` fns instead", a
 # form that is refused for the same helper (`existential-outside-step`, `fresh-outside-step`,
@@ -7543,11 +7335,11 @@ deviation = "collection-without-instances advises none, and its refusal advises 
 
 ["k8/notation/readable/map-key/or-branch/k::builtin::map::empty().contains_key(x)"]
 finding = "S0-14"
-deviation = "function-in-pattern's refusal advises `a || b`, which notation/rule/guard/k::builtin::map::empty()[x], terms/simplification/subject/k::builtin::int::add(x, 1), terms/equation/subject/x, readable/subject/env/{ y -> x, .. } does not write (terms/alias/result/x || true does)"
+deviation = "function-in-pattern's refusal advises `a || b`, which notation/rule/guard/k::builtin::map::empty()[x], terms/simplification/subject/k::builtin::int::add(x, 1), terms/equation/subject/x, readable/subject/env/{ y -> x, .. }, terms/sort-rule/subject-root/k::builtin::set::item(x) does not write (terms/alias/result/x || true does)"
 
 ["k8/notation/readable/map-key/or-branch/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 finding = "S0-14"
-deviation = "function-in-pattern's refusal advises `a || b`, which notation/rule/guard/k::builtin::map::empty()[x], terms/simplification/subject/k::builtin::int::add(x, 1), terms/equation/subject/x, readable/subject/env/{ y -> x, .. } does not write (terms/alias/result/x || true does)"
+deviation = "function-in-pattern's refusal advises `a || b`, which notation/rule/guard/k::builtin::map::empty()[x], terms/simplification/subject/k::builtin::int::add(x, 1), terms/equation/subject/x, readable/subject/env/{ y -> x, .. }, terms/sort-rule/subject-root/k::builtin::set::item(x) does not write (terms/alias/result/x || true does)"
 
 ["k8/terms/readable/map-key/beside-fresh/x | 1"]
 finding = "S0-14"
