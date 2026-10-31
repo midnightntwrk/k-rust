@@ -109,6 +109,15 @@ partition end to end on both routes:
   symbol is K's sort predicate `isExp`, and two explicit symbols with one
   final component.
 
+Each program k-rust runs also pins the sorted open values (`<hook> <class>`)
+k-rust marked in its runs, as `implementation_chosen.<package>.<program>` (an
+empty list is a pin): the compared programs through the fixture harness, and
+`format`'s program from one extra `krs run --output json`. One k-rust run has no
+such pin: `program-warning`'s `krs run`, which is run for its warning only, binds
+no program (the package's configuration has no `$PGM`): it runs the initial
+configuration `<k> .K </k>` of a package with no rule, which nothing rewrites or
+evaluates, so the run reads no value at all.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -442,6 +451,9 @@ def verify_format(harness: FixtureGate, pins: Ledger, workspace: Path, refresh: 
         raise GateError(
             f"krs run --color always differs from krun --color on:\nkrs:\n{native_colored!r}\nkrun:\n{colored.stdout!r}"
         )
+    # The coloured run reports no marks; the same run's `--output json` report does.
+    report = json.loads(harness.run_command(FORMAT, "run", "--output", "json", program))["run"]
+    pins.expect(("implementation_chosen", FORMAT.package), {"format": sorted(krs_gate.chosen_values(report))})
     # `kast --output program` formats with the authored format, so `%c` and `%r` print as letters.
     pins.expect(("format", "krs_parse_program"), harness.run_command(FORMAT, "parse", "--output", "program", program))
     print(f"PASS grammar-lexing {FORMAT.package} reference snapshot: {k.finish()}")

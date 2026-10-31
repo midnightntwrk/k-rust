@@ -104,6 +104,16 @@ the normalized final computation cells must agree with each other and with the
 expected value written beside the program. The expansion and the emitted `.k`
 of every package are pinned by digest.
 
+Every k-rust run of a program also pins the sorted open values (`<hook> <class>`)
+k-rust marked in it, as `implementation_chosen.<key>.<program>` (an empty list is a
+pin): the compared packages through the fixture harness; `float_outputs`' `krs run`
+and `krs search` under `krs-builtin-floats-outputs`, from the `--output json` reports
+the comparison already reads; and the console programs under their package, from one
+extra `krs run --output json` per program (`sum` with the same standard input) and,
+for `io-log`, one `krs search --output json`. The JSON report carries console output
+in its `stdout` field, so the extra runs leave the pinned `--output none` runs as they
+were. `io-hooks` makes no k-rust run (the capability refusal), so it has no entry.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -330,6 +340,10 @@ FLOAT_OUTPUTS = {
     "literal-binary32": "0.1f",
 }
 """The `floats` programs whose result holds a Float, each printed by every `--output` format."""
+FLOAT_OUTPUTS_KEY = f"{FLOATS_PACKAGE}-outputs"
+"""The `implementation_chosen` key of the `float_outputs` runs, apart from the floats package's own
+programs: the `literal-*` programs run only here, and a `negate-*` program's `krs run` and
+`krs search` are other runs than `compare`'s `execute` and `search`."""
 FLOAT_KORE = re.compile(r'\\dv\{SortFloat\{\}\}\("([^"]*)"\)')
 
 # Refused natively: `ground` by the conservative GroundFloatFolding row (no native run of
@@ -539,6 +553,7 @@ def float_outputs(harness: FixtureGate, emitted) -> None:
         return GateError(f"{name} {program}: {what} differs from krun's:\n  krs:  {native!r}\n  krun: {java!r}")
 
     observed: dict[str, dict[str, str]] = {}
+    chosen: dict[str, list[str]] = {}
     with krs_gate.Session(harness.gate, environment=harness.environment) as session:
         session.load(emitted.definition_ir, emitted.main_module)
         for program_name, text in FLOAT_OUTPUTS.items():
@@ -562,7 +577,8 @@ def float_outputs(harness: FixtureGate, emitted) -> None:
             if not floats or FLOAT_KORE.findall(run_kore) != floats:
                 raise mismatch(program_name, "the Floats of krs run --output kore", run_kore, java_kore)
 
-            run_json = json.loads(krs("run", "json", program))["run"]["state"]
+            run_report = json.loads(krs("run", "json", program))["run"]
+            run_json = run_report["state"]
             java_json = json.loads(krun(f"krun-json/{program_name}", program, "--output", "json"))
             if run_json != java_json:
                 raise mismatch(program_name, "krs run --output json", run_json, java_json)
@@ -572,7 +588,11 @@ def float_outputs(harness: FixtureGate, emitted) -> None:
             java_search_kast = krun(f"krun-search-kast/{program_name}", program, "--search", "--output", "kast")
             if java_search_kast != f"#Equals{{GeneratedTopCell,GeneratedTopCell}}(Result,{search_kast.strip()})\n":
                 raise mismatch(program_name, "krs search --output kast", search_kast, java_search_kast)
-            [solution] = json.loads(krs("search", "json", program))["search"]["solutions"]
+            search_report = json.loads(krs("search", "json", program))["search"]
+            [solution] = search_report["solutions"]
+            chosen[program_name] = sorted(
+                krs_gate.chosen_values(run_report) | krs_gate.chosen_values(search_report)
+            )
             java_search = json.loads(
                 krun(f"krun-search-json/{program_name}", program, "--search", "--output", "json"),
             )
@@ -585,10 +605,21 @@ def float_outputs(harness: FixtureGate, emitted) -> None:
             observed[program_name] = {"kast": run_kast.strip(), "kore_floats": " ".join(floats)}
     print(f"PASS builtin-domains {name} reference snapshot: {k.finish()}")
     harness.pins.expect(("float_outputs", FLOATS_PACKAGE), observed)
+    harness.pins.expect(("implementation_chosen", FLOAT_OUTPUTS_KEY), chosen)
     print(
         f"PASS {name}: krs run and krs search print {len(observed)} Float results as krun does "
         "in --output kast, kore, and json"
     )
+
+
+def report_chosen_values(process: subprocess.CompletedProcess[str], key: str, what: str) -> set[str]:
+    """The open values k-rust marked in a `krs run` or `krs search` `--output json` report."""
+
+    try:
+        report = json.loads(process.stdout)[key]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise GateError(f"{what} printed no {key} report ({error}), exit {process.returncode}:\n{process.stderr}") from error
+    return krs_gate.chosen_values(report)
 
 
 def console_io(harness: FixtureGate) -> None:
@@ -627,6 +658,15 @@ def console_io(harness: FixtureGate) -> None:
         text=True, capture_output=True, timeout=900, check=False,
     )
     native_outcome = {"stdout": native.stdout, "status": native.returncode}
+    reported = subprocess.run(
+        IO.invocation(harness.krs).argv("run", "--output", "json", program),
+        cwd=ROOT, env={**os.environ, **harness.environment}, input=IO_STDIN,
+        text=True, capture_output=True, timeout=900, check=False,
+    )
+    harness.pins.expect(
+        ("implementation_chosen", IO.package),
+        {"sum": sorted(report_chosen_values(reported, "run", f"{IO.package} sum: krs run --output json"))},
+    )
 
     k = Snapshot(
         f"{harness.label}/{IO.package}",
@@ -804,6 +844,7 @@ def console_log(harness: FixtureGate) -> None:
     if kompiled.returncode != 0:
         raise GateError(f"{LOG.package}: kompile rejected the emitted definition:\n{kompiled.stderr}")
     observed: dict[str, dict[str, Any]] = {}
+    chosen: dict[str, list[str]] = {}
     for name, expected in LOG_EXPECTED.items():
         program = directory / f"{name}.pgm"
         program.write_text(name + "\n", encoding="utf-8")
@@ -815,6 +856,17 @@ def console_log(harness: FixtureGate) -> None:
         )
         native_run = harness._krs(LOG, "run", "--output", "none", program, check=False)  # noqa: SLF001
         native_search = harness._krs(LOG, "search", program, check=False)  # noqa: SLF001
+        what = f"{LOG.package} {name}"
+        chosen[name] = sorted(
+            report_chosen_values(
+                harness._krs(LOG, "run", "--output", "json", program, check=False),  # noqa: SLF001
+                "run", f"{what}: krs run --output json",
+            )
+            | report_chosen_values(
+                harness._krs(LOG, "search", "--output", "json", program, check=False),  # noqa: SLF001
+                "search", f"{what}: krs search --output json",
+            )
+        )
         outcomes = {
             "java-run": {"stderr": java_run.stderr, "status": java_run.returncode},
             "java-search": {"stderr": java_search.stderr, "status": java_search.returncode},
@@ -829,6 +881,7 @@ def console_log(harness: FixtureGate) -> None:
         observed[name] = outcomes
     print(f"PASS builtin-domains {LOG.package} reference snapshot: {k.finish()}")
     harness.pins.expect(("console_log", LOG.package), observed)
+    harness.pins.expect(("implementation_chosen", LOG.package), chosen)
     harness.compare_kore(emitted)
     print(
         f"PASS {LOG.package}: krs run, krs search, krun, and krun --search write the same "
