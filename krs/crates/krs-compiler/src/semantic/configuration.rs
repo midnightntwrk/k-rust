@@ -103,7 +103,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
     check_configuration_variables_read(descriptor, configuration, &initializer)?;
     check_explicit_presence(&cells, &initializer, &binding_sorts)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
-    Ok(FixedConfiguration::new(
+    let configuration = FixedConfiguration::new(
         semantic_origin(
             descriptor,
             configuration.declaration.key.clone(),
@@ -120,7 +120,79 @@ pub(super) fn lower_fixed_configuration_descriptor(
         initializer_id,
         variables,
         initializer,
-    )?)
+    )?;
+    check_main_cell(&configuration)?;
+    Ok(configuration)
+}
+
+/// Refuses a cell named `k` that is not the configuration's main cell
+/// ([`krs_ir_levels::k_surface::main_cell`]).
+///
+/// K takes the cell named `k` as the computation cell by its name: the program starts there and
+/// every cell-free sentence (a term rule, a context, a strict production's heating) runs there.
+/// The main cell KRS reads from the initializer is the `KSequence` cell that holds the program,
+/// so a `k` that is another cell would give the definition a second computation cell, or one
+/// other than its initializer states.
+fn check_main_cell(configuration: &SemanticConfiguration) -> Result<(), DescriptorLoweringError> {
+    type Named<'a> = (
+        &'a FixedCell<SemanticSortRef, SemanticId>,
+        Option<&'a FixedInitializerCell<SemanticId, SemanticTerm>>,
+    );
+    fn named_k<'a>(
+        cells: &'a [FixedCell<SemanticSortRef, SemanticId>],
+        values: &'a [FixedInitializerCell<SemanticId, SemanticTerm>],
+    ) -> Option<Named<'a>> {
+        cells.iter().find_map(|cell| {
+            let value = values.iter().find(|value| value.cell() == cell.id());
+            if cell.name() == "k" {
+                return Some((cell, value));
+            }
+            match (cell.content(), value.map(FixedInitializerCell::content)) {
+                (
+                    krs_ir::FixedCellContent::Children { children },
+                    Some(FixedInitializerContent::Children { children: values }),
+                ) => named_k(children, values),
+                (krs_ir::FixedCellContent::Children { children }, _) => named_k(children, &[]),
+                _ => None,
+            }
+        })
+    }
+    let Some((k, initialized)) = named_k(configuration.cells(), configuration.initializer()) else {
+        return Ok(());
+    };
+    let main = krs_ir_levels::k_surface::main_cell(configuration);
+    if main.is_some_and(|main| main.id() == k.id()) {
+        return Ok(());
+    }
+    let computation = main.map_or_else(
+        || {
+            "; the computation cell is the `KSequence` cell whose initial value reads the program, \
+             or the configuration's only `KSequence` cell, and this configuration has neither"
+                .to_owned()
+        },
+        |main| {
+            format!(
+                "; the computation cell is `{}`, the `KSequence` cell whose initial value reads the \
+                 program",
+                main.name()
+            )
+        },
+    );
+    Err(DescriptorLoweringError::MainCell {
+        reason: format!(
+            "the cell `k` is not this configuration's computation cell{computation}. K takes the \
+             cell named `k` as the computation cell, where the program starts and where a \
+             cell-free sentence (a term rule, a context, a strict production) runs, so the \
+             definition would run in another cell than its initializer states. Rename the cell \
+             `k`, or place the program in it"
+        ),
+        range: initialized
+            .map_or_else(|| k.origin(), FixedInitializerCell::origin)
+            .origin()
+            .exact_authored_range()
+            .map(Box::new),
+        item: None,
+    })
 }
 
 /// Rejects a nominal `#[k::cell]` declaration that is the content of more

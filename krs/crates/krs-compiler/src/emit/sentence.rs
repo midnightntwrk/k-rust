@@ -539,11 +539,15 @@ fn emit_fixed_configuration(
     writer.push("configuration");
     writer.push("\n");
     let names = context.naming.configuration(configuration);
+    let main = krs_ir_levels::k_surface::main_cell(configuration).map(FixedCell::id);
     match configuration.root() {
         ConfigurationRoot::GeneratedTop => emit_fixed_cell_forest(
             configuration.cells(),
             configuration.initializer(),
-            configuration.variables(),
+            InitializerScope {
+                variables: configuration.variables(),
+                main,
+            },
             &names,
             4,
             context,
@@ -557,7 +561,10 @@ fn emit_fixed_configuration(
             emit_fixed_cell_forest(
                 configuration.cells(),
                 configuration.initializer(),
-                configuration.variables(),
+                InitializerScope {
+                    variables: configuration.variables(),
+                    main,
+                },
                 &names,
                 6,
                 context,
@@ -579,10 +586,18 @@ fn emit_fixed_configuration(
     Ok(())
 }
 
+/// What every cell of one configuration's initializer reads: the configuration variables and the
+/// main cell (`k_surface::main_cell`).
+#[derive(Clone, Copy)]
+struct InitializerScope<'a> {
+    variables: &'a [FixedConfigurationVariable<DefinitionSortRef>],
+    main: Option<&'a SymbolId>,
+}
+
 fn emit_fixed_cell_forest(
     cells: &[FixedCell<DefinitionSortRef, SymbolId>],
     initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
-    variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    scope: InitializerScope<'_>,
     names: &SentenceVariables,
     indent: usize,
     context: &EmitContext<'_>,
@@ -604,7 +619,7 @@ fn emit_fixed_cell_forest(
         emit_fixed_cell(
             cell,
             initialized_cell,
-            variables,
+            scope,
             names,
             indent,
             context,
@@ -617,7 +632,7 @@ fn emit_fixed_cell_forest(
 fn emit_fixed_cell(
     cell: &FixedCell<DefinitionSortRef, SymbolId>,
     initializer_cell: &FixedInitializerCell<SymbolId, DefinitionTerm>,
-    variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+    scope: InitializerScope<'_>,
     names: &SentenceVariables,
     indent: usize,
     context: &EmitContext<'_>,
@@ -665,6 +680,10 @@ fn emit_fixed_cell(
             }
         }
     }
+    // K takes the cell named `k` as the main cell by its name; any other main cell says so.
+    if scope.main == Some(cell.id()) && cell.name() != "k" {
+        writer.push(" maincell=\"\"");
+    }
     writer.push(">");
     match (cell.content(), initializer_cell.content()) {
         (FixedCellContent::Term { sort, .. }, FixedInitializerContent::Term { term }) => {
@@ -679,7 +698,7 @@ fn emit_fixed_cell(
             if cast && !parenthesized {
                 writer.push("( ");
             }
-            emit_initializer_term(term, variables, names, context, writer)?;
+            emit_initializer_term(term, scope.variables, names, context, writer)?;
             if cast {
                 writer.push(if parenthesized { ":" } else { " ):" });
                 writer.push(&context.sort_name_ref(sort)?);
@@ -698,7 +717,7 @@ fn emit_fixed_cell(
             emit_fixed_cell_forest(
                 children,
                 initialized_children,
-                variables,
+                scope,
                 names,
                 indent + 2,
                 context,

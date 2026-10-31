@@ -952,3 +952,177 @@ fn an_initializer_reads_its_variables_inside_local_terms() {
         assert!(state.contains(cell), "{cell}\n{stdout}\n{stderr}");
     }
 }
+
+/// A configuration whose top-level computation cell is `top` and whose group `frame` holds a
+/// second one, `code`, with `go => done` as its one cell-free sentence (a `#[k::rule]` fn,
+/// emitted without a cell), which K runs in the main cell. (A `for Stmt` clause is no such
+/// sentence: the collector writes it in the configuration's one `KSequence` cell.)
+fn main_cell_source(top: &str, top_value: &str, code_value: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence}};
+use k::{{KResult, Term}};
+
+k::sorts! {{
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {{
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("done")]
+    Done(),
+}}
+
+#[k::rule]
+fn step(k::term![Cmd::Go()]: Term<Stmt>) -> Term<Stmt> {{
+    Cmd::Done()
+}}
+
+#[k::cell]
+pub struct Frame {{
+    #[k::cell]
+    pub code: KSequence,
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub {top}: KSequence,
+    #[k::cell(nested)]
+    pub frame: Frame,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {{
+        Self {{
+            {top}: {top_value},
+            frame: Frame {{ code: {code_value} }},
+        }}
+    }}
+}}
+"#
+    )
+}
+
+/// The text route: the emitted `definition.k` loaded and compiled by k-rust's text frontend, as
+/// `krust kcompile` reads it, and the KORE axiom of the cell-free rule `step`, which compilation
+/// places in the main cell.
+fn text_route_step_axiom(definition: &str) -> String {
+    use k_rust::builtin;
+    use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
+    use k_rust::outer::{LoadOptions, ResolvedSource, load_for_compilation};
+
+    let label = definition
+        .lines()
+        .find(|line| line.contains("rule cmd") || line.contains("rule go"))
+        .and_then(|line| line.split("label(").nth(1))
+        .and_then(|rest| rest.split(')').next())
+        .unwrap_or_else(|| panic!("the rule `step` is emitted:\n{definition}"))
+        .to_owned();
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("definition.k", definition.to_owned()),
+        "ORG-KRS-INIT-TERMS",
+        Some("ORG-KRS-INIT-TERMS-SYNTAX"),
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .to_owned(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("the text route loads the definition: {error}"));
+    let kore = compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("the text route compiles the definition: {error}"))
+        .definition_kore;
+    let needle = format!("label{{}}(\"{label}\")");
+    let at = kore
+        .find(&needle)
+        .unwrap_or_else(|| panic!("no axiom {label}"));
+    let start = kore[..at].rfind("axiom{").expect("an axiom");
+    kore[start..at].to_owned()
+}
+
+/// The main cell is the computation cell that holds the program, whatever its name or depth
+/// (`k_surface::main_cell`): the text says so with `maincell=""` on a cell not named `k`, both
+/// routes run the cell-free rule there, and a cell named `k` that is not the main cell, which K
+/// would take as the computation cell by its name, is refused.
+#[test]
+fn the_main_cell_is_the_computation_cell_that_holds_the_program_on_both_routes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    fs::write(temporary.path().join("program.txt"), "go\n").unwrap();
+    let program = temporary.path().join("program.txt");
+    for (name, top, top_value, code_value, marked, main) in [
+        (
+            "prog",
+            "prog",
+            "k::k![pgm]",
+            "k::k![]",
+            "<prog maincell=\"\"> $PGM:Stmt </prog>",
+            "prog",
+        ),
+        (
+            "code",
+            "prog",
+            "k::k![]",
+            "k::k![pgm]",
+            "<code maincell=\"\"> $PGM:Stmt </code>",
+            "code",
+        ),
+        ("k", "k", "k::k![pgm]", "k::k![]", "<k> $PGM:Stmt </k>", "k"),
+    ] {
+        let manifest = package(
+            temporary.path(),
+            &format!("main-{name}"),
+            &main_cell_source(top, top_value, code_value),
+        );
+        let definition = emit(target.path(), &manifest);
+        assert!(definition.contains(marked), "{name}:\n{definition}");
+        assert_eq!(
+            definition.matches("maincell").count(),
+            usize::from(name != "k"),
+            "{name}"
+        );
+        let axiom = text_route_step_axiom(&definition);
+        assert!(
+            axiom.contains(&format!("Lbl'-LT-'{main}'-GT-'")),
+            "{name}: the text route runs `step` in <{main}>:\n{axiom}"
+        );
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &manifest,
+            "run",
+            &[program.to_str().unwrap()],
+        );
+        let stdout = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            stdout.contains(&format!("<{main}> done ~> .K </{main}>")),
+            "{name}: `krs run` runs `step` in <{main}> ({success}):\n{stdout}\n{stderr}"
+        );
+    }
+
+    // `k` beside the computation cell that holds the program.
+    let manifest = package(
+        temporary.path(),
+        "main-k-beside",
+        &main_cell_source("k", "k::k![]", "k::k![pgm]"),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success, "{stderr}");
+    assert!(
+        stderr.contains("error[krs::analysis::main-cell]: the cell `k` is not this configuration's computation cell; the computation cell is `code`"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("internal error"), "{stderr}");
+}

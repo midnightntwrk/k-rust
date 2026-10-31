@@ -765,6 +765,16 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// A cell named `k`, which K takes as the computation cell, that is not the configuration's
+    /// main cell ([`krs_ir_levels::k_surface::main_cell`]).
+    MainCell {
+        /// Stable reason naming the cells.
+        reason: String,
+        /// The exact authored range of the `k` cell's initial value.
+        range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A configuration variable no cell's initial content reads.
     UnusedConfigurationVariable {
         /// Stable reason naming the variable.
@@ -1151,6 +1161,11 @@ macro_rules! by_subject_slots {
                 item: $open_item,
                 ..
             }
+            | DescriptorLoweringError::MainCell {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidGeneratedIdentity {
                 range: $open_range,
                 item: $open_item,
@@ -1485,7 +1500,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidConsoleCell { reason, .. }
             | Self::CellCollection { reason, .. }
             | Self::CellWrapper { reason, .. }
-            | Self::UnusedConfigurationVariable { reason, .. } => formatter.write_str(reason),
+            | Self::UnusedConfigurationVariable { reason, .. }
+            | Self::MainCell { reason, .. } => formatter.write_str(reason),
             Self::ImplicitPresence { cells, .. } => formatter.write_str(
                 &cells
                     .iter()
@@ -1592,6 +1608,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::CollectionInStaticSubject { .. } => codes::analysis::COLLECTION_IN_STATIC_SUBJECT,
             Self::InvalidConstant { .. } => codes::analysis::INVALID_CONSTANT,
             Self::CellWrapper { .. } => codes::analysis::CELL_WRAPPER,
+            Self::MainCell { .. } => codes::analysis::MAIN_CELL,
             Self::UnusedConfigurationVariable { .. } => {
                 codes::analysis::UNUSED_CONFIGURATION_VARIABLE
             }

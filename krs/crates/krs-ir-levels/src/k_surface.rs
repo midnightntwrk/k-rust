@@ -11,12 +11,13 @@ pub use variable_names::{
 
 use crate::{
     DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, ProductionSentence, RuleBodyRef, SymbolId, SymbolIdentity,
+    DefinitionTermKind, IrLevel, IrSortRef, IrTerm, IrTermKind, ProductionSentence, RuleBodyRef,
+    SymbolId, SymbolIdentity,
 };
 use krs_ir::{
-    ApplicationRef, BuiltinSort, FixedCell, FixedCellContent, FixedInitializerCell,
-    FixedInitializerContent, GrammarProductionItemKind, OperationSort, ProductionAttribute,
-    ProductionGroupId, StableItemId,
+    ApplicationRef, BuiltinSort, FixedCell, FixedCellContent, FixedConfiguration,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, OperationSort,
+    ProductionAttribute, ProductionGroupId, StableItemId,
 };
 
 /// Borrowed declarations and names from one Definition IR.
@@ -565,6 +566,86 @@ impl BuiltinRequirements {
     }
 }
 
+/// The main cell of `configuration`: the computation cell a cell-free sentence (a term rule, a
+/// context, a strict production's heating) is placed in, and the cell a run's program starts in.
+///
+/// It is the `KSequence` leaf whose initial value reads the main configuration variable, at any
+/// depth (a computation cell inside a group or a collection instance); where no `KSequence` leaf
+/// reads it, the configuration's one `KSequence` leaf. `None` where neither rule picks exactly one
+/// cell: no `KSequence` leaf, two that read the program, or several of which none does.
+///
+/// A cell of another sort that reads the program (a map keyed by it) is no main cell: it holds a
+/// value of its declared sort, not a computation. Both backends mark this cell and no other, and
+/// a cell named `k`, which K takes as the computation cell by its name, must be this cell (the
+/// configuration's lowering refuses another).
+#[must_use]
+pub fn main_cell<D, C, L>(
+    configuration: &FixedConfiguration<IrSortRef<D>, C, IrTerm<L>>,
+) -> Option<&FixedCell<IrSortRef<D>, C>>
+where
+    C: Clone + Ord,
+    L: IrLevel,
+{
+    type Found<'a, D, C, L> = Vec<(&'a FixedCell<IrSortRef<D>, C>, Option<&'a IrTerm<L>>)>;
+    fn computation_cells<'a, D, C: PartialEq, L: IrLevel>(
+        cells: &'a [FixedCell<IrSortRef<D>, C>],
+        values: &'a [FixedInitializerCell<C, IrTerm<L>>],
+        found: &mut Found<'a, D, C, L>,
+    ) {
+        for cell in cells {
+            let value = values.iter().find(|value| value.cell() == cell.id());
+            match cell.content() {
+                FixedCellContent::Term {
+                    sort: IrSortRef::Builtin(BuiltinSort::KSequence),
+                    ..
+                } => found.push((
+                    cell,
+                    value.and_then(|value| match value.content() {
+                        FixedInitializerContent::Term { term } => Some(term),
+                        FixedInitializerContent::Children { .. } => None,
+                    }),
+                )),
+                FixedCellContent::Term { .. } => {}
+                FixedCellContent::Children { children } => {
+                    let values = value.map_or(&[][..], |value| match value.content() {
+                        FixedInitializerContent::Children { children } => children.as_slice(),
+                        FixedInitializerContent::Term { .. } => &[],
+                    });
+                    computation_cells(children, values, found);
+                }
+            }
+        }
+    }
+    fn reads<L: IrLevel>(term: &IrTerm<L>, variable: &krs_ir::SemanticId) -> bool {
+        matches!(term.kind(), IrTermKind::Variable { variable: read } if read == variable)
+            || term
+                .children()
+                .into_iter()
+                .any(|child| reads(child, variable))
+    }
+    let mut found = Vec::new();
+    computation_cells(
+        configuration.cells(),
+        configuration.initializer(),
+        &mut found,
+    );
+    let main = configuration
+        .variables()
+        .iter()
+        .find(|variable| variable.is_main());
+    let reading = found
+        .iter()
+        .filter(|(_, term)| {
+            main.zip(*term)
+                .is_some_and(|(variable, term)| reads(term, variable.id()))
+        })
+        .collect::<Vec<_>>();
+    match (reading.as_slice(), found.as_slice()) {
+        ([(cell, _)], _) | ([], [(cell, _)]) => Some(*cell),
+        _ => None,
+    }
+}
+
 /// Whether a leaf cell's whole initial value `term`, in a cell of declared sort `cell_sort`, is
 /// written cast to that sort, `( term ):Sort`.
 ///
@@ -628,8 +709,8 @@ mod tests {
     use krs_ir::testing::{item, origin};
     use krs_ir::{
         BuiltinOperation, BuiltinSort, CellContentFrame, ClaimModality, ConfigurationRoot,
-        FixedCellPattern, FixedConfigurationPattern, FixedInitializerCell, ItemKind, ModuleId,
-        ProductionAttribute, SemanticId, SentenceKind,
+        FixedCellPattern, FixedConfigurationPattern, FixedConfigurationVariable,
+        FixedInitializerCell, ItemKind, ModuleId, ProductionAttribute, SemanticId, SentenceKind,
     };
 
     fn symbol_id(name: &str) -> SymbolId {
@@ -1077,5 +1158,194 @@ mod tests {
         assert!(index.sort(&symbol_id("production")).is_none());
         assert!(index.production(&symbol_id("sort")).is_none());
         assert!(index.symbol_name(&symbol_id("leaf")).is_none());
+    }
+
+    /// One cell of a [`main_cell`] fixture and its initial value: a `KSequence` leaf holds the
+    /// program or nothing, a leaf of another sort the program or 0, a group its children.
+    enum Shape {
+        Computation {
+            reads: bool,
+        },
+        Leaf {
+            sort: DefinitionSortRef,
+            reads: bool,
+        },
+        Group(Vec<(&'static str, Shape)>),
+    }
+
+    fn shaped(
+        name: &str,
+        shape: Shape,
+    ) -> (
+        FixedCell<DefinitionSortRef, SymbolId>,
+        FixedInitializerCell<SymbolId, DefinitionTerm>,
+    ) {
+        let id = symbol_id(&format!("cell.{name}"));
+        let program = |sort: DefinitionSortRef| {
+            DefinitionTerm::variable(origin(&format!("{name}.pgm")), sort, semantic_id("pgm"))
+        };
+        match shape {
+            Shape::Computation { reads } => {
+                let items = if reads {
+                    vec![program(int_sort())]
+                } else {
+                    Vec::new()
+                };
+                (
+                    FixedCell::leaf(
+                        origin(name),
+                        id.clone(),
+                        name,
+                        Vec::new(),
+                        DefinitionSortRef::k_sequence(),
+                    )
+                    .unwrap(),
+                    FixedInitializerCell::term(
+                        origin(&format!("{name}.init")),
+                        id,
+                        DefinitionTerm::k_sequence(
+                            origin(&format!("{name}.seq")),
+                            int_sort(),
+                            items,
+                        ),
+                    ),
+                )
+            }
+            Shape::Leaf { sort, reads } => {
+                let value = if reads {
+                    program(sort.clone())
+                } else {
+                    DefinitionTerm::token(origin(&format!("{name}.zero")), int_sort(), "0").unwrap()
+                };
+                (
+                    FixedCell::leaf(origin(name), id.clone(), name, Vec::new(), sort).unwrap(),
+                    FixedInitializerCell::term(origin(&format!("{name}.init")), id, value),
+                )
+            }
+            Shape::Group(children) => {
+                let (cells, values): (Vec<_>, Vec<_>) = children
+                    .into_iter()
+                    .map(|(child, shape)| shaped(child, shape))
+                    .unzip();
+                (
+                    FixedCell::nested(origin(name), id.clone(), name, Vec::new(), cells).unwrap(),
+                    FixedInitializerCell::children(origin(&format!("{name}.init")), id, values)
+                        .unwrap(),
+                )
+            }
+        }
+    }
+
+    /// The name of the main cell of a configuration of `cells` whose main variable is `pgm`.
+    fn main_cell_of(cells: Vec<(&'static str, Shape)>) -> Option<String> {
+        let (cells, initializer): (Vec<_>, Vec<_>) = cells
+            .into_iter()
+            .map(|(name, shape)| shaped(name, shape))
+            .unzip();
+        let configuration = ConfigurationSentence::new(
+            origin("configuration"),
+            semantic_id("configuration"),
+            ConfigurationRoot::GeneratedTop,
+            cells,
+            origin("initializer"),
+            semantic_id("initializer"),
+            vec![
+                FixedConfigurationVariable::new(
+                    origin("pgm"),
+                    semantic_id("pgm"),
+                    "PGM",
+                    int_sort(),
+                    true,
+                )
+                .unwrap(),
+            ],
+            initializer,
+        )
+        .unwrap();
+        main_cell(&configuration).map(|cell| cell.name().to_owned())
+    }
+
+    /// The main cell is the computation cell that reads the program, whatever its name and
+    /// depth; failing that, the one computation cell; and no cell where neither is unique. A
+    /// map that reads the program is no computation cell.
+    #[test]
+    fn the_main_cell_is_the_computation_cell_that_reads_the_program() {
+        use Shape::{Computation, Group, Leaf};
+        let map = || DefinitionSortRef::Builtin(BuiltinSort::Map);
+        assert_eq!(
+            main_cell_of(vec![
+                ("prog", Computation { reads: true }),
+                (
+                    "n",
+                    Leaf {
+                        sort: int_sort(),
+                        reads: false
+                    }
+                ),
+            ])
+            .as_deref(),
+            Some("prog")
+        );
+        assert_eq!(
+            main_cell_of(vec![
+                ("k", Computation { reads: false }),
+                ("prog", Computation { reads: true }),
+            ])
+            .as_deref(),
+            Some("prog")
+        );
+        assert_eq!(
+            main_cell_of(vec![
+                ("prog", Computation { reads: false }),
+                ("frame", Group(vec![("code", Computation { reads: true })])),
+            ])
+            .as_deref(),
+            Some("code")
+        );
+        assert_eq!(
+            main_cell_of(vec![
+                ("k", Computation { reads: false }),
+                (
+                    "env",
+                    Leaf {
+                        sort: map(),
+                        reads: true
+                    }
+                ),
+            ])
+            .as_deref(),
+            Some("k")
+        );
+        assert_eq!(
+            main_cell_of(vec![
+                ("k", Computation { reads: false }),
+                ("slot", Computation { reads: false }),
+                (
+                    "pgm",
+                    Leaf {
+                        sort: int_sort(),
+                        reads: true
+                    }
+                ),
+            ]),
+            None
+        );
+        assert_eq!(
+            main_cell_of(vec![
+                ("a", Computation { reads: true }),
+                ("b", Computation { reads: true }),
+            ]),
+            None
+        );
+        assert_eq!(
+            main_cell_of(vec![(
+                "n",
+                Leaf {
+                    sort: int_sort(),
+                    reads: true
+                }
+            )]),
+            None
+        );
     }
 }

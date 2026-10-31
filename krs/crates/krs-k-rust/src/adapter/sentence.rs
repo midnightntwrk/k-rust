@@ -8,14 +8,14 @@ use k_rust::{
 use krs_ir::{
     BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationClause,
     ConfigurationRoot, FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
-    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
-    FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
-    MapOperation, NodeOrigin, ProductionGroupId, SemanticId, SentenceKind, StrictnessKind,
+    FixedConfigurationRewrite, FixedInitializerCell, FixedInitializerContent, FormatFragment,
+    GrammarProductionItemKind, GroupAssociativity, MapOperation, NodeOrigin, ProductionGroupId,
+    SemanticId, SentenceKind, StrictnessKind,
 };
 use krs_ir_levels::{
     ConfigurationSentence, ContextAliasSentence, DefinitionProductionAttribute,
     DefinitionScopedBinder, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
+    ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
     k_surface::{cell_sort_name, generated_variable_name},
 };
 use serde_json::json;
@@ -527,10 +527,12 @@ impl Adapter<'_> {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeTerm, AdapterError> {
+        // The one cell both backends mark as K's main cell (`k_surface::main_cell`).
+        let main = krs_ir_levels::k_surface::main_cell(configuration).map(FixedCell::id);
         let forest = self.fixed_initializer_forest(
             configuration.cells(),
             configuration.initializer(),
-            configuration.variables(),
+            main,
             module,
             sentence_index,
         )?;
@@ -556,7 +558,7 @@ impl Adapter<'_> {
         &mut self,
         cells: &[FixedCell<DefinitionSortRef, SymbolId>],
         initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
-        variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+        main: Option<&SymbolId>,
         module: &str,
         sentence_index: usize,
     ) -> Result<Vec<NativeTerm>, AdapterError> {
@@ -574,7 +576,7 @@ impl Adapter<'_> {
                 self.fixed_initializer_cell(
                     cell,
                     matching_initializer,
-                    variables,
+                    main,
                     module,
                     sentence_index,
                 )
@@ -586,7 +588,7 @@ impl Adapter<'_> {
         &mut self,
         cell: &FixedCell<DefinitionSortRef, SymbolId>,
         initializer: &FixedInitializerCell<SymbolId, DefinitionTerm>,
-        variables: &[FixedConfigurationVariable<DefinitionSortRef>],
+        main: Option<&SymbolId>,
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeTerm, AdapterError> {
@@ -627,7 +629,7 @@ impl Adapter<'_> {
             ) => native_cells(self.fixed_initializer_forest(
                 children,
                 initialized_children,
-                variables,
+                main,
                 module,
                 sentence_index,
             )?),
@@ -639,20 +641,7 @@ impl Adapter<'_> {
                 });
             }
         };
-        // The main cell is the computation cell that holds `$PGM`, also below a
-        // nested cell such as a collection instance (KF-023). K gives a main
-        // cell's content the sort `K`, the computation cell's own sort, so a
-        // cell of another sort that reads `$PGM` (a map keyed by the program)
-        // keeps its declared sort and is not the main cell.
-        let is_main = matches!(
-            cell.content(),
-            FixedCellContent::Term {
-                sort: DefinitionSortRef::Builtin(BuiltinSort::KSequence),
-                ..
-            }
-        ) && variables.iter().any(|variable| {
-            variable.is_main() && initializer_contains_variable(initializer, variable.id())
-        });
+        let is_main = main == Some(cell.id());
         let properties = native_cell_properties(cell.attributes(), is_main);
         Ok(native_config_cell(cell.name(), properties, contents))
     }
@@ -1754,67 +1743,6 @@ fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTer
             )
         },
     )
-}
-
-fn initializer_contains_variable(
-    initializer: &FixedInitializerCell<SymbolId, DefinitionTerm>,
-    variable: &SemanticId,
-) -> bool {
-    match initializer.content() {
-        FixedInitializerContent::Term { term } => term_contains_variable(term, variable),
-        FixedInitializerContent::Children { children } => children
-            .iter()
-            .any(|child| initializer_contains_variable(child, variable)),
-    }
-}
-
-fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool {
-    match term.kind() {
-        DefinitionTermKind::Variable {
-            variable: candidate,
-        } => candidate == variable,
-        DefinitionTermKind::Application { arguments, .. }
-        | DefinitionTermKind::KSequence {
-            items: arguments, ..
-        } => arguments
-            .iter()
-            .any(|argument| term_contains_variable(argument, variable)),
-        DefinitionTermKind::Map(operands) => operands
-            .operands()
-            .any(|operand| term_contains_variable(operand, variable)),
-        DefinitionTermKind::List(operands) => operands
-            .operands()
-            .any(|operand| term_contains_variable(operand, variable)),
-        DefinitionTermKind::Set(operands) => operands
-            .operands()
-            .any(|operand| term_contains_variable(operand, variable)),
-        DefinitionTermKind::Cell { children, .. } => children
-            .iter()
-            .any(|child| term_contains_variable(child, variable)),
-        DefinitionTermKind::Rewrite { from, to } => {
-            term_contains_variable(from, variable) || term_contains_variable(to, variable)
-        }
-        DefinitionTermKind::As { alias, pattern } => {
-            alias == variable || term_contains_variable(pattern, variable)
-        }
-        DefinitionTermKind::Or { alternatives } => alternatives
-            .iter()
-            .any(|alternative| term_contains_variable(alternative, variable)),
-        DefinitionTermKind::Matches {
-            subject, pattern, ..
-        } => term_contains_variable(subject, variable) || term_contains_variable(pattern, variable),
-        DefinitionTermKind::Let {
-            pattern,
-            value,
-            body,
-            ..
-        } => {
-            term_contains_variable(pattern, variable)
-                || term_contains_variable(value, variable)
-                || term_contains_variable(body, variable)
-        }
-        DefinitionTermKind::Token { .. } => false,
-    }
 }
 
 fn incomplete_cell(name: &str, content: NativeTerm, open_right: bool) -> NativeTerm {
