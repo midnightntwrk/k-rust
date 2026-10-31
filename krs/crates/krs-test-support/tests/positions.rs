@@ -125,10 +125,16 @@ const KNOWN: [(&str, &str); 21] = [
 
 /// The disagreements that are no finding's, as globs over case IDs, and why: the product decides
 /// them outside its table, where the oracle's answer is met.
-const NOT_RED: [(&str, &str); 1] = [(
-    r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
-    "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure first",
-)];
+const NOT_RED: [(&str, &str); 2] = [
+    (
+        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
+        "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure first",
+    ),
+    (
+        "terms/desugar/subject/[x, ..]",
+        "a list's brackets in a desugar's `KItem` argument are refused by their sort (`list-notation-sort`), which the compiler meets before the oracle's `collection-in-static-subject` and the table overrides it with",
+    ),
+];
 
 /// The disagreements the product decides before or outside the table's row, which are not red:
 /// the table refuses a `let` block and `k::matches!` in a readable key (NT-3-2), and the term
@@ -338,14 +344,17 @@ const fn product_construct(construct: model::Construct) -> Option<Construct> {
         | M::Fresh
         | M::Constructor
         | M::StaticApplication
-        | M::OpenStaticApplication
         | M::ListBrackets
         | M::Notation(Notation::CollectionValue) => return None,
         M::Turbofish => Construct::Turbofish,
         M::Literal => Construct::Literal,
-        M::FunctionApplication | M::BuiltinApplication | M::Concatenation | M::Notation(_) => {
-            Construct::FunctionApplication
-        }
+        // A static production's application the compiler cannot expand is refused after
+        // resolution, which alone tells it from a constructor's, as a function's is.
+        M::FunctionApplication
+        | M::BuiltinApplication
+        | M::Concatenation
+        | M::OpenStaticApplication
+        | M::Notation(_) => Construct::FunctionApplication,
         M::Rest => Construct::Rest,
         M::Wildcard => Construct::Wildcard,
         M::As => Construct::As,

@@ -338,7 +338,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 63] = [
+const OVERRIDDEN: [(&str, &str); 64] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -487,6 +487,10 @@ const OVERRIDDEN: [(&str, &str); 63] = [
     (
         "terms/desugar/subject-root/x | 1",
         "static-clause-root-not-marked",
+    ),
+    (
+        "terms/desugar/subject/[x, ..]",
+        "collection-in-static-subject",
     ),
     (
         "terms/equation/subject-root/[x, ..]",

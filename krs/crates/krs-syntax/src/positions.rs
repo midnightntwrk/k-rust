@@ -841,7 +841,9 @@ pub enum Rule {
     /// `function-in-pattern`: whether an application where a pattern matches a term applies a
     /// function, and, at an equation's slot root, whether that root is the subject's. In a
     /// static clause's subject the compiler also tells a collection of two or more parts by its
-    /// head (`collection-in-static-subject`), which static expansion matches in one spelling.
+    /// head (`collection-in-static-subject`), which static expansion matches in one spelling,
+    /// and an application of a static production its expansion cannot rewrite
+    /// (`unexpandable-static-application`).
     FunctionInPattern,
     /// `ml-in-condition`: a matching-logic predicate in the condition of a transition or an
     /// equation, which the compiler recognizes for every connective alike.
