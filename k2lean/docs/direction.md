@@ -267,9 +267,13 @@ The per-rule row is where most of k2lean's open cases are, and the one the exist
 The rows above it are mostly recipes over what exists: an agent writes the stuck statement as a target and runs the fuzzer.
 Turning a witness, which is a K input, into a Lean refutation stays k2lean's part.
 
-**The boundary for two-run refutations** (Sebastien, 2026-10-31): the search for the input belongs to `krust fuzz`, as a target, and k2lean reads its witness through `--witnesses` as it reads an author's program today.
-The target is open. It needs the observation the theorem compares (a cell, or the part of the configuration that `--obs` names), and for noninterference the relation on inputs (public values equal).
-k2lean's own search over `successors` stays what it is: it finds the two runs from a given input, and it does not search for inputs.
+**Where a refuting input comes from** (Sebastien, 2026-10-31).
+First from reasoning: the author, or the agent working for them, reads the open slot or the stuck case and writes the input that shows it (the race it suspects, the value that breaks a side condition).
+That is usually the faster route, and it is how DrfConf's and SimpleConf's witnesses were found.
+The tools above complement it: a search catches what the reasoning missed, and a target searched over generators and a corpus with no witness found is evidence that nothing was missed, never a proof.
+As across the project (kink's mutations, the patterns and programs worth testing), the agent proposes, and the tools check, cover and confirm.
+For two-run refutations, `krust fuzz` lacks the target: one input whose ends differ under the theorem's observation (a cell, or what `--obs` names), and for noninterference two inputs equal on public values. Whether that target is worth building is open.
+Either way, k2lean reads the input through `--witnesses`, whoever found it. Its own search over `successors` finds the two runs from that input, and the kernel checks them; it does not search for inputs.
 
 **Experiment that would make it real:** take `countAllOccurrences` equation 2 and one open per-rule case of a fixture, and see what the existing tools find for each: the critical-pair check for the equation, a pattern target or KORE-pattern holes for the case.
 The result decides whether this is a recipe in the docs or a feature, and on which side (fuzzer or k2lean) configuration generation belongs.
