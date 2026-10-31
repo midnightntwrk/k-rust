@@ -1,3 +1,4 @@
 # The slots of DrfConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
-# `NAME | refuted WITNESS` is refuted by two runs of the program WITNESS (`--witnesses`) that end apart.
+# `NAME | refuted WITNESS` is refuted at a peak the program WITNESS (`--witnesses`) reaches: its steps by the
+# slot's two rules have no common configuration within one step each (`k2l_peak`).
 join.open.put.put | refuted two-workers

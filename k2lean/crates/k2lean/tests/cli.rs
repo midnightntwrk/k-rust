@@ -1481,10 +1481,23 @@ fn confluence_witnesses_refute_by_two_runs() {
             .unwrap()
     };
     let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
-    // the only slot not proved, refuted by the two runs of `two-workers`, without a hand module
+    // a slot refuted at a peak `two-workers` reaches, without a hand module
     let o = run("drf", "join.open.put.put | refuted two-workers\n");
     assert!(o.status.success(), "{}", err(&o));
     let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let v = std::fs::read_to_string(d.join("Views.lean")).unwrap();
+    for x in [
+        "import Drf.Preserves\nimport Drf.Adequacy\nimport KPrelude.TwoRuns\n",
+        "def succBy : Rule → Drf.SortGeneratedTopCell → List Drf.SortGeneratedTopCell\n  | .put, c => nexts (Drf.Rules.put c)\n",
+        "theorem gives.put : Drf.Step.Rel.put (fun c c' => c' ∈ succBy .put c) := by\n",
+        "def onlyBy (r : Rule) (c c' : Drf.SortGeneratedTopCell) : Bool :=\n",
+        "theorem viewOf_of {r : Rule} {c c' : Drf.SortGeneratedTopCell} (hs : Drf.Step c c') (hu : onlyBy r c c' = true) :\n",
+        "theorem join_static_pair {r₁ r₂ : Rule} (S : r₁.kind = .thread → r₂.kind = .thread → r₁.rank = r₂.rank →\n",
+        "theorem peak_open {c₀ : Drf.SortGeneratedTopCell} {r₁ r₂ : Rule} (p : KPrelude.TwoRuns.PeakApart Drf.Step onlyBy r₁ r₂ c₀) :\n    ¬ OpenSlot r₁ r₂ := by\n",
+        "theorem peak_same {c₀",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
     let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
     for x in [
         "import KPrelude.TwoRuns\nimport Drf.Adequacy\n",
@@ -1492,7 +1505,7 @@ fn confluence_witnesses_refute_by_two_runs() {
         "theorem witness.«two-workers».refutes :\n    ¬ KPrelude.TwoRuns.UniqueFrom Drf.Step obs witness.«two-workers» := by\n  k2l_two_runs Drf.successors, Drf.successors_iff\n",
         "structure Open : Prop where\n  «open.put.put» : join.open.put.put.statement\n",
         "theorem Open.refuted : ¬ Open := fun P =>\n  witness.«two-workers».refutes fun h₁ t₁ h₂ t₂ => congrArg obs (terminal_unique P h₁ t₁ h₂ t₂)\n",
-        "theorem join.open.put.put.refuted : ¬ join.open.put.put.statement := fun h => Open.refuted ⟨h⟩\n\n#k2l_refuted join.open.put.put\n",
+        "theorem join.open.put.put.refuted : ¬ join.open.put.put.statement :=\n  peak_open (r₁ := .put) (r₂ := .put) (c₀ := witness.«two-workers»)\n    (by k2l_peak Drf.successors, Drf.successors_iff)\n\n#k2l_refuted join.open.put.put\n",
     ] {
         assert!(m.contains(x), "{x}\n{m}");
     }
@@ -1505,24 +1518,29 @@ fn confluence_witnesses_refute_by_two_runs() {
             && r.contains("names = [\"two-workers\"]\nopen_refuted_by = \"two-workers\""),
         "{r}"
     );
-    // a slot left open: the open slots refuted together, the slot not on its own
+    // a slot left open: the open slots refuted together, the slot not on its own, and the views
+    // without the peaks' section
     let o = run("drf", "join.open.put.put\n");
     assert!(o.status.success(), "{}", err(&o));
     let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let v = std::fs::read_to_string(d.join("Views.lean")).unwrap();
     assert!(
         m.contains("theorem Open.refuted : ¬ Open") && !m.contains("join.open.put.put.refuted"),
         "{m}"
     );
-    // one slot refuted by runs while another is open: only their conjunction is refuted
+    assert!(!v.contains("Adequacy") && !v.contains("succBy"), "{v}");
+    // one slot refuted at a peak while another is open: each on its own, both fields of `Open`
     let o = run(
         "drf",
         "join.open.put.put | refuted two-workers\njoin.same.put.put\n",
     );
-    assert!(!o.status.success());
+    assert!(o.status.success(), "{}", err(&o));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
     assert!(
-        err(&o).contains("refutes a slot only when it is the only one not proved"),
-        "{}",
-        err(&o)
+        m.contains("theorem join.open.put.put.refuted")
+            && !m.contains("theorem join.same.put.put.refuted")
+            && m.contains("  «same.put.put» : join.same.put.put.statement\n"),
+        "{m}"
     );
     // an unknown witness; no slot left: `terminal_unique` holds, so nothing refutes it
     let o = run("drf", "join.open.put.put | refuted nobody\n");

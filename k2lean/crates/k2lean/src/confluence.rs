@@ -961,14 +961,15 @@ enum Mark {
     Hand,
     /// refuted by the hand module (`hand.NAME.refuted : ¬ NAME.statement`)
     Refuted,
-    /// refuted by the two runs of a witness (`--witnesses`): a field of `Open`, the only one
+    /// refuted at a peak the witness reaches (`--witnesses`, `k2l_peak`): still a field of `Open`
     RefutedBy(String),
 }
 
 /// The slots of an open-joins list (`open-joins.txt`, `--open-joins`): a name alone is open (a
 /// premise), `NAME | hand` is the hand module's (`hand.NAME`), `NAME | refuted` is refuted by the
-/// hand module (`hand.NAME.refuted`), `NAME | refuted WITNESS` by the two runs of the witness
-/// `WITNESS` (`--witnesses`); `#` starts a comment.
+/// hand module (`hand.NAME.refuted`), `NAME | refuted WITNESS` at a configuration the witness
+/// `WITNESS` reaches (`--witnesses`) whose steps by the slot's two rules do not join; `#` starts a
+/// comment.
 fn read_open_joins(path: &str) -> BTreeMap<String, Mark> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
     let mut out = BTreeMap::new();
@@ -3881,6 +3882,83 @@ def SameThreadJoins : Prop :=
         flush: Option<(usize, &'a [usize])>,
     }
 
+    /// The views' section on peaks (`| refuted W`): the steps by one rule (`succBy`, the library's
+    /// matcher), each instance of a rule among them (`gives.r`, from the library's completeness of
+    /// the matcher), so that a step that no other rule gives is a view of its rule (`viewOf_of`);
+    /// `join_static` at one pair of rules (`join_static_pair`, the premises' slots at that pair);
+    /// and from a peak a witness reaches (`PeakApart`), the refutation of each kind of slot.
+    fn peak_views(o: &mut String, name: &str, topt: &str, rs: &[Rule], any_keyed: bool) {
+        // the views' module reads the library's completeness, and the peaks
+        let imp = format!("import {name}.Preserves\n");
+        assert!(o.contains(&imp));
+        *o = o.replacen(
+            &imp,
+            &format!("{imp}import {name}.Adequacy\nimport KPrelude.TwoRuns\n"),
+            1,
+        );
+        // `join_static` at one pair: its two premises read at that pair only
+        let i = o
+            .find("\ntheorem join_static (S : SameThreadJoins)")
+            .expect("the views state `join_static`");
+        let j = i + 1 + o[i + 1..].find("\n\n").unwrap_or(o.len() - i - 1);
+        let js = o[i..j].to_string();
+        let head = if any_keyed {
+            "(S : SameThreadJoins) (K : KeyJoins) {r₁ r₂ : Rule}"
+        } else {
+            "(S : SameThreadJoins) {r₁ r₂ : Rule}"
+        };
+        assert!(js.contains(head) && js.contains(" S r₁ r₂ "));
+        let pair_s = "(S : r₁.kind = .thread → r₂.kind = .thread → r₁.rank = r₂.rank →\n      KeyPat.pdisj r₁.pats r₂.pats = false → SameSlot r₁ r₂)";
+        let pair_k = "(K : r₁.rank = r₂.rank → staticOK r₁ r₂ = true → KeySlot r₁ r₂)";
+        let pair = js
+            .replacen("theorem join_static ", "theorem join_static_pair ", 1)
+            .replacen(
+                head,
+                &if any_keyed {
+                    format!("{{r₁ r₂ : Rule}} {pair_s}\n    {pair_k}")
+                } else {
+                    format!("{{r₁ r₂ : Rule}} {pair_s}")
+                },
+                1,
+            )
+            .replace(" S r₁ r₂ ", " S ")
+            .replace(" K r₁ r₂ ", " K ");
+        writeln!(
+            o,
+            "\n/-! ## Peaks: a slot refuted at a configuration a program reaches -/\n"
+        )
+        .unwrap();
+        writeln!(o, "open {name} in\n/-- The steps by one rule, every match: the library's matcher. -/\ndef succBy : Rule → {topt} → List {topt}").unwrap();
+        for r in rs {
+            writeln!(o, "  | .{l}, c => nexts ({name}.Rules.{l} c)", l = r.lean).unwrap();
+        }
+        writeln!(o, "\ntheorem mem_nexts_of {{A : {topt} → Prop}} {{R : {topt} → {topt} → Prop}} {{c x : {topt}}}\n    {{l : List (RuleResult A R c)}} (h : ∃ ρ ∈ l, ρ.next? = some x) : x ∈ nexts l := by\n  obtain ⟨ρ, hm, he⟩ := h\n  exact List.mem_filterMap.2 ⟨ρ, hm, he⟩").unwrap();
+        for r in rs {
+            writeln!(o, "\n/-- Every instance of `{raw}` is among its steps (the library's `complete`). -/\ntheorem gives.{l} : {name}.Step.Rel.{l} (fun c c' => c' ∈ succBy .{l} c) := by\n  delta {name}.Step.Rel.{l}\n  intros\n  apply mem_nexts_of\n  apply {name}.Rules.{l}.complete <;> first | assumption | simp_all", l = r.lean, raw = r.lean.trim_start_matches('«').trim_end_matches('»')).unwrap();
+        }
+        writeln!(o, "\ntheorem stepBy_gives : ∀ {{r : Rule}} {{c c' : {topt}}}, StepBy r c c' → c' ∈ succBy r c").unwrap();
+        for r in rs {
+            writeln!(o, "  | .{l}, _, _, h => h _ gives.{l}", l = r.lean).unwrap();
+        }
+        let all: Vec<String> = rs.iter().map(|r| format!(".{}", r.lean)).collect();
+        writeln!(o, "\n/-- Every rule. -/\ndef Rule.all : List Rule := [{}]\n\ntheorem Rule.mem_all (r : Rule) : r ∈ Rule.all := by\n  cases r <;> decide", all.join(", ")).unwrap();
+        writeln!(o, "\n/-- No rule other than `r` gives `c'` from `c`. -/\ndef onlyBy (r : Rule) (c c' : {topt}) : Bool :=\n  Rule.all.all fun r' => r' == r || !(succBy r' c).contains c'\n\n/-- A step that no other rule gives is a view of its rule. -/\ntheorem viewOf_of {{r : Rule}} {{c c' : {topt}}} (hs : {name}.Step c c') (hu : onlyBy r c c' = true) :\n    ViewOf r c c' := by\n  obtain ⟨r', v⟩ := view_of hs\n  have hg := stepBy_gives v.2.2.1\n  have := List.all_eq_true.1 hu r' (Rule.mem_all r')\n  simp only [Bool.or_eq_true, beq_iff_eq, Bool.not_eq_true', List.contains_eq_mem,\n    decide_eq_false_iff_not] at this\n  rcases this with rfl | h\n  · exact v\n  · exact absurd hg h").unwrap();
+        o.push_str(&pair);
+        o.push('\n');
+        let peak = format!("(p : KPrelude.TwoRuns.PeakApart {name}.Step onlyBy r₁ r₂ c₀)");
+        let open_p = "obtain ⟨c, c₁, c₂, -, s₁, u₁, s₂, u₂, nj⟩ := p";
+        writeln!(o, "\n/-- A peak refutes the open slot of its two rules. -/\ntheorem peak_open {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak} :\n    ¬ OpenSlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (h (viewOf_of s₁ u₁).2.2.1 (viewOf_of s₂ u₂).2.2.1)").unwrap();
+        let (kp, ka) = if any_keyed {
+            (format!("\n    {pair_k}"), " K")
+        } else {
+            (String::new(), "")
+        };
+        writeln!(o, "\n/-- A peak of two rules whose steps `staticOK` passes to the slots refutes their same-thread\nslot, given their keyed slot. -/\ntheorem peak_same {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak}\n    (hs : staticOK r₁ r₂ = true){kp} : ¬ SameSlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (join_static_pair (fun _ _ _ _ => h){ka} hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))").unwrap();
+        if any_keyed {
+            writeln!(o, "\n/-- A peak of two rules whose steps `staticOK` passes to the slots refutes their keyed slot,\ngiven their same-thread slot. -/\ntheorem peak_key {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak}\n    (hs : staticOK r₁ r₂ = true)\n    {pair_s} : ¬ KeySlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (join_static_pair S (fun _ _ => h) hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))").unwrap();
+        }
+    }
+
     /// The slots (`--slots`): one obligation per ordered pair of rules in a premise of
     /// `terminal_unique_of` (`same`: `SameThreadJoins`, `open`: `OpenJoins`, `key`: `KeyJoins`, as
     /// `class` tells for a pair), their statements written in the views `o` (`join.K.r₁.r₂.statement`),
@@ -4079,6 +4157,20 @@ def SameThreadJoins : Prop :=
                 rs[j].lean
             )
             .unwrap();
+        }
+        // a slot refuted at a peak a witness reaches (`| refuted W`): the views' section that reads
+        // a step by one rule off the library's matchers
+        let peaks = so
+            .list
+            .values()
+            .any(|m| matches!(m, super::Mark::RefutedBy(_)));
+        if peaks {
+            if !*threads {
+                super::fail(
+                    "--open-joins: `| refuted WITNESS` refutes a slot at a peak, which needs the views by thread (`--threads`)",
+                );
+            }
+            peak_views(o, name, topt, rs, *any_keyed);
         }
         let hinv = if so.inv.is_some() { "hinv " } else { "" };
         let hand_any = so
@@ -4422,6 +4514,9 @@ def SameThreadJoins : Prop :=
                 &refuted,
                 &by_runs,
                 &|s| slot_name(s),
+                &|s| slots.contains(&s),
+                *any_keyed,
+                rs,
             );
         } else if !by_runs.is_empty() {
             super::fail("--open-joins: `NAME | refuted WITNESS` needs --witnesses");
@@ -4475,7 +4570,7 @@ def SameThreadJoins : Prop :=
         let refutes = if !refuted.is_empty() {
             "\nA slot listed `| refuted` is refuted by the hand module (`hand.join.K.r₁.r₂.refuted`), and refutes its\npremise (`P_refuted`); `terminal_unique` is then not stated. The premises are sufficient, not\nnecessary: a refuted premise says nothing of whether the definition is confluent."
         } else if !so.witnesses.is_empty() {
-            "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted, as the\nonly field of `Open`."
+            "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted on its\nown (`NAME.refuted`): a configuration the witness reaches has steps by its two rules that do not\njoin within one step each (`k2l_peak`). That refutes the slot, not the definition: two steps may\njoin later."
         } else {
             ""
         };
@@ -4508,8 +4603,8 @@ def SameThreadJoins : Prop :=
 
     /// The witnesses (`--witnesses`): each program's initial configuration, its two runs that end
     /// with different observations (`witness.NAME.refutes`), and from them `Open.refuted`, through
-    /// `terminal_unique`, whose premise is `Open`; with a slot listed `| refuted NAME`, the only
-    /// field of `Open`, that slot's refutation.
+    /// `terminal_unique`, whose premise is `Open`; and each slot listed `| refuted NAME`, refuted at
+    /// a peak `NAME` reaches (`k2l_peak`, the views' `peak_open`, `peak_same`, `peak_key`).
     #[allow(clippy::too_many_arguments)]
     fn emit_witnesses(
         body: &mut String,
@@ -4523,6 +4618,9 @@ def SameThreadJoins : Prop :=
         refuted: &[(usize, usize, usize)],
         by_runs: &[(usize, usize, usize)],
         slot_name: &dyn Fn((usize, usize, usize)) -> String,
+        is_slot: &dyn Fn((usize, usize, usize)) -> bool,
+        any_keyed: bool,
+        rs: &[Rule],
     ) {
         if !refuted.is_empty() {
             super::fail(
@@ -4533,13 +4631,6 @@ def SameThreadJoins : Prop :=
             super::fail(
                 "--witnesses: every slot is proved, so `terminal_unique` holds and no two runs end apart",
             );
-        }
-        if !by_runs.is_empty() && open_slots.len() > 1 {
-            let open: Vec<String> = open_slots.iter().map(|s| slot_name(*s)).collect();
-            super::fail(&format!(
-                "--open-joins: `| refuted WITNESS` refutes a slot only when it is the only one not proved; two runs refute the open slots together (`Open.refuted`): {}",
-                open.join(", ")
-            ));
         }
         let (obsf, seen) = if obs {
             ("obs", "observations (`obs`)")
@@ -4587,11 +4678,71 @@ def SameThreadJoins : Prop :=
         )
         .unwrap();
         guard.push("Open.refuted".into());
-        for s in by_runs {
-            let sn = slot_name(*s);
+        // each slot listed `| refuted W`: a peak reached from `W`, whose steps by the slot's two rules
+        // do not join (`k2l_peak`); a same-thread or keyed slot through `join_static` at its pair,
+        // which needs the pair's other slot proved, or not a premise
+        let peak_runs = match &so.fuel {
+            Some(n) => format!(
+                "{name}.successorsF {n}, {name}.successorsF_sound, {name}.successors, {name}.successors_iff.mpr"
+            ),
+            None => format!("{name}.successors, {name}.successors_iff"),
+        };
+        for &(k, i, j) in by_runs {
+            let sn = slot_name((k, i, j));
+            let w = match so.list.get(&sn) {
+                Some(super::Mark::RefutedBy(w)) => crate::names::ident(w),
+                _ => unreachable!(),
+            };
+            // the pair's other slot, as `join_static_pair` takes it
+            let partner = |pk: usize, not_premise: &str| {
+                let pn = slot_name((pk, i, j));
+                if !is_slot((pk, i, j)) {
+                    return not_premise.to_string();
+                }
+                match so.list.get(&pn) {
+                    None | Some(super::Mark::Hand) => {
+                        format!(
+                            "(fun {} => {pn})",
+                            vec!["_"; if pk == 0 { 4 } else { 2 }].join(" ")
+                        )
+                    }
+                    Some(_) => super::fail(&format!(
+                        "--open-joins: {sn} | refuted: a peak refutes it only with {pn} proved; it refutes the two together"
+                    )),
+                }
+            };
+            let (lemma, extra) = match k {
+                1 => ("peak_open", String::new()),
+                0 => (
+                    "peak_same",
+                    if any_keyed {
+                        format!(
+                            " (by decide)\n    {}",
+                            partner(
+                                2,
+                                "(by\n      intro hr hs\n      first\n        | (exfalso; revert hr hs; decide)\n        | (intro _ _ _ _ _ _ _ o₁ o₂ hk; exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim))"
+                            )
+                        )
+                    } else {
+                        " (by decide)".to_string()
+                    },
+                ),
+                2 => (
+                    "peak_key",
+                    format!(
+                        " (by decide)\n    {}",
+                        partner(0, "(by intro a b c d; exfalso; revert a b c d; decide)")
+                    ),
+                ),
+                _ => super::fail(&format!(
+                    "--open-joins: {sn} | refuted {w}: a peak refutes a slot of `SameThreadJoins`, `OpenJoins` or `KeyJoins`, not of the flush"
+                )),
+            };
             writeln!(
                 body,
-                "/-- `{sn}` is refuted: it is the only field of `Open`. -/\ntheorem {sn}.refuted : ¬ {sn}.statement := fun h => Open.refuted ⟨h⟩\n\n#k2l_refuted {sn}\n"
+                "set_option maxRecDepth 100000 in\n/-- `{sn}` is refuted: from `witness.{w}`, a configuration whose steps by its two rules have\nno common configuration within one step each (`k2l_peak`). -/\ntheorem {sn}.refuted : ¬ {sn}.statement :=\n  {lemma} (r₁ := .{ri}) (r₂ := .{rj}) (c₀ := witness.{w})\n    (by k2l_peak {peak_runs}){extra}\n\n#k2l_refuted {sn}\n",
+                ri = rs[i].lean,
+                rj = rs[j].lean,
             )
             .unwrap();
         }

@@ -1,0 +1,4 @@
+spawn { spawn { }; int a; print(1); };
+spawn { };
+int b;
+print(2);

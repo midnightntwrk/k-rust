@@ -1,0 +1,6 @@
+int x, y;
+x = 4;
+y = 2;
+spawn { print(0); };
+print(x / y);
+if (x <= y) { print(1); } else { print(3); }

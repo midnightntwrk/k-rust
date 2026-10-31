@@ -1,12 +1,19 @@
-join.key.«++ X».«++ X»
-join.key.«++ X».«X = I»
-join.key.«++ X».«X:Id»
-join.key.«X = I».«++ X»
-join.key.«X = I».«X = I»
-join.key.«X = I».«X:Id»
+# The slots of ImpPlusConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
+# each is a field of `Open`, the premise of `obs_unique`. `NAME | refuted WITNESS` is refuted at a peak the
+# program WITNESS (demos/ImpPlusConf/witnesses) reaches: a configuration whose steps by the slot's two rules
+# have no common configuration within one step each (`k2l_peak`). Left open: `read()` and the stdin stream
+# (`#getc` is undefined in the model, so no program reaches them), `<=`'s two heating rules (seqstrict:
+# never both enabled), `.K` against itself, and the keyed pairs whose steps join wherever these programs
+# reach them (two reads of one variable, a declaration's fresh location against a read or a write).
+join.key.«++ X».«++ X» | refuted incr
+join.key.«++ X».«X = I» | refuted incr
+join.key.«++ X».«X:Id» | refuted incr
+join.key.«X = I».«++ X» | refuted incr
+join.key.«X = I».«X = I» | refuted races
+join.key.«X = I».«X:Id» | refuted races
 join.key.«X = I».«int X, Xs;»
-join.key.«X:Id».«++ X»
-join.key.«X:Id».«X = I»
+join.key.«X:Id».«++ X» | refuted incr
+join.key.«X:Id».«X = I» | refuted races
 join.key.«X:Id».«X:Id»
 join.key.«X:Id».«int X, Xs;»
 join.key.«int X, Xs;».«X = I»
@@ -26,9 +33,9 @@ join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinParseString»
 join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinTrim»
 join.open.«STDIN-STREAM.stdinTrim».«read() #06fc83»
 join.open.«STDIN-STREAM.stdinTrim».«read() #b407f1»
-join.open.«int X, Xs;».«int X, Xs;»
-join.open.«int X, Xs;».«spawn S»
-join.open.«print(P, AEs);».«print(P, AEs);»
+join.open.«int X, Xs;».«int X, Xs;» | refuted decl
+join.open.«int X, Xs;».«spawn S» | refuted decl
+join.open.«print(P, AEs);».«print(P, AEs);» | refuted races
 join.open.«read() #06fc83».«STDIN-STREAM.stdinParseInt»
 join.open.«read() #06fc83».«STDIN-STREAM.stdinParseString»
 join.open.«read() #06fc83».«STDIN-STREAM.stdinTrim»
@@ -39,13 +46,13 @@ join.open.«read() #b407f1».«STDIN-STREAM.stdinParseString»
 join.open.«read() #b407f1».«STDIN-STREAM.stdinTrim»
 join.open.«read() #b407f1».«read() #06fc83»
 join.open.«read() #b407f1».«read() #b407f1»
-join.open.«spawn S».«int X, Xs;»
-join.open.«spawn S».«spawn S»
+join.open.«spawn S».«int X, Xs;» | refuted decl
+join.open.«spawn S».«spawn S» | refuted decl
 join.same.«.K».«.K»
-join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat»
-join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat»
-join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat»
-join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat»
+join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat» | refuted races
+join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat» | refuted races
+join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat» | refuted ops
+join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat» | refuted ops
 join.same.«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-heat».«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-heat»
 join.same.«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-heat».«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-heat»
 join.same.«read() #06fc83».«read() #06fc83»

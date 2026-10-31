@@ -1,0 +1,5 @@
+int y;
+y = 0;
+spawn { ++y; y = 5; print(y); };
+++y;
+print(y);

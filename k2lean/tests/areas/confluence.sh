@@ -5,12 +5,13 @@
 # ledger, library utxo; HandoffConf: the same for the fixture handoff, tasks of a coordination
 # script run when their inputs are ready, library handoff; HandoffSeqRel: the script run in its
 # order, the fixture handoffseq, into handoff, library handoffseq; DrfConf: workers writing one
-# cell, the fixture drf, a slot refuted by two runs of a program, library drf; TwoConf: the
+# cell, the fixture drf, a slot refuted at a peak a program reaches, library drf; TwoConf: the
 # two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
 # coordination script, library twolayer; TwoParamConf: its parameterized form, the fixture twoparam,
 # a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
 # from the coroutine language on its own, the fixture corout, library corout; ImpPlusConf: IMP++'s
-# threads joined up to the flush of K's stdout stream, library impplus). Registry: confluence.py.
+# threads joined up to the flush of K's stdout stream, its races refuted at peaks of four programs
+# (demos/ImpPlusConf/witnesses), library impplus). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -74,6 +75,16 @@ simple_witnesses() {
   rm -rf "${1:?}" && mkdir -p "$1" && cp "$SD/tests/diverse/div-nondet.simple" "$1/" &&
     "$KRUST" krun --definition "$(kore_dir simple)" --depth 0 --sort Stmt "$1/div-nondet.simple" < /dev/null > "$1/div-nondet.kore"
 }
+# impplus_witnesses DIR: IMP++'s witness programs (demos/ImpPlusConf/witnesses), each beside its initial
+# configuration (krust's `krun --depth 0`): two threads printing, assigning, incrementing, declaring and
+# spawning at once, and strict operators with operands to evaluate, whose peaks refute the slots
+# listed `| refuted NAME`.
+impplus_witnesses() {
+  rm -rf "${1:?}" && mkdir -p "$1" && cp "$DEMOS"/ImpPlusConf/witnesses/*.imp "$1/" &&
+    for p in "$1"/*.imp; do
+      "$KRUST" krun --definition "$(kore_dir impplus)" --depth 0 --sort Stmts "$p" < /dev/null > "${p%.imp}.kore" || return 1
+    done
+}
 libs_confluence() {
   case $1 in
     RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf \
@@ -101,7 +112,8 @@ libs_confluence() {
         --slots "$DEMOS/DrfConf/DrfConf/Legal/Slots.lean" \
         --out "$DEMOS/DrfConf/DrfConf/Legal/Views.lean" --report "$DEMOS/DrfConf/legal.toml" ;;
     # the two-layer prototype: the races of two tasks refuted together by two runs of each witness
-    # (`Open.refuted`), and every slot generic under the script's well-formedness `wf` (`TwoConf.Legal`)
+    # (`Open.refuted`), and each at a peak a witness reaches (`| refuted NAME`); every slot generic
+    # under the script's well-formedness `wf` (`TwoConf.Legal`)
     TwoConf) "$G" confluence --kore "$(libs_fixture twolayer)/definition.kore" --name TwoLayer --ns TwoConf \
         --threads tasks --obs vals --slots "$DEMOS/TwoConf/TwoConf/Slots.lean" \
         --open-joins "$DEMOS/TwoConf/open-joins.txt" --witnesses "$(libs_fixture twolayer)/witnesses" \
@@ -133,9 +145,10 @@ libs_confluence() {
         --threads threads --obs output --slots "$DEMOS/SimpleConf/SimpleConf/Slots.lean" \
         --open-joins "$DEMOS/SimpleConf/open-joins.txt" --witnesses "$W/simple-witnesses" --witness-fuel 64 \
         --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
-    ImpPlusConf) "$G" confluence --kore "$(kore_dir impplus)/definition.kore" --name KImpPlus --ns ImpPlusConf \
+    ImpPlusConf) impplus_witnesses "$W/impplus-witnesses" &&
+      "$G" confluence --kore "$(kore_dir impplus)/definition.kore" --name KImpPlus --ns ImpPlusConf \
         --threads threads --obs output --slots "$DEMOS/ImpPlusConf/ImpPlusConf/Slots.lean" \
-        --open-joins "$DEMOS/ImpPlusConf/open-joins.txt" \
+        --open-joins "$DEMOS/ImpPlusConf/open-joins.txt" --witnesses "$W/impplus-witnesses" \
         --out "$DEMOS/ImpPlusConf/ImpPlusConf/Views.lean" --report "$DEMOS/ImpPlusConf/confluence.toml" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac

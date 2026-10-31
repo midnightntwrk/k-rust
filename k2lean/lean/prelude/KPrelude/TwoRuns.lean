@@ -24,6 +24,9 @@ the two paths it found (`k2l_two_runs`).
 - `AgreeFrom`, `refute_from_runs`: the same for two starting configurations, as noninterference
   compares them: two runs that end and agree on a premise (the disclosed values) but not on the
   observation refute agreement.
+- `PeakApart`, `peak_of`: a configuration reached from `c₀` with two steps, each by one rule alone
+  (`only`), that have no common configuration within one step each (`noJoin`): what refutes a
+  join of two rules' steps, one slot of a confluence proof (`k2l_peak`).
 -/
 
 namespace KPrelude.TwoRuns
@@ -128,6 +131,60 @@ theorem refute_from_runs {γ : Type w} [DecidableEq β] [DecidableEq γ] {S : α
       exact h.2 (u (star_of_follow hs p₁ e₁) h.1.1.1 (star_of_follow hs p₂ e₂) h.1.1.2 h.1.2)
     · cases h
 
+/-! ## Peaks: two steps that do not join -/
+
+/-- `a` and `b` have no common configuration within one step each, read off a function `all`
+that lists every step. -/
+def noJoin [DecidableEq α] (all : α → List α) (a b : α) : Bool :=
+  !decide (a = b) && !(all a).contains b && !(all b).contains a && (all a).all fun d => !(all b).contains d
+
+theorem not_diamond_of_noJoin [DecidableEq α] {S : α → α → Prop} {all : α → List α}
+    (hc : ∀ c c' : α, S c c' → c' ∈ all c) {a b : α} (h : noJoin all a b = true) :
+    ¬ DiamondMod S Eq a b := by
+  rintro ⟨a', b', ha, hb, rfl⟩
+  simp only [noJoin, Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not,
+    List.contains_eq_mem, List.all_eq_true] at h
+  obtain ⟨⟨⟨hne, hab⟩, hba⟩, hd⟩ := h
+  rcases ha with e₁ | ha <;> rcases hb with e₂ | hb
+  · exact hne (e₁.symm.trans e₂)
+  · exact hba (e₁ ▸ hc _ _ hb)
+  · exact hab (e₂ ▸ hc _ _ ha)
+  · have := hd _ (hc _ _ ha)
+    simp_all
+
+/-- A peak reached from `c₀`: a configuration `c` with a step to `c₁` by `r₁` alone and one to `c₂`
+by `r₂` alone (`only r c c'`: no other rule gives `c'`) that have no common configuration within
+one step each. It refutes every statement that two such steps join in one step each. -/
+def PeakApart {ρ : Type v} (S : α → α → Prop) (only : ρ → α → α → Bool) (r₁ r₂ : ρ) (c₀ : α) :
+    Prop :=
+  ∃ c c₁ c₂, Star S c₀ c ∧ S c c₁ ∧ only r₁ c c₁ = true ∧ S c c₂ ∧ only r₂ c c₂ = true ∧
+    ¬ DiamondMod S Eq c₁ c₂
+
+/-- The peak reached from `c₀` along `p` (indices into `next`), at its `i₁`th and `i₂`th
+successors. -/
+def peakApart {ρ : Type v} [DecidableEq α] (next all : α → List α) (only : ρ → α → α → Bool)
+    (r₁ r₂ : ρ) (c₀ : α) (p : List Nat) (i₁ i₂ : Nat) : Bool :=
+  match follow next c₀ p with
+  | some c => match nth (next c) i₁, nth (next c) i₂ with
+    | some c₁, some c₂ => only r₁ c c₁ && only r₂ c c₂ && noJoin all c₁ c₂
+    | _, _ => false
+  | none => false
+
+theorem peak_of {ρ : Type v} [DecidableEq α] {S : α → α → Prop} {next all : α → List α}
+    (hs : ∀ c c' : α, c' ∈ next c → S c c') (hc : ∀ c c' : α, S c c' → c' ∈ all c)
+    {only : ρ → α → α → Bool} {r₁ r₂ : ρ} {c₀ : α} (p : List Nat) (i₁ i₂ : Nat)
+    (h : peakApart next all only r₁ r₂ c₀ p i₁ i₂ = true) : PeakApart S only r₁ r₂ c₀ := by
+  unfold peakApart at h
+  split at h
+  · rename_i c e
+    split at h
+    · rename_i c₁ c₂ e₁ e₂
+      simp only [Bool.and_eq_true] at h
+      exact ⟨c, c₁, c₂, star_of_follow hs p e, hs _ _ (mem_of_nth e₁), h.1.1, hs _ _ (mem_of_nth e₂),
+        h.1.2, not_diamond_of_noJoin hc h.2⟩
+    · cases h
+  · cases h
+
 /-! ## The search, run by the elaborator -/
 
 section Search
@@ -162,6 +219,28 @@ def search [BEq α] [BEq β] (next all : α → List α) (obs : α → β) (c : 
   match (dfs next all obs budget c []).run.run {} with
   | (.ok r, s) => (r, s.seen.size)
   | (.error (), s) => (none, s.seen.size)
+
+/-- Breadth first from `c₀`: the shortest path to a peak (`peakApart`) and its two successor
+indices, or `none` when there is none among the first `budget` configurations; and the number
+visited. A race shows early in a program, so the first peak is near. -/
+def peakSearch {ρ : Type} [DecidableEq α] (next all : α → List α) (only : ρ → α → α → Bool)
+    (r₁ r₂ : ρ) (c₀ : α) (budget : Nat) : Option (List Nat × Nat × Nat) × Nat := Id.run do
+  let mut seen : Array α := #[c₀]
+  let mut queue : Array (α × List Nat) := #[(c₀, [])]
+  let mut head := 0
+  while head < queue.size && head < budget do
+    let (c, path) := queue.getD head (c₀, [])
+    head := head + 1
+    let l := next c
+    for (c₁, i₁) in l.zipIdx do
+      if only r₁ c c₁ then
+        for (c₂, i₂) in l.zipIdx do
+          if only r₂ c c₂ && noJoin all c₁ c₂ then return (some (path.reverse, i₁, i₂), head)
+    for (c', i) in l.zipIdx do
+      unless seen.contains c' do
+        seen := seen.push c'
+        queue := queue.push (c', i :: path)
+  return (none, head)
 
 end Search
 
@@ -209,5 +288,47 @@ syntax (name := k2lTwoRuns) "k2l_two_runs " term ", " term (", " term ", " term)
   let t₂ ← IO.monoMsNow
   logInfo m!"k2l_two_runs: {n} configurations visited ({t₁ - t₀} ms); two runs of {p₁.length} \
     and {p₂.length} steps checked by the kernel ({t₂ - t₁} ms): {p₁} and {p₂}"
+
+unsafe def evalPeakSearchUnsafe (e : Expr) : MetaM (Option (List Nat × Nat × Nat) × Nat) :=
+  evalExpr (Option (List Nat × Nat × Nat) × Nat) (toTypeExpr (Option (List Nat × Nat × Nat) × Nat)) e
+
+@[implemented_by evalPeakSearchUnsafe]
+opaque evalPeakSearch (e : Expr) : MetaM (Option (List Nat × Nat × Nat) × Nat)
+
+/-- `k2l_peak next, hs, all, hc` closes `PeakApart S only r₁ r₂ c₀`, where
+`hs : ∀ {c c'}, c' ∈ next c → S c c'` and `hc : ∀ {c c'}, S c c' → c' ∈ all c`: it searches the
+configurations reachable from `c₀` by `next` for a peak (`peakApart`), then has the kernel check
+the path and the two successors it found (`peak_of`). `k2l_peak succ, h` takes
+`h : c' ∈ succ c ↔ S c c'` for both. A trailing `, N` bounds the configurations visited (default
+100000). `c₀`, `only`, `r₁`, `r₂` and the functions must be closed terms. -/
+syntax (name := k2lPeak) "k2l_peak " term ", " term (", " term ", " term)? (", " num)? : tactic
+
+@[tactic k2lPeak] def evalK2lPeak : Tactic := fun stx => withMainContext do
+  let nextStx : Term := ⟨stx[1]⟩
+  let hStx : Term := ⟨stx[3]⟩
+  let (allStx, hsStx, hcStx) : Term × Term × Term ←
+    if stx[4].isNone then pure (nextStx, ← `(($hStx).mp), ← `(($hStx).mpr))
+    else pure (⟨stx[4][1]⟩, hStx, ⟨stx[4][3]⟩)
+  let budget := if stx[5].isNone then 100000 else stx[5][1].isNatLit?.getD 100000
+  let tgt ← whnfR (← instantiateMVars (← getMainTarget))
+  unless tgt.isAppOfArity ``PeakApart 7 do
+    throwError "k2l_peak: the goal is not `PeakApart S only r₁ r₂ c₀`: {tgt}"
+  let args := tgt.getAppArgs
+  let (only, r₁, r₂, c₀) := (args[3]!, args[4]!, args[5]!, args[6]!)
+  let next ← instantiateMVars (← Term.elabTerm nextStx none)
+  let all ← instantiateMVars (← Term.elabTerm allStx none)
+  let e ← instantiateMVars (← mkAppM ``peakSearch #[next, all, only, r₁, r₂, c₀, mkNatLit budget])
+  let t₀ ← IO.monoMsNow
+  let (r, n) ← evalPeakSearch e
+  let t₁ ← IO.monoMsNow
+  let some (p, i₁, i₂) := r
+    | throwError "k2l_peak: no peak of `{r₁}` and `{r₂}` that does not join among the {n} \
+        configurations reachable from `{c₀}` visited (budget {budget})"
+  evalTactic (← `(tactic| exact KPrelude.TwoRuns.peak_of (next := $nextStx) (all := $allStx)
+    (fun _ _ h => $hsStx h) (fun _ _ h => $hcStx h) $(quote p) $(quote i₁) $(quote i₂)
+    (by decide +kernel)))
+  let t₂ ← IO.monoMsNow
+  logInfo m!"k2l_peak: {n} configurations visited ({t₁ - t₀} ms); the peak after {p.length} steps, \
+    successors {i₁} and {i₂}, checked by the kernel ({t₂ - t₁} ms)"
 
 end KPrelude.TwoRuns

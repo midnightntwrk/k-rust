@@ -65,7 +65,8 @@ DEMOS = {
                                                   "demos/TwoParamInst/TwoParamInst/Tr.lean",
                                                   "demos/TwoParamInst/TwoParamInst/Back.lean"]},
     # IMP++'s threads joined generically up to the flush of K's stdout stream, the theorem the
-    # observation's (`confluence --threads threads --obs output --slots`)
+    # observation's (`confluence --threads threads --obs output --slots`), its races refuted at
+    # peaks of the programs in demos/ImpPlusConf/witnesses
     # (the library impplus is the soundness area's, which records its sources)
     "ImpPlusConf": {"tier": "light", "sources": ["demos/ImpPlusConf/ImpPlusConf/Views.lean",
                                                  "demos/ImpPlusConf/ImpPlusConf/Slots.lean",
