@@ -137,7 +137,7 @@ Canonical K and native K-Rust compilation therefore preserve the account collect
 Deterministic reference expansion preserves the same boundary with owner-qualified nested fields, so the independently expanded Rust compiles, re-collects, and emits the same configuration and sentence identities.
 
 Descriptor protocol 25 adds typed `#[k::rule(owise)]` metadata and preserves its provenance through ordinary, head, and configuration rules.
-Semantic and Definition IR lower the fallback to effective priority 200, while canonical K emission uses `[priority(200)]` and readable expansion retains the authored `owise` spelling.
+Semantic and Definition IR lower the fallback to the rank 200 under an `owise` origin, which canonical K emission and direct K-Rust adaptation state as `owise` (NT-26), and readable expansion retains the authored `owise` spelling.
 The account-query rules use this ordered fallback only for absent accounts, after the explicit account-identity rule has had the opportunity to match.
 
 Descriptor protocol 26 and Definition IR schema 18 add a closed typed function-hook boundary.

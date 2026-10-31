@@ -380,13 +380,13 @@ fn equation_rejects_owise_with_priority_out_of_range_and_duplicates() {
         (
             "owise, priority = 40",
             SyntaxErrorKind::InvalidRuleKey {
-                reason: "owise is priority 200; write one of them",
+                reason: "owise applies where no other rule or equation applies, which no priority orders; write one of them",
             },
         ),
         (
             "priority = 40, owise",
             SyntaxErrorKind::InvalidRuleKey {
-                reason: "owise is priority 200; write one of them",
+                reason: "owise applies where no other rule or equation applies, which no priority orders; write one of them",
             },
         ),
         (
@@ -664,7 +664,7 @@ fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
         (
             "owise, priority = 40",
             SyntaxErrorKind::InvalidRuleKey {
-                reason: "owise is priority 200; write one of them",
+                reason: "owise applies where no other rule or equation applies, which no priority orders; write one of them",
             },
         ),
         (

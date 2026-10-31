@@ -1134,6 +1134,8 @@ fn declared_applications<'a>(term: &'a SemanticTerm, output: &mut BTreeSet<&'a S
 struct TransitionView<'a> {
     rule: &'a SemanticRule,
     priority: u32,
+    /// Whether the priority is an authored `owise`.
+    owise: bool,
     group: Option<(&'a krs_ir::PackageId, &'a str)>,
     configuration: &'a SemanticId,
     clauses: Vec<ClauseView<'a>>,
@@ -1238,6 +1240,9 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
                 priority: rule
                     .priority()
                     .map_or(DEFAULT_PRIORITY, krs_ir_levels::SemanticRulePriority::value),
+                owise: rule
+                    .priority()
+                    .is_some_and(krs_ir_levels::SemanticRulePriority::is_owise),
                 group: rule
                     .nondet_group()
                     .map(|group| (rule.id().package(), group.name())),
@@ -2699,6 +2704,14 @@ pub(crate) enum OverlapViolation {
     },
     /// A rule of a nondet group overlaps no other rule of the group.
     StaleGroupMember { group: String, rule: StableItemId },
+    /// A transition with a written priority of 200 or more overlaps an
+    /// `owise` transition.
+    AfterOwise {
+        owise: StableItemId,
+        rule: StableItemId,
+        priority: u32,
+        range: Option<krs_ir::SourceRange>,
+    },
     /// Two alternatives of one or-pattern can match the same term with
     /// different bindings (clause 8, KF-030).
     AmbiguousAlternatives {
@@ -2729,8 +2742,17 @@ pub(crate) fn group_cell_sorts(modules: &[SemanticModule]) -> Vec<SemanticSortRe
 }
 
 /// Returns the first deterministic violation of the overlap check over every
-/// transition: an overlapping pair at one priority outside one nondet group,
-/// then each group's validation.
+/// transition: a transition ranked with or after an `owise` one it overlaps,
+/// an overlapping pair at one priority outside one nondet group, then each
+/// group's validation.
+///
+/// `owise` states that its transition applies where no other transition
+/// applies, so every transition that can meet it is tried first. A written
+/// `priority = N` with `N` of 200 or more orders its transition with or after
+/// the `owise` one, the rank 200 that orders `owise` after the default
+/// priority: where the two overlap, the definition would state two orders
+/// between them. Transitions that cannot match one configuration are never
+/// ordered, so only an overlapping pair is refused.
 pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<OverlapViolation> {
     let graph = SortGraph::from_modules(modules);
     if let Some(violation) = first_ambiguous_alternatives(modules, &graph) {
@@ -2739,6 +2761,24 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
     let rules = transitions(modules);
     if rules.is_empty() {
         return None;
+    }
+    for owise in rules.iter().filter(|rule| rule.owise) {
+        let after = rules.iter().find(|rule| {
+            !rule.owise
+                && rule.priority >= crate::equation_domain::OWISE_RANK
+                && transitions_overlap(owise, rule, &graph)
+        });
+        if let Some(rule) = after {
+            return Some(OverlapViolation::AfterOwise {
+                owise: owise.id().clone(),
+                rule: rule.id().clone(),
+                priority: rule.priority,
+                range: rule
+                    .rule
+                    .priority()
+                    .and_then(|priority| priority.origin().origin().exact_authored_range()),
+            });
+        }
     }
     for (index, left) in rules.iter().enumerate() {
         for right in &rules[index + 1..] {

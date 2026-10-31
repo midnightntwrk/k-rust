@@ -167,7 +167,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case_TAG]:
 <k> cTAG ( (V0:KItem => go) , _ ) ... </k>
-[priority(200)]
+[owise]
 
 rule [sib_TAG]:
 <k> cTAG ( (2 => 3) , _ ) ... </k>
@@ -306,7 +306,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case_TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-[priority(200)]
+[owise]
 
 rule [sib_TAG]:
 <k> cTAG ( 2 , _ ) => go ... </k>
@@ -499,7 +499,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule probe ( cTAG , 2 ) => 2 [priority(60), label(krsRule_DIGEST)]
 
-rule probe ( cTAG , V0:KItem ) => 0 [priority(200), label(krsRule_DIGEST)]
+rule probe ( cTAG , V0:KItem ) => 0 [owise, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -617,7 +617,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule cTAG ( (2 => 3) , _ ) [priority(60), label(krsRule_DIGEST)]
 
-rule cTAG ( (V0:KItem => go) , _ ) [priority(200), label(krsRule_DIGEST)]
+rule cTAG ( (V0:KItem => go) , _ ) [owise, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -765,7 +765,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-[priority(200)]
+[owise]
 
 rule [sib-TAG]:
 <k> cTAG ( 2 , _ ) => go ... </k>
@@ -908,7 +908,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule cTAG ( 2 , _ ) => go [priority(60), label(krsRule_DIGEST)]
 
-rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [priority(200), label(krsRule_DIGEST)]
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [owise, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -1148,7 +1148,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
-[priority(200)]
+[owise]
 
 rule [sib-TAG]:
 <k> cTAG ( 2 , _ ) => go ... </k>
@@ -1233,7 +1233,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule probe ( cTAG , 2 ) => 2 [priority(60), label(krsRule_DIGEST)]
 
-rule probe ( cTAG , V0:KItem ) => 0 [priority(200), label(krsRule_DIGEST)]
+rule probe ( cTAG , V0:KItem ) => 0 [owise, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

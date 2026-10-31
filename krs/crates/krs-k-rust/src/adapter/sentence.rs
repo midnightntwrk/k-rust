@@ -849,8 +849,14 @@ impl Adapter<'_> {
                 );
             }
         }
+        // `owise` is stated as itself: k-rust then gives an `owise` equation's axiom the
+        // condition that no other equation of its function applies.
         if let Some(priority) = sentence.priority() {
-            attributes.insert("priority", json!(priority.value().to_string()));
+            if priority.is_owise() {
+                attributes.insert("owise", json!(""));
+            } else {
+                attributes.insert("priority", json!(priority.value().to_string()));
+            }
         }
         if let Some(simplification) = sentence.simplification() {
             attributes.insert(

@@ -491,8 +491,8 @@ fn a_clause_root_reads_alike_bare_and_in_the_wrapper() {
         format!("{name}: {bare}")
     });
     expect_test::expect![[r"
-        name: rule [any]: <k> S:Stmt => show ( S:Stmt ) ... </k> [priority(200)]
-        wildcard: rule [any]: <k> _:Stmt => blue ... </k> [priority(200)]
-        alias: rule [any]: <k> ( red #as S:Stmt ) => show ( S:Stmt ) ... </k> [priority(200)]"]]
+        name: rule [any]: <k> S:Stmt => show ( S:Stmt ) ... </k> [owise]
+        wildcard: rule [any]: <k> _:Stmt => blue ... </k> [owise]
+        alias: rule [any]: <k> ( red #as S:Stmt ) => show ( S:Stmt ) ... </k> [owise]"]]
     .assert_eq(&emitted.join("\n"));
 }

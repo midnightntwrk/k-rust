@@ -395,6 +395,18 @@ pub fn lower_descriptor_bundle(
                 second,
                 range: range.map(Box::new),
             },
+            OverlapViolation::AfterOwise {
+                owise,
+                rule,
+                priority,
+                range,
+            } => DescriptorLoweringError::PriorityAfterOwise {
+                rule: Box::new(rule),
+                owise: Box::new(owise),
+                priority,
+                function: None,
+                range: range.map(Box::new),
+            },
             OverlapViolation::StaleGroupMember { group, rule } => {
                 DescriptorLoweringError::NondetGroup {
                     range: range(&rule),
@@ -402,6 +414,15 @@ pub fn lower_descriptor_bundle(
                     problem: NondetGroupProblem::StaleMember { group },
                 }
             }
+        });
+    }
+    if let Some(after) = crate::equation_domain::first_equation_after_owise(&modules) {
+        return Err(DescriptorLoweringError::PriorityAfterOwise {
+            rule: Box::new(after.equation),
+            owise: Box::new(after.owise),
+            priority: after.priority,
+            function: Some(after.function),
+            range: after.range.map(Box::new),
         });
     }
     if let Some(overlap) = crate::equation_domain::first_equation_overlap(&modules) {

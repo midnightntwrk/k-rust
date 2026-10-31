@@ -1294,9 +1294,15 @@ fn emit_term_rule_attributes(
     }
     if let Some(priority) = sentence.priority() {
         let start = writer.source.len();
-        writer.push("priority(");
-        writer.push(&priority.value().to_string());
-        writer.push("), ");
+        // `owise` is stated as itself: it applies where no other equation of
+        // the function, or no other transition, applies, which no rank says.
+        if priority.is_owise() {
+            writer.push("owise, ");
+        } else {
+            writer.push("priority(");
+            writer.push(&priority.value().to_string());
+            writer.push("), ");
+        }
         writer.record(priority.origin().key(), start, writer.source.len() - 2)?;
     }
     // `heat`/`cool` and `result(S)` (KF-014), in the source key order (X13).
@@ -1522,12 +1528,10 @@ fn emit_rule_attributes(
         Option<&krs_ir::NodeOrigin>,
     )>::new();
     if let Some(priority) = sentence.priority() {
-        attributes.push((
-            "priority",
-            Some(priority.value().to_string()),
-            Some(priority.origin()),
-            None,
-        ));
+        // `owise` is stated as itself, as on a term rule.
+        let value = (!priority.is_owise()).then(|| priority.value().to_string());
+        let name = if value.is_some() { "priority" } else { "owise" };
+        attributes.push((name, value, Some(priority.origin()), None));
     }
     // `heat`/`cool` and `result(S)` (KF-014), in the source key order (X13).
     if let Some(step) = sentence.evaluation() {

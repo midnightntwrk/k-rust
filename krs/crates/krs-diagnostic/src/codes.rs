@@ -228,6 +228,7 @@ register_codes! {
         AMBIGUOUS_LIST_PATTERN: "krs::analysis::ambiguous-list-pattern" => "A builtin `List` pattern of a rule, equation, or simplification holds two or more parts that are not single elements (`Left ListItem(V) Right`), so it matches some lists in several ways.",
         INVALID_CONS_LIST: "krs::analysis::invalid-cons-list" => "A `#[k::cons_list]` enum's two-field constructor does not take the enum's own sort as its second field, or two cons-list declarations construct one sort.",
         AMBIGUOUS_OR_PATTERN: "krs::analysis::ambiguous-or-pattern" => "Two alternatives of one `A | B` or-pattern can match the same term with different bindings.",
+        PRIORITY_AFTER_OWISE: "krs::analysis::priority-after-owise" => "A `priority = N` of 200 or more orders a sentence with or after an `owise` one it competes with (an `owise` equation of its function, or an `owise` transition it overlaps), but `owise` applies only where no other sentence applies.",
         NONDET_GROUP: "krs::analysis::nondet-group" => "A `nondet` group has one rule, mixes priorities, or names a rule that overlaps no other rule of the group.",
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a production's symbol is one K generates.",
         NAME_COLLISION: "krs::analysis::name-collision" => "Two declarations have the same name in a lowering namespace.",

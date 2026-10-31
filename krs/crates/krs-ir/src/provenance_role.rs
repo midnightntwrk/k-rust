@@ -370,7 +370,7 @@ provenance_roles! {
     ConstructorColorsEntry => "constructor_colors_entry",
     /// Explicit `priority = N` integer on a transition rule.
     RulePriority => "rule_priority",
-    /// Bare `owise` marker on an equation (priority 200).
+    /// Bare `owise` marker on an equation (rank 200).
     EquationOwise => "equation_owise",
     /// Group identifier of `nondet = group` on a transition rule.
     RuleNondetGroup => "rule_nondet_group",

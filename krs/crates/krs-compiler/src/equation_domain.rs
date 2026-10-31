@@ -147,7 +147,8 @@ const CALL_DEPTH: u32 = 64;
 const CALL_BUDGET: u32 = 4096;
 
 /// A total function's equations, by priority band, lowest first (`owise`
-/// is priority 200).
+/// is the rank 200, last: no equation beside it is ranked 200 or after,
+/// [`first_equation_after_owise`]).
 pub(crate) type Bands<'a> = Vec<Vec<EquationView<'a>>>;
 
 /// Evaluates ground terms: builtins on literals, constructors, `P :=K t`
@@ -1098,6 +1099,56 @@ pub(crate) struct EquationOverlap {
     /// The first and the second equation's result there, rendered.
     pub(crate) results: (String, String),
 }
+
+/// An equation with a written `priority = N`, `N` of 200 or more, beside an
+/// `owise` equation of its function.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EquationAfterOwise {
+    /// The function, rendered.
+    pub(crate) function: String,
+    /// The `owise` equation.
+    pub(crate) owise: StableItemId,
+    /// The equation ranked with or after it.
+    pub(crate) equation: StableItemId,
+    /// That equation's priority.
+    pub(crate) priority: u32,
+    /// The exact authored range of that priority.
+    pub(crate) range: Option<krs_ir::SourceRange>,
+}
+
+/// The first function, in declaration order, with an `owise` equation and an
+/// equation whose written priority is 200 or more.
+///
+/// `owise` states that its equation gives the value where no other equation
+/// of the function applies, so every other equation is tried before it. A
+/// written `priority = N` with `N` of 200 or more orders its equation with or
+/// after the `owise` one, the rank 200 that orders `owise` after the default
+/// priority: the definition would state two orders between the two.
+pub(crate) fn first_equation_after_owise(modules: &[SemanticModule]) -> Option<EquationAfterOwise> {
+    function_equations(modules)
+        .into_iter()
+        .find_map(|(production, _, rules)| {
+            let owise = rules.iter().find(|rule| {
+                rule.priority()
+                    .is_some_and(krs_ir_levels::SemanticRulePriority::is_owise)
+            })?;
+            let (equation, priority) = rules.iter().find_map(|rule| {
+                let priority = rule.priority()?;
+                (!priority.is_owise() && priority.value() >= OWISE_RANK).then_some((rule, priority))
+            })?;
+            Some(EquationAfterOwise {
+                function: display_name(production.id()),
+                owise: owise.id().clone(),
+                equation: equation.id().clone(),
+                priority: priority.value(),
+                range: priority.origin().origin().exact_authored_range(),
+            })
+        })
+}
+
+/// The rank of an `owise` sentence: after every sentence of the default
+/// priority (50).
+pub(crate) const OWISE_RANK: u32 = 200;
 
 /// The equations of each function, grouped by the instance their head names.
 pub(crate) fn function_equations(

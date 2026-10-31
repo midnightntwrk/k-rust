@@ -476,7 +476,7 @@ fn every_branch_shape_is_anchored_alike_by_the_macro_and_the_collector() {
             "rule shapes ( ( N:Int #as Value:Int ) , Info:TypeInfo , Flag:Bool ) => Value:Int +Int 6 requires (((sign ( Value:Int ) ==Int -1) andThenBool Flag:Bool) andThenBool (N:Int >Int 0)) andThenBool (notBool ( tuple ( ( 0 #Or -1 ) , _ ) :=K Info:TypeInfo )) [label(..)]",
             "rule shapes ( ( N:Int #as Value:Int ) , tuple ( ( 0 #Or -1 ) , Size:Int ) , Flag:Bool ) => N:Int +Int Size:Int requires ((sign ( Value:Int ) ==Int -1) andThenBool Flag:Bool) andThenBool (N:Int >Int 0) [label(..)]",
             "rule shapes ( 0 , tuple ( -1 , _ ) , _ ) => 1 [label(..)]",
-            "rule shapes ( _ , _ , _ ) => 7 [priority(200), label(..)]",
+            "rule shapes ( _ , _ , _ ) => 7 [owise, label(..)]",
         ]
     "#]]
     .assert_debug_eq(

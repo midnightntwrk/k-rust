@@ -52,13 +52,15 @@ pub(crate) struct PriorityValue {
     pub(crate) value: u32,
 }
 
-/// The priority K gives an `owise` rule or equation.
+/// The rank K gives an `owise` rule or equation: after the default priority.
+/// An `owise` sentence applies where no other rule, or no other equation of
+/// its function, applies; it is emitted as `owise`, never as this priority.
 pub const OWISE_PRIORITY: u32 = 200;
 
 /// The largest rule priority k-rust ranks.
 pub const MAX_RULE_PRIORITY: u32 = 254;
 
-pub(crate) const OWISE_WITH_PRIORITY: &str = "owise is priority 200; write one of them";
+pub(crate) const OWISE_WITH_PRIORITY: &str = "owise applies where no other rule or equation applies, which no priority orders; write one of them";
 pub(crate) const PRIORITY_RANGE: &str = "k-rust ranks rule priorities 0..=254";
 pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
     "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there";
@@ -422,7 +424,7 @@ impl RuleAttribute {
     }
 
     /// Returns the effective authored transition priority and the role that
-    /// anchors it: `owise` is priority 200 under [`ProvenanceRole::RuleOwise`],
+    /// anchors it: `owise` is the rank 200 under [`ProvenanceRole::RuleOwise`],
     /// and `priority = N` is N under [`ProvenanceRole::RulePriority`].
     #[must_use]
     pub fn transition_priority(&self) -> Option<(ProvenanceRole, u32)> {

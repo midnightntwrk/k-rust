@@ -100,8 +100,12 @@ Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are
 
 K rules are unordered, and every rule has a priority, 50 by default; a rule is tried only after every rule with a lower number failed.
 `#[k::rule(priority = N)]` sets a transition's priority and `#[k::equation(priority = N)]` an equation's, with `N` in `0..=254`, the range k-rust ranks.
-`owise` is priority 200 on both (`#[k::rule(owise)]`, `#[k::equation(owise)]`), and the emitted `[priority(200)]` shows it; it is a lower band, not Rust's `_ =>` arm: several `owise` rules are unordered among themselves, and a guarded one can still fail.
+`owise` (`#[k::rule(owise)]`, `#[k::equation(owise)]`) states where its sentence applies: an `owise` equation gives the function's value wherever no other equation of the function applies, and an `owise` transition applies wherever no other rule applies.
+For an equation that is a statement about every argument, symbolic ones included, so a prover applies an `owise` equation to a symbolic argument only where every other equation is known not to apply; an order of attempts alone would let it apply where another equation's guard is still undecided, and so give a value the `owise` excludes.
+KRS emits K's `owise` attribute for it, never a priority, and both routes read it so: an `owise` equation's axiom carries the condition that no other equation of its function applies.
+It is not Rust's `_ =>` arm: several `owise` sentences are unordered among themselves, and a guarded one can still fail.
 A sentence takes `owise` or `priority = N`, not both.
+K ranks an `owise` sentence 200, after the default priority, so a written priority of 200 or more would order a sentence with or after an `owise` one, against what `owise` states: KRS refuses an equation with such a priority beside an `owise` equation of its function, and a transition with one that can apply where an `owise` transition does (`krs::analysis::priority-after-owise`).
 `#[k::simplification(priority = N)]` is a hint to the simplifier and emits `simplification(N)`; `owise` has no meaning on a simplification, and an alias clause has no priority.
 The standalone `#[k::priority(N)]` attribute is retired: KRS rejects it and names `#[k::equation(priority = N)]`.
 
@@ -756,7 +760,7 @@ Rust tries a `match`'s arms in order, and K's equations are unordered.
 The two readings agree when no two arms apply to one argument, because then every argument reaches the same arm under both, so the arms of a branching body must not overlap; one priority per arm would instead make reordering arms change the definition, and would make each equation carry the negation of every earlier arm.
 The one exception is a last arm that matches everything, one without a guard whose every pattern is `_` or, for a parameter, a plain name: in the body's own `match` it is the `owise` equation, since "no other equation applies" is "every earlier arm failed" there.
 A catch-all arm that is not last is an error, since the arms after it could never apply.
-In a `match` nested in a branch, a catch-all arm cannot be `owise`, which is one priority for the whole function: there it is guarded by the negation of each earlier arm's test, `k::matches!(op, Op::Add(_, _)).not::<Bool>() && ..`, which needs each earlier arm's guard to read no name its pattern binds; when one does, move the nested `match` into a helper function, where its catch-all is `owise`.
+In a `match` nested in a branch, a catch-all arm cannot be `owise`, which is the fallback of the whole function: there it is guarded by the negation of each earlier arm's test, `k::matches!(op, Op::Add(_, _)).not::<Bool>() && ..`, which needs each earlier arm's guard to read no name its pattern binds; when one does, move the nested `match` into a helper function, where its catch-all is `owise`.
 The coverage check reads those tests as pattern matching, so a nested catch-all covers exactly the values the earlier arms leave, whether its scrutinee is a parameter or another term.
 
 The [overlap check of equations](#overlapping-equations) checks the arms.

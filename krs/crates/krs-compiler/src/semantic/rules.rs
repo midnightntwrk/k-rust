@@ -176,8 +176,10 @@ pub(super) fn check_group_descendants(
 
 /// Lowers an optional rule priority; its origin label names the authored key.
 ///
-/// `owise` lowers to priority 200 on transitions and equations alike, and
-/// `priority = N` to N, so both routes emit the same `priority(N)` attribute.
+/// `owise` lowers to the rank 200 on transitions and equations alike, under
+/// the label [`SemanticRulePriority::RULE_OWISE_ORIGIN`] or
+/// [`SemanticRulePriority::EQUATION_OWISE_ORIGIN`], which the emitters read to
+/// state `owise` itself; `priority = N` lowers to N.
 pub(super) fn lower_rule_priority(
     descriptor: &Descriptor,
     priority: Option<&DescriptorRulePriority>,
@@ -185,9 +187,9 @@ pub(super) fn lower_rule_priority(
     priority
         .map(|priority| -> Result<_, DescriptorLoweringError> {
             let role = match priority.key.role() {
-                ProvenanceRole::RuleOwise => "rule-owise",
+                ProvenanceRole::RuleOwise => SemanticRulePriority::RULE_OWISE_ORIGIN,
                 ProvenanceRole::RulePriority => "rule-priority",
-                ProvenanceRole::EquationOwise => "equation-owise",
+                ProvenanceRole::EquationOwise => SemanticRulePriority::EQUATION_OWISE_ORIGIN,
                 _ => "equation-priority",
             };
             Ok(SemanticRulePriority::new(

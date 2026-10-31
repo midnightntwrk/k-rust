@@ -1736,7 +1736,7 @@ pub struct DescriptorRulePriority {
 }
 
 impl DescriptorRulePriority {
-    /// The priority K gives an `owise` rule or equation.
+    /// The rank K gives an `owise` rule or equation: after the default priority.
     pub const OWISE: u32 = 200;
     /// The largest rule priority k-rust ranks.
     pub const MAX: u32 = 254;

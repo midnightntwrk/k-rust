@@ -465,7 +465,7 @@ impl EquationAttribute {
         &self.restriction
     }
 
-    /// Whether this equation is an ordered fallback (priority 200).
+    /// Whether this equation gives the value where no other equation of its function applies.
     #[must_use]
     pub const fn is_owise(&self) -> bool {
         self.owise.is_some()
@@ -478,7 +478,7 @@ impl EquationAttribute {
     }
 
     /// Returns the effective authored equation priority and the role that
-    /// anchors it: `owise` is priority 200 under [`ProvenanceRole::EquationOwise`],
+    /// anchors it: `owise` is the rank 200 under [`ProvenanceRole::EquationOwise`],
     /// and `priority = N` is N under [`ProvenanceRole::EquationPriority`].
     #[must_use]
     pub fn equation_priority(&self) -> Option<(ProvenanceRole, u32)> {

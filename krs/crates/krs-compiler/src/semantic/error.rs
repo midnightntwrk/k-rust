@@ -187,6 +187,21 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second equation's head.
         second_head_range: Option<Box<SourceRange>>,
     },
+    /// A sentence with a written priority of 200 or more competes with an
+    /// `owise` sentence: an `owise` equation of its function, or an `owise`
+    /// transition it overlaps.
+    PriorityAfterOwise {
+        /// The sentence with the written priority.
+        rule: Box<StableItemId>,
+        /// The `owise` sentence.
+        owise: Box<StableItemId>,
+        /// The written priority.
+        priority: u32,
+        /// The function of two equations; `None` for two transitions.
+        function: Option<String>,
+        /// Sole exact authored range of the written priority.
+        range: Option<Box<SourceRange>>,
+    },
     /// Two arms of one function shorthand body's `match` both apply to one
     /// argument and give it different results.
     OverlappingMatchArms {
@@ -915,6 +930,11 @@ macro_rules! by_subject_slots {
                 rule: $named_item,
                 ..
             }
+            | DescriptorLoweringError::PriorityAfterOwise {
+                range: $named_range,
+                rule: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidOverload {
                 range: $named_range,
                 production: $named_item,
@@ -1427,6 +1447,30 @@ impl fmt::Display for DescriptorLoweringError {
                 formatter,
                 "alternatives `{first}` and `{second}` of this or-pattern can match the same term with different bindings; K's #Or then is ambiguous (LLVM takes one, Haskell explores both). Make them disjoint or split the rule."
             ),
+            Self::PriorityAfterOwise {
+                rule,
+                owise,
+                priority,
+                function: Some(function),
+                ..
+            } => write!(
+                formatter,
+                "equation `{}` of `{function}` has priority {priority}, which orders it with or after the `owise` equation `{}` (`owise` is ranked 200); but `owise` gives the value only where no other equation of `{function}` applies, so every other equation comes first, and the definition would state two orders between them",
+                rule.item_name(),
+                owise.item_name()
+            ),
+            Self::PriorityAfterOwise {
+                rule,
+                owise,
+                priority,
+                function: None,
+                ..
+            } => write!(
+                formatter,
+                "rule `{}` has priority {priority}, which orders it with or after the `owise` rule `{}` (`owise` is ranked 200), and the two can apply to the same configuration; but `owise` applies only where no other rule applies, so every other rule comes first, and the definition would state two orders between them",
+                rule.item_name(),
+                owise.item_name()
+            ),
             Self::NondetGroup { rule, problem, .. } => match problem {
                 NondetGroupProblem::SingleMember { group } => {
                     write!(formatter, "nondet group `{group}` has only one rule")
@@ -1570,6 +1614,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::OverlappingMatchArms { .. } => codes::analysis::OVERLAPPING_MATCH_ARMS,
             Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
+            Self::PriorityAfterOwise { .. } => codes::analysis::PRIORITY_AFTER_OWISE,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
             Self::MissingPrecedenceChain { .. } => codes::analysis::MISSING_PRECEDENCE_CHAIN,
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
@@ -1689,6 +1734,19 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
                 diagnostic.with_note(format!("rule: {rule}"))
             }
+            Self::PriorityAfterOwise {
+                rule,
+                owise,
+                function,
+                ..
+            } => diagnostic
+                .with_note(format!("owise: {owise}"))
+                .with_note(format!("ranked after it: {rule}"))
+                .with_help(if function.is_some() {
+                    "give the equation a priority below 200"
+                } else {
+                    "give the rule a priority below 200, or make the two rules disjoint"
+                }),
             Self::ConfigurationCount {
                 first: Some(first), ..
             } => diagnostic.with_secondary(

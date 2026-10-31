@@ -687,10 +687,36 @@ impl IrSimplificationPriority {
 }
 
 impl IrRulePriority {
+    /// The Semantic IR origin label of a transition's `owise` key.
+    pub const RULE_OWISE_ORIGIN: &'static str = "rule-owise";
+    /// The Semantic IR origin label of an equation's `owise` key.
+    pub const EQUATION_OWISE_ORIGIN: &'static str = "equation-owise";
+
     /// Creates a provenance-bearing priority.
     #[must_use]
     pub const fn new(origin: NodeOrigin, value: u32) -> Self {
         Self { origin, value }
+    }
+    /// Whether this is an authored `owise`, not a written `priority = N`.
+    ///
+    /// `owise` states that its sentence applies where no other equation of its
+    /// function, or no other transition, applies. Its value is the rank 200
+    /// that orders it after every sentence of the default priority, and the
+    /// Semantic IR frame of its origin names the `owise` key
+    /// ([`Self::RULE_OWISE_ORIGIN`], [`Self::EQUATION_OWISE_ORIGIN`]); every
+    /// later level keeps that frame, so an emitter can state `owise` itself.
+    #[must_use]
+    pub fn is_owise(&self) -> bool {
+        self.origin.origin().frames().iter().any(|frame| {
+            matches!(
+                frame,
+                krs_ir::OriginFrame::Transformation {
+                    kind: krs_ir::TransformationOriginKind::SemanticIr,
+                    label: Some(label),
+                    ..
+                } if label == Self::RULE_OWISE_ORIGIN || label == Self::EQUATION_OWISE_ORIGIN
+            )
+        })
     }
     /// Returns priority provenance.
     #[must_use]
