@@ -2244,6 +2244,24 @@ pub trait SmtSolver {
     fn prelude_signal(&self) -> Option<&PreludeSignal> {
         None
     }
+
+    /// Whether an undecided answer of this solver is, as a decided one is, a function of the
+    /// query and the build: true only where every bound on an attempt counts the solver's own
+    /// work, not time (`z3::Z3Options::resource_limit`). By default an `Unknown` may be a
+    /// timeout, which depends on the machine's speed and load. A solver that forwards its
+    /// queries to another forwards this too.
+    fn undecided_answers_reproducible(&self) -> bool {
+        false
+    }
+
+    /// The identity of the solver whose answers this one gives: by default its own address. A
+    /// solver that forwards every query to another and returns its answers unchanged gives that
+    /// one's identity, so that work the backend keys by its solver (`simplify`'s reuse of an
+    /// `Unspecified` evaluation or of an equation-condition verdict) is shared across the
+    /// forwarding.
+    fn identity(&self) -> usize {
+        std::ptr::from_ref(self).cast::<()>().addr()
+    }
 }
 
 /// The solver of a build without one: every query that needs a solver fails with `Unavailable`,
@@ -2292,6 +2310,10 @@ pub(crate) const APPROXIMATE_MODEL_REASON: &str =
 /// answers), and so is a failure (`Err`: no solver in this build, a query that does not
 /// translate); neither is counted, and nor is a stop. The count is taken once per answer as the
 /// consumer receives it, after the inner solver's retries.
+///
+/// Each count is also added to this thread's [`undecided_on_thread`], which a caller reads
+/// before and after work that queries through such a solver to learn whether that work received
+/// an undecided answer (`simplify::ConditionMemo`).
 pub(crate) struct UndecidedCounting<'a> {
     inner: &'a dyn SmtSolver,
     undecided: std::sync::atomic::AtomicUsize,
@@ -2314,8 +2336,19 @@ impl<'a> UndecidedCounting<'a> {
         if undecided {
             self.undecided
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            UNDECIDED_ON_THREAD.set(UNDECIDED_ON_THREAD.get() + 1);
         }
     }
+}
+
+thread_local! {
+    static UNDECIDED_ON_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The undecided answers every [`UndecidedCounting`] delivered on this thread so far, one per
+/// layer an answer passed through: a monotone count, read as a difference around some work.
+pub(crate) fn undecided_on_thread() -> usize {
+    UNDECIDED_ON_THREAD.get()
 }
 
 impl SmtSolver for UndecidedCounting<'_> {
@@ -2351,6 +2384,14 @@ impl SmtSolver for UndecidedCounting<'_> {
 
     fn prelude_signal(&self) -> Option<&PreludeSignal> {
         self.inner.prelude_signal()
+    }
+
+    fn undecided_answers_reproducible(&self) -> bool {
+        self.inner.undecided_answers_reproducible()
+    }
+
+    fn identity(&self) -> usize {
+        self.inner.identity()
     }
 }
 

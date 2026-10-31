@@ -1130,6 +1130,12 @@ impl SmtSolver for Z3Solver {
     fn prelude_signal(&self) -> Option<&PreludeSignal> {
         Some(&self.prelude_signal)
     }
+
+    /// Under [`Z3Options::resource_limit`] no attempt carries a wall-clock timeout, and an
+    /// `Unknown` is a function of the query, the options and the Z3 version.
+    fn undecided_answers_reproducible(&self) -> bool {
+        self.options.resource_limit.is_some()
+    }
 }
 
 #[cfg(test)]

@@ -2828,7 +2828,7 @@ fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
             .iter()
             .find(|entry| entry["id"] == "backend.definedness.discharge")
             .and_then(|entry| entry["count"].as_u64())
-            .unwrap_or(0);
+            .expect("the aggregate records definedness discharges");
         assert!(
             discharges <= 50_000,
             "{name}: {discharges} definedness discharges"

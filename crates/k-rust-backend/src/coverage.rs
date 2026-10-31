@@ -178,7 +178,9 @@ pub(crate) use conditions::{record as record_condition, verdict as condition_ver
 /// Unlike the sets, the counts depend on multiplicity: on how many states the run explored (so
 /// a `state-set` run that skips a twin subtree counts less than the `path-set` run), on attempts
 /// later rewound or discarded, which count as often as they ran, and on the backend's
-/// memoization, since an evaluation the run is served from a memo reports nothing again. They
+/// memoization, since an evaluation the run is served from a memo reports nothing again (an
+/// equation-condition verdict `simplify::ConditionMemo` serves reports none of the equations its
+/// decision applied). They
 /// are a deterministic function of the same inputs as the sets.
 ///
 /// `committed`, present exactly when the collection was asked to report it
@@ -437,8 +439,9 @@ pub(crate) fn records_conditions() -> bool {
 /// emits no diagnostic and leaves the emission positions as they were, notes no path fact into
 /// the run, and leaves the counter of renamed-apart names as it was. Besides, it fills none of
 /// the memos the run is later served from: the results of pure hooks
-/// (`deferred::hook_values_aside`) and the records of `Unspecified` evaluations
-/// (`simplify::unspecified_values_aside`) are set aside, so a later evaluation of the run
+/// (`deferred::hook_values_aside`), the records of `Unspecified` evaluations
+/// (`simplify::unspecified_values_aside`) and the equation-condition verdicts
+/// (`simplify::condition_memo_aside`) are set aside, so a later evaluation of the run
 /// computes, emits and notes what it would without this one; and a stop for lack of native stack
 /// inside it is counted by no scope (`stop::uncounted_stack_stops`). It takes nothing from the
 /// run's `FreshCounter`, which it is not given, and no solver. A stop of its own simplifications
@@ -472,7 +475,9 @@ fn isolate<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
                         crate::rule::with_apart_names_restored(|| {
                             crate::deferred::hook_values_aside(|| {
                                 crate::simplify::unspecified_values_aside(|| {
-                                    crate::stop::uncounted_stack_stops(evaluation)
+                                    crate::simplify::condition_memo_aside(|| {
+                                        crate::stop::uncounted_stack_stops(evaluation)
+                                    })
                                 })
                             })
                         })

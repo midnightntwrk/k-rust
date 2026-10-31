@@ -868,6 +868,14 @@ pub(crate) fn off_the_clock<T>(polls: u64, action: impl FnOnce() -> T) -> (T, bo
     (value, record.budget_exhausted)
 }
 
+/// Meet a stop for lack of native stack and dismiss it, as a site that only refines a sound
+/// outcome does ([`Stop::forgo_refinement`]): the enclosing [`counting_stack_stops`] counts it.
+/// For a test that needs such a stop inside work without recursing deeper than the stack.
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) fn dismiss_a_stack_stop() {
+    Stop::out_of_stack(StackLimit::ThreadBudget(0)).forgo_refinement();
+}
+
 /// Runs `action` with no count of stack stops open, and restores the enclosing count afterwards,
 /// also when `action` unwinds: a stop for lack of native stack minted inside is counted by no
 /// [`counting_stack_stops`] scope around it. For work that only describes a run to its caller

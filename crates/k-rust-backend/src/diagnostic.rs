@@ -5,6 +5,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
+    sync::Arc,
 };
 
 use k_rust_kore::measure::{self, Counter};
@@ -252,10 +253,14 @@ pub fn printable_condition<'a>(
 /// One emission recorded in a collection, kept in the form it was emitted in so that forwarding
 /// it to an enclosing collection applies exactly the rule a direct emission would meet there,
 /// with its position in the thread's emission order.
+///
+/// The emitted form is shared by every copy: a buffer committed into an enclosing one, a replay
+/// ([`Buffered::replay`]) and the verdicts `simplify::ConditionMemo` keeps, each holding the
+/// buffers of the decisions nested in it, copy an emission without copying its diagnostic.
 #[derive(Clone, Debug)]
 struct Emission {
     position: u64,
-    kind: EmissionKind,
+    kind: Arc<EmissionKind>,
     /// The subject the emission explains, when it was raised during an equation attempt that was
     /// passed over and left that subject unevaluated ([`Buffered::commit_kept`]); `None` for
     /// every other emission. It is kept only while the subject is ([`retract_dropped`]).
@@ -385,7 +390,7 @@ fn record_in_sink(kind: EmissionKind) {
             let position = NEXT_POSITION.with(|next| next.replace(next.get() + 1));
             sink.record(Emission {
                 position,
-                kind,
+                kind: Arc::new(kind),
                 subject: None,
             });
         }
@@ -430,11 +435,11 @@ pub(crate) fn next_position() -> u64 {
 /// however emitted, reports it); a rule-condition failure once per rule and failure; every other
 /// diagnostic is appended as emitted.
 fn record(emissions: &mut Vec<Emission>, emission: Emission) {
-    let duplicate = match &emission.kind {
+    let duplicate = match &*emission.kind {
         EmissionKind::Single(BackendDiagnostic::UnsupportedHookUnevaluated { hook, .. }) => {
             emissions.iter().any(|existing| {
                 matches!(
-                    &existing.kind,
+                    &*existing.kind,
                     EmissionKind::Single(BackendDiagnostic::UnsupportedHookUnevaluated {
                         hook: existing_hook,
                         ..
@@ -453,7 +458,7 @@ fn record(emissions: &mut Vec<Emission>, emission: Emission) {
         }),
         EmissionKind::Single(failed @ BackendDiagnostic::RuleConditionFailed { .. }) => {
             emissions.iter().any(
-                |existing| matches!(&existing.kind, EmissionKind::Single(other) if other == failed),
+                |existing| matches!(&*existing.kind, EmissionKind::Single(other) if other == failed),
             )
         }
         EmissionKind::Single(_) => false,
@@ -466,7 +471,7 @@ fn record(emissions: &mut Vec<Emission>, emission: Emission) {
 fn sequenced(emissions: Vec<Emission>) -> Vec<Sequenced> {
     let mut diagnostics = Vec::with_capacity(emissions.len());
     for Emission { position, kind, .. } in emissions {
-        match kind {
+        match Arc::unwrap_or_clone(kind) {
             EmissionKind::Single(diagnostic) => diagnostics.push(Sequenced {
                 position,
                 diagnostic,
@@ -641,6 +646,12 @@ impl Buffered {
     /// Whether nothing is held.
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// The bytes the held emissions take in place, not counting the diagnostics they share with
+    /// every other copy of them.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.0.capacity() * std::mem::size_of::<Emission>()
     }
 
     /// [`Self::commit`] a copy of the held emissions, with their original positions, keeping
@@ -950,6 +961,12 @@ pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
     }
     let _restore = Restore(NEXT_POSITION.get());
     buffer(action).0
+}
+
+/// Whether a collector is open on this thread, so that an emission is recorded somewhere: without
+/// one, [`buffer`] holds nothing.
+pub(crate) fn collecting() -> bool {
+    SINK.with(|sink| sink.borrow().is_some())
 }
 
 /// Run `action` with its emissions held in a [`Buffered`] instead of the current collector.

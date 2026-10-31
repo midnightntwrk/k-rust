@@ -3972,6 +3972,82 @@ bound = "O(m) matches, each followed by one predicate simplification and at most
 
 [[node]]
 kind = "algorithm"
+id = "backend.simplify.condition_memo"
+provenance = "declared"
+area = "backend"
+name = "equation-condition verdict memoization within a proof or an outermost condition"
+variable = "q = predicates of the instantiated requires and of the binding obligations; k = known predicates; a = active rule-condition keys; f = path facts and e = diagnostics a decision noted and emitted"
+invariant = "A kept verdict is Refuted or Indeterminate, from a decision outside an execution, with no Unspecified attempt or lineage open, no dismissed stack stop, and no undecided solver answer unless the solver's undecided answers are reproducible; its key holds everything that decision reads but the solver's answers. It is served only where the facts and diagnostics it holds are all a new decision would note and emit."
+no_counter = "This procedure has no dedicated counter; a served verdict skips the decision, whose callees keep their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendSimplifyConditionMemo"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo::served"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo::served"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo::record"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo::intern_known"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo::intern_active"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemoProbe::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemoScope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "condition_memo_scope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "condition_memo_aside"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "Interned"
+
+[[node.cost]]
+mode = "lookup (every nested equation-condition decision outside an execution)"
+bound = "one copy of the q predicate handles, the rule id and the anchor handle into the key's own part; two hash lookups by content, O(k) predicates and O(a) keys hashed (term hashes are cached) and compared on a hit down to the first difference, find the memo's copies of the known list and the active set; then one map lookup, whose shared parts compare by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss pays the decision (backend.simplify.term, rule condition)."
+
+[[node.cost]]
+mode = "retention"
+bound = "per kept verdict: its key's own part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list and active set, one copy (k predicate handles, a keys) shared by every key that names it. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
+
+[[node]]
+kind = "algorithm"
 id = "backend.simplify.predicates"
 provenance = "declared"
 area = "backend"
@@ -4010,6 +4086,11 @@ symbol = "simplify_predicates_with_budget"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "known_defined_subterms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "expansion_obligations"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4150,6 +4231,10 @@ bound = "a connective's: one level over its simplified operands, which are hered
 [[node.cost]]
 mode = "ceil conjunct (known_defined_subterms)"
 bound = '''only in a round with a \ceil conjunct: one walk of the known predicates' asserted terms down to their ceil_free subterms, each distinct subterm hashed once, then one set lookup per \ceil conjunct'''
+
+[[node.cost]]
+mode = 'opaque \ceil or absence expansion (expansion_obligations)'
+bound = '''per ceil_term expansion of a \ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member'''
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
@@ -5284,6 +5369,18 @@ name = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
 symbol = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/simplify.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/simplify.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "crates/k-rust-backend/src/simplify.rs"
 
 [[node]]
 kind = "observation"
@@ -11951,6 +12048,12 @@ provenance = "declared"
 kind = "consumes"
 from = "backend.search.patterns"
 to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.condition_memo"
+to = "crates/k-rust-backend/src/simplify.rs"
 provenance = "declared"
 
 [[edge]]

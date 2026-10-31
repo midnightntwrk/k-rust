@@ -304,6 +304,8 @@ algorithms! {
     BackendInstanceNormal => "backend.normality.scan",
     /// Reuse of a rule refutation on subjects with the same observed regions.
     BackendRewriteRefutationMemo => "backend.rewrite.refutation_memo",
+    /// Reuse of an equation-condition verdict within a proof or an outermost condition.
+    BackendSimplifyConditionMemo => "backend.simplify.condition_memo",
     /// Full confluence analysis and data-head classification.
     BackendDataHeads => "backend.data.heads",
     /// Ground data-term classification with instance-normal evidence.

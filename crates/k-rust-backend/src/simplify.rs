@@ -39,7 +39,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \\not; c = assumed conjuncts that share its key; k = known predicates"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited", "SimplifyConjunctNodes", "SimplifyKnownPredicates"]
 //! span = "per call"
@@ -66,8 +66,32 @@
 //! bound = "only in a round with a \\ceil conjunct: one walk of the known predicates' asserted terms down to their ceil_free subterms, each distinct subterm hashed once, then one set lookup per \\ceil conjunct"
 //!
 //! [[cost]]
+//! mode = "opaque \\ceil or absence expansion (expansion_obligations)"
+//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member"
+//!
+//! [[cost]]
 //! mode = "report retraction (retract_dropped)"
 //! bound = "only when the call raised a report of an equation passed over on a kept subject: one search of the resulting predicates and of their term nodes that lack the evaluated attribute, each shared node once, stopping when every subject is found"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.simplify.condition_memo"
+//! name = "equation-condition verdict memoization within a proof or an outermost condition"
+//! sites = ["ConditionMemo::served", "ConditionMemo", "ConditionMemo::record", "ConditionMemo::intern_known", "ConditionMemo::intern_active", "ConditionMemoProbe::new", "ConditionMemoScope", "condition_memo_scope", "condition_memo_aside", "Interned"]
+//! variable = "q = predicates of the instantiated requires and of the binding obligations; k = known predicates; a = active rule-condition keys; f = path facts and e = diagnostics a decision noted and emitted"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; a served verdict skips the decision, whose callees keep their own measurements."
+//! span = "none"
+//! invariant = "A kept verdict is Refuted or Indeterminate, from a decision outside an execution, with no Unspecified attempt or lineage open, no dismissed stack stop, and no undecided solver answer unless the solver's undecided answers are reproducible; its key holds everything that decision reads but the solver's answers. It is served only where the facts and diagnostics it holds are all a new decision would note and emit."
+//! tests = ["crates/k-rust-backend/src/simplify.rs"]
+//!
+//! [[cost]]
+//! mode = "lookup (every nested equation-condition decision outside an execution)"
+//! bound = "one copy of the q predicate handles, the rule id and the anchor handle into the key's own part; two hash lookups by content, O(k) predicates and O(a) keys hashed (term hashes are cached) and compared on a hit down to the first difference, find the memo's copies of the known list and the active set; then one map lookup, whose shared parts compare by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss pays the decision (backend.simplify.term, rule condition)."
+//!
+//! [[cost]]
+//! mode = "retention"
+//! bound = "per kept verdict: its key's own part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list and active set, one copy (k predicate handles, a keys) shared by every key that names it. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
@@ -1856,9 +1880,10 @@ fn evaluate_equation_condition(
     // themselves is the `\ceil(t)` factor, which is carried rather than decided, so it is taken
     // as known and not restated as a requires.
     let bound_definedness = matched.bindings().as_known();
-    let scope = ConditionMemo::enter();
-    let key = scope.nested.then(|| {
-        ConditionMemoKey::new(
+    let scope = ConditionMemo::enter(solver);
+    let solver = scope.solver();
+    let probe = scope.nested.then(|| {
+        ConditionMemoProbe::new(
             definition,
             rule_id,
             anchor,
@@ -1870,13 +1895,15 @@ fn evaluate_equation_condition(
             solver,
         )
     });
-    let key = key.flatten();
-    if let Some(key) = &key
-        && let Some(outcome) = ConditionMemo::served(key)
+    let mut probe = probe.flatten();
+    if let Some(probe) = &mut probe
+        && let Some(outcome) = ConditionMemo::served(probe)
     {
         return Ok(outcome);
     }
+    let collected = diagnostic::collecting();
     let facts_from = crate::path_facts::marker();
+    let undecided_from = crate::smt::undecided_on_thread();
     let ((verdict, emissions), stack_stops) = stop::counting_stack_stops(|| {
         diagnostic::buffer(|| {
             decide_equation_condition(
@@ -1896,12 +1923,17 @@ fn evaluate_equation_condition(
     });
     emissions.commit_copy();
     // A refinement inside that ran out of native stack was dismissed, and its outcome kept
-    // coarser than a decision with more stack left would reach: such a verdict is not kept.
-    if let Some(key) = key
+    // coarser than a decision with more stack left would reach; an undecided solver answer may
+    // be a timeout, which another decision of the same query need not meet. Such a verdict is not
+    // kept, unless the solver's undecided answers are a function of the query.
+    let undecided = crate::smt::undecided_on_thread() != undecided_from
+        && !solver.undecided_answers_reproducible();
+    if let Some(probe) = probe
         && stack_stops == 0
+        && !undecided
         && let Ok(verdict) = &verdict
     {
-        ConditionMemo::record(key, verdict, facts_from, emissions);
+        ConditionMemo::record(probe, verdict, facts_from, emissions, collected);
     }
     verdict
 }
@@ -1920,26 +1952,59 @@ fn evaluate_equation_condition(
 /// of a digest k-rust does not compute in a proof, or of any symbolic string), the work grows by
 /// a factor at every level of nesting (`replaceAll`, `countAllOccurrences`, `#alignHexString`).
 ///
-/// A verdict is a function of what its decision reads: the definition, the instance (the rule, its anchor, the
-/// instantiated `requires` and the binding obligations), the known predicates, the options, the
-/// rule conditions active against re-entry, the solver, and the two modes of this thread that
-/// change how a condition is simplified (the general condition path and stated ceil
-/// conditions); [`ConditionMemoKey`] holds each of them. A verdict met again under an equal key is
-/// the verdict a new decision would reach, so serving it changes no result. Only `Refuted` and
-/// `Indeterminate` are kept: `Satisfied` holds the instance, which the caller uses, and is cheap
-/// to reach again. A stop or a failure is never kept, nor a verdict whose decision dismissed a
-/// stop for lack of native stack (`stop::counting_stack_stops`), which depends on the depth it ran
-/// at. Serving a verdict notes again the path
-/// facts its decision noted and emits again the diagnostics it emitted, as a new decision would.
+/// A verdict is a function of what its decision reads: the definition, the instance (the rule,
+/// its anchor, the instantiated `requires` and the binding obligations), the known predicates,
+/// the options, the rule conditions active against re-entry, the solver's answers, and the two
+/// modes of this thread that change how a condition is simplified (the general condition path
+/// and stated ceil conditions); [`ConditionMemoKey`] holds each of them but the answers, and
+/// names the solver that gives them. A decided answer is a function of the query and the build,
+/// so a verdict whose decision received only decided answers, met again under an equal key, is
+/// the verdict a new decision would reach, and serving it changes no result. A verdict that rests
+/// on an undecided answer (`Unknown`, which may be a timeout, met directly or by a nested
+/// decision) is not kept, unless the solver's undecided answers are a function of the query
+/// too (`SmtSolver::undecided_answers_reproducible`, Z3's clock-free mode): the outermost scope
+/// counts them on its solver (`smt::UndecidedCounting`), through which every query of the work
+/// inside it goes. Only `Refuted` and `Indeterminate` are kept: `Satisfied` holds the instance,
+/// which the caller uses, and is cheap to reach again. A stop or a failure is never kept, nor a
+/// verdict whose decision dismissed a stop for lack of native stack
+/// (`stop::counting_stack_stops`), which depends on the depth it ran at.
+///
+/// Serving a verdict notes again the path facts its decision noted and emits again the
+/// diagnostics it emitted, as a new decision would; those go only where a record or a collector
+/// is open. So a verdict reached while no collector was open (a proof's state simplification and
+/// implication check run without one) is not served where one is open (inside a rewrite step),
+/// nor one reached while no fact record was open where one is: there it is decided again, and
+/// the new verdict replaces it. A served verdict counts nothing again: neither the uses of the
+/// equations its decision applied (`RunCoverage::applied_counts`) nor, in the clock-free mode,
+/// its undecided answers (`ExecutionResult::smt_unknowns`). Whether a count is zero is
+/// unchanged, since a served verdict was counted when it was decided in the same scope.
 ///
 /// Nothing is kept in an execution, whose evaluation may read and advance a console, nor while
 /// an attempt on an `Unspecified` application is open or a lineage on one is recording what its
 /// evaluation reads (`UnspecifiedEvaluation`, `UnspecifiedValues`): what such a decision reads of
-/// the open attempts is not in the key. The verdicts go when the outermost scope closes.
+/// the open attempts is not in the key. Work isolated from the run (`coverage::isolated`) sets
+/// the memo aside ([`condition_memo_aside`]). The verdicts go when the outermost scope closes.
+///
+/// The memo holds each distinct known-predicate list and active-key set once
+/// ([`ConditionMemo::knowns`], [`ConditionMemo::actives`]), shared by every key that names it; a
+/// kept verdict's diagnostics share their content with every other copy of them, those its
+/// nested decisions' verdicts hold included (`diagnostic::Emission`). It is bounded by an
+/// estimate of the bytes it holds in place ([`CONDITION_MEMO_BYTES`]) and by its number of
+/// verdicts ([`CONDITION_MEMO_CAPACITY`]); reaching either clears it, and a cleared memo decides
+/// again what it no longer holds. The estimate counts the memo's own allocations, not the term
+/// nodes its keys share with the run, which a key keeps alive after the run drops them. A bound
+/// below the verdicts one proof meets again brings back the decisions the memo saves (KEVM's
+/// `keccak00` meets about 40,000).
 #[derive(Default)]
 struct ConditionMemo {
     depth: usize,
     verdicts: FxHashMap<ConditionMemoKey, MemoVerdict>,
+    /// Every known-predicate list a key names, once.
+    knowns: FxHashSet<Arc<[Predicate]>>,
+    /// Every set of active rule-condition keys a key names, once.
+    actives: FxHashSet<Arc<BTreeSet<ConditionKey>>>,
+    /// The estimate of the bytes held ([`CONDITION_MEMO_BYTES`]).
+    retained: usize,
 }
 
 thread_local! {
@@ -1949,9 +2014,14 @@ thread_local! {
 /// The most verdicts [`ConditionMemo`] holds at once; reaching it clears the memo.
 const CONDITION_MEMO_CAPACITY: usize = 1 << 16;
 
+/// The most bytes, by [`ConditionMemo`]'s estimate, it holds at once; reaching it clears the memo.
+const CONDITION_MEMO_BYTES: usize = 64 << 20;
+
 #[cfg(test)]
 thread_local! {
     static CONDITION_MEMO_OFF: Cell<bool> = const { Cell::new(false) };
+    /// The verdicts [`ConditionMemo`] served on this thread so far.
+    static CONDITION_MEMO_SERVED: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Run `action` with no verdict kept or served ([`ConditionMemo`]), for a test that probes the
@@ -1968,11 +2038,41 @@ pub(crate) fn without_condition_memo<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Run `action` with the thread's [`ConditionMemo`] set aside, and restore it afterwards, also
+/// when `action` unwinds: work inside neither is served the verdicts kept so far nor keeps any
+/// for the work after it (`coverage::isolated`).
+pub(crate) fn condition_memo_aside<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<ConditionMemo>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(memo) = self.0.take() {
+                CONDITION_MEMO.set(memo);
+            }
+        }
+    }
+    let _restore = Restore(Some(CONDITION_MEMO.take()));
+    action()
+}
+
 /// An open scope of the memo on this thread: an [`evaluate_equation_condition`], or a proof
 /// ([`condition_memo_scope`]).
-pub(crate) struct ConditionMemoScope {
+pub(crate) struct ConditionMemoScope<'a> {
     /// Whether another scope encloses this one.
     nested: bool,
+    given: &'a dyn SmtSolver,
+    /// At the outermost scope, `given` with its undecided answers counted on this thread
+    /// (`smt::undecided_on_thread`), for the work inside, which queries through it.
+    counting: Option<crate::smt::UndecidedCounting<'a>>,
+}
+
+impl ConditionMemoScope<'_> {
+    /// The solver the work inside the scope queries.
+    pub(crate) fn solver(&self) -> &dyn SmtSolver {
+        match &self.counting {
+            Some(counting) => counting,
+            None => self.given,
+        }
+    }
 }
 
 /// Keep the verdicts of the equation conditions decided while the scope is open
@@ -1980,17 +2080,18 @@ pub(crate) struct ConditionMemoScope {
 /// inputs elsewhere in the proof (another step, state, rule condition, remainder or implication
 /// check) is served too. Where the path condition differs, the known predicates do, and they are
 /// in the key; a term carried unevaluated from step to step meets its conditions again under the
-/// same ones at every step whose new constraints it is not under.
-pub(crate) fn condition_memo_scope() -> ConditionMemoScope {
-    ConditionMemo::enter()
+/// same ones at every step whose new constraints it is not under. The work inside queries
+/// [`ConditionMemoScope::solver`], `solver` with its undecided answers counted.
+pub(crate) fn condition_memo_scope(solver: &dyn SmtSolver) -> ConditionMemoScope<'_> {
+    ConditionMemo::enter(solver)
 }
 
-impl Drop for ConditionMemoScope {
+impl Drop for ConditionMemoScope<'_> {
     fn drop(&mut self) {
         CONDITION_MEMO.with_borrow_mut(|memo| {
             memo.depth -= 1;
             if memo.depth == 0 {
-                memo.verdicts.clear();
+                memo.clear();
             }
         });
     }
@@ -2002,23 +2103,62 @@ struct MemoVerdict {
     indeterminate: Option<ConditionIndeterminacy>,
     facts: crate::path_facts::FactSet,
     emissions: diagnostic::Buffered,
+    /// Whether a collector was open when it was decided, so that `emissions` holds what it
+    /// emitted.
+    collected: bool,
+    /// Whether a fact record was open when it was decided, so that `facts` holds what it noted.
+    facts_open: bool,
+    /// Its share of [`ConditionMemo::retained`].
+    bytes: usize,
+}
+
+impl MemoVerdict {
+    /// Whether serving it now replays what a new decision would note and emit.
+    fn replays_in_full(&self) -> bool {
+        (self.collected || !diagnostic::collecting())
+            && (self.facts_open || !crate::path_facts::is_open())
+    }
 }
 
 impl ConditionMemo {
-    fn enter() -> ConditionMemoScope {
-        CONDITION_MEMO.with_borrow_mut(|memo| {
+    fn enter(solver: &dyn SmtSolver) -> ConditionMemoScope<'_> {
+        let nested = CONDITION_MEMO.with_borrow_mut(|memo| {
             memo.depth += 1;
-            ConditionMemoScope {
-                nested: memo.depth > 1,
-            }
-        })
+            memo.depth > 1
+        });
+        ConditionMemoScope {
+            nested,
+            given: solver,
+            counting: (!nested).then(|| crate::smt::UndecidedCounting::new(solver)),
+        }
     }
 
-    fn served(key: &ConditionMemoKey) -> Option<EquationCondition> {
+    fn clear(&mut self) {
+        self.verdicts.clear();
+        self.knowns.clear();
+        self.actives.clear();
+        self.retained = 0;
+    }
+
+    /// The verdict kept under `probe`'s key, with its facts noted and its diagnostics emitted
+    /// again; `None` when there is none, or none [`MemoVerdict::replays_in_full`].
+    fn served(probe: &mut ConditionMemoProbe<'_>) -> Option<EquationCondition> {
         CONDITION_MEMO.with_borrow(|memo| {
-            let verdict = memo.verdicts.get(key)?;
+            // A list or set no key names is in no key.
+            let known = memo.knowns.get(probe.known)?;
+            let active = memo.actives.get(probe.active)?;
+            let key = ConditionMemoKey {
+                head: std::mem::take(&mut probe.head),
+                known: Interned(Arc::clone(known)),
+                active: Interned(Arc::clone(active)),
+            };
+            let verdict = memo.verdicts.get(&key);
+            probe.head = key.head;
+            let verdict = verdict.filter(|verdict| verdict.replays_in_full())?;
             crate::path_facts::replay(&verdict.facts);
             verdict.emissions.replay();
+            #[cfg(test)]
+            CONDITION_MEMO_SERVED.set(CONDITION_MEMO_SERVED.get() + 1);
             Some(match &verdict.indeterminate {
                 None => EquationCondition::Refuted,
                 Some(reason) => EquationCondition::Indeterminate(reason.clone()),
@@ -2027,10 +2167,11 @@ impl ConditionMemo {
     }
 
     fn record(
-        key: ConditionMemoKey,
+        probe: ConditionMemoProbe<'_>,
         verdict: &EquationCondition,
         facts_from: crate::path_facts::Marker,
         emissions: diagnostic::Buffered,
+        collected: bool,
     ) {
         let indeterminate = match verdict {
             EquationCondition::Satisfied(_) => return,
@@ -2042,43 +2183,127 @@ impl ConditionMemo {
         } else {
             crate::path_facts::FactSet::new()
         };
+        let bytes = std::mem::size_of::<(ConditionMemoKey, MemoVerdict)>()
+            + probe.head.rule_id.capacity()
+            + (probe.head.requires.capacity() + probe.head.bindings.capacity())
+                * std::mem::size_of::<Predicate>()
+            + facts.len() * 2 * std::mem::size_of::<crate::path_facts::PathFact>()
+            + emissions.retained_bytes();
+        let verdict = MemoVerdict {
+            indeterminate,
+            facts,
+            emissions,
+            collected,
+            facts_open: crate::path_facts::is_open(),
+            bytes,
+        };
         CONDITION_MEMO.with_borrow_mut(|memo| {
             // A bound on the memory the verdicts hold, not on what is served: a cleared memo
             // decides again what it no longer holds.
-            if memo.verdicts.len() >= CONDITION_MEMO_CAPACITY {
-                memo.verdicts.clear();
+            if memo.verdicts.len() >= CONDITION_MEMO_CAPACITY
+                || memo.retained >= CONDITION_MEMO_BYTES
+            {
+                memo.clear();
             }
-            memo.verdicts.insert(
-                key,
-                MemoVerdict {
-                    indeterminate,
-                    facts,
-                    emissions,
+            let known = memo.intern_known(probe.known);
+            let active = memo.intern_active(probe.active);
+            memo.retained += bytes;
+            // A verdict decided again where the one kept did not replay in full replaces it.
+            if let Some(replaced) = memo.verdicts.insert(
+                ConditionMemoKey {
+                    head: probe.head,
+                    known,
+                    active,
                 },
-            );
+                verdict,
+            ) {
+                memo.retained -= replaced.bytes;
+            }
         });
+    }
+
+    /// The one copy of `known` the memo holds, made now if there is none.
+    fn intern_known(&mut self, known: &[Predicate]) -> Interned<[Predicate]> {
+        if let Some(held) = self.knowns.get(known) {
+            return Interned(Arc::clone(held));
+        }
+        let held: Arc<[Predicate]> = Arc::from(known);
+        self.retained += std::mem::size_of_val(known) + 2 * std::mem::size_of::<Arc<[Predicate]>>();
+        self.knowns.insert(Arc::clone(&held));
+        Interned(held)
+    }
+
+    /// The one copy of `active` the memo holds, made now if there is none.
+    fn intern_active(
+        &mut self,
+        active: &BTreeSet<ConditionKey>,
+    ) -> Interned<BTreeSet<ConditionKey>> {
+        if let Some(held) = self.actives.get(active) {
+            return Interned(Arc::clone(held));
+        }
+        let held = Arc::new(active.clone());
+        self.retained += active
+            .iter()
+            .map(|(rule_id, _)| 2 * std::mem::size_of::<ConditionKey>() + rule_id.capacity())
+            .sum::<usize>()
+            + 2 * std::mem::size_of::<Arc<BTreeSet<ConditionKey>>>();
+        self.actives.insert(Arc::clone(&held));
+        Interned(held)
+    }
+}
+
+/// A list or set [`ConditionMemo`] holds once, compared and hashed by its allocation: every key
+/// that names a content holds the memo's one copy of it, so two keys name the same content
+/// exactly when they hold the same allocation.
+struct Interned<T: ?Sized>(Arc<T>);
+
+impl<T: ?Sized> PartialEq for Interned<T> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<T: ?Sized> Eq for Interned<T> {}
+
+impl<T: ?Sized> std::hash::Hash for Interned<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Arc::as_ptr(&self.0).cast::<()>().addr());
     }
 }
 
 /// Everything a nested equation-condition decision reads ([`ConditionMemo`]).
 #[derive(Eq, Hash, PartialEq)]
 struct ConditionMemoKey {
+    head: ConditionMemoHead,
+    known: Interned<[Predicate]>,
+    active: Interned<BTreeSet<ConditionKey>>,
+}
+
+/// What a [`ConditionMemoKey`] holds of its own.
+#[derive(Default, Eq, Hash, PartialEq)]
+struct ConditionMemoHead {
     definition: usize,
     rule_id: String,
     anchor: Option<Term>,
     requires: Vec<Predicate>,
     bindings: Vec<Predicate>,
-    known: Vec<Predicate>,
     max_iterations: usize,
     keep_partial: bool,
-    active: BTreeSet<ConditionKey>,
     solver: usize,
     general_path: bool,
     stated_ceil_conditions: bool,
 }
 
-impl ConditionMemoKey {
-    /// The key of a decision now, or `None` where nothing is kept ([`ConditionMemo`]).
+/// A [`ConditionMemoKey`] before it is looked up or kept: the known predicates and the active
+/// keys are the caller's, and only a kept verdict's key holds the memo's copy of them.
+struct ConditionMemoProbe<'a> {
+    head: ConditionMemoHead,
+    known: &'a [Predicate],
+    active: &'a BTreeSet<ConditionKey>,
+}
+
+impl<'a> ConditionMemoProbe<'a> {
+    /// The probe of a decision now, or `None` where nothing is kept ([`ConditionMemo`]).
     #[allow(clippy::too_many_arguments)]
     fn new(
         definition: &BackendDefinition,
@@ -2086,9 +2311,9 @@ impl ConditionMemoKey {
         anchor: Option<&Term>,
         requires: &[Predicate],
         bindings: &[Predicate],
-        known: &[Predicate],
+        known: &'a [Predicate],
         options: SimplificationOptions,
-        active: &BTreeSet<ConditionKey>,
+        active: &'a BTreeSet<ConditionKey>,
         solver: &dyn SmtSolver,
     ) -> Option<Self> {
         #[cfg(test)]
@@ -2102,18 +2327,20 @@ impl ConditionMemoKey {
             return None;
         }
         Some(Self {
-            definition: std::ptr::from_ref(definition).addr(),
-            rule_id: rule_id.to_owned(),
-            anchor: anchor.cloned(),
-            requires: requires.to_vec(),
-            bindings: bindings.to_vec(),
-            known: known.to_vec(),
-            max_iterations: options.max_iterations,
-            keep_partial: options.budget == BudgetPolicy::KeepPartial,
-            active: active.clone(),
-            solver: solver_address(solver),
-            general_path: crate::condition::on_general_condition_path(),
-            stated_ceil_conditions: crate::definedness::ceil_conditions_stated(),
+            head: ConditionMemoHead {
+                definition: std::ptr::from_ref(definition).addr(),
+                rule_id: rule_id.to_owned(),
+                anchor: anchor.cloned(),
+                requires: requires.to_vec(),
+                bindings: bindings.to_vec(),
+                max_iterations: options.max_iterations,
+                keep_partial: options.budget == BudgetPolicy::KeepPartial,
+                solver: solver_address(solver),
+                general_path: crate::condition::on_general_condition_path(),
+                stated_ceil_conditions: crate::definedness::ceil_conditions_stated(),
+            },
+            known,
+            active,
         })
     }
 }
@@ -2830,7 +3057,8 @@ fn simplify_predicate_on_stack(
             let mut expanded = ceil_term(definition, joined).map_err(SimplificationError::from)?;
             // As for `\ceil` above: an opaque atom remains a conjunct of its expansion. An
             // absence is no `\ceil` or definedness atom, so it never holds as a known-defined
-            // term does.
+            // term does, unless it became the `\ceil` of its joined collection, which holds
+            // where the assumptions state that collection defined.
             if expansion_obligations(definition, &mut expanded, &simplified, assumptions) {
                 return Ok(with_simplification_constraints(
                     constraints,
@@ -7757,10 +7985,11 @@ struct EvaluationGiven<'a> {
     solver: &'a dyn SmtSolver,
 }
 
-/// The solver by address: a nested simplification (a ceil equation's predicates) decides its
-/// conditions with another solver than the evaluation around it, which may decide fewer.
+/// The solver by identity (`SmtSolver::identity`, its address but through a forwarding counter):
+/// a nested simplification (a ceil equation's predicates) decides its conditions with another
+/// solver than the evaluation around it, which may decide fewer.
 fn solver_address(solver: &dyn SmtSolver) -> usize {
-    std::ptr::from_ref(solver).cast::<()>().addr()
+    solver.identity()
 }
 
 /// One recorded evaluation, with everything a fresh evaluation at another point would read
@@ -11224,5 +11453,309 @@ mod literal_admission_tests {
         let result =
             token.scope(|| simplify_with_solver(&definition, &subject, &[], options, &NoSolver));
         assert_eq!(result.unwrap_err().into_cause(), StopCause::Cancelled);
+    }
+}
+
+/// The contract of [`ConditionMemo`]: a verdict served is what a new decision would give, with
+/// what it would note and emit, and none is kept or served where its key does not hold all a
+/// decision reads.
+#[cfg(test)]
+mod condition_memo_tests {
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use super::*;
+    use crate::{
+        evaluation::{EvaluationMode, with_evaluation},
+        path_facts::PathFact,
+        smt::Satisfiability,
+    };
+
+    /// `f(X) = X` only under `X >Int 0`, a condition the solver decides; `g(X) = X` only under
+    /// `missing(X)`, a partial hook without an evaluator, which a simplification leaves
+    /// unevaluated as an unsupported hook.
+    fn definition() -> BackendDefinition {
+        let equation = |symbol: &str, requires: &str| {
+            format!(
+                r#"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, Z:SortInt{{}}), \top{{R}}())
+                    ),
+                    \equals{{SortInt{{}}, R}}(
+                        {symbol}{{}}(X0:SortInt{{}}),
+                        \and{{SortInt{{}}}}(Z:SortInt{{}}, \top{{SortInt{{}}}}())
+                    )
+                ) [label{{}}("{symbol}-guarded")]"#
+            )
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+                hooked-symbol missing{{}}(SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), hook{{}}("TEST.missing")]
+                {}
+                {}
+            endmodule []"#,
+            equation("f", r#"gtInt{}(X0:SortInt{}, \dv{SortInt{}}("0"))"#),
+            equation("g", "missing{}(X0:SortInt{})"),
+        );
+        let syntax = parse_definition(&source).expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    /// Answers every validity check with `answer`, and counts the checks; with `stack_stop`, a
+    /// check first meets and dismisses a stop for lack of native stack, as a refinement inside a
+    /// decision may.
+    struct Scripted {
+        answer: Validity,
+        reproducible: bool,
+        stack_stop: bool,
+        checks: Cell<usize>,
+    }
+
+    impl Scripted {
+        fn new(answer: Validity) -> Self {
+            Self {
+                answer,
+                reproducible: false,
+                stack_stop: false,
+                checks: Cell::new(0),
+            }
+        }
+    }
+
+    impl SmtSolver for Scripted {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Ok(Satisfiability::Sat))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            self.checks.set(self.checks.get() + 1);
+            if self.stack_stop {
+                stop::dismiss_a_stack_stop();
+            }
+            Ok(Ok(self.answer.clone()))
+        }
+
+        fn undecided_answers_reproducible(&self) -> bool {
+            self.reproducible
+        }
+    }
+
+    /// One simplification of `source`, by the work inside `scope`.
+    #[derive(Debug)]
+    struct Outcome {
+        term: Term,
+        /// What a collector open around it received, if one was.
+        diagnostics: Vec<BackendDiagnostic>,
+        /// What the run record open around it received.
+        facts: Vec<PathFact>,
+        /// The solver's checks it made.
+        checks: usize,
+        /// The verdicts the memo served it.
+        served: usize,
+    }
+
+    fn simplified(
+        definition: &BackendDefinition,
+        source: &str,
+        solver: &Scripted,
+        scope: &ConditionMemoScope<'_>,
+        collecting: bool,
+    ) -> Outcome {
+        let (checks, served) = (solver.checks.get(), CONDITION_MEMO_SERVED.get());
+        let input = definition
+            .internalize_term(&parse_pattern(source).expect("the term parses"), &[])
+            .expect("the term internalizes");
+        let simplify = || {
+            simplify_with_solver(
+                definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                scope.solver(),
+            )
+            .map_err(stop::Stop::into_cause)
+            .expect("no stop is armed")
+            .expect("the simplification succeeds")
+            .term
+        };
+        let ((term, diagnostics), facts) = crate::path_facts::run(|| {
+            if collecting {
+                diagnostic::collect(simplify)
+            } else {
+                (simplify(), Vec::new())
+            }
+        });
+        Outcome {
+            term,
+            diagnostics,
+            facts,
+            checks: solver.checks.get() - checks,
+            served: CONDITION_MEMO_SERVED.get() - served,
+        }
+    }
+
+    fn kept_verdicts() -> usize {
+        CONDITION_MEMO.with_borrow(|memo| memo.verdicts.len())
+    }
+
+    const F: &str = "f{}(X:SortInt{})";
+    const G: &str = r#"g{}(\dv{SortInt{}}("3"))"#;
+
+    /// A verdict met again under the same inputs is served, with no solver check, and the
+    /// serving simplification receives the same term, diagnostics and path facts as the first,
+    /// which decided it: `f`'s condition undecided by a clock-free solver (an
+    /// `UndecidedCondition`), and `g`'s left open by an unsupported hook (its report and its
+    /// fact in the run record).
+    #[test]
+    fn a_served_verdict_gives_what_its_decision_gave() {
+        let definition = definition();
+        let solver = Scripted {
+            reproducible: true,
+            ..Scripted::new(Validity::Unknown("scripted".into()))
+        };
+        let scope = condition_memo_scope(&solver);
+        for (source, fact) in [(F, false), (G, true)] {
+            let first = simplified(&definition, source, &solver, &scope, true);
+            assert_eq!(first.served, 0, "{source}: {first:?}");
+            assert!(first.checks > 0, "{source}: {first:?}");
+            assert!(!first.diagnostics.is_empty(), "{source}: {first:?}");
+            assert_eq!(!first.facts.is_empty(), fact, "{source}: {first:?}");
+            let again = simplified(&definition, source, &solver, &scope, true);
+            assert!(again.served > 0, "{source}: {again:?}");
+            assert_eq!(again.checks, 0, "{source}: {again:?}");
+            assert_eq!(again.term, first.term, "{source}");
+            assert_eq!(again.diagnostics, first.diagnostics, "{source}");
+            assert_eq!(again.facts, first.facts, "{source}");
+        }
+    }
+
+    /// An undecided answer may be a timeout, which a later check of the same query need not
+    /// meet: a verdict that rests on one is not kept, unless the solver's undecided answers are
+    /// a function of the query. A decided answer's verdict is kept.
+    #[test]
+    fn a_verdict_on_an_undecided_answer_is_kept_only_where_such_answers_are_reproducible() {
+        let definition = definition();
+        for (solver, kept) in [
+            (Scripted::new(Validity::Unknown("timeout".into())), false),
+            (
+                Scripted {
+                    reproducible: true,
+                    ..Scripted::new(Validity::Unknown("rlimit".into()))
+                },
+                true,
+            ),
+            (Scripted::new(Validity::Contingent), true),
+        ] {
+            let scope = condition_memo_scope(&solver);
+            let first = simplified(&definition, F, &solver, &scope, true);
+            assert!(first.checks > 0, "{first:?}");
+            let again = simplified(&definition, F, &solver, &scope, true);
+            assert_eq!(again.served > 0, kept, "{again:?}");
+            assert_eq!(again.checks == 0, kept, "{again:?}");
+            assert_eq!(again.diagnostics, first.diagnostics);
+        }
+    }
+
+    /// An execution's evaluation may read and advance a console, which no key holds: nothing is
+    /// kept there, so nothing is served.
+    #[test]
+    fn nothing_is_kept_in_an_execution() {
+        let definition = definition();
+        let solver = Scripted::new(Validity::Contingent);
+        let scope = condition_memo_scope(&solver);
+        with_evaluation(EvaluationMode::Execution, || {
+            let first = simplified(&definition, F, &solver, &scope, true);
+            assert!(first.checks > 0, "{first:?}");
+            assert_eq!(kept_verdicts(), 0);
+            let again = simplified(&definition, F, &solver, &scope, true);
+            assert_eq!((again.served, again.checks), (0, first.checks), "{again:?}");
+        });
+        assert_eq!(kept_verdicts(), 0);
+    }
+
+    /// While an attempt on an `Unspecified` application is open, or a lineage on one records
+    /// what its evaluation reads, a decision reads the open attempts, which no key holds: no
+    /// verdict kept before is served there.
+    #[test]
+    fn nothing_is_served_while_an_unspecified_attempt_or_lineage_is_open() {
+        let definition = definition();
+        let solver = Scripted::new(Validity::Contingent);
+        let scope = condition_memo_scope(&solver);
+        let first = simplified(&definition, F, &solver, &scope, true);
+        assert!(first.checks > 0 && kept_verdicts() > 0, "{first:?}");
+        let application = definition
+            .internalize_term(&parse_pattern(G).expect("the term parses"), &[])
+            .expect("the term internalizes");
+        for open in [
+            &|| Box::new(UnspecifiedEvaluation::enter(&application)) as Box<dyn std::any::Any>,
+            &|| Box::new(UnspecifiedValues::open()) as Box<dyn std::any::Any>,
+        ] as [&dyn Fn() -> Box<dyn std::any::Any>; 2]
+        {
+            let _open = open();
+            let again = simplified(&definition, F, &solver, &scope, true);
+            assert_eq!((again.served, again.checks), (0, first.checks), "{again:?}");
+        }
+        let after = simplified(&definition, F, &solver, &scope, true);
+        assert!(after.served > 0 && after.checks == 0, "{after:?}");
+    }
+
+    /// A decision during which a refinement dismissed a stop for lack of native stack may be
+    /// coarser than one with more stack: its verdict is not kept.
+    #[test]
+    fn a_verdict_whose_decision_dismissed_a_stack_stop_is_not_kept() {
+        let definition = definition();
+        for (stack_stop, kept) in [(true, false), (false, true)] {
+            let solver = Scripted {
+                stack_stop,
+                ..Scripted::new(Validity::Contingent)
+            };
+            let scope = condition_memo_scope(&solver);
+            let first = simplified(&definition, F, &solver, &scope, true);
+            assert!(first.checks > 0, "{first:?}");
+            let again = simplified(&definition, F, &solver, &scope, true);
+            assert_eq!(again.served > 0, kept, "{again:?}");
+            assert_eq!(again.checks == 0, kept, "{again:?}");
+        }
+    }
+
+    /// A verdict reached while no collector was open holds no diagnostic, so it is not served
+    /// where one is open: there it is decided again, emitting what it emits, and the verdict that
+    /// decision reaches is served from then on.
+    #[test]
+    fn a_verdict_reached_without_a_collector_is_decided_again_where_one_is_open() {
+        let definition = definition();
+        let solver = Scripted {
+            reproducible: true,
+            ..Scripted::new(Validity::Unknown("scripted".into()))
+        };
+        let scope = condition_memo_scope(&solver);
+        let uncollected = simplified(&definition, F, &solver, &scope, false);
+        assert!(uncollected.checks > 0, "{uncollected:?}");
+        let served = simplified(&definition, F, &solver, &scope, false);
+        assert!(served.served > 0 && served.checks == 0, "{served:?}");
+        let collected = simplified(&definition, F, &solver, &scope, true);
+        assert_eq!(collected.served, 0, "{collected:?}");
+        assert_eq!(collected.checks, uncollected.checks, "{collected:?}");
+        assert!(!collected.diagnostics.is_empty(), "{collected:?}");
+        let again = simplified(&definition, F, &solver, &scope, true);
+        assert!(again.served > 0 && again.checks == 0, "{again:?}");
+        assert_eq!(again.diagnostics, collected.diagnostics);
     }
 }

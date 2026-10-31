@@ -285,8 +285,11 @@ pub fn prove_claim(
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
-    // The proof's equation-condition verdicts, kept until it ends (`simplify::ConditionMemo`).
-    let _condition_memo = crate::simplify::condition_memo_scope();
+    // The proof's equation-condition verdicts, kept until it ends (`simplify::ConditionMemo`);
+    // the proof queries the scope's solver, which counts the undecided answers its decisions
+    // receive.
+    let condition_memo = crate::simplify::condition_memo_scope(solver);
+    let solver = condition_memo.solver();
     let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
     if let Some(reason) = &claim.unstated {
         return Err(ProofError::UnstatedDefinedness(reason.clone()));

@@ -1024,7 +1024,13 @@ pub struct ExecutionResult {
     /// reused one (docs/compatibility.md, "Determinism and concurrency"). A failure (`Err`: no
     /// solver in the build, a query that does not translate) and a stop are not counted, so a run
     /// without a solver counts zero. A state-set run does not ask the queries of a subtree it does
-    /// not explore.
+    /// not explore. An equation-condition verdict served within one outermost condition
+    /// (`simplify::ConditionMemo`) asks no query: the memo keeps no verdict whose decision received
+    /// an undecided answer, except in the solver's clock-free mode
+    /// (`SmtSolver::undecided_answers_reproducible`), where such answers are a function of the
+    /// query and a served verdict does not count its decision's answers again. The count is then
+    /// smaller than the answers a decision at every meeting would receive, and zero exactly when
+    /// that one is.
     pub smt_unknowns: usize,
     /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
     /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
