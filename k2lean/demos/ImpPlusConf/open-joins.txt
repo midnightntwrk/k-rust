@@ -11,7 +11,6 @@ join.key.«X:Id».«X:Id»
 join.key.«X:Id».«int X, Xs;»
 join.key.«int X, Xs;».«X = I»
 join.key.«int X, Xs;».«X:Id»
-join.open.«STDIN-STREAM.stdinGetc».«STDIN-STREAM.stdinGetc»
 join.open.«STDIN-STREAM.stdinParseInt».«STDIN-STREAM.stdinParseInt»
 join.open.«STDIN-STREAM.stdinParseInt».«STDIN-STREAM.stdinParseString»
 join.open.«STDIN-STREAM.stdinParseInt».«STDIN-STREAM.stdinTrim»
@@ -43,46 +42,12 @@ join.open.«read() #b407f1».«read() #b407f1»
 join.open.«spawn S».«int X, Xs;»
 join.open.«spawn S».«spawn S»
 join.same.«.K».«.K»
-join.same.«HOLE:AExp».«Rho:Map»
-join.same.«IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-cool».«Rho:Map»
-join.same.«IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-cool».«X:Id»
-join.same.«IMP-SYNTAX._&&__IMP-SYNTAX_BExp_BExp_BExp1-cool».«Rho:Map»
-join.same.«IMP-SYNTAX._&&__IMP-SYNTAX_BExp_BExp_BExp1-cool».«X:Id»
-join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-cool».«Rho:Map»
 join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat»
-join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool».«Rho:Map»
 join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat»
-join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-cool».«Rho:Map»
 join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat»
-join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool».«Rho:Map»
 join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat»
-join.same.«IMP-SYNTAX._;_IMP-SYNTAX_Stmt_AExp1-cool».«Rho:Map»
-join.same.«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-cool».«Rho:Map»
 join.same.«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-heat».«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-heat»
-join.same.«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-cool».«Rho:Map»
 join.same.«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-heat».«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-heat»
-join.same.«IMP-SYNTAX._=__IMP-SYNTAX_AExp_Id_AExp2-cool».«Rho:Map»
-join.same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block1-cool».«Rho:Map»
-join.same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block1-cool».«X:Id»
-join.same.«IMP-SYNTAX.join_;_IMP-SYNTAX_Stmt_AExp1-cool».«Rho:Map»
-join.same.«Rho:Map».«HOLE:AExp»
-join.same.«Rho:Map».«IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._&&__IMP-SYNTAX_BExp_BExp_BExp1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._;_IMP-SYNTAX_Stmt_AExp1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-cool»
-join.same.«Rho:Map».«IMP-SYNTAX._=__IMP-SYNTAX_AExp_Id_AExp2-cool»
-join.same.«Rho:Map».«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block1-cool»
-join.same.«Rho:Map».«IMP-SYNTAX.join_;_IMP-SYNTAX_Stmt_AExp1-cool»
-join.same.«X:Id».«IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-cool»
-join.same.«X:Id».«IMP-SYNTAX._&&__IMP-SYNTAX_BExp_BExp_BExp1-cool»
-join.same.«X:Id».«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block1-cool»
-join.same.«print(HOLE, _AEs);».«print(P, AEs);»
-join.same.«print(P, AEs);».«print(HOLE, _AEs);»
 join.same.«read() #06fc83».«read() #06fc83»
 join.same.«read() #06fc83».«read() #b407f1»
 join.same.«read() #b407f1».«read() #06fc83»

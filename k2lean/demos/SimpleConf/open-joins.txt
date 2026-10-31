@@ -1,42 +1,19 @@
 # The slots of SimpleConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
 # each is a field of `Open`, the premise of `terminal_unique`; two runs of `div-nondet` (`--witnesses`) show they are false together (`Open.refuted`).
-join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»
-join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»
-join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool»
-join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool»
-join.same.«X:Id».«HOLE:Exps #9932d9»
-join.same.«X:Id».«HOLE:Exps #0f8f7f»
-join.same.«V1 == V2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«V1 == V2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«V1 != V2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«V1 != V2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«lambda(Xs, S)(Vs)».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»
 join.same.«return V;».«return V;»
-join.same.«return V;».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
 join.same.«read() #0fc146».«read() #0fc146»
 join.same.«read() #0fc146».«read() #aef085»
-join.same.«loc(L) = V».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«_;».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
 join.same.popx.popx
 join.same.«throw V;».«throw V;»
-join.same.«throw V;».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
-join.same.«acquire V:Val; #aa08d0».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
-join.same.«acquire V:Val; #59f263».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
-join.same.«release V:Val; #489dca».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
-join.same.«release V:Val; #8d12cb».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
 join.same.«rendezvous V;».«rendezvous V;»
-join.same.«rendezvous V;».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»
 join.same.«setEnv(Env)».«setEnv(_)»
 join.same.«setEnv(_)».«setEnv(Env)»
 join.same.«read() #aef085».«read() #0fc146»
 join.same.«read() #aef085».«read() #aef085»
 join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«X:Id»
 join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«lambda(Xs, S)(Vs)»
 join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«X:Id»
 join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
@@ -55,34 +32,17 @@ join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».
 join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«V1 == V2»
 join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«V1 == V2»
 join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«V1 != V2»
 join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«V1 != V2»
 join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«loc(L) = V»
 join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«HOLE = _»
 join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1»
 join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat»
 join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1»
-join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool».«X:Id»
-join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«_;»
-join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«return V;»
-join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool».«X:Id»
-join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«throw V;»
-join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«acquire V:Val; #aa08d0»
-join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«acquire V:Val; #59f263»
-join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«release V:Val; #489dca»
-join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«release V:Val; #8d12cb»
-join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«rendezvous V;»
-join.same.«HOLE:Exps #9932d9».«X:Id»
 join.same.«HOLE = _».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
 join.same.«lvalue(_[HOLE])».«lvalue(HOLE[_])»
-join.same.«HOLE:Exps #0f8f7f».«X:Id»
 join.same.«lvalue(HOLE[_])».«lvalue(_[HOLE])»
 join.open.«var X;».«var X;»
 join.open.«var X;».«var X[N];»
@@ -170,4 +130,3 @@ join.open.«STDIN-STREAM.stdinTrim».«read() #aef085»
 join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinParseString»
 join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinParseInt»
 join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinTrim»
-join.open.«STDIN-STREAM.stdinGetc».«STDIN-STREAM.stdinGetc»

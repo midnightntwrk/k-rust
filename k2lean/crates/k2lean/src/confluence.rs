@@ -3895,32 +3895,57 @@ def SameThreadJoins : Prop :=
     /// The same for a keyed slot, at each key `k2l_keyed` leaves.
     const ONE_BINDING_KEYED: &str = "\n    | (k2l_keyed hk\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_one_binding\n            k2l_det\n            all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩))";
 
-    /// The sorts whose values are all `KResult`s that a rule's condition asks `isKResult` of, by
-    /// their names without `Sort`: a hypothesis `K.isKResult (SortK.kseq (inj_S_KItem V) …)` of a
-    /// rule's variant (whose binders have the variant's sorts, which the KORE axiom's do not), with
-    /// each leaf of `S` a leaf of `KResult`. A heating rule's `notBool isKResult(V)` at such a `V`
-    /// never holds; since `isKResult` of a variable does not compute, the attempts read it from a
-    /// lemma (`kresult_S`).
-    fn kresult_sorts(m: &Model, rs: &[Rule]) -> Vec<String> {
+    /// The sorts whose values are all `KResult`s that a rule's condition asks `isKResult` of, as
+    /// pairs `(T, S)` of names without `Sort`: `T` a sort some rule's variant asks
+    /// `K.isKResult (SortK.kseq (inj_T_KItem V) …)` of (the variant's binders have its sorts,
+    /// which the KORE axiom's do not), and `S` a sort each of whose leaves is a leaf of `KResult`,
+    /// either `T` itself or a sort some rule's match projects `T` to (`proj_T_S`: a rule over
+    /// values, whose match leaves a variable of `T` with a value of `S` in it). A heating rule's
+    /// `notBool isKResult(V)` at such a `V` never holds; since `isKResult` of a variable does not
+    /// compute, the attempts read it from a lemma (`kresult_S` for `T = S`, `kresult_S_T` at
+    /// `inj_S_T` otherwise).
+    fn kresult_sorts(m: &Model, rs: &[Rule]) -> Vec<(String, String)> {
         let Some(kr) = m.sorts.get("SortKResult") else {
             return vec![];
         };
+        let sort = |s: &str| m.sorts.get(&format!("Sort{s}"));
+        let all_kr = |s: &str| {
+            s != "KResult"
+                && sort(s).is_some_and(|si| {
+                    !si.leaves.is_empty() && si.leaves.iter().all(|l| kr.leaves.contains(l))
+                })
+        };
         const PRE: &str = "K.isKResult (SortK.kseq (inj_";
-        let mut out = BTreeSet::new();
+        let mut asked = BTreeSet::new();
+        let mut projs = BTreeSet::new();
         for (_, h) in rs.iter().flat_map(|r| &r.app.hyps) {
             for (at, _) in h.match_indices(PRE) {
                 let rest = &h[at + PRE.len()..];
-                let Some(end) = rest.find("_KItem ") else {
-                    continue;
-                };
-                let s = &rest[..end];
-                if s != "KResult"
-                    && let Some(si) = m.sorts.get(&format!("Sort{s}"))
-                    && !si.leaves.is_empty()
-                    && si.leaves.iter().all(|l| kr.leaves.contains(l))
-                {
-                    out.insert(s.to_string());
+                if let Some(end) = rest.find("_KItem ") {
+                    asked.insert(rest[..end].to_string());
                 }
+            }
+            for (at, _) in h.match_indices("proj_") {
+                let n: String = h[at + "proj_".len()..]
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                for (i, _) in n.match_indices('_') {
+                    let (t, s) = (&n[..i], &n[i + 1..]);
+                    if sort(t).is_some() && sort(s).is_some() {
+                        projs.insert((t.to_string(), s.to_string()));
+                    }
+                }
+            }
+        }
+        let mut out: BTreeSet<(String, String)> = asked
+            .iter()
+            .filter(|t| all_kr(t))
+            .map(|t| (t.clone(), t.clone()))
+            .collect();
+        for (t, s) in projs {
+            if asked.contains(&t) && all_kr(&s) {
+                out.insert((t, s));
             }
         }
         out.into_iter().collect()
@@ -3972,30 +3997,66 @@ def SameThreadJoins : Prop :=
         let kres = kresult_sorts(&lib.m, rs);
         if !kres.is_empty() {
             writeln!(o, "\n/-! ## The sorts whose values are all `KResult`s -/\n").unwrap();
-            for s in &kres {
-                writeln!(
-                    o,
-                    "/-- Every `{s}` is a `KResult` (each of its leaves is one of `KResult`'s), so a rule's\n`notBool isKResult(V)` at a `V : {s}` never holds. -/\ntheorem kresult_{s} (v : {name}.Sort{s}) :\n    {name}.K.isKResult (.kseq ({name}.inj_{s}_KItem v) .dotk) = true := by\n  k2l_cases v <;> rfl\n"
+            for (t, s) in &kres {
+                if t == s {
+                    writeln!(
+                        o,
+                        "/-- Every `{s}` is a `KResult` (each of its leaves is one of `KResult`'s), so a rule's\n`notBool isKResult(V)` at a `V : {s}` never holds. -/\ntheorem kresult_{s} (v : {name}.Sort{s}) :\n    {name}.K.isKResult (.kseq ({name}.inj_{s}_KItem v) .dotk) = true := by\n  k2l_cases v <;> rfl\n"
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        o,
+                        "/-- Every `{s}` is a `KResult`, also as a `{t}`, so a rule's `notBool isKResult(V)` at a\n`V : {t}` that another rule's match projects to `{s}` never holds. -/\ntheorem kresult_{s}_{t} (v : {name}.Sort{s}) :\n    {name}.K.isKResult (.kseq ({name}.inj_{t}_KItem ({name}.inj_{s}_{t} v)) .dotk) = true := by\n  k2l_cases v <;> rfl\n"
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        // a side condition `notBool isKResult(V)` refuted by those lemmas, after the others: at a
+        // `V : S` directly, or at a `V : T` once the match's projection `proj_T_S V = some W` is
+        // read as `V = inj_S_T W`; then a projection that computes to `none`
+        let kres_alt = |indent: &str| {
+            let mut a = String::new();
+            let direct: Vec<String> = kres
+                .iter()
+                .filter(|(t, s)| t == s)
+                .map(|(_, s)| format!("kresult_{s}"))
+                .collect();
+            if !direct.is_empty() {
+                write!(
+                    a,
+                    "\n{indent}| (simp only [{}] at *; k2l_refute_computed)",
+                    direct.join(", ")
                 )
                 .unwrap();
             }
-        }
-        // a side condition `notBool isKResult(V)` refuted by those lemmas, after the others
-        let kres_alt = |indent: &str| {
-            if kres.is_empty() {
-                String::new()
-            } else {
-                let ls: Vec<String> = kres.iter().map(|s| format!("kresult_{s}")).collect();
-                format!(
-                    "\n{indent}| (simp only [{}] at *; k2l_refute_computed)",
+            let (projs, ls): (Vec<String>, Vec<String>) = kres
+                .iter()
+                .filter(|(t, s)| t != s)
+                .map(|(t, s)| {
+                    (
+                        format!("{name}.proj_eq_some_{t}_{s}"),
+                        format!("kresult_{s}_{t}"),
+                    )
+                })
+                .unzip();
+            if !projs.is_empty() {
+                write!(
+                    a,
+                    "\n{indent}| (simp only [{}] at *; subst_vars; simp only [{}] at *; k2l_refute_computed)",
+                    projs.join(", "),
                     ls.join(", ")
                 )
+                .unwrap();
             }
+            write!(a, "\n{indent}| k2l_proj_none").unwrap();
+            a
         };
         let kres_doc = if kres.is_empty() {
             ""
         } else {
-            "; `notBool isKResult(V)`\nrefuted by `kresult_S` at a sort whose values are all `KResult`s"
+            "; `notBool isKResult(V)`\nrefuted by `kresult_S` at a sort whose values are all `KResult`s, or `kresult_S_T` at one\ninjected into `T`"
         };
         // the statements, in the views, for the hand module to state
         writeln!(
@@ -4387,7 +4448,8 @@ def SameThreadJoins : Prop :=
                     }
                 ),
                 format!(
-                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`){}",
+                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`, a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}; a projection that computes to `none`,
+`k2l_proj_none`), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`){}",
                     if *any_keyed {
                         "the keys of two changes of a cell holding a map (`k2l_keyed`), "
                     } else {
@@ -4405,7 +4467,8 @@ def SameThreadJoins : Prop :=
                 "--slots",
                 format!("{} of `OpenJoins`", total[1]),
                 format!(
-                    "each rule's instance (`k2l_det`), a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)"
+                    "each rule's instance (`k2l_det`), a side condition that computes to false\n(`k2l_proj_compute`, `k2l_refute_computed`{kres_doc}; a projection that computes to `none`,
+`k2l_proj_none`), two side conditions that contradict as arithmetic\n(`k2l_arith_omega`), each step after the other (`k2l_join_eq`)"
                 ),
             )
         };

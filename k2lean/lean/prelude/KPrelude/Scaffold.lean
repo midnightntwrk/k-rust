@@ -2069,6 +2069,24 @@ elab "k2l_proj_compute" : tactic => do
     | some g' => replaceMainGoal [g']
     | none => return
 
+/-- A hypothesis `a = some v` whose `a` computes to `none` closes the goal: a sort projection of an
+injection from an unrelated sort (`proj_KItem_AExp (inj_Map Rho) = some HOLE`, a cooling rule's
+match against a term of another sort). It fails when there is none. -/
+elab "k2l_proj_none" : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let some (_, a, b) := (← instantiateMVars d.type).consumeMData.eq? | continue
+      unless b.isAppOfArity ``Option.some 2 do continue
+      let r ← withDefault <| whnf a
+      unless r.isAppOfArity ``Option.none 1 do continue
+      let h ← mkExpectedTypeHint d.toExpr (← mkEq r b)
+      g.assign (← mkNoConfusion (← g.getType) h)
+      replaceMainGoal []
+      return
+    throwError "k2l_proj_none: no hypothesis `a = some v` with `a` computing to `none`"
+
 namespace IntHook
 
 /-! A value a step adds a nonzero constant to changes (`k2l_ne`); stated over `Int`, they apply to
