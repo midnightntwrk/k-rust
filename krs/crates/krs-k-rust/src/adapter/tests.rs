@@ -1260,6 +1260,91 @@ fn only_the_computation_cell_that_holds_the_program_is_the_main_cell() {
     assert_eq!(main_cells, ["k"]);
 }
 
+/// A leaf cell whose initial value has a strict subsort of the cell's declared sort (`1` in a
+/// `Value` cell) is written cast to the declared sort, `#SemanticCastToValue(1)`, as the cell's
+/// whole content: K reads a leaf cell's sort from its initial content, so without the cast the
+/// cell would hold only `Int`s and refuse every other value of its declared sort (NT-7-2).
+#[test]
+fn a_leaf_whose_initial_value_has_a_narrower_sort_starts_cast_to_its_declared_sort() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let k = SymbolId::new("schema9.cell.k").unwrap();
+    let leaf = SymbolId::new("schema9.cell.leaf").unwrap();
+    let value_sort = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
+    let fixed = FixedConfiguration::new(
+        node("schema9.configuration"),
+        semantic_id("configuration.machine"),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                node("schema9.configuration.cell.k"),
+                k.clone(),
+                "k",
+                Vec::new(),
+                DefinitionSortRef::k_sequence(),
+            )
+            .unwrap(),
+            FixedCell::leaf(
+                node("schema9.configuration.cell.leaf"),
+                leaf.clone(),
+                "leaf",
+                Vec::new(),
+                value_sort.clone(),
+            )
+            .unwrap(),
+        ],
+        node("schema9.configuration.initializer"),
+        semantic_id("initializer.machine"),
+        Vec::new(),
+        vec![
+            FixedInitializerCell::term(
+                node("schema9.configuration.initializer.cell.k"),
+                k,
+                DefinitionTerm::k_sequence(
+                    node("schema9.configuration.initializer.sequence"),
+                    value_sort.clone(),
+                    Vec::new(),
+                ),
+            ),
+            FixedInitializerCell::term(
+                node("schema9.configuration.initializer.cell.leaf"),
+                leaf,
+                DefinitionTerm::token(
+                    node("schema9.configuration.initializer.leaf"),
+                    DefinitionSortRef::int(),
+                    "1",
+                )
+                .unwrap(),
+            ),
+        ],
+    )
+    .unwrap();
+    let native = adapter.configuration(&fixed, MODULE, 0).unwrap();
+    let Sentence::Configuration { body, .. } = native else {
+        panic!("fixed configuration must remain native")
+    };
+    let mut leaf_content = None;
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, arguments } = term
+            && label.name == "#configCell"
+            && let [Term::Token { token: name, .. }, _, content, ..] = arguments.as_slice()
+            && name == "leaf"
+        {
+            leaf_content = Some(content.clone());
+        }
+    });
+    let content = leaf_content.expect("the configuration has the cell `leaf`");
+    assert!(
+        matches!(
+            &content,
+            Term::Apply { label, arguments }
+                if label.name == "#SemanticCastToValue"
+                    && matches!(arguments.as_slice(), [Term::Token { token, .. }] if token == "1")
+        ),
+        "{content:?}"
+    );
+}
+
 fn nested_cell_definition(parent: &SymbolId, left: &SymbolId, right: &SymbolId) -> DefinitionIr {
     let children = [(left.clone(), "left", "1"), (right.clone(), "right", "2")];
     let configuration = FixedConfiguration::new(
