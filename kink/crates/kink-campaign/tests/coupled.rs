@@ -3960,6 +3960,12 @@ fn t12_definition_spelling_routes_are_not_killed(schedules: &'static [ScheduleMo
         }
         for (id, fixture, mode, result, exclusion) in rows {
             assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
+            // GAP K3 (decided by Sebastien, 2026-11-01): F9's baseline run attempts `f9p`, which
+            // holds the open `Infinity` lexeme (class `literal`), so the run is marked and F9 is
+            // implementation-chosen on that ground too; the census excludes every run of this
+            // definition for its `String2Bytes` first, so the pinned exclusion stays
+            // `implementation-chosen-hook`. That `Infinity` and `Infinityp53x11` name one element
+            // whatever it is (so not killed holds in every model) is the kink session's GK-2.
             if fixture == "t12probe.k" {
                 assert_eq!(
                     (result, exclusion),
@@ -9774,12 +9780,40 @@ mod kink_tier {
                 for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                     let outcome = run_campaign(&campaign, &generation, mode);
                     let result = ViResult::of_outcome(&outcome);
+                    let exclusion = outcome
+                        .as_ref()
+                        .err()
+                        .and_then(|failure| failure.exclusion());
                     let detail = outcome.as_ref().err().map(ToString::to_string);
                     eprintln!("R3-FLOAT census-free {id} {mode:?}: {result:?} {detail:?}");
-                    rows.push((id, same, mode, result));
+                    rows.push((id, same, mode, result, exclusion));
                 }
             }
-            for (id, same, mode, result) in rows {
+            // GAP K3 (re-pin decided by Sebastien, 2026-11-01): the `Infinity` lexeme's element is
+            // open (domains.md names no value for it), so `infp` holds an open literal (class
+            // `literal`), and k-rust marks every attempt of a rule holding one in an execution.
+            // The baseline's run reaches `infc` and attempts `infp` (holding `Infinity`; the
+            // mutants' `Infinityp53x11` and `-Infinity` are open too), so the run is marked and
+            // kink's per-run exclusion refuses the baseline's run before any mutant runs: F9 and
+            // its control move from not killed and killed to implementation-chosen. That is
+            // conservative and sound under today's exclusion. F9's finer verdict, not killed, holds in every model:
+            // `Infinity` and `Infinityp53x11` name one element whatever it is (one lexeme, two
+            // spellings of one format); an exclusion that sees that is the kink session's GK-2.
+            // The control's kill compares two open elements, so implementation-chosen is its
+            // correct status.
+            const OPEN_LITERAL_ROWS: [&str; 2] = ["F9", "F9-control"];
+            for (id, same, mode, result, exclusion) in rows {
+                if OPEN_LITERAL_ROWS.contains(&id) {
+                    assert_eq!(
+                        (result, exclusion),
+                        (
+                            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                            Some(Exclusion::ImplementationChosenValue)
+                        ),
+                        "{id} {mode:?}"
+                    );
+                    continue;
+                }
                 if !same {
                     assert!(result.killed(), "{id} {mode:?}: {result:?}");
                     result.assert_justified(&format!("{id} {mode:?}"));
