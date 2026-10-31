@@ -542,6 +542,54 @@ endmodule
     }
 }
 
+/// Values expanded through one `expansion()` share its derived views and nothing else: each is
+/// expanded as `expand_program`, which builds fresh views, expands it.
+#[test]
+fn a_shared_expansion_expands_as_fresh_expansions() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax Foo ::= "foo" [symbol(foo)] | box(Foo) [symbol(box)]
+  syntax Foo ::= m(Foo) [macro, symbol(m)] | al(Foo) [alias, symbol(al)]
+  rule m(X) => box(X)
+  rule al(X) => box(box(X))
+  configuration <k> $PGM:Foo </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let macros = grammar.macro_definition().unwrap();
+    let parser = k_rust::inner::ProgramParser::from_resolved(grammar.resolved(), "MAIN").unwrap();
+    let sort = Sort::new("Foo");
+    let values = ["m(foo)", "al(m(foo))", "box(al(foo))"];
+    let parse = |text: &str| parser.parse(&sort, text).unwrap();
+    let fresh: Vec<_> = values
+        .iter()
+        .map(|text| macros.expand_program("MAIN", parse(text), &sort).unwrap())
+        .collect();
+    for (text, expanded) in values.iter().zip(&fresh) {
+        let mut labels = Vec::new();
+        expanded.term().visit_preorder(&mut |term| {
+            if let k_rust::kast::Term::Apply { label, .. } = term {
+                labels.push(label.name.clone());
+            }
+        });
+        assert!(
+            labels.iter().all(|label| label == "box" || label == "foo"),
+            "{text} expands every macro and alias: {labels:?}"
+        );
+    }
+    let shared = macros.expansion();
+    for (text, expected) in values.iter().zip(&fresh) {
+        assert_eq!(
+            &shared.expand_program("MAIN", parse(text), &sort).unwrap(),
+            expected,
+            "{text}"
+        );
+    }
+}
+
 #[test]
 fn a_program_result_parameter_is_fixed_by_its_read_sort() {
     let compiled = compiled(

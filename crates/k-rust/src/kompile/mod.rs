@@ -52,9 +52,9 @@ pub use module_to_kore::{
 pub use passes::{
     AddImplicitComputationCellError, CheckSimplificationError, ConcretizeCellsError,
     ConstantFoldingError, ExpandMacrosError, ExpandedProgram, GuardOrPatternsError,
-    MacroExpansionDefinition, RemoveUnitError, ResolveCommError, ResolveContextsError,
-    ResolveFreshConfigConstantsError, ResolveFreshConstantsError, ResolveFunError,
-    ResolveFunctionWithConfigError, ResolveHeatCoolError, ResolveIoError,
+    MacroExpansionDefinition, ProgramExpansion, RemoveUnitError, ResolveCommError,
+    ResolveContextsError, ResolveFreshConfigConstantsError, ResolveFreshConstantsError,
+    ResolveFunError, ResolveFunctionWithConfigError, ResolveHeatCoolError, ResolveIoError,
     ResolveSemanticCastsError, ResolveStrictError, SubsortKItemError, add_cool_like_attributes,
     add_implicit_computation_cell, add_semantics_module, check_simplification_rules,
     concretize_cells, concretize_cells_in_sentence, constant_fold, expand_macros,

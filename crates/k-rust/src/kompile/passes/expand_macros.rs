@@ -714,6 +714,39 @@ impl MacroExpansionDefinition {
         Ok(Self { resolved })
     }
 
+    /// Expand the macros of `macro_module` in one parsed program or configuration value:
+    /// [`ProgramExpansion::expand_program`] of a fresh [`Self::expansion`].
+    pub fn expand_program(
+        &self,
+        macro_module: &str,
+        program: ParsedProgram,
+        position: &Sort,
+    ) -> Result<ExpandedProgram, String> {
+        self.expansion()
+            .expand_program(macro_module, program, position)
+    }
+
+    /// A memo of this definition's derived views (catalogs, subsorts, overloads) that serves
+    /// several expansions, so values expanded with it share those views instead of computing
+    /// them once per value.
+    pub fn expansion(&self) -> ProgramExpansion<'_> {
+        ProgramExpansion {
+            views: self.resolved.views(),
+        }
+    }
+}
+
+/// Expansions of standalone terms against one [`MacroExpansionDefinition`] that share its
+/// derived views.
+///
+/// The views are a memo of functions of the definition's immutable resolution alone, so a memo
+/// shared by several expansions returns what a fresh one returns; the expander is still built
+/// per value.
+pub struct ProgramExpansion<'m> {
+    views: DefinitionViews<'m>,
+}
+
+impl ProgramExpansion<'_> {
     /// Expand the macros of `macro_module` in one parsed program or configuration value.
     ///
     /// Each call builds its own expander and fresh-name allocator, so the result of one call
@@ -724,9 +757,8 @@ impl MacroExpansionDefinition {
         program: ParsedProgram,
         position: &Sort,
     ) -> Result<ExpandedProgram, String> {
-        let views = self.resolved.views();
         let mut expanded = expand_macros_in_terms_from_views_with_scope(
-            &views,
+            &self.views,
             macro_module,
             macro_module,
             vec![(program.into_typed_term(), position.clone())],

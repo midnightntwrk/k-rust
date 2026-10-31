@@ -10,6 +10,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::OnceLock,
 };
 
 use crate::{
@@ -20,8 +21,8 @@ use crate::{
     },
     kast::{Sort as KastSort, Term, WellKnownModule},
     kompile::{
-        ExpandedProgram, MacroExpansionDefinition, SortInjectionError, SortInjector,
-        TermConversionError, term_to_kore_from_resolved_with_token_module,
+        ExpandedProgram, MacroExpansionDefinition, ProgramExpansion, SortInjectionError,
+        SortInjector, TermConversionError, term_to_kore_from_resolved_with_token_module,
     },
     kore::ast::{KoreString, Pattern, Sort, Symbol},
     names::BuiltinSort,
@@ -45,9 +46,13 @@ pub(crate) struct ConfigurationBinding {
 /// such a projection, and that application needs a production for sort injection and KORE
 /// conversion. The resolution is exposed so that other consumers of the same grammar, such as a
 /// search-pattern compiler, share it instead of resolving the definition again.
+///
+/// The macro-expansion definition of the grammar is prepared on first use and kept, so every
+/// assembler of the grammar shares it.
 pub struct ProgramGrammar {
     definition: Definition,
     resolved: ResolvedDefinition,
+    macro_definition: OnceLock<Result<MacroExpansionDefinition, String>>,
 }
 
 impl ProgramGrammar {
@@ -58,6 +63,7 @@ impl ProgramGrammar {
         Ok(Self {
             definition,
             resolved,
+            macro_definition: OnceLock::new(),
         })
     }
 
@@ -67,6 +73,17 @@ impl ProgramGrammar {
 
     pub fn resolved(&self) -> &ResolvedDefinition {
         &self.resolved
+    }
+
+    /// The definition that programs and configuration values of this grammar are
+    /// macro-expanded against ([`MacroExpansionDefinition::prepare`] of [`Self::definition`]),
+    /// prepared on first use. It depends on the grammar alone, so a failure is kept and
+    /// returned again.
+    pub fn macro_definition(&self) -> Result<&MacroExpansionDefinition, String> {
+        self.macro_definition
+            .get_or_init(|| MacroExpansionDefinition::prepare(&self.definition))
+            .as_ref()
+            .map_err(Clone::clone)
     }
 }
 
@@ -282,8 +299,10 @@ impl From<TermConversionError> for ConfigurationError {
 /// - Applications convert to KORE with the main module; tokens keep the lexical hooks of the
 ///   module that parsed them.
 ///
-/// Parsers, the macro expander, and the sort injectors are built on first use and kept, so one
-/// assembler should serve every configuration built for its definition. The program has its own
+/// Parsers, the macro-expansion views, and the sort injectors are built on first use and kept, so
+/// one assembler should serve every configuration built for its definition; the macro-expansion
+/// definition is the grammar's ([`ProgramGrammar::macro_definition`]), and the expander itself
+/// is built per value. The program has its own
 /// sort injector, apart from the one the configuration values share; parsers are kept per module,
 /// whichever input they were built for. `finish`
 /// returns the pattern and leaves the assembler empty for the next configuration.
@@ -293,7 +312,7 @@ pub struct ConfigurationAssembler<'g> {
     syntax_module: String,
     variables: &'g BTreeMap<String, KastSort>,
     parser_modules: Option<BTreeMap<String, String>>,
-    macro_definition: Option<MacroExpansionDefinition>,
+    expansion: Option<ProgramExpansion<'g>>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
     /// The injector the program is instantiated with, apart from [`Self::injector`], which the
@@ -318,7 +337,7 @@ impl<'g> ConfigurationAssembler<'g> {
             syntax_module: syntax_module.into(),
             variables,
             parser_modules: None,
-            macro_definition: None,
+            expansion: None,
             parsers: BTreeMap::new(),
             injector: None,
             program_injector: None,
@@ -650,22 +669,27 @@ impl<'g> ConfigurationAssembler<'g> {
             .expect("the parser modules were computed above"))
     }
 
-    /// Expand the macros of a parsed value in the main module. The expander depends on the
-    /// grammar alone, so it is prepared once and serves every value.
+    /// Expand the macros of a parsed value in the main module. The macro-expansion definition
+    /// and its derived views depend on the grammar alone, so they are prepared once and shared
+    /// by every value; each value gets its own expander and fresh-name allocator
+    /// ([`ProgramExpansion::expand_program`]).
     fn expand(
         &mut self,
         program: ParsedProgram,
         position: &KastSort,
     ) -> Result<ExpandedProgram, ConfigurationError> {
-        if self.macro_definition.is_none() {
-            self.macro_definition = Some(
-                MacroExpansionDefinition::prepare(self.grammar.definition())
-                    .map_err(ConfigurationError::MacroExpansion)?,
+        if self.expansion.is_none() {
+            let grammar: &'g ProgramGrammar = self.grammar;
+            self.expansion = Some(
+                grammar
+                    .macro_definition()
+                    .map_err(ConfigurationError::MacroExpansion)?
+                    .expansion(),
             );
         }
-        self.macro_definition
+        self.expansion
             .as_ref()
-            .expect("the macro definition was prepared above")
+            .expect("the expansion was prepared above")
             .expand_program(&self.main_module, program, position)
             .map_err(ConfigurationError::MacroExpansion)
     }
