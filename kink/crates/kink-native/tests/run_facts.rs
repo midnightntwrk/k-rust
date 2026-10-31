@@ -277,6 +277,19 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// same evaluator site. So the list only grows: A-1's exclusion of a run with a non-empty list
 /// excludes at least what it did, and the guarantee for a run whose list is empty is the K2
 /// sentence, unchanged.
+///
+/// GAP integration C re-pin of the mark passage (K2 composed with K3, `draft/kink27/gap`): only
+/// the guarantee sentence changed. K2 wrote it while a literal's value where the literal rules
+/// leave it open was still a reading k-rust kept; K3 made that element class `literal`, which an
+/// execution marks on every attempt of a rule or an equation holding such a literal and on every
+/// leaf of a request holding one, and which no other route takes. So the sentence now names one
+/// kept reading (the order of console effects of operands none of which is irrelevant) and says
+/// that the open literal, like the outside-domain `\bottom`, is a pick an execution marks. The
+/// guarantee holds over more models (they need not agree with k-rust's literal elements), and the
+/// marks that make it hold only grow: A-1's exclusion of a run with a non-empty list excludes at
+/// least what it did, and a run whose list is empty has the same leaves in every model the
+/// guarantee named before, and in more. The digest is that of the integrated passage, the
+/// composition of the K1, K2 and K3 texts.
 const A1_PASSAGES: [passage::Passage; 7] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -304,7 +317,7 @@ const A1_PASSAGES: [passage::Passage; 7] = [
         anchor: "### Marks in executions",
         opening: "A mark is noted where the evaluator takes",
         lines: 26,
-        digest: "cbbb3a6b50dac0ea1cfcf4696d81e205c2fa41b2445b71fef48492660adaa2af",
+        digest: "483ad577935c9cd981055e20b561eae1443baab457df185ba0ef0b7cffbc081d",
     },
     passage::Passage {
         file: "docs/compatibility.md",
