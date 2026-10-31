@@ -109,7 +109,7 @@ pub struct Component {
 /// the first that differs. The k-rust revision comes last: a campaign manifest also names it in
 /// its `k_rust` member, which replay checks first, and a manifest written before packet CACHE-ID
 /// lacks it in `kink`, where the first kink algorithm it lacks is the more useful report.
-pub const KINK_IDENTITY: [Component; 15] = [
+pub const KINK_IDENTITY: [Component; 16] = [
     Component {
         key: "fingerprint",
         krate: "kink-patch",
@@ -151,6 +151,13 @@ pub const KINK_IDENTITY: [Component; 15] = [
         krate: "kink-native",
         constant: "MUTANT_EFFECT_VERSION",
         value: kink_native::consistency::MUTANT_EFFECT_VERSION,
+    },
+    // kink27 R5-WEAKENING: a mutation's status `unkillable` is a verdict this test decides.
+    Component {
+        key: "weakening",
+        krate: "kink-patch",
+        constant: "WEAKENING_VERSION",
+        value: kink_patch::WEAKENING_VERSION,
     },
     Component {
         key: "data_facts",

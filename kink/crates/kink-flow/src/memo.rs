@@ -98,7 +98,8 @@ use std::{fs, path::Path};
 
 /// The format and meaning of a resolution memo record (its key's `version` and its digest's
 /// domain).
-pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v1";
+/// v2 since kink27 R5-WEAKENING added the facts' `weakening`.
+pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v2";
 /// The format and meaning of a census memo record (its key's `version` and its digest's domain).
 pub const CENSUS_MEMO_VERSION: &str = "kink-flow/census-memo/v1";
 /// The memos' directory in the cache directory: `memo/resolutions/<spec digest>/<entry
@@ -132,6 +133,10 @@ pub struct Facts {
     /// The row's `removed_claims` before any call (`report::claims_value` of the patch's
     /// withdrawal, null when there is none).
     pub removed_claims: Value,
+    /// The row's `weakening` (`search::weakening_value` of kink-patch
+    /// `ClaimSupport::weakening`): null, or the edited equations of a mutation that only weakens
+    /// the specification, which makes it `unkillable` (kink27 R5-WEAKENING).
+    pub weakening: Value,
 }
 
 impl Facts {
@@ -167,6 +172,7 @@ impl Facts {
             "identity": self.identity.map(|identity| identity.to_string()),
             "typing_diagnostics": self.typing_diagnostics,
             "removed_claims": self.removed_claims,
+            "weakening": self.weakening,
         })
     }
 
@@ -215,6 +221,7 @@ impl Facts {
             },
             typing_diagnostics: value.get("typing_diagnostics")?.clone(),
             removed_claims: value.get("removed_claims")?.clone(),
+            weakening: value.get("weakening")?.clone(),
         };
         (facts.value() == *value).then_some(facts)
     }

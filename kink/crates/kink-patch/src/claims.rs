@@ -74,7 +74,7 @@
 
 use crate::apply::{Mutant, SentenceOrigin, apply};
 use crate::failure::PatchFailure;
-use crate::{Baseline, Edit, Patch, SentenceRef};
+use crate::{Baseline, Edit, POSITION_KEYS, Patch, SentenceRef};
 use k_rust::definition::{AttributeKey, Definition, Sentence};
 use k_rust::kast::{InternalLabel, Term};
 use serde_json::Value;
@@ -87,6 +87,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// R0c-fix-4): a rule written with configuration context (`[[ F ]] C`) is read as an equation of
 /// `F`'s head.
 pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
+
+/// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
+/// `unkillable` is a verdict this algorithm decides, so kink's semantics identity names it
+/// (kink-campaign `identity`), on which every store keys. v1: kink27 R5-WEAKENING.
+pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v1";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 0068938b1
 /// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
@@ -277,6 +282,32 @@ pub struct SourceEffect {
     pub touched: BTreeSet<SentenceRef>,
 }
 
+/// A patch that only weakens the baseline's theory ([`ClaimSupport::weakening`]): every model of
+/// the baseline is a model of the mutant, so no execution can tell them apart.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Weakening {
+    /// The edited sentences, in the patch's edit order.
+    pub equations: Vec<WeakenedSentence>,
+}
+
+/// One baseline sentence a weakening patch deletes or narrows.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WeakenedSentence {
+    pub at: SentenceRef,
+    /// The K label of the function the equation defines; `None` for a `simplification` lemma.
+    pub head: Option<String>,
+    pub kind: WeakeningKind,
+}
+
+/// How a weakening patch edits one sentence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WeakeningKind {
+    /// The equation or lemma is deleted.
+    Deleted,
+    /// The equation's `requires` is replaced by one that implies it, all else unchanged.
+    Narrowed,
+}
+
 /// How a rule sentence takes part in the equational theory.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Role {
@@ -301,6 +332,15 @@ pub struct ClaimSupport {
     hooked: BTreeSet<String>,
     /// For each symbol, the symbols whose equations mention it.
     dependents: BTreeMap<String, BTreeSet<String>>,
+    /// Labels of productions with `function` and no macro-like attribute: the heads whose
+    /// equations [`Self::weakening`] may find deleted or narrowed.
+    functions: BTreeSet<String>,
+    /// Labels of productions with an `overload` attribute: kompile's overload axiom ties a
+    /// family's equations together, so [`Self::weakening`] leaves them to execution.
+    overloaded: BTreeSet<String>,
+    /// Labels whose production's `hook` is `BOOL.and` or `BOOL.andThen`: the conjunctions
+    /// [`Self::weakening`] flattens a `requires` through.
+    conjunctions: BTreeSet<String>,
 }
 
 impl ClaimSupport {
@@ -323,7 +363,30 @@ impl ClaimSupport {
         for (mentioned, head) in generated_links(definition) {
             dependents.entry(mentioned).or_default().insert(head);
         }
+        let labels_where = |keep: &dyn Fn(&k_rust::definition::Attributes) -> bool| {
+            sentences(definition)
+                .filter_map(|(_, sentence)| match sentence {
+                    Sentence::Production {
+                        label: Some(label),
+                        attributes,
+                        ..
+                    } if keep(attributes) => Some(label.name.clone()),
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>()
+        };
         Self {
+            functions: labels_where(&|attributes| {
+                attributes.has(AttributeKey::Function)
+                    && !attributes.has_any(&AttributeKey::MACRO_LIKE)
+            }),
+            overloaded: labels_where(&|attributes| attributes.has(AttributeKey::Overload)),
+            conjunctions: labels_where(&|attributes| {
+                matches!(
+                    attributes.string(AttributeKey::Hook),
+                    Some("BOOL.and" | "BOOL.andThen")
+                )
+            }),
             defined,
             hooked: hooked_labels(definition),
             dependents,
@@ -588,6 +651,169 @@ impl ClaimSupport {
         })
     }
 
+    /// Whether `patch` only weakens the baseline's theory, and how: `Some` when every edit deletes
+    /// an equation of a `function` head or a `simplification` lemma, or replaces an equation by
+    /// one with the same body, `ensures` and attributes (positions aside) whose `requires`
+    /// implies the original's ([`Self::narrows`]), and no equation of an edited head that the
+    /// patch keeps ranks after an edited equation of it. `None` for every other patch.
+    ///
+    /// An equation `l => r requires c` of a head `f` at rank p (`priority(N)` gives N, `owise`
+    /// [`k_rust::names::OWISE_RULE_PRIORITY`], else [`k_rust::names::DEFAULT_RULE_PRIORITY`]) is
+    /// the axiom: for every instance σ, if σl matches, σc is true and no equation of `f` of a
+    /// smaller rank applies to σl, then `f(σl) = σr`. A deleted axiom is gone; a narrowed one has a
+    /// stronger antecedent, so the baseline's axiom implies it; every other axiom is literally
+    /// the baseline's, since what could change for it is only the set of equations of its head
+    /// ranked before it, and the rank condition keeps that set. Deleting a lemma removes a claim.
+    /// So every axiom and claim of the mutant is one of the baseline's, and every model of the
+    /// baseline is a model of the mutant: no program can kill it.
+    ///
+    /// Fail closed: a rule with `anywhere` or a macro-like attribute (deleting the last
+    /// `anywhere` rule of a symbol makes it a constructor, whose no-confusion the baseline need
+    /// not satisfy; a macro rule is expanded into other sentences), a head of an `overload`
+    /// family (kompile's overload axiom ties the family's equations), an edited lemma, and any
+    /// edit of a rewrite rule, a production or anything else.
+    #[must_use]
+    pub fn weakening(&self, baseline: &Baseline, patch: &Patch) -> Option<Weakening> {
+        let mut equations = Vec::new();
+        for edit in patch.edits() {
+            let (at, replacement) = match edit {
+                Edit::DeleteSentence { at } => (at, None),
+                Edit::ReplaceSentence { at, replacement } => (at, Some(replacement)),
+                _ => return None,
+            };
+            let sentence = baseline.sentence(at)?;
+            let head = self.weakenable(sentence)?;
+            let kind = match replacement {
+                None => WeakeningKind::Deleted,
+                // An edited lemma is a new claim, never a weakening.
+                Some(replacement) if head.is_some() && self.narrows(sentence, replacement) => {
+                    WeakeningKind::Narrowed
+                }
+                Some(_) => return None,
+            };
+            equations.push(WeakenedSentence {
+                at: at.clone(),
+                head,
+                kind,
+            });
+        }
+        if equations.is_empty() {
+            return None;
+        }
+        // The rank condition: for each edited head, no kept equation of it ranks after the
+        // smallest rank among its edited equations. A narrowed equation keeps its attributes, so
+        // the baseline's ranks are the mutant's.
+        let mut smallest = BTreeMap::<&str, u8>::new();
+        for weakened in &equations {
+            if let Some(head) = &weakened.head {
+                let rank = rule_rank(baseline.sentence(&weakened.at)?)?;
+                let entry = smallest.entry(head.as_str()).or_insert(rank);
+                *entry = (*entry).min(rank);
+            }
+        }
+        let deleted = equations
+            .iter()
+            .filter(|weakened| weakened.kind == WeakeningKind::Deleted)
+            .map(|weakened| &weakened.at)
+            .collect::<BTreeSet<_>>();
+        for (at, sentence) in sentences(baseline.definition()) {
+            let Role::Equation(head) = role(sentence, &self.defined) else {
+                continue;
+            };
+            let Some(&edited) = smallest.get(head.as_str()) else {
+                continue;
+            };
+            if !deleted.contains(&at) && rule_rank(sentence)? > edited {
+                return None;
+            }
+        }
+        Some(Weakening { equations })
+    }
+
+    /// The head of a rule whose deletion can weaken the theory: `Some(None)` for a
+    /// `simplification` lemma, `Some(Some(f))` for an equation of a `function` head `f` outside
+    /// every `overload` family with no `anywhere` or macro-like attribute, `None` otherwise.
+    fn weakenable(&self, sentence: &Sentence) -> Option<Option<String>> {
+        let Sentence::Rule { attributes, .. } = sentence else {
+            return None;
+        };
+        if attributes.has(AttributeKey::Anywhere) || attributes.has_any(&AttributeKey::MACRO_LIKE) {
+            return None;
+        }
+        match role(sentence, &self.defined) {
+            Role::Lemma => Some(None),
+            Role::Equation(head)
+                if self.functions.contains(&head) && !self.overloaded.contains(&head) =>
+            {
+                Some(Some(head))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether `replacement` is the rule `original` with a `requires` that implies the
+    /// original's, decided syntactically: the same body and `ensures` (term equality ignores
+    /// annotations), the same attributes without the position keys, and every conjunct of the
+    /// original `requires` a conjunct of the replacement's ([`Self::conjuncts`]). Sound because
+    /// a conjunction (`andBool`, `andThenBool`) is `true` only when both operands are `true`; it
+    /// misses a narrowing that rewrites a guard (`W -Int 1` to `W -Int 2`).
+    fn narrows(&self, original: &Sentence, replacement: &Sentence) -> bool {
+        let (
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            },
+            Sentence::Rule {
+                body: new_body,
+                requires: new_requires,
+                ensures: new_ensures,
+                attributes: new_attributes,
+            },
+        ) = (original, replacement)
+        else {
+            return false;
+        };
+        let positionless = |attributes: &k_rust::definition::Attributes| {
+            let mut attributes = attributes.clone();
+            for key in POSITION_KEYS {
+                attributes.remove(key.as_str());
+            }
+            attributes
+        };
+        if body != new_body
+            || ensures != new_ensures
+            || positionless(attributes) != positionless(new_attributes)
+        {
+            return false;
+        }
+        let narrower = self.conjuncts(new_requires);
+        self.conjuncts(requires)
+            .iter()
+            .all(|conjunct| narrower.contains(conjunct))
+    }
+
+    /// The conjuncts of a `requires`: through annotations, each application of a conjunction
+    /// label with two operands is replaced by its operands, and the token `true` (the
+    /// `requires` of a rule written without one, and the unit of a conjunction) is dropped.
+    fn conjuncts<'a>(&self, requires: &'a Term) -> Vec<&'a Term> {
+        let mut conjuncts = Vec::new();
+        let mut pending = vec![requires];
+        while let Some(term) = pending.pop() {
+            match term.unannotated() {
+                Term::Apply { label, arguments }
+                    if arguments.len() == 2 && self.conjunctions.contains(&label.name) =>
+                {
+                    pending.extend(arguments.iter().rev());
+                }
+                Term::Token { token, sort } if token == "true" && sort.name == "Bool" => {}
+                _ => conjuncts.push(term),
+            }
+        }
+        conjuncts
+    }
+
     /// Every symbol whose equations reach a redefined symbol, the redefined ones included.
     fn closure(&self, redefined: BTreeSet<String>) -> BTreeSet<String> {
         let mut affected = BTreeSet::new();
@@ -599,6 +825,20 @@ impl ClaimSupport {
             affected.insert(symbol);
         }
         affected
+    }
+}
+
+/// The rank of a rule among the equations of its head: its `priority`, else
+/// [`k_rust::names::OWISE_RULE_PRIORITY`] for `owise`, else the default rank. `None` for a
+/// `priority` the reading does not accept (fail closed).
+fn rule_rank(sentence: &Sentence) -> Option<u8> {
+    let attributes = sentence.attributes();
+    if let Some(priority) = attributes.string(AttributeKey::Priority) {
+        k_rust::names::rule_priority(priority)
+    } else if attributes.has(AttributeKey::Owise) {
+        Some(k_rust::names::OWISE_RULE_PRIORITY)
+    } else {
+        Some(k_rust::names::DEFAULT_RULE_PRIORITY)
     }
 }
 

@@ -48,6 +48,11 @@
 //! reason `baseline-findings` lists the unnamed `findings`; and a `comparable` program row is
 //! marked `unable_to_kill: "baseline-findings"` while such a finding is left.
 //!
+//! kink27 R5-WEAKENING (version 11): a mutation whose edit only weakens the specification has the
+//! status `unkillable` with reason `weakening`, runs nothing, and its row's `weakening` names each
+//! edited equation (null on every other row); a mutant run's cause names the function whose
+//! application an indeterminate leaf holds unreduced ([`executed_cause`]).
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -81,8 +86,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// digest of the executable that wrote it, which `report` requires to be this executable's; 9
 /// since re-pin adoption A-1 added `specification_diagnostics` and `smt_unknowns` to program rows
 /// and to executed entries; 10 since fz26 KINK-BASELINE-FINDINGS added `data`, a row's
-/// `findings` and a program row's `unable_to_kill`.
-pub const RUN_VERSION: u64 = 10;
+/// `findings` and a program row's `unable_to_kill`; 11 since kink27 R5-WEAKENING added the status
+/// `unkillable` (reason `weakening`) and each row's `weakening`.
+pub const RUN_VERSION: u64 = 11;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -257,10 +263,19 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
             "nothing can kill it: the mutant compiles to the baseline's definition; drop or \
              change the mutation"
         }
+        "unkillable" => {
+            "nothing can kill it: the edit only deletes equations of functions or narrows their \
+             requires, so every model of the specification is a model of the mutant and no \
+             execution can tell them apart (weakening); change a right-hand side or a rewrite \
+             rule, or drop the mutation"
+        }
         "invalid" if reason == Some("inconsistent-mutant") => {
             "fix the mutation: two equations of one function are not shown to agree where both \
-             apply, so the mutant may have no model (inconsistent_pairs); make the guards \
-             exclusive or the results equal"
+             apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
+             guard, make the guards exclusive or the results equal; if it only narrowed one (the \
+             equation applies to fewer inputs with the same right-hand side), no program can \
+             kill it whatever the check says, since the specification is one of its models: \
+             change a right-hand side or a rewrite rule instead"
         }
         "invalid" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
@@ -404,6 +419,24 @@ pub fn census_clause(census: &LeafCensus) -> String {
     )
 }
 
+/// [`census_clause`] of a mutant's run, and, when an indeterminate leaf of it holds an application
+/// of a function no equation reduces (kink-campaign `LeafCensus::open`), that leaf's depth and the
+/// function: the mutant leaves the application's value open there, so the run decides nothing past
+/// it (kink27 R5-WEAKENING). A baseline's census is described by [`census_clause`] alone.
+fn mutant_census_clause(census: &LeafCensus) -> String {
+    let mut clause = census_clause(census);
+    if let Some(open) = &census.open {
+        clause.push_str(&format!(
+            "; its indeterminate leaf at depth {} holds an application of the function `{}` that \
+             no equation of the mutant reduces, so its value is open and the run decides nothing \
+             past it",
+            open.depth,
+            k_rust::kast::identifier::label_or_name(&open.symbol)
+        ));
+    }
+    clause
+}
+
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
 /// that run and, when the session recorded it, the leaf census of the mutant's run: `None` when
 /// the outcome is `agree` or `distinguish` (or the test was skipped).
@@ -420,12 +453,12 @@ pub fn executed_cause(
             (ExecutionFailureKind::TimeLimit, Some(census)) => format!(
                 "{}; when the bound fired {}",
                 failure_cause(*kind, budget),
-                census_clause(census)
+                mutant_census_clause(census)
             ),
             (ExecutionFailureKind::ResourceLimit, Some(census)) => format!(
                 "{}; the mutant's run: {}",
                 failure_cause(*kind, budget),
-                census_clause(census)
+                mutant_census_clause(census)
             ),
             _ => failure_cause(*kind, budget),
         }),
@@ -485,7 +518,10 @@ pub fn executed_cause(
                 .collect::<Vec<_>>()
                 .join("; ");
             if let (true, Some(census)) = (incomplete, census) {
-                cause.push_str(&format!("; the mutant's run: {}", census_clause(census)));
+                cause.push_str(&format!(
+                    "; the mutant's run: {}",
+                    mutant_census_clause(census)
+                ));
             }
             Some(cause)
         }

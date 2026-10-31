@@ -3,7 +3,11 @@
 //! One command admits the specification once and uses its one `NativeValidator` for the
 //! result cache update and for every mutation. Per mutation, in the list's order:
 //!
-//! 1. Resolve it into one pinned patch (F-04); an `invalid-mutation` ends there.
+//! 1. Resolve it into one pinned patch (F-04); an `invalid-mutation` ends there. A mutation
+//!    whose edit only weakens the specification (kink-patch `ClaimSupport::weakening`: it deletes
+//!    equations of functions or lemmas, or narrows an equation's `requires`) is `unkillable`
+//!    there too, with reason `weakening`: every model of the specification is a model of the
+//!    mutant, so no program can kill it, and nothing runs (kink27 R5-WEAKENING).
 //! 2. Choose the programs O: the comparable programs of the up-to-date result cache, the ones
 //!    whose cached coverage witnesses an edited rule's edit first (reached for an edit of its
 //!    `requires`, applied, k-rust `applied`, for any other edit; re-pin L2-1-tail), then the
@@ -103,6 +107,7 @@ use crate::{
         runner_refusal, update_results,
     },
 };
+use k_rust::definition::AttributeKey;
 use kink_campaign::{
     CallRecording, CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId,
     MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
@@ -115,7 +120,10 @@ use kink_native::{
     declaration_census,
     execution::SolverProfile,
 };
-use kink_patch::{CandidateGeneration, ClaimSupport, Patch, SentenceRef, Sha256Digest, Withdrawal};
+use kink_patch::{
+    CandidateGeneration, ClaimSupport, Patch, SentenceRef, Sha256Digest, Weakening, WeakeningKind,
+    Withdrawal,
+};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -153,13 +161,22 @@ pub const SOURCE_HINT: &str = "hint";
 /// The `killer_source` of a kill found by the cold call.
 pub const SOURCE_SEARCH: &str = "search";
 
+/// The status of a mutation whose edit only weakens the specification (kink27 R5-WEAKENING):
+/// kink-flow's own, decided at resolution with reason [`WEAKENING_REASON`]; kink-corpus and the
+/// campaign runner keep their statuses for it.
+pub const UNKILLABLE: &str = "unkillable";
+/// The reason of an [`UNKILLABLE`] mutation.
+pub const WEAKENING_REASON: &str = "weakening";
+
 /// Every status a mutation can have, in the order the counts list them: the runner's
-/// mutant statuses, then the flow's own `invalid-mutation`. `error` is also the status of a
-/// corpus error and of an `outcome-mismatch` (their reasons say which).
-pub const STATUSES: [&str; 8] = [
+/// mutant statuses with kink-flow's `unkillable`, then the flow's own `invalid-mutation`.
+/// `error` is also the status of a corpus error and of an `outcome-mismatch` (their reasons say
+/// which).
+pub const STATUSES: [&str; 9] = [
     "killed",
     "survived",
     "equivalent",
+    UNKILLABLE,
     "invalid",
     "timeout",
     "unknown",
@@ -723,6 +740,10 @@ impl Search<'_, '_> {
             return Vec::new();
         };
         let baseline = self.spec.validator.baseline();
+        // An unkillable mutation compiles nothing (kink27 R5-WEAKENING).
+        if self.support.weakening(baseline, &resolved.patch).is_some() {
+            return Vec::new();
+        }
         let Ok(generation) = resolved.generation(baseline) else {
             return Vec::new();
         };
@@ -849,6 +870,10 @@ impl Search<'_, '_> {
                 .map_or(Value::Null, |withdrawal| {
                     claims_value(baseline, &withdrawal)
                 }),
+            weakening: weakening_value(
+                baseline,
+                self.support.weakening(baseline, &resolved.patch).as_ref(),
+            ),
         }
     }
 
@@ -859,6 +884,10 @@ impl Search<'_, '_> {
     fn decided(&self, facts: &Facts) -> bool {
         if self.mode != RunMode::Search {
             return false;
+        }
+        // An unkillable mutation is decided by its edit alone (kink27 R5-WEAKENING).
+        if !facts.weakening.is_null() {
+            return true;
         }
         let order = order(&self.candidates, &facts.rules, self.order);
         if !order.is_empty() && self.gated() {
@@ -917,7 +946,22 @@ impl Search<'_, '_> {
         // Filled from the verdict's plan (re-pin R0c-fix-3): the pairs of equations that refuse
         // an inconsistent mutant; empty otherwise.
         row.insert("inconsistent_pairs".into(), json!([]));
+        row.insert("weakening".into(), facts.weakening.clone());
         let key = hint_key_of(mutation, &facts.rules);
+        // kink27 R5-WEAKENING: a mutation whose edit only weakens the specification has every
+        // model of the specification among its models, so no program can kill it. The verdict
+        // depends on the mutation alone: no store is read, no call made, nothing re-run.
+        if !facts.weakening.is_null() {
+            row.insert("status".into(), json!(UNKILLABLE));
+            row.insert("reason".into(), json!(WEAKENING_REASON));
+            if self.mode == RunMode::Search {
+                self.hints.remove(key);
+            }
+            return Some((
+                finish(row, None, None, RowCalls::default(), Vec::new()),
+                false,
+            ));
+        }
         // fz26 KINK-BASELINE-FINDINGS: on a baseline with a finding no `[spec] assume_joined`
         // name assumes, no end is data, so no program can kill: the mutation is unknown before
         // any store is read or any call made (no cached outcome decides it, whatever it says).
@@ -1890,6 +1934,34 @@ fn resolution_mismatch(mut row: Value) -> Value {
     row
 }
 
+/// The row's `weakening`: null, or for each sentence a weakening patch edits `{module, index,
+/// label, head, kind}`, `label` the baseline sentence's (null without one), `head` the K label of
+/// the function (null for a lemma), `kind` `deleted` or `narrowed` (kink27 R5-WEAKENING).
+fn weakening_value(baseline: &kink_patch::Baseline, weakening: Option<&Weakening>) -> Value {
+    weakening.map_or(Value::Null, |weakening| {
+        Value::Array(
+            weakening
+                .equations
+                .iter()
+                .map(|weakened| {
+                    json!({
+                        "module": weakened.at.module,
+                        "index": weakened.at.index,
+                        "label": baseline
+                            .sentence(&weakened.at)
+                            .and_then(|sentence| sentence.attributes().string(AttributeKey::Label)),
+                        "head": weakened.head,
+                        "kind": match weakened.kind {
+                            WeakeningKind::Deleted => "deleted",
+                            WeakeningKind::Narrowed => "narrowed",
+                        },
+                    })
+                })
+                .collect(),
+        )
+    })
+}
+
 /// The row of a mutation that does not resolve (or whose patch kink-patch refuses), or whose
 /// patch the host refused the stack to encode (status `error`;
 /// [`crate::mutation::InvalidReason::status`]).
@@ -1987,6 +2059,7 @@ fn finish(
     row.entry("rules").or_insert(Value::Null);
     row.entry("identity").or_insert(Value::Null);
     row.entry("unusable_killer").or_insert(Value::Null);
+    row.entry("weakening").or_insert(Value::Null);
     let action = action(
         row["status"].as_str().unwrap_or_default(),
         row["reason"].as_str(),

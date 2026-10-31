@@ -1,0 +1,27 @@
+# kink-flow corpus manifest for the weakening fixture (kink27 R5-WEAKENING): functions whose
+# equations a mutation deletes or narrows, beside owise and priority equations whose deletion
+# widens another.
+[spec]
+entry = "weakening.k"
+main_module = "WEAK"
+syntax_module = "WEAK-SYNTAX"
+
+[[program]]
+id = "f0"
+text = "runf(0)"
+
+[[program]]
+id = "f1"
+text = "runf(1)"
+
+[[program]]
+id = "g0"
+text = "rung(0)"
+
+[[program]]
+id = "h1"
+text = "runh(1)"
+
+[[program]]
+id = "h3"
+text = "runh(3)"

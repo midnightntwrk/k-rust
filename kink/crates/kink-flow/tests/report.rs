@@ -730,4 +730,38 @@ mod kink_tier {
             );
         }
     }
+
+    /// kink27 R5-WEAKENING (`testdata/flow/weakening`): `f-pos-shift` rewrites `f`'s guard
+    /// `I >Int 0` into `I >Int 1`, so no equation of the mutant reduces `f(1)`. The mutant's run
+    /// of `f1` steps `runf(1)` to `f(1)` and stops there indeterminate: `out`'s left-hand side
+    /// `v(I)` cannot be matched against the open application. The cause names the function and
+    /// that leaf's depth (1: the one step of `runf`).
+    #[test]
+    #[ignore = "kink"]
+    fn an_open_function_application_is_named_in_the_cause() {
+        let manifest = fixture("weakening", "open-application").join("FLOW.toml");
+        let (document, ok) = search(
+            &manifest,
+            &manifest.with_file_name("MUTATIONS.toml"),
+            &["f-pos-shift"],
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(mutation(&document, "f-pos-shift")["status"], "unknown");
+        let entries = executed(&document, "f-pos-shift");
+        let f1 = entries
+            .iter()
+            .find(|(program, ..)| program == "f1")
+            .expect("f1 ran");
+        assert_eq!(f1.1, "unknown");
+        let cause = f1.2.as_str().unwrap();
+        assert!(
+            cause.contains(
+                "k-rust returned 2 leaves (trivial 1, indeterminate 1), the deepest at depth 1; \
+                 its indeterminate leaf at depth 1 holds an application of the function `f` that \
+                 no equation of the mutant reduces, so its value is open and the run decides \
+                 nothing past it"
+            ),
+            "{cause}"
+        );
+    }
 }

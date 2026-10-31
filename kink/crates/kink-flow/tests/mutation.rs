@@ -1249,3 +1249,79 @@ mod kink_tier {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// kink27 R5-WEAKENING: a mutation that only weakens the specification is decided from its edit.
+
+#[test]
+fn weakening_is_decided_from_the_edit_alone() {
+    use kink_patch::{ClaimSupport, WeakeningKind};
+    let spec = Spec::fixture("weakening");
+    let list = fixture_list("weakening");
+    let baseline = &spec.loaded.baseline;
+    let support = ClaimSupport::new(baseline);
+    let label = |at: &SentenceRef| {
+        spec.sentence(at)
+            .attributes()
+            .string(AttributeKey::Label)
+            .unwrap()
+            .to_owned()
+    };
+    // The frontend gives a rule written without `requires` the condition `true`, which the
+    // conjunct test reads as no conjunct.
+    let f_zero = fixture_mutation(&spec, &list, "f-zero-del");
+    let Sentence::Rule { requires, .. } = spec.sentence(&f_zero.rules[0].at) else {
+        panic!("f-zero is a rule");
+    };
+    assert!(
+        matches!(requires.unannotated(), k_rust::kast::Term::Token { token, sort } if token == "true" && sort.name == "Bool"),
+        "{requires:?}"
+    );
+    let deleted = WeakeningKind::Deleted;
+    let narrowed = WeakeningKind::Narrowed;
+    let weakenings = [
+        ("f-zero-del", "f-zero", deleted, Some("f")),
+        ("f-pos-narrow", "f-pos", narrowed, Some("f")),
+        // A rule written without `requires` is `requires true`: any `requires` narrows it.
+        ("f-zero-guarded", "f-zero", narrowed, Some("f")),
+        ("f-neg-then", "f-neg", narrowed, Some("f")),
+        // The owise equation and the last-ranked one widen no other equation.
+        ("g-else-del", "g-else", deleted, Some("g")),
+        ("h-low-del", "h-low", deleted, Some("h")),
+        ("w-lemma-del", "w-lemma", deleted, None),
+    ];
+    for (id, rule, kind, head) in weakenings {
+        let resolved = fixture_mutation(&spec, &list, id);
+        let weakening = support
+            .weakening(baseline, &resolved.patch)
+            .unwrap_or_else(|| panic!("{id} is a weakening"));
+        let found = weakening
+            .equations
+            .iter()
+            .map(|weakened| (label(&weakened.at), weakened.kind, weakened.head.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            found,
+            [(format!("WEAK.{rule}"), kind, head.map(str::to_owned))],
+            "{id}"
+        );
+    }
+    // Deleting an equation ranked before a kept one widens it (`g-zero-del` beside an owise
+    // equation, `h-one-del` beside a rank-60 one); every other edit is not a weakening.
+    for id in [
+        "g-zero-del",
+        "h-one-del",
+        "f-zero-value",
+        "f-pos-shift",
+        "f-zero-attr",
+        "out-del",
+        "mixed",
+    ] {
+        let resolved = fixture_mutation(&spec, &list, id);
+        assert_eq!(
+            support.weakening(baseline, &resolved.patch),
+            None,
+            "{id} is not a weakening"
+        );
+    }
+}

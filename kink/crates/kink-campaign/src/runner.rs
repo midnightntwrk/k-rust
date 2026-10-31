@@ -146,8 +146,9 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_existing, tree_from_steps,
-    validate_test_initial_state, work_bound_stuck_terminals,
+    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, open_application,
+    paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
+    work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
@@ -775,10 +776,18 @@ pub struct LeafCensus {
     pub rule_ids: BTreeSet<String>,
     /// The states the run visited (k-rust `work`); `None` for a failed or timed-out run.
     pub work: Option<u64>,
+    /// The first indeterminate leaf, in run order, that holds an application of a function no
+    /// equation reduces (kink-native [`open_application`]): the definition leaves its value open
+    /// there (kink27 R5-WEAKENING).
+    pub open: Option<OpenApplication>,
 }
 
 impl LeafCensus {
-    fn of(execution: Result<&AdaptedExecution, &ExecutionAdapterFailure>) -> Self {
+    /// `functions`: the side's function symbols defined by equations ([`Runtime`]'s).
+    fn of(
+        execution: Result<&AdaptedExecution, &ExecutionAdapterFailure>,
+        functions: &BTreeSet<String>,
+    ) -> Self {
         let Ok(execution) = execution else {
             return Self {
                 stop: RunStop::Failed,
@@ -786,6 +795,7 @@ impl LeafCensus {
                 deepest: None,
                 rule_ids: BTreeSet::new(),
                 work: None,
+                open: None,
             };
         };
         let mut leaves = BTreeMap::new();
@@ -810,6 +820,10 @@ impl LeafCensus {
                 .max(),
             rule_ids,
             work: (!execution.timed_out()).then(|| execution.work()),
+            open: execution
+                .leaves()
+                .iter()
+                .find_map(|leaf| open_application(leaf, functions)),
         }
     }
 
@@ -2723,6 +2737,9 @@ struct Runtime {
     /// the other side's ends of a pair ([`judge_across`]); `None` when they are not known, which
     /// admits no overload application and makes every end of the other side not data here.
     data: Option<DataFacts>,
+    /// The KORE symbols declared `function` without a hook: the symbols equations define, whose
+    /// application left in a leaf's state is one no equation reduces (a run's [`LeafCensus`]).
+    functions: BTreeSet<String>,
 }
 
 /// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
@@ -2775,6 +2792,25 @@ impl Runtime {
             selected,
         } = loaded;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
+        let functions = parsed
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                k_rust::kore::ast::Sentence::SymbolDeclaration {
+                    hooked,
+                    symbol,
+                    attributes,
+                    ..
+                } if !hooked
+                    && attributes.has(k_rust::names::KoreAttribute::Function)
+                    && !attributes.has(k_rust::names::KoreAttribute::Hook) =>
+                {
+                    Some(symbol.name.clone())
+                }
+                _ => None,
+            })
+            .collect();
         let exclusions = DefinitionExclusions::of(
             &parsed,
             &selected,
@@ -2799,6 +2835,7 @@ impl Runtime {
             one_sided: OneSided::Off,
             exclusions,
             data: None,
+            functions,
         })
     }
 
@@ -2843,7 +2880,7 @@ impl Runtime {
         executed.cache.recording = Some(RunRecording {
             test_id: test.id.clone(),
             wall: started.elapsed(),
-            census: LeafCensus::of(executed.execution.as_ref()),
+            census: LeafCensus::of(executed.execution.as_ref(), &self.functions),
         });
         (evidence, executed)
     }

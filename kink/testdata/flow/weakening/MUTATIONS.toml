@@ -1,0 +1,125 @@
+# kink-flow mutation list for the weakening fixture (kink27 R5-WEAKENING). The first seven only
+# weaken the specification (unkillable); the others do not.
+
+[[mutation]]
+id = "f-zero-del"
+note = "deletes an equation of f; no equation of f ranks after it"
+
+  [[mutation.edit]]
+  rule = "f-zero"
+  delete = true
+
+[[mutation]]
+id = "f-pos-narrow"
+note = "conjoins a term to the requires of an equation of f"
+
+  [[mutation.edit]]
+  rule = "f-pos"
+  find = "I >Int 0"
+  replace = "I >Int 0 andBool I <Int 10"
+
+[[mutation]]
+id = "f-zero-guarded"
+note = "gives a requires-less equation of f a requires: it narrows requires true"
+
+  [[mutation.edit]]
+  rule = "f-zero"
+  find = "f(0) => v(1)"
+  replace = "f(0) => v(1) requires 2 >Int 3"
+
+[[mutation]]
+id = "f-neg-then"
+note = "conjoins a term on the left of an equation's requires with andThenBool"
+
+  [[mutation.edit]]
+  rule = "f-neg"
+  find = "I <Int 0"
+  replace = "I >Int -100 andThenBool I <Int 0"
+
+[[mutation]]
+id = "g-else-del"
+note = "deletes the owise equation of g, the last-ranked one"
+
+  [[mutation.edit]]
+  rule = "g-else"
+  delete = true
+
+[[mutation]]
+id = "h-low-del"
+note = "deletes the rank-60 equation of h, the last-ranked one"
+
+  [[mutation.edit]]
+  rule = "h-low"
+  delete = true
+
+[[mutation]]
+id = "w-lemma-del"
+note = "deletes a simplification lemma"
+
+  [[mutation.edit]]
+  rule = "w-lemma"
+  delete = true
+
+[[mutation]]
+id = "g-zero-del"
+note = "deletes g(0) beside an owise equation, which then gives g(0) = v(3): not a weakening"
+
+  [[mutation.edit]]
+  rule = "g-zero"
+  delete = true
+
+[[mutation]]
+id = "h-one-del"
+note = "deletes h(1) beside a rank-60 equation, which then gives h(1) = v(5): not a weakening"
+
+  [[mutation.edit]]
+  rule = "h-one"
+  delete = true
+
+[[mutation]]
+id = "f-zero-value"
+note = "changes a right-hand side"
+
+  [[mutation.edit]]
+  rule = "f-zero"
+  find = "v(1)"
+  replace = "v(2)"
+
+[[mutation]]
+id = "f-pos-shift"
+note = "rewrites a guard into a narrower one, which the syntactic test does not see"
+
+  [[mutation.edit]]
+  rule = "f-pos"
+  find = "I >Int 0"
+  replace = "I >Int 1"
+
+[[mutation]]
+id = "f-zero-attr"
+note = "changes an equation's attributes"
+
+  [[mutation.edit]]
+  rule = "f-zero"
+  find = "f(0) => v(1)"
+  replace = "f(0) => v(1) [priority(40)]"
+
+[[mutation]]
+id = "out-del"
+note = "deletes a rewrite rule"
+
+  [[mutation.edit]]
+  rule = "out"
+  delete = true
+
+[[mutation]]
+id = "mixed"
+note = "deletes an equation of f and edits a rewrite rule"
+
+  [[mutation.edit]]
+  rule = "f-zero"
+  delete = true
+
+  [[mutation.edit]]
+  rule = "runf"
+  find = "=> f(I)"
+  replace = "=> f(I +Int 0)"

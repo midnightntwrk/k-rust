@@ -1197,7 +1197,13 @@ fn last_run(
         .collect::<Vec<_>>();
     let template_id = row.and_then(|row| row["id"].as_str());
     let status = entry["status"].as_str().unwrap_or_default();
-    if status == "killed" {
+    if status == crate::search::UNKILLABLE {
+        // kink27 R5-WEAKENING: no program can kill it, so no template helps.
+        warnings.push(warning(
+            "unkillable",
+            crate::report::action(status, entry["reason"].as_str()).unwrap_or_default(),
+        ));
+    } else if status == "killed" {
         warnings.push(warning(
             "already-killed",
             format!(

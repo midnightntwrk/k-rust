@@ -1195,7 +1195,7 @@ endmodule
         assert_eq!(
             searched["counts"],
             json!({
-                "killed": 3, "survived": 1, "equivalent": 0, "invalid": 0,
+                "killed": 3, "survived": 1, "equivalent": 0, "unkillable": 0, "invalid": 0,
                 "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0,
             })
         );

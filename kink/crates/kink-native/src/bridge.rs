@@ -58,7 +58,7 @@
 //! and diagnosed (`docs/compatibility.md:792-815`), hence BackendLimit here.
 //! Unsat refutation also rests on the explicit definedness premise (T-UNSAT, TB-01).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::backend::{Backend, SearchFailureOutput};
 use k_rust::kore::{
@@ -74,7 +74,9 @@ use kink_pattern::{
     TermRelation,
 };
 
-use crate::execution::{AdaptedExecution, ExecutionAdapterFailure, HaltClass, SteppedExecution};
+use crate::execution::{
+    AdaptedExecution, AdaptedLeaf, ExecutionAdapterFailure, HaltClass, SteppedExecution,
+};
 use crate::feasibility::LeafFeasibility;
 use crate::observation::AdaptedBranch;
 use crate::step_events::{ObservationDecider, StepObservation, StepPresence, canonical_injection};
@@ -564,6 +566,58 @@ struct SplitState {
     sort: Sort,
     terms: Vec<Pattern>,
     predicates: Vec<Pattern>,
+}
+
+/// An application of a function that an indeterminate leaf holds unreduced ([`open_application`]):
+/// the definition leaves its value open there.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OpenApplication {
+    /// The KORE symbol of the function.
+    pub symbol: String,
+    /// The leaf's depth.
+    pub depth: u64,
+}
+
+/// The first application, in pre-order of the state's terms (its path predicates aside), of a
+/// symbol of `functions` in the state of an [`HaltClass::Indeterminate`] leaf; `None` for every
+/// other leaf, an undecodable state, or a state without one (kink27 R5-WEAKENING).
+///
+/// k-rust's states are normal forms, so a function application left in one is an application
+/// that no equation reduces: its value is open, and a step that must match it (the
+/// indeterminate halt) cannot decide. `functions` names the function symbols that equations
+/// define (a hooked symbol's halt is `unsupported-hook` instead).
+#[must_use]
+pub fn open_application(
+    leaf: &AdaptedLeaf,
+    functions: &BTreeSet<String>,
+) -> Option<OpenApplication> {
+    if leaf.halt != HaltClass::Indeterminate {
+        return None;
+    }
+    let state = codec::from_value(&leaf.branch.state).ok()?;
+    // The state's term conjuncts, left to right, through its top conjunctions.
+    let mut terms = Vec::new();
+    let mut conjuncts = vec![state.strip_exists()];
+    while let Some(conjunct) = conjuncts.pop() {
+        match conjunct {
+            Pattern::And { arguments, .. } => conjuncts.extend(arguments.iter().rev()),
+            conjunct if term_head(conjunct) => terms.push(conjunct),
+            _ => {}
+        }
+    }
+    let mut pending = terms.into_iter().rev().collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        if let Pattern::Application { symbol, .. } = node
+            && functions.contains(&symbol.name)
+        {
+            return Some(OpenApplication {
+                symbol: symbol.name.clone(),
+                depth: leaf.branch.depth,
+            });
+        }
+        pending.extend(walk::children(node).into_iter().rev());
+    }
+    None
 }
 
 fn split_state(

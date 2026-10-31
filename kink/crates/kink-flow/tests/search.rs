@@ -823,8 +823,8 @@ note = "requires and right-hand side"
         );
         assert_eq!(
             document["counts"],
-            json!({"killed": 1, "survived": 1, "equivalent": 1, "invalid": 1, "timeout": 0,
-                   "unknown": 0, "error": 0, "invalid-mutation": 2})
+            json!({"killed": 1, "survived": 1, "equivalent": 1, "unkillable": 0, "invalid": 1,
+                   "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 2})
         );
     }
 
@@ -844,8 +844,9 @@ note = "requires and right-hand side"
         // version 7 adds the document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its
         // `kink_build`; re-pin adoption A-1: version 9 adds `specification_diagnostics` and
         // `smt_unknowns`; fz26 KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's
-        // `findings` and `unable_to_kill`.
-        assert_eq!(document["version"], 10);
+        // `findings` and `unable_to_kill`; kink27 R5-WEAKENING: version 11 adds the status
+        // `unkillable` and a row's `weakening`.
+        assert_eq!(document["version"], 11);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1065,8 +1066,8 @@ note = "requires and right-hand side"
         assert_eq!(report, first);
         assert_eq!(
             first["counts"],
-            json!({"killed": 4, "survived": 1, "equivalent": 0, "invalid": 0, "timeout": 0,
-                   "unknown": 0, "error": 0, "invalid-mutation": 0})
+            json!({"killed": 4, "survived": 1, "equivalent": 0, "unkillable": 0, "invalid": 0,
+                   "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0})
         );
 
         // Warm cache: a killed mutation costs one campaign call over one program, whose baseline
@@ -1380,5 +1381,115 @@ note = "requires and right-hand side"
             killer_of(&manifest, &fifth, "add-becomes-sub").unwrap().0,
             "add"
         );
+    }
+
+    /// kink27 R5-WEAKENING (`testdata/flow/weakening`): a mutation whose edit only deletes
+    /// equations of functions or lemmas, or narrows an equation's `requires`, is `unkillable`
+    /// with reason `weakening`: every model of the specification is a model of the mutant, so
+    /// no program can kill it. It runs nothing and writes no outcome record, and it is no
+    /// survivor. Deleting an equation ranked before a kept one of its head widens that one, so
+    /// `g-zero-del` (beside an owise equation) and `h-one-del` (beside a rank-60 one) are real
+    /// kills, as is a changed right-hand side: the rank condition is needed. A second run decides
+    /// the unkillable rows from the resolution memo with the same rows.
+    #[test]
+    #[ignore = "kink"]
+    fn a_weakening_is_unkillable_and_runs_nothing() {
+        let manifest = fixture("weakening", "weakening").join("FLOW.toml");
+        let mutations = manifest.with_file_name("MUTATIONS.toml");
+        let (document, ok) = search(&manifest, &mutations, &[]);
+        assert!(ok, "{document:#}");
+        let weakenings = [
+            ("f-zero-del", "WEAK.f-zero", "f", "deleted"),
+            ("f-pos-narrow", "WEAK.f-pos", "f", "narrowed"),
+            ("f-zero-guarded", "WEAK.f-zero", "f", "narrowed"),
+            ("f-neg-then", "WEAK.f-neg", "f", "narrowed"),
+            ("g-else-del", "WEAK.g-else", "g", "deleted"),
+            ("h-low-del", "WEAK.h-low", "h", "deleted"),
+            ("w-lemma-del", "WEAK.w-lemma", "", "deleted"),
+        ];
+        for (id, label, head, kind) in weakenings {
+            let row = mutation(&document, id);
+            assert_eq!(row["status"], "unkillable", "{id}");
+            assert_eq!(row["reason"], "weakening", "{id}");
+            assert_eq!(row["executed"], json!([]), "{id}");
+            assert_eq!(row["calls"], json!([]), "{id}");
+            assert!(
+                row["action"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("nothing can kill it"),
+                "{id}"
+            );
+            let weakening = row["weakening"].as_array().unwrap();
+            assert_eq!(weakening.len(), 1, "{id}");
+            assert_eq!(weakening[0]["label"], label, "{id}");
+            assert_eq!(weakening[0]["module"], "WEAK", "{id}");
+            assert_eq!(
+                weakening[0]["head"],
+                if head.is_empty() {
+                    Value::Null
+                } else {
+                    json!(head)
+                },
+                "{id}"
+            );
+            assert_eq!(weakening[0]["kind"], kind, "{id}");
+        }
+        for (id, killer) in [
+            ("g-zero-del", "g0"),
+            ("h-one-del", "h1"),
+            ("f-zero-value", "f0"),
+        ] {
+            let row = mutation(&document, id);
+            assert_eq!(row["status"], "killed", "{id}");
+            assert_eq!(row["killer"], killer, "{id}");
+            assert_eq!(row["weakening"], Value::Null, "{id}");
+        }
+        // A guard rewritten into a narrower one is missed by the syntactic test and runs: f1
+        // meets the open `f(1)` (unknown), as the mixed mutation's f0 meets the open `f(0)`. A
+        // changed rank that no overlap reads survives; a deleted rewrite rule is killed.
+        for (id, status, killer) in [
+            ("f-pos-shift", "unknown", None),
+            ("f-zero-attr", "survived", None),
+            ("out-del", "killed", Some("f0")),
+            ("mixed", "unknown", None),
+        ] {
+            let row = mutation(&document, id);
+            assert_eq!(row["status"], status, "{id}");
+            assert_eq!(row["killer"], json!(killer), "{id}");
+            assert_eq!(row["weakening"], Value::Null, "{id}");
+        }
+        assert_eq!(document["counts"]["unkillable"], 7);
+        let survivors = document["survivors"].as_array().unwrap();
+        for (id, ..) in weakenings {
+            assert!(!survivors.contains(&json!(id)), "{id}");
+        }
+        // No outcome record names an unkillable mutation (under the Z3 profile tier 1 is off and
+        // there is none at all).
+        let mut pending = vec![cache_of(&manifest).join(OUTCOMES_DIRECTORY)];
+        let mut recorded = Vec::new();
+        while let Some(path) = pending.pop() {
+            if path.is_dir() {
+                pending.extend(fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+            } else if path.extension().is_some_and(|e| e == "json") {
+                let record: Value =
+                    serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+                recorded.push(
+                    record["mutation_id"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                );
+            }
+        }
+        for (id, ..) in weakenings {
+            assert!(!recorded.iter().any(|r| r == id), "{id}");
+        }
+        // The resolution memo decides the unkillable rows of a second run, with the same rows.
+        let (again, ok) = search(&manifest, &mutations, &[]);
+        assert!(ok, "{again:#}");
+        for (id, ..) in weakenings {
+            assert_eq!(mutation(&again, id), mutation(&document, id), "{id}");
+        }
     }
 }

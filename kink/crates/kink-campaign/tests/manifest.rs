@@ -494,7 +494,8 @@ fn check_manifest(manifest: &CampaignManifest) {
     // member is kink's whole semantics identity, which adds the k-rust revision, patch
     // admission, the execution request, the result schema and the coverage reading. Re-pin
     // L1-2-land: and the one-sided kill rule. fz26 KINK-BASELINE-FINDINGS: and the data facts.
-    // fz26 KINK-OVERLOAD-VALUE: and the terminal-value walk.
+    // fz26 KINK-OVERLOAD-VALUE: and the terminal-value walk. kink27 R5-WEAKENING: and the
+    // weakening test.
     keys(
         &value["kink"],
         &[
@@ -506,6 +507,7 @@ fn check_manifest(manifest: &CampaignManifest) {
             "claim_removal",
             "mutant_consistency",
             "mutant_effect",
+            "weakening",
             "data_facts",
             "terminal_value",
             "definition_exclusion",
