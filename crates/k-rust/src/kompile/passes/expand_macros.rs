@@ -6,11 +6,11 @@
 //! counters = ["KompileMacroApplications", "KompileMacroExpansionVisits", "KompileMacroMeasuredNodes", "KompileMacroSubjectWalks"]
 //!
 //! [[cost]]
-//! mode = "one sentence, no macro rule with a parametric head"
+//! mode = "one sentence, no macro rule applying a parametric production in its left side or placing a binding in its right side"
 //! bound = "O((N + W x (P + U)) x R + K)"
 //!
 //! [[cost]]
-//! mode = "one sentence, some macro rule with a parametric head (typed in place)"
+//! mode = "one sentence, some macro rule applying a parametric production in its left side or placing a binding at a parametric argument in its right side (typed in place)"
 //! bound = "O(N + (M + W x (P + U)) x (h + R) + (W + 1) x T + K + W x h^2 + Y x (h + R + G))"
 //!
 //! [[cost]]
@@ -18,7 +18,7 @@
 //! bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions, and one typing of each macro rule of a parametric head when a subject with that head is first tried"
 //! ```
 //!
-//! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and every failed application whose rule set has a head fixing a sort parameter is retried after a rewriting round until a round rewrites nothing.
+//! With a macro rule whose left side applies a production with sort parameters (at its head or below), or whose right side places a binding at a parametric argument, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite and number of nested placement casts read (`Site::typed`), and every failed application whose rule set has a head fixing a sort parameter, or whose match an instance check refused, is retried after a rewriting round until a round rewrites nothing.
 //! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings.
 //! One walk finds the settled parts of the sentence (`Expander::settled_parts`), which are kept from the start, as the settled bindings of a rewrite's result are kept: expansion in place rebuilds nothing, and a settled part holds no application or token a rule could rewrite.
 //! Every other node is visited from its path, O(h), because the typing reports instances by path; its subject is read in place and moved out of the sentence for a rewrite, and only an application recorded for a retry is copied, since its retry compares it with the term then at its path.
@@ -42,7 +42,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
-    cell::OnceCell,
+    cell::{OnceCell, RefCell},
     collections::{BTreeMap, BTreeSet},
     fmt,
     hash::{Hash, Hasher},
@@ -64,7 +64,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     inner::ParsedProgram,
-    kast::{Label, NodeHead, Sort, Term, TermParts},
+    kast::{GeneratedLabel, Label, NodeHead, Sort, Term, TermParts},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
         declaration_facts::{EmittedDeclarations, backend_sort},
@@ -108,6 +108,12 @@ struct MacroRule {
     /// The instance of a parametric head, typed only when a subject with that head is tried;
     /// `None` for a head whose production has no sort parameter.
     head_instance: Option<HeadInstance>,
+    /// The instances of the parametric applications of the left side below its head, typed
+    /// with the head; `None` when the left side has none.
+    inner_instances: Option<InnerInstances>,
+    /// Whether a variable occurs more than once in the left side: matching then records where
+    /// each binding stands in the subject, to compare a later occurrence with it.
+    nonlinear: bool,
 }
 
 impl MacroRule {
@@ -131,6 +137,15 @@ impl MacroRule {
             self.head_typing(),
             Some(HeadTyping::Instance(head)) if head.iter().any(Option::is_some)
         )
+    }
+
+    /// What the typing of the macro rule says of the instance of each parametric application
+    /// of its left side below the head, by its path in the left side as [`Expander::matches`]
+    /// walks it; `None` when the left side has no such application or the rule is not typed.
+    fn inner_typing(&self) -> Option<&BTreeMap<Vec<u32>, HeadTyping>> {
+        self.inner_instances
+            .as_ref()
+            .and_then(|inner| inner.instances.get())
     }
 }
 
@@ -163,9 +178,21 @@ struct HeadInstance {
     path: Vec<u32>,
     /// The number of sort parameters of the head's production.
     parameters: usize,
-    /// The depth of the rule, from which the typing's stack zone is measured.
-    depth: usize,
     instance: OnceCell<HeadTyping>,
+}
+
+/// The parametric applications of a macro rule's left side below its head, whose instances
+/// the rule's typing fixes as it fixes the head's ([`HeadInstance`]), typed on first use.
+///
+/// The left side is a pattern over terms with instances: `pair(vv, Y:Stmt)` is the pair at
+/// `Stmt`, another term than the pair at `Value` of `pair(vv, vv)`, so a subject's application
+/// matches it only where their instances agree ([`instances_agree`]), as for the head.
+#[derive(Clone)]
+struct InnerInstances {
+    /// Each application: its path in the left side ([`Expander::matches`]), its path in the
+    /// rule's typing, and the number of sort parameters of its production.
+    sites: Vec<(Vec<u32>, Vec<u32>, usize)>,
+    instances: OnceCell<BTreeMap<Vec<u32>, HeadTyping>>,
 }
 
 /// Expand the macro and alias rules of each module in the rules, claims and contexts the
@@ -928,15 +955,19 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             .iter()
             .map(|rule| macro_priority(rule.sentence.attributes()))
             .collect::<Result<Vec<_>, _>>()?;
-        let parametric = all
-            .iter()
-            .any(|rule| parametric_head(productions, rule).is_some());
+        // Instances are read from typings when some macro rule's left side applies a
+        // parametric production, at its head or below (matching compares the instances), or
+        // its right side places a binding at a parametric argument ([`Self::placed`]): the
+        // placement casts then written are compared by the instances they leave.
+        let parametric = all.iter().any(|rule| {
+            applies_parametric(productions, &rule.left) || places_bindings(productions, &rule.right)
+        });
         let mut typer = None;
         let mut macro_typer = None;
         if parametric {
-            // Without a typing view of the macro module no head's instance can be known, and a
-            // rule whose instance is not known is not shown to apply to any application of its
-            // head. The view fails only on a subsort cycle, an error of the definition.
+            // Without a typing view of the macro module no instance of a macro rule can be
+            // known, and a rule whose instance is not known is not shown to apply to any
+            // application. The view fails only on a subsort cycle, an error of the definition.
             let module = &definition.module(macro_module).name;
             macro_typer = Some(
                 SentenceTyper::for_macro_expansion(definition, module).map_err(|error| {
@@ -945,14 +976,18 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     ))
                 })?,
             );
-            for (rule, depth) in all.iter_mut().zip(&depths) {
+            for rule in &mut all {
                 rule.head_instance =
                     parametric_head(productions, rule).map(|(path, parameters)| HeadInstance {
                         path,
                         parameters,
-                        depth: *depth,
                         instance: OnceCell::new(),
                     });
+                let sites = inner_parametric_sites(productions, rule);
+                rule.inner_instances = (!sites.is_empty()).then(|| InnerInstances {
+                    sites,
+                    instances: OnceCell::new(),
+                });
             }
             // A subject the term module's view cannot type has an unknown instance
             // ([`Expander::subject_instance`]), which agrees only with a head that fixes no
@@ -1209,7 +1244,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 let shape = self.shape(&subject, children, false);
                 return Ok((subject, shape));
             };
-            let Some(index) = self.select_rule(&subject, &rules, applied, None)? else {
+            let Some(index) =
+                self.select_rule(&subject, &rules, applied, None, None, &mut false)?
+            else {
                 let shape = self.shape(&subject, children, true);
                 return Ok((subject, shape));
             };
@@ -1345,13 +1382,15 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         // replaced by its binding, so both depths follow from the depths of the bindings, which
         // the shape of the subject records at the positions of the left side's variables.
         let mut bindings = BTreeMap::new();
-        binding_shapes(&rule.left, shape, &mut bindings);
+        binding_shapes(&rule.left, subject, shape, &mut bindings);
         let depths = bindings
             .into_iter()
             .map(|(name, binding)| (name, binding.depth))
             .collect::<BTreeMap<_, _>>();
         let subject_depth = shape.depth;
-        debug_assert_eq!(subject_depth, instance_depth(&rule.left, &depths));
+        // A placement cast the left side reads through is a node of the subject the left side
+        // does not count.
+        debug_assert!(instance_depth(&rule.left, &depths) <= subject_depth);
         let result_depth = instance_depth(&rule.right, &depths);
         let diverges = |message: String| {
             Err(Diagnostic::error(
@@ -1402,13 +1441,19 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// A rule whose head instance cannot be compared with `instance` ([`Agreement::Undecided`])
     /// is passed over when it would not apply anyway, and is reported when it would: choosing
     /// it or passing it over would then each assert something about its instance that nothing
-    /// shows.
+    /// shows. The instances of the subject's applications below its head are read from the
+    /// typing of `at`, the site and path of the subject, when it stands in one
+    /// ([`Self::instance_checks_hold`]); a rule whose left side matches but whose instance checks
+    /// fail is passed over and sets `refused`, since a later rewrite of the site may change the
+    /// instances it read.
     fn select_rule(
         &self,
         subject: &Term,
         rules: &[MacroRule],
         applied: &BTreeSet<usize>,
         instance: Option<&Instance>,
+        at: Option<(&Site, &[u32])>,
+        refused: &mut bool,
     ) -> Result<Option<usize>, Diagnostic> {
         // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule is returned.
         for (index, rule) in rules.iter().enumerate() {
@@ -1428,9 +1473,17 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             if agreement == Agreement::Disagrees {
                 continue;
             }
-            let mut bindings = BTreeMap::new();
-            let matched = self.matches(&mut bindings, &rule.left, subject)?;
+            let mut matching = Matching::new(rule);
+            let matched = self.matches(&mut matching, &rule.left, subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
+                match self.instance_checks_hold(&matching.checks, at) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        *refused = true;
+                        continue;
+                    }
+                    Err(reason) => return Err(undecided_inner_instance(rule, subject, &reason)),
+                }
                 if let Some(instance) = instance
                     && agreement == Agreement::Undecided
                 {
@@ -1520,18 +1573,22 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let Sentence::Rule { body, .. } = site.sentence else {
             unreachable!("the site holds the rule it was built from")
         };
+        // The typing of a value holding a placement cast reads the cast's operand at its own
+        // sort ([`Site::typed`]), so the agreement is checked of a value without one.
         #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
-        measure::without_counting(|| {
-            crate::kompile::invariants::ground::assert_ground_instances(
-                self.productions,
-                self.typer
-                    .as_ref()
-                    .expect("ground sites have a typing view"),
-                &self.injector,
-                &body,
-                position,
-            );
-        });
+        if !contains_placement(&body) {
+            measure::without_counting(|| {
+                crate::kompile::invariants::ground::assert_ground_instances(
+                    self.productions,
+                    self.typer
+                        .as_ref()
+                        .expect("ground sites have a typing view"),
+                    &self.injector,
+                    &body,
+                    position,
+                );
+            });
+        }
         Ok(self.released(body))
     }
 
@@ -1718,9 +1775,19 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 .insert(path.to_vec(), (applied.clone(), *grown));
         }
         let subject = site.term(path);
-        let Some(index) = self.select_rule(subject, &rules, applied, instance.as_ref())? else {
+        let at = self.typer.is_some().then_some((&*site, path));
+        let mut refused = false;
+        let Some(index) = self.select_rule(
+            subject,
+            &rules,
+            applied,
+            instance.as_ref(),
+            at,
+            &mut refused,
+        )?
+        else {
             let shape = self.shape(subject, children, true);
-            if instance.is_some() && rules.iter().any(MacroRule::fixes_a_parameter) {
+            if refused || (instance.is_some() && rules.iter().any(MacroRule::fixes_a_parameter)) {
                 measure::bump(Counter::KompileMacroSubjectWalks);
                 let subject = subject.clone();
                 site.tried
@@ -1751,37 +1818,59 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             return;
         };
         for rule in rules {
-            if let Some(head) = &rule.head_instance {
-                head.instance.get_or_init(|| {
-                    with_stack(walk_zone(head.depth), || head_instance(typer, rule, head))
-                });
+            let head = rule
+                .head_instance
+                .as_ref()
+                .filter(|head| head.instance.get().is_none());
+            let inner = rule
+                .inner_instances
+                .as_ref()
+                .filter(|inner| inner.instances.get().is_none());
+            if head.is_none() && inner.is_none() {
+                continue;
+            }
+            // One typing of the rule gives the instance of its head and of every parametric
+            // application below it.
+            let typing = with_stack(walk_zone(rule.depth), || typer.typing(&rule.sentence));
+            if let Some(head) = head {
+                head.instance.get_or_init(|| head_instance(&typing, head));
+            }
+            if let Some(inner) = inner {
+                inner
+                    .instances
+                    .get_or_init(|| inner_instances(&typing, inner));
             }
         }
     }
 
     /// The instance of the application at `path` in the current typing of its site.
-    fn subject_instance(&self, site: &mut Site, path: &[u32]) -> Instance {
+    fn subject_instance(&self, site: &Site, path: &[u32]) -> Instance {
         let Some(typer) = self.typer.as_ref() else {
             return Instance::Unknown;
         };
-        match site
-            .typing(typer)
-            .and_then(|typing| typing.instances.get(path))
-        {
-            Some(instance) => Instance::Known(instance.clone()),
-            None => Instance::Unknown,
-        }
+        site.instance(typer, path)
     }
 
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "Term is syntax; only the listed variants are special here"
     )]
-    /// Whether `pattern` matches `subject`, extending `bindings` with the subterm of `subject`
-    /// each of its variables stands for.
+    /// Whether `pattern` matches `subject`, extending the bindings of `matching` with the
+    /// subterm of `subject` each of its variables stands for, and recording in it the instance
+    /// checks the match depends on ([`InstanceCheck`]), which the caller decides.
+    ///
+    /// A parametric application of the pattern stands at the instance the rule's typing gives
+    /// it, and a subject's at the instance the typing of its site gives it, so the two are one
+    /// term only where their instances agree: the match records that check
+    /// ([`InstanceCheck::Pattern`]) and compares their arguments. An argument of the subject
+    /// that a placement cast stands for (`#SemanticCastToS(t)`, [`Self::placed`]) is the
+    /// operand `t` injected at the application's instance, as the pattern's argument is
+    /// injected at that same instance, so the pattern's argument is matched against `t`: a
+    /// constructor or token against what was placed, and a variable of any sort that `t`'s
+    /// sort is below.
     fn matches<'pattern, 'subject>(
         &self,
-        bindings: &mut Bindings<'pattern, 'subject>,
+        matching: &mut Matching<'pattern, 'subject>,
         pattern: &'pattern Term,
         subject: &'subject Term,
     ) -> Result<bool, Diagnostic> {
@@ -1790,8 +1879,23 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             .and_then(|metadata| metadata.sort.as_ref());
         match pattern.unannotated() {
             Term::Variable { name, sort } => {
-                if let Some(existing) = bindings.get(name.as_str()) {
-                    return Ok(self.same_term(existing, subject));
+                if let Some(existing) = matching.bindings.get(name.as_str()) {
+                    let Matching {
+                        paths,
+                        subject_path,
+                        checks,
+                        ..
+                    } = matching;
+                    let existing_path = paths
+                        .get(name.as_str())
+                        .expect("a repeated variable's binding records its path");
+                    return Ok(self.same_term(
+                        existing,
+                        existing_path,
+                        subject,
+                        subject_path,
+                        checks,
+                    ));
                 }
                 if let Some(pattern_sort) = sort.as_ref().or(metadata_sort) {
                     let subject_sort = self
@@ -1802,7 +1906,17 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                         return Ok(false);
                     }
                 }
-                bindings.insert(name, subject);
+                // An anonymous variable is a variable of its own at each occurrence, so it binds
+                // nothing a later occurrence is compared with; a definition's anonymous
+                // variables are named before its rules are expanded, a program's macro rules
+                // keep them as written.
+                if crate::kast::binding::is_unresolved_anonymous(name) {
+                    return Ok(true);
+                }
+                matching.bindings.insert(name, subject);
+                if matching.nonlinear {
+                    matching.paths.insert(name, matching.subject_path.clone());
+                }
                 Ok(true)
             }
             Term::Apply {
@@ -1824,8 +1938,28 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 if pattern_arguments.len() != subject_arguments.len() {
                     return Ok(false);
                 }
-                for (pattern, subject) in pattern_arguments.iter().zip(subject_arguments) {
-                    if !self.matches(bindings, pattern, subject)? {
+                if let Some(typing) = matching
+                    .inner
+                    .and_then(|inner| inner.get(&matching.pattern_path))
+                {
+                    matching.checks.push(InstanceCheck::Pattern(
+                        typing,
+                        matching.subject_path.clone(),
+                    ));
+                }
+                let (pattern_depth, subject_depth) =
+                    (matching.pattern_path.len(), matching.subject_path.len());
+                for (index, (pattern, subject)) in
+                    pattern_arguments.iter().zip(subject_arguments).enumerate()
+                {
+                    let index = u32::try_from(index).expect("a term has fewer than 2^32 children");
+                    matching.pattern_path.push(index);
+                    matching.subject_path.push(index);
+                    let subject = unplaced(subject, &mut matching.subject_path);
+                    let matched = self.matches(matching, pattern, subject)?;
+                    matching.pattern_path.truncate(pattern_depth);
+                    matching.subject_path.truncate(subject_depth);
+                    if !matched {
                         return Ok(false);
                     }
                 }
@@ -1840,8 +1974,19 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             Term::As {
                 pattern: aliased,
                 alias,
-            } => Ok(self.matches(bindings, aliased, subject)?
-                && self.matches(bindings, alias, subject)?),
+            } => {
+                let depth = matching.pattern_path.len();
+                matching.pattern_path.push(0);
+                let matched = self.matches(matching, aliased, subject)?;
+                matching.pattern_path.truncate(depth);
+                if !matched {
+                    return Ok(false);
+                }
+                matching.pattern_path.push(1);
+                let matched = self.matches(matching, alias, subject)?;
+                matching.pattern_path.truncate(depth);
+                Ok(matched)
+            }
             _ if matches!(
                 subject.unannotated(),
                 Term::Variable { .. } | Term::Token { .. }
@@ -1855,12 +2000,43 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         }
     }
 
-    /// Whether `left` and `right` are one term: the same nodes, each pair of tokens denoting
-    /// one value ([`Self::same_token`]). Compared without recursion.
-    fn same_term(&self, left: &Term, right: &Term) -> bool {
-        let mut pending = vec![(left, right)];
-        // Invariant: every pair of corresponding subterms of `left` and `right` compared so far is the same node, and `pending` holds the corresponding pairs not yet compared; each iteration compares one pair and pushes its children, so the walk visits each node of `left` at most once.
-        while let Some((left, right)) = pending.pop() {
+    /// Whether `left` and `right`, the subterms of a subject at the paths `left_at` and
+    /// `right_at` that two occurrences of one variable matched, are one term: the same nodes,
+    /// each pair of tokens denoting one value ([`Self::same_token`]), and placement casts
+    /// ([`Self::placed`]) read as what they denote. Compared without recursion.
+    ///
+    /// A placement cast is its operand injected at the instance of the parametric application
+    /// it is an argument of, so where the two terms place an argument differently (a cast on
+    /// one side only, or casts to two sorts) the operands are compared, and the term is one
+    /// only if the two applications have one instance: that is recorded in `checks`
+    /// ([`InstanceCheck::Same`]) for the caller to decide from the typing. Where both place it
+    /// alike, the casts are compared as nodes.
+    fn same_term(
+        &self,
+        left: &Term,
+        left_at: &[u32],
+        right: &Term,
+        right_at: &[u32],
+        checks: &mut Vec<InstanceCheck<'_>>,
+    ) -> bool {
+        // The nodes below each root, as a tree of steps from the root (node 0), so that a path
+        // is spelled only for a check.
+        let mut steps: [Vec<(usize, u32)>; 2] = [vec![(0, 0)], vec![(0, 0)]];
+        let path = |steps: &[(usize, u32)], root: &[u32], node: usize| {
+            let mut reversed = Vec::new();
+            let mut node = node;
+            while node != 0 {
+                let (parent, step) = steps[node];
+                reversed.push(step);
+                node = parent;
+            }
+            let mut path = root.to_vec();
+            path.extend(reversed.into_iter().rev());
+            path
+        };
+        let mut pending = vec![(left, 0, right, 0)];
+        // Invariant: every pair of corresponding subterms of `left` and `right` compared so far is the same node, placement casts read as above, and `pending` holds the corresponding pairs not yet compared with their nodes in `steps`; each iteration compares one pair and pushes its children, so the walk visits each node of `left` at most once.
+        while let Some((left, left_node, right, right_node)) = pending.pop() {
             let same = match (left.unannotated(), right.unannotated()) {
                 (
                     Term::Token { token, sort },
@@ -1871,13 +2047,104 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 ) => sort == other_sort && self.same_token(sort, token, other),
                 (left, right) => NodeHead::of(left) == NodeHead::of(right),
             };
-            let (left, right) = (children_of(left), children_of(right));
-            if !same || left.len() != right.len() {
+            let parametric = matches!(
+                left.unannotated(),
+                Term::Apply { label, .. } if production_parameters(self.productions, label).is_some()
+            );
+            let (left_children, right_children) = (children_of(left), children_of(right));
+            if !same || left_children.len() != right_children.len() {
                 return false;
             }
-            pending.extend(left.into_iter().zip(right));
+            let mut placed_differently = false;
+            for (index, (left, right)) in left_children.into_iter().zip(right_children).enumerate()
+            {
+                let index = u32::try_from(index).expect("a term has fewer than 2^32 children");
+                let mut nodes = [left_node, right_node];
+                let mut sides = [left, right];
+                for (side, node) in nodes.iter_mut().enumerate() {
+                    steps[side].push((*node, index));
+                    *node = steps[side].len() - 1;
+                }
+                if placement_label(sides[0]) != placement_label(sides[1]) {
+                    placed_differently = true;
+                    for (side, node) in nodes.iter_mut().enumerate() {
+                        while let Some(operand) = placement_operand(sides[side]) {
+                            sides[side] = operand;
+                            steps[side].push((*node, 0));
+                            *node = steps[side].len() - 1;
+                        }
+                    }
+                }
+                pending.push((sides[0], nodes[0], sides[1], nodes[1]));
+            }
+            if placed_differently && parametric {
+                checks.push(InstanceCheck::Same(
+                    path(&steps[0], left_at, left_node),
+                    path(&steps[1], right_at, right_node),
+                ));
+            }
         }
         true
+    }
+
+    /// Whether the instance checks a match recorded hold ([`InstanceCheck`]), each subject path
+    /// read below `at`, the site and path of the subject: `Ok(false)` when one does not (the
+    /// instances differ, or the subject's are not known yet), else `Err` with the reason when a
+    /// pattern's instance is not known, so that nothing decides whether the rule is about the
+    /// subject's instances.
+    fn instance_checks_hold(
+        &self,
+        checks: &[InstanceCheck<'_>],
+        at: Option<(&Site, &[u32])>,
+    ) -> Result<bool, String> {
+        let instance = |relative: &[u32]| match (self.typer.as_ref(), at) {
+            (Some(typer), Some((site, root))) => {
+                let mut path = root.to_vec();
+                path.extend_from_slice(relative);
+                site.instance(typer, &path)
+            }
+            _ => Instance::Unknown,
+        };
+        let mut undecided = None;
+        for check in checks {
+            let agreement = match check {
+                InstanceCheck::Pattern(pattern, subject) => {
+                    instances_agree(Some(pattern), &instance(subject))
+                }
+                InstanceCheck::Same(left, right) => match (instance(left), instance(right)) {
+                    (Instance::Known(left), right @ Instance::Known(_)) => {
+                        match instances_agree(Some(&HeadTyping::Instance(left)), &right) {
+                            Agreement::Agrees => Agreement::Agrees,
+                            Agreement::Disagrees | Agreement::Undecided => Agreement::Disagrees,
+                        }
+                    }
+                    _ => Agreement::Disagrees,
+                },
+            };
+            match agreement {
+                Agreement::Agrees => {}
+                Agreement::Disagrees => return Ok(false),
+                Agreement::Undecided => {
+                    if undecided.is_none() {
+                        undecided = Some(match check {
+                            InstanceCheck::Pattern(HeadTyping::Unknown(reason), _) => {
+                                reason.clone()
+                            }
+                            InstanceCheck::Pattern(HeadTyping::Instance(pattern), subject) => {
+                                format!(
+                                    "the instance {} of an application of its left side has another number of sort parameters than the subject's at path {subject:?}",
+                                    shown_instance(pattern)
+                                )
+                            }
+                            InstanceCheck::Same(..) => {
+                                unreachable!("a comparison of two subject instances is decided")
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        undecided.map_or(Ok(true), Err)
     }
 
     /// Whether the tokens `left` and `right` of `sort` denote one value of it.
@@ -2067,11 +2334,12 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     /// rule's typing gives it, with the binding injected into the variable's sort; where the
     /// sorts are equal the binding already is.
     ///
-    /// The cast is how the term states its sort while expansion goes on: the typing of the
-    /// sentence, which reads the instances of parametric heads, places the operand at the
-    /// cast's sort, and a later macro rule's variable matches the cast by that sort, as it
-    /// matches the injection the cast stands for. When expansion ends, each such cast is written
-    /// as that placement ([`Self::released`]).
+    /// The cast is how the term states its sort while expansion goes on. The instances of the
+    /// site are read from a typing in which the cast stands for a value of its sort
+    /// ([`Site::typed`]), so the application keeps the instance the placement gives it, and a
+    /// later macro rule's left side matches the cast as the operand it places, at the
+    /// application's instance ([`Self::matches`]). When expansion ends, each such cast is
+    /// written as that placement ([`Self::released`]).
     fn placed(&mut self, binding: Term, known: Known, sort: &Sort) -> (Term, Known) {
         let placement = self
             .injector
@@ -2295,6 +2563,175 @@ fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
 /// The subterm of a matched subject each variable of a rule's left side stands for.
 type Bindings<'pattern, 'subject> = BTreeMap<&'pattern str, &'subject Term>;
 
+/// The state of matching one macro rule's left side against a subject ([`Expander::matches`]).
+struct Matching<'pattern, 'subject> {
+    bindings: Bindings<'pattern, 'subject>,
+    /// The path below the subject's root of each binding, kept when the left side is
+    /// nonlinear, so that a later occurrence of the variable is compared with it.
+    paths: BTreeMap<&'pattern str, Vec<u32>>,
+    nonlinear: bool,
+    /// What the rule's typing says of the instance of each parametric application of its left
+    /// side below the head, by its left-side path ([`MacroRule::inner_typing`]).
+    inner: Option<&'pattern BTreeMap<Vec<u32>, HeadTyping>>,
+    /// The path in the left side of the pattern being matched.
+    pattern_path: Vec<u32>,
+    /// The path below the subject's root of the subterm being matched.
+    subject_path: Vec<u32>,
+    /// The instance checks the match depends on.
+    checks: Vec<InstanceCheck<'pattern>>,
+}
+
+impl<'pattern> Matching<'pattern, '_> {
+    fn new(rule: &'pattern MacroRule) -> Self {
+        Self {
+            bindings: BTreeMap::new(),
+            paths: BTreeMap::new(),
+            nonlinear: rule.nonlinear,
+            inner: rule.inner_typing(),
+            pattern_path: Vec::new(),
+            subject_path: Vec::new(),
+            checks: Vec::new(),
+        }
+    }
+}
+
+/// A condition on instances that a structural match of a left side depends on, decided from
+/// the typing of the subject's site ([`Expander::instance_checks_hold`]); subject paths are
+/// below the subject's root.
+enum InstanceCheck<'pattern> {
+    /// The subject's application at the path stands where the left side has a parametric
+    /// application whose instance the rule's typing gives: the two instances must agree
+    /// ([`instances_agree`]).
+    Pattern(&'pattern HeadTyping, Vec<u32>),
+    /// The subject's applications at the two paths stand in two occurrences of one variable
+    /// and place an argument differently ([`Expander::same_term`]): they must have one
+    /// instance.
+    Same(Vec<u32>, Vec<u32>),
+}
+
+/// The operand of `term` when it is a placement cast `#SemanticCastToS(t)`, which stands for
+/// `t` injected at `S` ([`Expander::placed`]).
+fn placement_operand(term: &Term) -> Option<&Term> {
+    match term.unannotated() {
+        Term::Apply { label, arguments } if is_placement(label) => match arguments.as_slice() {
+            [operand] => Some(operand),
+            _ => None,
+        },
+        Term::Apply { .. }
+        | Term::InjectedLabel(_)
+        | Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Sequence(_)
+        | Term::Annotated { .. } => None,
+    }
+}
+
+/// The label of `term` when it is a placement cast ([`placement_operand`]).
+fn placement_label(term: &Term) -> Option<&Label> {
+    match term.unannotated() {
+        Term::Apply { label, .. } if placement_operand(term).is_some() => Some(label),
+        Term::Apply { .. }
+        | Term::InjectedLabel(_)
+        | Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Sequence(_)
+        | Term::Annotated { .. } => None,
+    }
+}
+
+/// Whether `term` holds a placement cast ([`placement_operand`]).
+fn contains_placement(term: &Term) -> bool {
+    let mut pending = vec![term];
+    // Invariant: no node visited so far is a placement cast, and `pending` holds the unvisited children of the visited nodes.
+    while let Some(term) = pending.pop() {
+        if placement_operand(term).is_some() {
+            return true;
+        }
+        pending.extend(children_of(term));
+    }
+    false
+}
+
+/// `term`, standing inside `enclosing` placement casts, with each placement cast that stands
+/// inside more than `keep` of them, itself counted, replaced by a variable of the cast's sort
+/// (`#Placed1`, `#Placed2`, ... by `next`, a name no variable of a sentence has): the view
+/// [`Site::typed`] types.
+fn placement_view(term: &Term, keep: usize, enclosing: usize, next: &mut usize) -> Term {
+    let metadata = term.metadata().cloned();
+    let inside = enclosing + usize::from(placement_operand(term).is_some());
+    if inside > enclosing
+        && inside > keep
+        && let Term::Apply { label, .. } = term.unannotated()
+    {
+        *next += 1;
+        return Term::Variable {
+            name: format!("#Placed{next}"),
+            sort: label.semantic_cast_sort(),
+        };
+    }
+    let rebuilt = match term.unannotated() {
+        Term::Apply { label, arguments } => Term::Apply {
+            label: label.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| placement_view(argument, keep, inside, next))
+                .collect(),
+        },
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(placement_view(left, keep, inside, next)),
+            right: Box::new(placement_view(right, keep, inside, next)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(placement_view(pattern, keep, inside, next)),
+            alias: Box::new(placement_view(alias, keep, inside, next)),
+        },
+        Term::Sequence(items) => Term::Sequence(
+            items
+                .iter()
+                .map(|item| placement_view(item, keep, inside, next))
+                .collect(),
+        ),
+        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => {
+            leaf.clone()
+        }
+        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
+    };
+    with_metadata(rebuilt, metadata)
+}
+
+fn is_placement(label: &Label) -> bool {
+    matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+}
+
+/// `term` with the placement casts at its root read through, each step into an operand
+/// appended to `path`.
+fn unplaced<'term>(term: &'term Term, path: &mut Vec<u32>) -> &'term Term {
+    let mut term = term;
+    while let Some(operand) = placement_operand(term) {
+        path.push(0);
+        term = operand;
+    }
+    term
+}
+
+/// `term`, an argument a left side's application matched, with the placement casts at its
+/// root read through as [`Expander::matches`] reads them, and its shape `shape` likewise.
+fn unplaced_owned(term: Term, shape: Shape) -> (Term, Shape) {
+    let (mut term, mut shape) = (term, shape);
+    while placement_operand(&term).is_some() {
+        let TermParts::Apply { mut arguments, .. } = term.into_unannotated().into_parts() else {
+            unreachable!("a placement cast is an application")
+        };
+        term = arguments.pop().expect("a placement cast has one operand");
+        shape = shape.children.into_iter().next().unwrap_or_default();
+    }
+    (term, shape)
+}
+
 /// What expansion knows of a term before expanding it.
 ///
 /// A term is settled when no subterm of it is an application or a token that some macro
@@ -2391,27 +2828,25 @@ fn take_bindings<'pattern>(
             };
             let mut shapes = shape.children.into_iter();
             for (pattern, argument) in patterns.iter().zip(arguments) {
-                take_bindings(
-                    pattern,
-                    argument,
-                    shapes.next().unwrap_or_default(),
-                    bindings,
-                );
+                let (argument, shape) = unplaced_owned(argument, shapes.next().unwrap_or_default());
+                take_bindings(pattern, argument, shape, bindings);
             }
         }
         _ => {}
     }
 }
 
-/// The shape, within `shape`, the shape of a subject `pattern` matched, of the subterm each
-/// variable of `pattern` stands for: the one at the variable's first occurrence, as in
-/// [`take_bindings`]. `shape` records every position of the subject.
+/// The shape, within `shape`, the shape of `subject`, which `pattern` matched, of the subterm
+/// each variable of `pattern` stands for: the one at the variable's first occurrence, as in
+/// [`take_bindings`], placement casts read through alike. `shape` records every position of
+/// the subject.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "a left side that matched is made of applications, tokens, variables and aliases"
 )]
 fn binding_shapes<'pattern, 'shape>(
     pattern: &'pattern Term,
+    subject: &Term,
     shape: &'shape Shape,
     bindings: &mut BTreeMap<&'pattern str, &'shape Shape>,
 ) {
@@ -2420,13 +2855,22 @@ fn binding_shapes<'pattern, 'shape>(
             bindings.entry(name.as_str()).or_insert(shape);
         }
         Term::As { pattern, alias } => {
-            binding_shapes(alias, shape, bindings);
-            binding_shapes(pattern, shape, bindings);
+            binding_shapes(alias, subject, shape, bindings);
+            binding_shapes(pattern, subject, shape, bindings);
         }
         Term::Apply { arguments, .. } => {
             debug_assert_eq!(arguments.len(), shape.children.len());
-            for (pattern, shape) in arguments.iter().zip(&shape.children) {
-                binding_shapes(pattern, shape, bindings);
+            let subjects = children_of(subject);
+            for ((pattern, subject), shape) in arguments.iter().zip(subjects).zip(&shape.children) {
+                let (mut subject, mut shape) = (subject, shape);
+                while let Some(operand) = placement_operand(subject) {
+                    subject = operand;
+                    shape = shape
+                        .children
+                        .first()
+                        .expect("a recorded shape keeps its children");
+                }
+                binding_shapes(pattern, subject, shape, bindings);
             }
         }
         _ => {}
@@ -2635,7 +3079,13 @@ type Context = (BTreeSet<usize>, usize);
 struct Site {
     sentence: Sentence,
     position: Option<Sort>,
-    typing: Option<Option<SentenceTyping>>,
+    /// The typings of the sentence as it stands ([`Self::typed`]), by the number of placement
+    /// casts kept, each computed when an instance is first read there and dropped at each
+    /// rewrite; `None` inside when the sentence does not type.
+    typings: RefCell<BTreeMap<usize, Option<SentenceTyping>>>,
+    /// Whether the sentence holds a placement cast, read when it is first typed and dropped
+    /// at each rewrite.
+    holds_placement: OnceCell<bool>,
     /// The number of rewrites made in the sentence so far.
     rewrites: usize,
     /// Applications whose rule set has a head fixing a sort parameter and to which no rule applied,
@@ -2651,7 +3101,8 @@ impl Site {
         Self {
             sentence,
             position: None,
-            typing: None,
+            typings: RefCell::default(),
+            holds_placement: OnceCell::new(),
             rewrites: 0,
             tried: Vec::new(),
             applied: BTreeMap::new(),
@@ -2745,7 +3196,8 @@ impl Site {
             self.applied.remove(&tried_path);
         }
         *self.term_mut(path) = replacement;
-        self.typing = None;
+        self.typings = RefCell::default();
+        self.holds_placement = OnceCell::new();
         self.rewrites += 1;
     }
 
@@ -2784,41 +3236,115 @@ impl Site {
         term
     }
 
-    /// The current typing, cached until a rewrite changes it; a ground value is typed at
-    /// its stored position, and a sentence uses its own typing. A typing failure leaves
-    /// instances unknown until a rewrite makes the site typable.
-    fn typing(&mut self, typer: &SentenceTyper<'_>) -> Option<&SentenceTyping> {
-        if self.typing.is_none() {
-            let typed = if let Some(position) = &self.position {
-                typer.ground_typing(self.fields()[0], position)
+    /// The typing of the sentence as it stands, in which an application inside `keep`
+    /// placement casts reads the instance its emitted term has; `None` when it does not type.
+    /// A ground value is typed at its stored position, and a sentence uses its own typing.
+    ///
+    /// The typing resolves a semantic cast of a term to its operand, typed at its own sort, so
+    /// it reads `id(#SemanticCastToStmt(vv))` as `id` at `Value`, where the term denotes `id` at
+    /// `Stmt` over the injection of `vv` ([`Expander::released`]). The application stands for
+    /// what it denotes when each placement cast around or beside it, but those enclosing it, is
+    /// replaced by a variable of the cast's sort, which the typing gives that sort: so the
+    /// application's own instance and every instance above it follow from the sort the cast
+    /// places its operand at, and the enclosing casts' operands, which hold it, are typed in
+    /// place as the emitted injection types them.
+    fn typed(&self, typer: &SentenceTyper<'_>, keep: usize) -> Option<SentenceTyping> {
+        let holds_placement = *self
+            .holds_placement
+            .get_or_init(|| self.fields().into_iter().any(contains_placement));
+        fn viewed<'term>(
+            term: &'term Term,
+            holds_placement: bool,
+            keep: usize,
+            next: &mut usize,
+        ) -> std::borrow::Cow<'term, Term> {
+            if holds_placement {
+                std::borrow::Cow::Owned(placement_view(term, keep, 0, next))
             } else {
-                match &self.sentence {
-                    Sentence::Context {
-                        body,
-                        requires,
-                        attributes,
-                    } => typer.typing(&Sentence::Rule {
-                        body: body.clone(),
-                        requires: requires.clone(),
-                        ensures: truth(),
-                        attributes: attributes.clone(),
-                    }),
-                    sentence @ Sentence::SyntaxSort { .. }
-                    | sentence @ Sentence::SortSynonym { .. }
-                    | sentence @ Sentence::SyntaxLexical { .. }
-                    | sentence @ Sentence::Production { .. }
-                    | sentence @ Sentence::SyntaxAssociativity { .. }
-                    | sentence @ Sentence::SyntaxPriority { .. }
-                    | sentence @ Sentence::ContextAlias { .. }
-                    | sentence @ Sentence::Rule { .. }
-                    | sentence @ Sentence::Claim { .. }
-                    | sentence @ Sentence::Configuration { .. }
-                    | sentence @ Sentence::Bubble { .. } => typer.typing(sentence),
-                }
-            };
-            self.typing = Some(typed.ok());
+                std::borrow::Cow::Borrowed(term)
+            }
         }
-        self.typing.as_ref().and_then(Option::as_ref)
+        let mut next = 0;
+        let mut view = |term| viewed(term, holds_placement, keep, &mut next);
+        let typed = if let Some(position) = &self.position {
+            typer.ground_typing(&view(self.fields()[0]), position)
+        } else {
+            match &self.sentence {
+                Sentence::Context {
+                    body,
+                    requires,
+                    attributes,
+                } => typer.typing(&Sentence::Rule {
+                    body: view(body).into_owned(),
+                    requires: view(requires).into_owned(),
+                    ensures: truth(),
+                    attributes: attributes.clone(),
+                }),
+                Sentence::Rule {
+                    body,
+                    requires,
+                    ensures,
+                    attributes,
+                } if holds_placement => typer.typing(&Sentence::Rule {
+                    body: view(body).into_owned(),
+                    requires: view(requires).into_owned(),
+                    ensures: view(ensures).into_owned(),
+                    attributes: attributes.clone(),
+                }),
+                Sentence::Claim {
+                    body,
+                    requires,
+                    ensures,
+                    attributes,
+                } if holds_placement => typer.typing(&Sentence::Claim {
+                    body: view(body).into_owned(),
+                    requires: view(requires).into_owned(),
+                    ensures: view(ensures).into_owned(),
+                    attributes: attributes.clone(),
+                }),
+                sentence @ Sentence::SyntaxSort { .. }
+                | sentence @ Sentence::SortSynonym { .. }
+                | sentence @ Sentence::SyntaxLexical { .. }
+                | sentence @ Sentence::Production { .. }
+                | sentence @ Sentence::SyntaxAssociativity { .. }
+                | sentence @ Sentence::SyntaxPriority { .. }
+                | sentence @ Sentence::ContextAlias { .. }
+                | sentence @ Sentence::Rule { .. }
+                | sentence @ Sentence::Claim { .. }
+                | sentence @ Sentence::Configuration { .. }
+                | sentence @ Sentence::Bubble { .. } => typer.typing(sentence),
+            }
+        };
+        typed.ok()
+    }
+
+    /// The instance of the application at `path` as the sentence stands: the instance its
+    /// emitted term gives it ([`Self::typed`]), cached until a rewrite changes the sentence;
+    /// unknown when the sentence does not type or records no instance there.
+    fn instance(&self, typer: &SentenceTyper<'_>, path: &[u32]) -> Instance {
+        let keep = self.casts_above(path);
+        let mut typings = self.typings.borrow_mut();
+        let typing = typings
+            .entry(keep)
+            .or_insert_with(|| self.typed(typer, keep));
+        match typing
+            .as_ref()
+            .and_then(|typing| typing.instances.get(path))
+        {
+            Some(instance) => Instance::Known(instance.clone()),
+            None => Instance::Unknown,
+        }
+    }
+
+    /// The number of placement casts strictly above the node at `path`.
+    fn casts_above(&self, path: &[u32]) -> usize {
+        let mut term = self.fields()[path[0] as usize];
+        let mut casts = 0;
+        for step in &path[1..] {
+            casts += usize::from(placement_operand(term).is_some());
+            term = child(term, *step as usize);
+        }
+        casts
     }
 }
 
@@ -3001,6 +3527,20 @@ fn undecided_instance(rule: &MacroRule, subject: &Term, instance: &Instance) -> 
     )
 }
 
+/// The error for a macro rule whose left side matches `subject` but the instance of one of its
+/// parametric applications below the head is not known (`reason`), so the rule is not shown to
+/// be an equation about the subject's instances.
+fn undecided_inner_instance(rule: &MacroRule, subject: &Term, reason: &str) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::InvalidMacroExpansion,
+        format!(
+            "Cannot decide whether this macro rule applies to {}: its left side matches, but the instance of a parametric application in it is not known ({reason}), so the rule is not shown to be an equation about the instances of the subject's applications.",
+            shown(subject)
+        ),
+        &rule.sentence,
+    )
+}
+
 /// A label instance as K text, `_` for a parameter left open: `{Int, _}`.
 fn shown_instance(instance: &[Option<Sort>]) -> String {
     let parameters = instance
@@ -3048,8 +3588,11 @@ fn parametric_head(
 /// (a successful typing records one at every application of a parametric production, unless
 /// the two sides of a nested rewrite type it differently), leaves the instance unknown: it is
 /// not evidence that the rule leaves any parameter open.
-fn head_instance(typer: &SentenceTyper<'_>, rule: &MacroRule, head: &HeadInstance) -> HeadTyping {
-    let typing = match typer.typing(&rule.sentence) {
+fn head_instance(
+    typing: &Result<SentenceTyping, impl fmt::Display>,
+    head: &HeadInstance,
+) -> HeadTyping {
+    let typing = match typing {
         Ok(typing) => typing,
         Err(error) => return HeadTyping::Unknown(format!("the rule does not type: {error}")),
     };
@@ -3064,6 +3607,147 @@ fn head_instance(typer: &SentenceTyper<'_>, rule: &MacroRule, head: &HeadInstanc
         )),
         None => HeadTyping::Unknown("the rule's typing records no instance at its head".to_owned()),
     }
+}
+
+/// The instance the typing of a macro rule gives each parametric application of its left side
+/// below the head (`inner`), by its path in the left side; unknown where the rule does not
+/// type or its typing records no instance of the application's production there, as for the
+/// head ([`head_instance`]).
+fn inner_instances(
+    typing: &Result<SentenceTyping, impl fmt::Display>,
+    inner: &InnerInstances,
+) -> BTreeMap<Vec<u32>, HeadTyping> {
+    inner
+        .sites
+        .iter()
+        .map(|(left, path, parameters)| {
+            let typed = match typing {
+                Err(error) => HeadTyping::Unknown(format!("the rule does not type: {error}")),
+                Ok(typing) => match typing.instances.get(path.as_slice()) {
+                    Some(instance) if instance.len() == *parameters => {
+                        HeadTyping::Instance(instance.clone())
+                    }
+                    Some(instance) => HeadTyping::Unknown(format!(
+                        "the rule's typing gives an application of its left side the instance {}, where its production has {parameters} sort parameters",
+                        shown_instance(instance)
+                    )),
+                    None => HeadTyping::Unknown(
+                        "the rule's typing records no instance at an application of its left side"
+                            .to_owned(),
+                    ),
+                },
+            };
+            (left.clone(), typed)
+        })
+        .collect()
+}
+
+/// The parametric applications of `rule`'s left side below its head: each with its path in the
+/// left side as [`Expander::matches`] walks it (an application's arguments, an alias's pattern
+/// 0 and variable 1), its path in the rule's typing (the body field, the left side of each
+/// rewrite on the way), and the number of sort parameters of its production. The head, the
+/// application under the root aliases, is typed as [`HeadInstance`].
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants have children in a left side"
+)]
+fn inner_parametric_sites(
+    productions: &ProductionCatalog<'_>,
+    rule: &MacroRule,
+) -> Vec<(Vec<u32>, Vec<u32>, usize)> {
+    let Sentence::Rule { body, .. } = &rule.sentence else {
+        return Vec::new();
+    };
+    let mut head = Vec::new();
+    let mut root = rule.left.unannotated();
+    while let Term::As { pattern, .. } = root {
+        head.push(0);
+        root = pattern.unannotated();
+    }
+    let mut sites = Vec::new();
+    let mut pending = vec![(body, vec![0_u32], Vec::<u32>::new())];
+    // Invariant: `pending` holds the unvisited nodes of the body's left projection with their typing and left-side paths, and `sites` every parametric application below the head visited so far; each iteration visits one node.
+    while let Some((term, typing, left)) = pending.pop() {
+        let step = |path: &Vec<u32>, index: usize| {
+            let mut path = path.clone();
+            path.push(u32::try_from(index).expect("a term has fewer than 2^32 children"));
+            path
+        };
+        match term.unannotated() {
+            // The left side of a rewrite stands where the rewrite stands.
+            Term::Rewrite { left: written, .. } => pending.push((written, step(&typing, 0), left)),
+            Term::Apply { label, arguments } => {
+                if left != head
+                    && let Some((parameters, ..)) = production_parameters(productions, label)
+                {
+                    sites.push((left.clone(), typing.clone(), parameters.len()));
+                }
+                for (index, argument) in arguments.iter().enumerate() {
+                    pending.push((argument, step(&typing, index), step(&left, index)));
+                }
+            }
+            Term::As { pattern, alias } => {
+                pending.push((pattern, step(&typing, 0), step(&left, 0)));
+                pending.push((alias, step(&typing, 1), step(&left, 1)));
+            }
+            _ => {}
+        }
+    }
+    sites
+}
+
+/// Whether `term` applies a production with sort parameters.
+fn applies_parametric(productions: &ProductionCatalog<'_>, term: &Term) -> bool {
+    let mut pending = vec![term];
+    // Invariant: no node visited so far applies a parametric production, and `pending` holds the unvisited children of the visited nodes.
+    while let Some(term) = pending.pop() {
+        if let Term::Apply { label, .. } = term.unannotated()
+            && production_parameters(productions, label).is_some()
+        {
+            return true;
+        }
+        pending.extend(children_of(term));
+    }
+    false
+}
+
+/// Whether `right`, a macro rule's right side, has a variable at an argument of a parametric
+/// application whose declared sort mentions a sort parameter: there [`Expander::substitute`]
+/// places the variable's binding ([`Expander::placed`]).
+fn places_bindings(productions: &ProductionCatalog<'_>, right: &Term) -> bool {
+    let mut pending = vec![right];
+    // Invariant: no node visited so far is such an application, and `pending` holds the unvisited children of the visited nodes.
+    while let Some(term) = pending.pop() {
+        if let Term::Apply { label, arguments } = term.unannotated()
+            && let Some((parameters, _, sorts)) = production_parameters(productions, label)
+            && arguments.iter().zip(&sorts).any(|(argument, sort)| {
+                matches!(argument.unannotated(), Term::Variable { .. })
+                    && mentions_parameter(sort, parameters)
+            })
+        {
+            return true;
+        }
+        pending.extend(children_of(term));
+    }
+    false
+}
+
+/// Whether some variable occurs more than once in `left`, a macro rule's left side; an
+/// anonymous variable is another at each occurrence.
+fn has_repeated_variable(left: &Term) -> bool {
+    let mut names = BTreeSet::new();
+    let mut pending = vec![left];
+    // Invariant: `names` holds the names of the variables visited so far, each visited once, and `pending` the unvisited children of the visited nodes.
+    while let Some(term) = pending.pop() {
+        if let Term::Variable { name, .. } = term.unannotated()
+            && !crate::kast::binding::is_unresolved_anonymous(name)
+            && !names.insert(name.as_str())
+        {
+            return true;
+        }
+        pending.extend(children_of(term));
+    }
+    false
 }
 
 /// Whether `sentence` is a macro rule and, if it is, whether it is recursive (`macro-rec` or
@@ -3107,14 +3791,17 @@ fn macro_rule(id: usize, sentence: &Sentence, recursive: bool, depth: usize) -> 
     let Sentence::Rule { body, .. } = sentence else {
         unreachable!("only rules are macro rules")
     };
+    let left = rewrite_projection(body, false);
     MacroRule {
         id,
         sentence: sentence.clone(),
-        left: rewrite_projection(body, false),
         right: rewrite_projection(body, true),
         recursive,
         depth,
         head_instance: None,
+        inner_instances: None,
+        nonlinear: has_repeated_variable(&left),
+        left,
     }
 }
 
@@ -3740,7 +4427,14 @@ endmodule
         for (name, index) in [("Int", 0), ("Bool", 1)] {
             assert_eq!(
                 expander
-                    .select_rule(&subject, &rules, &BTreeSet::new(), Some(&at(name)))
+                    .select_rule(
+                        &subject,
+                        &rules,
+                        &BTreeSet::new(),
+                        Some(&at(name)),
+                        None,
+                        &mut false
+                    )
                     .expect("no diagnostic"),
                 Some(index),
                 "{name}"
@@ -3759,7 +4453,14 @@ endmodule
             .expect("not typed yet");
         expander.type_heads(&rules);
         let diagnostic = expander
-            .select_rule(&subject, &rules, &BTreeSet::new(), Some(&at("Bool")))
+            .select_rule(
+                &subject,
+                &rules,
+                &BTreeSet::new(),
+                Some(&at("Bool")),
+                None,
+                &mut false,
+            )
             .expect_err("an undecided matching rule is reported");
         assert_eq!(diagnostic.code, DiagnosticCode::InvalidMacroExpansion);
         assert!(
@@ -3770,13 +4471,27 @@ endmodule
         );
         assert!(
             expander
-                .select_rule(&subject, &rules, &BTreeSet::new(), Some(&Instance::Unknown))
+                .select_rule(
+                    &subject,
+                    &rules,
+                    &BTreeSet::new(),
+                    Some(&Instance::Unknown),
+                    None,
+                    &mut false
+                )
                 .is_err()
         );
         let applied = BTreeSet::from([rules[0].id]);
         assert_eq!(
             expander
-                .select_rule(&subject, &rules, &applied, Some(&at("Bool")))
+                .select_rule(
+                    &subject,
+                    &rules,
+                    &applied,
+                    Some(&at("Bool")),
+                    None,
+                    &mut false
+                )
                 .expect("a rule that would not apply is passed over"),
             Some(1)
         );

@@ -6290,6 +6290,89 @@ fn a_macro_result_keeps_the_instance_its_rule_is_typed_at() {
     );
 }
 
+/// A macro rule's left side is a pattern over terms with instances, so a parametric
+/// application in it matches a subject's only where their instances agree, and an argument a
+/// macro placed at its variable's sort is matched as what it denotes: the operand injected at
+/// the application's instance. `mk2(vv, ss)` is `pair` at `Stmt` over `vv` placed at `Stmt`,
+/// which `pair(vv, _:Stmt)` (the pair at `Stmt`) and `pair(_:Value, _:Stmt)` match, as a
+/// function rule's left side would; `mk1(vv)` and `mk3(vv, vv)` are the pair at `Stmt` of `vv`
+/// twice, placed once or twice, which `pair(A:Stmt, A:Stmt)` matches. `pair(A, A)` is the pair
+/// at `K` and `id(vv)` the identity at `Value`, so neither matches the pair at `Stmt` or `Value`
+/// or the identity at `Stmt` that `mkid(vv)` builds, and each falls to its catch-all.
+#[test]
+fn a_macro_matches_a_parametric_application_by_its_instance() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value ::= "vv" [symbol(vv)]
+          syntax Stmt ::= Value | "ss" [symbol(ss)]
+          syntax {T} Wrap ::= "pair" "(" T "," T ")" [symbol(pair)]
+          syntax {T} T ::= "id" "(" T ")" [symbol(id)]
+          syntax Res ::= "one" [symbol(one)] | "two" [symbol(two)]
+          syntax Wrap ::= "mk1" "(" Stmt ")" [macro, symbol(mk1)]
+                        | "mk2" "(" Stmt "," Stmt ")" [macro, symbol(mk2)]
+                        | "mk3" "(" Stmt "," Value ")" [macro, symbol(mk3)]
+                        | "mk4" "(" Value "," Value ")" [macro, symbol(mk4)]
+          syntax Stmt ::= "mkid" "(" Stmt ")" [macro, symbol(mkid)]
+          syntax Res ::= "lit" "(" Wrap ")" [macro, symbol(lit)]
+                       | "nar" "(" Wrap ")" [macro, symbol(nar)]
+                       | "rep" "(" Wrap ")" [macro, symbol(rep)]
+                       | "any" "(" Wrap ")" [macro, symbol(any)]
+                       | "idv" "(" Stmt ")" [macro, symbol(idv)]
+          rule mk1(X:Stmt) => pair(X, X)
+          rule mk2(X:Stmt, Z:Stmt) => pair(X, Z)
+          rule mk3(X:Stmt, Z:Value) => pair(X, Z)
+          rule mk4(X:Value, Z:Value) => pair(X, Z)
+          rule mkid(X:Stmt) => id(X)
+          rule lit(pair(vv, _:Stmt)) => one
+          rule lit(_) => two
+          rule nar(pair(_:Value, _:Stmt)) => one
+          rule nar(_) => two
+          rule rep(pair(A:Stmt, A:Stmt)) => one
+          rule rep(_) => two
+          rule any(pair(A, A)) => one
+          rule any(_) => two
+          rule idv(id(vv)) => one
+          rule idv(_) => two
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let leaf = |name: &str| application(name, Vec::new());
+    let expand = |head: &str, argument: Term| {
+        let expanded = prepared
+            .expand_program(
+                "MAIN",
+                k_rust::inner::ParsedProgram::from_term(application(head, vec![argument])),
+                &Sort::new("Res"),
+            )
+            .unwrap();
+        Printer::new().print_term(expanded.term())
+    };
+    let made = |maker: &str, arguments: &[&str]| {
+        application(maker, arguments.iter().map(|name| leaf(name)).collect())
+    };
+    for (head, argument, expected) in [
+        ("lit", made("mk2", &["vv", "ss"]), "one"),
+        ("lit", made("mk2", &["ss", "ss"]), "two"),
+        ("nar", made("mk2", &["vv", "ss"]), "one"),
+        ("nar", made("mk2", &["ss", "ss"]), "two"),
+        ("rep", made("mk1", &["vv"]), "one"),
+        ("rep", made("mk3", &["vv", "vv"]), "one"),
+        ("rep", made("mk2", &["vv", "ss"]), "two"),
+        ("any", made("mk1", &["vv"]), "two"),
+        ("any", made("mk4", &["vv", "vv"]), "two"),
+        ("idv", made("mkid", &["vv"]), "two"),
+        ("idv", made("id", &["vv"]), "one"),
+    ] {
+        let shown = Printer::new().print_term(&argument);
+        assert_eq!(
+            expand(head, argument),
+            format!("{expected}(.KList)"),
+            "{head}({shown})"
+        );
+    }
+}
+
 /// A rule that applies a macro keeps the instance the macro rule's typing gives its result, as
 /// a program does: `co(vv)` in a rule's result is `wrap` at `Stmt` over `vv` injected into
 /// `Stmt`, and a rule variable `V:Value` bound by `co(V)` is placed at `Stmt` the same way.
