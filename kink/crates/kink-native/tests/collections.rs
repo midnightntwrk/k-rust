@@ -392,6 +392,21 @@ fn with_noncanonical_int_for_bytes(term: &Pattern) -> Pattern {
 
 const STORE: &str = "Lbl'-LT-'store'-GT-'";
 
+/// Whether `term` holds, under applications, the domain value of sort `sort` with payload `bytes`.
+fn holds_domain_value(term: &Pattern, sort: &str, bytes: &[u8]) -> bool {
+    match term {
+        Pattern::DomainValue {
+            sort: actual,
+            value,
+        } => sort_named(actual, sort) && value.as_bytes() == bytes,
+        Pattern::Application { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => arguments
+            .iter()
+            .any(|argument| holds_domain_value(argument, sort, bytes)),
+        _ => false,
+    }
+}
+
 fn sort_named(sort: &k_rust::kore::ast::Sort, expected: &str) -> bool {
     matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments } if name == expected && arguments.is_empty())
 }
@@ -899,7 +914,10 @@ mod kink_tier {
                 ("clear", "seq(put(1, 10), clear())", true, t),
                 ("fkey1", "fKey(1)", false, s),
                 ("fval1", "fVal(1)", false, s),
-                ("byteskey", "bytesKey(\"a\")", false, s),
+                // kink27 R5-BYTES-ENDS: this row pinned the CS-16 attack "a Bytes key (refused)".
+                // A Bytes value now has a trusted injective codec (its payload is its one stored
+                // form), so the Map keyed by `b"a"` is a terminal value like any Int-keyed one.
+                ("byteskey", "bytesKey(\"a\")", true, t),
                 ("dupkey", "seq(put(1, 10), dupKey(1))", true, u),
                 ("dupkeysame", "seq(put(1, 1), dupKey(1))", true, u),
                 ("dupelem", "seq(addSet(1), dupElem(1))", true, u),
@@ -909,6 +927,11 @@ mod kink_tier {
             assert_eq!(terms["put21"], terms[id], "N2 {id}");
         }
         assert_eq!(terms["set21"], terms["set12"], "N2 Set order");
+        assert!(
+            holds_domain_value(&terms["byteskey"], "SortBytes", b"a"),
+            "R5-BYTES-ENDS: the terminal's Map key is the Bytes value b\"a\": {:?}",
+            terms["byteskey"]
+        );
         assert_ne!(terms["list21"], terms["list12"], "N2 List order");
         let cell = Fixture::new("cellmap.k", "CELLMAP", "CELLMAP-SYNTAX");
         assert_eq!(

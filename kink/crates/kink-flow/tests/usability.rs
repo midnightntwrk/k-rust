@@ -954,8 +954,13 @@ text = 'h(opaque(1), 2)'
 
     /// kink27 R5-BYTES-ENDS: a Bytes value in an end is compared by its byte sequence, in a cell,
     /// a Map value and a List element. Two sequences kill; one sequence built by two routes (a
-    /// literal and `BYTES.concat`) survives; a respelled literal compiles to the baseline. The
-    /// byte 0xe9 and the UTF-8 of `é` are distinct values: a Bytes payload has no second reading.
+    /// literal and `BYTES.concat`) survives; a respelled literal (`b"\x41\x42"` for `b"AB"`)
+    /// survives too. Its compiled definition is the baseline's except for the rule's `UNIQUE_ID`
+    /// (and its location), and `equivalent_compilation` deliberately keeps `UNIQUE_ID`, which
+    /// digests the sentence as printed with each token's source spelling; so the mutant is not
+    /// `equivalent`, both ends are computed and compared, and they agree because both literals
+    /// store one payload. The byte 0xe9 and the UTF-8 of `é` are distinct values: a Bytes payload
+    /// has no second reading.
     /// Before, TV-01 refused every Bytes value, so no program was comparable and no row was killed
     /// or survived.
     #[test]
@@ -1025,7 +1030,7 @@ note = "one sequence by two routes: a literal and BYTES.concat"
 
 [[mutation]]
 id = "cell-respell"
-note = "one value, another spelling of its literal"
+note = "one value, another spelling of its literal: compiles apart only in UNIQUE_ID, so it runs and its end agrees"
   [[mutation.edit]]
   rule = "cell"
   find = 'b"AB"'
@@ -1061,7 +1066,9 @@ note = "one sequence by two routes in a List element"
         let expected = [
             ("cell-other", "killed"),
             ("cell-concat", "survived"),
-            ("cell-respell", "equivalent"),
+            // Not `equivalent`: the rule's UNIQUE_ID digests the literal's source spelling, so
+            // the compiled definitions differ there only; the ends are compared and agree.
+            ("cell-respell", "survived"),
             ("map-utf8", "killed"),
             ("list-byte", "killed"),
             ("list-concat", "survived"),

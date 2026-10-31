@@ -275,8 +275,11 @@ mod kink_tier {
     /// its key with `String2Bytes`, whose value domains.md leaves open. The rule now uses
     /// `encodeBytes("UTF-8", S)` (domains.md:2014 names the encoding; k-rust bytes.rs:116-130), the
     /// census flags nothing, and the rows are back to their R0a values: R6, R7, R9, R11, R13 and R14
-    /// killed again, none of them by a run that reaches `bytesKey` (only `byteskey` does, R12, which
-    /// stays refused: a Bytes-keyed Map is not a value kink compares).
+    /// killed again, none of them by a run that reaches `bytesKey` (only `byteskey` does, R12).
+    /// R12 pinned the CS-16 attack "a Bytes key is refused" (BaselineOracleFailed). Since kink27
+    /// R5-BYTES-ENDS a Bytes value has a trusted injective codec (its payload is its one stored
+    /// form), so the baseline end `b"a" |-> 1` is a value, and the mutant's `b"aa" |-> 1` is
+    /// another one: the whole-term slot distinguishes them and the exit slot agrees.
     #[test]
     #[ignore = "kink"]
     fn map_set_list_and_residue_r5_r15() {
@@ -336,8 +339,8 @@ mod kink_tier {
                     id: "R12",
                     mutation: "bytes-key-doubled",
                     program: "byteskey",
-                    status: None,
-                    slots: [Undecided, Undecided],
+                    status: Some(Killed),
+                    slots: [Agree, Distinguish],
                 },
                 Row {
                     id: "R13",

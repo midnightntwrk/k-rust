@@ -115,7 +115,7 @@ A program's class is
 | --- | --- | --- |
 | `comparable` | The run ended and its final configuration is a value kink compares. | Nothing: this program can kill mutants. |
 | `timeout` | The run did not end within `budget.time_ms`; `cause` gives what k-rust returned when the bound fired (see below). | Make the program terminate, or raise the budget. |
-| `unknown` | The run ended without a comparable value (for example a collection with a Bytes key, `budget.max_depth` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program. |
+| `unknown` | The run ended without a comparable value (for example a collection holding a `Float`, `budget.max_depth` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program. |
 | `refused` | The program was not read, parsed or assembled; `cause` is the refusal. | Fix the program. |
 | `error` | The run or the runner failed. | Report it. |
 
@@ -557,7 +557,7 @@ No timing, census or side value enters an evidence row, a digest, a key, an outc
 
 A row may also carry `stale_killer` (the hint named a program that is not comparable; it was removed) and `cache_error`.
 The cause of an `unknown` slot names the possible reasons together (a path stopped at `max_depth`, an undecided end,
-or a final configuration holding a collection kink cannot compare (for example one with a Bytes key), an unevaluated function or a symbolic term),
+or a final configuration holding a collection kink cannot compare (for example one holding a `Float`), an unevaluated function or a symbolic term),
 because the runner's evidence records that the mutant's value is unknown but not which of these stopped it; the leaf census that follows
 (leaves per halt class: `depth-bound`, `stuck`, `indeterminate`, ...) usually says which.
 One case has its own cause (fz26 KINK-CAUSE-SUBTERM): a slot the runner made unknown for the pair because one side's end, which is a value of

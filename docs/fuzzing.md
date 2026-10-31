@@ -464,7 +464,7 @@ Final configurations are compared without the content of the `<generatedCounter>
 
 **Inside the campaign.** Unless `--no-filter` is given, every candidate is judged by kink's own rules before it is offered: the initial state's exclusions, each side's undefined steps, kink's test of every end as a value (TV-01), and, for a removed end, whether the mutant's run fits kink's work budget (`[budget] work_factor`).
 A refused candidate is no witness, and the search goes on. Each cause is counted (the warning `client-refused`) and its first case kept in the fuzz report's `client-refusals`, with kink's detail and remedy.
-A candidate refused only because a `String` end is not ASCII is repaired: its non-ASCII characters are replaced by ASCII letters or digits, keeping lengths and distinctness, and the witness records the refused case it came from (`repaired-from`). A value kink refuses whatever it holds (`Bytes`, `Float`) cannot be repaired.
+A candidate refused only because a `String` end is not ASCII is repaired: its non-ASCII characters are replaced by ASCII letters or digits, keeping lengths and distinctness, and the witness records the refused case it came from (`repaired-from`). A value kink refuses whatever it holds (`Float`, `MInt`) cannot be repaired; a `Bytes` value is compared since kink27 R5-BYTES-ENDS.
 With `--no-filter` such candidates reach the confirmation, which refuses them, and the job stops `unconfirmed`.
 
 **At confirmation** (`stopped: unconfirmed`). Some of kink's judgement is not repeated inside the campaign: the work budget for an added end, kink's own clocks and stack, leaf differences that come from kink's run options (`max_depth`), which match a query finds first, and per-candidate assembly. A refused candidate is never offered.

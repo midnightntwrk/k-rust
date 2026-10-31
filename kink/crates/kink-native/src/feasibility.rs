@@ -539,6 +539,14 @@ pub(crate) fn interpreted_predicate(predicate: &Predicate) -> bool {
     all
 }
 
+/// Whether a leaf's path predicate may go to k-rust's solver: its shape is interpreted and each
+/// domain value in it has a trusted injective codec. A codec-trusted value of a sort without an
+/// SMT theory (a `Bytes` value since kink27 R5-BYTES-ENDS) is translated by k-rust as an
+/// uninterpreted constant, one per term (`Exactness::Approximate`, no distinctness axiom). The
+/// codec gives each value one payload, so that constant is a function of the value, every model of
+/// the predicate's values is a model of the translation, and `Unsat` holds of the values; two
+/// distinct values may be equal constants, so `Sat` stays untrusted unless the translation is
+/// exact.
 fn shared_predicate_interpreted(definition: &BackendDefinition, predicate: &Predicate) -> bool {
     let mut safe = interpreted_predicate(predicate);
     predicate.visit_terms(&mut |term| {

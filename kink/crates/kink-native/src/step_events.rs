@@ -1539,11 +1539,17 @@ mod tests {
             assert_eq!(decider.terminal_value(&term), Some(term.clone()), "{text}");
         }
 
-        // One value, one payload: every spelling of the byte 0x41 reads to one pattern, and the
-        // byte 0xe9 and the two bytes of the UTF-8 of `é` are distinct values.
+        // One value, one payload: every spelling of the byte 0x41 (raw, `\x`, `\u`, `\U`) reads to
+        // one pattern, so does every spelling of the byte 0xe9, and the byte 0xe9 and the two bytes
+        // of the UTF-8 of `é` are distinct values.
         let spelled = pattern(r#"\dv{SortBytes{}}("A")"#);
         assert_eq!(spelled, pattern(r#"\dv{SortBytes{}}("\x41")"#));
-        assert_eq!(spelled, pattern(r#"\dv{SortBytes{}}("A")"#));
+        assert_eq!(spelled, pattern(r#"\dv{SortBytes{}}("\u0041")"#));
+        assert_eq!(spelled, pattern(r#"\dv{SortBytes{}}("\U00000041")"#));
+        assert_eq!(
+            pattern(r#"\dv{SortBytes{}}("\u00e9")"#),
+            pattern(r#"\dv{SortBytes{}}("\xe9")"#)
+        );
         assert_ne!(
             pattern(r#"\dv{SortBytes{}}("\xe9")"#),
             pattern(r#"\dv{SortBytes{}}("\xc3\xa9")"#)

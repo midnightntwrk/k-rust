@@ -298,7 +298,7 @@ Coverage covers rewrite rules and equations alike: a `[function]` rule a program
 A rule none of whose compiled forms a run's coverage can name (a macro, alias or `smt-lemma` rule) is listed as `no-coverage-signal`, never as uncovered.
 A program whose class is not `comparable` cannot kill a mutant; `cause` says why:
 `timeout` (the program did not end within `time_ms`: make it end, or raise the budget),
-`unknown` (it ended without a value kink compares, for example a collection with a Bytes key or `max_depth` reached),
+`unknown` (it ended without a value kink compares, for example a collection holding a `Float` or `max_depth` reached),
 `refused` (it did not parse) or `error`.
 
 Now the mutations, `MUTATIONS.toml`.
