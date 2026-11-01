@@ -7,11 +7,13 @@ use k_rust_backend::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     evaluation::{EvaluationMode, current, with_evaluation},
+    ill_formed::IllFormed,
     rule::Predicate,
     simplify::SimplificationOptions,
     smt::NoSolver,
     term::Term,
 };
+use k_rust_domain::float::FloatFormat;
 use k_rust_kore::kore::parser::parse_definition;
 
 use crate::support::{internal_term, unstopped};
@@ -151,4 +153,136 @@ fn one_format_and_mixed_comparisons_are_evaluated_in_every_mode() {
             "{mode:?}"
         );
     }
+}
+
+/// A definition with one nullary function `head` of sort `Float` per pair of `equations`, each
+/// defined by its equation `head() = right` labelled `head`. `seed()` and `degree()` are `Int`
+/// functions without equations, so no load folds what holds them.
+fn equations_definition(equations: &[(&str, String)]) -> BackendDefinition {
+    let symbols = equations
+        .iter()
+        .map(|(head, _)| format!("  symbol {head}{{}}() : SortFloat{{}} [function{{}}()]\n"))
+        .collect::<String>();
+    let axioms = equations
+        .iter()
+        .map(|(head, right)| {
+            format!(
+                "  axiom{{R}} \\implies{{R}}(\\and{{R}}(\\top{{R}}(), \\top{{R}}()), \\equals{{SortFloat{{}}, R}}({head}{{}}(), \\and{{SortFloat{{}}}}({right}, \\top{{SortFloat{{}}}}()))) [label{{}}(\"{head}\")]\n"
+            )
+        })
+        .collect::<String>();
+    let source = format!(
+        r#"[]
+module MAIN
+  hooked-sort SortFloat{{}} [hook{{}}("FLOAT.Float"), hasDomainValues{{}}()]
+  hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+  hooked-symbol addFloat{{}}(SortFloat{{}}, SortFloat{{}}) : SortFloat{{}}
+    [function{{}}(), hook{{}}("FLOAT.add")]
+  hooked-symbol int2Float{{}}(SortInt{{}}, SortInt{{}}, SortInt{{}}) : SortFloat{{}}
+    [function{{}}(), hook{{}}("FLOAT.int2float")]
+  hooked-symbol rootFloat{{}}(SortFloat{{}}, SortInt{{}}) : SortFloat{{}}
+    [function{{}}(), hook{{}}("FLOAT.root")]
+  symbol seed{{}}() : SortInt{{}} [function{{}}()]
+  symbol degree{{}}() : SortInt{{}} [function{{}}()]
+{symbols}{axioms}endmodule []"#
+    );
+    let syntax = parse_definition(&source).expect("the equations should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("the equations should internalize")
+}
+
+fn int(value: &str) -> String {
+    format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
+}
+
+/// The labels of the equations the load names as mixed-format applications, each with the two
+/// formats it names, in the order the load names them.
+fn named_mixed(definition: &BackendDefinition) -> Vec<(String, FloatFormat, FloatFormat)> {
+    k_rust_backend::ill_formed::ill_formed_uses(definition)
+        .into_iter()
+        .map(|found| match found.found {
+            IllFormed::MixedFormats { left, right, .. } => (
+                found
+                    .attributes
+                    .label
+                    .clone()
+                    .expect("every equation is labelled"),
+                left,
+                right,
+            ),
+            other => panic!("only mixed applications are written: {other:?}"),
+        })
+        .collect()
+}
+
+/// The load's scan for ill-formed Float applications reads each node's evident format once: a
+/// left-nested chain of 20,000 binary32 additions under a binary64 operand is named once, as
+/// the outermost application, and the scan takes a time linear in the chain (it read the
+/// chain's whole left spine again at every level, quadratic in its depth, and recursed once per
+/// level on the calling thread).
+#[test]
+fn the_load_reads_the_formats_of_a_deep_float_chain_in_linear_time() {
+    let mut chain = format!("int2Float{{}}(seed{{}}(), {}, {})", int("24"), int("8"));
+    for _ in 0..20_000 {
+        chain = format!("addFloat{{}}({chain}, {})", float("1.0f"));
+    }
+    let chain = format!("addFloat{{}}({chain}, {})", float("2.0"));
+    let definition = equations_definition(&[("chain", chain)]);
+    let start = std::time::Instant::now();
+    let named = named_mixed(&definition);
+    let elapsed = start.elapsed();
+    assert_eq!(
+        named,
+        vec![(
+            "chain".to_owned(),
+            FloatFormat::of(24, 8),
+            FloatFormat::of(53, 11)
+        )]
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "the scan of a 20,000-level chain took {elapsed:?}"
+    );
+}
+
+/// `rootFloat` has its radicand's format only where the amendments fix its result (AM-4, AM-11):
+/// a positive odd degree, or a positive even one at a radicand literal whose sign bit is clear.
+/// A degree of 0 or below, an even root of a negative value or of `-0.0`, a degree the form does
+/// not fix and an even root of a radicand whose sign the form does not fix are outside-domain in
+/// some model, where every `Float`, of either format, is a value, so their sum with a binary64
+/// operand is not named.
+#[test]
+fn a_root_has_its_operands_format_only_where_the_amendments_fix_its_result() {
+    let unknown = format!("int2Float{{}}(seed{{}}(), {}, {})", int("24"), int("8"));
+    let sum = |radicand: &str, degree: &str| {
+        format!(
+            "addFloat{{}}(rootFloat{{}}({radicand}, {degree}), {})",
+            float("1.0")
+        )
+    };
+    let equations = [
+        ("even", sum(&float("4.0f"), &int("2"))),
+        ("evenzero", sum(&float("0.0f"), &int("2"))),
+        ("evennan", sum(&float("NaNf"), &int("2"))),
+        ("odd", sum(&float("-8.0f"), &int("3"))),
+        ("oddunknown", sum(&unknown, &int("3"))),
+        ("zero", sum(&float("4.0f"), &int("0"))),
+        ("negative", sum(&float("4.0f"), &int("-3"))),
+        ("symbolic", sum(&float("4.0f"), "degree{}()")),
+        ("evennegative", sum(&float("-8.0f"), &int("2"))),
+        ("evenminuszero", sum(&float("-0.0f"), &int("2"))),
+        ("evenunknown", sum(&unknown, &int("2"))),
+    ];
+    let definition = equations_definition(&equations);
+    let mut named = named_mixed(&definition)
+        .into_iter()
+        .map(|(label, left, right)| {
+            assert_eq!(
+                (left, right),
+                (FloatFormat::of(24, 8), FloatFormat::of(53, 11))
+            );
+            label
+        })
+        .collect::<Vec<_>>();
+    named.sort();
+    assert_eq!(named, ["even", "evennan", "evenzero", "odd", "oddunknown"]);
 }

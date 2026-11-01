@@ -1810,7 +1810,6 @@ impl Term {
     }
 
     /// Identity while a borrowed graph is alive; unlike `identity`, retains no weak handle.
-    #[cfg(feature = "z3")]
     pub(crate) fn node_address(&self) -> usize {
         Arc::as_ptr(&self.0) as usize
     }

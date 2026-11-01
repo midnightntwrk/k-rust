@@ -14,11 +14,12 @@
 use std::sync::Arc;
 
 use k_rust_domain::float::FloatFormat;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     definition::BackendDefinition,
     rule::{PredicateRewriteRule, RewriteRule, RuleAttributes, RuleRhs},
-    term::{Term, TermKind},
+    term::{Term, TermKind, immediate_children},
 };
 
 /// What a sentence holds that the text does not type or bound.
@@ -192,52 +193,64 @@ fn wide_literals(open_literals: &[Arc<str>]) -> Vec<IllFormed> {
 
 /// Push onto `found` every mixed-format arithmetic application in `term` not already in it,
 /// outermost first.
+///
+/// The evident format of every node is computed first, once, bottom-up ([`evident_formats`]),
+/// and each application reads its operands' from there, so the scan is linear in the size of
+/// `term`; both walks keep their pending nodes on explicit work lists, so they take the same
+/// native stack at any depth. A node shared by several parents is read once.
 fn mixed_applications(term: &Term, found: &mut Vec<IllFormed>) {
+    let formats = evident_formats(term);
+    let format = |operand: &Term| formats.get(&operand.node_address()).cloned().flatten();
+    let mut seen = FxHashSet::default();
     let mut pending = vec![term];
     while let Some(term) = pending.pop() {
-        // The subterms in order, pushed last first so that they are read first to last.
-        let mut subterms = Vec::new();
-        match term.kind() {
-            TermKind::Application {
-                symbol, arguments, ..
-            } => {
-                if let Some(hook) = symbol.attributes.hook.as_deref()
-                    && let Some((left, right)) =
-                        crate::builtin::evident_mixed_formats(hook, arguments)
-                {
-                    let application = IllFormed::MixedFormats {
-                        hook: hook.to_owned(),
-                        application: term.clone(),
-                        left,
-                        right,
-                    };
-                    if !found.contains(&application) {
-                        found.push(application);
-                    }
-                }
-                subterms.extend(arguments);
-            }
-            TermKind::And(left, right) => subterms.extend([left, right]),
-            TermKind::Injection { term, .. } => subterms.push(term),
-            TermKind::Map { entries, rest, .. } => {
-                for (key, value) in entries {
-                    subterms.extend([key, value]);
-                }
-                subterms.extend(rest);
-            }
-            TermKind::List { heads, rest, .. } => {
-                subterms.extend(heads);
-                if let Some((middle, tails)) = rest {
-                    subterms.push(middle);
-                    subterms.extend(tails);
-                }
-            }
-            TermKind::Set { elements, rest, .. } => {
-                subterms.extend(elements);
-                subterms.extend(rest);
-            }
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        if !seen.insert(term.node_address()) {
+            continue;
         }
-        pending.extend(subterms.into_iter().rev());
+        if let TermKind::Application {
+            symbol, arguments, ..
+        } = term.kind()
+            && let Some(hook) = symbol.attributes.hook.as_deref()
+            && let Some((left, right)) =
+                crate::builtin::evident_mixed_formats(hook, arguments, format)
+        {
+            let application = IllFormed::MixedFormats {
+                hook: hook.to_owned(),
+                application: term.clone(),
+                left,
+                right,
+            };
+            if !found.contains(&application) {
+                found.push(application);
+            }
+        }
+        // The subterms in order, pushed last first so that they are read first to last.
+        pending.extend(immediate_children(term.kind()).into_iter().rev());
     }
+}
+
+/// The evident format of each node of `term` (`builtin::evident_format`), keyed by its address
+/// (`term` is borrowed throughout, so no address is reused): a post-order walk on an explicit
+/// work list, which computes a node's format when its children's are known.
+fn evident_formats(term: &Term) -> FxHashMap<usize, Option<FloatFormat>> {
+    let mut formats = FxHashMap::default();
+    // Each node with whether its children are already computed.
+    let mut pending = vec![(term, false)];
+    while let Some((term, children_computed)) = pending.pop() {
+        let address = term.node_address();
+        if children_computed {
+            let format = crate::builtin::evident_format(term, |operand| {
+                formats.get(&operand.node_address()).cloned().flatten()
+            });
+            formats.insert(address, format);
+        } else if !formats.contains_key(&address) {
+            pending.push((term, true));
+            pending.extend(
+                immediate_children(term.kind())
+                    .into_iter()
+                    .map(|child| (child, false)),
+            );
+        }
+    }
+    formats
 }

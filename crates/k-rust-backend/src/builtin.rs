@@ -34,7 +34,7 @@ pub use crate::collection_role::{
 pub(crate) use collection_item::{Operand as CollectionOperand, read as read_collection_item};
 pub use declaration_facts::DeclarationFacts;
 pub(crate) use evaluated::evaluates;
-pub(crate) use float::evident_mixed_formats;
+pub(crate) use float::{evident_format, evident_mixed_formats};
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
 pub(crate) use hook_signature::{LoadedSorts, render as render_sort};
 pub(crate) use result_collection::{ResultCollection, stored_at};

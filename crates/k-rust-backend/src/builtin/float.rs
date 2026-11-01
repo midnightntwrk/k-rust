@@ -203,38 +203,48 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
 /// The two formats of `hook` applied to `arguments` when `hook` is one of the Float-valued binary
 /// hooks `mixed_destination` reads (`+Float`, `-Float`, `*Float`, `/Float`, `minFloat`,
 /// `maxFloat`) and the load reads two different formats from its operands' form
-/// ([`evident_format`]); `None` otherwise. `domains.md` gives these operations over one format
-/// (their `smt-hook`s apply `fp.add` and the others to two operands of one sort, rounded to it)
-/// and names no result format for two, so such an application is ill-formed (GAP category E):
-/// the load names it (`crate::ill_formed`), and an execution still marks the value it takes
+/// ([`evident_format`]; `format` gives an operand's, computed once per node by the caller);
+/// `None` otherwise. `domains.md` gives these operations over one format (their `smt-hook`s
+/// apply `fp.add` and the others to two operands of one sort, rounded to it) and names no result
+/// format for two, so such an application is ill-formed (GAP category E): the load names it
+/// (`crate::ill_formed`), and an execution still marks the value it takes
 /// ([`mixed_destination`]).
 pub(crate) fn evident_mixed_formats(
     hook: &str,
     arguments: &[Term],
+    format: impl Fn(&Term) -> Option<FloatFormat>,
 ) -> Option<(FloatFormat, FloatFormat)> {
     BinaryOperation::of(hook)?;
     let [left, right] = arguments else {
         return None;
     };
-    let (left, right) = (evident_format(left)?, evident_format(right)?);
+    let (left, right) = (format(left)?, format(right)?);
     (left != right).then_some((left, right))
 }
 
 /// The format of the `Float` `term` denotes where its form alone fixes it, whatever its
-/// variables are bound to: the suffix of a literal; the format arguments of `Int2Float`,
-/// `roundFloat`, `maxValueFloat` and `minValueFloat` when both are positive integer values; and,
-/// for an operation whose result is in its operands' format by its `smt-hook` (`--Float`,
-/// `absFloat`, `%Float` and the six of [`evident_mixed_formats`]) or by an amendment
-/// (`floorFloat`, `ceilFloat`, `truncFloat`, AM-6; `rootFloat`, AM-4 and AM-11), the format its
-/// `Float` operands all have. `None` for a variable, for every other application (a hook whose
-/// result format no text gives, such as `sinFloat`), and for operands of two formats.
-fn evident_format(term: &Term) -> Option<FloatFormat> {
+/// variables are bound to, given the evident formats of its immediate subterms (`format`; the
+/// caller computes them bottom-up, once per node, so no call descends further than one level):
+/// the suffix of a literal; the format arguments of `Int2Float`, `roundFloat`, `maxValueFloat`
+/// and `minValueFloat` when both are positive integer values; for an operation whose result is
+/// in its operands' format by its `smt-hook` (`--Float`, `absFloat`, `%Float` and the six of
+/// [`evident_mixed_formats`]) or by an amendment (`floorFloat`, `ceilFloat`, `truncFloat`,
+/// AM-6), the format its `Float` operands all have; and for `rootFloat`, its radicand's format
+/// where AM-4 and AM-11 give the root its value, a positive odd degree or a positive even one at
+/// a radicand value whose sign bit is clear ([`root_described`]). `None` for a variable, for
+/// every other application (a hook whose result format no text gives, such as `sinFloat`, and a
+/// root the form does not show to be described: there every `Float`, of any format, is a
+/// model's value), and for operands of two formats.
+pub(crate) fn evident_format(
+    term: &Term,
+    format: impl Fn(&Term) -> Option<FloatFormat>,
+) -> Option<FloatFormat> {
     let same = |left: &Term, right: &Term| {
-        let left = evident_format(left)?;
-        (left == evident_format(right)?).then_some(left)
+        let left = format(left)?;
+        (left == format(right)?).then_some(left)
     };
     match term.kind() {
-        TermKind::Injection { term, .. } => evident_format(term),
+        TermKind::Injection { term, .. } => format(term),
         TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::Float) => {
             let text = value.as_utf8().ok()?;
             is_float_syntax(text).then(|| split_token(text).1).flatten()
@@ -252,8 +262,15 @@ fn evident_format(term: &Term) -> Option<FloatFormat> {
             (
                 "FLOAT.neg" | "FLOAT.abs" | "FLOAT.floor" | "FLOAT.ceil" | "FLOAT.trunc",
                 [operand],
-            )
-            | ("FLOAT.root", [operand, _]) => evident_format(operand),
+            ) => format(operand),
+            ("FLOAT.root", [radicand, degree]) => {
+                let degree = read_int(degree)?;
+                let described = match read_float("FLOAT.root", radicand) {
+                    Ok(Some(Operand::Computed(value))) => root_described(value.as_f64(), &degree),
+                    _ => degree.is_positive() && degree.magnitude().bit(0),
+                };
+                described.then(|| format(radicand)).flatten()
+            }
             ("FLOAT.rem", [left, right]) => same(left, right),
             (hook, [left, right]) if BinaryOperation::of(hook).is_some() => same(left, right),
             _ => None,
