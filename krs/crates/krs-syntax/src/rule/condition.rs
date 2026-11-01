@@ -310,6 +310,17 @@ impl From<MapUpdateExtra> for RuleExtra {
     }
 }
 
+/// A binder or `_`: an identifier, never another keyword (`true` is a literal, not a name).
+/// A map read's value, a `have .. -> let` value and a narrowing (`_: S` narrows a value
+/// wildcard) take `_` beside a name.
+pub(super) fn parse_binder_or_wildcard(input: ParseStream<'_>) -> syn::Result<Ident> {
+    if input.peek(Token![_]) {
+        input.call(Ident::parse_any)
+    } else {
+        input.parse::<Ident>()
+    }
+}
+
 pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, ParseError> {
     let cell = input.call(Ident::parse_any)?;
     let content = input.call(|input| {
@@ -320,13 +331,7 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, P
     let key = parse_expression_before_arrow(&content)?;
     content.parse::<Token![->]>()?;
     content.parse::<Token![let]>()?;
-    // The value is a binder or `_`: an identifier, never another keyword (`true` is a
-    // literal), as a readable map read's value is.
-    let value = if content.peek(Token![_]) {
-        content.call(Ident::parse_any)?
-    } else {
-        content.parse::<Ident>()?
-    };
+    let value = parse_binder_or_wildcard(&content)?;
     validate_authored_binder(&value.to_string(), value.span())?;
     if !content.is_empty() {
         return Err(content

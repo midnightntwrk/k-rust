@@ -349,7 +349,7 @@
       "error[krs::syntax::invalid-pattern-as]: `p @ ..`: a `..` remainder binds only inside a sequence, collection or cells! pattern"
     ],
     "alias-in-result": [
-      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in the result of a `k::rules!` sort rule"
+      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, as a context's and a context alias's are around their hole, and a result only builds; here it stands in the result of a `k::rules!` sort rule"
     ],
     "alias-whole-subject": [
       "error[krs::syntax::invalid-pattern-as]: `p @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
@@ -385,7 +385,7 @@
       "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a rule's or an equation's result or condition, a fn body, or an initializer; here it stands in the subject of a `k::rules!` sort rule"
     ],
     "matches-alias-result": [
-      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `k::rules!` sort rule"
+      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, as a context's and a context alias's are around their hole, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `k::rules!` sort rule"
     ],
     "matches-sort": [
       "error[krs::analysis::invalid-matches]: the pattern has sort `Color` and the subject has sort `Exp`, which share no subsort, so this test is always false"

@@ -124,11 +124,6 @@ owner = "NT-33"
 kind = "diagnostic"
 what = "the retired `#[k::priority(N)]` is refused advising `#[k::equation(priority = N)]` on every sentence, whatever its marker"
 
-["NT-16-4"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "`record-update-base` advises, on a context, a `let` at the context's result, a slot a context does not have, so no generated case writes it"
-
 ["NT-19-1"]
 owner = "NT-33"
 kind = "diagnostic"

@@ -19749,7 +19749,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/sort-rule/subject-root-term/_"]
 k = """
 rule [case-TAG]:
-<k> _ => go ... </k>
+<k> _:KItem => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -19793,7 +19793,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/sort-rule/subject-root/_"]
 k = """
 rule [case-TAG]:
-<k> _ => go ... </k>
+<k> _:KItem => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

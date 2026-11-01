@@ -6,8 +6,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemUse, Meta, Path, Token, Type};
 
 use super::condition::{
-    HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_have_extra,
-    parse_update_extra,
+    HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_binder_or_wildcard,
+    parse_have_extra, parse_update_extra,
 };
 use super::item::RuleItem;
 use super::machine::parse_machine_clause;
@@ -1344,9 +1344,8 @@ impl RuleBlock {
                     conditions.extend([fork.parse::<proc_macro2::TokenTree>()?]);
                 }
                 loop {
-                    // `have`, `update` or a narrowed binder, each an identifier: a keyword
-                    // (`true`) names no binder.
-                    let first = input.parse::<Ident>()?;
+                    // `have`, `update`, a narrowed binder, or `_` for the value wildcards.
+                    let first = parse_binder_or_wildcard(input)?;
                     match first.unraw().to_string().as_str() {
                         "have" => extras.push(TermTableExtra::Have(parse_have_extra(input)?)),
                         "update" => extras.push(TermTableExtra::Update(parse_update_extra(input)?)),

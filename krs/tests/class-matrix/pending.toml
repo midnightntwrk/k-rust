@@ -4452,26 +4452,6 @@ deviation = "krs::analysis::ambiguous-operator @ entry"
 
 # NT-2-4 (K8): the advice check on cases pending above under NT-2-4, whose refusal it reads.
 
-# NT-2-14 (K8): the advice check on cases pending above under NT-2-14, whose refusal it reads.
-
-["k8/terms/alias/result-root-ground/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
-
-["k8/terms/alias/result/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
-
-["k8/terms/desugar/result-root/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
-
-["k8/terms/desugar/result/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
-
-# NT-2-27 (K8): the advice check on cases pending above under NT-2-27, whose refusal it reads.
-
 # NT-3-1 (K8): the advice check on cases pending above under NT-3-1, whose refusal it reads.
 
 ["k8/terms/rule/subject/set-element/!(x < 1)"]
@@ -5947,9 +5927,8 @@ deviation = "<k> head printed `c9da00999(ak, SetItem ( ak ))`, which does not re
 
 # NT-16 review S4: the update of a computed record that `record-update-base` now advises, a `let`
 # that destructures it, deviates where the term family's other `let` spellings do, under their
-# findings; the advice itself deviates on the context form (NT-16-4: a context has no result slot,
-# so no generated case writes the advised form there) and where the refusal is another class's
-# (S0-14).
+# findings; the advice itself deviates where the refusal is another class's (S0-14). On the
+# context form, which has no result slot, the class advises the local rule's rewrite right (NT-28).
 
 ["terms/local-rule/subject/rewrite-left/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
@@ -6058,10 +6037,6 @@ deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 ["k3/terms/sort-rule/result/matches-pattern/_"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-
-["k8/terms/context/guard/Cmd::Pair { a: x, ..x }"]
-finding = "NT-16-4"
-deviation = "record-update-base advises terms/context/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }, which is not generated"
 
 ["k8/terms/readable/map-key/or-branch/Cmd::Pair { a: x, ..x }"]
 finding = "S0-14"

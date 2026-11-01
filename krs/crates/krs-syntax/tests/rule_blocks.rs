@@ -965,7 +965,8 @@ fn shorthand_follows_the_entry_it_stands_for() {
 
 /// A binder is an identifier, never a keyword: `true` is the Bool literal, so a narrowing, a
 /// map read's value, a `have` read's value, an update's cell and a rest's name refuse it rather
-/// than bind a name spelled like a literal, which would match every term.
+/// than bind a name spelled like a literal, which would match every term. `_` is no keyword
+/// there: a map read's or a `have` read's value may be `_`, and `_: S` narrows those wildcards.
 #[test]
 fn a_keyword_names_no_binder() {
     for source in [
@@ -988,6 +989,8 @@ fn a_keyword_names_no_binder() {
         "for Machine; pick: { computation: [Pick(), ..], env: { kk -> vv, .. } } => { computation: [kk, ..] };",
         "for Expr; var: name => value where name: Id, have env[name -> let value];",
         "for Expr; var: name => value where name: Id, have env[name -> let _];",
+        "for Expr; var: name => name where have env[name -> let _], _: Int;",
+        "for Machine; pick: { computation: [Pick(), ..], env: { kk -> _, .. } } => { computation: [kk, ..] } where kk: Id, _: Int;",
         "for Expr; var: name => value where name: Id, update env = map::update(env, name, 1);",
         "for Machine; drop: { computation: [Go(), rest @ ..] } => { computation: [] };",
     ] {

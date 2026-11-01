@@ -188,7 +188,7 @@ impl SentenceGuards {
         Err(DescriptorLoweringError::InvalidSortTest {
             item: Box::new(descriptor.id().clone()),
             reason: format!(
-                "this key holds a sort projection, or a read projected to a sort below `KItem`, which denotes a value only where its operand has that sort; a pattern that looks the key up must also require that, and {sentence} has no condition to hold it: bind the key's name at its sort instead (`x: Term<Int>`), so the key is matched at that sort"
+                "this key holds a sort projection, or a read projected to a sort below `KItem`, which denotes a value only where its operand has that sort; a pattern that looks the key up must also require that, and {sentence} has no condition to hold it: bind the key's name at its sort instead (`x: S`, the sort `S` the key is projected to), so the key is matched at that sort"
             ),
             range: descriptor
                 .provenance()

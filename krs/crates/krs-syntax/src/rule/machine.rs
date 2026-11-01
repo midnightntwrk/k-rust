@@ -11,7 +11,7 @@ use super::block::{
     RuleClauseLayout, RuleHead, RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest,
     RuleListResult, RuleNarrowing, take_claim_clause_attribute, take_rule_clause_attribute,
 };
-use super::condition::{RuleExtra, RuleMapEntry, condition_token_range};
+use super::condition::{RuleExtra, RuleMapEntry, condition_token_range, parse_binder_or_wildcard};
 use super::item::RuleItem;
 use super::pattern::{
     NegativeLiteralSpans, PatternRoot, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
@@ -589,13 +589,7 @@ fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Iden
     loop {
         let key = parse_expression_before_arrow(&map)?;
         map.parse::<Token![->]>()?;
-        // The value is a binder or `_`: an identifier, never another keyword (`true` is a
-        // literal).
-        let value = if map.peek(Token![_]) {
-            map.call(Ident::parse_any)?
-        } else {
-            map.parse::<Ident>()?
-        };
+        let value = parse_binder_or_wildcard(&map)?;
         validate_authored_binder(&value.to_string(), value.span())?;
         // The entries are distinct items of one map, so two keys
         // that are the same term can never both match; two `_` keys match
@@ -794,8 +788,8 @@ pub(super) fn parse_machine_clause(
         input.parse::<Token![where]>()?;
         layout.conditions = Some(condition_token_range(input)?);
         loop {
-            // The narrowed binder: an identifier, never a keyword (`true` is a literal).
-            let binding = input.parse::<Ident>()?;
+            // The narrowed binder, or `_` for the value wildcards.
+            let binding = parse_binder_or_wildcard(input)?;
             input.parse::<Token![:]>()?;
             let sort: Path = input.parse()?;
             if let Some(error) = parametric_collection_error(&sort, true) {

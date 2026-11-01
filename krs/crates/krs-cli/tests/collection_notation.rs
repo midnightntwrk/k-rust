@@ -1052,7 +1052,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 42, width 1",
             ),
             (
-                "error[krs::analysis::invalid-constant]: the value of constant `ONE` applies a builtin operation; a constant names a ground constructor term, which every use can match, and a function application is evaluated, not matched",
+                "error[krs::analysis::invalid-constant]: the value of constant `ONE` applies the map update `k::builtin::map::update(..)`, which a map literal with entries (`map![k -> v]`) denotes; a constant names a ground constructor term, which every use can match, and a function application is evaluated, not matched",
                 "column 18, width 12",
             ),
         ]

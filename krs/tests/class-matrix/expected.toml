@@ -1886,7 +1886,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-(V2:BoxedCell => <boxed> <inner> 1 </inner> </boxed>)
+(_:BoxedCell => <boxed> <inner> 1 </inner> </boxed>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -1895,7 +1895,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-(V2:BoxedCell => <boxed> <inner> unit </inner> </boxed>)
+(_:BoxedCell => <boxed> <inner> unit </inner> </boxed>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -1904,7 +1904,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-(V2:BoxedCell => <boxed> <inner> V0:Int </inner> </boxed>)
+(_:BoxedCell => <boxed> <inner> V0:Int </inner> </boxed>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3432,7 +3432,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-(V2:BoxedCell => <boxed> <inner> 1 </inner> </boxed>)
+(_:BoxedCell => <boxed> <inner> 1 </inner> </boxed>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3441,7 +3441,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-(V2:BoxedCell => <boxed> <inner> unit </inner> </boxed>)
+(_:BoxedCell => <boxed> <inner> unit </inner> </boxed>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3450,7 +3450,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-(V2:BoxedCell => <boxed> <inner> V0:Int </inner> </boxed>)
+(_:BoxedCell => <boxed> <inner> V0:Int </inner> </boxed>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
