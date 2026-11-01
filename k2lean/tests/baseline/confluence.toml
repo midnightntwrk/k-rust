@@ -1089,7 +1089,12 @@ preserve = []
 
 [demo.TwoParamEnds]
 tier = "light"
-guarded = 45
+guarded = 46
+preserve = []
+
+[demo.TwoParamTx]
+tier = "light"
+guarded = 42
 preserve = []
 
 [demo.ImpPlusConf]
@@ -1369,7 +1374,7 @@ preserve = []
 "generated/corout/Corout/Equations.lean" = { tier = "light", sha256 = "4bccce81959f882927527f5f9753d4a84f9a274be3b5898a2412959fad4d4faf" }
 "generated/corout/Corout/Functions.lean" = { tier = "light", sha256 = "65af37efdf4943ba71744c46a27e4f5cd62b02cb4d4cb6d41090d95c58b5362a" }
 "generated/corout/Corout/Init.lean" = { tier = "light", sha256 = "8e8f2d31f3610f6b125ac90082b3bdd0ebd6207ffc95152dbed8fe36b93fb91b" }
-"generated/corout/Corout/Measure.lean" = { tier = "light", sha256 = "70b05266191b8a66e1848ba200ce22dcba0757c330c7472b4651048c19a58082" }
+"generated/corout/Corout/Measure.lean" = { tier = "light", sha256 = "a6e18172c80334ad255859c5b2e731327de4869ac96667d9c01dc48626048f7c" }
 "generated/corout/Corout/MeasureDefs.lean" = { tier = "light", sha256 = "b7160ff1b1a94f9bb32dd3e8868c6a837869051482d0b7fec8bd38ce55b12c97" }
 "generated/corout/Corout/Preserves.lean" = { tier = "light", sha256 = "d2f92c488020cb1b938b7492a26c7fb5a39bbaec85b43f11be19d7e5b276db94" }
 "generated/corout/Corout/Rules.lean" = { tier = "light", sha256 = "8ef54ba47eebfe8e38eb9c10457b02e090bbc03a8ef3c728818dcb44938ad535" }
@@ -1474,18 +1479,20 @@ preserve = []
 "generated/twoparam/TwoParam.lean" = { tier = "light", sha256 = "bb290d96fcab51b0894b78af237556616f59c4221d9f97f8fe766cef7f53df26" }
 "generated/twoparam/TwoParam/Adequacy.lean" = { tier = "light", sha256 = "97371efed56b76e85f3865a789ae852ecc4ad226af87fb3edadbc24aaec4528f" }
 "generated/twoparam/TwoParam/Determinism.lean" = { tier = "light", sha256 = "058f4dfe692572b96fa92cedc7876cff2e8f801e7578be3c5b0609133b6717bd" }
-"generated/twoparam/TwoParam/EqBase.lean" = { tier = "light", sha256 = "08cba878199d69c7805ec4d5279fd0e0eefe8340d7dbe4b8a072b36ac88bdc92" }
-"generated/twoparam/TwoParam/Equations.lean" = { tier = "light", sha256 = "62c06d2d92dda8504b8f6bef6b1d5a7e5c68f3a3b017610b266b70be546c8496" }
-"generated/twoparam/TwoParam/Functions.lean" = { tier = "light", sha256 = "1434ddec6d9c9529c8d79e520e14420e5dd11bae4fed97de8d514a7d2d5a0b05" }
+"generated/twoparam/TwoParam/EqBase.lean" = { tier = "light", sha256 = "dc335571945192f8faa8f52f72a0448757ea7950721a00c802db14b7f2934b29" }
+"generated/twoparam/TwoParam/Equations.lean" = { tier = "light", sha256 = "40d71f6df1d1fb09411a11a4b22ae6d938751db07d83e42d6b4fe24a3a1e49e9" }
+"generated/twoparam/TwoParam/Functions.lean" = { tier = "light", sha256 = "05ad9ab59fbad46e8b7e2149d5ec4ebf2abd3b128e4ceb65ec05efd81fb8a6f5" }
 "generated/twoparam/TwoParam/Init.lean" = { tier = "light", sha256 = "9f6bde553641c2245d81bf0b226402ea3cc2963aeb6dca9d8b193c26b0982a39" }
 "generated/twoparam/TwoParam/InvariantDefs.lean" = { tier = "light", sha256 = "12a3fb420bef24e4be0d1d51dba2b107a3abc904df59191b3d55e21b35e04754" }
 "generated/twoparam/TwoParam/Invariants.lean" = { tier = "light", sha256 = "8e7aa39c8d584a400cbc42da08effc9061c975f1bab18ca6e93aedd221107a6d" }
+"generated/twoparam/TwoParam/Measure.lean" = { tier = "light", sha256 = "c2eca9ef9b0dc13b358064b17d563788e9064c2d1906e7ec92e4a4ff80409b2e" }
+"generated/twoparam/TwoParam/MeasureDefs.lean" = { tier = "light", sha256 = "b7f12e905ef1b76d867b7df0613e3814bd52e0ebd27c2d5947bf6fa29a6c9da2" }
 "generated/twoparam/TwoParam/Preserves.lean" = { tier = "light", sha256 = "22c60a03a4af368b6a92bb7ff7d9008816bf40b2e27701e9e9aceb8dae2bd6fb" }
 "generated/twoparam/TwoParam/Rules.lean" = { tier = "light", sha256 = "ab942f4a0c364c8b51033bf543452b8058559607d8d4a5f72fec2f8af2254d72" }
 "generated/twoparam/TwoParam/Terms.lean" = { tier = "light", sha256 = "c0848fbf9eea54c3292f5c9a92b7c963a873571bde9854551b517f9b118ad8b5" }
 "generated/twoparam/TwoParamBench/Main.lean" = { tier = "light", sha256 = "7d6e78d24035e73ec4104ac7723e1e01b5d97a2d979959aa6c1ffbd693be3db7" }
 "generated/twoparam/TwoParamBench/Programs.lean" = { tier = "light", sha256 = "f3900252c2c444eb2bd346a4d0e66428525e7d17f97d47bf6a782762543819a6" }
-"generated/twoparam/TwoParamTest/Axioms.lean" = { tier = "light", sha256 = "053175ec7569b4af210e52dc3a2890b8f4731adf810d5f3fbb33bd84bc217a2f" }
+"generated/twoparam/TwoParamTest/Axioms.lean" = { tier = "light", sha256 = "32ae57333348a01281f1cfa543d894385da98cb29256c3b1749169c3a60dcdda" }
 "generated/twoparam/TwoParamTest/Main.lean" = { tier = "light", sha256 = "b152589487c097c8b08570441d6a5ae254f798b9e6be1c82919f235f09a7cd6b" }
 "generated/twoparam/invariant-unfold.txt" = { tier = "light", sha256 = "a9f638f94321feb345b234cdf5afa2d8450ee76e6421c364ec7fe7ab45a68fa4" }
 "generated/twoparam/lakefile.lean" = { tier = "light", sha256 = "4865f513cdb20fd34cb1394449f1af361b37524aa3018b3a430afb429045afc8" }

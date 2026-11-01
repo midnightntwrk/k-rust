@@ -122,6 +122,12 @@ cases = 4
 auto = 4
 open = []
 
+[twoparam-measure]
+tier = "light"
+cases = 6
+auto = 6
+open = []
+
 [demo.KrsImpTyping]
 tier = "light"
 guarded = 17
