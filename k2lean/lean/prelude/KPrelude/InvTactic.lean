@@ -1,6 +1,7 @@
 import KPrelude.Invariant
 import KPrelude.InvAttr
 import KPrelude.Hooks
+import KPrelude.EqBase
 import KPrelude.FamilyCases
 import KPrelude.InvDisjoint
 
@@ -528,17 +529,9 @@ partial def testLeaf (U : Array SimpArg) : TacticM Unit := do
     for g in ← getGoals do
       setGoals [g]
       if ← closes (← `(tactic| first | assumption | contradiction)) then continue
-      -- the comparisons as propositions first, then the operations: rewriting `IntHook.add N 1`
-      -- inside `decide (M < IntHook.add N 1)` first leaves its `Decidable` instance behind, and
-      -- the term is then no longer one `decide_eq_true_eq` matches
-      let ua1 : Array SimpArg ← #[``IntHook.lt, ``IntHook.le, ``IntHook.gt, ``IntHook.ge,
-        ``IntHook.eq, ``IntHook.ne, ``decide_eq_true_eq, ``decide_eq_false_iff_not].mapM
-        (fun n => simpArgOfName n)
-      let ua2 : Array SimpArg := #[⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩]
+      let ua : Array SimpArg := #[⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩]
       let s ← saveState
-      simpNamed ua1 names
-      if (← getGoals).isEmpty then continue
-      simpNamed ua2 names
+      simpNamed ua names
       if (← getGoals).isEmpty then continue
       if ← closes (← `(tactic| omega)) then continue
       s.restore
@@ -1354,13 +1347,27 @@ syntax (name := k2lCollClose) "k2l_coll_close"
 
 end K2LPreserve
 
+/-- `IntHook.neg` as Lean's negation, a theorem for the reason of `KPrelude.EqBase`'s. -/
+theorem IntHook.neg_eq (a : Int) : IntHook.neg a = -a := by rw [IntHook.neg]
+
 /- The `Int` and `Bool` hooks in Lean's arithmetic and logic, for `omega` (closer 5). Each hook is
-a definition whose body is the Lean operation (`KPrelude.Hooks`), so these are its unfoldings;
-the partial hooks (`/Int`, `%Int`, shifts, powers) are `Option`-valued and are not unfolded. -/
-attribute [k2l_arith] IntHook.add IntHook.sub IntHook.mul IntHook.neg IntHook.lt IntHook.le IntHook.gt
+a definition whose body is the Lean operation (`KPrelude.Hooks`). The comparisons are unfolded by
+their definitions, the `Int`-valued operations by theorems (`IntHook.add_eq`, `KPrelude.EqBase`):
+an operation unfolded by its definition inside a comparison's `decide` is rewritten in the
+proposition alone, its `Decidable` instance left behind, so `decide_eq_true_eq` no longer applies
+and `omega` sees an atom; a theorem's rewrite rebuilds the instance. The partial hooks (`/Int`,
+`%Int`, shifts, powers) are `Option`-valued and are not unfolded. -/
+attribute [k2l_arith] IntHook.add_eq IntHook.sub_eq IntHook.mul_eq IntHook.neg_eq IntHook.lt
+  IntHook.le IntHook.gt
   IntHook.ge IntHook.eq IntHook.ne BoolHook.not BoolHook.and BoolHook.or BoolHook.implies
   KEqHook.eq KEqHook.ne decide_eq_true_eq decide_eq_false_iff_not Bool.not_eq_true'
   Bool.and_eq_true Bool.or_eq_true Bool.not_eq_eq_eq_not Bool.not_true
+
+-- a comparison of an operation reads as arithmetic in one `simp` (twoparam's `below(M, N +Int 1)`)
+example (M N : Int) (h : IntHook.lt M (IntHook.add N 1) = true) : M ≤ N := by
+  simp only [k2l_arith] at h; omega
+example (M N : Int) (h : M ≤ N) : IntHook.le (IntHook.neg N) (IntHook.sub 0 M) = true := by
+  simp only [k2l_arith]; omega
 
 /- Generic normalization used when computing an invariant through a rule's right-hand side. -/
 attribute [k2l_pres] Option.map_some Option.map_none Option.bind_some Option.bind_none

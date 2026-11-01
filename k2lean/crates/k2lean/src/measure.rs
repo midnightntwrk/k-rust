@@ -375,7 +375,7 @@ all_goals (simp only [List.mem_singleton, List.not_mem_nil, Option.some.injEq, r
 all_goals\n      subst hb\n      subst_vars\n      apply Exists.intro; apply Exists.intro\n      \
 refine ⟨hk, ?_, ?_, ?_, ?_⟩\n      · simp_all [Measure.{b}_test{reads}]\n      \
 · simp only [Measure.{b}_g{reads}]; first | assumption | rfl\n      · assumption\n      \
-· first | rfl | (simp only [KPrelude.IntHook.add]; done) | (simp only [KPrelude.IntHook.add]; k2l_int_omega)\n  \
+· first | rfl | (simp only [KPrelude.IntHook.add_eq]; done) | (simp only [KPrelude.IntHook.add_eq]; k2l_int_omega)\n  \
 · simp at h\n\n\
 /-- The sum `{l}` is defined where every binding matches its patterns with a defined weight\n\
 (`MapHook.fold_sum_isSome`, from its instances). -/\n\

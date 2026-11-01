@@ -261,11 +261,11 @@ syntax (name := measureNorm) "k2l_measure_norm" " [" ident,* "]" : tactic
 elab "k2l_measure_cells" : tactic => KPrelude.K2LPreserve.casesCells
 
 /-- `k2l_measure_arith`: the obligation's arithmetic once the measure's values are known: the hooks
-in Lean's arithmetic (`k2l_arith`, `maxInt` and `minInt` unfolded), then `k2l_int_arith` (each `if`
-split, the sign of each product of nonnegative factors, `k2l_int_omega`, `grind`), on the
-obligation or on each of its two parts. -/
+in Lean's arithmetic (`k2l_arith`, with `maxInt` and `minInt` by `IntHook.max_eq` and `min_eq`),
+then `k2l_int_arith` (each `if` split, the sign of each product of nonnegative factors,
+`k2l_int_omega`, `grind`), on the obligation or on each of its two parts. -/
 macro "k2l_measure_arith" : tactic => `(tactic| (
-  (try simp only [k2l_arith, IntHook.max, IntHook.min, decide_eq_true_eq, Option.some.injEq,
+  (try simp only [k2l_arith, IntHook.max_eq, IntHook.min_eq, decide_eq_true_eq, Option.some.injEq,
     exists_and_left, exists_eq_left', exists_eq', and_true, true_and] at *)
   first
   | k2l_int_arith
