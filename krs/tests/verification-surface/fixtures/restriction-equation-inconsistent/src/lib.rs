@@ -1,4 +1,5 @@
-//! One equation of `h` is `concrete` and the other is not: K requires all or none.
+//! One equation of `h` is `concrete`, and the `owise` one after it is not, so it would apply where
+//! the restriction skips the first, which still holds there.
 
 use k::builtin::{Int, KSequence, int};
 use k::{KItem, Term};

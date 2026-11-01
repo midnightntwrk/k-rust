@@ -814,7 +814,7 @@
       "error[krs::analysis::nondet-group]: nondet group `toss` mixes priorities 50 and 200; rules at different priorities never compete"
     ],
     "nondet-equation": [
-      "error[krs::syntax::invalid-rule-key]: functions are deterministic in K; overlapping equations make the function ill-defined"
+      "error[krs::syntax::invalid-rule-key]: a function's equations define one value per argument; a nondeterministic group would give it several"
     ],
     "anywhere-readable": [
       "error[krs::syntax::invalid-rule-key]: a `for Sort` clause rewrites its subject where it heads the computation cell, and an `anywhere` rule rewrites it wherever it occurs: the clause form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn states"

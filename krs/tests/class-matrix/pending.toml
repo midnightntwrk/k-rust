@@ -2599,18 +2599,21 @@ deviation = "krs::syntax::invalid-local-rewrite @ spelling"
 
 ["attrs/local-rule/anywhere"]
 finding = "NT-13-4"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+deviation = "krs::syntax::invalid-rule-key @ spelling"
 
 ["attrs/sort-rule/anywhere"]
 finding = "NT-13-4"
 deviation = "krs::syntax::invalid-rule-key @ spelling"
 
-# NT-13-15 (K2, K8): `concrete(x)` on an equation and a table row is refused ("restricts only some
-# binders with `concrete(..)`: K requires a function's equations to be bare `concrete` when one of
-# them is restricted"), and the message advises bare `concrete`, which restricts every binder,
-# where the reference (boundaries.mdx, "Concrete, symbolic, and SMT lemmas") lists `concrete(x,
-# ..)` as a key `#[k::equation(..)]` takes and `concrete(x)` states that the equation applies where
-# `x` is concrete. Probe: `#[k::equation(concrete(x))] fn f(k::term![Probe(Cmd::C(), x)]: Term<Int>) -> Term<Int> { 0 }`.
+# NT-13-15 (K2, K8): `concrete(x)` on an equation and a table row is refused, advising bare
+# `concrete`, where the reference (boundaries.mdx, "Concrete, symbolic, and SMT lemmas") lists
+# `concrete(x, ..)` as a key `#[k::equation(..)]` takes. The meaning holds (the case's function
+# has no equation ordered after it, so no other equation applies where the restriction skips it),
+# but no route compiles it: both the native and the K text route go through k-rust's frontend,
+# whose rule-attribute check takes `concrete` on an equation only bare and on every equation of
+# its function (NT-33 fixer's probe: `krs check` and the text route of the emitted `definition.k`
+# both refuse "Found concrete attribute without simplification attribute on function with one or
+# more non-concrete rules"). Probe: `#[k::equation(concrete(x))] fn f(k::term![Probe(Cmd::C(), x)]: Term<Int>) -> Term<Int> { 0 }`.
 
 ["attrs/equation/concrete(x)"]
 finding = "NT-13-15"

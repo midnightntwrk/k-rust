@@ -200,7 +200,7 @@
       "error[krs::analysis::invalid-match-restriction]: `h_both` is both bare `concrete` and bare `symbolic`: no binder can be ground and symbolic at once; restrict different binders with `concrete(x)` and `symbolic(y)`"
     ],
     "restriction-equation-inconsistent": [
-      "error[krs::analysis::invalid-match-restriction]: equation `h_zero` is `concrete`, but equation `h_other` of the same function `H` is not: K requires every equation of a function to be `concrete` once one is (\"Found concrete attribute without simplification attribute on function with one or more non-concrete rules\"); mark them all `concrete`, or make the restricted one a #[k::simplification]"
+      "error[krs::analysis::invalid-match-restriction]: equation `h_zero` is `concrete`, so it is skipped where a binder it restricts is not ground, though it still holds there; equation `h_other`, ordered after it (`owise`), applies wherever `h_zero` does not, so there it would give the function a value `h_zero` need not agree with: make `h_other` bare `concrete` too, which skips it wherever `h_zero` is skipped, or make `h_zero` a #[k::simplification]"
     ],
     "smt-lemma-untranslatable": [
       "error[krs::analysis::smt-lemma-untranslatable]: `smt_lemma` on `h_lemma` mentions function `H`, which Z3 cannot see; Z3 sees a user function only through `smtlib = \"..\"` or `smt_hook = \"..\"`, so give it one or drop `smt_lemma`"
