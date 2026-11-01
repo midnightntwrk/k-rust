@@ -846,7 +846,10 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     // forms checkable (an advised case per operator) is a follow-up of the table and generator.
     ("terms", "notation-in-pattern", 376),
     ("terms", "record-remainder-in-initializer", 4),
-    ("terms", "sort-test-in-pattern", 72),
+    // 74: with NT-31 and NT-32 together, a sort test inside a readable key's `let` or
+    // `k::matches!` pattern is reached (NT-31 admits the outer construct; NT-32 reads its pattern),
+    // with the same `where x: Sort` advice as every other position.
+    ("terms", "sort-test-in-pattern", 74),
     ("terms", "wildcard-at-subject-root", 2),
 ];
 
