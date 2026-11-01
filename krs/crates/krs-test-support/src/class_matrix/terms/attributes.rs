@@ -846,6 +846,9 @@ fn extra_plan(
                 )
             }),
             None,
+            // Without `anywhere` the rule rewrites only where its subject heads the
+            // computation, never below `hold(..)`, so the run ends at once.
+            Removed::Changes,
         ),
     }
 }
