@@ -779,6 +779,49 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<ChosenValue> {
     .filter(|chosen| chosen.withheld_in_proof)
 }
 
+/// Whether the text describing the hook of `term`, an application, gives it a value on every
+/// argument of its declared sorts, so that it is defined wherever its arguments are although its
+/// symbol is not declared `total` (a `total` declaration states as much by itself), and whatever
+/// the arguments are, symbolic ones included. Each hook is read at the sorts its text names:
+/// - `isValidPoint` of G1 and of G2 "validates that it actually falls on the respective elliptic
+///   curve" (:100), a `Bool` for every point term, false off the curve AM-3 names. A `Bool`
+///   result; any argument sort, every term of which is a point or not.
+/// - `Bytes2String` reads each byte as the code point of its value (AM-1 of
+///   `docs/amendments.md`), a string for every byte sequence. A `Bytes` argument and a `String`
+///   result.
+///
+/// The digests, hex and raw, are given a value on every byte string by their text too
+/// (`krypto.md`:26-30, :47), but are not listed yet: stating it makes the predicate simplifier
+/// recurse without end on KEVM's hex parse of a symbolic digest (`\ceil(findString(Keccak256(B),
+/// "0x", 0))`, `kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work` in
+/// k-rust's `cli.rs`), so their definedness on a symbolic argument stays undecided, as before.
+///
+/// `String2Bytes` is not among them: AM-1 gives it a value only on the code points up to 255, so
+/// at a partial symbol its definedness on a symbolic string is unknown. Neither are the BN128
+/// sum, product and pairing, described on points only, nor the ECDSA hooks, described on their
+/// documented inputs only. The simplifier reads this where an application's `\ceil` is left
+/// opaque by its ceil theory (`simplify`), as it reads [`ChosenValue::defined`].
+pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &Term) -> bool {
+    let TermKind::Application { symbol, .. } = term.kind() else {
+        return false;
+    };
+    let Some(hook) = symbol.attributes.hook.as_deref() else {
+        return false;
+    };
+    let kind = |sort: &Sort| definition.domain_kind(sort);
+    let from_bytes = |result: DomainKind| {
+        matches!(symbol.argument_sorts.as_slice(), [argument] if kind(argument) == Some(DomainKind::Bytes))
+            && kind(&symbol.result_sort) == Some(result)
+    };
+    match hook {
+        "BYTES.bytes2string" => from_bytes(DomainKind::String),
+        "KRYPTO.bn128valid" | "KRYPTO.bn128g2valid" => {
+            symbol.argument_sorts.len() == 1 && kind(&symbol.result_sort) == Some(DomainKind::Bool)
+        }
+        _ => false,
+    }
+}
+
 /// Evaluate a hook candidate with buffered execution state available.
 ///
 /// This entry point establishes the console capability boundary without exposing buffered

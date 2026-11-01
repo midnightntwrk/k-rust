@@ -2957,10 +2957,13 @@ fn simplify_predicate_on_stack(
                 // defined when its values are, and then has a listing. The collection's own
                 // obligations are the other members of its `ceil_term`, here none or assumed. An
                 // `outside-domain` application of a partial symbol is not known to be
-                // defined (`ChosenValue::defined`).
+                // defined (`ChosenValue::defined`). A hook whose text gives every argument of
+                // its sorts a value is defined wherever its arguments are, at a partial symbol
+                // too (`builtin::defined_on_every_argument`).
                 let defined = defined_uncomputed(definition, &simplified.term)?
                     || crate::builtin::implementation_chosen(&simplified.term)
-                        .is_some_and(|chosen| chosen.defined);
+                        .is_some_and(|chosen| chosen.defined)
+                    || crate::builtin::defined_on_every_argument(definition, &simplified.term);
                 with_simplification_constraints(
                     simplified.conditions.into_predicates(),
                     if defined { Predicate::True } else { unchanged },
