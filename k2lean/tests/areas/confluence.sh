@@ -48,8 +48,8 @@ gen_confluence() {
     # its parameterized form (tests/fixtures/twoparam): a resume is one step, the segment's register
     # and code functions with no equations (`class Hooks`), with the same well-formedness `wf` and
     # the outputs' invariant `valsOk` (every output below its process's count, which tells the
-    # output a resume spends from the one it writes, INV-16, CNF-33); its measure (the work left, a weight per task summed over <tasks>) is lowered by every rule
-    # (`gen --measure`, INV-17)
+    # output a resume spends from the one it writes, INV-16, CNF-33); its measure (the work left, a
+    # weight per task summed over <tasks>) is lowered by every rule (`gen --measure`, INV-17)
     twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T --invariant valsOk@T --measure measure@T) ;;
     # the coroutine language on its own (tests/fixtures/corout), deterministic; its measure (the
     # steps left, `measure` in K) is lowered by every rule (`gen --measure`, INV-15)
