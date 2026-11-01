@@ -5,6 +5,8 @@ import KPrelude.Tactic
 lemmas in the simp set of the generic equation proofs (`k2l_eq`), with the prelude's hooks, and the
 generic proofs that name the library's functions (the others are `KPrelude.Tactic`'s). -/
 
+set_option maxRecDepth 100000
+
 namespace IndLemma
 
 open KPrelude
