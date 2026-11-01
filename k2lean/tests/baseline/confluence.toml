@@ -1089,7 +1089,7 @@ preserve = []
 
 [demo.TwoParamEnds]
 tier = "light"
-guarded = 58
+guarded = 60
 preserve = []
 
 [demo.TwoParamTx]
@@ -1372,6 +1372,8 @@ preserve = []
 "demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "f1caa6876267d02167a7fd07453dc85c2cecf824061ceb0013b4538ed75ff671" }
 "generated/corout/Corout.lean" = { tier = "light", sha256 = "8364fb848a93b90057875738477ca636e7be59fe08375a3af166f6105dc5a1f1" }
 "generated/corout/Corout/Adequacy.lean" = { tier = "light", sha256 = "dc9dad7484d5e5b96cdadd152f03c295e7a0f618247f6fabcd26a89da2c67621" }
+"generated/corout/Corout/Defined.lean" = { tier = "light", sha256 = "69185a4fb33a0b1f6695f2a0796c55f70da4afb55f3367e9c5a070fa79f1250a" }
+"generated/corout/Corout/DefinedDefs.lean" = { tier = "light", sha256 = "c368117645569aadb9c7abe9b36a49f97dbb3e044181272b2300bfa71cb95d98" }
 "generated/corout/Corout/Determinism.lean" = { tier = "light", sha256 = "5ef9d86b606ce5f9245ea9ccb8b9c9a759428b93b144de221b1ee8baa090e5f9" }
 "generated/corout/Corout/Determinism/L1.lean" = { tier = "light", sha256 = "458be47783ba95f29a20f57a6790f9a99479f6948ff704c46da08d67453c7b1d" }
 "generated/corout/Corout/Determinism/Pre.lean" = { tier = "light", sha256 = "f9115d7f0de2b42716895088e2a8cc93b0bd48f94669c89a8aa0f5bc0c8a9793" }
@@ -1395,6 +1397,7 @@ preserve = []
 "generated/corout/invariant-unfold.txt" = { tier = "light", sha256 = "94530da2f87784e5c0c373fcabbc769d6ad95a803c71c2ca431a1196b19d26bb" }
 "generated/corout/lakefile.lean" = { tier = "light", sha256 = "25e322afad370884f5a9c203f5242e8245c4a815286f63bd01655b807bca8d26" }
 "generated/corout/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/corout/open-defined-rules.txt" = { tier = "light", sha256 = "a2d4239f88838a6f43f506294248a475c029d75f5161faf8f4244f991dbf25c0" }
 "generated/drf/Drf.lean" = { tier = "light", sha256 = "86614fa19a31a71943757ed7d9432dabb9c000928af4e20050cfb5ee653bd5da" }
 "generated/drf/Drf/Adequacy.lean" = { tier = "light", sha256 = "b3bdc95d8130ef1736ae6cf0a580d3748e718696a0ed6c589b5f09684b807006" }
 "generated/drf/Drf/Determinism.lean" = { tier = "light", sha256 = "a7ca8f109b6e6bca95646221a5401560be6890b39888605f84fe940a06c410fc" }
