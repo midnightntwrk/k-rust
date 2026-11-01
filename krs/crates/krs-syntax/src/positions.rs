@@ -151,18 +151,34 @@ impl Form {
         matches!(self, Self::Alias | Self::Desugar)
     }
 
-    /// Whether the form is a single-body rule, whose subject is kept as it is outside its
-    /// `k::rewrite!` islands.
-    const fn is_single_body(self) -> bool {
-        matches!(self, Self::LocalRule | Self::CellsLocalRule)
+    /// Whether the form's result writes a configuration record, which creates cell instances:
+    /// a readable rule's and a readable claim's.
+    const fn creates_instances(self) -> bool {
+        matches!(self, Self::ReadableRule | Self::ReadableClaim)
     }
 
-    /// Whether the form's subject is rewritten in place as one term: a single-body rule's and a
-    /// simplification's.
+    /// Whether the form's subject is kept as it is outside its `k::rewrite!` islands: a
+    /// single-body rule's; a context's, whose heating and cooling rewrite only its hole, so the
+    /// term around the hole is matched and written back; and a context alias's, the term around
+    /// `here` of every context it makes.
+    const fn keeps_subject(self) -> bool {
+        matches!(
+            self,
+            Self::LocalRule | Self::CellsLocalRule | Self::Context | Self::ContextAlias
+        )
+    }
+
+    /// Whether the form's subject is rewritten in place as one term: a single-body rule's, a
+    /// simplification's, and a context's and a context alias's, which heating and cooling
+    /// rewrite around their hole.
     const fn rewrites_one_term(self) -> bool {
         matches!(
             self,
-            Self::LocalRule | Self::CellsLocalRule | Self::Simplification
+            Self::LocalRule
+                | Self::CellsLocalRule
+                | Self::Simplification
+                | Self::Context
+                | Self::ContextAlias
         )
     }
 
@@ -734,7 +750,7 @@ impl Class {
                 "a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`"
             }
             Self::AliasOutsidePattern => {
-                "`name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds"
+                "`name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, as a context's and a context alias's are around their hole, and a result only builds"
             }
             Self::AlternativesInAliasSubject => {
                 "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and `A | B` (K's #Or) denotes no one term: it prints as the disjunction `A #Or B`; write one alias clause per alternative, each with the result, or `#[k::desugar]` for an expansion that runs one way"
@@ -923,7 +939,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             } else if built_backwards {
                 Refuse(Class::AliasInAliasSubject)
             } else if pattern {
-                if form.is_single_body() && !nesting.in_rewrite {
+                if form.keeps_subject() && !nesting.in_rewrite {
                     Refuse(Class::AliasOutsidePattern)
                 } else {
                     Admit
@@ -1049,17 +1065,21 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 Admit
             }
         }
-        // Below a construct a key computes, the record is built, and `..` names no value for the
-        // fields it leaves open; so is an alias's subject, from a match that gives them none.
+        // Outside a pattern the record is built, and `..` names no value for the fields it
+        // leaves open: a condition, a result, a rewrite's right side, and below a construct a key
+        // computes; so is an alias's subject, from a match that gives them none. A readable
+        // record's result also creates cell instances, whose `..` gives the other cells their
+        // defaults, and only resolution tells an instance's record from a constructor's there.
         Construct::OpenRecord => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
             } else if built_backwards {
                 Refuse(Class::OpenRecordInAliasSubject)
-            } else if nesting.in_computed_key && !position.in_local_pattern() {
-                Refuse(Class::OpenRecordOutsidePattern)
-            } else {
+            } else if pattern || (matches!(position.slot, Slot::Result) && form.creates_instances())
+            {
                 Admit
+            } else {
+                Refuse(Class::OpenRecordOutsidePattern)
             }
         }
         // A list pattern's anonymous rest stands for the elements it leaves unnamed, which an

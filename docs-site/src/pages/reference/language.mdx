@@ -530,6 +530,7 @@ A readable `for Machine` record's computation items and cell values are not rule
 An alias may also stand inside each alternative, `stack: [(saved @ Frame { pc: 0, .. } | saved @ Frame { pc: 1, .. }), rest @ ..]`, which is `saved @ (Frame { pc: 0, .. } | Frame { pc: 1, .. })`.
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
 `@` in a result, a requires or ensures condition, or an initializer is a syntax error (K's `#as` is left-hand-side only), as are `ref` or `mut` on the alias, an alias inside its own pattern (rustc's E0416), and `name @ ..` outside a sequence, collection, or `cells!` pattern.
+A sentence that keeps its subject as it matched it, outside what it rewrites, holds no `@` and no `|` there: a single-body rule's subject outside its `k::rewrite!` islands, and a context's subject and a context alias's pattern around the hole, which heating matches and cooling writes back (`krs::syntax::invalid-pattern-as`, `krs::analysis::invalid-pattern-or`).
 
 ### Updating a matched record
 
@@ -1372,6 +1373,7 @@ KRS binders are snake case, so the two never meet, and a bare uppercase name tha
 Rust shares one hazard: a misspelled lowercase name in a pattern is a binder, which matches everything.
 
 The value is restricted to ground constructor terms so that every use is a value a pattern can match and nothing about it depends on evaluation: an application of a function or a builtin operation (`int::add(1, 2)`, `1.add::<Int>(2)`) is rejected (`krs::syntax::invalid-constant` for operator and turbofish method notation and the other term macros, `krs::analysis::invalid-constant` for a function or a builtin operation's call, and for an index or a collection method, which a constant reads as the call it denotes), as are a `static`, generics, and a type that is not a sort (`krs::syntax::invalid-constant`).
+A collection's unit (`map![]`, `set![]`) is ground, the term a pattern matches as the empty collection, and so is a [parametric constructor](#sort-parametric-productions)'s application with its turbofish (`Wrap::<dyn ExpSort>(1)`), whose instance is part of the term.
 The value's sort must be the declared sort or one below it, which `krs check` reports as an ordinary sort error at the value, so a use is well sorted wherever the declared sort is; a use is then checked at the value's own sort, as if the value were written there.
 Constants that refer to each other in a cycle, and a use that passes a constant arguments (`IF(1)`), are rejected (`krs::analysis::invalid-constant`).
 The Rust item a constant expands to is a unit struct of the same name, which gives the name its place in Rust's scopes; Rust code does not use it as a value.

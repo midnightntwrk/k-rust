@@ -589,7 +589,13 @@ fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Iden
     loop {
         let key = parse_expression_before_arrow(&map)?;
         map.parse::<Token![->]>()?;
-        let value = map.call(Ident::parse_any)?;
+        // The value is a binder or `_`: an identifier, never another keyword (`true` is a
+        // literal).
+        let value = if map.peek(Token![_]) {
+            map.call(Ident::parse_any)?
+        } else {
+            map.parse::<Ident>()?
+        };
         validate_authored_binder(&value.to_string(), value.span())?;
         // The entries are distinct items of one map, so two keys
         // that are the same term can never both match; two `_` keys match

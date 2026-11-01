@@ -113,6 +113,9 @@ impl ConstantItem {
         // initializer.
         crate::state_rule::allocate_claim_node_keys(&mut keys, [(nodes, &mut *term_keys)])?;
         crate::term::allocate_lexeme_keys(&mut keys, nodes, term_keys)?;
+        // A parametric production's turbofish instances (KF-027), after the islands, as a
+        // rule's terms number them.
+        crate::term::allocate_application_instance_keys(&mut keys, nodes, term_keys)?;
         self.anchors = keys.into_anchors();
         Ok(self)
     }
@@ -251,6 +254,17 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
             .iter()
             .all(|segment| segment.arguments.is_none())
     };
+    // A parametric production's turbofish names the instance its application has, which a
+    // ground application keeps: `Wrap::<Int>(1)` is as ground as `Wrap(1)`.
+    let instance_head = |path: &syn::Path| {
+        let mut segments = path.segments.iter().rev();
+        segments.next().is_some_and(|last| {
+            matches!(
+                last.arguments,
+                syn::PathArguments::None | syn::PathArguments::AngleBracketed(_)
+            )
+        }) && segments.all(|segment| segment.arguments.is_none())
+    };
     match expression {
         Expr::Paren(inner) => check_ground(&inner.expr, name),
         Expr::Group(inner) => check_ground(&inner.expr, name),
@@ -269,16 +283,16 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
             let Expr::Path(head) = &*call.func else {
                 return not_ground("a call of a computed head", call.func.span());
             };
-            if head.qself.is_some() || !plain(&head.path) {
-                return not_ground("a parametric production's turbofish", head.span());
+            if head.qself.is_some() || !instance_head(&head.path) {
+                return not_ground("a qualified or generic path", head.span());
             }
             call.args
                 .iter()
                 .try_for_each(|argument| check_ground(argument, name))
         }
         Expr::Struct(record) if record.rest.is_none() && record.qself.is_none() => {
-            if !plain(&record.path) {
-                return not_ground("a parametric production's turbofish", record.path.span());
+            if !instance_head(&record.path) {
+                return not_ground("a generic path", record.path.span());
             }
             record
                 .fields

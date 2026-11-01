@@ -71,7 +71,7 @@ advice = "terms/rule/guard/let-pattern/Cmd::Hold(x)"
 
 [class.alias-outside-pattern]
 code = "krs::syntax::invalid-pattern-as"
-doc = "`name @ pattern` (K's `#as`) outside a left-hand side"
+doc = "`name @ pattern` (K's `#as`) outside a left-hand side, or in a subject the sentence keeps as it is: a single-body rule's outside its rewrites, and a context's or a context alias's around its hole, which heating matches and cooling writes back (NT-28)"
 advice = "none"
 
 # A compiler class no generated case makes: the term families place their constructs below a
@@ -99,7 +99,7 @@ advice = "none"
 
 [class.alternatives-in-one-term-rewrite]
 code = "krs::analysis::invalid-pattern-or"
-doc = "`A | B` in a simplification's or single-body rule's subject, which is rewritten as one term"
+doc = "`A | B` in a simplification's or single-body rule's subject, which is rewritten as one term, or in a context's or a context alias's subject, which heating and cooling rewrite around its hole as one term (NT-28)"
 advice = "none"
 
 # No generated case makes this mistake alone: outside a pattern, the term family's only `|`
@@ -453,7 +453,7 @@ advice = "terms/init/variable-item/Cmd::Pair { a: x, ..x }"
 [class.record-update-base]
 code = "krs::analysis::invalid-record-update"
 doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence; a value the sentence computes is destructured with a `let` instead, except in a claim, which holds no `let`"
-advice = "terms/{form}/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"
+advice = ["terms/{form}/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }", "terms/local-rule/subject/rewrite-right/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 
 [class.record-update-in-pattern]
 code = "krs::syntax::invalid-record-update"
@@ -529,7 +529,7 @@ advice = "attrs/{form}/smt_lemma of an smtlib function"
 
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
-doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern; or in an alias's or a desugar's subject, which static expansion matches as written, where the test would stand for its spelling (decision NT-11-5)"
+doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern; or in an alias's or a desugar's subject, which static expansion matches as written, where the test would stand for its spelling (decision NT-11-5); or in a key a context alias looks up: the projection has a value only where its operand has the sort, which the sentence's condition must require, and an alias states none (NT-28)"
 advice = ["cells/subject/pc/k::configuration::Cell(x)", "terms/rule/guard/k::is!(Int, x)", "terms/desugar/subject-typed/x"]
 
 [class.static-result-sort]

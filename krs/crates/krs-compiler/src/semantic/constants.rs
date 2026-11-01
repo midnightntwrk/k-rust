@@ -286,12 +286,22 @@ impl Substitution<'_> {
                             .collect::<Result<Vec<_>, DescriptorLoweringError>>()?,
                     ),
                 };
+                // Each use is a node of its own, its instance's sorts included.
+                let instance = instance
+                    .iter()
+                    .map(|sort| {
+                        Ok(krs_ir::DescriptorSortReference {
+                            key: self.key(origin)?,
+                            sort: sort.sort.clone(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
                 DescriptorTerm::Application {
                     head_class: *head_class,
                     reference,
                     path_key,
                     arguments,
-                    instance: instance.clone(),
+                    instance,
                     update: None,
                     open: false,
                 }
@@ -531,6 +541,11 @@ fn check_constructors(
         DescriptorApplicationRef::Declared(id) => {
             Some(format!("the function `{}`", id.item_name()))
         }
+        // A collection's unit is its algebra's constant: a ground term that a pattern matches
+        // as the empty collection and a built term writes as one.
+        DescriptorApplicationRef::Map(krs_ir::TermMapOperation::Empty)
+        | DescriptorApplicationRef::List(krs_ir::ListOperation::Empty)
+        | DescriptorApplicationRef::Set(krs_ir::SetOperation::Empty) => None,
         _ => Some("a builtin operation".to_owned()),
     };
     if let Some(applied) = applied {

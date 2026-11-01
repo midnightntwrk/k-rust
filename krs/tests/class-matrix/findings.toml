@@ -129,11 +129,6 @@ owner = "NT-33"
 kind = "diagnostic"
 what = "`record-update-base` advises, on a context, a `let` at the context's result, a slot a context does not have, so no generated case writes it"
 
-["NT-18-1"]
-owner = "NT-28"
-kind = "bug"
-what = "a sort projection in a context alias's map key reaches expansion's internal `krs::expand::missing-provenance-key`"
-
 ["NT-19-1"]
 owner = "NT-33"
 kind = "diagnostic"
@@ -144,45 +139,15 @@ owner = "NT-34"
 kind = "feature"
 what = "a readable record cannot read a Set instance's map cell with its other entries open (`m: { 1 -> 2, .. }`)"
 
-["NT-2-13"]
-owner = "NT-28"
-kind = "bug"
-what = "a `cells!` or context subject's alias whose binder is declared at the position's sort reaches the IR validator's internal `#as` sort error"
-
 ["NT-2-14"]
 owner = "NT-28"
 kind = "diagnostic"
 what = "a static clause whose body rustc cannot parse leaves its production's marker orphaned"
 
-["NT-2-17"]
-owner = "NT-28"
-kind = "bug"
-what = "a context alias's subject reports the internal `missing-provenance-key` for islands, alternatives, an alias and a turbofish"
-
 ["NT-2-18"]
 owner = "NT-28"
 kind = "bug"
 what = "a negative literal at some roots and in a `let` pattern is refused with a stale anchor"
-
-["NT-2-19"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "a turbofish in a constant is refused, though it applies a constructor to ground terms"
-
-["NT-2-21"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "a readable map read whose value is `true` reaches rustc (E0308)"
-
-["NT-2-22"]
-owner = "NT-28"
-kind = "bug"
-what = "a record update's base in a rewrite's right side reaches the collector's internal `provenance-mismatch`"
-
-["NT-2-24"]
-owner = "NT-28"
-kind = "bug"
-what = "an alias over a parametric constructor in a subject is an internal descriptor error"
 
 ["NT-2-25"]
 owner = "NT-32"
@@ -194,30 +159,10 @@ owner = "NT-28"
 kind = "diagnostic"
 what = "a constant's whole value that rustc cannot parse gets no KRS answer"
 
-["NT-2-27"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "a context alias's binder that an operand sorts more narrowly is the IR validator's error, not its class"
-
-["NT-2-28"]
-owner = "NT-28"
-kind = "bug"
-what = "alternatives in a context's subject reach the IR validator's internal `#Or` restriction"
-
-["NT-2-4"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "an open record in a built term or a `cells!` value is refused by the IR validator, not at the construct (`open-record-outside-pattern`)"
-
 ["NT-2-6"]
 owner = "NT-32"
 kind = "diagnostic"
 what = "a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class"
-
-["NT-2-7"]
-owner = "NT-28"
-kind = "bug"
-what = "`_` where no production field gives it a sort is the descriptor validator's message, and `krs expand` prints `_` at an item root so that the re-check refuses it by the same message (NT-30: the printer is right; the K3 rows clear with the K2 fix)"
 
 ["NT-3-1"]
 owner = "NT-31"
@@ -243,21 +188,6 @@ what = "the run printer reverses an alias whose subject writes a builtin collect
 owner = "NT-28"
 kind = "diagnostic"
 what = "alternatives one of which is an index or a collection method are read as the operator `|`"
-
-["NT-5-2"]
-owner = "NT-28"
-kind = "bug"
-what = "a simplification rooted at a collection's function fails the semantic theory's validation (internal), unlocated, for a false reason"
-
-["NT-5-3"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "a context alias's computation item gives a projected collection read no sort"
-
-["NT-6-1"]
-owner = "NT-28"
-kind = "bug"
-what = "a constant refuses the empty map and set, which are values"
 
 ["S0-14"]
 owner = "S5"

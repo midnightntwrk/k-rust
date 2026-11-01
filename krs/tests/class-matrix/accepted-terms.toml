@@ -5491,6 +5491,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/cells/subject/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , ( hold ( _ ) #as V1:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept.'terms/claim/item-root/"s"']
 k = '''
@@ -18910,6 +18916,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["terms/equation/subject/y @ Cmd::Hold(_)"]
 
 [accept."terms/cells-claim/item-root/_"]
+k = """
+claim [case-TAG]:
+<k> _ ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells-claim/item-root/k::is!(Int, x)"]
 k = """
@@ -18928,6 +18940,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/cells-claim/item-root/y @ Cmd::Hold(_)"]
+k = """
+claim [case-TAG]:
+<k> ( hold ( _ ) #as V0:KItem ) ~> cTAG ( V1:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells-claim/subject/k::is!(Int, x)"]
 k = """
@@ -18946,8 +18964,20 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/cells-claim/subject/y @ Cmd::Hold(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , ( hold ( _ ) #as V1:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells/item-root/_"]
+k = """
+rule [case-TAG]:
+<k> _ ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells/item-root/k::builtin::set::item(x)"]
 k = """
@@ -18958,6 +18988,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/cells/item-root/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> ( hold ( _ ) #as V0:KItem ) ~> cTAG ( V1:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells/map-key/k::is!(Int, x)"]
 k = """
@@ -18979,8 +19015,22 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/cells/map-key/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> ( hold ( _ ) #as V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells/map-value/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> V0:KItem |-> ( hold ( _ ) #as V1:KItem ) ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/cells/result-map-value/k::fragment![crate::Frame { ret: 1 }]"]
 k = """
@@ -19009,11 +19059,21 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."terms/context-alias/item-root/Cmd::Go() | Cmd::Hold(_)"]
-
 [accept."terms/context-alias/item-root/Wrap::<dyn k::KItemSort>(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> wrap ( V0:KItem ) ~> cTAG ( V0:KItem , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/context-alias/item-root/_"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> _ ~> cTAG ( V0:KItem , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/context-alias/item-root/k::builtin::set::item(x)"]
 k = """
@@ -19024,12 +19084,28 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/context-alias/item-root/k::bytes!(b\"ab\")"]
+k = '''
+context alias [caseTAG]:
+<k> HERE ~> #token("b\"ab\"","Bytes") ~> cTAG ( V0:KItem , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/context-alias/item-root/k::id!(\"$x\")"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> #token("$x","Id") ~> cTAG ( V0:KItem , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/context-alias/item-root/k::lexeme!(Word, \"word\")"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> #token("word","Word") ~> cTAG ( V0:KItem , _ ) ... </k>
 
-[accept."terms/context-alias/item-root/y @ Cmd::Hold(_)"]
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/context-alias/map-key/1"]
 k = """
@@ -19076,8 +19152,6 @@ context alias [caseTAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."terms/context-alias/map-key/k::project!(Int, x)"]
-
 [accept."terms/context-alias/map-key/x"]
 k = """
 context alias [caseTAG]:
@@ -19087,21 +19161,37 @@ context alias [caseTAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."terms/context-alias/subject/Cmd::Go() | Cmd::Hold(_)"]
-
 [accept."terms/context-alias/subject/Wrap::<dyn k::KItemSort>(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , wrap ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/context-alias/subject/k::bytes!(b\"ab\")"]
+k = '''
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , #token("b\"ab\"","Bytes") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/context-alias/subject/k::id!(\"$x\")"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , #token("$x","Id") ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/context-alias/subject/k::lexeme!(Word, \"word\")"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , #token("word","Word") ) ... </k>
 
-[accept."terms/context-alias/subject/y @ Cmd::Hold(_)"]
-
-[accept."terms/context/subject/Cmd::Go() | Cmd::Hold(_)"]
-
-[accept."terms/context/subject/y @ Cmd::Hold(_)"]
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/item-root/-1"]
 
@@ -19602,12 +19692,29 @@ same_k_as = ["terms/readable/map-key/update-field/k::builtin::int::add(x, 1)"]
 [accept."terms/rule/guard/let-pattern/-1"]
 
 [accept."terms/rule/guard/matches-pattern/_"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( _ :=K V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/as-body/Wrap::<dyn k::KItemSort>(x)"]
+k = """
+rule cTAG ( V0:KItem , ( wrap ( V0:KItem ) #as V1:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/result/let-pattern/-1"]
 
 [accept."terms/sort-rule/result/matches-pattern/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( _ :=K V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/subject-root-term/_"]
 k = """
@@ -19861,6 +19968,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/readable/map-key/or-branch/x"]
 
 [accept."terms/cells/map-key/beside-fresh/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> pair ( ( hold ( _ ) #as V1:KItem ) , V2:KItem ) |-> V3:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/beside-fresh/Cmd::Go() | Cmd::Hold(_)"]
 
@@ -23696,34 +23810,94 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+k = """
+rule (ListItem(V0:KItem) [ 0 ]) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::list::item(x).len()"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::list::size(k::builtin::list::item(x))"]
+k = """
+rule size(ListItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::list::item(x)[0]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+k = """
+rule (ListItem(V0:KItem) [ 0 ]) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::list::size(k::builtin::list::item(x))"]
+k = """
+rule size(ListItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::map::empty().contains_key(x)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+k = """
+rule V0:KItem in_keys(.Map) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::map::empty().update(x, 1)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
+k = """
+rule (.Map [ V0:KItem ]) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
+k = """
+rule (.Map [ V0:KItem ]) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+k = """
+rule V0:KItem in_keys(.Map) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::set::item(x).to_list()"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
+k = """
+rule Set2List(SetItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
+k = """
+rule Set2List(SetItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
@@ -25962,24 +26136,48 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."notation/constant/value-root/k::builtin::map::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value-root/k::builtin::set::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value-root/map![]"]
 same_k_as = ["notation/constant/value-root/k::builtin::map::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value-root/set![]"]
 same_k_as = ["notation/constant/value-root/k::builtin::set::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value/k::builtin::map::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value/k::builtin::set::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value/map![]"]
 same_k_as = ["notation/constant/value/k::builtin::map::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/constant/value/set![]"]
 same_k_as = ["notation/constant/value/k::builtin::set::empty()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/context-alias/item-root/k::builtin::map::empty()"]
 k = """
@@ -28848,22 +29046,57 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+k = """
+rule .Set |Set SetItem(V0:KItem) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+k = """
+rule SetItem(V0:KItem) |Set SetItem(1) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/map![x -> 1, ..k::builtin::map::empty()]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/map![x -> 1, 2 -> 3]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/set![x, ..k::builtin::set::empty()]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+k = """
+rule .Set |Set SetItem(V0:KItem) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/set![x, 1]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+k = """
+rule SetItem(V0:KItem) |Set SetItem(1) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject/k::builtin::map::empty()"]
 k = """
@@ -30339,9 +30572,19 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/subject-root/k::map![x -> 1]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/simplification/subject-root/map![x -> 1]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/simplification/subject/k::map![x -> 1]"]
 same_k_as = ["notation/simplification/subject/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
@@ -32296,9 +32539,19 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule .Map [ 0 <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject-root/map![0 -> 1]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule .Map [ 0 <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."notation/simplification/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """

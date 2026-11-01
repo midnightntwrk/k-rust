@@ -722,7 +722,12 @@ impl StructuredTermBuilder<'_> {
                 }
                 // The alias names the term the pattern matched, so it is
                 // bounded by the pattern's own sort as well as the position's.
-                if let Some(sort) = self.pattern_head_sort(pattern) {
+                // A declared alias has its declared sort, which the pattern's
+                // injects into, as every occurrence of a declared binder does
+                // (KF-009): the declaration, not the pattern, is its sort.
+                if !self.declared_binders.contains_key(name)
+                    && let Some(sort) = self.pattern_head_sort(pattern)
+                {
                     self.binding_constraints
                         .entry(name.clone())
                         .or_default()
@@ -1208,7 +1213,13 @@ impl StructuredTermBuilder<'_> {
             .collect::<BTreeSet<_>>();
         let outer = std::mem::take(&mut self.binding_constraints);
         self.locals.inferring = Some(names.clone());
-        let inferred = self.infer(pattern, None, true);
+        // A whole pattern `_` binds nothing and constrains no sort: it matches the tested term
+        // at the term's own sort, which lowering reads.
+        let inferred = if matches!(pattern, DescriptorTerm::Wildcard { .. }) {
+            Ok(())
+        } else {
+            self.infer(pattern, None, true)
+        };
         self.locals.inferring = None;
         let constraints = std::mem::replace(&mut self.binding_constraints, outer);
         inferred?;
@@ -1258,7 +1269,9 @@ impl StructuredTermBuilder<'_> {
             scope.insert(name, (id, sort));
         }
         self.locals.scope = Some(scope);
-        let lowered = self.lower(pattern, None, true);
+        // A whole pattern `_` matches the tested term whatever it is, at the term's sort.
+        let any = matches!(pattern, DescriptorTerm::Wildcard { .. }).then(|| tested.sort().clone());
+        let lowered = self.lower(pattern, any.as_ref(), true);
         self.locals.scope = None;
         let lowered = lowered?;
         let meets = most_specific_common_descendants(
@@ -1425,7 +1438,10 @@ impl StructuredTermBuilder<'_> {
             } => self
                 .catalog
                 .get(id)
-                .map(|signature| signature.result_sort.clone()),
+                .map(|signature| signature.result_sort.clone())
+                // A parametric production's result is its instance's sort, which inference
+                // decides from the application itself.
+                .filter(|sort| !matches!(sort, SemanticSortRef::Parameter(_))),
             // A group pattern matches the whole nested cell (KF-016).
             DescriptorTerm::Cell { declaration, .. } => {
                 Some(SemanticSortRef::Cell(declaration.clone()))
@@ -1474,6 +1490,15 @@ impl StructuredTermBuilder<'_> {
         partial: Partial<'_>,
     ) -> Result<(), DescriptorLoweringError> {
         let subject = partial.subject;
+        if partial.open && !subject {
+            return Err(DescriptorLoweringError::OpenRecordOutsidePattern {
+                item: Box::new(self.descriptor.id().clone()),
+                reason: krs_syntax::positions::Class::OpenRecordOutsidePattern
+                    .summary()
+                    .to_owned(),
+                range: self.authored_range(&reference.key),
+            });
+        }
         self.reject_misplaced_turbofish(reference, instance)?;
         if let DescriptorApplicationRef::Declared(id) = &reference.application
             && let Some(signature) = self.catalog.get(id)

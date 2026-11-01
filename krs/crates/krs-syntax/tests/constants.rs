@@ -42,6 +42,7 @@ fn a_constant_names_a_ground_term_of_a_sort() {
         "const MAGIC: Bytes = k::bytes!(b\"\\x7fELF\");",
         "const WORD: Word = k::lexeme!(Word, \"word\");",
         "const CALL: Exp = Call(k::id!(\"$main\"));",
+        "const CHOICE: Exp = Choose::<Int>(1);",
     ] {
         ConstantItem::parse_source(source).unwrap_or_else(|error| panic!("{source}: {error}"));
     }
@@ -53,7 +54,6 @@ fn a_constant_value_applies_constructors_only() {
         ("const X: Int = 1.add::<Int>(2);", "a builtin operation"),
         ("const X: Bool = A && B;", "a builtin operation"),
         ("const X: Int = !1;", "a builtin operation"),
-        ("const X: Exp = Choose::<Int>(1);", "turbofish"),
         ("const X: Exp = k::k![1];", "this expression"),
         (
             "const X: Int = k::anonymous!(Int, \"_V\");",

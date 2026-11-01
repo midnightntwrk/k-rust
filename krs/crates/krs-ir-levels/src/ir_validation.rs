@@ -1234,6 +1234,9 @@ pub(crate) fn validate_rule<L: Validation>(
                         application: ApplicationRef::Builtin(operation),
                         ..
                     } if operation.is_functional() => {}
+                    // Every operation of a builtin collection, its unit, element and
+                    // concatenation included, is a function of the collection's algebra.
+                    IrTermKind::Map(_) | IrTermKind::List(_) | IrTermKind::Set(_) => {}
                     _ => {
                         return Err(L::error(ValidationError::InvalidSimplificationRoot(
                             rule.id.clone(),

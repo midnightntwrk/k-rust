@@ -462,9 +462,13 @@ where
     }
 
     fn record_update(&mut self, base: &Term<S>) -> Result<(), E> {
+        // A local rewrite's right side is built, as a result is: its base is a variable the
+        // compiler then checks against the subject's aliases.
         self.place(
             !matches!(base, Term::Variable { .. })
-                || (matches!(self.side, ValidationSide::Left) && !self.in_matches_pattern),
+                || (matches!(self.side, ValidationSide::Left)
+                    && !self.in_rewrite_right
+                    && !self.in_matches_pattern),
             TermRefusal::RecordUpdateBase,
         )?;
         validate_term(base, self)

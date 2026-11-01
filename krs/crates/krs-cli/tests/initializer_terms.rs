@@ -741,7 +741,7 @@ fn an_initializer_refuses_what_has_no_meaning_or_no_tool_there() {
             "p, k::matches!(p, q @ ExpSyntax::Pair(_, _))",
             "k::project!(Int, v)",
             "true",
-            "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the value of an initializer",
+            "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, as a context's and a context alias's are around their hole, and a result only builds; here it stands in a `k::matches!` pattern in the value of an initializer",
         ),
         (
             "open",

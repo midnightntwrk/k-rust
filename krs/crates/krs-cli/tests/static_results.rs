@@ -436,7 +436,7 @@ fn a_static_result_s_local_functions_have_their_values() {
     );
     let (success, _, stderr) = krs(target.path(), &aliased, "check", &[]);
     assert!(!success);
-    expect_test::expect!["error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `#[k::desugar]` clause"]
+    expect_test::expect!["error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, as a context's and a context alias's are around their hole, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `#[k::desugar]` clause"]
     .assert_eq(
         stderr
             .lines()

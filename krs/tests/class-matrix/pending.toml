@@ -2315,134 +2315,6 @@ deviation = "accepted"
 # listed fields), so a `cells!` value refuses it with its own class and its cases conform; a rule's
 # result still admits it and fails in lowering.
 
-["terms/alias/result-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/alias/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/cells-claim/guard/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/cells-claim/guard/closure-body/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-ml-predicate @ spelling"
-
-["terms/claim/result-item-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/claim/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/context/guard/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/desugar/result-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/desugar/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/equation/guard/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/equation/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/local-rule/subject/rewrite-right/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/readable/guard/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/readable/result-item-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/readable/result-list-element/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/readable/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/rule/guard/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/rule/guard/closure-body/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::ml-placement @ entry"
-
-["terms/rule/guard/let-body/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/rule/result-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/rule/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/shorthand/result-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/shorthand/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/simplification/result-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/simplification/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/sort-rule/result-root/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/sort-rule/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/sort-rule/result/function-argument/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/sort-rule/result/let-body/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/sort-rule/result/update-field/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/table/result/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/simplification/guard/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "krs::analysis::invalid-term @ spelling"
-
 # NT-2-6: a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class
 # Where a pattern is parsed below a subject's root (a `let` or `k::matches!` pattern, a rewrite's
 # left side, an alias's body, a list element, a computation item) a notation form, a `let` block, a
@@ -3411,42 +3283,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 # clause's sort there: the clause emits `_:Stmt` for `for Stmt` (a bare name, `S:Stmt`), while a
 # `cells!` item `_` reads as any `KItem`.
 
-["k3/terms/claim/item-root/_"]
-finding = "NT-2-7"
-deviation = "printed surface refused: krs::analysis::invalid-term @ item"
-
-["k3/terms/readable/item-root/_"]
-finding = "NT-2-7"
-deviation = "printed surface refused: krs::analysis::invalid-term @ item"
-
-["k3/terms/sort-rule/subject-root-term/_"]
-finding = "NT-2-7"
-deviation = "printed surface refused: krs::analysis::invalid-term @ item"
-
-["k3/terms/sort-rule/subject-root/_"]
-finding = "NT-2-7"
-deviation = "printed surface refused: krs::analysis::invalid-term @ item"
-
-["terms/cells-claim/item-root/_"]
-finding = "NT-2-7"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/cells/item-root/_"]
-finding = "NT-2-7"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/context-alias/item-root/_"]
-finding = "NT-2-7"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/rule/guard/matches-pattern/_"]
-finding = "NT-2-7"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["terms/sort-rule/result/matches-pattern/_"]
-finding = "NT-2-7"
-deviation = "krs::analysis::invalid-term @ spelling"
-
 # NT-2-13: a `cells!` or context subject's alias whose binder is declared at the position's sort reaches the IR validator's internal `#as` sort error
 # A subject alias `y @ Cmd::Hold(_)` declared `y: KItem` (the sort of the position it fills, above the
 # pattern's `Stmt`) reaches "an `alias @ pattern` (#as) node's sort is not its alias variable's"; a
@@ -3454,38 +3290,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 # variable's sort. Formerly the unassigned entry `terms/cells/subject/y @ Cmd::Hold(_)`; NT-2 finds it
 # at every `cells!` and context subject position. Probe: `terms/cells/subject/y @ Cmd::Hold(_)`. Plan:
 # new.
-
-["terms/cells-claim/item-root/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/cells-claim/subject/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/cells/item-root/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/cells/map-key/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/cells/map-value/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/cells/subject/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/context/subject/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-["terms/cells/map-key/beside-fresh/y @ Cmd::Hold(_)"]
-finding = "NT-2-13"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 
 # NT-2-14: a static clause whose body rustc cannot parse leaves its production's marker orphaned
 # `y @ Cmd::Hold(_)` in a desugar or alias result is rustc's parse error, beside which KRS must
@@ -3525,54 +3329,6 @@ deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-err
 # `krs::expand::missing-provenance-key` "this node holds no provenance key from its sentence's parse".
 # Probe: `terms/context-alias/subject/k::bytes!(b"ab")`. Plan: new.
 
-["terms/context-alias/item-root/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/item-root/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/item-root/k::bytes!(b\"ab\")"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/item-root/k::id!(\"$x\")"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/item-root/k::lexeme!(Word, \"word\")"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/item-root/y @ Cmd::Hold(_)"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/subject/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/subject/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/subject/k::bytes!(b\"ab\")"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/subject/k::id!(\"$x\")"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/subject/k::lexeme!(Word, \"word\")"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
-["terms/context-alias/subject/y @ Cmd::Hold(_)"]
-finding = "NT-2-17"
-deviation = "krs::expand::missing-provenance-key @ spelling"
-
 # NT-2-18: a negative literal at some roots and in a `let` pattern is a stale anchor
 # `-1` at a readable or claim computation item's root, a `for KItem` clause's root and in a `let`
 # pattern is `krs::collect::stale-anchor` "anchor .. no longer matches reparsed source": the negative
@@ -3606,22 +3362,10 @@ deviation = "krs::collect::stale-anchor @ spelling"
 # `unbound-name` rule's, which the product's turbofish refusal comes before). Probe:
 # `terms/constant/value/Wrap::<dyn k::KItemSort>(x)`. Plan: new.
 
-["terms/constant/value-root/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-19"
-deviation = "krs::syntax::invalid-constant @ spelling"
-
-["terms/constant/value/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-19"
-deviation = "krs::syntax::invalid-constant @ spelling"
-
 # NT-2-21: a readable map read whose value is `true` reaches rustc (E0308)
 # A read's value is the name the read binds; other spellings are refused with `rust-syntax` before
 # rustc, but `true` passes to rustc, which reports E0308. Probe: `terms/readable/map-value/true`. Plan:
 # new.
-
-["terms/readable/map-value/true"]
-finding = "NT-2-21"
-deviation = "E0308 @ spelling"
 
 # NT-2-22: a record update's base in a rewrite's right side reaches the collector
 # `k::rewrite!(_ => Cmd::Pair { a: x, ..x })`, whose base `x` is no matched record's alias, is
@@ -3629,18 +3373,10 @@ deviation = "E0308 @ spelling"
 # rather than `record-update-base`. Probe: `terms/local-rule/subject/rewrite-right/Cmd::Pair { a: x, ..x }`.
 # Plan: new.
 
-["terms/local-rule/subject/rewrite-right/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-22"
-deviation = "krs::collect::provenance-mismatch @ spelling"
-
 # NT-2-24: an alias over a parametric constructor in a subject is an internal descriptor error
 # `y @ Wrap::<dyn KItemSort>(x)` reports `invalid-term` "variable y has no declared common descendant
 # for occurrence sorts [KItem, sort parameter S]". Probe: `terms/rule/subject/as-body/Wrap::<dyn k::KItemSort>(x)`.
 # Plan: new.
-
-["terms/rule/subject/as-body/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-24"
-deviation = "krs::analysis::invalid-term @ item"
 
 # NT-2-25: a name mistake is reported before a placement mistake
 # A placement mistake is told by the spelling and its position before any name is resolved; the
@@ -3697,6 +3433,18 @@ deviation = "krs::syntax::invalid-pattern-or @ spelling"
 finding = "NT-2-25"
 deviation = "krs::syntax::invalid-pattern-or @ spelling"
 
+["terms/context-alias/item-root/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/context-alias/subject/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/context/subject/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
 # NT-2-26: a constant's whole value that rustc cannot parse gets no KRS answer
 # At a `#[k::constant]` value's root, a construct rustc's parser refuses is reported by rustc
 # alone; below the root KRS answers beside it. Probe: `terms/constant/value-root/y @ Cmd::Hold(_)`.
@@ -3717,23 +3465,11 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling"
 # the context alias's lowering reports the sort mistake. Probe:
 # `terms/context-alias/subject/k::builtin::int::add(x, 1)`. Plan: new.
 
-["terms/context-alias/item-root/k::builtin::int::add(x, 1)"]
-finding = "NT-2-27"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/context-alias/subject/k::builtin::int::add(x, 1)"]
-finding = "NT-2-27"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
 # NT-2-28: alternatives in a context's subject reach the IR validator's `#Or` restriction
 # `A | B` in a context's pattern says the context applies where either shape stands; the product
 # reports `invalid-semantic-theory` "`A | B` (#Or) occurs only in pre-patterns", an IR validator
 # message, rather than a class of its own. Probe: `terms/context/subject/Cmd::Go() | Cmd::Hold(_)`.
 # Plan: new.
-
-["terms/context/subject/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-2-28"
-deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 
 # NT-3-1: a set's element in a pattern refuses what a key admits: computed constructs and notation (P5)
 # A set is looked up by its elements as a map by its keys, so an element that computes (a sort
@@ -4700,100 +4436,8 @@ deviation = "krs::analysis::ambiguous-operator @ entry"
 # Its six notation cases and their calls are the accepted pairs `accepted-terms.toml` relates by
 # `same_k_as`, which K3 compares once both are accepted.
 
-["notation/simplification/subject-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::list::item(x).len()"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::list::item(x)[0]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::list::size(k::builtin::list::item(x))"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::empty()[x]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::set::item(x).to_list()"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
 # NT-6: a simplification rooted at a map literal's or a set literal's `map::update` or
 # `set::union` answers as its call does; the pairs are compared once both are accepted.
-
-["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/map![0 -> 1]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/map![x -> 1, ..k::builtin::map::empty()]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/map![x -> 1, 2 -> 3]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/set![x, ..k::builtin::set::empty()]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["notation/simplification/subject-root/set![x, 1]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["terms/simplification/subject-root/k::map![x -> 1]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
-["terms/simplification/subject-root/map![x -> 1]"]
-finding = "NT-5-2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 
 # NT-5-3: a context alias's computation item gives a projected collection read no sort
 # `map::get(..)` and `list::get(..)` read a `KItem` that the position projects to its sort; in a
@@ -4801,22 +4445,6 @@ deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 # expected result sort", `invalid-term`) before the function in the pattern is told; in a rule's
 # computation item the same read is `function-in-pattern`. The index answers as its call. Plan:
 # give a context alias's items their cell's item sort (`KItem`), as a rule's are.
-
-["notation/context-alias/item-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-5-3"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["notation/context-alias/item-root/k::builtin::list::item(x)[0]"]
-finding = "NT-5-3"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["notation/context-alias/item-root/k::builtin::map::empty()[x]"]
-finding = "NT-5-3"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["notation/context-alias/item-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-5-3"
-deviation = "krs::analysis::invalid-term @ spelling"
 
 # NT-6-1: a constant refuses the empty map and set, which are values
 # A constant's value is a ground term every use can match. The empty map and set are values, K's
@@ -4828,38 +4456,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 # spellings. Proposal: admit the builtin collections' values in a constant: the empty map, set and
 # list, and a set's or a list's singleton of ground terms (`set![1]`, `[1]`). Plan: new.
 
-["notation/constant/value-root/k::builtin::map::empty()"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value-root/k::builtin::set::empty()"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value-root/map![]"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value-root/set![]"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value/k::builtin::map::empty()"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value/k::builtin::set::empty()"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value/map![]"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
-["notation/constant/value/set![]"]
-finding = "NT-6-1"
-deviation = "krs::analysis::invalid-constant @ spelling"
-
 
 # K8 (NT-13): the attribute axis's cases (`attrs/..`) and the advice check's verdicts (`k8/..`),
 # grouped by finding. A `k8/` entry of a case whose K2
@@ -4867,10 +4463,6 @@ deviation = "krs::analysis::invalid-constant @ spelling"
 # First run on main `580dca4a2`; regenerated after the NT-13 review.
 
 # NT-2-4 (K8): the advice check on cases pending above under NT-2-4, whose refusal it reads.
-
-["k8/terms/rule/guard/closure-body/Cmd::Pair { a: x, .. }"]
-finding = "NT-2-4"
-deviation = "open-record-outside-pattern advises none, and its refusal advises `int::eq`"
 
 # NT-2-14 (K8): the advice check on cases pending above under NT-2-14, whose refusal it reads.
 
@@ -4891,14 +4483,6 @@ finding = "NT-2-14"
 deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
 
 # NT-2-27 (K8): the advice check on cases pending above under NT-2-27, whose refusal it reads.
-
-["k8/terms/context-alias/item-root/k::builtin::int::add(x, 1)"]
-finding = "NT-2-27"
-deviation = "binder-sort's refusal advises `#[k::simplification]`, which cells/subject/pc/k::configuration::Cell(x) does not write (attrs/simplification/#[k::requires(k::is!(Int, x))] does)"
-
-["k8/terms/context-alias/subject/k::builtin::int::add(x, 1)"]
-finding = "NT-2-27"
-deviation = "binder-sort's refusal advises `#[k::simplification]`, which cells/subject/pc/k::configuration::Cell(x) does not write (attrs/simplification/#[k::requires(k::is!(Int, x))] does)"
 
 # NT-3-1 (K8): the advice check on cases pending above under NT-3-1, whose refusal it reads.
 
@@ -6483,6 +6067,10 @@ deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
+["k3/terms/sort-rule/result/matches-pattern/_"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
 ["k8/terms/context/guard/Cmd::Pair { a: x, ..x }"]
 finding = "NT-16-4"
 deviation = "record-update-base advises terms/context/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }, which is not generated"
@@ -6501,9 +6089,6 @@ deviation = "record-update-in-pattern advises none, and its refusal advises `{ l
 # more node. Probe: `env: Cell(k::map![k::project!(Int, x) -> v, ..])` in a
 # `#[k::context_alias]` subject (review probe p6 of NT-18).
 
-["terms/context-alias/map-key/k::project!(Int, x)"]
-finding = "NT-18-1"
-deviation = "krs::expand::missing-provenance-key @ spelling"
 ["k3/terms/claim/item-root/Wrap::<KItem>(x)"]
 finding = "NT-30-2"
 deviation = "different"

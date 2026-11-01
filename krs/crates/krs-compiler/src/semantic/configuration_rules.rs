@@ -353,10 +353,17 @@ impl<'a> StateRuleTerms<'a> {
                     )
                     .within(descriptor.id(), key_range(descriptor, key).as_ref()));
                 }
+                // `_` is any one item, a `KItem`, as in a readable record; every other item
+                // has the sort it states or infers.
+                let k_item = framework_k_item_sort(self.declarations)?;
                 let items = sequence
                     .items
                     .iter()
-                    .map(|item| self.term(&item.value, None, binding_sorts, subject))
+                    .map(|item| {
+                        let expected = matches!(item.value, DescriptorTerm::Wildcard { .. })
+                            .then_some(&k_item);
+                        self.term(&item.value, expected, binding_sorts, subject)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let item_sort =
                     common_sequence_item_sort(descriptor, &items, self.sort_parents, !subject)
@@ -1302,6 +1309,44 @@ fn lower_claim_binder(
     ))
 }
 
+/// The binder list of a context alias declares each term binder, as a `cells!` rule's does:
+/// every cell term checks its occurrences against the declared sort.
+fn context_alias_declared_binders(
+    alias: &krs_ir::DescriptorContextAlias,
+) -> BTreeMap<String, (SemanticSortRef, ProvenanceKey)> {
+    alias
+        .bindings
+        .iter()
+        .filter_map(|binding| {
+            let ProtocolContextAliasBindingKind::Term { sort } = &binding.kind else {
+                return None;
+            };
+            Some((
+                binding.name.clone(),
+                (semantic_sort_ref(&sort.sort), sort.key.clone()),
+            ))
+        })
+        .collect()
+}
+
+/// The element types of a context alias's typed cells, at their types as patterns, as a
+/// `cells!` rule's subject has them: a read with no position of its own reads one element.
+fn context_alias_typing(
+    descriptor: &Descriptor,
+    alias: &krs_ir::DescriptorContextAlias,
+    declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<CollectionTyping, DescriptorLoweringError> {
+    let walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    let mut roots = Vec::new();
+    for cell in &alias.pattern.cells {
+        let field = require_cell_field(&cell.field.cell, declarations)?;
+        walker.state_roots(&cell.value, field, true, &mut roots)?;
+    }
+    walker.run(&roots)
+}
+
 pub(super) fn lower_context_alias_descriptor(
     descriptor: &Descriptor,
     alias: &krs_ir::DescriptorContextAlias,
@@ -1346,15 +1391,11 @@ pub(super) fn lower_context_alias_descriptor(
             sort,
         ));
     }
+    let typing = context_alias_typing(descriptor, alias, declarations, catalog, sort_parents)?;
     let mut terms = StateRuleTerms {
+        declared_binders: context_alias_declared_binders(alias),
         variables,
-        ..StateRuleTerms::new(
-            descriptor,
-            declarations,
-            sort_parents,
-            catalog,
-            CollectionTyping::empty(),
-        )
+        ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, &typing)
     };
     let cells = alias
         .pattern

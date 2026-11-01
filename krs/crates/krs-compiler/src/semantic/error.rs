@@ -493,6 +493,19 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the update's head.
         range: Option<Box<SourceRange>>,
     },
+    /// An open record `Ctor { f: e, .. }` of a constructor in a built term: a
+    /// result, a condition or a rewrite's right side has no value for the
+    /// fields `..` leaves open. A cell instance's record, whose open fields
+    /// take their defaults, is no constructor's, so only resolution tells the
+    /// two apart.
+    OpenRecordOutsidePattern {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the record's head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `let` statement's (K's `#let`) pattern cannot meet its value's sort,
     /// one of its names has no single sort, or a let-bound name is used at a
     /// sort it does not have (KF-032).
@@ -1053,6 +1066,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::OpenRecordOutsidePattern {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::SubjectRootNotFunction {
                 range: $named_range,
                 item: $named_item,
@@ -1560,6 +1578,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::UnboundKeyName { reason, .. }
             | Self::PatternInComputedKey { reason, .. }
             | Self::RecordUpdateInPattern { reason, .. }
+            | Self::OpenRecordOutsidePattern { reason, .. }
             | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
@@ -1660,7 +1679,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::FunctionInPattern { .. } => codes::analysis::FUNCTION_IN_PATTERN,
             Self::UnboundKeyName { .. } => codes::expand::UNBOUND_NAME,
             Self::PatternInComputedKey { construct, .. } => construct.code(),
-            Self::RecordUpdateInPattern { .. } => codes::syntax::INVALID_RECORD_UPDATE,
+            Self::RecordUpdateInPattern { .. } | Self::OpenRecordOutsidePattern { .. } => {
+                codes::syntax::INVALID_RECORD_UPDATE
+            }
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,

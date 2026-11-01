@@ -626,8 +626,9 @@ const fn wildcard(position: Position) -> Option<Refusal> {
 /// names no production (D3). A `let` reads one value, which a bare name already names whole. A
 /// `k::matches!` in a condition matches as part of the sentence; in a built term it is a test
 /// whose names nothing uses. Outside its rewrite islands a single-body rule's subject is also
-/// what it keeps, where `@` builds nothing. An alias clause's subject is also built, where `@`'s
-/// test of the term's shape would print as a conjunction, no term.
+/// what it keeps, where `@` builds nothing, and so is a context's or a context alias's around its
+/// hole, which cooling writes back as heating matched it. An alias clause's subject is also
+/// built, where `@`'s test of the term's shape would print as a conjunction, no term.
 const fn alias(position: Position) -> Option<Refusal> {
     let nesting = position.nesting;
     if in_constant(position) {
@@ -659,12 +660,11 @@ const fn alias(position: Position) -> Option<Refusal> {
 }
 
 /// `A | B` matches one of several terms. A `let` reads its value by one shape, a subject
-/// rewritten in place as one term stands for the one term it matched, and an alias clause's
-/// subject is also built as one term, where `A | B` would print as a disjunction. Where a term is
-/// computed,
-/// `|` is the bitwise operator, whose domain its operands' sorts choose: alternatives of
-/// constructor patterns choose none (`x | 1`, over operands a domain takes, is
-/// [`Notation::BitwiseOr`], the operator's application).
+/// rewritten in place as one term (a context's, around its hole, too) stands for the one term it
+/// matched, and an alias clause's subject is also built as one term, where `A | B` would print as
+/// a disjunction. Where a term is computed, `|` is the bitwise operator, whose domain its
+/// operands' sorts choose: alternatives of constructor patterns choose none (`x | 1`, over
+/// operands a domain takes, is [`Notation::BitwiseOr`], the operator's application).
 const fn alternatives(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         return Some(placement(Class::ConstantNotGround));
@@ -759,7 +759,10 @@ const fn rewrite(position: Position) -> Option<Refusal> {
 /// `k::is!` and `k::project!` apply the sort's generated predicate or projection, so they mean
 /// what an application does: a pattern over evaluated terms never meets one, nor does a static
 /// clause's subject, which would match its spelling (decision NT-11-5), and a simplification's
-/// or a claim's subject may hold one, as a built term, an initializer's included, does.
+/// or a claim's subject may hold one, as a built term, an initializer's included, does. A key a
+/// pattern looks up computes its value, but a projection's value is defined only where its
+/// operand has the sort, which the sentence's condition must then require: a context alias
+/// states no condition, so a key it looks up holds no projection.
 const fn sort_test(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
@@ -769,6 +772,12 @@ const fn sort_test(position: Position) -> Option<Refusal> {
         || (matches!(position.kind, Kind::Matched) && meets_evaluated_terms(position))
     {
         Some(placement(Class::SortTestInPattern))
+    } else if matches!(position.slot, Slot::Subject)
+        && position.form.matches_evaluated_terms()
+        && !position.form.states_condition()
+    {
+        // Whether the key needs a guard is told by what its sort test applies to.
+        Some(resolution(Class::SortTestInPattern))
     } else {
         None
     }

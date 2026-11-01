@@ -534,6 +534,29 @@ impl StateContextAliasItem {
         )?);
         allocate_binding_sort_keys(&mut keys, &mut self.bindings)?;
         allocate_cells_keys(&mut keys, &mut self.pattern, RuleSide::Left)?;
+        // The pattern's islands, each kind in the order a rule's subject
+        // numbers them: expansion reads the alias's pattern as a rule's, so
+        // every node kind a rule's pattern keys holds its key here too.
+        let islands: [IslandKeys; 10] = [
+            crate::term::allocate_rewrite_keys,
+            allocate_lexeme_keys,
+            allocate_sort_test_keys,
+            crate::term::allocate_pattern_as_keys,
+            crate::term::allocate_pattern_or_keys,
+            crate::term::allocate_application_instance_keys,
+            crate::term::allocate_matches_keys,
+            crate::term::allocate_let_keys,
+            crate::term::allocate_ml_binder_keys,
+            |keys, nodes, term_keys| allocate_claim_node_keys(keys, [(nodes, term_keys)]),
+        ];
+        for island in islands {
+            for entry in self.pattern.entries_mut() {
+                for term in entry.value_mut().terms_mut() {
+                    let (nodes, _, term_keys) = term.keying();
+                    island(&mut keys, nodes, term_keys)?;
+                }
+            }
+        }
         self.anchors = keys.into_anchors();
         Ok(self)
     }

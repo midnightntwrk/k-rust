@@ -29,7 +29,7 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 20] = [
+const KNOWN: [(&str, &str); 19] = [
     // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), so a construct in
     // one's body, pattern or matched pattern there is refused with it; the collection notation and
     // its calls are such constructs. Where a `let` or `k::matches!` pattern holds the notation, no
@@ -60,10 +60,6 @@ const KNOWN: [(&str, &str); 20] = [
     (
         r"terms/rule/subject/set-element-beside-fresh/{k::is!(Int\, x),k::project!(Int\, x)}",
         "NT-3-1",
-    ),
-    (
-        r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/guard,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
-        "NT-2-4",
     ),
     (
         r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
@@ -118,7 +114,11 @@ const KNOWN: [(&str, &str); 20] = [
 
 /// The disagreements that are no finding's, as globs over case IDs, and why: the product decides
 /// them outside its table, where the oracle's answer is met.
-const NOT_RED: [(&str, &str); 2] = [
+const NOT_RED: [(&str, &str); 3] = [
+    (
+        r"terms/{claim/result,claim/result-item-root,readable/result,readable/result-item-root,readable/result-list-element}/Cmd::Pair \{ a: x\, .. \}",
+        "a readable result also creates cell instances, whose `..` gives the other cells their defaults, and the table cannot tell an instance's record from a constructor's before resolution: the compiler refuses a constructor's open record there, with the class's code at the record (NT-28)",
+    ),
     (
         r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
         "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure first",
@@ -136,10 +136,13 @@ const NOT_RED: [(&str, &str); 2] = [
 /// alternatives binding other names in a `k::matches!` pattern); the readable key's reader, which
 /// reads an expression, refuses `_`, alternatives and a closure below a function's application;
 /// and the compiler refuses an open record there (`key_names`), which the table cannot tell from a
-/// constructor's argument before resolution; a sort test in a set's element beside a name bound
+/// constructor's argument before resolution, as it cannot tell a readable result's open
+/// constructor record from a cell instance's; a sort test in a set's element beside a name bound
 /// nowhere else is refused with its class at placement, as in a constructor's field (NT-3-1), where
 /// the oracle tells it once the element's names are known.
-const DECIDED_BEFORE_THE_TABLE: [&str; 10] = [
+const DECIDED_BEFORE_THE_TABLE: [&str; 15] = [
+    "terms/claim/result-item-root/Cmd::Pair { a: x, .. }",
+    "terms/claim/result/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/_",
@@ -148,6 +151,9 @@ const DECIDED_BEFORE_THE_TABLE: [&str; 10] = [
     "terms/readable/map-key/let-body/[x, ..]",
     "terms/readable/map-key/let-body/_",
     "terms/readable/map-key/matches-pattern/x | 1",
+    "terms/readable/result-item-root/Cmd::Pair { a: x, .. }",
+    "terms/readable/result-list-element/Cmd::Pair { a: x, .. }",
+    "terms/readable/result/Cmd::Pair { a: x, .. }",
     "terms/rule/subject/set-element-beside-fresh/k::is!(Int, x)",
     "terms/rule/subject/set-element-beside-fresh/k::project!(Int, x)",
 ];

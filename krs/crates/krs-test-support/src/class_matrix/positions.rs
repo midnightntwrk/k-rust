@@ -100,6 +100,15 @@ impl Form {
         }
     }
 
+    /// Whether the form has a `#[k::requires]` condition, which a pattern's guards join.
+    #[must_use]
+    pub const fn states_condition(self) -> bool {
+        !matches!(
+            self,
+            Self::Alias | Self::Desugar | Self::ContextAlias | Self::Initializer | Self::Constant
+        )
+    }
+
     /// Whether the form is a claim: its sides describe symbolic states, which the prover reaches.
     #[must_use]
     pub const fn is_claim(self) -> bool {
@@ -117,10 +126,15 @@ impl Form {
     }
 
     /// Whether the form's subject, outside its `k::rewrite!` islands, is both what the sentence
-    /// matches and what it keeps: a single-body rule's.
+    /// matches and what it keeps: a single-body rule's; a context's, whose heating and cooling
+    /// rewrite only its hole, so the term around it is matched and written back; and a context
+    /// alias's, the term around `here` of every context it makes.
     #[must_use]
     pub const fn keeps_subject(self) -> bool {
-        matches!(self, Self::LocalRule | Self::CellsLocalRule)
+        matches!(
+            self,
+            Self::LocalRule | Self::CellsLocalRule | Self::Context | Self::ContextAlias
+        )
     }
 
     /// Whether `k::rewrite!` marks what changes inside the form's subject: a single-body rule's,
@@ -131,12 +145,17 @@ impl Form {
     }
 
     /// Whether the form rewrites its subject in place as the one term it matched: a single-body
-    /// rule and a simplification.
+    /// rule, a simplification, and a context and a context alias, which heating and cooling
+    /// rewrite around their hole.
     #[must_use]
     pub const fn rewrites_one_term(self) -> bool {
         matches!(
             self,
-            Self::LocalRule | Self::CellsLocalRule | Self::Simplification
+            Self::LocalRule
+                | Self::CellsLocalRule
+                | Self::Simplification
+                | Self::Context
+                | Self::ContextAlias
         )
     }
 
