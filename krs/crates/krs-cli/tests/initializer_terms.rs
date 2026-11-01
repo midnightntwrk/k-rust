@@ -1230,6 +1230,200 @@ fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
         neither-collection: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation"]].assert_eq(&refused.join("\n"));
 }
 
+/// A machine whose leaf cells start with values of strict subsorts of their declared sorts, a
+/// parametric constructor's applications among them, so that KRS writes each value cast to its
+/// cell's sort, `( wrap ( unit ) ):Stmt`.
+const CASTS: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Value, result = KResult)]
+pub enum Val {
+    #[k::syntax("unit")]
+    Unit(),
+}
+
+#[k::constructor(sort = S, syntax = "wrap({inner})")]
+pub struct Wrap<S: ?Sized> {
+    pub inner: Term<S>,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub vstmt: Stmt,
+    #[k::cell]
+    pub wstmt: Stmt,
+    #[k::cell]
+    pub ivalue: Value,
+    #[k::cell]
+    pub iany: KItem,
+    #[k::cell]
+    pub wany: KItem,
+    #[k::cell]
+    pub vvar: Stmt,
+    #[k::cell]
+    pub wvar: Stmt,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "V")] v: Value,
+    ) -> Self {
+        Self {
+            k: k::k![pgm],
+            vstmt: Val::Unit(),
+            wstmt: crate::Wrap(Val::Unit()),
+            ivalue: 1,
+            iany: 2,
+            wany: crate::Wrap(Val::Unit()),
+            vvar: v,
+            wvar: crate::Wrap(v),
+        }
+    }
+}
+"#;
+
+/// The text route's KORE definition: the emitted `definition.k` compiled by k-rust's text
+/// frontend, as `krust kcompile` compiles it.
+fn text_route_kore(definition: &str) -> String {
+    use k_rust::builtin;
+    use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
+    use k_rust::outer::{LoadOptions, ResolvedSource, load_for_compilation};
+
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new("definition.k", definition.to_owned()),
+        "ORG-KRS-INIT-TERMS",
+        Some("ORG-KRS-INIT-TERMS-SYNTAX"),
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![builtin::embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust
+                    .excluded_module_attribute()
+                    .to_owned(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("the text route loads the definition: {error}"));
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("the text route compiles the definition: {error}"))
+        .definition_kore
+}
+
+/// The initial value of each leaf cell `<name>` a KORE definition builds: the content of the
+/// cell in the axiom of its initializer function `init<Name>Cell`, whitespace normalized, in the
+/// order `names` lists.
+fn kore_initial_cells(kore: &str, names: &[&str]) -> Vec<String> {
+    names
+        .iter()
+        .map(|name| {
+            let init = format!("Lblinit{}Cell{{}}(", name[..1].to_uppercase() + &name[1..]);
+            let cell = format!("Lbl'-LT-'{name}'-GT-'{{}}(");
+            // Each axiom up to the declaration that follows it.
+            let axiom = kore
+                .split("axiom{")
+                .skip(1)
+                .map(|axiom| {
+                    [
+                        "\n  symbol ",
+                        "\n  hooked-symbol ",
+                        "\n  sort ",
+                        "\n  hooked-sort ",
+                        "\nendmodule",
+                    ]
+                    .iter()
+                    .filter_map(|next| axiom.find(next))
+                    .min()
+                    .map_or(axiom, |end| &axiom[..end])
+                })
+                .find(|axiom| axiom.contains(&init) && axiom.contains(&cell))
+                .unwrap_or_else(|| panic!("no initializer axiom of <{name}>"));
+            let axiom = axiom.split_whitespace().collect::<Vec<_>>().join(" ");
+            let start = axiom.find(&cell).expect("the cell") + cell.len();
+            let mut depth = 1;
+            let end = axiom[start..]
+                .char_indices()
+                .find_map(|(at, character)| {
+                    match character {
+                        '(' => depth += 1,
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
+                    (depth == 0).then_some(start + at)
+                })
+                .expect("a closed cell");
+            format!("{name}: {}", &axiom[start..end])
+        })
+        .collect()
+}
+
+/// A cast KRS writes means the same on every route that reads it (NT-22-F3). KRS casts a leaf
+/// cell's whole initial value to the cell's sort where the value's head does not give that sort
+/// (a strict subsort, a parametric constructor), and a configuration variable to its sort; the
+/// cast states the sort and computes nothing, so the cell starts with the value, and a parametric
+/// application keeps the instance its arguments solve (`wrap{Value}(unit)` in a `Stmt` cell,
+/// injected). The text route (`definition.k` through k-rust's text frontend) and the native route
+/// (`krs build`, which `krs run` runs) compile the same initial value for every cell, at each sort
+/// pair the machine has: `Value` below `Stmt`, `Int` below `Value` and `KItem`, and a parametric
+/// application in a `Stmt` and a `KItem` cell, of a constant and of a configuration variable.
+#[test]
+fn a_cast_initial_value_is_the_same_value_on_both_routes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "casts", CASTS);
+    let definition = emit(target.path(), &manifest);
+    let cells = ["vstmt", "wstmt", "ivalue", "iany", "wany", "vvar", "wvar"];
+    let output = manifest.with_file_name("native");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "build",
+        &["--backend", "haskell", "--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let native = kore_initial_cells(
+        &fs::read_to_string(output.join("definition.kore")).unwrap(),
+        &cells,
+    );
+    let text = kore_initial_cells(&text_route_kore(&definition), &cells);
+    assert_eq!(native, text, "{}", configuration(&definition));
+    expect_test::expect![[r#"
+        <k> $PGM:Stmt </k>
+        <vstmt> ( unit ):Stmt </vstmt>
+        <wstmt> ( wrap ( unit ) ):Stmt </wstmt>
+        <ivalue> ( 1 ):Value </ivalue>
+        <iany> ( 2 ):KItem </iany>
+        <wany> ( wrap ( unit ) ):KItem </wany>
+        <vvar> ( $V:Value ):Stmt </vvar>
+        <wvar> ( wrap ( $V:Value ) ):Stmt </wvar>
+        vstmt: inj{SortValue{}, SortStmt{}}(LblvalUnit{}())
+        wstmt: inj{SortValue{}, SortStmt{}}(Lblwrap{SortValue{}}(LblvalUnit{}()))
+        ivalue: inj{SortInt{}, SortValue{}}(\dv{SortInt{}}("1"))
+        iany: inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))
+        wany: inj{SortValue{}, SortKItem{}}(Lblwrap{SortValue{}}(LblvalUnit{}()))
+        vvar:  inj{SortValue{}, SortStmt{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) 
+        wvar:  inj{SortValue{}, SortStmt{}}( Lblwrap{SortValue{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) ) "#]]
+    .assert_eq(&format!(
+        "{}\n{}",
+        configuration(&definition),
+        native.join("\n")
+    ));
+}
+
 /// A machine whose List collection `job` starts with one instance of its template: a `Job` holds
 /// `payload`, the group `info` with the optional `mark`, and the optional `note`, their templates
 /// `{note}` and `{mark}`; `{rules}` are the machine's rules.
