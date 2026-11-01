@@ -19,7 +19,7 @@ use krs_test_support::{
 };
 
 const PARTIAL: &str = r#"
-use k::builtin::{Bool, Int, KSequence, List, Map};
+use k::builtin::{Bool, Int, KSequence, List, Map, Set};
 use k::KResult;
 use k::Term;
 
@@ -39,7 +39,7 @@ pub enum ArgSyntax {
 }
 
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence((Proj, Guarded, Look, Index, Bind, Key, Div, Upd, OrIdiom, NotAnd, Pick, Flag))]
+#[k::precedence((Proj, Guarded, Look, Index, Bind, Key, Elem, Div, Upd, OrIdiom, NotAnd, Pick, Flag))]
 pub enum StmtSyntax {
     #[k::syntax("proj {a}")]
     Proj { a: Arg },
@@ -53,6 +53,8 @@ pub enum StmtSyntax {
     Bind { a: Arg },
     #[k::syntax("key {a}")]
     Key { a: Int },
+    #[k::syntax("elem {a}")]
+    Elem { a: Int },
     #[k::syntax("div {a}")]
     Div { a: Int },
     #[k::syntax("upd {a}")]
@@ -79,6 +81,8 @@ pub struct Machine {
     #[k::cell]
     pub items: List,
     #[k::cell]
+    pub elems: Set,
+    #[k::cell]
     pub acc: Value,
 }
 
@@ -90,6 +94,7 @@ impl Machine {
             env: k::builtin::map![1 -> 5],
             keys: k::builtin::map![1 -> 1],
             items: k::builtin::list::item(7),
+            elems: k::builtin::set::item(1),
             acc: 0,
         }
     }
@@ -115,6 +120,7 @@ k::rules! {
     #[k::requires({ let ArgSyntax::Pair { a: x, b: _ } = a; x > 0 })]
     bind: { k: [Bind(a), ..], acc: _ } => { k: [..], acc: 1 };
     key: { k: [Key(a), ..], keys: kk, env: { kk[a] -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    elem: { k: [Elem(a), ..], keys: kk, elems: k::builtin::set::item(kk[a]), acc: _ } => { k: [..], acc: 1 };
     #[k::requires(10 / a > 1)]
     div: { k: [Div(a), ..], acc: _ } => { k: [..], acc: 1 };
     #[k::requires(l.update(a, 0).len() > 0)]
@@ -144,6 +150,7 @@ k::claims! {
 /// the rule does not apply, and the run is stuck with `acc 0`): a projection at an `Int` and at
 /// `true`, a lookup of a present and an absent key, a read inside the list (a negative index
 /// counts from its end) and past it, a `let` pattern a pair matches and an `Int` does not, a
+/// pattern's key and a set's element that look a map up at a present and an absent key, a
 /// division by a divisor other than zero and by zero, a list update inside and past the list,
 /// the author's `||` and `!` guards, which do not protect, and a static clause's lifted test of a
 /// division at `2` and `3` (at `0` the clause's result has no value, which is not tested).
@@ -161,6 +168,8 @@ const PROGRAMS: &[(&str, Option<&str>)] = &[
     ("bind 3", None),
     ("key 1", Some("5")),
     ("key 2", None),
+    ("elem 1", Some("1")),
+    ("elem 2", None),
     ("div 3", Some("1")),
     ("div 0", None),
     ("upd 0", Some("1")),
@@ -232,8 +241,9 @@ fn ended(stdout: &str) -> (Option<&str>, bool) {
 }
 
 /// Each condition states its constructs' tests before the conjunct that evaluates them, and
-/// one the author's condition already states (`guarded`) is not stated again; the key that
-/// looks a map up is a name the condition equates with the lookup after its test; a claim's
+/// one the author's condition already states (`guarded`) is not stated again; the key and the
+/// set's element that look a map up are names the condition equates with the lookup after its
+/// test; a claim's
 /// `k::matches!` over a lookup and a static clause's over a division are functions whose
 /// equations test the construct. Each rule applies where its construct has a value and does
 /// not where it has none ([`PROGRAMS`]), on k-rust and on Java K's LLVM backend: a run there is
@@ -267,14 +277,19 @@ fn a_partial_construct_is_tested_before_the_sentence_evaluates_it() {
     let lines = definition
         .lines()
         .map(str::trim)
-        .filter(|line| line.contains("requires") || line.contains("<env>"))
+        .filter(|line| {
+            line.contains("requires") || line.contains("<env>") || line.contains("<elems>")
+        })
         .map(|line| line.split(" [label(").next().unwrap_or(line).to_owned())
         .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
             "<env> 1 |-> 5 </env>",
+            "<elems> SetItem(1) </elems>",
             "requires ( pair _ _ :=K A:Arg ) andThenBool ( #let pair X:Int _ = A:Arg #in X:Int >Int 0 )",
             "requires (A:Int =/=Int 0) andThenBool ((10 /Int A:Int) >Int 1)",
+            "<elems> SetItem(Krs_Instance0:KItem) </elems>",
+            "requires A:Int in_keys(Kk:Map) andThenBool (Krs_Instance0:KItem ==K (Kk:Map [ A:Int ]))",
             "requires B:Bool",
             "requires isInt(A:Arg) andThenBool ({A:Arg}:>Int >Int 0)",
             "requires (A:Int <Int size(L:List)) andThenBool (((0 -Int size(L:List)) <=Int A:Int) andThenBool (isInt(L:List [ A:Int ]) andThenBool ({L:List [ A:Int ]}:>Int >Int 0)))",
