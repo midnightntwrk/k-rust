@@ -54,6 +54,16 @@ pub(crate) trait ValidationStage: Stage {
         declaration: &Self::Nominal,
         empty: bool,
     ) -> Result<(), StateTransportError>;
+    /// Whether the application is a set's singleton `set::item(e)`, whose element a pattern looks
+    /// the set up by: a host occurrence by its authored path, which only widens what the element
+    /// may hold until resolution, and a descriptor occurrence by its resolved operation.
+    fn is_set_element(application: &Self::Application) -> bool;
+}
+
+/// Whether `path`, an authored application path, ends in `set::item`.
+fn names_set_element(path: &str) -> bool {
+    let segments = path.split("::").map(str::trim).collect::<Vec<_>>();
+    matches!(segments.as_slice(), [.., "set", "item"])
 }
 
 impl ValidationStage for HostStage {
@@ -81,6 +91,10 @@ impl ValidationStage for HostStage {
         } else {
             Ok(())
         }
+    }
+
+    fn is_set_element(application: &Self::Application) -> bool {
+        names_set_element(application.target.authored_path())
     }
 }
 
@@ -112,6 +126,10 @@ impl ValidationStage for DescriptorStage {
         } else {
             Ok(())
         }
+    }
+
+    fn is_set_element(application: &Self::Application) -> bool {
+        application.application == crate::DescriptorApplicationRef::Set(crate::SetOperation::Item)
     }
 }
 
@@ -271,6 +289,14 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     /// The base of a record update `Ctor { f: e, ..t }` (F5), validated
     /// after the record's fields: a variable, outside a pattern.
     fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the element of a set's singleton
+    /// ([`ValidationStage::is_set_element`]). In a pattern the set is looked
+    /// up by it, as a map by a key: it is computed from names the pattern
+    /// binds elsewhere, so it may hold a `let` block, a `k::matches!` test or
+    /// a record update, which the expander's position table and the compiler
+    /// judge there.
+    fn set_element(&mut self, _entering: bool) {}
 }
 
 /// Validates `term` and its subterms; a failure lists the nodes that enclose it
@@ -334,7 +360,15 @@ fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
             for sort in instance {
                 context.application_instance(sort)?;
             }
-            validate_arguments(arguments, context)?;
+            let element = S::is_set_element(reference);
+            if element {
+                context.set_element(true);
+            }
+            let validated = validate_arguments(arguments, context);
+            if element {
+                context.set_element(false);
+            }
+            validated?;
             update
                 .as_deref()
                 .map_or(Ok(()), |base| context.record_update(base))

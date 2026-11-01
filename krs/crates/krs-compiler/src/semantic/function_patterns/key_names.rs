@@ -140,7 +140,10 @@ pub(super) fn check(
             Some((&keys[*index], selector, keys[*index].computes.as_ref()?))
         })
     {
-        let reason = selection_reason(key, selector, computes);
+        let reason = match computes.construct {
+            Computing::Let | Computing::Matches => local_selection_reason(key, selector, computes),
+            Computing::Function | Computing::SortTest => selection_reason(key, selector, computes),
+        };
         return Err(computes_refusal(descriptor, computes, reason));
     }
     if let Some(&index) = order.cycle.first() {
@@ -181,6 +184,20 @@ fn selection_reason(key: &Key<'_, '_>, selector: &str, computes: &Computes<'_>) 
     }
 }
 
+/// Why a `let` block or `k::matches!`, `computes`, never matches in `key`, which `selector` makes
+/// a selection: the construct is the application of a function generated for it, which the
+/// matched part never meets.
+fn local_selection_reason(key: &Key<'_, '_>, selector: &str, computes: &Computes<'_>) -> String {
+    format!(
+        "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching {held} rather than computing the {looked} looked up; {what} is the application of a function generated for it, which no evaluated {one} is, so the key never matches: a key holds it only where the pattern binds every other name the key holds elsewhere, so that the key is computed and looked up",
+        what = computes.what,
+        place = key.lookup.place(),
+        held = key.lookup.held(),
+        looked = key.lookup.looked_up(),
+        one = key.lookup.looked_up(),
+    )
+}
+
 /// The refusal of the construct that computes, `computes`: its class's.
 fn computes_refusal(
     descriptor: &Descriptor,
@@ -189,18 +206,23 @@ fn computes_refusal(
 ) -> DescriptorLoweringError {
     let item = Box::new(descriptor.id().clone());
     let range = key_range(descriptor, computes.at).map(Box::new);
-    if computes.sort_test {
-        DescriptorLoweringError::InvalidSortTest {
+    match computes.construct {
+        Computing::SortTest => DescriptorLoweringError::InvalidSortTest {
             item,
             reason,
             range,
-        }
-    } else {
-        DescriptorLoweringError::FunctionInPattern {
+        },
+        Computing::Function => DescriptorLoweringError::FunctionInPattern {
             item,
             reason,
             range,
-        }
+        },
+        Computing::Let | Computing::Matches => DescriptorLoweringError::LocalFunctionInPattern {
+            item,
+            reason,
+            matches: computes.construct == Computing::Matches,
+            range,
+        },
     }
 }
 
@@ -712,7 +734,20 @@ struct Key<'a, 't> {
 struct Computes<'t> {
     at: &'t ProvenanceKey,
     what: String,
-    sort_test: bool,
+    construct: Computing,
+}
+
+/// What kind of construct computes, which names its class where the key never matches it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Computing {
+    /// A function's application, an operator or a method.
+    Function,
+    /// `k::is!` or `k::project!`.
+    SortTest,
+    /// A `let` block, the application of a function generated for it.
+    Let,
+    /// `k::matches!`, the application of a function generated for it.
+    Matches,
 }
 
 /// A name a key reads below a construct that computes.
@@ -826,14 +861,29 @@ impl<'t> Key<'_, 't> {
     }
 
     /// The first construct that computes.
-    fn computes(&mut self, at: &'t ProvenanceKey, what: &str, sort_test: bool) {
+    fn computes(&mut self, at: &'t ProvenanceKey, what: &str, construct: Computing) {
         if self.computes.is_none() {
             self.computes = Some(Computes {
                 at,
                 what: what.to_owned(),
-                sort_test,
+                construct,
             });
         }
+    }
+
+    /// `body`, below the `let` block or `k::matches!` described `what`, whose pattern binds
+    /// `pattern`'s names: the names it reads other than those are the key's.
+    fn local_body(&mut self, body: &'t DescriptorTerm, pattern: &'t DescriptorTerm, what: &str) {
+        let mut local = BTreeSet::new();
+        local_names(pattern, &mut local);
+        let before = self.read.len();
+        self.term(body, Some(what));
+        let read = self
+            .read
+            .drain(before..)
+            .filter(|read| !local.contains(read.name))
+            .collect::<Vec<_>>();
+        self.read.extend(read);
     }
 
     /// `term`, below the innermost construct that computes, `computing`, or
@@ -884,7 +934,7 @@ impl<'t> Key<'_, 't> {
                 ..
             } => self.application(reference, arguments, *open, update.is_some(), computing),
             DescriptorTerm::SortTest { key, operand, .. } => {
-                self.computes(key, "a sort test", true);
+                self.computes(key, "a sort test", Computing::SortTest);
                 self.term(operand, Some("a sort test"));
             }
             DescriptorTerm::Rewrite { from, .. } => self.term(from, computing),
@@ -901,13 +951,30 @@ impl<'t> Key<'_, 't> {
                     self.term(&field.value, computing);
                 }
             }
+            // A `let` block and `k::matches!` compute their value from the names they read,
+            // outside their patterns, whose names are their own.
+            DescriptorTerm::Let {
+                key,
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                let what = "a `let` block";
+                self.computes(key, what, Computing::Let);
+                self.term(value, Some(what));
+                self.local_body(body, pattern, what);
+            }
+            DescriptorTerm::Matches { key, subject, .. } => {
+                let what = "`k::matches!`";
+                self.computes(key, what, Computing::Matches);
+                self.term(subject, Some(what));
+            }
             DescriptorTerm::Literal { .. }
             | DescriptorTerm::BuiltinToken { .. }
             | DescriptorTerm::Anonymous { .. }
             | DescriptorTerm::OrBool { .. }
             | DescriptorTerm::Lexeme { .. }
-            | DescriptorTerm::Matches { .. }
-            | DescriptorTerm::Let { .. }
             | DescriptorTerm::Closure { .. } => {}
         }
     }
@@ -928,7 +995,7 @@ impl<'t> Key<'_, 't> {
         let applied = applied_function(&reference.application, self.catalog);
         let below = match &applied {
             Applied::Function(function) => {
-                self.computes(&reference.key, function, false);
+                self.computes(&reference.key, function, Computing::Function);
                 Some(function.clone())
             }
             // A record update builds its record from a matched one.
@@ -938,5 +1005,34 @@ impl<'t> Key<'_, 't> {
         for value in argument_values(arguments) {
             self.term(value, below.as_deref());
         }
+    }
+}
+
+/// Every name `pattern`, a `let` pattern, binds.
+fn local_names<'t>(pattern: &'t DescriptorTerm, names: &mut BTreeSet<&'t str>) {
+    match pattern {
+        DescriptorTerm::Variable { name, .. } => {
+            names.insert(name);
+        }
+        DescriptorTerm::As { name, pattern, .. } => {
+            names.insert(name);
+            local_names(pattern, names);
+        }
+        DescriptorTerm::Or { alternatives, .. } => {
+            for alternative in alternatives {
+                local_names(alternative, names);
+            }
+        }
+        DescriptorTerm::Application { arguments, .. } => {
+            for value in argument_values(arguments) {
+                local_names(value, names);
+            }
+        }
+        DescriptorTerm::Cell { fields, .. } => {
+            for field in fields {
+                local_names(&field.value, names);
+            }
+        }
+        _ => {}
     }
 }

@@ -2471,6 +2471,7 @@ impl DescriptorTerm {
                 let_scopes: Vec::new(),
                 allow_rewrite: false,
                 in_rewrite_right: false,
+                set_elements: 0,
             },
         )
     }
@@ -2505,6 +2506,7 @@ impl DescriptorTerm {
                 let_scopes: Vec::new(),
                 allow_rewrite: true,
                 in_rewrite_right: false,
+                set_elements: 0,
             },
         )
     }

@@ -1417,6 +1417,16 @@ struct RuleWalk {
     /// Whether the term being validated is a whole K-sequence item, whose
     /// root rewrite may remove it (`k::rewrite!(x => ())`).
     k_item_root: bool,
+    /// How many sets' elements enclose the term ([`TermValidation::set_element`]).
+    set_elements: usize,
+}
+
+impl RuleWalk {
+    /// Whether the term stands in a set's element outside a local pattern, which a left-hand
+    /// side looks the set up by and computes from names bound elsewhere.
+    const fn in_set_element(&self) -> bool {
+        self.set_elements > 0 && !self.in_matches_pattern && !self.in_let_pattern
+    }
 }
 
 fn builtin_token_role(
@@ -2596,7 +2606,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     }
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if matches!(self.side, ValidationSide::Left)
+        if (matches!(self.side, ValidationSide::Left) && !self.walk.in_set_element())
             || self.walk.in_matches_pattern
             || self.walk.in_let_pattern
         {
@@ -2617,7 +2627,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         key: &ProvenanceKey,
         sort: Option<&S::Sort>,
     ) -> Result<(), Self::Error> {
-        if matches!(self.side, ValidationSide::Left)
+        if (matches!(self.side, ValidationSide::Left) && !self.walk.in_set_element())
             || self.walk.in_matches_pattern
             || self.walk.in_let_pattern
         {
@@ -2831,10 +2841,20 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
                 key,
                 path_key,
                 name,
-            } if !matches!(self.side, ValidationSide::Left) => self.variable(key, path_key, name),
+            } if !matches!(self.side, ValidationSide::Left) || self.walk.in_set_element() => {
+                self.variable(key, path_key, name)
+            }
             _ => Err(StateTransportError::InvalidTerm(
                 StateTermReason::RecordUpdateBase,
             )),
+        }
+    }
+
+    fn set_element(&mut self, entering: bool) {
+        if entering {
+            self.walk.set_elements += 1;
+        } else {
+            self.walk.set_elements -= 1;
         }
     }
 }

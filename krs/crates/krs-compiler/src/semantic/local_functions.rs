@@ -51,8 +51,8 @@ use krs_ir::{
     SourceMapKey,
 };
 use krs_ir_levels::{
-    IrRuleCondition, IrTermKind, SemanticModule, SemanticProduction, SemanticRule, SemanticSortRef,
-    SemanticTerm, SemanticVariable,
+    IrRuleCondition, IrTermKind, RuleBodyRef, SemanticModule, SemanticProduction, SemanticRule,
+    SemanticSortRef, SemanticTerm, SemanticVariable,
 };
 
 use super::error::DescriptorLoweringError;
@@ -75,7 +75,11 @@ fn is_host(rule: &SemanticRule) -> bool {
 }
 
 fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLoweringError> {
-    if !module.rules().iter().any(holds_local_function) {
+    if !module
+        .rules()
+        .iter()
+        .any(|rule| holds_local_function(rule) || keys_hold_local_function(rule))
+    {
         return Ok(module);
     }
     if module.is_spec()
@@ -89,12 +93,24 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
     let mut productions = module.productions().to_vec();
     let mut rules = Vec::with_capacity(module.rules().len());
     for rule in module.rules() {
-        if !holds_local_function(rule) {
+        let host = holds_local_function(rule);
+        if !host && !keys_hold_local_function(rule) {
             rules.push(rule.clone());
             continue;
         }
         let mut lifter = Lifter::new(rule);
-        let rewritten = rule.try_map_terms(&mut |term| lifter.term(term))?;
+        let rewritten = if host {
+            rule.try_map_terms(&mut |term| lifter.term(term))?
+        } else {
+            let patterns = pattern_terms(rule);
+            rule.try_map_terms(&mut |term| {
+                if patterns.iter().any(|pattern| std::ptr::eq(*pattern, term)) {
+                    lifter.pattern(term)
+                } else {
+                    Ok(term.clone())
+                }
+            })?
+        };
         let variables = rule
             .variables()
             .iter()
@@ -169,6 +185,48 @@ fn holds_local_function(rule: &SemanticRule) -> bool {
     found
 }
 
+/// Whether `rule`'s left side holds a `let` block or `k::matches!`, which a pattern holds only in
+/// a key or a set element it looks up: there the construct denotes its value, a function of the
+/// names the pattern binds elsewhere, computed and looked up as a function's application is
+/// (finding NT-3-2). Every route lowers `#let` and `:=K` only where a term is built or a
+/// condition computed, and in a left side their binders would read as the rule's pattern
+/// variables, so KRS lifts each into a function the rule's module declares, as for a host
+/// sentence, and the key applies it.
+fn keys_hold_local_function(rule: &SemanticRule) -> bool {
+    !is_host(rule)
+        && pattern_terms(rule)
+            .into_iter()
+            .any(pattern_holds_local_function)
+}
+
+/// The terms of `rule` that hold its left side: a rewrite's pre-pattern, a single-body rule's
+/// authored term (whose rewrites' left sides are its pattern), and each configuration clause's
+/// matched term. The terms are those [`SemanticRule::try_map_terms`] maps, by reference.
+fn pattern_terms(rule: &SemanticRule) -> Vec<&SemanticTerm> {
+    match rule.relational_body() {
+        RuleBodyRef::Term(body) => vec![body.local_term().unwrap_or_else(|| body.from())],
+        RuleBodyRef::Configuration { body, .. } => body
+            .parts()
+            .iter()
+            .filter_map(krs_ir::ClausePart::pre_term)
+            .collect(),
+        RuleBodyRef::Predicate(_) => Vec::new(),
+    }
+}
+
+/// Whether `term`, a pattern, holds a `let` block or `k::matches!` outside the right sides of its
+/// rewrites, which are built.
+fn pattern_holds_local_function(term: &SemanticTerm) -> bool {
+    match term.kind() {
+        IrTermKind::Let { .. } | IrTermKind::Matches { .. } => true,
+        IrTermKind::Rewrite { from, .. } => pattern_holds_local_function(from),
+        _ => term
+            .children()
+            .into_iter()
+            .any(pattern_holds_local_function),
+    }
+}
+
 fn is_or_holds_local_function(term: &SemanticTerm) -> bool {
     matches!(
         term.kind(),
@@ -214,6 +272,22 @@ impl<'r> Lifter<'r> {
                 self.lift_block(&block)
             }
             _ => map_children(term, &mut |child| self.term(child)),
+        }
+    }
+
+    /// `term`, a pattern, with each outermost `let` block and every `k::matches!` outside the
+    /// right sides of its rewrites replaced by its lifted function's application ([`Self::term`]).
+    fn pattern(&mut self, term: &SemanticTerm) -> Result<SemanticTerm, DescriptorLoweringError> {
+        match term.kind() {
+            IrTermKind::Let { .. } | IrTermKind::Matches { .. } => self.term(term),
+            IrTermKind::Rewrite { from, to } => SemanticTerm::rewrite(
+                term.origin().clone(),
+                term.sort().clone(),
+                self.pattern(from)?,
+                (**to).clone(),
+            )
+            .map_err(|error| shape(&error)),
+            _ => map_children(term, &mut |child| self.pattern(child)),
         }
     }
 

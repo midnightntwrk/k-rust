@@ -1878,15 +1878,13 @@ fn assemble_machine_clause(
             continue;
         };
         for entry in entries {
-            for node in entry.key.nodes() {
-                if let crate::TermNode::Reference(path) = node
-                    && let Some(name) = crate::path::pattern_binder(path)
-                    && !bindings
-                        .iter()
-                        .any(|binding| binding.unraw() == name.unraw())
+            for name in crate::term::key_tree_names(entry.key.tree()) {
+                if !bindings
+                    .iter()
+                    .any(|binding| binding.unraw() == name.unraw())
                 {
                     validate_authored_binder(&name.to_string(), name.span())?;
-                    bindings.push(name.clone());
+                    bindings.push(name);
                 }
             }
         }

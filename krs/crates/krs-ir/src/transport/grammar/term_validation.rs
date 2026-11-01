@@ -36,6 +36,8 @@ pub(super) struct GrammarTermValidation<'a, F> {
     /// Whether the validator is inside the right side of a `k::rewrite!`,
     /// whose names use bindings without binding them.
     pub(super) in_rewrite_right: bool,
+    /// How many sets' elements enclose the term ([`TermValidation::set_element`]).
+    pub(super) set_elements: usize,
 }
 
 impl<F> GrammarTermValidation<'_, F> {
@@ -46,6 +48,13 @@ impl<F> GrammarTermValidation<'_, F> {
         (self.allow_wildcards && !self.in_rewrite_right)
             || self.in_matches_pattern
             || self.in_let_pattern
+    }
+
+    /// Whether the term is matched, outside a set's element a subject looks its set up by,
+    /// which is computed from names bound elsewhere.
+    const fn matched(&self) -> bool {
+        self.in_pattern()
+            && (self.set_elements == 0 || self.in_matches_pattern || self.in_let_pattern)
     }
 }
 
@@ -249,7 +258,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if self.in_pattern() {
+        if self.matched() {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::MatchesInPattern,
             ));
@@ -267,7 +276,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         sort: Option<&DescriptorSortReference>,
     ) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if self.in_pattern() {
+        if self.matched() {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::LetInPattern,
             ));
@@ -381,6 +390,14 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
             ));
         };
         self.variable(key, path_key, name)
+    }
+
+    fn set_element(&mut self, entering: bool) {
+        if entering {
+            self.set_elements += 1;
+        } else {
+            self.set_elements -= 1;
+        }
     }
 }
 

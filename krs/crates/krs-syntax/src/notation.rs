@@ -538,6 +538,16 @@ pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
         // which the position table judges first.
         fn visit_expr_block(&mut self, _: &'ast syn::ExprBlock) {}
         fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+        // A set's element `set::item(e)` is what a pattern looks the set up by,
+        // read as a map's key is: computed from names bound elsewhere, notation
+        // included, which the position table judges where it stands.
+        fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+            if matches!(&*call.func, Expr::Path(head) if head.qself.is_none() && crate::path::is_set_element_path(&head.path))
+            {
+                return;
+            }
+            syn::visit::visit_expr_call(self, call);
+        }
     }
     let mut first = First(None);
     first.visit_expr(expression);

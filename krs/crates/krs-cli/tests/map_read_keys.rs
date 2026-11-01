@@ -494,3 +494,190 @@ k::rules! {{
         "{stderr}"
     );
 }
+
+const LOCAL_KEYS: &str = r#"
+use k::builtin::{Int, KSequence, Map, Set, map};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Look, Test, Pick, Elem, See))]
+pub enum StmtSyntax {
+    #[k::syntax("look {n}")]
+    Look { n: Int },
+    #[k::syntax("test {n}")]
+    Test { n: Int },
+    #[k::syntax("pick {n}")]
+    Pick { n: Int },
+    #[k::syntax("elem {n} {s}")]
+    Elem { n: Int, s: Set },
+    #[k::syntax("see {a}")]
+    See { a: k::KItem },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub acc: Value,
+    #[k::cell]
+    pub seen: Set,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "ENV")] env: Map,
+    ) -> Self {
+        Self {
+            k: k::k![pgm],
+            env,
+            acc: 0,
+            seen: k::builtin::set::empty(),
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    look: { k: [Look(n), ..], env: { { let m = n; m + 1 } -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    test: { k: [Test(n), ..], env: { k::matches!(n, 0) -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+}
+
+#[k::rule(label = "elem")]
+fn elem(k::term![StmtSyntax::Elem(n, k::builtin::set::item(n + 1))]: k::Term<Stmt>) -> k::Term<Stmt> {
+    StmtSyntax::Look(n)
+}
+
+#[k::rule(label = "see")]
+fn see(
+    a: k::Term<k::KItem>,
+    r: k::Term<Set>,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::See(a), tail @ ..), seen: k::configuration::Cell(k::builtin::set::concat(k::builtin::set::item(k::project!(Int, a)), r)), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), seen: k::configuration::Cell(r), ..state }
+}
+"#;
+
+/// A `let` block and `k::matches!` in a key the pattern computes denote their values, functions
+/// of the names they read, which KRS lifts into functions of their own: the key applies the
+/// function and is looked up, as a key applying any function is (finding NT-3-2). A set's element
+/// reads as a key does, notation included, and a projection there is guarded as in a key, in a
+/// `#[k::rule]` fn's term and a `cells!` rule's cell alike (NT-3-1). The rules apply where the map
+/// holds the computed key, and not elsewhere.
+#[test]
+fn a_local_function_in_a_key_is_lifted_and_looked_up() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "local-keys", LOCAL_KEYS);
+    let (definition, _) = emit(target.path(), &manifest, &temporary.path().join("emitted"));
+    let digests = definition
+        .split("krsLocal_")
+        .skip(1)
+        .filter_map(|rest| rest.get(..24))
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut normalized = definition.clone();
+    for (index, digest) in digests.iter().enumerate() {
+        normalized =
+            normalized.replace(&format!("krsLocal_{digest}"), &format!("krsLocal_{index}"));
+    }
+    let lines = normalized
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.contains("krsLocal_") || line.contains("SetItem") || line.contains("isInt")
+        })
+        .map(|line| {
+            line.split(" [label(krsRule_")
+                .next()
+                .unwrap_or(line)
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "syntax Int ::= \"krsLocal_0\" \"(\" Int \")\" [symbol(krsLocal_0), function]",
+            "syntax Bool ::= \"krsLocal_1\" \"(\" Int \")\" [symbol(krsLocal_1), function]",
+            "rule elem N:Int SetItem(N:Int +Int 1) => look N:Int [label(elem)]",
+            "rule krsLocal_0 ( N:Int ) => ( #let M:Int = N:Int #in M:Int +Int 1 )",
+            "rule krsLocal_1 ( N:Int ) => true",
+            "rule krsLocal_1 ( N:Int ) => false",
+            "<env> krsLocal_0 ( N:Int ) |-> V:Int ... </env>",
+            "<seen> SetItem(A:KItem) R:Set => R:Set </seen>",
+            "requires isInt(A:KItem)",
+            "<env> krsLocal_1 ( N:Int ) |-> V:Int ... </env>",
+        ]
+    "#]]
+    .assert_debug_eq(&lines);
+
+    for (program, env, acc) in [
+        ("look 1", "2 |-> 7 5 |-> 9", Some("7")),
+        ("look 4", "2 |-> 7 5 |-> 9", Some("9")),
+        ("look 3", "2 |-> 7 5 |-> 9", None),
+        ("test 0", "true |-> 3 false |-> 4", Some("3")),
+        ("test 5", "true |-> 3 false |-> 4", Some("4")),
+        ("test 5", "true |-> 3", None),
+    ] {
+        let path = temporary.path().join("program.pgm");
+        fs::write(&path, program).unwrap();
+        let env = format!("ENV={env}");
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &manifest,
+            "run",
+            &[path.to_str().unwrap(), "-c", &env, "--output", "kast"],
+        );
+        let ended = stdout
+            .split("`<acc>`(#token(\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next());
+        let done = stdout.contains("`<k>`(.K)");
+        match acc {
+            Some(acc) => assert!(
+                success && done && ended == Some(acc),
+                "{program} over {env}:\n{stdout}\n{stderr}"
+            ),
+            None => assert!(
+                !done && ended == Some("0"),
+                "{program} over {env}:\n{stdout}\n{stderr}"
+            ),
+        }
+    }
+}
+
+/// A key that also holds a name nothing else binds selects an entry by matching the map's
+/// evaluated keys, which no `let` block's or test's value is: the construct is refused there,
+/// with its class, at the construct.
+#[test]
+fn a_local_function_in_a_selection_key_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rules = LOCAL_KEYS.replace(
+        "{ let m = n; m + 1 } -> v",
+        "StmtSyntax::Elem({ let m = n; m + 1 }, z) -> v",
+    );
+    let manifest = package(temporary.path(), "local-keys-selection", &rules);
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success);
+    let headlines = stderr
+        .lines()
+        .filter(|line| line.starts_with("error") || line.contains('^'))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "error[krs::expand::let-outside-term]: a `let` block stands in a map key that also holds the name `z`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; a `let` block is the application of a function generated for it, which no evaluated key is, so the key never matches: a key holds it only where the pattern binds every other name the key holds elsewhere, so that the key is computed and looked up",
+            "   |                                                         ^^^^^^^^^^",
+        ]
+    "#]].assert_debug_eq(&headlines);
+}

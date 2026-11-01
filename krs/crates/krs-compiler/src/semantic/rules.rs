@@ -2093,7 +2093,10 @@ pub(super) fn lower_structured_rule_descriptor(
             .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
         locals: super::infer::LocalBinders::default(),
         in_key: false,
-        instance_guards: None,
+        // The guards of the set elements a pattern over evaluated terms looks up
+        // ([`super::set_instances`]), which its condition holds.
+        instance_guards: super::function_patterns::matches_evaluated_sentence(descriptor.payload())
+            .then(|| super::set_instances::InstanceGuards::after(0)),
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
@@ -2136,6 +2139,16 @@ pub(super) fn lower_structured_rule_descriptor(
     // its turbofish fixes (KF-027).
     builder.head_pending = true;
     let subject = builder.lower(&rule.subject, Some(&subject_sort), true)?;
+    let subject_guards = builder
+        .instance_guards
+        .take()
+        .map(super::set_instances::InstanceGuards::into_guards)
+        .unwrap_or_default();
+    let guard_variables = subject_guards
+        .iter()
+        .filter_map(super::set_instances::Guard::variable)
+        .collect::<Vec<_>>();
+    let mut subject_guards = super::set_instances::SentenceGuards::from(subject_guards);
     let function_context = rule
         .function_context
         .as_ref()
@@ -2151,16 +2164,13 @@ pub(super) fn lower_structured_rule_descriptor(
                 &typing,
                 &builder.binding_sorts,
                 builder.wildcards.len(),
+                std::mem::take(&mut subject_guards),
             )
         })
         .transpose()?;
-    let (function_context, context_wildcards, context_guards) = match function_context {
+    let (function_context, context_wildcards, guards) = match function_context {
         Some((context, wildcards, guards)) => (Some(context), wildcards, guards),
-        None => (
-            None,
-            Vec::new(),
-            super::set_instances::SentenceGuards::default(),
-        ),
+        None => (None, Vec::new(), subject_guards),
     };
     let result = rule
         .result
@@ -2168,9 +2178,9 @@ pub(super) fn lower_structured_rule_descriptor(
         .map(|result| builder.lower(result, Some(&result_sort), false))
         .transpose()?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
-    // The function context's guarded keys hold only where the equation's
-    // condition holds their guards.
-    let requires = super::set_instances::guarded_requires(descriptor, requires, context_guards)?;
+    // The subject's guarded set elements and the function context's guarded keys hold only where
+    // the sentence's condition holds their guards.
+    let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
     let (existentials, ensures) =
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
     let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
@@ -2204,6 +2214,7 @@ pub(super) fn lower_structured_rule_descriptor(
         ));
     }
     variables.extend(builder.wildcards);
+    variables.extend(guard_variables);
     variables.extend(context_wildcards);
     let rule_origin_role = match rule.sentence_kind {
         krs_ir::SentenceKind::Alias => ProvenanceRole::AliasClause,

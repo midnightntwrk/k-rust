@@ -130,9 +130,10 @@ impl<'a> StateRuleTerms<'a> {
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
         // A looked-up instance's cell is read as a key is, and what it
-        // computes is guarded; a looked-up key's projections are guarded too.
+        // computes is guarded; a looked-up key's projections are guarded too,
+        // and so are those of a set's element in a pattern, which is a key.
         let looked_up_key = in_key && subject;
-        let instance_guards = (self.looking_up || looked_up_key).then(|| {
+        let instance_guards = (self.looking_up || subject).then(|| {
             let mut guards = super::set_instances::InstanceGuards::after(self.guards.len());
             guards.activate(self.looking_up);
             guards
@@ -1495,6 +1496,7 @@ pub(super) fn lower_function_context(
     collections: &CollectionTyping,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
     wildcard_ordinal: usize,
+    guards: super::set_instances::SentenceGuards,
 ) -> Result<
     (
         krs_ir_levels::SemanticFunctionContext,
@@ -1514,8 +1516,10 @@ pub(super) fn lower_function_context(
         "function context",
         "a function context reads the fixed configuration",
     )?;
+    // The equation's subject's guards come first, and the context's are numbered after them.
     let mut terms = StateRuleTerms {
         wildcard_ordinal,
+        guards,
         ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, collections)
     };
     let cells = context

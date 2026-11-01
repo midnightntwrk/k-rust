@@ -2880,67 +2880,100 @@ pub(crate) fn pattern_tree_binders(
     pattern: &TermTree,
     root_is_constructor: bool,
 ) -> Vec<syn::Ident> {
-    fn walk(tree: &TermTree, root: bool, output: &mut Vec<syn::Ident>) {
-        let mut push = |ident: &syn::Ident| {
-            if !output.contains(ident) {
-                output.push(ident.clone());
-            }
-        };
-        match tree {
-            TermTree::Reference(path) if !root => {
-                if let Some(ident) = crate::path::pattern_binder(path) {
-                    push(ident);
-                }
-            }
-            TermTree::As { binding, pattern } => {
-                push(binding);
-                walk(pattern, false, output);
-            }
-            TermTree::Or { alternatives, .. } => {
-                for alternative in alternatives {
-                    walk(alternative, root, output);
-                }
-            }
-            TermTree::Application(application) => match &application.arguments {
-                TermArguments::Positional(arguments) => {
-                    for argument in arguments {
-                        walk(argument, false, output);
-                    }
-                }
-                TermArguments::Named(arguments) => {
-                    for argument in arguments {
-                        walk(&argument.value, false, output);
-                    }
-                }
-            },
-            TermTree::Cell(cell) => {
-                for field in &cell.fields {
-                    walk(&field.value, false, output);
-                }
-            }
-            TermTree::SortTest { operand, .. } => walk(operand, false, output),
-            TermTree::OrBool { arguments, .. } => {
-                for argument in arguments {
-                    walk(argument, false, output);
-                }
-            }
-            TermTree::Matches { subject, .. } => walk(subject, false, output),
-            // A rewrite's left side stands where the rewrite does.
-            TermTree::Rewrite { from, .. } => walk(from, root, output),
-            TermTree::Let { .. }
-            | TermTree::Closure { .. }
-            | TermTree::Reference(_)
-            | TermTree::Literal(_)
-            | TermTree::Wildcard(_)
-            | TermTree::IdToken { .. }
-            | TermTree::BytesToken { .. }
-            | TermTree::Anonymous { .. }
-            | TermTree::Lexeme { .. } => {}
-        }
-    }
     let mut output = Vec::new();
-    walk(pattern, root_is_constructor, &mut output);
+    tree_names(pattern, root_is_constructor, false, &mut output);
     output
+}
+
+/// The names a key a pattern looks a map up by holds, in first-occurrence
+/// order: its binders ([`pattern_tree_binders`]), and the names a `let` block
+/// in it reads outside its own pattern. A `let` in a key computes its value
+/// from names some part of the pattern binds, as an application there does,
+/// so each is one of the sentence's names, and the key's reading decides
+/// where it is bound.
+pub(crate) fn key_tree_names(key: &TermTree) -> Vec<syn::Ident> {
+    let mut output = Vec::new();
+    tree_names(key, false, true, &mut output);
+    output
+}
+
+/// [`pattern_tree_binders`], and with `lets` the names `let` blocks read.
+fn tree_names(tree: &TermTree, root: bool, lets: bool, output: &mut Vec<syn::Ident>) {
+    let mut push = |ident: &syn::Ident| {
+        if !output.contains(ident) {
+            output.push(ident.clone());
+        }
+    };
+    match tree {
+        TermTree::Reference(path) if !root => {
+            if let Some(ident) = crate::path::pattern_binder(path) {
+                push(ident);
+            }
+        }
+        TermTree::As { binding, pattern } => {
+            push(binding);
+            tree_names(pattern, false, lets, output);
+        }
+        TermTree::Or { alternatives, .. } => {
+            for alternative in alternatives {
+                tree_names(alternative, root, lets, output);
+            }
+        }
+        TermTree::Application(application) => match &application.arguments {
+            TermArguments::Positional(arguments) => {
+                for argument in arguments {
+                    tree_names(argument, false, lets, output);
+                }
+            }
+            TermArguments::Named(arguments) => {
+                for argument in arguments {
+                    tree_names(&argument.value, false, lets, output);
+                }
+            }
+        },
+        TermTree::Cell(cell) => {
+            for field in &cell.fields {
+                tree_names(&field.value, false, lets, output);
+            }
+        }
+        TermTree::SortTest { operand, .. } => tree_names(operand, false, lets, output),
+        TermTree::OrBool { arguments, .. } => {
+            for argument in arguments {
+                tree_names(argument, false, lets, output);
+            }
+        }
+        TermTree::Matches { subject, .. } => tree_names(subject, false, lets, output),
+        // A rewrite's left side stands where the rewrite does.
+        TermTree::Rewrite { from, .. } => tree_names(from, root, lets, output),
+        TermTree::Let {
+            value,
+            body,
+            binders,
+            ..
+        } if lets => {
+            let mut read = Vec::new();
+            tree_names(value, false, lets, &mut read);
+            let mut body_read = Vec::new();
+            tree_names(body, false, lets, &mut body_read);
+            read.extend(
+                body_read
+                    .into_iter()
+                    .filter(|ident| !binders.contains(ident)),
+            );
+            for ident in &read {
+                push(ident);
+            }
+        }
+        TermTree::Let { .. }
+        | TermTree::Closure { .. }
+        | TermTree::Reference(_)
+        | TermTree::Literal(_)
+        | TermTree::Wildcard(_)
+        | TermTree::IdToken { .. }
+        | TermTree::BytesToken { .. }
+        | TermTree::Anonymous { .. }
+        | TermTree::Lexeme { .. } => {}
+    }
 }
 
 /// Validates `k::matches!(subject, pattern)` (K's `:=K`, KF-031): the shell

@@ -529,6 +529,21 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the construct.
         range: Option<Box<SourceRange>>,
     },
+    /// A `let` block or `k::matches!` where a pattern matches terms as they
+    /// are: in a key or a set element that selects an entry by matching the
+    /// collection's evaluated keys, or in a cell of a Map collection's
+    /// instance, which the pattern matches. The construct denotes the value
+    /// of a function generated for it, which no matched term is.
+    LocalFunctionInPattern {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Whether the construct is a `k::matches!` rather than a `let` block.
+        matches: bool,
+        /// Sole exact authored range of the construct.
+        range: Option<Box<SourceRange>>,
+    },
     /// A matching-logic predicate (KF-039) is in the condition of a
     /// transition or equation.
     MlPlacement {
@@ -1090,6 +1105,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::LocalFunctionInPattern {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidMlPredicate {
                 range: $named_range,
                 item: $named_item,
@@ -1582,6 +1602,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
             | Self::LocalFunctionInProofModule { reason, .. }
+            | Self::LocalFunctionInPattern { reason, .. }
             | Self::InvalidMlPredicate { reason, .. }
             | Self::InvalidLocalRewrite { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
@@ -1684,10 +1705,12 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
-            Self::LocalFunctionInProofModule { matches: true, .. } => {
+            Self::LocalFunctionInProofModule { matches: true, .. }
+            | Self::LocalFunctionInPattern { matches: true, .. } => {
                 codes::expand::MATCHES_OUTSIDE_CONDITION
             }
-            Self::LocalFunctionInProofModule { matches: false, .. } => {
+            Self::LocalFunctionInProofModule { matches: false, .. }
+            | Self::LocalFunctionInPattern { matches: false, .. } => {
                 codes::expand::LET_OUTSIDE_TERM
             }
             Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,

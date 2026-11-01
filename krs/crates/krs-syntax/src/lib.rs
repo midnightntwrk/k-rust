@@ -24,7 +24,7 @@ mod list_notation;
 mod notation;
 pub mod parse;
 mod path;
-pub use path::is_constant_name;
+pub use path::{is_constant_name, is_set_element_path};
 pub mod positions;
 mod provenance;
 mod range;

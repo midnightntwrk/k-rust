@@ -522,8 +522,10 @@ pub(super) struct TermBuilder<'a> {
     /// How many term nodes enclose the one being expanded, itself
     /// included: a slot's root has depth 1.
     depth: usize,
-    /// Whether a map's key is being expanded.
+    /// Whether a map's key is being expanded, or a set's element in a pattern.
     in_map_key: bool,
+    /// Whether that key is a set's element ([`Nesting::in_set_element`]).
+    in_set_element: bool,
     /// Whether the key being expanded is computed here: below a `let`
     /// block, a `k::matches!`, a sort test, a record update or notation
     /// in it ([`Nesting::in_computed_key`]).
@@ -595,6 +597,7 @@ impl<'a> TermBuilder<'a> {
             form,
             depth: 0,
             in_map_key: false,
+            in_set_element: false,
             in_computed_key: false,
             in_selected_key: false,
             in_braced_instance: false,
@@ -619,6 +622,7 @@ impl<'a> TermBuilder<'a> {
                 in_let_pattern: self.in_let_pattern(),
                 in_rewrite: false,
                 in_map_key: self.in_map_key,
+                in_set_element: self.in_set_element,
                 in_computed_key: self.in_computed_key,
                 in_selected_key: self.in_selected_key,
                 in_braced_instance: self.in_braced_instance,
@@ -961,6 +965,16 @@ impl<'a> TermBuilder<'a> {
         wire
     }
 
+    /// Whether a term at the current node on `side` is matched by a sentence's pattern, outside
+    /// a local pattern: where a set's element is looked up.
+    fn reads_pattern(&self, side: TermSide) -> bool {
+        let position = self.position(side);
+        matches!(position.slot, Slot::Subject)
+            && position.is_pattern()
+            && !position.nesting.in_matches_pattern
+            && !position.nesting.in_let_pattern
+    }
+
     /// Sets whether the walk is in a braced collection instance, returning
     /// what it was.
     pub(super) const fn braced_instance(&mut self, braced: bool) -> bool {
@@ -1079,6 +1093,15 @@ impl<'a> TermBuilder<'a> {
                 // the value looked up. List notation, and a collection
                 // literal's empty collection and singleton, denote values.
                 let computes = application.applies_operation() || application.update().is_some();
+                // A set's element in a pattern is what the set is looked up by, read as a map's
+                // key is (`krs_syntax::positions`, "Keys"): resolution tells the builtin's
+                // singleton from another `set::item`.
+                let element = !self.in_map_key
+                    && krs_syntax::is_set_element_path(application.head())
+                    && self.reads_pattern(side);
+                let enclosing_element = (self.in_map_key, self.in_set_element);
+                self.in_map_key |= element;
+                self.in_set_element |= element;
                 let enclosing = self.in_computed_key;
                 self.in_computed_key |= computes && self.in_map_key;
                 let parts = (|| {
@@ -1115,6 +1138,7 @@ impl<'a> TermBuilder<'a> {
                     crate::Result::Ok((arguments, update))
                 })();
                 self.in_computed_key = enclosing;
+                (self.in_map_key, self.in_set_element) = enclosing_element;
                 let (arguments, update) = parts?;
                 Ok(WireTerm::Application {
                     instance,

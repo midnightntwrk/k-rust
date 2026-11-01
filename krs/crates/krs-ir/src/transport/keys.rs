@@ -193,6 +193,7 @@ where
             in_matches_pattern: false,
             in_let_pattern: false,
             in_rewrite_right: false,
+            set_elements: 0,
             error: PhantomData,
         },
     )
@@ -208,6 +209,8 @@ struct TermKeys<'a, E> {
     /// Whether the walk stands in the right side of a `k::rewrite!`, which
     /// builds the term its left side matched.
     in_rewrite_right: bool,
+    /// How many sets' elements enclose the walk ([`TermValidation::set_element`]).
+    set_elements: usize,
     error: PhantomData<fn() -> E>,
 }
 
@@ -256,6 +259,12 @@ impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
         (matches!(self.side, ValidationSide::Left) && !self.in_rewrite_right)
             || self.in_matches_pattern
             || self.in_let_pattern
+    }
+
+    /// Whether the walk stands in a set's element outside a local pattern, which a left-hand
+    /// side looks the set up by and computes from names bound elsewhere.
+    const fn in_set_element(&self) -> bool {
+        self.set_elements > 0 && !self.in_matches_pattern && !self.in_let_pattern
     }
 }
 
@@ -392,7 +401,10 @@ where
     }
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), E> {
-        self.place(self.in_pattern(), TermRefusal::Matches)?;
+        self.place(
+            self.in_pattern() && !self.in_set_element(),
+            TermRefusal::Matches,
+        )?;
         self.node(key, ProvenanceRole::Matches)
     }
 
@@ -401,7 +413,10 @@ where
     }
 
     fn let_binding(&mut self, key: &ProvenanceKey, sort: Option<&S::Sort>) -> Result<(), E> {
-        self.place(self.in_pattern(), TermRefusal::Let)?;
+        self.place(
+            self.in_pattern() && !self.in_set_element(),
+            TermRefusal::Let,
+        )?;
         if let Some(sort) = sort {
             self.node(S::sort_key(sort), ProvenanceRole::LetSort)?;
         }
@@ -468,10 +483,19 @@ where
             !matches!(base, Term::Variable { .. })
                 || (matches!(self.side, ValidationSide::Left)
                     && !self.in_rewrite_right
-                    && !self.in_matches_pattern),
+                    && !self.in_matches_pattern
+                    && !self.in_set_element()),
             TermRefusal::RecordUpdateBase,
         )?;
         validate_term(base, self)
+    }
+
+    fn set_element(&mut self, entering: bool) {
+        if entering {
+            self.set_elements += 1;
+        } else {
+            self.set_elements -= 1;
+        }
     }
 }
 

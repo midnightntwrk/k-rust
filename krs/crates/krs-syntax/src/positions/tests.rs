@@ -21,6 +21,7 @@ fn positions() -> Vec<Position> {
                         in_let_pattern: bits & 2 != 0,
                         in_rewrite: bits & 4 != 0,
                         in_map_key: bits & 8 != 0,
+                        in_set_element: false,
                         in_computed_key: bits & 16 != 0,
                         in_selected_key: bits & 32 != 0,
                         in_braced_instance: bits & 64 != 0,
@@ -166,18 +167,6 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         admits(computed, Construct::SortTest),
         Admission::After(Rule::SortTestInPattern)
     );
-    // K's `#let` and `:=K` stand in built terms and conditions only: no key holds them, at any
-    // depth (NT-3-2).
-    for position in [key, computed] {
-        assert_eq!(
-            admits(position, Construct::Let),
-            Admission::Refuse(Class::LetOutsideTerm)
-        );
-        assert_eq!(
-            admits(position, Construct::Matches),
-            Admission::Refuse(Class::MatchesOutsideCondition)
-        );
-    }
     // Below `@` or `|`, a key selects an entry by matching: what computes is refused.
     let selected = Position {
         nesting: Nesting {
@@ -213,6 +202,58 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         admits(cells_key, Construct::SortTest),
         Admission::After(Rule::SortTestInPattern)
     );
+}
+
+#[test]
+fn a_computed_key_holds_a_local_function_where_its_pattern_meets_evaluated_terms() {
+    let key = Position {
+        nesting: Nesting {
+            in_map_key: true,
+            ..Position::root(Form::ReadableRule, Slot::Subject).nesting
+        },
+        ..Position::root(Form::ReadableRule, Slot::Subject)
+    };
+    let computed = Position {
+        nesting: Nesting {
+            in_computed_key: true,
+            ..key.nesting
+        },
+        ..key
+    };
+    // A `let` block and `k::matches!` are functions of the names they read: a key a pattern over
+    // evaluated terms computes holds them as it holds an application (NT-3-2), and the compiler
+    // refuses one where the key selects by a name nothing else binds.
+    for position in [key, computed] {
+        assert_eq!(
+            admits(position, Construct::Let),
+            Admission::After(Rule::LetOutsideTerm)
+        );
+        assert_eq!(
+            admits(position, Construct::Matches),
+            Admission::After(Rule::MatchesOutsideCondition)
+        );
+    }
+    // A test in a key computes the key, a built term: `@` in its pattern names no matched term.
+    let key_test = Position {
+        nesting: Nesting {
+            in_matches_pattern: true,
+            ..computed.nesting
+        },
+        ..computed
+    };
+    assert_eq!(
+        admits(key_test, Construct::As),
+        Admission::Refuse(Class::AliasOutsidePattern)
+    );
+    // A simplification's and a static clause's patterns meet unevaluated terms, where the
+    // generated function's application never stands.
+    for form in [Form::Simplification, Form::Desugar] {
+        let unevaluated = Position { form, ..key };
+        assert_eq!(
+            admits(unevaluated, Construct::Let),
+            Admission::Refuse(Class::LetOutsideTerm)
+        );
+    }
 }
 
 #[test]

@@ -46,8 +46,8 @@
 //! ([`Nesting::in_selected_key`]); a computed construct (a sort test, a record update, an
 //! operator or a method) computes the value looked up, so the positions below it are built
 //! ([`Nesting::in_computed_key`]). A constructor's fields read as the key does. A key of a map
-//! that is built is built with it. A `let` block and `k::matches!` compute too, but stand in no
-//! key (finding NT-3-2).
+//! that is built is built with it. A `let` block and `k::matches!` compute too, each a function of
+//! the names it reads, and a computed key holds them as it holds a function's application.
 //!
 //! **Collection instances.** Braces write a Set collection's instances, which a pattern looks
 //! the collection up by as by its elements, and a Map collection's, which it matches; only the
@@ -292,8 +292,11 @@ pub struct Nesting {
     /// Inside a `k::rewrite!`: its left side, in the slot of the rewrite, or its right side, in
     /// [`Slot::Result`] ([`Position::rewrite_right`]).
     pub in_rewrite: bool,
-    /// Inside a map's key, which the map is looked up by.
+    /// Inside a map's key, which the map is looked up by, or a set's element in a pattern, which
+    /// the set is looked up by as a map by its keys ([`Self::in_set_element`]).
     pub in_map_key: bool,
+    /// Inside a set's element `set::item(e)` in a pattern: a key, told apart only to name it.
+    pub in_set_element: bool,
     /// Inside a key a pattern looks up, below a construct that computes it (a sort test, a record
     /// update, an operator or a method): a term built to be looked up.
     pub in_computed_key: bool,
@@ -329,6 +332,7 @@ impl Position {
                 in_let_pattern: false,
                 in_rewrite: false,
                 in_map_key: false,
+                in_set_element: false,
                 in_computed_key: false,
                 in_selected_key: false,
                 in_braced_instance: false,
@@ -430,6 +434,8 @@ impl fmt::Display for Position {
             formatter.write_str("a `k::matches!` pattern in ")?;
         } else if self.nesting.in_let_pattern {
             formatter.write_str("a `let` pattern in ")?;
+        } else if self.nesting.in_set_element {
+            formatter.write_str("a set's element in ")?;
         } else if self.nesting.in_map_key {
             formatter.write_str("a map key in ")?;
         } else if self.nesting.in_rewrite {
@@ -783,10 +789,10 @@ impl Class {
                 "`k::fragment!` names a nested cell term, and an initializer builds its nested cells with their structs"
             }
             Self::LetOutsideTerm => {
-                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
+                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
             }
             Self::MatchesOutsideCondition => {
-                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
+                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
             }
             Self::MlInInitializer => {
                 "a matching-logic predicate states a property of a symbolic state, and an initializer builds one concrete state"
@@ -858,6 +864,13 @@ pub enum Rule {
     /// `constant-applies-function`: whether an application in a constant's value applies a
     /// function.
     ConstantAppliesFunction,
+    /// `let-outside-term`: whether a key a pattern computes that holds a `let` block selects an
+    /// entry instead, by a name nothing else binds, and whether a braced instance's cell holding
+    /// one is a Map collection's, which the pattern matches, rather than a Set collection's,
+    /// which it looks up.
+    LetOutsideTerm,
+    /// `matches-outside-condition`: [`Self::LetOutsideTerm`]'s decision for `k::matches!`.
+    MatchesOutsideCondition,
     /// `function-in-pattern`: whether an application where a pattern matches a term applies a
     /// function, and, at an equation's slot root, whether that root is the subject's. In a
     /// static clause's subject the compiler also tells a collection of two or more parts by its
@@ -882,9 +895,11 @@ pub enum Rule {
 
 impl Rule {
     /// Every rule.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::AlternativesOutsidePattern,
         Self::ConstantAppliesFunction,
+        Self::LetOutsideTerm,
+        Self::MatchesOutsideCondition,
         Self::FunctionInPattern,
         Self::MlInCondition,
         Self::MlPredicateAsTerm,
@@ -898,6 +913,8 @@ impl Rule {
         match self {
             Self::AlternativesOutsidePattern => "alternatives-outside-pattern",
             Self::ConstantAppliesFunction => "constant-applies-function",
+            Self::LetOutsideTerm => "let-outside-term",
+            Self::MatchesOutsideCondition => "matches-outside-condition",
             Self::FunctionInPattern => "function-in-pattern",
             Self::MlInCondition => "ml-in-condition",
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
@@ -948,8 +965,13 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             if nesting.in_matches_pattern {
                 // A `k::matches!` in a condition is part of the matching that decides whether
                 // the sentence applies; in a result or an initializer it is a test of the built
-                // term.
-                if matches!(position.slot, Slot::Result | Slot::InitializerValue) {
+                // term, and in a key a rule's pattern computes, of the term the key is computed
+                // from, which is built as a result is.
+                if matches!(position.slot, Slot::Result | Slot::InitializerValue)
+                    || (matches!(position.slot, Slot::Subject)
+                        && nesting.in_map_key
+                        && !form.is_claim())
+                {
                     Refuse(Class::AliasOutsidePattern)
                 } else {
                     Admit
@@ -990,21 +1012,44 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // holds either, as its end state and conditions do; KRS lifts a claim's into functions the
         // definition declares, since the provers lower them only in a definition's sentences
         // (NT-15). A `cells!` value is a cell's content (S6 decides whether that changes for
-        // readable rules written as `cells!` rules). A key a pattern looks up computes its value,
-        // but `#let` and `:=K` bind their patterns' names, which in a rule's left side would read
-        // as its pattern variables, so a key holds neither, at any depth (finding NT-3-2).
+        // readable rules written as `cells!` rules). A key a pattern over evaluated terms looks up
+        // is computed from names the pattern binds elsewhere and looked up, so it holds either,
+        // as it holds a function's application: the value is a function of those names, which
+        // KRS lifts into a function of its own and applies there, so no binder of the construct
+        // stands in the sentence's left side. Below `@` or `|` a key selects an entry by matching
+        // the map's keys, which are evaluated values, and holds neither; a pattern that meets
+        // unevaluated terms (a simplification's, a static clause's) would match a key that is the
+        // generated function's application, which no term holds.
         Construct::Matches | Construct::Let => {
             let outside = if matches!(construct, Construct::Matches) {
                 Class::MatchesOutsideCondition
             } else {
                 Class::LetOutsideTerm
             };
+            let key_computed = in_pattern_key
+                && !nesting.in_selected_key
+                && (form.matches_evaluated_terms() || form.is_claim());
+            // A braced instance's cell is looked up in a Set collection, as a key is, and matched
+            // in a Map collection's, which only the cell's declared type tells: the compiler
+            // refuses one in a matched instance.
+            let after = if matches!(construct, Construct::Matches) {
+                Rule::MatchesOutsideCondition
+            } else {
+                Rule::LetOutsideTerm
+            };
             if position.in_local_pattern()
-                || in_pattern_key
                 || cells_value(position)
-                || (pattern && !form.is_claim())
+                || (in_pattern_key && !key_computed)
+                || (pattern
+                    && !form.is_claim()
+                    && !key_computed
+                    && !position.reads_by_collection_type())
             {
                 Refuse(outside)
+            } else if (key_computed && form.matches_evaluated_terms())
+                || position.reads_by_collection_type()
+            {
+                After(after)
             } else {
                 Admit
             }
@@ -1028,7 +1073,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 || position.in_local_pattern()
             {
                 Refuse(Class::RewriteOutsideLocalRule)
-            } else if nesting.in_map_key {
+            } else if nesting.in_map_key && !nesting.in_set_element {
                 Refuse(Class::RewriteInMapKey)
             } else {
                 Admit

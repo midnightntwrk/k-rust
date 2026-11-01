@@ -23,6 +23,21 @@ pub fn is_constant_name(ident: &syn::Ident) -> bool {
     text.chars().any(char::is_uppercase) && !text.chars().any(char::is_lowercase)
 }
 
+/// Whether `path` names a set's singleton, the element a pattern looks a set up by: a plain
+/// path ending in `set::item` (`k::builtin::set::item`, or `set::item` with `set` imported).
+/// Resolution tells whether it is the builtin's; read as one, its element is a key, which only
+/// widens what the element may be written as, and what the element holds is judged once its head
+/// is resolved.
+#[must_use]
+pub fn is_set_element_path(path: &Path) -> bool {
+    let segments = path.segments.iter().collect::<Vec<_>>();
+    is_plain_path(path)
+        && matches!(
+            segments.as_slice(),
+            [.., set, item] if set.ident == "set" && item.ident == "item"
+        )
+}
+
 /// The binder a bare name in a pattern introduces: an unqualified
 /// one-segment path, unless it is spelled as a constant
 /// ([`is_constant_name`]).

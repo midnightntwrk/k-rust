@@ -208,16 +208,19 @@ impl Guard {
 
 impl StructuredTermBuilder<'_> {
     /// Whether `term` computes a value: a function's application (an
-    /// operator, a method and an index included) or a sort test. A record
-    /// update is a constructor's application over the matched record's
-    /// fields (F5), a pattern as any constructor's.
+    /// operator, a method and an index included), a sort test, a `let`
+    /// block or `k::matches!` (each the application of a function generated
+    /// for it). A record update is a constructor's application over the
+    /// matched record's fields (F5), a pattern as any constructor's.
     pub(super) fn computes(&self, term: &DescriptorTerm) -> bool {
         match term {
             DescriptorTerm::Application { reference, .. } => matches!(
                 applied_function(&reference.application, self.catalog),
                 Applied::Function(_)
             ),
-            DescriptorTerm::SortTest { .. } => true,
+            DescriptorTerm::SortTest { .. }
+            | DescriptorTerm::Let { .. }
+            | DescriptorTerm::Matches { .. } => true,
             _ => false,
         }
     }
@@ -233,7 +236,9 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let key = match term {
             DescriptorTerm::Application { reference, .. } => reference.key.clone(),
-            DescriptorTerm::SortTest { key, .. } => key.clone(),
+            DescriptorTerm::SortTest { key, .. }
+            | DescriptorTerm::Let { key, .. }
+            | DescriptorTerm::Matches { key, .. } => key.clone(),
             _ => unreachable!("only a construct that computes is guarded"),
         };
         // Below the construct every position is built.

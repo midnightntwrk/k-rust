@@ -5,7 +5,7 @@ use krs_ir::{
     CollectionResultSort, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
     DescriptorIndex, DescriptorPayload, DescriptorTerm, GeneratedOperation, ListNotation,
     ListOperation, OperationSort, ProductionFieldId, ProtocolCellContent, ProvenanceKey,
-    SemanticId, SortTestKind, StableItemId,
+    SemanticId, SetOperation, SortTestKind, StableItemId,
 };
 use krs_ir_levels::{
     ListOperands, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
@@ -990,11 +990,11 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        if self.pattern_subject(subject)
-            || self.locals.inferring.is_some()
-            || self.locals.scope.is_some()
-        {
+        if self.locals.inferring.is_some() || self.locals.scope.is_some() {
             return Err(self.refused_position(key, "a `let` block"));
+        }
+        if self.local_function_in_pattern(subject) {
+            return Err(self.local_function_matched(key, false));
         }
         super::function_patterns::check_local_pattern(self.descriptor, pattern, self.catalog)?;
         let ascribed = sort.map(|sort| semantic_sort_ref(&sort.sort));
@@ -1164,11 +1164,11 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        if self.pattern_subject(subject)
-            || self.locals.inferring.is_some()
-            || self.locals.scope.is_some()
-        {
+        if self.locals.inferring.is_some() || self.locals.scope.is_some() {
             return Err(self.refused_position(key, "`k::matches!`"));
+        }
+        if self.local_function_in_pattern(subject) {
+            return Err(self.local_function_matched(key, true));
         }
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
         if let Some(expected) = expected_sort
@@ -1556,6 +1556,18 @@ impl StructuredTermBuilder<'_> {
                 return Ok(());
             }
             DescriptorApplicationRef::Set(operation) => {
+                if self.looks_up_element(*operation, subject) {
+                    let enclosing = std::mem::replace(&mut self.in_key, true);
+                    let inferred = self.infer_collection_operation(
+                        &reference.key,
+                        *operation,
+                        arguments,
+                        expected_sort,
+                        subject,
+                    );
+                    self.in_key = enclosing;
+                    return inferred;
+                }
                 self.infer_collection_operation(
                     &reference.key,
                     *operation,
@@ -1801,7 +1813,19 @@ impl StructuredTermBuilder<'_> {
         typing.element_sort(operand)
     }
 
-    /// Lowers a collection application's operands, in wire order, with its result sort.
+    /// Whether `operation`, at a pattern's matched position (`subject`), is a set's element
+    /// `set::item(e)` a pattern over evaluated terms looks the set up by: its element is read as
+    /// a map's key is (decision D2), computed from names the pattern binds elsewhere and looked
+    /// up, or a selection among the set's elements ([`super::function_patterns`] judges which).
+    fn looks_up_element(&self, operation: SetOperation, subject: bool) -> bool {
+        operation == SetOperation::Item
+            && subject
+            && !self.in_key
+            && super::function_patterns::matches_evaluated_sentence(self.descriptor.payload())
+    }
+
+    /// Lowers a collection application's operands, in wire order, with its result sort; each as
+    /// a looked-up key when `looked_up` ([`Self::looks_up_element`]).
     fn lower_collection_operands<O: CollectionApplication>(
         &mut self,
         key: &ProvenanceKey,
@@ -1809,6 +1833,7 @@ impl StructuredTermBuilder<'_> {
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
+        looked_up: bool,
     ) -> Result<(SemanticSortRef, Vec<SemanticTerm>), DescriptorLoweringError> {
         let operands = collection_positional_operands(operation, arguments)
             .map_err(|detail| self.invalid_term(detail))?;
@@ -1824,7 +1849,11 @@ impl StructuredTermBuilder<'_> {
                         .then(|| typing.element_sort(operand))
                         .flatten()
                 });
-                let lowered = self.lower(operand, expected.as_ref(), subject)?;
+                let lowered = if looked_up {
+                    self.lower_key(operand, expected.as_ref())?
+                } else {
+                    self.lower(operand, expected.as_ref(), subject)?
+                };
                 // A probe that is not a sentence binder must share a sort
                 // with the elements it looks for, or it is never found.
                 if let Some(read) = read
@@ -2101,8 +2130,46 @@ impl StructuredTermBuilder<'_> {
         if matches!(term, DescriptorTerm::Application { .. }) && self.in_guarded_key() {
             return self.lower_key_application(term, expected_sort, subject, false);
         }
+        if matches!(
+            term,
+            DescriptorTerm::Let { .. } | DescriptorTerm::Matches { .. }
+        ) && self.in_guarded_key()
+        {
+            return self.lower_key_local_function(term, expected_sort, subject);
+        }
         self.lower_term(term, expected_sort, subject)
             .map_err(|error| self.locate(error, term))
+    }
+
+    /// A `let` block or `k::matches!` in a guarded key: the value of a function of the names it
+    /// reads, which the key looks up as it looks up a function's application
+    /// ([`Self::lower_key_application`]). Below it every position is built, and is evaluated
+    /// where the function is, so nothing in it is guarded: a projection it holds is the
+    /// function's own, as in any function's body. KRS lifts the construct into that function
+    /// once the sentence is lowered ([`super::local_functions`]), except in an equation's
+    /// function context, which is matched as written: there the key is a fresh name `K` with
+    /// the guard `K ==K value`, which reads the construct in the equation's condition.
+    fn lower_key_local_function(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let (DescriptorTerm::Let { key, .. } | DescriptorTerm::Matches { key, .. }) = term else {
+            unreachable!("only a `let` block or `k::matches!` is lowered as one");
+        };
+        let matched = self.key_matched();
+        let guards = self.instance_guards.take();
+        let lowered = self.lower_term(term, expected_sort, subject);
+        self.instance_guards = guards;
+        let lowered = lowered.map_err(|error| self.locate(error, term))?;
+        if matched && self.key_matched_as_written() {
+            let sort = lowered.sort().clone();
+            return self
+                .guard_equal(key.clone(), sort, lowered)
+                .map_err(|error| self.locate(error, term));
+        }
+        Ok(lowered)
     }
 
     #[expect(
@@ -2569,6 +2636,7 @@ impl StructuredTermBuilder<'_> {
                     arguments,
                     expected_sort,
                     subject,
+                    false,
                 )?;
                 let operands = MapOperands::from_operands((*operation).into(), operands)
                     .map_err(|error| self.invalid_term(error.to_string()))?;
@@ -2585,6 +2653,7 @@ impl StructuredTermBuilder<'_> {
                     arguments,
                     expected_sort,
                     subject,
+                    false,
                 )?;
                 let operands = ListOperands::from_operands(*operation, operands)
                     .map_err(|error| self.invalid_term(error.to_string()))?;
@@ -2605,6 +2674,7 @@ impl StructuredTermBuilder<'_> {
                     arguments,
                     expected_sort,
                     subject,
+                    self.looks_up_element(*operation, subject),
                 )?;
                 let operands = SetOperands::from_operands(*operation, operands)
                     .map_err(|error| self.invalid_term(error.to_string()))?;
@@ -3834,6 +3904,38 @@ impl StructuredTermBuilder<'_> {
     /// which holds the terms its end state may, a computed one among them.
     fn pattern_subject(&self, subject: bool) -> bool {
         subject && !super::function_patterns::is_claim_sentence(self.descriptor.payload())
+    }
+
+    /// The refusal of a `let` block or `k::matches!` (`matches`) at `key`, where the sentence's
+    /// pattern matches terms as they are ([`Self::local_function_in_pattern`]): the expander's
+    /// position table leaves only a cell of a braced collection instance to the compiler, which
+    /// a Map collection's instance is, matched by its cells, and a pattern there never meets the
+    /// application of the function generated for the construct.
+    fn local_function_matched(
+        &self,
+        key: &ProvenanceKey,
+        matches: bool,
+    ) -> DescriptorLoweringError {
+        let what = if matches {
+            "`k::matches!` (K's :=K)"
+        } else {
+            "a `let` block (K's #let)"
+        };
+        DescriptorLoweringError::LocalFunctionInPattern {
+            item: Box::new(self.descriptor.id().clone()),
+            reason: format!(
+                "{what} is the application of a function generated for it, and no term a pattern meets is an application of it, so a pattern holding one never matches: here it stands in a cell the pattern matches, as a Map collection's instance is matched by its cells, where a Set collection's instance computed from names bound elsewhere is looked up"
+            ),
+            matches,
+            range: self.authored_range(key),
+        }
+    }
+
+    /// Whether a `let` block or `k::matches!` would stand where the sentence's pattern matches
+    /// terms as they are: a pattern's subject outside a key it looks up, which computes its value
+    /// from names bound elsewhere, as any term built from them is computed.
+    fn local_function_in_pattern(&self, subject: bool) -> bool {
+        self.pattern_subject(subject) && !self.in_key
     }
 
     /// The error of `construct` lowered at a position the position table refuses it at
