@@ -14530,6 +14530,139 @@ endmodule
     }
 }
 
+/// The lines kprove prints for `claim` of `spec` in `output`: its verdict line and the lines of
+/// its leaves, up to the next claim's verdict line.
+fn claim_report(output: &str, spec: &str, claim: &str) -> Vec<String> {
+    let head = format!("claim {spec}.{claim}: ");
+    let mut lines = output
+        .lines()
+        .skip_while(|line| !line.starts_with(&head))
+        .peekable();
+    let mut report = Vec::new();
+    if let Some(line) = lines.next() {
+        report.push(line.to_owned());
+    }
+    report.extend(
+        lines
+            .take_while(|line| line.starts_with(' '))
+            .map(str::to_owned),
+    );
+    report
+}
+
+/// GAP K7: a not-proven leaf that holds an application k-rust withholds outside an execution
+/// (`builtin::withheld_in_proof`) says so in kprove's report: one `open value` line per hook and
+/// class, at the leaf's other reasons, naming the hook and the class, followed by one
+/// occurrence. The application is found in the leaf's configuration (a `Float2Int` tie,
+/// `float-rounding`; `findString` from a start past its haystack, `outside-domain`) and in its
+/// path condition (`cond-tie`, whose configuration holds none). Two applications of one hook and
+/// class make one line (`two-ties`). Only the report changes: a proven claim (`f2i-near`), a
+/// certified disproof (`f2i-wrong`), a claim whose leaves hold only determined values
+/// (`fnd-wrong`) and one whose `Float2Int` has a symbolic argument, which the proof does not
+/// evaluate and so withholds nothing from (`f2i-symbolic`), print no such line, and every
+/// verdict is the one the proof gives without the names.
+#[test]
+fn kprove_names_the_open_values_a_not_proven_leaf_holds() {
+    let source = r#"
+module NAMED
+  imports DOMAINS
+  imports FLOAT
+  syntax Pgm ::= f2i(Float) | two(Float, Float) | fnd(String, Int) | g(Float) | r(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule f2i(F) => r(Float2Int(F))
+  rule two(F, G) => r(Float2Int(F) +Int Float2Int(G))
+  rule fnd(S, I) => r(findString(S, "b", I))
+  rule g(F) => r(1) requires Float2Int(F) ==Int 2
+  rule g(F) => r(2) requires Float2Int(F) =/=Int 2
+endmodule
+
+module NAMED-SPEC
+  imports NAMED
+  claim [f2i-tie]: <k> f2i(2.5) => r(2) </k>
+  claim [two-ties]: <k> two(2.5, 3.5) => r(6) </k>
+  claim [fnd-outside]: <k> fnd("abc", 5) => r(-1) </k>
+  claim [cond-tie]: <k> g(2.5) => r(1) </k>
+  claim [f2i-near]: <k> f2i(2.4) => r(2) </k>
+  claim [f2i-wrong]: <k> f2i(2.4) => r(3) </k>
+  claim [fnd-wrong]: <k> fnd("abc", 1) => r(5) </k>
+  claim [f2i-symbolic]: <k> f2i(F) => r(2) </k>
+endmodule
+"#;
+    let (verdicts, output) = order_claim_verdicts(source, "NAMED", "NAMED-SPEC");
+    let open_lines = |claim: &str| {
+        let report = claim_report(&output, "NAMED-SPEC", claim);
+        assert!(!report.is_empty(), "no report of {claim}: {output}");
+        report
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with("  open value: "))
+            .map(|(index, line)| (line.clone(), report.get(index + 1).cloned()))
+            .collect::<Vec<_>>()
+    };
+    for (claim, hook, class, label) in [
+        (
+            "f2i-tie",
+            "FLOAT.float2int",
+            "float-rounding",
+            "LblFloat2Int",
+        ),
+        (
+            "two-ties",
+            "FLOAT.float2int",
+            "float-rounding",
+            "LblFloat2Int",
+        ),
+        (
+            "fnd-outside",
+            "STRING.find",
+            "outside-domain",
+            "LblfindString",
+        ),
+        (
+            "cond-tie",
+            "FLOAT.float2int",
+            "float-rounding",
+            "LblFloat2Int",
+        ),
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+        let lines = open_lines(claim);
+        assert_eq!(
+            lines
+                .iter()
+                .map(|(line, _)| line.as_str())
+                .collect::<Vec<_>>(),
+            [format!("  open value: {hook} ({class}); one occurrence:")],
+            "{claim}: {output}"
+        );
+        let occurrence = lines[0].1.as_deref().unwrap_or_default();
+        assert!(
+            occurrence.starts_with("      ") && occurrence.contains(label),
+            "{claim}: {occurrence:?} in {output}"
+        );
+    }
+    assert_eq!(
+        claim_verdict(&verdicts, "f2i-near", &output),
+        "proven",
+        "{output}"
+    );
+    assert_eq!(
+        claim_verdict(&verdicts, "f2i-wrong", &output),
+        "disproved",
+        "{output}"
+    );
+    for claim in ["fnd-wrong", "f2i-symbolic"] {
+        assert_ne!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
+    for claim in ["f2i-near", "f2i-wrong", "fnd-wrong", "f2i-symbolic"] {
+        assert_eq!(open_lines(claim), [], "{claim}: {output}");
+    }
+}
+
 /// A partial hook whose description covers only some arguments says nothing of the others, so
 /// `\bottom` and every value of its sort are models there (class `outside-domain`): no claim is
 /// proven from k-rust's `\bottom`. Each `owise` claim holds only in the models that take the

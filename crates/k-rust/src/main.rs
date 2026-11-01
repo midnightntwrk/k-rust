@@ -3821,7 +3821,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             moving_average_timeout: options.moving_average_timeout,
         };
         let result = backend.with_solver(None, |definition, solver| {
-            k_rust::backend::proving::run_claim(
+            let result = k_rust::backend::proving::run_claim(
                 definition,
                 claim,
                 &circularities,
@@ -3835,9 +3835,27 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                         BackendError::new(format!("could not prove claim: {error}"))
                     }
                 })
-            })
+            })?;
+            // The claim's time is its proof's, without the report's reading below.
+            let seconds = started.elapsed().as_secs_f64();
+            // The open values each listed leaf holds, for its report: the leaves of a claim
+            // neither proven nor disproved (a disproof holds in every model). Read after the
+            // proof, they change nothing it decided.
+            let open_values =
+                if matches!(result.status, ProofStatus::Proven | ProofStatus::Disproved) {
+                    Vec::new()
+                } else {
+                    result
+                        .leaves
+                        .iter()
+                        .map(|leaf| {
+                            k_rust_backend::builtin::open_applications(definition, &leaf.pattern)
+                        })
+                        .collect()
+                };
+            Ok((result, open_values, seconds))
         });
-        let result = match result {
+        let (result, open_values, seconds) = match result {
             Ok(result) => result,
             // A refused claim is not proven, and the run goes on with the others.
             Err(KproveSolverError::Backend(error)) if error.claim_refusal().is_some() => {
@@ -3853,7 +3871,6 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }
             Err(error) => return Err(kprove_solver_error(error).into()),
         };
-        let seconds = started.elapsed().as_secs_f64();
         timings.proof_seconds += seconds;
         timings.claims.push(ClaimTiming {
             label: name.clone(),
@@ -3875,7 +3892,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }
         } else {
             all_proven = false;
-            for leaf in result.leaves.iter().filter(|leaf| {
+            for (index, leaf) in result.leaves.iter().enumerate().filter(|(_, leaf)| {
                 !matches!(
                     leaf.outcome,
                     ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
@@ -3935,6 +3952,23 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                         "  {}",
                         k_rust::backend::execution::contradicted_total_message(contradicted)
                     )?;
+                }
+                // Each hook and class of the applications the leaf holds that a proof leaves
+                // unevaluated, as values only an execution chooses, with one of them.
+                for open in open_values.get(index).into_iter().flatten() {
+                    writeln!(
+                        output,
+                        "  open value: {} ({}); one occurrence:",
+                        open.chosen.hook,
+                        open.chosen.class.name()
+                    )?;
+                    let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "      ");
+                    KorePrinter::pretty(100)
+                        .write_source(External::Term(&open.occurrence), &mut lines)?;
+                    lines
+                        .finish()?
+                        .into_inner()
+                        .map_err(io::IntoInnerError::into_error)?;
                 }
                 let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "    ");
                 let printable = externalize::Printable::pattern(&leaf.pattern);
