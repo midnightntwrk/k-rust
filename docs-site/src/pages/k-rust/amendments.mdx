@@ -13,9 +13,17 @@ A meaning statement says what an existing hook's value is where the upstream tex
 It adds no K text: the code that evaluates the hook exists, and the amendment makes its value determined instead of open.
 It lives only in this document, never in an upstream file: a sentence inserted into `domains.md` would read as upstream's own to anyone who does not compare the files, and would move every later line that k-rust's citations and tests name.
 
+A meaning statement rests on one of two grounds, which its entry names:
+
+- evident intent: the text fixes the value, and what it leaves out its own model or words supply, an omission of the wording rather than a freedom it grants; no sentence leaves the value to the implementation, as `domains.md` does of `Base2String`'s letter case;
+- convention: the text fixes the value up to a spelling or representation convention it does not name, every implementation the entry's evidence covers follows that convention, and the entry states the convention as k-rust's choice, which its upstream proposal would make the text's.
+
+A value neither ground gives stays open ([compatibility.md, Implementation-chosen hook values](/k-rust/compatibility#implementation-chosen-hook-values)).
+
 K text that k-rust loads and the upstream file does not hold stays in the embedded file, since K has no way to add a rule to an upstream module from outside it, and rewriting the text at load would make the definition k-rust runs differ from the file it shows.
 Each such line ends with the comment `// k-rust: AM-<n>`, naming its entry here, and that entry records the upstream line it replaces, or that it replaces none.
 An explanation of such an edit is the entry's; the file holds only the marked code lines.
+A K-text entry names a ground too, that of what its lines state. Where the lines make k-rust run something other than what the pinned release runs, the release cannot follow the convention they state: the ground is then a convention of k-rust's own, which the entry says, and compatibility.md states the divergence.
 
 So every file of `crates/k-rust/builtin/` equals the pinned release's file byte for byte once each marked line is undone: removed if its entry says it was added, otherwise replaced by the upstream line its entry records.
 A citation `domains.md`:N in compatibility.md names a line of the embedded copy ([compatibility.md](/k-rust/compatibility#backend-scope) states the rule); an entry's `Upstream` field names lines of the upstream file itself.
@@ -23,11 +31,12 @@ A citation `domains.md`:N in compatibility.md names a line of the embedded copy 
 The test [amendments.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/amendments.rs) enforces the rule.
 It holds the SHA-256 digest of each pinned file, so it needs no K installation, and checks that:
 
-- undoing the marked lines of each embedded file as its entries say gives the pinned file's digest, and every marked line is one its entry lists;
+- the entries are numbered 1 to N in order, each once, and each has every field below, its `Ground` one of the two grounds;
+- undoing the marked lines of each embedded file as its entries say gives the pinned file's digest, every marked line is one its entry lists, and each marked line, its mark removed, is the corresponding `+` line of its entry's upstream proposal;
 - every entry's quoted passage occurs verbatim at the location its `Upstream` field cites: in the pinned file of a builtin (the embedded copy with its marks undone), and for `krypto.md` in [kink's reference copy](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-native/reference/krypto.md) of the plugin's file at `651a2db5`, whose digest it also checks;
-- every `AM-<n>` in `crates/` and `docs/` names an entry.
+- every `AM-<n>` in `crates/`, `docs/`, `docs-site/`, `krs/` and `kink/` names an entry.
 
-A passage is quoted as a block of the upstream file's lines, either a fenced block or `>` lines; it occurs verbatim at its location when the block's text is the cited lines' text, apart from the line breaks and the indentation around them, starting on the first cited line and ending on the last.
+A passage is quoted as a block of the upstream file's lines, either a fenced block or `>` lines. It occurs verbatim at its location when, with every run of whitespace (the line breaks and indentation included) read as one space, its text is a contiguous run of the cited lines' text that starts on the first cited line and ends on the last; it may start or end within a line.
 
 ## Entries
 
@@ -36,7 +45,8 @@ Each entry has these fields:
 - Upstream: the upstream file, its revision, and the lines the passage is on (several locations are separated by `;`, and each has a passage, in order).
 - Passage: the upstream text the amendment rests on, quoted verbatim.
 - k-rust reads: the sentence k-rust adds to the text.
-- Reason: why the reading is the text's evident intent, argued from K's data model and the text itself.
+- Ground: `evident intent` or `convention`, as the rule above defines them.
+- Reason: why the reading rests on that ground, argued from K's data model and the text itself; for a convention, also which implementations follow it.
 - Evidence: the tests and the differential or reference gates that check it.
 - Upstream proposal: the replacement wording, as a diff of the passage, that would make the amendment unnecessary.
 - Status: `local` while the proposal has not been sent upstream; `proposed` once it has; `upstream` once the pinned release holds it, when the entry is removed with the next pin.
@@ -63,11 +73,15 @@ Each entry has these fields:
 
 - k-rust reads: `Bytes2String(B)` is the string of the same length whose code point at each index is the value of the byte of `B` there, and `String2Bytes(S)`, for a string `S` whose code points are all below 256, is the `Bytes` of the same length whose byte at each index is the code point of `S` there; on those strings the two are inverse.
   Of a string holding a code point above U+00FF the reading says nothing.
+- Ground: convention
 - Reason: a `Bytes` is a sequence of bytes, the values 0 to 255, and the strings the String domain supports are the sequences of the first 256 code points, the values 0 to 255: the two sorts' supported elements are sequences over alphabets of the same 256 values, and the text calls the operations a conversion between them, of linear cost.
   Both are declared `total`, so `Bytes2String` gives a string for every byte sequence and `String2Bytes` a byte sequence for every supported string.
-  The conversion that maps each element to the element of the same value is the one that meets these requirements without naming anything the text does not name: it is total in both directions on the supported strings, each direction inverts the other, and it is linear.
-  The encodings K names elsewhere do not meet them: UTF-8, UTF-16 and UTF-32 decode no string from some byte sequences (`b"\xff"`, a sequence of odd length), so a `total` `Bytes2String` read through one of them would need a value the encoding does not give, and their encodings of the code points 128 to 255 are not one byte each.
-  The text names no encoding because the supported strings and the byte sequences correspond one element to one element; nothing in it makes the encoding a choice of the implementation, as it does for `Float2String`'s format (:1801-1802) or `Base2String`'s letter case (:1829-1831).
+  So the text fixes a conversion that is total in both directions on the supported strings, each direction the inverse of the other, and linear, between sequences over two alphabets of the same 256 values.
+  The encodings K names elsewhere do not meet it: UTF-8, UTF-16 and UTF-32 decode no string from some byte sequences (`b"\xff"`, a sequence of odd length), so a `total` `Bytes2String` read through one of them would need a value the encoding does not give, and their encodings of the code points 128 to 255 are not one byte each.
+  What the text does not name is which byte stands for which code point: a conversion that writes each element as one element of another value, the same way everywhere, would meet the same words.
+  That correspondence is a representation convention, and the amendment states k-rust's: each element is written as the element of the same value, the byte n as the code point U+00nn, the numbering under which Unicode's Basic Latin and Latin-1 Supplement blocks, the ones the text names, are ISO 8859-1.
+  It is the convention of the implementation the evidence covers beside k-rust: the KRS `builtin-domains` gate runs its `strings` cases through k-rust and Java K's LLVM backend, whose results must agree, and they agree that `"\xc1"` converts to one byte and that ASCII text converts there and back unchanged; no differential compares the value of a byte past ASCII.
+  Nothing in the text makes the encoding a choice of the implementation, as it does for `Float2String`'s format (:1801-1802) or `Base2String`'s letter case (:1829-1831), but the correspondence is not in the text either, so the ground is convention, not evident intent.
   Beyond U+00FF the text warns that strings are incompletely supported, so the amendment states nothing there, and k-rust leaves `String2Bytes` of such a string unevaluated.
 - Evidence: `byte_conversions_are_determined` in [builtin.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/src/builtin.rs), `a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_arguments` in the [backend tests](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/tests/backend/evaluation_mode.rs) (a partial `Bytes2String` of a symbolic `Bytes` is defined, a partial `String2Bytes` of a symbolic string undecided), `string_to_bytes_above_255_is_unspecified` in [bytes.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/src/builtin/bytes.rs), `an_amended_value_is_evaluated_outside_an_execution` in the [backend tests](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/tests/backend/evaluation_mode.rs), and `kprove_proves_no_claim_that_depends_on_an_open_value` (`s2b-latin1`) in [cli.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/cli.rs).
   The KRS `builtin-domains` gate's `strings` cases `from-string*` and `to-string` run the conversions on Latin-1 text.
@@ -103,10 +117,13 @@ Each entry has these fields:
   > -   `ECDSAPubKey` takes a 32-character byte string of a private key, and returns the 64 byte hex-encoded public key
 
 - k-rust reads: A hex-encoded `String` that a hook returns writes each byte as two hexadecimal digits, the more significant first, in the order of the bytes, and its letter digits are lowercase, `a` to `f`.
+- Ground: convention
 - Reason: each of these hooks is a `function`, one value per argument, and the text describes the value as the hex encoding of a named digest, or of a public key, of a stated length; two digits per byte, the more significant first, is what the hex encoding of a byte string is ([compatibility.md, Cryptographic hooks](/k-rust/compatibility#cryptographic-hooks)).
   The description leaves out only the case of the letter digits, and nothing in the text makes the case a choice of the implementation: where K leaves a letter case to the implementation, it says so, as `domains.md` does of `Base2String` ("Whether the letters returned by `Base2String` are upper or lowercase is determined by the backend, but the backend will consistently choose one or the other", :1829-1831), and `krypto.md` has no such sentence.
-  So the case is a detail the description omits, not a freedom it grants, and it has to be fixed for the hooks to have the one value the text describes.
-  The amendment fixes lowercase, the case in which hexadecimal digests are commonly written as text; that choice between the two cases is the amendment's, and the upstream proposal states it.
+  So the text fixes each value up to the spelling of its letter digits, and the hooks have the one value it describes once that spelling is fixed.
+  Neither text names a case: no hex literal, no case word, and `Bytes2Hex` only "uses hexadecimal encoding".
+  The amendment states lowercase as k-rust's convention, the case in which hexadecimal digests are commonly written as text; the choice between the two cases is k-rust's, not the text's, so the ground is convention, and the upstream proposal would make it the text's.
+  The implementation the evidence covers beside k-rust follows it: the execution differential's `crypto` case compares k-rust's `Sha256(b"abc")`, whose digest holds letter digits, with the reference K's output without normalising the case.
   It does not change what a hex `String` argument is read as ("interpreted as hex-encoded data"): no hook k-rust evaluates reads one.
 - Evidence: `hex_outputs_are_determined` in [builtin.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/src/builtin.rs), `hex_digests_are_two_lowercase_hex_digits_per_byte` in [krypto.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/src/builtin/krypto.rs), `an_amended_value_is_evaluated_outside_an_execution` in the [backend tests](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/tests/backend/evaluation_mode.rs), and `kprove_proves_no_claim_that_depends_on_an_open_value` (`kec-lower`) in [cli.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/cli.rs).
   The execution differential's `crypto` case ([reference-differential.toml](https://github.com/midnightntwrk/k-rust/blob/main/scripts/reference-differential.toml)) compares k-rust's `Sha256(b"abc")`, whose digest holds letter digits, with the reference K's output without normalising the case.
@@ -142,9 +159,11 @@ Each entry has these fields:
   `isValidPoint` of a `G1Point` is true exactly when it is a point of G1, and of a `G2Point` exactly when its four coordinates lie in [0, p) and it is a point of G2; it is false for every other point term.
   `BN128Add(P, Q)`, for P and Q in G1, is their sum in G1; `BN128Mul(P, k)`, for P in G1 and every integer k, is k·P (the sum of |k| copies of P, negated when k &lt; 0); `BN128AtePairing(Ps, Qs)`, for two lists of equal length whose items are points of G1 and G2 respectively, is true exactly when Σ aⱼ·bⱼ ≡ 0 (mod r), where Pⱼ = aⱼ·g1 and Qⱼ = bⱼ·g2 for generators g1 of G1 and g2 of G2, and true for two empty lists.
   The reading says nothing of a sum, product or pairing of a term that is no point, or of pairing lists of different lengths.
-- Reason: `krypto.md` is the text of blockchain-k-plugin, whose cryptographic hooks are those of Ethereum's precompiles, and its section describes one curve by the name under which EIP-196 and EIP-197 add it to Ethereum: a curve over a prime field whose G2 is over the field of first-degree polynomials, with (0, 0) as the point at infinity, which is EIP-196's encoding of the point at infinity.
-  It names no parameters because it takes the curve as known, not because it leaves the curve open: each hook is a `function` that adds, multiplies or pairs points of one group G1 or G2, which needs one curve, and no sentence makes the curve the implementation's.
-  So the curve is a detail the text takes from its context, and the amendment states it with the parameters EIP-196 and EIP-197 give.
+- Ground: evident intent
+- Reason: `krypto.md` is the text of blockchain-k-plugin, whose cryptographic hooks serve KEVM's implementation of Ethereum's precompiles, and its section describes the curve of the two precompiles that EIP-196 and EIP-197 add for pairing-based cryptography: a curve over a prime field whose G2 is over the field of first-degree polynomials, a point of G2 written with its zero-degree coefficients first (:95), and (0, 0) as the point at infinity, which is EIP-196's encoding of it.
+  The EIPs call that curve alt_bn128, and Ethereum's clients and libraries call it bn128 or bn256; the name alone fixes no parameters, since BN128 names any Barreto-Naehrig curve of about 128-bit security, so what fixes the curve is the plugin's purpose with the encoding the passage states.
+  The text names no parameters because it takes the curve as known from that context, not because it leaves the curve open: each hook is a `function` that adds, multiplies or pairs points of one group G1 or G2 (:97-100), which needs one curve, and no sentence makes the curve the implementation's.
+  So the curve is a detail the text takes from its context, and the amendment states it with the parameters EIP-196 and EIP-197 give; the ground is the text's evident intent, not a convention, since the curve is what the text refers to, not a spelling of a value it fixes.
   The `isValidPoint` of a `G2Point` is read as membership of G2, not only of the twist: the text calls a `G2Point` "a point on G2", and the pairing it pairs with G1 is defined through discrete logarithms of G2 points, which exist only in the order-r subgroup.
   A coordinate outside [0, p) is no element of the prime field the points are over, so a pair holding one is no point.
   The text describes the sum, product and pairing of points only, so the amendment fixes their values on points and leaves their outcome elsewhere as the text leaves it.
@@ -183,6 +202,7 @@ Each entry has these fields:
 
 - k-rust reads: `Int2Float(I, P, E)` is IEEE 754's conversion of the integer `I` into the format `pPxE`, and `roundFloat(F, P, E)` its conversion of `F` into that format, each under the rounding-direction attribute roundTiesToEven: the value is correctly rounded, a value halfway between two neighbours goes to the one whose significand is even, a magnitude at or beyond `2^emax * (2 - 2^-P)` (half an ulp past the largest finite value) goes to the infinity of its sign, and a nonzero value that rounds to zero to the zero of its sign.
   `rootFloat(F, N)`, for a positive finite `F` and a positive degree `N`, is the positive real `N`th root of `F` correctly rounded to `F`'s format under roundTiesToEven (IEEE 754's `rootn`), and `sqrtFloat` follows by its rule `rootFloat(F, 2)`.
+- Ground: evident intent
 - Reason: the section gives `Float` as "an implementation of arbitrary-precision floating-point arithmetic in K based on a generalization of the IEEE 754 standard", and its arithmetic hooks name `roundNearestTiesToEven` in their `smt-hook`s.
   IEEE 754 defines a conversion between formats and from integers, and its root `rootn`, as the exact result rounded once according to the applicable rounding-direction attribute, and makes roundTiesToEven the default attribute for binary formats; the text gives these three operations a destination format and no attribute, and its model has no other attribute in force, so each is the IEEE operation under the default one.
   "This type is hooked to an implementation of floats provided by the backend" says where the implementation is, not that its values are the backend's choice, unlike `Base2String`'s case, which the text says the backend determines.
@@ -212,6 +232,7 @@ Each entry has these fields:
   > precision and exponent range. You can also convert a floating-point number
 
 - k-rust reads: `Int2Float(0, P, E)` is the positive zero of the format `pPxE`.
+- Ground: evident intent
 - Reason: both zeros of a format have the value 0, so "convert an integer to a floating-point number" alone names two elements for the integer 0.
   The conversion is IEEE 754's from an integer ([AM-4](#am-4-float-conversions-and-roots-round-to-nearest-ties-to-even)), whose result takes the sign of its operand, and the integer 0 is not negative: the result is `+0`.
   It is the zero every object language's integer-to-float conversion gives (C's cast, Rust's `as`, Java's widening, Wasm's `f64.convert_i64_s`).
@@ -241,6 +262,7 @@ Each entry has these fields:
   >   the direction of zero (`truncFloat`).
 
 - k-rust reads: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's roundToIntegralTowardNegative, roundToIntegralTowardPositive and roundToIntegralTowardZero: a NaN gives the format's NaN, an infinity gives itself, and a zero result has the argument's sign (`floorFloat(0.5)` is `0.0`, `ceilFloat(-0.5)` and `truncFloat(-0.5)` are `-0.0`).
+- Ground: evident intent
 - Reason: each sentence describes, for a finite argument, the IEEE 754 operation that rounds to an integral value in one direction, and the three directions are the passage's own (lowest, highest, toward zero).
   The hooks are declared `total`, so a NaN and the infinities have values, which "the next lowest floating-point value which is an integer" does not name: no float is next to a NaN, and taken literally `ceilFloat` of the positive infinity would have none.
   IEEE 754's operations give them: a NaN operand gives a NaN, an infinity is its own integral value, and the result's sign is the operand's, which also picks between the two zeros a non-integer rounding to 0 is equally near.
@@ -277,6 +299,7 @@ Each entry has these fields:
 
 - k-rust reads: In `replaceAtBytes(dest, index, src)`, with `N` the length of `src`, "`index` + `N` is not a valid index" holds exactly when `index + N` is less than 0 or greater than the length of `dest`; so `replaceAtBytes` from a nonnegative `index` with `index + N` equal to the length of `dest` is `dest` with its last `N` bytes replaced by `src`.
   Of a negative `index` whose `index + N` is between 0 and the length of `dest` the reading says nothing.
+- Ground: evident intent
 - Reason: "valid index" is defined for the index of one byte (`B[I <- V]`), as a position `0 <= i < length`, and the sentence applies it to `index + N`, which is no byte's position but the end of the replaced range, one past its last byte.
   Read as a position, the condition would make every replacement that ends at the end of `dest` `#False`, the replacement of a single last byte and of the whole `dest` included, while the value clause names those `N` bytes of `dest` and their replacement.
   The bound that says the `N` elements starting at `index` lie inside `dest` is `index + N <= length`, the bound of a range's end, as `substrBytes` states it for its `endIndex` ("`lengthBytes(B) <Int endIndex`" is `#Bottom`, :2136-2139).
@@ -312,6 +335,7 @@ Each entry has these fields:
   ```
 
 - k-rust reads: the rounding is IEEE 754's correctly rounded conversion from decimal under roundTiesToEven: a rational halfway between two values of the format goes to the one whose significand is even, a magnitude at or beyond `2^emax * (2 - 2^-N)` (half an ulp past the largest finite value) to the infinity of the literal's sign, and a nonzero rational that rounds to zero to the zero of its sign; and an `Infinity` lexeme, with its sign and suffix, is the infinity of that sign in that format.
+- Ground: evident intent
 - Reason: "rounded to the nearest possible value in a floating-point type represented like an IEEE754 floating-point type" is IEEE 754's round to nearest, roundTiesToEven, the default attribute for binary formats and the one the section's arithmetic hooks name, under which a conversion from a decimal character sequence is correctly rounded.
   That attribute's definition decides each case "nearest" alone leaves: a tie goes to the even significand, and an exact value of magnitude at least `b^emax * (b - 1/2 * b^(1-p))` rounds to the infinity of its sign, so the reading that takes the largest finite value as the nearest at a finite distance is not IEEE's nearest; a rounded zero has the sign of the exact value.
   A type represented like an IEEE 754 format has one infinity of each sign, and the token syntax admits `Infinity` with a sign and the format suffix, which can name no other value of the format.
@@ -346,9 +370,12 @@ Each entry has these fields:
 
 - k-rust reads: A line end is any of the line terminators a source location counts: `\n` through `\r` (line feed, vertical tab, form feed and carriage return), U+0085, U+2028 and U+2029, the last three written in the regexes as `\u` escapes.
   A single-line comment ends at a line end, and every line end is whitespace.
+- Ground: convention
 - Reason: module `DEFAULT-LAYOUT` is the layout of the rule and configuration grammars and of every program of a definition that declares no `#Layout` production, and its two regexes say what a line end is to the scanner: a `//` comment runs to the end of its line, and the end of a line separates tokens.
+  The upstream classes name `\n` and `\r` alone, and the pinned K's scanner follows them; the amendment is not a reading of that text but k-rust's own convention for where a line ends, the one its source locations count.
   A location counts a line at every line terminator ([compatibility.md, Token regex line anchors](/k-rust/compatibility#token-regex-line-anchors)), so with the upstream classes a comment before U+2028 would run on into the text the location places on the next line, and a vertical tab, form feed, U+0085, U+2028 or U+2029 outside a comment would be no token at all.
-  The classes are widened to the line terminators the locations count, so that the scanner and the locations agree on where a line ends; the characters are written as `\u` escapes because a terminator written verbatim in a string ends a line of the file ([compatibility.md, Definition text layout](/k-rust/compatibility#definition-text-layout)), and the module's lines are then its lines as written.
+  The classes are widened to the line terminators the locations count, so that the scanner and the locations agree on where a line ends; no implementation but k-rust follows this convention, which is a divergence from the pinned release ([compatibility.md, Default layout line ends](/k-rust/compatibility#default-layout-line-ends)).
+  The characters are written as `\u` escapes because a terminator written verbatim in a string ends a line of the file ([compatibility.md, Definition text layout](/k-rust/compatibility#definition-text-layout)), and the module's lines are then its lines as written.
 - Evidence: `the_default_line_comment_ends_at_every_line_end_a_location_counts` in [cli.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/cli.rs), which runs both scanners; `the_default_layout_is_the_default_layout_module_of_the_prelude`, `the_default_line_comment_ends_at_every_line_terminator` and `every_line_terminator_is_default_layout` in [scanner.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/src/inner/parser/scanner.rs).
   No reference gate agrees: the pinned K's scanner is the upstream text ([compatibility.md, Default layout line ends](/k-rust/compatibility#default-layout-line-ends) states the divergence).
 - Upstream proposal:
@@ -388,10 +415,12 @@ Each entry has these fields:
   >   `#False`.
 
 - k-rust reads: Module `INT-SYMBOLIC-KORE` states the definedness of `divInt` and of `bitRangeInt` as it states that of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int`: `#Ceil(@I1 divInt @I2)` is `@I2 =/=Int 0` with the ceils of both operands, and `#Ceil(bitRangeInt(@I, @O, @L))` is `@O >=Int 0 andBool @L >=Int 0` with the ceils of the three operands.
+- Ground: evident intent
 - Reason: a ceil equation is an equality of the definition, so it holds only if it states the application's actual domain.
   `divInt` is Euclidean division, which gives one integer for every nonzero divisor, and division by zero is `#False`: the application is defined exactly where its operands are and its divisor is not zero.
   `bitRangeInt` is defined by its equation in module `INT` as `(I >>Int IDX) modInt (1 <<Int LEN)`: `I >>Int IDX` is defined exactly where `IDX` is not negative, `1 <<Int LEN` exactly where `LEN` is not negative, and it is then at least 1, so the remainder's divisor is never zero; the application is defined exactly where its operands are and `IDX` and `LEN` are not negative.
-  Without the two equations the module states the domain of every partial operation of its group but these two, so a claim whose right-hand side holds `V divInt 32` cannot show that it is defined, though the text says it is.
+  The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (upstream :1392-1396) and not those of `divInt` and `bitRangeInt`, so a claim whose right-hand side holds `V divInt 32` cannot show that it is defined, though the text says it is.
+  Other partial operations of `INT`, such as `^%Int` with a zero modulus and `log2Int` of a number that is not positive, have no ceil equation in the module either; the amendment adds none for them, so their definedness on symbolic arguments stays what the module leaves it.
   The domains are not derived from the hooks' text in the backend instead: the ceil theory of a definition is the one source of an application's definedness for the definedness walk, the simplifier's own reading of a `\ceil`, the value classification of irreducible applications and the solver's function summaries (`ceil_theory` in `k-rust-backend`), so a derived condition would have to be added to that theory at load, as equations no source text states.
 - Evidence: `primitive_integer_domains_and_signed_literal_values_compose_in_claims` in [proof_semantics.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/proof_semantics.rs): `safe-ediv`, `safe-negative-ediv`, `safe-symbolic-ediv`, `safe-range`, `safe-zero-range` and `safe-symbolic-range` are proven, and `undefined-ediv`, `undefined-offset`, `undefined-length` and `undefined-operand` disproved with a certified leaf.
   The ground evaluators return the same domain: a zero divisor and a negative index or length are `\bottom` (`int_partial_binary` and `int_bit_range` in `k-rust-backend`'s `builtin.rs`).
@@ -432,6 +461,7 @@ Each entry has these fields:
   ```
 
 - k-rust reads: in a positive degree `N`, `rootFloat(F, N)` is IEEE 754's `rootn(F, N)` in `F`'s format at every `F` that is not negative and at every `F` when `N` is odd, `-0.0` in an even degree excepted: the root of a NaN is the format's NaN; of `+0.0` is `+0.0`, and of `-0.0` in an odd degree `-0.0`; of `+Infinity` is `+Infinity`, and of `-Infinity` in an odd degree `-Infinity`; and of a negative finite `F` in an odd degree it is the negation of the root of `-F`, correctly rounded as [AM-4](#am-4-float-conversions-and-roots-round-to-nearest-ties-to-even) reads that root.
+- Ground: evident intent
 - Reason: the section's model is IEEE 754, and "the Nth integer root" is its operation with an integer degree, `rootn(x, n)`, the real `x^(1/n)` correctly rounded (IEEE 754-2019 §9.2); AM-4 reads it so at a positive finite `F`, and the text gives the operation the same words at every float.
   For an odd `N` every real `x` has exactly one real `y` with `y^N = x`, the negation of the root of `|x|`: it is the only real a `Float` result can be, and it is `rootn`'s value.
   The root of 0 is 0: `+0.0` gives `+0.0`, and for an odd `N`, where the root is an odd function whose values left of 0 are negative, `-0.0` gives `-0.0`, as `rootn` gives.

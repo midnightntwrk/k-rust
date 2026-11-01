@@ -1,8 +1,10 @@
-//! The amendments overlay ([docs/amendments.md](../../../docs/amendments.md), "The rule"): every
+//! The amendments overlay ([docs/amendments.md](../../../docs/amendments.md), "The rule"): the
+//! entries are numbered 1 to N in order, each with every field and one of the two grounds; every
 //! file of `crates/k-rust/builtin/` is the pinned K release's file byte for byte once its lines
-//! marked `// k-rust: AM-<n>` are undone as their entries say, every entry quotes its upstream
-//! passage verbatim at the location it cites, and every `AM-<n>` that `crates/` and `docs/` cite
-//! names an entry.
+//! marked `// k-rust: AM-<n>` are undone as their entries say, and each marked line is the `+`
+//! line its entry's upstream proposal gives; every entry quotes its upstream passage verbatim at
+//! the location it cites; and every `AM-<n>` that `crates/`, `docs/`, `docs-site/`, `krs/` and
+//! `kink/` cite names an entry.
 
 use regex::Regex;
 use sha2::{Digest, Sha256};
@@ -62,10 +64,11 @@ const KRYPTO: (&str, &str, &str, &str) = (
     "cca4e2eb6767cbab9829bdcdfa0488c643caba511a66657ba35218881bb6c9e3",
 );
 
-const FIELDS: [&str; 8] = [
+const FIELDS: [&str; 9] = [
     "Upstream",
     "Passage",
     "k-rust reads",
+    "Ground",
     "Reason",
     "Evidence",
     "Upstream proposal",
@@ -151,8 +154,12 @@ struct Entry {
     fields: BTreeMap<&'static str, String>,
 }
 
+/// The grounds a meaning statement or K text may rest on ("The rule").
+const GROUNDS: [&str; 2] = ["evident intent", "convention"];
+
 /// The entries of `docs/amendments.md`: each `### AM-<n>: <title>` heading and the fields of the
-/// list under it, every field a `- <name>:` line with the indented lines after it.
+/// list under it, every field a `- <name>:` line with the indented lines after it. The entries
+/// are numbered 1 to N in the order they are written, each once, and none lacks a field.
 fn entries(text: &str) -> Vec<Entry> {
     let heading = Regex::new(r"^### AM-(\d+): \S").unwrap();
     let mut entries: Vec<Entry> = Vec::new();
@@ -205,9 +212,13 @@ fn entries(text: &str) -> Vec<Entry> {
             );
         }
     }
-    let mut numbers = BTreeSet::new();
+    let numbers = entries.iter().map(|entry| entry.number).collect::<Vec<_>>();
+    assert_eq!(
+        numbers,
+        (1..=u32::try_from(entries.len()).unwrap()).collect::<Vec<_>>(),
+        "the entries are numbered 1 to N in order, each once"
+    );
     for entry in &entries {
-        assert!(numbers.insert(entry.number), "AM-{} twice", entry.number);
         for name in FIELDS {
             let value = entry
                 .fields
@@ -219,6 +230,12 @@ fn entries(text: &str) -> Vec<Entry> {
                 entry.number
             );
         }
+        let ground = entry.fields["Ground"].trim();
+        assert!(
+            GROUNDS.contains(&ground),
+            "AM-{}: ground {ground:?} is none of {GROUNDS:?}",
+            entry.number
+        );
         let status = entry.fields["Status"].trim();
         assert!(
             ["local", "proposed", "upstream"].contains(&status),
@@ -229,13 +246,15 @@ fn entries(text: &str) -> Vec<Entry> {
     entries
 }
 
-/// A K-text entry's marked lines: the file, its marked line numbers in the embedded copy, and the
-/// upstream lines they replace in order (none when they are added).
+/// A K-text entry's marked lines: the file, its marked line numbers in the embedded copy, the
+/// upstream lines they replace in order (none when they are added), and the lines its upstream
+/// proposal adds (its diff's `+` lines without the `+`), which the marked lines are.
 #[derive(Debug)]
 struct Marks {
     file: String,
     lines: Vec<usize>,
     replaced: Option<Vec<String>>,
+    proposed: Vec<String>,
 }
 
 fn marks(entry: &Entry) -> Option<Marks> {
@@ -273,10 +292,26 @@ fn marks(entry: &Entry) -> Option<Marks> {
         }
         _ => panic!("AM-{}: one block of replaced lines", entry.number),
     };
+    let proposal = quoted_groups(&entry.fields["Upstream proposal"]);
+    let diff = proposal
+        .first()
+        .unwrap_or_else(|| panic!("AM-{}: the proposal is a diff", entry.number));
+    let proposed = diff
+        .iter()
+        .filter_map(|line| line.strip_prefix('+'))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        proposed.len(),
+        lines.len(),
+        "AM-{}: one proposed line per marked line",
+        entry.number
+    );
     Some(Marks {
         file: captures[1].to_owned(),
         lines,
         replaced,
+        proposed,
     })
 }
 
@@ -299,6 +334,8 @@ fn pinned_builtins(entries: &[Entry]) -> BTreeMap<String, String> {
         let path = root().join("crates/k-rust/builtin").join(file);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{file}");
         let mut marked = BTreeMap::<u32, Vec<usize>>::new();
+        // Each marked line without its mark, by entry.
+        let mut unmarked = BTreeMap::<u32, Vec<String>>::new();
         let mut kept = Vec::new();
         for (index, line) in text.split_inclusive('\n').enumerate() {
             let content = line.strip_suffix('\n').unwrap_or(line);
@@ -313,6 +350,10 @@ fn pinned_builtins(entries: &[Entry]) -> BTreeMap<String, String> {
             };
             let number = captures[1].parse::<u32>().unwrap();
             marked.entry(number).or_default().push(index + 1);
+            let code = content[..captures.get(0).unwrap().start()]
+                .strip_suffix(' ')
+                .unwrap_or_else(|| panic!("{file}:{}: a space precedes the mark", index + 1));
+            unmarked.entry(number).or_default().push(code.to_owned());
             kept.push(None);
         }
         let mut lines = kept;
@@ -322,6 +363,10 @@ fn pinned_builtins(entries: &[Entry]) -> BTreeMap<String, String> {
             });
             assert_eq!(entry.file, file, "AM-{number} marks {file}:{at:?}");
             assert_eq!(&entry.lines, at, "AM-{number}: the marked lines of {file}");
+            assert_eq!(
+                &unmarked[number], &entry.proposed,
+                "AM-{number}: the marked lines of {file} are its proposal's `+` lines"
+            );
             for (position, line) in at.iter().enumerate() {
                 lines[line - 1] = entry
                     .replaced
@@ -462,7 +507,7 @@ fn every_cited_amendment_names_an_entry() {
         .collect::<BTreeSet<_>>();
     let cited = Regex::new(r"\bAM-(\d+)\b").unwrap();
     let mut files = Vec::new();
-    for directory in ["crates", "docs"] {
+    for directory in ["crates", "docs", "docs-site", "krs", "kink"] {
         text_files(&root().join(directory), &mut files);
     }
     let mut citations = 0;
@@ -501,13 +546,13 @@ fn the_entry_format_is_read_as_the_rule_states() {
     );
     // The heading is built, so that this file cites no amendment.
     let entries = entries(&format!(
-        "# T\n\n### AM-{}: t\n\n- Upstream: `domains.md` at K v7.1.337, :1\n- Passage: > x\n- k-rust reads: r\n- Reason: r\n- Evidence: e\n- Upstream proposal: p\n- Status: local\n- Replaces: K text, marked lines `kast.md`:2, added\n",
-        3
+        "# T\n\n### AM-{}: t\n\n- Upstream: `domains.md` at K v7.1.337, :1\n- Passage: > x\n- k-rust reads: r\n- Ground: evident intent\n- Reason: r\n- Evidence: e\n- Upstream proposal:\n\n  ```diff\n  +x\n  ```\n\n- Status: local\n- Replaces: K text, marked lines `kast.md`:2, added\n",
+        1
     ));
     let [entry] = entries.as_slice() else {
         panic!("{entries:#?}")
     };
-    assert_eq!(entry.number, 3);
+    assert_eq!(entry.number, 1);
     assert_eq!(
         quoted_groups(&entry.fields["Passage"]),
         vec![vec!["x".to_owned()]]
@@ -518,4 +563,5 @@ fn the_entry_format_is_read_as_the_rule_states() {
         ("kast.md", &[2][..])
     );
     assert!(marks.replaced.is_none());
+    assert_eq!(marks.proposed, ["x"]);
 }
