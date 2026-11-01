@@ -214,8 +214,13 @@ the descriptors of the base and its own. A case is judged by
   program grammar has no sort to read at (a `K` sequence, a builtin collection's sort, which it
   does not have), never text the program grammar fails to parse at a sort it has. The printer is the one the case has alone, the base's aliases and its
   own, so a verdict does not depend on the batch (`KRS_CLASS_NATIVE=alone` gives the same). A print
-  with a KAST fallback is not read back, nor one that does not parse where the term printed without
-  reversal does not parse either (the grammar has no syntax for part of it, `$x`). The terms base
+  with a warning is not read back, since it says it is no program text: a KAST fallback, or a
+  parametric application whose instance no text fixes, printed as KORE (NT-36: `Wrap::<KItem>(1)`
+  printed `wrap(1)` read back at `Int`). Nor is one that does not parse where the state holds a
+  part no program text writes (`Semantics::unwritten`: a builtin collection's constructor, a cell,
+  the `Id` `$x`) and the term printed without reversal does not parse either; a state that is
+  program text throughout must read back. An alias whose subject applies a symbol no program
+  writes (`SetItem`) is not reversed (NT-36, NT-35-1). The terms base
   holds aliases for printing of each shape of clause (`ah`, `am`, `av`, `ac`, `bp`, `bq`, `ak`; see
   `DRIVER_BASE` in `class_matrix/terms.rs`).
 

@@ -279,6 +279,8 @@ pub struct ProgramParser {
     /// The identities of the parametric productions of the catalog the grammar was built from:
     /// a label a parse builds from one of them carries sort arguments that inference supplied.
     parametric_productions: BTreeSet<ProductionIdentity>,
+    /// The labels of the grammar's productions: the symbols a parse can build.
+    labels: BTreeSet<String>,
     /// What locating a parse needs; `None` when no sort of the grammar declares `[locations]`.
     locations: Option<Locations>,
 }
@@ -465,17 +467,34 @@ impl ProgramParser {
             })
             .map(|(id, _)| source_catalog.identity(id))
             .collect();
+        let labels = sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => Some(label.name.clone()),
+                _ => None,
+            })
+            .collect();
         let locations = Locations::of(&sentences, &source_catalog);
         Ok(Self {
             module: module.to_owned(),
             grammar,
             parametric_productions,
+            labels,
             locations,
         })
     }
 
     pub fn module(&self) -> &str {
         &self.module
+    }
+
+    /// Whether a production of this parser's grammar has the label `name` (a K label name,
+    /// `SetItem`): whether a parse can build a term applying it. A bracket's label is listed too,
+    /// though no term applies it, since the parser erases a bracket.
+    pub fn has_label(&self, name: &str) -> bool {
+        self.labels.contains(name)
     }
 
     /// The sort a start spelling denotes in this parser's module's full view.

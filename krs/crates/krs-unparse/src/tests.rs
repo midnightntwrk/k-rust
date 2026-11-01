@@ -708,3 +708,50 @@ endmodule []
         printed.text
     );
 }
+
+const PARAMETRIC: &str = r#"[]
+module PARAMETRIC
+  sort SortInt{} []
+  sort SortKItem{} []
+  sort SortExp{} []
+  sort SortBox{S} []
+  symbol Lblwrap{S}(S) : S [format{}("wrap ( %1 )"), terminals{}("1101")]
+  symbol Lblbox{S}(S) : SortBox{S} [format{}("box ( %1 )"), terminals{}("1101")]
+  symbol Lblholder{}(SortBox{SortKItem{}}) : SortExp{} [format{}("holder ( %1 )"), terminals{}("1101")]
+endmodule []
+"#;
+
+/// A parametric application prints as its production's text only where that text fixes its
+/// instance, by an argument read at its own sort or by a position of exactly its parametric
+/// result sort; elsewhere, where the text would read back at another instance, it prints as its
+/// KORE pattern, with a warning.
+#[test]
+fn an_instance_no_text_fixes_prints_as_kore() {
+    let unparser = Unparser::from_kore(PARAMETRIC, "").expect("parametric KORE");
+    let one_as_item = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#;
+    let print = |term: &str| unparser.print_kore(&pattern(term), &Options::default());
+    let own = print(r#"Lblwrap{SortInt{}}(\dv{SortInt{}}("1"))"#);
+    assert_eq!(
+        (own.text.as_str(), own.warnings),
+        ("wrap ( 1 )", Vec::new())
+    );
+    let wrapped = format!("Lblwrap{{SortKItem{{}}}}({one_as_item})");
+    let raised = print(&wrapped);
+    assert_eq!(raised.text, pattern(&wrapped).to_string());
+    assert_eq!(
+        raised.warnings,
+        vec![Warning::Instance(vec!["Lblwrap".to_owned()])]
+    );
+    assert_eq!(
+        raised.warnings[0].to_string(),
+        "no program text fixes the instance of `wrap`, which would read back at another; printed as KORE"
+    );
+    let boxed = format!("Lblbox{{SortKItem{{}}}}({one_as_item})");
+    let held = print(&format!("Lblholder{{}}({boxed})"));
+    assert_eq!(
+        (held.text.as_str(), held.warnings),
+        ("holder ( box ( 1 ) )", Vec::new())
+    );
+    let injected = format!("inj{{SortBox{{SortKItem{{}}}}, SortKItem{{}}}}({boxed})");
+    assert_eq!(print(&injected).text, pattern(&boxed).to_string());
+}

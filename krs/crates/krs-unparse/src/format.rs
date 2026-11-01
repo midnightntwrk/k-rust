@@ -179,6 +179,12 @@ impl<'a> Printer<'a> {
 
     fn application(&mut self, app: &App) {
         let name = app.sym.name.as_str();
+        if name == crate::instance::KORE_TEXT {
+            if let Some(Node::Str(text)) = app.args.first() {
+                self.append(text);
+            }
+            return;
+        }
         if let Some(production) = self.program.and_then(|program| program.get(name)) {
             self.java_format(app, production);
             return;

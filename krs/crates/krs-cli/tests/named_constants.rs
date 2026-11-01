@@ -480,6 +480,83 @@ k::rules! {
     );
 }
 
+/// `krs expand` prints a readable clause over a dependency package's sort with each of the
+/// dependency's declarations by the crate name the source gives it (here a Cargo rename), and the
+/// printed source checks and emits the clause's rewrite.
+#[test]
+fn a_readable_clause_over_a_dependency_sort_expands_by_its_crate_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    write_package(
+        temporary.path(),
+        "base",
+        r#"
+use k::{KItem, KItemSort, Term};
+
+#[k::sort(alias = Common, parents = [KItem])]
+pub trait CommonSort: KItemSort {}
+pub type Common = Term<dyn CommonSort>;
+
+#[k::constructor(sort = Common, syntax = "same")]
+pub struct Same;
+
+#[k::constructor(sort = Common, syntax = "unit")]
+pub struct Unit;
+"#,
+        "",
+    );
+    let root = write_package(
+        temporary.path(),
+        "root",
+        r"
+use k::builtin::KSequence;
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init() -> Self {
+        Self { k: k::k![semantic_base::Same] }
+    }
+}
+
+k::rules! {
+    for semantic_base::Common;
+    cross: semantic_base::Unit => semantic_base::Same;
+}
+",
+        "semantic_base = { package = \"base\", path = \"../base\" }\n",
+    );
+    fs::write(
+        temporary.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"base\", \"root\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let dependency = ["--dependency", "base:main"];
+    let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
+    assert!(success, "{stderr}");
+    for path in ["::semantic_base::Unit", "::semantic_base::Same"] {
+        assert!(printed.replace(' ', "").contains(path), "{printed}");
+    }
+    fs::write(root.with_file_name("src").join("lib.rs"), &printed).unwrap();
+    let output = root.with_file_name("emitted");
+    let mut emit = dependency.to_vec();
+    emit.extend(["--output", output.to_str().unwrap()]);
+    let (success, _, stderr) = krs(target.path(), &root, "root", "emit-k", &emit);
+    assert!(success, "{printed}\n{stderr}");
+    let emitted = fs::read_to_string(output.join("definition.k")).unwrap();
+    assert!(
+        emitted
+            .lines()
+            .any(|line| line.contains("<k> unit") && line.contains("=> same")),
+        "{emitted}"
+    );
+}
+
 #[test]
 fn a_constant_names_a_ground_constructor_term_of_its_sort() {
     let target = shared_fixture_target();

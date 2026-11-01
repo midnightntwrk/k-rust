@@ -178,14 +178,17 @@ impl Configuration {
         }));
         let resolved = grammar.program.resolved();
         let syntax_module = k_rust::outer::resolve_syntax_module(resolved, None)?.name;
-        let parser_modules = parser_modules(resolved, &main_module)?;
+        let mut parser_modules = parser_modules(resolved, &main_module)?;
+        let variable_modules = variable_modules(grammar, &syntax_module, &parser_modules);
         let macro_definition = MacroExpansionDefinition::prepare(grammar.program.definition())?;
         let assembler = ConfigurationAssembler::new(
             &grammar.program,
             main_module.clone(),
             syntax_module.clone(),
             &grammar.variables,
-        );
+        )
+        .reading_variables_with(variable_modules.clone());
+        parser_modules.extend(variable_modules);
         Ok(Self {
             main_module,
             syntax_module,
@@ -463,6 +466,20 @@ impl Configuration {
             .map(|(value, _)| without_injection(&value).clone())
     }
 
+    /// Whether the syntax module's grammar, the one a program is read with, has a production
+    /// that applies `symbol`, a KORE symbol name (`LblSetItem`): whether a program's text can
+    /// write an application of it. A builtin collection's constructors are no program syntax
+    /// (K supplies them only with a full module), nor is a production the partition placed in
+    /// the semantics module. `false` where the grammar cannot be built.
+    pub(crate) fn writes_symbol(&mut self, symbol: &str) -> bool {
+        let Ok(label) = k_rust::kast::identifier::decode_label(symbol) else {
+            return false;
+        };
+        let module = self.syntax_module.clone();
+        self.parser(&module)
+            .is_ok_and(|parser| parser.has_label(&label))
+    }
+
     /// Parse program text at `sort` with the syntax module's grammar, as `kast --sort` does.
     ///
     /// # Errors
@@ -519,20 +536,7 @@ impl Configuration {
     /// Every sort visible to the program grammar, by name.
     #[must_use]
     pub fn program_sorts(&self) -> BTreeSet<String> {
-        let resolved = self.grammar.parsing.resolved();
-        let Some(module) = resolved.module_id(&self.syntax_module) else {
-            return BTreeSet::new();
-        };
-        resolved
-            .sentences(module)
-            .into_iter()
-            .filter_map(|sentence| match sentence {
-                Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
-                    Some(sort.name.clone())
-                }
-                _ => None,
-            })
-            .collect()
+        program_sorts(&self.grammar.parsing, &self.syntax_module)
     }
 
     fn parser(&mut self, parser_module: &str) -> Result<&ProgramParser, Box<dyn Error>> {
@@ -565,6 +569,53 @@ impl Configuration {
             .as_ref()
             .expect("parser was built above"))
     }
+}
+
+/// The module whose grammar reads each configuration variable but `$PGM` that no `parser`
+/// attribute (`declared`) assigns one: the syntax module, a program's grammar, wherever it has
+/// the variable's sort. A variable's text is input, as a program is, and the main module's
+/// grammar holds more than a program can write: every token sort of the definition, so its
+/// scanner reads `word` as an `Id` wherever it stands, also where a variable of a token sort
+/// `Word` means that `Word`, and the productions only rules may use. A `K` or `KItem` variable
+/// takes any item, which the syntax module reads as it reads `$PGM`. A sort the syntax module
+/// does not have (a builtin collection's, which K supplies only with a full module) is read
+/// with the main module's grammar, the only one that has it.
+fn variable_modules(
+    grammar: &Grammar,
+    syntax_module: &str,
+    declared: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let program_sorts = program_sorts(&grammar.parsing, syntax_module);
+    grammar
+        .variables
+        .iter()
+        .filter(|(name, sort)| {
+            name.as_str() != "PGM"
+                && !declared.contains_key(name.as_str())
+                && (sort.is_builtin(BuiltinSort::K)
+                    || sort.is_builtin(BuiltinSort::KItem)
+                    || program_sorts.contains(&sort.name))
+        })
+        .map(|(name, _)| (name.clone(), syntax_module.to_owned()))
+        .collect()
+}
+
+/// Every sort visible to the grammar of `module`, by name.
+fn program_sorts(grammar: &ProgramGrammar, module: &str) -> BTreeSet<String> {
+    let resolved = grammar.resolved();
+    let Some(module) = resolved.module_id(module) else {
+        return BTreeSet::new();
+    };
+    resolved
+        .sentences(module)
+        .into_iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
+                Some(sort.name.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// `pattern` without the injection at its root, if it has one.
@@ -757,6 +808,60 @@ endmodule
             "\\dv{SortInt{}}(\"3\")"
         );
         assert_eq!(configured["variables"]["PGM"]["sort"], "SortPgm{}");
+    }
+
+    /// A configuration variable is input, read as a program is, with the syntax module's grammar
+    /// wherever it has the variable's sort: `word` given for a `Word` variable is that `Word`,
+    /// although the main module's grammar, whose token sort `Name` the scanner prefers, reads it
+    /// as a `Name`. A sort only the main module has (here `Name`) is read with its grammar.
+    #[test]
+    fn a_configuration_variable_is_read_with_the_grammar_a_program_is_read_with() {
+        let parsed = k_rust::outer::parse(
+            "variables.k",
+            r#"
+module MAIN-SYNTAX
+  syntax Word ::= r"w[a-z]*" [token]
+  syntax Pgm ::= "run" [symbol(run)]
+endmodule
+
+module MAIN
+  imports MAIN-SYNTAX
+  imports BASIC-K
+  syntax Name ::= r"wor[a-z]*" [token, prec(2)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <n> $N:Name </n>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([
+                ("PGM".to_owned(), Sort::new("Pgm")),
+                ("W".to_owned(), Sort::new("Word")),
+                ("N".to_owned(), Sort::new("Name")),
+            ]),
+        )
+        .unwrap();
+        let configured = configuration
+            .configure(
+                json!({"PGM": "run", "W": "word", "N": "word"})
+                    .as_object()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            configured["variables"]["W"]["kore"],
+            "\\dv{SortWord{}}(\"word\")"
+        );
+        assert_eq!(
+            configured["variables"]["N"]["kore"],
+            "\\dv{SortName{}}(\"word\")"
+        );
+        let pattern = configured["pattern"].as_str().unwrap();
+        assert!(pattern.contains("\\dv{SortWord{}}(\"word\")"), "{pattern}");
     }
 
     #[test]

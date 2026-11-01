@@ -37,6 +37,7 @@ mod brackets;
 mod data;
 mod float;
 mod format;
+mod instance;
 mod node;
 mod program;
 
@@ -124,6 +125,9 @@ pub enum Warning {
     ReversalBound(String),
     /// A format that names a regex terminal of its production.
     RegexTerminal(Vec<String>),
+    /// Applications of parametric productions whose instance their text does not fix: printed,
+    /// each would read back at another instance, so each is printed as its KORE pattern.
+    Instance(Vec<String>),
 }
 
 fn labels(symbols: &[String]) -> String {
@@ -163,6 +167,11 @@ impl fmt::Display for Warning {
                 "Cannot currently format productions with regex terminals which are not tokens ({})",
                 labels(symbols)
             ),
+            Self::Instance(symbols) => write!(
+                formatter,
+                "no program text fixes the instance of {}, which would read back at another; printed as KORE",
+                labels(symbols)
+            ),
             Self::ReversalBound(symbol) => write!(
                 formatter,
                 "reversing the aliases of `{}` did not finish within {REVERSAL_BOUND} applications; printed unreversed",
@@ -188,6 +197,10 @@ pub struct ReversedClause {
     pub label: Option<String>,
     /// The tokens its left-hand side writes, which a reversal prints as they are.
     pub tokens: Vec<SubjectToken>,
+    /// The KORE names of the symbols its left-hand side applies, its own head included, which a
+    /// reversal prints: every application but a domain value, an injection (printed as its
+    /// argument) and a conjunction (the subject's `#as`, printed as its term).
+    pub symbols: BTreeSet<String>,
 }
 
 /// A token an alias clause's left-hand side writes.
@@ -225,6 +238,23 @@ fn subject_tokens<'n>(
     };
     for argument in &app.args {
         subject_tokens(argument, inner, found);
+    }
+}
+
+/// The KORE names of the symbols `node` applies, but domain values, injections and
+/// conjunctions, which a reversal does not print as applications of their own.
+fn subject_symbols(node: &Node, found: &mut BTreeSet<String>) {
+    let Node::App(app) = node else {
+        return;
+    };
+    if app.sym.name == "\\dv" {
+        return;
+    }
+    if !matches!(app.sym.name.as_str(), "\\and" | "inj") {
+        found.insert(app.sym.name.clone());
+    }
+    for argument in &app.args {
+        subject_symbols(argument, found);
     }
 }
 
@@ -297,8 +327,11 @@ impl Unparser {
             .map(|rule| {
                 let mut tokens = Vec::new();
                 subject_tokens(&rule.left, None, &mut tokens);
+                let mut symbols = BTreeSet::new();
+                subject_symbols(&rule.left, &mut symbols);
                 ReversedClause {
                     label: rule.label.clone(),
+                    symbols,
                     tokens: tokens
                         .into_iter()
                         .filter_map(|(position, token)| {
@@ -408,6 +441,8 @@ impl Unparser {
         let pattern = floats.as_ref().unwrap_or(pattern);
         let mut node = unflatten_and_or(&from_pattern(pattern));
         instantiate(&mut node, &self.data.declarations);
+        let mut unfixed = BTreeSet::new();
+        node = instance::fix_instances(&self.data, &node, None, &mut unfixed);
         let mut exceeded = None;
         if options.reverse_aliases {
             let mut reverser = Reverser::new(&self.data, &self.macros);
@@ -458,6 +493,9 @@ impl Unparser {
         }
         if let Some(symbol) = exceeded {
             warnings.push(Warning::ReversalBound(symbol));
+        }
+        if !unfixed.is_empty() {
+            warnings.push(Warning::Instance(list(&unfixed)));
         }
         Printed { text, warnings }
     }

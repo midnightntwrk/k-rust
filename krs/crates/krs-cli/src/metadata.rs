@@ -117,6 +117,19 @@ pub struct MetadataNode {
     /// Direct resolved dependency package IDs.
     #[serde(default)]
     pub dependencies: Vec<String>,
+    /// The direct dependencies with the crate names this package's sources give them.
+    #[serde(default)]
+    pub deps: Vec<MetadataNodeDependency>,
+}
+
+/// One direct dependency of a resolved node.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetadataNodeDependency {
+    /// The crate name the dependent's sources use: the dependency's rename, or its library
+    /// target's name.
+    pub name: String,
+    /// Its package ID.
+    pub pkg: String,
 }
 
 /// Invalid Cargo metadata JSON.

@@ -630,7 +630,9 @@ fn calc(k::term![Data::Calc(a, b)]: Term<Value>) -> Term<Value> {
 
 /// An alias whose subject every result match builds is accepted, a list of one element among
 /// them, and the result may compute (`k::matches!`, a `let`, an operator). A printed value the
-/// result matches prints as the alias: `two(1, [])` as `items([1])`. A list of an element and a
+/// result matches prints as the alias only where the alias is program text: `items([1])` is not
+/// (`ListItem` is no program syntax, and `items`, with a `List` field, is placed in the semantics
+/// module), so `two(1, [])` prints as it is, `two(1, .List)` (NT-36). A list of an element and a
 /// named rest is refused, as a list of several parts in any static subject is: static expansion
 /// matches it as written, one of its spellings (`static_subjects.rs`). A computed result's printed value is evaluated, which holds no application
 /// of the clause's generated function, so it prints expanded: `flag(true)`, `pair(5, 5)`. A
@@ -678,7 +680,7 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
         rule items ( ListItem(X:KItem) ) => two ( X:KItem , .List ) [label(krsRule_DIGEST)]
         rule whole ( A:Value ) => flag ( krsLocal_9e1eea9cace393af4676ba13 ( A:Value ) ) [label(krsRule_DIGEST)]
         rule pairs ( X:Int , Y:Int ) => pair ( krsLocal_5242f5c7fc0f7997f00d61a0 ( Y:Int ) , X:Int +Int 1 ) [label(krsRule_DIGEST)]
-        mk(1, 2) => items(ListItem ( 1 )) ~> .K
+        mk(1, 2) => two(1, .List) ~> .K
         probe(box(3)) => flag(true) ~> .K
         calc(4, 5) => pair(5, 5) ~> .K
         whole(box(3)) => flag(true) ~> .K
@@ -954,8 +956,12 @@ fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
 
 /// Each construct an alias result writes, by whether it constructs: a list's items and unit, a
 /// concatenation of them and at most one named list, and a set's or map's unit and singleton
-/// write the very term a state holds, so the clause prints backwards (`lr`, `si`, `se`, `me`, and
-/// `two(12, .List)` through the first of `elems`, `items` and `le`). A concatenation of two named
+/// write the very term a state holds, so the clause prints backwards where its subject is program
+/// text (`si`, `se`, `me`, and `two(12, .List)` through `le`). A subject that applies a symbol no
+/// program writes is not (NT-36): `lr`, `elems` and `items` have a `List` or `Set` field, so their
+/// productions are placed in the semantics module, and `elems` and `items` write `SetItem` and
+/// `ListItem`; their prints would read back as nothing, so `two(2, ..)` prints as it is. A
+/// concatenation of two named
 /// lists (`lc`) computes: `[5, 6, 7]` is the concatenation of four splits, and the one printed
 /// would come from how the list nests, not from a term the author wrote. So do a set union
 /// (`su`), a map update (`mu`), a projection (`prj`), `k::matches!` (`mt`) and `let` (`lt`):
@@ -1003,7 +1009,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
     .join("\n");
     expect_test::expect![[r"
         make(1) => two(1, ListItem ( 5 ) ListItem ( 6 ) ListItem ( 7 )) ~> .K
-        make(2) => lr(5, ListItem ( 6 ) ListItem ( 7 )) ~> .K
+        make(2) => two(2, ListItem ( 5 ) ListItem ( 6 ) ListItem ( 7 )) ~> .K
         make(3) => si(5) ~> .K
         make(4) => se() ~> .K
         make(5) => bs(5, noset ( zero() ) |Set SetItem ( 1 )) ~> .K
@@ -1011,7 +1017,7 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         make(7) => bm(7, nomap ( zero() ) [ 1 <- 2 ]) ~> .K
         make(9) => fl(9, krsLocal_7b8c5f3e9747e8111440424d ( size ( zero() ) )) ~> .K
         make(10) => tag(#lambdaX__2 ( noval ( zero() ) )) ~> .K
-        make(12) => elems(SetItem ( 12 )) ~> .K
+        make(12) => le() ~> .K
         prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K
         box(5) => fz(5, 1.5) ~> .K
         fl(5, false) => fl(5, false) ~> .K"]]

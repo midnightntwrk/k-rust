@@ -35,7 +35,9 @@ use syn::spanned::Spanned;
 /// Every selected descriptor must come from one file and one Rust module,
 /// and the file under the manifest directory must still have its collected
 /// content digest.
-/// `facade` is the package's facade scope before file and inline-module bindings.
+/// `facade` is the package's facade scope before file and inline-module bindings, and
+/// `crates` the crate name its source gives each dependency package it names
+/// ([`expand_reference_source_naming`]).
 ///
 /// # Errors
 ///
@@ -46,12 +48,21 @@ pub fn expand_package_reference_source(
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
     package: &PackageId,
+    crates: &BTreeMap<PackageId, String>,
     manifest_path: &Path,
     facade: &FacadeScope,
 ) -> Result<String, ReferenceExpansionError> {
     let (source, module_path) = read_package_source(bundle, package, manifest_path)
         .map_err(ReferenceExpansionError::Source)?;
-    expand_reference_source(&source, facade, package, module_path, bundle, semantic)
+    expand_reference_source_naming(
+        &source,
+        facade,
+        package,
+        crates,
+        module_path,
+        bundle,
+        semantic,
+    )
 }
 
 fn read_package_source<'bundle>(
@@ -182,10 +193,6 @@ fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
 /// Returns a typed failure for invalid Rust/KRS syntax, absent or ambiguous
 /// collected rules, missing inferred sorts, or an external declaration whose
 /// Cargo dependency alias is not recoverable from the stable protocol.
-#[expect(
-    clippy::too_many_lines,
-    reason = "The source-order traversal keeps projected items deterministic."
-)]
 pub fn expand_reference_source(
     source: &str,
     facade: &FacadeScope,
@@ -194,6 +201,39 @@ pub fn expand_reference_source(
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
+    expand_reference_source_naming(
+        source,
+        facade,
+        package,
+        &BTreeMap::new(),
+        module_path,
+        bundle,
+        semantic,
+    )
+}
+
+/// [`expand_reference_source`], where the source names each package of `crates` (a dependency
+/// it declares) by its crate name there: a declaration of one of them prints as its path in
+/// that crate (`::semantic_base::Unit`). A declaration of any other package has no path the
+/// source can print.
+///
+/// # Errors
+///
+/// As [`expand_reference_source`].
+#[expect(
+    clippy::too_many_lines,
+    reason = "The source-order traversal keeps projected items deterministic."
+)]
+pub fn expand_reference_source_naming(
+    source: &str,
+    facade: &FacadeScope,
+    package: &PackageId,
+    crates: &BTreeMap<PackageId, String>,
+    module_path: &[String],
+    bundle: &DescriptorBundle,
+    semantic: &SemanticTheory,
+) -> Result<String, ReferenceExpansionError> {
+    let package = PathScope { package, crates };
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
     let descriptor_index = DescriptorIndex::new(bundle);
     let macro_entries = reference_macro_entries(&file, facade);
@@ -294,7 +334,7 @@ pub fn expand_reference_source(
                     .values()
                     .filter_map(|descriptor| match descriptor.payload() {
                         krs_ir::DescriptorPayload::StructuredRule(rule)
-                            if descriptor.id().package() == package
+                            if descriptor.id().package() == package.package
                                 && descriptor.id().module_path() == module_path
                                 && descriptor.id().item_name() == name
                                 && descriptor.id().item_kind() == krs_ir::ItemKind::Equation
@@ -361,7 +401,7 @@ pub fn expand_reference_source(
             let descriptors = descriptor_index
                 .head_rules()
                 .filter(|(descriptor, _)| {
-                    descriptor.id().package() == package
+                    descriptor.id().package() == package.package
                         && descriptor.id().module_path() == module_path
                         && descriptor.id().item_name() == name
                         && descriptor.id().item_kind() == kind
@@ -626,7 +666,7 @@ fn contains_use_tree(items: &[syn::Item], expected: &str) -> bool {
 
 fn materialize_enum_productions(
     item: &mut syn::ItemEnum,
-    package: &PackageId,
+    package: PathScope<'_>,
     module_path: &[String],
     bundle: &DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
@@ -729,7 +769,7 @@ fn materialize_enum_productions(
 /// result on the cons variant's strictness attribute.
 fn materialize_syntax_list(
     item: &mut syn::ItemEnum,
-    package: &PackageId,
+    package: PathScope<'_>,
     module_path: &[String],
     bundle: &DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
@@ -990,7 +1030,7 @@ fn materialize_reference_family_attribute(
 fn materialize_reference_variant_fields(
     output: &mut syn::Variant,
     family: &Ident,
-    package: &PackageId,
+    package: PathScope<'_>,
     module_path: &[String],
     bundle: &DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
@@ -999,7 +1039,7 @@ fn materialize_reference_variant_fields(
     let descriptors = descriptor_index
         .constructors()
         .filter(|(descriptor, _)| {
-            descriptor.id().package() == package
+            descriptor.id().package() == package.package
                 && descriptor.id().module_path() == module_path
                 && output.ident == descriptor.id().item_name()
                 && descriptor.id().disambiguator() == disambiguator
@@ -1092,7 +1132,7 @@ fn materialize_reference_variant_fields(
 fn render_reference_collection(
     sort: &krs_ir::DescriptorSortRef,
     arguments: &[krs_ir::ConstructorSortArgumentDescriptor],
-    package: &PackageId,
+    package: PathScope<'_>,
     module_path: &[String],
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
@@ -1120,7 +1160,7 @@ fn render_reference_collection(
 
 fn render_reference_term_type(
     sort: &krs_ir::DescriptorSortRef,
-    package: &PackageId,
+    package: PathScope<'_>,
     module_path: &[String],
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
@@ -1130,7 +1170,7 @@ fn render_reference_term_type(
             Ok(quote!(k::Term<#sort>))
         }
         krs_ir::DescriptorSortRef::Declared(id)
-            if id.package() == package && id.module_path() == module_path =>
+            if id.package() == package.package && id.module_path() == module_path =>
         {
             if is_token_sort(id, bundle) || is_list_sort(id, bundle) {
                 return render_reference_token_term_type(id, package);
@@ -1158,7 +1198,7 @@ fn render_reference_term_type(
 
 fn render_reference_token_term_type(
     id: &StableItemId,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let token = render_declared_path(id, package)?;
     Ok(quote!(k::Term<#token>))
@@ -1290,7 +1330,7 @@ fn render_list(
     constructors: &CellConsList,
     shared: Option<&Ident>,
     pattern: bool,
-    package: &PackageId,
+    package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let mut rendered = match &list.rest {
@@ -1321,7 +1361,7 @@ fn render_builtin_list(
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     shared: Option<&Ident>,
     pattern: bool,
-    package: &PackageId,
+    package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let item = render_facade_marker(krs_ir::ListOperation::Item.facade_marker());
@@ -1364,7 +1404,7 @@ fn render_builtin_list_level(
     notation: ListNotation,
     arguments: &krs_ir::Arguments<DescriptorStage>,
     pattern: bool,
-    package: &PackageId,
+    package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let krs_ir::Arguments::Positional(operands) = arguments else {
@@ -1951,7 +1991,7 @@ fn render_rule(
     clause: &krs_syntax::RuleClause,
     rule: &DescriptorHeadRule,
     semantic: &SemanticRule,
-    package: &PackageId,
+    package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
     let variable_sorts = semantic
@@ -2340,7 +2380,7 @@ fn requires_holds_equality(item: &syn::ItemFn) -> bool {
 /// condition; the fn's attribute path and position are kept.
 fn restate_requires(
     item: &mut syn::ItemFn,
-    package: &PackageId,
+    package: PathScope<'_>,
     module_path: &[String],
     bundle: &krs_ir::DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
@@ -2351,7 +2391,7 @@ fn restate_requires(
         .values()
         .find_map(|descriptor| match descriptor.payload() {
             krs_ir::DescriptorPayload::StructuredRule(rule)
-                if descriptor.id().package() == package
+                if descriptor.id().package() == package.package
                     && descriptor.id().module_path() == module_path
                     && descriptor.id().item_name() == name =>
             {
@@ -2397,7 +2437,7 @@ fn restate_requires(
 fn render_equation_row(
     row: &krs_syntax::EquationRow,
     rule: &krs_ir::StructuredRuleDescriptor,
-    package: &PackageId,
+    package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
     let sort = match &rule.subject_sort.sort {
@@ -2441,7 +2481,7 @@ fn render_equation_row(
 /// Fresh names and lookups for rendering readable optional and collection
 /// states in the reference spelling (KF-023).
 struct StateRendering<'a> {
-    package: &'a PackageId,
+    package: PathScope<'a>,
     bundle: &'a krs_ir::DescriptorBundle,
     reserved: &'a mut BTreeSet<String>,
     /// Instance `k` tails named so far (`tail0`, `tail1`, ..).
@@ -2681,7 +2721,7 @@ fn reference_claim_attribute(claim: &krs_ir::HeadRuleClaim, label: &syn::LitStr)
 fn render_rule_cell_field(
     cell: &krs_ir::DescriptorCellIdentity,
     configuration: &StableItemId,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let field = rust_ident(&cell.field)?;
     if &cell.owner == configuration {
@@ -2715,7 +2755,7 @@ fn float_literal(token: &str) -> Result<TokenStream, ReferenceExpansionError> {
 fn render_term(
     term: &DescriptorTerm,
     pattern: bool,
-    package: &PackageId,
+    package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match term {
@@ -3007,7 +3047,7 @@ fn render_term(
 
 fn render_sort_type(
     sort: &SemanticSortRef,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
         // A framework sort, such as a computation item's `KItem`, is the
@@ -3028,7 +3068,7 @@ fn render_sort_type(
 
 fn render_descriptor_sort(
     sort: &krs_ir::DescriptorSortRef,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
         krs_ir::DescriptorSortRef::Declared(id) => render_sort_path(id, package),
@@ -3045,7 +3085,7 @@ fn render_descriptor_sort(
 /// by its `crate::` path, a framework sort as `k::KItem` or `k::KResult`.
 fn render_sort_path(
     id: &StableItemId,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     if id.package().k_namespace() == crate::partition::FRAMEWORK_NAMESPACE {
         let name = rust_ident(id.item_name())?;
@@ -3057,7 +3097,7 @@ fn render_sort_path(
 /// Renders the `result = S` sort of a heat or cool rule (KF-014).
 fn render_result_sort(
     sort: &SemanticSortRef,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
         SemanticSortRef::Declared(id) => render_sort_path(id, package),
@@ -3072,7 +3112,7 @@ fn render_result_sort(
 
 fn render_declared_application(
     id: &StableItemId,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let base = render_declared_path(id, package)?;
     let Some(owner) = id
@@ -3089,7 +3129,7 @@ fn render_declared_application(
 
 fn render_declared_path(
     id: &StableItemId,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let item = rust_ident(id.item_name())?;
     let path = render_local_path(id, package, &[item])?;
@@ -3098,15 +3138,20 @@ fn render_declared_path(
 
 fn render_local_path(
     id: &StableItemId,
-    package: &PackageId,
+    package: PathScope<'_>,
     suffix: &[Ident],
 ) -> Result<syn::Path, ReferenceExpansionError> {
-    if id.package() != package {
-        return Err(ReferenceExpansionError::ExternalDeclaration(Box::new(
-            id.clone(),
-        )));
-    }
-    let mut path: syn::Path = syn::parse_quote!(crate);
+    let mut path: syn::Path = if id.package() == package.package {
+        syn::parse_quote!(crate)
+    } else {
+        // A dependency's declaration, by the name the source gives its crate.
+        let name = package
+            .crates
+            .get(id.package())
+            .ok_or_else(|| ReferenceExpansionError::ExternalDeclaration(Box::new(id.clone())))?;
+        let name = rust_ident(name)?;
+        syn::parse_quote!(::#name)
+    };
     for segment in id.module_path() {
         path.segments
             .push(syn::PathSegment::from(rust_ident(segment)?));
@@ -3120,7 +3165,7 @@ fn render_local_path(
 /// declared sort's `dyn` marker trait (KF-027).
 fn render_sort_marker(
     sort: &krs_ir::DescriptorSortRef,
-    package: &PackageId,
+    package: PathScope<'_>,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
         krs_ir::DescriptorSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
@@ -3595,6 +3640,14 @@ fn rust_ident(value: &str) -> Result<Ident, ReferenceExpansionError> {
 /// identifiers.
 const EDITION_RESERVED: &[&str] = &["gen"];
 
+/// The package whose source is printed, with the crate names its source gives the packages it
+/// depends on, by which it names their declarations.
+#[derive(Clone, Copy, Debug)]
+struct PathScope<'a> {
+    package: &'a PackageId,
+    crates: &'a BTreeMap<PackageId, String>,
+}
+
 /// Failure to select or reread the one authored source of a package.
 #[derive(Debug)]
 pub enum ReferenceSourceError {
@@ -3990,7 +4043,7 @@ impl Error for ReferenceExpansionError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ReferenceExpansionError, configured_out, contains_use_tree, fresh_ident,
+        PathScope, ReferenceExpansionError, configured_out, contains_use_tree, fresh_ident,
         read_package_source, rename_hidden_tokens, render_reference_token_term_type,
         render_sort_marker, render_term, rust_ident,
     };
@@ -4000,6 +4053,7 @@ mod tests {
         PackageId, ProvenanceKey, ProvenanceRole, StableItemId,
     };
     use quote::ToTokens;
+    use std::collections::BTreeMap;
 
     #[test]
     fn facade_attributes_prevent_readable_item_macro_projection() {
@@ -4063,7 +4117,7 @@ mod tests {
         let rendered = render_term(
             &token,
             false,
-            &package,
+            local(&package),
             &DescriptorBundle::new(Vec::new()).unwrap(),
         )
         .unwrap()
@@ -4082,7 +4136,7 @@ mod tests {
             "",
         )
         .unwrap();
-        let rendered = render_reference_token_term_type(&token, &package)
+        let rendered = render_reference_token_term_type(&token, local(&package))
             .unwrap()
             .to_string();
 
@@ -4115,7 +4169,7 @@ mod tests {
         let rendered = render_term(
             &lookup,
             false,
-            &package,
+            local(&package),
             &DescriptorBundle::new(Vec::new()).unwrap(),
         )
         .unwrap()
@@ -4187,12 +4241,21 @@ mod tests {
         let rendered = render_term(
             &variable,
             true,
-            &package,
+            local(&package),
             &DescriptorBundle::new(Vec::new()).unwrap(),
         )
         .unwrap()
         .to_string();
         assert_eq!(rendered, "r#match");
+    }
+
+    /// The scope of `package`'s own source, which names no dependency.
+    fn local(package: &PackageId) -> PathScope<'_> {
+        static NONE: BTreeMap<PackageId, String> = BTreeMap::new();
+        PathScope {
+            package,
+            crates: &NONE,
+        }
     }
 
     #[test]
@@ -4217,10 +4280,33 @@ mod tests {
                 .unwrap(),
             )
         };
-        let marker = |sort| render_sort_marker(&sort, &package).unwrap().to_string();
+        let marker = |sort| {
+            render_sort_marker(&sort, local(&package))
+                .unwrap()
+                .to_string()
+        };
         assert_eq!(marker(sort(&framework, "KItem")), "dyn k :: KItemSort");
         assert_eq!(marker(sort(&framework, "KResult")), "dyn k :: KResultSort");
         assert_eq!(marker(sort(&package, "Exp")), "dyn crate :: ExpSort");
+        // A dependency's sort, by the crate name the source gives the dependency, and a package
+        // the source names no crate of, which has no path there.
+        let dependency = PackageId::new("DEP", "dep-semantics", "0.1.0", "workspace").unwrap();
+        let other = PackageId::new("OTHER", "other", "0.1.0", "workspace").unwrap();
+        let crates = BTreeMap::from([(dependency.clone(), "semantic_dep".to_owned())]);
+        let scope = PathScope {
+            package: &package,
+            crates: &crates,
+        };
+        assert_eq!(
+            render_sort_marker(&sort(&dependency, "Exp"), scope)
+                .unwrap()
+                .to_string(),
+            "dyn :: semantic_dep :: ExpSort"
+        );
+        assert!(matches!(
+            render_sort_marker(&sort(&other, "Exp"), scope),
+            Err(ReferenceExpansionError::ExternalDeclaration(_))
+        ));
     }
 
     #[test]

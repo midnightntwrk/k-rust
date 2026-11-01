@@ -312,6 +312,9 @@ pub struct ConfigurationAssembler<'g> {
     syntax_module: String,
     variables: &'g BTreeMap<String, KastSort>,
     parser_modules: Option<BTreeMap<String, String>>,
+    /// The module reading each named variable that no `parser` attribute names
+    /// ([`Self::reading_variables_with`]).
+    variable_modules: BTreeMap<String, String>,
     expansion: Option<ProgramExpansion<'g>>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
@@ -337,6 +340,7 @@ impl<'g> ConfigurationAssembler<'g> {
             syntax_module: syntax_module.into(),
             variables,
             parser_modules: None,
+            variable_modules: BTreeMap::new(),
             expansion: None,
             parsers: BTreeMap::new(),
             injector: None,
@@ -403,6 +407,14 @@ impl<'g> ConfigurationAssembler<'g> {
             value,
         });
         Ok(())
+    }
+
+    /// This assembler, reading each variable `modules` names (without its `$`) with that module's
+    /// grammar where no `parser` attribute of its cell names one, in place of the main module's.
+    #[must_use]
+    pub fn reading_variables_with(mut self, modules: BTreeMap<String, String>) -> Self {
+        self.variable_modules = modules;
+        self
     }
 
     /// Bind the configuration variable `name` (with or without its `$`) to `text`.
@@ -491,7 +503,11 @@ impl<'g> ConfigurationAssembler<'g> {
     /// The module whose grammar reads the value of the variable `name` of sort `sort`: its
     /// cell's `parser` module, `STRING-SYNTAX` for a stream variable, or the main module.
     fn parser_module(&mut self, name: &str, sort: &KastSort) -> Result<String, ConfigurationError> {
-        let declared_parser = self.parser_modules()?.get(name).cloned();
+        let declared_parser = self
+            .parser_modules()?
+            .get(name)
+            .cloned()
+            .or_else(|| self.variable_modules.get(name).cloned());
         let parser_module = match declared_parser {
             Some(parser_module) => parser_module,
             None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {

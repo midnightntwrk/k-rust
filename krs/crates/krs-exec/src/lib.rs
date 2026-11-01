@@ -807,6 +807,55 @@ impl Semantics {
         Ok(Term::new(kore, kast))
     }
 
+    /// The first part of `term`, a state's term, that no program text writes, named: an
+    /// application of a symbol the program grammar has no production for (a builtin
+    /// collection's constructor such as `SetItem` or `_|->_`, a cell, a production the partition
+    /// placed in the semantics module), or a token whose printed text the program grammar does
+    /// not read back as the token where it stands (the `Id` `$x`), each judged as alias reversal
+    /// judges a clause's subject. `None` where `term` is program text throughout:
+    /// then a faithful print of it reads back with the program grammar.
+    pub fn unwritten(&mut self, term: &Pattern) -> Option<String> {
+        self.unwritten_at(term, None)
+    }
+
+    fn unwritten_at(
+        &mut self,
+        term: &Pattern,
+        position: Option<&k_rust::kore::ast::Sort>,
+    ) -> Option<String> {
+        match term {
+            Pattern::DomainValue { sort, .. } => {
+                let printed = self
+                    .unparser
+                    .print_kore(
+                        term,
+                        &unparse::Options {
+                            reverse_aliases: false,
+                            ..unparse::Options::new(unparse::Mode::Program)
+                        },
+                    )
+                    .text;
+                let reads = self
+                    .configuration
+                    .read_token(position.unwrap_or(sort), &printed)
+                    .is_some_and(|read| reversal::same_token(&self.values, &read, term));
+                (!reads).then(|| format!("the token `{printed}`"))
+            }
+            Pattern::Application { symbol, arguments } if symbol.name == "inj" => arguments
+                .first()
+                .and_then(|argument| self.unwritten_at(argument, symbol.sort_parameters.get(1))),
+            Pattern::Application { symbol, arguments } => {
+                if !self.configuration.writes_symbol(&symbol.name) {
+                    return Some(format!("`{}`", unparse::label_name(&symbol.name)));
+                }
+                arguments
+                    .iter()
+                    .find_map(|argument| self.unwritten_at(argument, None))
+            }
+            other => Some(format!("`{other}`")),
+        }
+    }
+
     /// Parse program text as [`Self::parse`] does and print it through the program grammar, as `kast --output program` does.
     ///
     /// Macros print as parsed, and the main module's aliases are reversed.

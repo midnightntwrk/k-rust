@@ -130,6 +130,9 @@ pub struct ResolvedFacet {
     pub dependency_alias: String,
     /// Cargo's actual selected library target and `module_path!()` crate root.
     pub crate_root: String,
+    /// The crate name the root package's sources give this package, where the root depends on
+    /// it directly; `None` for the root and for a package it reaches only through another.
+    pub root_crate_name: Option<String>,
     pub(crate) cargo_package_id: String,
     pub(crate) manifest_path: PathBuf,
 }
@@ -361,6 +364,11 @@ impl CollectorPlan {
                 profile: facet.profile,
                 dependency_alias: aliases[&facet.package.id].clone(),
                 crate_root: library_target.name.clone(),
+                root_crate_name: nodes[root_package.id.as_str()]
+                    .deps
+                    .iter()
+                    .find(|dependency| dependency.pkg == facet.package.id)
+                    .map(|dependency| dependency.name.clone()),
                 cargo_package_id: facet.package.id.clone(),
                 manifest_path: PathBuf::from(&facet.package.manifest_path),
             });

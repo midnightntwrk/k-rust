@@ -244,7 +244,7 @@ impl<'a> Brackets<'a> {
         let Node::App(outer) = node else {
             return node.clone();
         };
-        if outer.sym.name == "\\dv" {
+        if outer.sym.name == "\\dv" || outer.sym.name == crate::instance::KORE_TEXT {
             return node.clone();
         }
         let outer_fixity = self.fixity(&outer.sym);

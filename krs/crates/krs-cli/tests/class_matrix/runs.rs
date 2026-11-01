@@ -110,10 +110,13 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
 /// value. `None` when each is; otherwise the first deviation.
 ///
 /// The printer is the one the case prints with alone ([`case_printer`]), so that a verdict does
-/// not depend on the batch. A print with a warning (a symbol printed as KAST) is not read back,
-/// and neither is a cell of a sort with parameters, nor a print that does not parse where the
-/// term printed without reversing an alias does not parse either. Tokens compare by text
-/// ([`untyped_tokens`]).
+/// not depend on the batch. A print with a warning is not read back: it says that it is no
+/// program text (a symbol printed as KAST, a parametric application whose instance no text fixes
+/// printed as KORE). Neither is a cell of a sort with parameters, nor a print that does not parse
+/// where the state holds a part no program text writes ([`Semantics::unwritten`]: a builtin
+/// collection's constructor, a cell, the `Id` `$x`) and the term printed without reversing an
+/// alias does not parse either. A print of a state that is program text throughout must read
+/// back. Tokens compare by text ([`untyped_tokens`]).
 ///
 /// Before it is read back, a print must reverse exactly the aliases the plan states: it must be
 /// the print of a printer that reverses every alias of the definition but those `forward_only`
@@ -180,13 +183,23 @@ fn printed_reads_back(
             continue;
         }
         let name = cell.trim_start_matches('<').trim_end_matches('>');
-        let mut read_back = |text: &str| read_back(semantics, name, sort.as_deref(), content, text);
-        let read = match read_back(&printed.text) {
+        let read = match read_back(semantics, name, sort.as_deref(), content, &printed.text) {
             Ok(read) => read,
-            // Where the term printed as the state holds it does not parse either, the grammar
-            // has no syntax for a part of it (an `Id` token `$x`, a parametric instance), which
-            // is no property of the print.
-            Err(_) if read_back(&case.print_kore(content, &as_held).text).is_err() => {
+            // Where the state holds a part no program text writes (a builtin collection's
+            // constructor, a cell, an `Id` token `$x`), and the term printed as the state holds
+            // it does not parse either, the grammar has no syntax for that part, which is no
+            // property of the print.
+            Err(_)
+                if read_back(
+                    semantics,
+                    name,
+                    sort.as_deref(),
+                    content,
+                    &case.print_kore(content, &as_held).text,
+                )
+                .is_err()
+                    && semantics.unwritten(content).is_some() =>
+            {
                 continue;
             }
             Err(error) => {

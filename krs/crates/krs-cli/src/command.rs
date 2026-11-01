@@ -19,6 +19,7 @@ use krs_k_rust::{
     FRONTEND_CAPABILITIES, Route,
 };
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -968,11 +969,31 @@ fn expand(
     .map_err(|error| {
         CommandError::InvalidMetadata(format!("root package identity is invalid: {error}"))
     })?;
+    // A dependency's declaration prints by the crate name the root's source gives it.
+    let mut crates = BTreeMap::new();
+    for facet in plan.facets().iter().filter(|facet| !facet.is_root) {
+        let Some(name) = &facet.root_crate_name else {
+            continue;
+        };
+        let id = PackageId::new(
+            &facet.k_namespace,
+            &facet.package_name,
+            &facet.package_version,
+            &facet.cargo_source,
+        )
+        .map_err(|error| {
+            CommandError::InvalidMetadata(format!(
+                "dependency package identity is invalid: {error}"
+            ))
+        })?;
+        crates.insert(id, name.clone());
+    }
     let facade = FacadeAliases::from_manifest(&root.manifest_path).map_err(CommandError::Facade)?;
     let expanded = expand_package_reference_source(
         &prepared.bundle,
         &prepared.semantic,
         &package,
+        &crates,
         &root.manifest_path,
         &facade.scope(),
     )?;
