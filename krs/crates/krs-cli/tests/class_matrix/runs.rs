@@ -55,9 +55,25 @@ pub enum Without {
 }
 
 /// Run `run` on `semantics`, a definition without what the case states, within `limit`
-/// ([`Without`]).
-pub fn run_without(semantics: &mut Semantics, run: &Run, limit: Duration) -> Without {
-    let report = match bounded(semantics, &inputs(run), run.depth, limit) {
+/// ([`Without`]). Where `declared_only` (the base's own initializer in place of the case's), a
+/// configuration variable the definition does not declare is the case's initializer's own input,
+/// which the run without that initializer does not take.
+pub fn run_without(
+    semantics: &mut Semantics,
+    run: &Run,
+    limit: Duration,
+    declared_only: bool,
+) -> Without {
+    let mut inputs = inputs(run);
+    if declared_only {
+        let declared = semantics.variables();
+        inputs.variables.retain(|(name, _)| {
+            declared
+                .iter()
+                .any(|variable| variable.name == *name || variable.parameter == *name)
+        });
+    }
+    let report = match bounded(semantics, &inputs, run.depth, limit) {
         Ok(_) if run.status == Status::Unexpanded => {
             return Without::Differs("expanded where the plan states it is not".to_owned());
         }

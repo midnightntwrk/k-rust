@@ -379,6 +379,10 @@ fn main_cells(cases: &mut Vec<Case>) {
                 },
             );
             let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+            // With the program in the base's own main cell, the case's initializer is the base's.
+            if !in_code {
+                case.removed = Removed::Unchanged(BASE_INITIALIZER);
+            }
             let done = || Ground::Seq(vec![Ground::ctor("Cmd::Done", Vec::new())]);
             let (top_value, code_value) = if in_code {
                 (Ground::Seq(Vec::new()), done())
@@ -908,6 +912,16 @@ fn same_cells(plan: &K7, base: &K7) -> bool {
     }
 }
 
+/// Why a main-cell case whose initializer puts the program where its base's does changes no run
+/// without it: its initializer is the base's own, so the case's runs show the sentence forms in
+/// the base's main cell, which the run on the base's initializer shows alike; the cases that put
+/// the program in `code` are the ones whose initializer differs.
+const BASE_INITIALIZER: &str = "the case's initializer is its base's own (the program in the base's main cell), so the run on the base's initializer is the same; the `code` cases put the program elsewhere";
+
+/// Why a typed case whose program writes the cell its initializer writes changes no run without
+/// it: the run reads the value the program's rule writes.
+const WRITTEN_OVER: &str = "the program's rule writes the cell the case's initializer writes, so the run reads the rule's value, as on the base's initializer";
+
 /// Why an initializer case whose plan states its base's configuration changes no run without
 /// it: the case writes the base's value of its cell (in its own spelling, or the base's), so the
 /// run on the base's own initializer is the same, and only the case's initializer stands in it.
@@ -1423,6 +1437,7 @@ pub(super) fn typed(cases: &mut Vec<Case>) {
 /// from its initial value, and KRS states the declared sort where the value's is narrower).
 fn typed_written() -> Case {
     let mut case = typed_initializer_named("stmt-written", "stmt", "Val::Unit()");
+    case.removed = Removed::Unchanged(WRITTEN_OVER);
     if let K7::Run(run) = &mut case.k7 {
         "setstmt".clone_into(&mut run.program);
         run.depth = 1;

@@ -1130,8 +1130,14 @@ impl<'w> Worker<'w> {
                         if let Some(cost) = cost {
                             cost.depend_runs.fetch_add(1, Ordering::Relaxed);
                         }
-                        match catch_unwind(AssertUnwindSafe(|| run_without(semantics, plan, limit)))
-                        {
+                        match catch_unwind(AssertUnwindSafe(|| {
+                            run_without(
+                                semantics,
+                                plan,
+                                limit,
+                                placed.case.removal() == Removal::Initializer,
+                            )
+                        })) {
                             Ok(end) => ends.push(end),
                             Err(panic) => {
                                 visited.push(Err(NotMade::run(format!(

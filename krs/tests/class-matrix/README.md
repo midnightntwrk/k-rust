@@ -420,10 +420,12 @@ the descriptors of the base and its own. A case is judged by
   generator states where nothing changes by design (`k7::Removed`), and the check requires it:
   a plan that states its sentence does not apply (`Run::applies`; a case at the same slot whose
   sentence applies, `class_matrix::applied_sibling`, shows that it takes part, and
-  `tests/k7.rs` requires one), an initializer's field order, an attribute whose plan is the
-  slot's own (a label, a condition that holds, `concrete`, `smt_lemma`, `priority = 40`, which
-  orders the sentence after its sibling's 30 as the default 50 does); and where no definition is
-  without it (`exists`, `fresh`: the result uses the name the attribute binds). Every outcome is
+  `tests/k7.rs` requires one), an initializer's field order, an initializer that writes its
+  base's value of the cell or a collection's template (which no run creates), an attribute whose
+  plan is the slot's own (a label, a condition that holds, `concrete`, `smt_lemma`,
+  `priority = 40`, which orders the sentence after its sibling's 30 as the default 50 does); and
+  where no definition is without it (`exists`, `fresh`: the result uses the name the attribute
+  binds; `nondet`: the sentence overlaps its sibling), each such case collected alone. Every outcome is
   a TSV line (`k7-dependency`: `depends`, `unchanged, as stated`, `refused, as stated`,
   `independent`, `not made`), and each shard prints the counts. `KRS_CLASS_DEPENDS=0` skips the
   check. Its cost is about one check per accepted K6 check, and one collection more per batch of
