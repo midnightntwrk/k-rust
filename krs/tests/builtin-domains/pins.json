@@ -1156,9 +1156,7 @@
       "ord": [],
       "ord-latin-1": [],
       "chr-latin-1": [],
-      "from-string-latin-1": [
-        "BYTES.string2bytes byte-encoding"
-      ],
+      "from-string-latin-1": [],
       "from-int": [],
       "to-int": [],
       "from-bool": [],
@@ -1166,13 +1164,8 @@
       "eq": [],
       "lt": [],
       "not-lt": [],
-      "from-string": [
-        "BYTES.string2bytes byte-encoding"
-      ],
-      "to-string": [
-        "BYTES.bytes2string byte-encoding",
-        "BYTES.string2bytes byte-encoding"
-      ],
+      "from-string": [],
+      "to-string": [],
       "match-literal": [],
       "match-latin-1": []
     },
@@ -1189,14 +1182,10 @@
       "signed-zero-ieee-eq": [],
       "signed-zero-term-eq": [],
       "signed-zero-neg": [],
-      "infinite": [
-        "Infinity literal"
-      ],
+      "infinite": [],
       "finite": [],
       "ordered-nan": [],
-      "ordered-infinity": [
-        "-Infinity literal"
-      ],
+      "ordered-infinity": [],
       "sqrt": [],
       "rounding": [],
       "to-int-tie-down": [
@@ -1209,43 +1198,20 @@
         "FLOAT.float2int float-rounding"
       ],
       "from-int": [],
-      "from-int-binary32": [
-        "FLOAT.int2float float-rounding"
-      ],
-      "round-binary32": [
-        "FLOAT.round float-rounding"
-      ],
+      "from-int-binary32": [],
+      "round-binary32": [],
       "max-value": [],
       "format-binary32": [],
       "format-binary64": [],
       "format-binary64-suffix": [],
-      "match-literal": [
-        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
-        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
-      ],
-      "match-binary32": [
-        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
-        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
-      ],
-      "match-infinity": [
-        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
-        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal",
-        "Infinity literal"
-      ],
-      "match-negative-infinity": [
-        "-Infinity literal",
-        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
-        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
-      ],
-      "match-negative-zero": [
-        "0c860ec71807d2916dab36907866836f7d0996947a0a1672ae333a9f8e33917f literal",
-        "8bf355d66dc9da51697017f3daf25ba05070e4a9b64aca2ec05dec4765dbeaf0 literal"
-      ],
+      "match-literal": [],
+      "match-binary32": [],
+      "match-infinity": [],
+      "match-negative-infinity": [],
+      "match-negative-zero": [],
       "negate-binary64": [],
       "negate-binary32": [],
-      "negate-infinity": [
-        "-Infinity literal"
-      ],
+      "negate-infinity": [],
       "negate-nan-binary32": [],
       "negate-zero": [],
       "negate-subnormal": []
@@ -1253,9 +1219,7 @@
     "krs-builtin-floats-outputs": {
       "negate-binary64": [],
       "negate-binary32": [],
-      "negate-infinity": [
-        "-Infinity literal"
-      ],
+      "negate-infinity": [],
       "negate-nan-binary32": [],
       "negate-zero": [],
       "negate-subnormal": [],
@@ -1287,9 +1251,7 @@
       "double": []
     },
     "krs-builtin-raw-hook": {
-      "keccak-abc": [
-        "KRYPTO.keccak256 hex-case"
-      ]
+      "keccak-abc": []
     }
   }
 }
