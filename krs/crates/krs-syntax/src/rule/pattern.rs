@@ -259,7 +259,13 @@ impl RulePattern {
 
     pub(super) fn range(&self) -> Result<TokenRange, SyntaxError> {
         match self {
-            Self::Native { pattern, .. } => TokenRange::for_tokens(pattern),
+            // A pattern that ends with a negative literal ends at the literal's digits, which
+            // its validated node carries: a compiler host's `-1` token spans only the `-`.
+            Self::Native { pattern, nodes, .. } => {
+                let range = TokenRange::for_tokens(pattern)?;
+                Ok(crate::term::trailing_negative_literal_end(pattern, nodes)
+                    .map_or(range, |last| TokenRange::new(range.first(), last)))
+            }
             Self::TermMacro { pattern, .. } => TokenRange::for_tokens(pattern),
         }
     }

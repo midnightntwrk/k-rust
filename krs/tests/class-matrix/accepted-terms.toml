@@ -19042,6 +19042,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/claim/item-root/-1"]
+k = """
+claim [case-TAG]:
+<k> -1 ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/claim/item-root/k::is!(Int, x)"]
 k = """
@@ -19194,6 +19200,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/item-root/-1"]
+k = """
+rule [case-TAG]:
+<k> -1 ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/as-body/\"s\""]
 
@@ -19753,6 +19765,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 same_k_as = ["terms/sort-rule/subject-root/y @ Cmd::Hold(_)"]
 
 [accept."terms/sort-rule/subject-root/-1"]
+k = """
+rule [case-TAG]:
+<k> -1 => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/subject-root/_"]
 k = """

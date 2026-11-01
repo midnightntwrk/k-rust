@@ -3334,23 +3334,11 @@ deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-err
 # pattern is `krs::collect::stale-anchor` "anchor .. no longer matches reparsed source": the negative
 # literal's anchor does not survive reparsing there. Probe: `terms/readable/item-root/-1`. Plan: new.
 
-["terms/claim/item-root/-1"]
-finding = "NT-2-18"
-deviation = "krs::collect::stale-anchor @ spelling"
-
-["terms/readable/item-root/-1"]
-finding = "NT-2-18"
-deviation = "krs::collect::stale-anchor @ spelling"
-
 ["terms/rule/guard/let-pattern/-1"]
 finding = "NT-2-18"
 deviation = "krs::collect::stale-anchor @ spelling"
 
 ["terms/sort-rule/result/let-pattern/-1"]
-finding = "NT-2-18"
-deviation = "krs::collect::stale-anchor @ spelling"
-
-["terms/sort-rule/subject-root/-1"]
 finding = "NT-2-18"
 deviation = "krs::collect::stale-anchor @ spelling"
 

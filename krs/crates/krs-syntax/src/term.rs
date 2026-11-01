@@ -2098,7 +2098,7 @@ pub(crate) fn validate_pattern_as(
 /// digits. syn joins `-1` into one token whose span, in a compiler host,
 /// covers only the `-`, so the span of the pattern's last token ends early
 /// there; the literal's validated range carries the scanned digit span.
-fn trailing_negative_literal_end(pattern: &Pat, nodes: &[TermNode]) -> Option<Span> {
+pub(crate) fn trailing_negative_literal_end(pattern: &Pat, nodes: &[TermNode]) -> Option<Span> {
     fn ends_negative(pattern: &Pat) -> bool {
         match pattern {
             Pat::Lit(literal) => literal.lit.to_token_stream().to_string().starts_with('-'),
