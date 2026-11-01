@@ -955,8 +955,8 @@ fn an_initializer_reads_its_variables_inside_local_terms() {
 
 /// A configuration whose top-level computation cell is `top` and whose group `frame` holds a
 /// second one, `code`, with `go => done` as its one cell-free sentence (a `#[k::rule]` fn,
-/// emitted without a cell), which K runs in the main cell. (A `for Stmt` clause is no such
-/// sentence: the collector writes it in the configuration's one `KSequence` cell.)
+/// emitted without a cell), which K runs in the main cell. (A `for Stmt` clause runs there too:
+/// the collector writes it in the main cell.)
 fn main_cell_source(top: &str, top_value: &str, code_value: &str) -> String {
     format!(
         r#"
@@ -1203,6 +1203,9 @@ fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
     let neither = "pub fn init() -> Self {\n        Self { prog: k::k![], frame: Frame { code: k::k![] } }\n    }";
     let head = "k::rules! {\n    for Stmt;\n    use Cmd::*;\n\n    hop: Go() => Done();\n    hip: Done() => Go();\n}";
     let collection = "#[k::rule]\nfn unset(x: Term<k::KItem>, k::term![k::builtin::set::item(x)]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Done()\n}\n\n#[k::rule]\nfn unget(k::term![k::builtin::set::item(Cmd::Go())]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Go()\n}";
+    // Lowering takes descriptors in identity order and stops at the first error, so a rule whose
+    // name sorts before the configuration's is lowered before it.
+    let first = "#[k::rule]\n#[allow(non_snake_case)]\nfn Aunset(x: Term<k::KItem>, k::term![k::builtin::set::item(x)]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Done()\n}";
     let mut refused = Vec::new();
     for (name, init, extra) in [
         ("both", both, ""),
@@ -1210,6 +1213,7 @@ fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
         ("neither", neither, ""),
         ("neither-head", neither, head),
         ("neither-collection", neither, collection),
+        ("neither-collection-first", neither, first),
     ] {
         let manifest = package(
             temporary.path(),
@@ -1251,7 +1255,8 @@ fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
         both-head: error[krs::analysis::main-cell] at `pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {`
         neither: error[krs::analysis::main-cell] at `pub fn init() -> Self {`
         neither-head: error[krs::analysis::main-cell] at `pub fn init() -> Self {`
-        neither-collection: error[krs::analysis::main-cell] at `pub fn init() -> Self {`"#]]
+        neither-collection: error[krs::analysis::main-cell] at `pub fn init() -> Self {`
+        neither-collection-first: error[krs::analysis::main-cell] at `pub fn init() -> Self {`"#]]
     .assert_eq(&refused.join("\n"));
 }
 
