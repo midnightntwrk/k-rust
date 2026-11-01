@@ -501,7 +501,14 @@ A file made under another digest is not reused, with a warning, and is rewritten
 
 Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves, each as
 `<outcome> at depth <n>` with the outcome named as the host bindings name it (below), then its
-detail in words when it has one, then its configuration:
+detail in words when it has one, then the open values it holds, then its configuration.
+An open value is an application whose value the definition leaves to the implementation, which a
+proof leaves unevaluated ([Implementation-chosen hook values](docs/compatibility.md#implementation-chosen-hook-values)):
+a leaf of a claim that is neither `proven` nor `disproved` prints
+`open value: <hook> (<class>); one occurrence:` once for each hook and class whose applications
+its configuration or its path condition holds, followed by one of them, indented further
+([Open values in proof reports](docs/compatibility.md#open-values-in-proof-reports)). The verdict
+words are:
 
 - `proven`: every leaf reached the destination.
 - `disproved`: the claim is false. Some leaf is a certified stuck leaf, printed

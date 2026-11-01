@@ -2026,6 +2026,31 @@ The tests are in [implementation_chosen.rs](../crates/k-rust/tests/implementatio
 
 The guarantees rest on every computing site noting its mark, which a test-only chooser checks: under the cargo feature `choice-sampling` of `k-rust-backend` (enabled by no shipped crate), `choice_sampling::with_seed` makes each site compute another value the definition admits, and every run without a mark must be unchanged and must have taken none of those values (`choice_sampling::take_counts` counts them per class). The other values are another listing order and item, the other letter case, NaN sign and zero, a binary32 destination, renamed binders and another association; for `float-rounding` the other integer at a `Float2Int` tie; for an `outside-domain` value another value of the sort (`ecdsaRecover` one zero byte and `ecdsaPubKey` `"00"`, of no key's length; for `rootFloat` `+0.0` where k-rust's is NaN and NaN otherwise; `substrString(S, I, I)` the code point at `I`; `findString` and `rfindString` -1 where k-rust's is a position and the start clamped to the haystack where it is -1); and for an `outside-domain` `\bottom` a value of the result sort where the arguments give one, chosen after k-rust's mark is noted, so that a run whose definedness check dropped the mark changes without one (`0`, `""`, the destination list or `Bytes` unchanged, the first point of a BN128 sum or product, and `false` for a pairing; `builtin::undescribed_value`). A value is counted where its mark is noted: in an evaluation that reads only an application's definedness (an operand a decided `#if` discards), a value of an application every model defines does not reach the run's result and is neither marked nor counted, and one whose definedness is open (`outside-domain` at a partial symbol) is the pick that evaluation reads and is both. Two classes and two sites keep k-rust's value under every seed, and the test asserts that their runs are marked and unchanged: `literal` (a literal's element is fixed when the definition is loaded, in `Proof`, before any execution), `effect-order` (not a value), `String2Token` of a text naming no element of its sort (a value of the declared sort is a token its lexical syntax admits, which the arguments do not give), and the matcher's refutation of a list-update pattern, which reads k-rust's `\bottom` through the context-free evaluation; an application at a `total` symbol that k-rust leaves defined and unknown has no pick to replace ([choice_sampling.rs](../crates/k-rust/tests/choice_sampling.rs) for one probe per class and site, a control beside it and the exempt classes; kink-flow's `choice_sampling` test over kink's corpora).
 
+### Open values in proof reports
+
+A proof leaves every application of a class unevaluated, so a claim whose outcome rests on one is not proven, and its leaf holds the application where the value would be.
+`krust kprove` names them: on each leaf it lists of a claim that is neither `proven` nor `disproved`, after the leaf's reasons and before its configuration, it prints
+
+```text
+  open value: <hook> (<class>); one occurrence:
+      <one such application, in KORE>
+```
+
+once for each hook and class whose applications the leaf's configuration or its path condition holds, in the order they are first met (the configuration first, then each constraint, each term in preorder), with the first application met as the occurrence.
+`<hook>` and `<class>` are spelled as an execution's mark spells them ([Marks in executions](#marks-in-executions)).
+An application is named exactly when an evaluation in `Proof` leaves it unevaluated as a value only an execution chooses: its evaluator gives a value or a `\bottom` on its arguments, and `chosen_value` gives that outcome a class (`k_rust_backend::builtin::withheld_in_proof` and `open_applications`).
+An application whose arguments are symbolic, so that its evaluator gives no outcome, is not named: the proof withheld nothing there, and its value is unknown for the reason any symbolic value is.
+A name says that the leaf holds such an application, not that it is the only reason the leaf is not proven; an open value the proof read elsewhere, such as in the claim's destination, is not named on a leaf.
+
+The lines are a report: the verdict, the leaves, their configurations, the exit status, `--timings` and the saved proofs are those of the same proof without them.
+A `disproved` claim prints none: its verdict holds in every model, and its certified leaf applies no function symbol (condition (d) of [Proof verdicts](#proof-verdicts)).
+`kprove` has no JSON output, and the Node.js and WebAssembly `prove` result, which KRS reads, is unchanged.
+So are the RPC `implies` and `simplify` responses: their one diagnostics field, `haskell-log-entries`, holds the entries the request's `haskell-logging` names select ([RPC behavior](#rpc-behavior)), and the [RPC differentials](../README.md#compatibility-evidence) compare the whole response with the oracle's, so a new field or entry there would be a divergence, not a place the comparison leaves free.
+The [proof differential](../scripts/reference-proof-differential.sh) reads only the `claim <label>: <verdict>` lines.
+The [KWasm gate](../scripts/wasm-execution-gate.sh) records a proof's lines indented by at most two spaces, which include the `open value` line, and the digest of a failed proof's whole output.
+
+The test is `kprove_names_the_open_values_a_not_proven_leaf_holds` in [cli.rs](../crates/k-rust/tests/cli.rs): a `Float2Int` tie (`float-rounding`) and `findString` from a start past its haystack (`outside-domain`), in a configuration and in a path condition.
+
 ## ECDSA recovery on invalid input
 
 `KRYPTO.ecdsaRecover` and `SECP256K1.ecdsaRecover`, k-rust's name for it ([Cryptographic hooks](#cryptographic-hooks)), share one evaluator in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs).

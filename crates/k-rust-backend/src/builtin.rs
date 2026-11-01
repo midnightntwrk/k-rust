@@ -782,6 +782,113 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<ChosenValue> {
     .filter(|chosen| chosen.withheld_in_proof)
 }
 
+/// The [`ChosenValue`] of `term`, an application in `definition`, exactly when an evaluation in
+/// [`EvaluationMode::Proof`] leaves it unevaluated as a value only an execution chooses
+/// (`evaluate_composed`); `None` for every other term, an application whose evaluator gives no
+/// outcome on symbolic arguments included.
+///
+/// It runs the composition without a mode, which computes the evaluator's own outcome and
+/// neither withholds nor notes it, and classifies that outcome as the composition does in
+/// `Proof`: by [`chosen_value`] on the arguments, the outcome and the symbol's `total`
+/// declaration, kept when [`ChosenValue::withheld_in_proof`]. The `\bottom` outside the
+/// arguments a description covers at a `total` symbol has no class in either. Unlike
+/// [`implementation_chosen`], it reads the outcome, so the classes that need one
+/// (`letter-case`, the ECDSA failure value, the scoped sites' `\bottom`) are found too. The two
+/// routes differ only under a `choice_sampling` seed, which may replace that `\bottom` by a
+/// value where no mode is given.
+pub fn withheld_in_proof(
+    term: &Term,
+    definition: &BackendDefinition,
+) -> Stoppable<Option<ChosenValue>> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(None);
+    };
+    let Some(hook) = symbol.attributes.hook.as_deref() else {
+        return Ok(None);
+    };
+    let result = evaluate_with_context(
+        term,
+        Some(definition.sort_graph()),
+        Some(definition),
+        None,
+        None,
+    )
+    .layered()?;
+    let outcome = match &result {
+        Ok(BuiltinResult::Value(value)) => HookOutcome::Value(value),
+        Ok(BuiltinResult::Bottom(undefinedness)) => HookOutcome::Bottom(*undefinedness),
+        Ok(_) | Err(_) => return Ok(None),
+    };
+    Ok(chosen_value(
+        hook,
+        arguments,
+        outcome,
+        symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total),
+    )
+    .filter(|chosen| chosen.withheld_in_proof))
+}
+
+/// An application an evaluation outside an execution withholds ([`withheld_in_proof`]), as a
+/// pattern holds it ([`open_applications`]).
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct OpenApplication {
+    /// Its hook and class, as an execution's mark of the same value names them.
+    pub chosen: ChosenValue,
+    /// One application of that hook and class in the pattern.
+    pub occurrence: Term,
+}
+
+/// The applications of `pattern` that an evaluation outside an execution withholds
+/// ([`withheld_in_proof`]), one for each hook and class: the first met, reading the term before
+/// the constraints, each constraint's terms in their order, each term in preorder. A
+/// constructor-like subterm applies no function symbol, so it holds none and is not entered; a
+/// subterm met twice is read once.
+///
+/// It is a report about `pattern`, which is the same with or without it: a stop of one of its
+/// evaluations ends it with the applications found before, and is forgone
+/// ([`crate::stop::Stop::forgo_refinement`]).
+pub fn open_applications(
+    definition: &BackendDefinition,
+    pattern: &crate::rewrite::Pattern,
+) -> Vec<OpenApplication> {
+    let mut roots = vec![pattern.term.clone()];
+    for constraint in &pattern.constraints {
+        constraint.visit_terms(&mut |term| roots.push(term.clone()));
+    }
+    let mut pending = roots;
+    pending.reverse();
+    let mut seen = std::collections::HashSet::new();
+    let mut found: Vec<OpenApplication> = Vec::new();
+    while let Some(term) = pending.pop() {
+        if term.attributes().constructor_like || !seen.insert(term.clone()) {
+            continue;
+        }
+        match withheld_in_proof(&term, definition) {
+            Ok(Some(chosen)) => {
+                if !found.iter().any(|open| open.chosen == chosen) {
+                    found.push(OpenApplication {
+                        chosen,
+                        occurrence: term.clone(),
+                    });
+                }
+            }
+            Ok(None) => {}
+            Err(stop) => {
+                stop.forgo_refinement();
+                break;
+            }
+        }
+        let children =
+            crate::term::children_lacking(term.kind(), crate::term::Flag::ConstructorLike);
+        pending.extend(children.into_iter().rev().cloned());
+    }
+    found
+}
+
 /// Whether the text describing the hook of `term`, an application, gives it a value on every
 /// argument of its declared sorts, so that it is defined wherever its arguments are although its
 /// symbol is not declared `total` (a `total` declaration states as much by itself), and whatever
