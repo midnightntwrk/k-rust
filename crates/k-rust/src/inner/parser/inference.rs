@@ -3798,6 +3798,7 @@ mod tests {
                 .collect(),
             span: None,
             places: Vec::new(),
+            readings: Vec::new(),
         };
         assert_eq!(
             checked_lowered_result(Err(ambiguity(2)), Err(ambiguity(2))),

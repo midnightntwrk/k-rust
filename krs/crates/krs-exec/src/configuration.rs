@@ -157,9 +157,23 @@ pub struct Configuration {
     variable_modules: BTreeMap<String, String>,
     parsers: BTreeMap<String, ProgramParser>,
     ground_value_parser: Option<ProgramParser>,
+    /// The parsers a print is read back with, [`Readings::Listed`]: copies of the two above
+    /// that list an ambiguity's readings.
+    listing_parsers: BTreeMap<String, ProgramParser>,
+    listing_ground_value_parser: Option<ProgramParser>,
     macro_definition: MacroExpansionDefinition,
     /// What [`Self::read_token_in`] read, by grammar, KORE sort name and text.
     token_reads: BTreeMap<(Reader, String, String), Option<Pattern>>,
+}
+
+/// What a parse of an ambiguous text gives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Readings {
+    /// An error: the text must read one way.
+    One,
+    /// Each of its readings, where the parser lists them
+    /// ([`ProgramParser::parse_readings`]).
+    Listed,
 }
 
 /// One of the two grammars a printed term is read back with.
@@ -212,6 +226,8 @@ impl Configuration {
             variable_modules,
             parsers: BTreeMap::new(),
             ground_value_parser: None,
+            listing_parsers: BTreeMap::new(),
+            listing_ground_value_parser: None,
             macro_definition,
             token_reads: BTreeMap::new(),
         })
@@ -224,8 +240,23 @@ impl Configuration {
         source: &str,
         k_item: bool,
     ) -> Result<(Pattern, Sort), Box<dyn Error>> {
+        let mut values =
+            self.parse_surface_readings(parser_module, sort, source, k_item, Readings::One)?;
+        Ok(values.swap_remove(0))
+    }
+
+    /// [`Self::parse_surface`], with `readings` saying whether an ambiguous text gives each of
+    /// its listed readings ([`ProgramParser::parse_readings`]) or fails. Each value is the
+    /// reading expanded, typed and converted as a parse's one value is.
+    fn parse_surface_readings(
+        &mut self,
+        parser_module: &str,
+        sort: &KastSort,
+        source: &str,
+        k_item: bool,
+        readings: Readings,
+    ) -> Result<Vec<(Pattern, Sort)>, Box<dyn Error>> {
         let resolved = self.grammar.program.resolved();
-        self.parser(parser_module)?;
         let parse_sort = if sort.is_builtin(BuiltinSort::K) && k_item {
             KastSort::builtin(BuiltinSort::KItem)
         } else {
@@ -233,32 +264,39 @@ impl Configuration {
         };
         // A `K` cell holds a sequence, which only the ground K-value grammar reads; the value is injected at `K`, where a lone item is the one-item sequence the cell stores.
         let k_value = sort.is_builtin(BuiltinSort::K) && !k_item;
-        let value = if k_value {
-            self.ground_value_parser()?.parse(sort, source)?
-        } else {
-            self.parsers
-                .get(parser_module)
-                .expect("parser was inserted above")
-                .parse(&parse_sort, source)?
+        let values = match (readings, k_value) {
+            (Readings::One, true) => vec![self.ground_value_parser()?.parse(&parse_sort, source)?],
+            (Readings::One, false) => vec![self.parser(parser_module)?.parse(&parse_sort, source)?],
+            (Readings::Listed, true) => self
+                .listing_ground_value_parser()?
+                .parse_readings(&parse_sort, source)?,
+            (Readings::Listed, false) => self
+                .listing_parser(parser_module)?
+                .parse_readings(&parse_sort, source)?,
         };
-        let value = self
-            .macro_definition
-            .expand_program(&self.main_module, value, &parse_sort)?;
-        // Type the expanded value at the position it was expanded at, as the assembler does for a configuration value.
         let injector = SortInjector::new(resolved, &self.main_module)?;
-        let value_sort = if k_value {
-            sort.clone()
-        } else {
-            injector.term_sort(value.term(), Some(value.position()))?
-        };
-        let value = injector.inject(value.term(), &value_sort)?;
-        let value = term_to_kore_from_resolved_with_token_module(
-            resolved,
-            &self.main_module,
-            parser_module,
-            &value,
-        )?;
-        Ok((value, encode_kore_sort(&value_sort)))
+        values
+            .into_iter()
+            .map(|value| {
+                let value =
+                    self.macro_definition
+                        .expand_program(&self.main_module, value, &parse_sort)?;
+                // Type the expanded value at the position it was expanded at, as the assembler does for a configuration value.
+                let value_sort = if k_value {
+                    sort.clone()
+                } else {
+                    injector.term_sort(value.term(), Some(value.position()))?
+                };
+                let value = injector.inject(value.term(), &value_sort)?;
+                let value = term_to_kore_from_resolved_with_token_module(
+                    resolved,
+                    &self.main_module,
+                    parser_module,
+                    &value,
+                )?;
+                Ok((value, encode_kore_sort(&value_sort)))
+            })
+            .collect()
     }
 
     fn parse_variable(
@@ -311,9 +349,22 @@ impl Configuration {
         sort: &KastSort,
         source: &str,
     ) -> Result<Pattern, Box<dyn Error>> {
+        let mut values = self.parse_cell_readings(cell, sort, source, Readings::One)?;
+        Ok(values.swap_remove(0))
+    }
+
+    /// [`Self::parse_cell`], with `readings` saying whether an ambiguous text gives each of its
+    /// listed readings or fails.
+    pub(crate) fn parse_cell_readings(
+        &mut self,
+        cell: &str,
+        sort: &KastSort,
+        source: &str,
+        readings: Readings,
+    ) -> Result<Vec<Pattern>, Box<dyn Error>> {
         let parser_module = self.main_module.clone();
-        self.parse_surface(&parser_module, sort, source, false)
-            .map(|(value, _)| value)
+        self.parse_surface_readings(&parser_module, sort, source, false, readings)
+            .map(|values| values.into_iter().map(|(value, _)| value).collect())
             .map_err(|error| format!("could not parse <{cell}> at sort {sort}: {error}").into())
     }
 
@@ -323,23 +374,40 @@ impl Configuration {
     ///
     /// Returns an error when the surface head cannot be parsed.
     pub fn parse_head(&mut self, cell: &str, source: &str) -> Result<Pattern, Box<dyn Error>> {
+        let mut values = self.parse_head_readings(cell, source, Readings::One)?;
+        Ok(values.swap_remove(0))
+    }
+
+    /// [`Self::parse_head`], with `readings` saying whether an ambiguous text gives each of its
+    /// listed readings or fails.
+    pub(crate) fn parse_head_readings(
+        &mut self,
+        cell: &str,
+        source: &str,
+        readings: Readings,
+    ) -> Result<Vec<Pattern>, Box<dyn Error>> {
         let parser_module = self.main_module.clone();
         let item_sort = KastSort::builtin(BuiltinSort::KItem);
-        let (value, value_sort) = self
-            .parse_surface(&parser_module, &item_sort, source, false)
+        let values = self
+            .parse_surface_readings(&parser_module, &item_sort, source, false, readings)
             .map_err(|error| format!("could not parse <{cell}> head: {error}"))?;
         let kore_item_sort = encode_kore_sort(&item_sort);
-        if value_sort == kore_item_sort {
-            Ok(value)
-        } else {
-            Ok(Pattern::Application {
-                symbol: Symbol {
-                    name: "inj".to_owned(),
-                    sort_parameters: vec![value_sort, kore_item_sort],
-                },
-                arguments: vec![value],
+        Ok(values
+            .into_iter()
+            .map(|(value, value_sort)| {
+                if value_sort == kore_item_sort {
+                    value
+                } else {
+                    Pattern::Application {
+                        symbol: Symbol {
+                            name: "inj".to_owned(),
+                            sort_parameters: vec![value_sort, kore_item_sort.clone()],
+                        },
+                        arguments: vec![value],
+                    }
+                }
             })
-        }
+            .collect())
     }
 
     /// Assemble `initGeneratedTopCell` from surface text for the declared variables.
@@ -625,6 +693,31 @@ impl Configuration {
             .parsers
             .get(parser_module)
             .expect("parser was inserted above"))
+    }
+
+    /// [`Self::parser`], listing an ambiguity's readings.
+    fn listing_parser(&mut self, parser_module: &str) -> Result<&ProgramParser, Box<dyn Error>> {
+        if !self.listing_parsers.contains_key(parser_module) {
+            let parser = self.parser(parser_module)?.clone().listing_readings();
+            self.listing_parsers
+                .insert(parser_module.to_owned(), parser);
+        }
+        Ok(self
+            .listing_parsers
+            .get(parser_module)
+            .expect("parser was inserted above"))
+    }
+
+    /// [`Self::ground_value_parser`], listing an ambiguity's readings.
+    fn listing_ground_value_parser(&mut self) -> Result<&ProgramParser, Box<dyn Error>> {
+        if self.listing_ground_value_parser.is_none() {
+            self.listing_ground_value_parser =
+                Some(self.ground_value_parser()?.clone().listing_readings());
+        }
+        Ok(self
+            .listing_ground_value_parser
+            .as_ref()
+            .expect("parser was built above"))
     }
 
     /// The ground K-value parser of the main module, built on first use.
@@ -969,6 +1062,79 @@ endmodule
         );
         let pattern = configured["pattern"].as_str().unwrap();
         assert!(pattern.contains("\\dv{SortWord{}}(\"word\")"), "{pattern}");
+    }
+
+    /// A printed cell is read back with the main module's grammar where it is no program text,
+    /// and that grammar may read the print several ways: `size ( SetItem ( 1 ) )` is the
+    /// definition's `size` over an item and the set's `size`. Read for a read-back, the text
+    /// gives both readings, so a state holding either reads back; read as a program or a value
+    /// the user writes, it is an ambiguity. A map whose key is a map has no text at all: `_|->_`
+    /// is non-associative and no bracket groups a map there, so `( 1 |-> 2 ) |-> 0` does not
+    /// parse (the printer reports its K default bracket: `Printed::grouped`).
+    #[test]
+    fn a_read_back_lists_the_readings_of_an_ambiguous_print() {
+        let parsed = k_rust::outer::parse(
+            "readings.k",
+            r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= "run" [symbol(run)]
+endmodule
+
+module MAIN
+  imports MAIN-SYNTAX
+  imports BASIC-K
+  imports INT
+  imports SET
+  imports MAP
+  syntax KItem ::= hold(KItem) [symbol(hold)]
+  syntax Int ::= size(KItem) [function, symbol(Size)]
+  configuration <k> $PGM:Pgm </k> <env> .Map </env>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([("PGM".to_owned(), Sort::new("Pgm"))]),
+        )
+        .unwrap();
+        let text = "hold(size ( SetItem ( 1 ) ))";
+        let readings = configuration
+            .parse_head_readings("k", text, super::Readings::Listed)
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        assert_eq!(readings.len(), 2, "{readings:#?}");
+        assert!(
+            readings
+                .iter()
+                .any(|reading| reading
+                    .contains("LblSize{}(inj{SortSet{}, SortKItem{}}(LblSetItem{}(")),
+            "{readings:#?}"
+        );
+        assert!(
+            readings
+                .iter()
+                .any(|reading| !reading.contains("LblSize{}")),
+            "{readings:#?}"
+        );
+        let error = configuration.parse_head("k", text).unwrap_err().to_string();
+        assert!(error.contains("Parsing ambiguity"), "{error}");
+        let error = configuration
+            .parse_cell_readings(
+                "env",
+                &Sort::builtin(BuiltinSort::Map),
+                "( 1 |-> 2 ) |-> 0",
+                super::Readings::Listed,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unexpected token '('"), "{error}");
     }
 
     #[test]

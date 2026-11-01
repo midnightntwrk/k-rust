@@ -188,6 +188,16 @@ pub struct Printed {
     pub text: String,
     /// Problems, in a fixed order.
     pub warnings: Vec<Warning>,
+    /// The sorts (K names, in order) of the children printed in K's default bracket `( .. )`
+    /// (`{Sort} Sort ::= "(" Sort ")"`, which K declares in `KSEQ`): where priority,
+    /// associativity or a sort requires a bracket around a child and the definition declares
+    /// none that takes it. A rule's or a claim's grammar reads it; the program grammar and the
+    /// main module's value grammar (`-c` values, cell expectations) have no such bracket (the
+    /// ground K-value grammar of a `K` cell has it at `K` only), so for them the text does not
+    /// read back. A map whose key is a map (`( 1 |-> 2 ) |-> 3`)
+    /// has no other text there: `_|->_` is non-associative, ranks above `.Map` and `_Map_`, and
+    /// no bracket groups a map.
+    pub grouped: Vec<String>,
 }
 
 /// An alias clause a printer reverses ([`Unparser::reversed_clauses`]).
@@ -470,7 +480,9 @@ impl Unparser {
         instantiate(&mut node, &self.data.declarations);
         let mut unfixed = BTreeSet::new();
         instance::fix_instances(&self.data, &mut node, &mut unfixed);
-        node = Brackets::new(&self.data, fallback).add(&node, None, None);
+        let brackets = Brackets::new(&self.data, fallback);
+        node = brackets.add(&node, None, None);
+        let grouped = brackets.grouped();
         // Keys printed while sorting are not output: only the final pass reports.
         let mut problems = Problems::default();
         let mut printer = Printer::new(&self.data, options.color, &mut problems);
@@ -500,7 +512,11 @@ impl Unparser {
         if !unfixed.is_empty() {
             warnings.push(Warning::Instance(list(&unfixed)));
         }
-        Printed { text, warnings }
+        Printed {
+            text,
+            warnings,
+            grouped: list(&grouped),
+        }
     }
 }
 

@@ -14,8 +14,8 @@ pub use config::{ConfigError, resolve_configuration_bubbles};
 #[cfg(feature = "cli")]
 pub(crate) use parser::exclusion::{Exclusions, NodeShape};
 pub use parser::{
-    AmbiguityPlace, AmbiguousParse, CyclicDerivation, DiagnosticWork, Grammar, NoParseInput,
-    NoParseNotes, ParseError, ProgramTextConstruct, ProgramTextPhrase, ShadowedToken,
+    AmbiguityPlace, AmbiguousParse, CyclicDerivation, DiagnosticWork, Grammar, LISTED_READINGS,
+    NoParseInput, NoParseNotes, ParseError, ProgramTextConstruct, ProgramTextPhrase, ShadowedToken,
     TokenPrecedenceDeclaration,
 };
 #[cfg(feature = "cli")]

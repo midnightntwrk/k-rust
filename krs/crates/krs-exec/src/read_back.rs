@@ -17,14 +17,21 @@
 //!   collection's constructor (`SetItem`, `_|->_`) or a production the partition placed in the
 //!   semantics module, and one of a sort the program grammar does not have (a `Map` cell). It
 //!   holds every token sort of the definition, so its scanner reads `word` as an `Id` wherever
-//!   it stands, also where the state holds a `Word`: its tokens compare by text alone.
+//!   it stands, also where the state holds a `Word`: its tokens compare by text alone. Such a
+//!   cell is no program text, and the grammar may read its print several ways (`size ( .Map )`
+//!   is the definition's own `size` over an item and the map's `size`): the print reads back
+//!   where the term the state holds is one of the readings, which the parser lists up to
+//!   [`k_rust::inner::LISTED_READINGS`]; past that the ambiguity fails. A program must read one
+//!   way, so for the program grammar an ambiguity fails.
 //!
 //! A cell is not read back, for a stated reason ([`ReadBack::Skipped`]), where its print says it
 //! is no program text (a warning: a symbol printed as KAST, an application whose instance no
-//! text fixes printed as KORE), where its sort has parameters (no `--sort` names one), and where
-//! it holds a part no grammar of the definition writes: a variable (a symbolic state's), a
-//! matching-logic connective, a cell, a token neither grammar reads back as itself (the `Id`
-//! `$x`).
+//! text fixes printed as KORE), where it groups a child of a sort but `K` in K's default bracket
+//! `( .. )`, which neither grammar has (a map whose key is a map: `_|->_` is non-associative and
+//! no bracket groups a map, so neither grammar writes that term at all), where its sort has
+//! parameters (no `--sort` names one), and where it holds a part no grammar of the definition
+//! writes: a variable (a symbolic state's), a matching-logic connective, a cell, a token neither
+//! grammar reads back as itself (the `Id` `$x`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -75,8 +82,9 @@ pub enum ReadBack {
 /// What reading one printed text with one grammar gave, kept by [`Semantics::read_back`].
 #[derive(Clone, Debug)]
 pub(crate) enum Read {
-    /// The term the text reads as.
-    Term(Pattern),
+    /// The terms the text reads as: one, or, for the main module's grammar, each reading of an
+    /// ambiguous text the parser lists.
+    Terms(Vec<Pattern>),
     /// The grammar has no syntax for the sort the text is read at.
     NoSort,
     /// The text does not parse: the first line of the error.
@@ -186,6 +194,19 @@ impl Semantics {
                 "its print says it is no program text: {warnings}"
             )));
         }
+        // The ground K-value grammar a `K` cell is read with has the bracket at `K`.
+        if cell.printed.grouped.iter().any(|sort| sort != "K") {
+            let sorts = cell
+                .printed
+                .grouped
+                .iter()
+                .map(|sort| format!("`{sort}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Ok(ReadBack::Skipped(format!(
+                "its print groups {sorts} in K's default bracket `( .. )`, where the definition declares no bracket, which neither grammar it is read with has"
+            )));
+        }
         if let At::Parametric(sort) = &cell.at {
             return Ok(ReadBack::Skipped(format!(
                 "its sort `{sort}` has parameters, which no sort to read text at names"
@@ -197,7 +218,7 @@ impl Semantics {
             .is_none()
         {
             match self.read(Reader::Program, cell) {
-                Read::Term(read) => return Ok(self.compare(cell, &read, true)),
+                Read::Terms(read) => return Ok(self.compare(cell, &read, true)),
                 Read::Fails(error) => return Ok(fails_to_read(cell, &error)),
                 Read::NoSort => {}
             }
@@ -208,7 +229,7 @@ impl Semantics {
             )));
         }
         Ok(match self.read(Reader::Main, cell) {
-            Read::Term(read) => self.compare(cell, &read, false),
+            Read::Terms(read) => self.compare(cell, &read, false),
             Read::Fails(error) => fails_to_read(cell, &error),
             Read::NoSort => ReadBack::Fails(format!(
                 "{} printed `{}`, which no grammar of the definition reads at its sort",
@@ -250,41 +271,56 @@ impl Semantics {
                     text: text.clone(),
                 };
                 match self.parse(Some(at), &input) {
-                    Ok(term) => Ok(term.kore().clone()),
+                    Ok(term) => Ok(vec![term.kore().clone()]),
                     Err(ExecError::UnknownSort { .. }) => return Read::NoSort,
                     // A `<k>` item is any term a program can write there: an alias of a wider
                     // sort reads back at `$PGM`'s.
                     Err(error) if cell.at == At::Head => self
                         .parse(None, &input)
-                        .map(|term| term.kore().clone())
+                        .map(|term| vec![term.kore().clone()])
                         .map_err(|_| error),
                     Err(error) => Err(error),
                 }
             }
-            (Reader::Main, At::Head) => self.parse_computation_head(text),
+            // A cell read with the main module's grammar is no program text: the grammar may
+            // read the text several ways (a builtin collection's `size` beside the
+            // definition's), and the print reads back where the term the state holds is one of
+            // them.
+            (Reader::Main, At::Head) => self.parse_computation_head_readings(text),
             (Reader::Main, _) => match at {
-                Some(at) => self.parse_cell(&cell.cell, at, text),
+                Some(at) => self.parse_cell_readings(&cell.cell, at, text),
                 None => return Read::NoSort,
             },
         };
         match read {
-            Ok(term) => Read::Term(term),
+            Ok(terms) => Read::Terms(terms),
             Err(error) => Read::Fails(first_line(&error.to_string()).to_owned()),
         }
     }
 
-    /// Whether `read`, `cell`'s print read back, is the term the state holds, value for value:
-    /// with every instance and, where `typed`, every token's sort.
-    fn compare(&self, cell: &PrintedCell<'_>, read: &Pattern, typed: bool) -> ReadBack {
+    /// Whether one of `read`, the readings of `cell`'s print, is the term the state holds,
+    /// value for value: with every instance and, where `typed`, every token's sort.
+    fn compare(&self, cell: &PrintedCell<'_>, read: &[Pattern], typed: bool) -> ReadBack {
         let index = &self.values;
-        if shape(index, cell.content, typed) == shape(index, read, typed) {
-            ReadBack::Reads
-        } else {
-            ReadBack::Fails(format!(
-                "{} printed `{}`, which reads back as `{read}`, where the state holds `{}`",
-                cell.place, cell.printed.text, cell.content
-            ))
+        let held = shape(index, cell.content, typed);
+        if read
+            .iter()
+            .any(|reading| shape(index, reading, typed) == held)
+        {
+            return ReadBack::Reads;
         }
+        let readings = read
+            .iter()
+            .map(|reading| format!("`{reading}`"))
+            .collect::<Vec<_>>();
+        let reads = match &readings[..] {
+            [one] => format!("reads back as {one}"),
+            several => format!("reads back as one of {}", several.join(", ")),
+        };
+        ReadBack::Fails(format!(
+            "{} printed `{}`, which {reads}, where the state holds `{}`",
+            cell.place, cell.printed.text, cell.content
+        ))
     }
 
     /// The first part of `term`, a state's term, that `reader`'s grammar does not write, named:

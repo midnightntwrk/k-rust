@@ -1288,6 +1288,44 @@ impl Semantics {
             })
     }
 
+    /// [`Self::parse_computation_head`], where an ambiguous text gives each of its readings the
+    /// parser lists ([`k_rust::inner::ProgramParser::parse_readings`]).
+    pub(crate) fn parse_computation_head_readings(
+        &mut self,
+        text: &str,
+    ) -> Result<Vec<Pattern>, ExecError> {
+        let cell = self.main_cell.clone().unwrap_or_else(|| "k".to_owned());
+        self.configuration
+            .parse_head_readings(&cell, text, configuration::Readings::Listed)
+            .map_err(|error| ExecError::Parse {
+                input: format!("the printed <{cell}> head"),
+                sort: "KItem".to_owned(),
+                message: error.to_string(),
+            })
+    }
+
+    /// [`Self::parse_cell`], where an ambiguous text gives each of its readings the parser
+    /// lists ([`k_rust::inner::ProgramParser::parse_readings`]).
+    pub(crate) fn parse_cell_readings(
+        &mut self,
+        cell: &str,
+        sort: &str,
+        text: &str,
+    ) -> Result<Vec<Pattern>, ExecError> {
+        self.configuration
+            .parse_cell_readings(
+                cell,
+                &KastSort::new(sort),
+                text,
+                configuration::Readings::Listed,
+            )
+            .map_err(|error| ExecError::Parse {
+                input: format!("the printed <{cell}>"),
+                sort: sort.to_owned(),
+                message: error.to_string(),
+            })
+    }
+
     /// Read a cell's content back from its printed text: parsed with the main module's grammar
     /// at `sort`, the cell's declared sort (a `K` cell's as a sequence), with its aliases and
     /// desugars expanded as a program's are.

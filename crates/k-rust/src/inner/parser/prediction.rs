@@ -1513,6 +1513,7 @@ mod tests {
                         ..
                     }),
                     places,
+                    ..
                 }) if alternatives.is_empty()
                     && places
                         .iter()

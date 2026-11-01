@@ -543,6 +543,47 @@ impl ProgramParser {
         self.parse_within(start_sort, source, file, DiagnosticWork::from_environment())
     }
 
+    /// This parser, with every ambiguity it reports listing its readings ([`Self::parse_readings`]).
+    #[must_use]
+    pub fn listing_readings(mut self) -> Self {
+        self.grammar.list_readings();
+        self
+    }
+
+    /// Every reading of `source` at `start_sort`: the one a parse ([`Self::parse`]) returns, or,
+    /// for a parser made with [`Self::listing_readings`], where the text is ambiguous and its
+    /// readings number at most [`LISTED_READINGS`](super::LISTED_READINGS), each of them as a
+    /// parse would return it were it the only one, in term order. A reader that holds the term a
+    /// text was printed from asks with it whether that term is among the readings; a program,
+    /// which must read one way, is parsed with [`Self::parse`].
+    ///
+    /// # Errors
+    ///
+    /// The error of [`Self::parse`], an ambiguity whose readings are not listed included.
+    pub fn parse_readings(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+    ) -> Result<Vec<ParsedProgram>, ProgramParseError> {
+        match self.parse(start_sort, source) {
+            Ok(program) => Ok(vec![program]),
+            Err(error) => match &*error.error {
+                ParseError::Ambiguous { readings, .. } if !readings.is_empty() => Ok(readings
+                    .iter()
+                    .map(|reading| {
+                        ParsedProgram(without_source_spans(self.locate(
+                            start_sort,
+                            source,
+                            UNNAMED_PROGRAM,
+                            reading.clone(),
+                        )))
+                    })
+                    .collect()),
+                _ => Err(error),
+            },
+        }
+    }
+
     /// `parse_file`, with the diagnostic of a failure limited to `diagnostic_work`.
     fn parse_within(
         &self,

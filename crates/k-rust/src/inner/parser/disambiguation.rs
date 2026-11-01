@@ -185,8 +185,9 @@ use std::hash::{Hash, Hasher};
 use super::ParsedParts;
 use super::exclusion::{Exclusion, Side};
 use super::{
-    AmbiguityPlace, AmbiguousParse, Grammar, Item, LoweredNode, LoweringSession, PackedNode,
-    PackedNodeResults, PackedTerm, ParseError, ParsedTerm, Production, StructuralOrder, lower_term,
+    AmbiguityPlace, AmbiguousParse, Grammar, Item, LISTED_READINGS, LoweredNode, LoweringSession,
+    PackedNode, PackedNodeResults, PackedTerm, ParseError, ParsedTerm, Production, StructuralOrder,
+    lower_term,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, NodeHead, ProductionIdentity, Sort, Term, TermMetadata, TermSpan,
@@ -2449,11 +2450,22 @@ impl Grammar {
     /// concatenations without listing a reading (`ReadingSets`); the number of readings is
     /// not computed, and neither is whether the places vary independently, since both are
     /// hard for some forests (`docs/compatibility.md`).
+    ///
+    /// Where the grammar lists readings (`Grammar::list_readings`), the readings of the whole
+    /// input are listed too, where they number at most [`LISTED_READINGS`]
+    /// (`Grammar::listed_readings`).
     fn ambiguity_report(
         &self,
         mut readings: Readings,
         sets: &mut ReadingSets,
     ) -> Result<ParseError, ParseError> {
+        let listed = if self.lists_readings {
+            self.listed_readings(&readings, sets, &mut FxHashMap::default())?
+                .map(|terms| terms.to_vec())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         loop {
             let keys = sets.keys(&readings);
             if let [key] = &keys[..] {
@@ -2470,14 +2482,103 @@ impl Grammar {
                     alternatives: Vec::new(),
                     span: sets.span(&readings),
                     places,
+                    readings: listed,
                 });
             }
             return Ok(ParseError::Ambiguous {
                 alternatives: self.reading_entries(&readings, &keys, sets)?,
                 span: sets.span(&readings),
                 places: Vec::new(),
+                readings: listed,
             });
         }
+    }
+
+    /// The terms `readings` stands for, each lowered once and in term order, where they number
+    /// at most [`LISTED_READINGS`]; `None` where they may number more. A union's readings are
+    /// its alternatives'; a product's and a concatenation's are what `lower_term` builds from
+    /// their production over each combination of one reading of each child, so they number at
+    /// most the product of the children's numbers, and a node whose children's numbers multiply
+    /// past the limit is not built. `listed` keeps each set node's answer, since the nodes of
+    /// a forest are shared.
+    fn listed_readings(
+        &self,
+        readings: &Readings,
+        sets: &ReadingSets,
+        listed: &mut FxHashMap<usize, Option<Rc<[Term]>>>,
+    ) -> Result<Option<Rc<[Term]>>, ParseError> {
+        crate::stack::guarded(|| {
+            let index = match readings {
+                Readings::One(term) => return Ok(Some(Rc::from([term.view().to_term()]))),
+                Readings::Several(index) => *index,
+            };
+            if let Some(answer) = listed.get(&index) {
+                return Ok(answer.clone());
+            }
+            let mut terms = BTreeSet::new();
+            let answer = 'answer: {
+                let (production, parameters, metadata, children) = match &sets.nodes[index] {
+                    SetNode::Union(alternatives) => {
+                        for alternative in alternatives.iter() {
+                            let Some(readings) = self.listed_readings(alternative, sets, listed)?
+                            else {
+                                break 'answer None;
+                            };
+                            terms.extend(readings.iter().cloned());
+                            if terms.len() > LISTED_READINGS {
+                                break 'answer None;
+                            }
+                        }
+                        break 'answer Some(terms.into_iter().collect());
+                    }
+                    SetNode::Product {
+                        production,
+                        parameters,
+                        metadata,
+                        children,
+                        ..
+                    } => (production, parameters, metadata, &children[..]),
+                    SetNode::Concat {
+                        production,
+                        parameters,
+                        metadata,
+                        children,
+                    } => (production, parameters, metadata, &children[..]),
+                };
+                let mut choices = Vec::with_capacity(children.len());
+                let mut combinations = 1_usize;
+                for child in children {
+                    let Some(readings) = self.listed_readings(child, sets, listed)? else {
+                        break 'answer None;
+                    };
+                    combinations = combinations.saturating_mul(readings.len());
+                    if combinations > LISTED_READINGS {
+                        break 'answer None;
+                    }
+                    choices.push(readings);
+                }
+                for combination in 0..combinations {
+                    let mut rest = combination;
+                    let arguments = choices
+                        .iter()
+                        .map(|readings| {
+                            let chosen = readings[rest % readings.len()].clone();
+                            rest /= readings.len();
+                            chosen
+                        })
+                        .collect::<Vec<Term>>();
+                    terms.insert(self.lower_production(
+                        *production,
+                        parameters.as_deref(),
+                        arguments,
+                        metadata.clone(),
+                    )?);
+                }
+                Some(terms.into_iter().collect())
+            };
+            listed.insert(index, answer.clone());
+            Ok(answer)
+        })
     }
 
     /// Add to `places` the subterms of `readings`, a set of several readings at a position of
@@ -6989,6 +7090,7 @@ pub(super) mod tests {
             alternatives,
             span,
             places,
+            ..
         } = error
         else {
             panic!("expected an ambiguity, got {error:?}")

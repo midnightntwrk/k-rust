@@ -1718,6 +1718,7 @@ fn incomparable_maximal_typings_are_reported_as_ambiguity() {
         alternatives,
         span,
         places,
+        ..
     } = error.error
     else {
         panic!("expected an ambiguity, got {:?}", error.error)

@@ -209,13 +209,24 @@ fn program_mode_prints_a_bracketless_sort_bare() {
     on_large_stack(|| {
         let mut fixture = Fixture::compile("brackets");
         let state = fixture.run(None);
-        let text = fixture.print(&state, Options::new(Mode::Pretty));
-        assert!(text.contains("tm ( 1 | 2 ) & 3 ;"), "{text}");
+        let pretty = fixture
+            .unparser
+            .print_kore(&state, &Options::new(Mode::Pretty));
+        assert!(
+            pretty.text.contains("tm ( 1 | 2 ) & 3 ;"),
+            "{}",
+            pretty.text
+        );
+        // `Tm` has no bracket production, so `1 | 2` below `&` is grouped in K's default
+        // bracket, which the print reports: no program grammar reads it.
+        assert_eq!(pretty.grouped, ["Tm"]);
+        assert_eq!(pretty.warnings, []);
         // `kast --output program` adds no parentheses where the sort has no bracket production.
         let printed = fixture
             .unparser
             .print_kore(&state, &Options::new(Mode::Program));
         assert!(printed.text.contains("tm 1 | 2 & 3 ;"), "{}", printed.text);
+        assert_eq!(printed.grouped, Vec::<String>::new());
     });
 }
 
