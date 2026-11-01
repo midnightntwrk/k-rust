@@ -29,12 +29,10 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 1] = [
-    (
-        r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
-        "NT-2-6",
-    ),
-];
+const KNOWN: [(&str, &str); 1] = [(
+    r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
+    "NT-2-6",
+)];
 
 /// The disagreements that are no finding's, as globs over case IDs, and why: the product decides
 /// them outside its table, where the oracle's answer is met.
