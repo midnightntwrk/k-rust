@@ -168,8 +168,6 @@ pub struct CollectorPlan {
     host_target: String,
     /// KRS cfg inputs.
     cfg: BTreeSet<KrsCfg>,
-    /// The crate names the root package's library sources give its normal dependencies.
-    root_crate_names: BTreeSet<String>,
     pub(crate) dependencies: Vec<GeneratedDependency>,
     pub(crate) kind: CollectorKind,
 }
@@ -210,7 +208,6 @@ struct ResolvedSelection {
     package_closure: Vec<ResolvedPackage>,
     host_target: String,
     cfg: BTreeSet<KrsCfg>,
-    root_crate_names: BTreeSet<String>,
     dependencies: Vec<GeneratedDependency>,
     extra_alias: Option<String>,
 }
@@ -222,7 +219,6 @@ impl ResolvedSelection {
             package_closure: self.package_closure,
             host_target: self.host_target,
             cfg: self.cfg,
-            root_crate_names: self.root_crate_names,
             dependencies: self.dependencies,
             kind,
         }
@@ -421,12 +417,6 @@ impl CollectorPlan {
             package_closure,
             host_target: host_target.to_owned(),
             cfg: cfg.iter().cloned().collect(),
-            root_crate_names: nodes[root_package.id.as_str()]
-                .deps
-                .iter()
-                .filter(|dependency| dependency.is_normal())
-                .map(|dependency| dependency.name.clone())
-                .collect(),
             dependencies,
             extra_alias: extra_package.map(|package| aliases[&package.id].clone()),
         })
@@ -559,13 +549,6 @@ impl CollectorPlan {
     #[must_use]
     pub fn package_closure(&self) -> &[ResolvedPackage] {
         &self.package_closure
-    }
-
-    /// The crate names the root package's library sources give its normal dependencies, KRS
-    /// packages or not ([`ResolvedFacet::root_crate_name`] is a facet's).
-    #[must_use]
-    pub fn root_crate_names(&self) -> &BTreeSet<String> {
-        &self.root_crate_names
     }
 
     /// Host target triple used to execute the collector.

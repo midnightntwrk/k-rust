@@ -5,10 +5,10 @@ use crate::{
 };
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_compiler::{
-    DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DependencyCrates,
-    DescriptorLoweringError, EmitError, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT,
-    SOURCES_ARTIFACT, SPEC_ARTIFACT, SYMBOLS_ARTIFACT, declared_cell_types, emit_k,
-    expand_package_reference_source, lower_descriptor_bundle, lower_semantic_theory,
+    DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DescriptorLoweringError,
+    EmitError, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT, SOURCES_ARTIFACT,
+    SPEC_ARTIFACT, SYMBOLS_ARTIFACT, declared_cell_types, emit_k, expand_package_reference_source,
+    lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
 use krs_ir::measure::Timings;
@@ -19,6 +19,7 @@ use krs_k_rust::{
     FRONTEND_CAPABILITIES, Route,
 };
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -972,7 +973,7 @@ fn expand(
         CommandError::InvalidMetadata(format!("root package identity is invalid: {error}"))
     })?;
     // A dependency's declaration prints by the crate name the root's source gives it.
-    let mut crates = DependencyCrates::default();
+    let mut crates = BTreeMap::new();
     for facet in plan.facets().iter().filter(|facet| !facet.is_root) {
         let Some(name) = &facet.root_crate_name else {
             continue;
@@ -988,16 +989,8 @@ fn expand(
                 "dependency package identity is invalid: {error}"
             ))
         })?;
-        crates.packages.insert(id, name.clone());
+        crates.insert(id, name.clone());
     }
-    // The root's other dependencies, through whose re-exports its source may name a package it
-    // does not depend on directly.
-    crates.others = plan
-        .root_crate_names()
-        .iter()
-        .filter(|name| !crates.packages.values().any(|known| known == *name))
-        .cloned()
-        .collect();
     let facade = FacadeAliases::from_manifest(&root.manifest_path).map_err(CommandError::Facade)?;
     let expanded = expand_package_reference_source(
         &prepared.bundle,

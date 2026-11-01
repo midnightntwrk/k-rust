@@ -539,7 +539,8 @@ k::rules! {
     let dependency = ["--dependency", "base:main"];
     let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
     assert!(success, "{stderr}");
-    for path in ["::semantic_base::Unit", "::semantic_base::Same"] {
+    // Each reference prints by the path the clause writes there.
+    for path in ["KCell(semantic_base::Unit,", "KCell(semantic_base::Same,"] {
         assert!(printed.replace(' ', "").contains(path), "{printed}");
     }
     fs::write(root.with_file_name("src").join("lib.rs"), &printed).unwrap();
@@ -558,12 +559,12 @@ k::rules! {
 }
 
 /// A dependency's declarations in a private module (`mod sorts; pub use sorts::{..};`) print by
-/// the paths the root's source writes to them, through the public re-export: their declaring
-/// path `::semantic_base::sorts::Unit` does not compile from another crate (E0603). A path from a
-/// name the source's `use` gives the crate (`use semantic_base as sb;`) is the path from the
-/// crate's name, which the extern prelude names. Where the source writes no path to such an item,
-/// no printed path is known to compile, and `krs expand` refuses with `dependency-path` rather
-/// than print one.
+/// the paths the clause writes to them, through the public re-export: their declaring path
+/// `::semantic_base::sorts::Unit` does not compile from another crate (E0603). A path through a
+/// name the module's `use` gives the crate (`use semantic_base as sb;`) prints as written, which
+/// names the same item where the long form stands. Where the clause writes no path to such an
+/// item (a name a glob imports), no printed path is known to compile, and `krs expand` refuses
+/// with `dependency-path` rather than print one.
 #[test]
 fn a_dependency_item_in_a_private_module_expands_by_the_path_the_source_writes() {
     let target = shared_fixture_target();
@@ -630,10 +631,10 @@ k::rules! {{
     let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
     assert!(success, "{stderr}");
     let collapsed = printed.replace(' ', "");
-    for path in ["::semantic_base::Unit", "::semantic_base::Same"] {
+    for path in ["KCell(semantic_base::Unit,", "KCell(semantic_base::Same,"] {
         assert!(collapsed.contains(path), "{printed}");
     }
-    assert!(!collapsed.contains("::semantic_base::sorts::"), "{printed}");
+    assert!(!collapsed.contains("semantic_base::sorts::"), "{printed}");
     let source = root.with_file_name("src").join("lib.rs");
     fs::write(&source, &printed).unwrap();
     let (success, _, stderr) = krs(target.path(), &root, "root", "check", &dependency);
@@ -650,7 +651,7 @@ k::rules! {{
     let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
     assert!(success, "{stderr}");
     let collapsed = printed.replace(' ', "");
-    for path in ["::semantic_base::Unit", "::semantic_base::Same"] {
+    for path in ["KCell(sb::Unit,", "KCell(sb::Same,"] {
         assert!(collapsed.contains(path), "{printed}");
     }
     fs::write(&source, &printed).unwrap();
@@ -674,8 +675,9 @@ k::rules! {{
 
 /// A package the root does not depend on directly (`base`, which `mid` depends on and
 /// re-exports) has no crate name in the root's source: its declarations print by the path the
-/// source writes to them through `mid`'s re-export, and the printed source checks. Where the
-/// source writes no path to one, `krs expand` refuses with `external-declaration`, saying so.
+/// clause writes to them through `mid`'s re-export (a name of one segment through the `use` of
+/// the module that binds it), and the printed source checks. Where the clause writes no path to
+/// one (a name a glob imports), `krs expand` refuses with `external-declaration`, saying so.
 #[test]
 fn a_transitive_dependency_item_expands_by_the_re_export_the_source_writes() {
     let target = shared_fixture_target();
@@ -749,7 +751,7 @@ k::rules! {{
     let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
     assert!(success, "{stderr}");
     let collapsed = printed.replace(' ', "");
-    for path in ["::mid::Unit", "::mid::Same"] {
+    for path in ["KCell(mid::Unit,", "KCell(mid::Same,"] {
         assert!(collapsed.contains(path), "{printed}");
     }
     let source = root.with_file_name("src").join("lib.rs");
@@ -767,9 +769,219 @@ k::rules! {{
     assert!(!success, "{printed}");
     assert!(
         stderr.contains("krs::reference::external-declaration")
-            && stderr.contains("the source writes no path to an item of that name"),
+            && stderr.contains("the clause writes no path to it that the long form can print"),
         "{stderr}"
     );
+}
+
+/// The `<k>` side of each rule `definition` holds, by line, with a `cells!` rule's tail
+/// (`~> Tail:K`) and a readable clause's `...` both left out: the two spell one open `<k>`.
+fn k_rules(definition: &str) -> Vec<String> {
+    definition
+        .lines()
+        .filter(|line| line.trim_start().starts_with("<k>") && line.contains("=>"))
+        .map(|line| {
+            let words = line.split_whitespace().collect::<Vec<_>>();
+            let mut kept = Vec::new();
+            let mut at = 0;
+            while at < words.len() {
+                match (words[at], words.get(at + 1)) {
+                    ("~>", Some(tail)) if tail.ends_with(":K") => at += 2,
+                    ("...", _) => at += 1,
+                    (word, _) => {
+                        kept.push(word);
+                        at += 1;
+                    }
+                }
+            }
+            kept.join(" ")
+        })
+        .collect()
+}
+
+/// `krs expand` of `root` (with the `base:main` dependency), then `krs emit-k` of the original
+/// and of the printed source in its place: the printed source and the `<k>` rules of each.
+fn expand_and_emit(target: &Path, root: &Path) -> (String, Vec<String>, Vec<String>) {
+    let dependency = ["--dependency", "base:main"];
+    let emitted = |name: &str| {
+        let output = root.with_file_name(name);
+        let mut emit = dependency.to_vec();
+        emit.extend(["--output", output.to_str().unwrap()]);
+        let (success, _, stderr) = krs(target, root, "root", "emit-k", &emit);
+        assert!(success, "{stderr}");
+        k_rules(&fs::read_to_string(output.join("definition.k")).unwrap())
+    };
+    let before = emitted("emitted-authored");
+    let (success, printed, stderr) = krs(target, root, "root", "expand", &dependency);
+    assert!(success, "{stderr}");
+    let source = root.with_file_name("src").join("lib.rs");
+    let authored = fs::read_to_string(&source).unwrap();
+    fs::write(&source, &printed).unwrap();
+    let after = emitted("emitted-printed");
+    fs::write(&source, authored).unwrap();
+    (printed, before, after)
+}
+
+/// `base`, whose `alt` module re-exports `Same` under the name `Unit`, with `Common`, `Same`,
+/// `Unit` and the constructors enum `Syntax` (`A`, `B`) re-exported at its root.
+const RENAMING_BASE: &str = r#"
+pub use m::Syntax;
+pub use sorts::{Common, CommonSort, Same, Unit};
+
+mod sorts {
+    use k::{KItem, KItemSort, Term};
+
+    #[k::sort(alias = Common, parents = [KItem])]
+    pub trait CommonSort: KItemSort {}
+    pub type Common = Term<dyn CommonSort>;
+
+    #[k::constructor(sort = Common, syntax = "same")]
+    pub struct Same;
+
+    #[k::constructor(sort = Common, syntax = "unit")]
+    pub struct Unit;
+}
+
+/// `Same`, re-exported under the name `Unit`.
+pub mod alt {
+    pub use crate::sorts::Same as Unit;
+}
+
+pub mod m {
+    #[k::constructors(sort = crate::Common, result = k::KResult)]
+    pub enum Syntax {
+        #[k::syntax("one")]
+        A,
+        #[k::syntax("two")]
+        B,
+    }
+}
+"#;
+
+/// A root over `dependency` (`semantic_base` or `mid`), whose rule `cross` is `rule`. It writes
+/// an unused `use` of `alt::Unit` (base's `Same`) and a module `p` re-exporting all of
+/// `dependency`, so `p::Unit` is base's `Unit`.
+fn renaming_root(dependency: &str, rule: &str) -> String {
+    format!(
+        r"
+use k::builtin::KSequence;
+use {dependency}::{{Common, Same}};
+#[allow(unused_imports)]
+use {dependency}::alt::Unit as AltUnit;
+
+mod p {{
+    pub use {dependency}::*;
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init() -> Self {{
+        Self {{ k: k::k![Same] }}
+    }}
+}}
+
+k::rules! {{
+    for Common;
+    cross: {rule};
+}}
+"
+    )
+}
+
+/// A path's last segment is the name a module exports, which a renaming re-export gives another
+/// item: `alt::Unit` is base's `Same`, while `p::Unit` is base's `Unit`. `krs expand` prints each
+/// reference by the path the clause writes there, which names the same item where the long form
+/// stands, so the printed source emits the K the clause does (`same => unit`), whether the
+/// source depends on base directly or only on `mid`, which re-exports it. A path chosen by its
+/// last segment from elsewhere in the file (`alt::Unit`, the one path ending in `Unit` from a
+/// crate name) would print `same => same`.
+#[test]
+fn a_dependency_item_expands_by_the_path_the_clause_writes_at_that_reference() {
+    let target = shared_fixture_target();
+    for direct in [true, false] {
+        let temporary = temp_dir();
+        write_package(temporary.path(), "base", RENAMING_BASE, "");
+        let dependency = if direct {
+            "semantic_base"
+        } else {
+            write_package(
+                temporary.path(),
+                "mid",
+                "pub use semantic_base::{Common, CommonSort, Same, Syntax, Unit};\npub use semantic_base::alt;\n",
+                "semantic_base = { package = \"base\", path = \"../base\" }\n",
+            );
+            "mid"
+        };
+        let root = write_package(
+            temporary.path(),
+            "root",
+            &renaming_root(dependency, &format!("{dependency}::Same => p::Unit")),
+            &if direct {
+                "semantic_base = { package = \"base\", path = \"../base\" }\n".to_owned()
+            } else {
+                "mid = { path = \"../mid\" }\n".to_owned()
+            },
+        );
+        let members = if direct {
+            "\"base\", \"root\""
+        } else {
+            "\"base\", \"mid\", \"root\""
+        };
+        fs::write(
+            temporary.path().join("Cargo.toml"),
+            format!("[workspace]\nmembers = [{members}]\nresolver = \"3\"\n"),
+        )
+        .unwrap();
+        let (printed, before, after) = expand_and_emit(target.path(), &root);
+        let collapsed = printed.replace(' ', "");
+        assert!(
+            collapsed.contains(&format!("KCell({dependency}::Same,"))
+                && collapsed.contains("KCell(p::Unit,"),
+            "{printed}"
+        );
+        assert_eq!(before, ["<k> same => unit </k>"], "{dependency}");
+        assert_eq!(after, before, "{dependency}: {printed}");
+    }
+}
+
+/// A constructors enum's variant of a package the root reaches only through `mid` prints by the
+/// path the clause writes to it (`mid::Syntax::A`), and the printed source emits the same K.
+#[test]
+fn a_transitive_dependency_variant_expands_by_the_path_the_clause_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    write_package(temporary.path(), "base", RENAMING_BASE, "");
+    write_package(
+        temporary.path(),
+        "mid",
+        "pub use semantic_base::{Common, CommonSort, Same, Syntax, Unit};\npub use semantic_base::alt;\n",
+        "semantic_base = { package = \"base\", path = \"../base\" }\n",
+    );
+    let root = write_package(
+        temporary.path(),
+        "root",
+        &renaming_root("mid", "mid::Syntax::A => mid::Syntax::B"),
+        "mid = { path = \"../mid\" }\n",
+    );
+    fs::write(
+        temporary.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"base\", \"mid\", \"root\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let (printed, before, after) = expand_and_emit(target.path(), &root);
+    let collapsed = printed.replace(' ', "");
+    assert!(
+        collapsed.contains("KCell(mid::Syntax::A,") && collapsed.contains("KCell(mid::Syntax::B,"),
+        "{printed}"
+    );
+    assert_eq!(before, ["<k> one => two </k>"]);
+    assert_eq!(after, before, "{printed}");
 }
 
 #[test]
