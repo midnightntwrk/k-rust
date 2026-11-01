@@ -1707,7 +1707,10 @@ endmodule
         assert_ne!(symbolic, printed);
         let initial = k_rust::kore::parser::parse_pattern(&symbolic).unwrap();
         for (name, _, _, result) in each_run(&kore, &initial) {
-            assert!(run_records(&result).is_empty(), "pa(X) under {name}: {result:#}");
+            assert!(
+                run_records(&result).is_empty(),
+                "pa(X) under {name}: {result:#}"
+            );
             assert!(
                 leaves(&result)
                     .iter()
