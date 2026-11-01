@@ -6,11 +6,14 @@ import TwoParam.Measure
 
 For a well-formed script (`wf`, the claims of its instructions distinct) that has one run to no task
 left, every order its readiness allows ends, all in that run's configuration, whatever the lower
-layer computes (`TwoParam.Hooks`, a parameter). It composes three results by name, restating none:
+layer computes (`TwoParam.Hooks`, a parameter). It composes four results by name, restating none:
+- the invariant, `wf` and the outputs' `valsOk`, holds at the start of a well-formed script: no
+  output exists yet (`TwoParam.Invariant.init_holds`, `invariant_init`);
 - every run from the script's start ends: the work left, `measure` in the fixture (a weight per
   task summed over the `<tasks>` cell map), is lowered by every rule (`TwoParam.Measure.lower`, every
   case by `k2l_measure`) and is defined at the start (`defined`), so `TwoParam.Measure.terminates`;
-- every terminal configuration reached under `wf` is the same one (`TwoParamConf.terminal_unique`);
+- every terminal configuration reached under the invariant is the same one
+  (`TwoParamConf.terminal_unique`);
 - the given run reaches a configuration with no task left, which has no step (`terminal_of_noTasks`).
 
 `wf` is a hypothesis: a run to no task left implies it (a creation, a resume and a spend each run
@@ -57,16 +60,23 @@ theorem defined (P : TwoParam.SortPgm) : (TwoParam.Measure.value (TwoParam.init 
         ⟨rfl, by simp [TwoParam.Measure.work_g, TwoParam.Measure.cell_k, TwoParam.Measure.content_k,
           TwoParam.Eqn.«kw(_)_TWOPARAM_Int_K_2», hp]⟩, rfl⟩⟩
 
+/-- The invariant at a well-formed script's start: `wf` is the hypothesis, and `valsOk` holds of
+the empty `<vals>`. -/
+theorem invariant_init {P : TwoParam.SortPgm} (hwf : TwoParam.Invariant.wf (TwoParam.init P)) :
+    TwoParam.Invariant (TwoParam.init P) :=
+  TwoParam.Invariant.init_holds P (by
+    rw [TwoParam.Invariant.wf, TwoParam.Invariant.wf_cells] at hwf; exact hwf)
+
 /-- **Every order of a script ends in its run's result.** If the script `P` is well formed and some
 run from its start reaches a configuration `r` with no task left, then `r` is terminal and every run
 from the start ends, in `r`. -/
 theorem transaction {P : TwoParam.SortPgm} {r : TwoParam.SortGeneratedTopCell}
-    (hwf : TwoParam.Invariant (TwoParam.init P)) (hr : Star TwoParam.Step (TwoParam.init P) r)
+    (hwf : TwoParam.Invariant.wf (TwoParam.init P)) (hr : Star TwoParam.Step (TwoParam.init P) r)
     (hn : NoTasks r) :
     Terminal TwoParam.Step r ∧ Ends.Every TwoParam.Step (TwoParam.init P) (· = r) :=
   ⟨terminal_of_noTasks hn, Ends.every_of (TwoParam.Measure.terminates _ (defined P)) fun _ hb hbt =>
-    TwoParamConf.terminal_unique hwf hb hbt hr (terminal_of_noTasks hn)⟩
+    TwoParamConf.terminal_unique (invariant_init hwf) hb hbt hr (terminal_of_noTasks hn)⟩
 
-#k2l_assert_axioms terminal_of_noTasks defined transaction
+#k2l_assert_axioms terminal_of_noTasks defined invariant_init transaction
 
 end TwoParamTx
