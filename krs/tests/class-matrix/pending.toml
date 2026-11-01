@@ -5176,7 +5176,3 @@ deviation = "different"
 finding = "NT-30-2"
 deviation = "different"
 
-["terms/readable/map-key/matches-pattern/_"]
-finding = "NT-2-7"
-deviation = "krs::analysis::invalid-term @ spelling"
-
