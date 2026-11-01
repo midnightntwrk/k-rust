@@ -577,9 +577,11 @@ pub fn judge(reading: &Reading, sources: &[String], corpus: &Corpus) -> Followed
 pub struct Unchecked {
     /// The refusal class.
     pub class: &'static str,
-    /// A glob ([`super::table::Glob`]) over the proposed forms as K8 lists them: each in
-    /// backticks (`drop` before a form to take away), joined by `, `.
-    pub forms: &'static str,
+    /// Globs ([`super::table::Glob`]) over one proposed form each, as K8 lists it: in backticks
+    /// (`drop` before a form to take away). The entry reviews a refusal whose every listed form
+    /// ([`listed_forms`]) one of them matches, so a form appended to the advice is reviewed on
+    /// its own.
+    pub forms: &'static [&'static str],
     /// The case shards whose refusals propose them.
     pub shards: &'static [&'static str],
     /// Why no generated case writes them.
@@ -588,14 +590,18 @@ pub struct Unchecked {
 
 /// The forms of the `#[k::rule]`-to-`k::rules!` advice at a subject's root: the case's own
 /// clause, label and subject included.
-const OWN_CLAUSE: &str =
-    r#"`k::rules! \{ for KItem; #[k::rule(label = "case-*")] case_*: k::term![*] => *; \}`"#;
+const OWN_CLAUSE: &[&str] =
+    &[r#"`k::rules! \{ for KItem; #[k::rule(label = "case-*")] case_*: k::term![*] => *; \}`"#];
 
 /// The reason of [`OWN_CLAUSE`]'s entries.
 const OWN_CLAUSE_REASON: &str = "the advice is the case's own sentence rewritten as a clause of `k::rules!` for `KItem`, its label and subject included, which only that rewrite of the case writes; the class's advised case writes the construct at a sort rule's subject root";
 
-/// The forms that narrow a variable to its cell's sort, as a binder's type or as a projection.
-const NARROWED: &str = r"`*: *`{\, `k::project!(*\, *)`,}";
+/// The forms that narrow a variable to its cell's sort, as a binder's type or as a projection:
+/// the variables and sorts the cases' cells give them.
+const NARROWED: &[&str] = &[
+    r"`{x,pgm,any}: {Bool,Int,List,Map,Stmt,Value}`",
+    r"`k::project!({Bool,Int,List,Map,Stmt,Value}\, {x,pgm,any})`",
+];
 
 /// The reviewed unchecked advice of every case shard, by class ([`Unchecked`]). A case shard with
 /// no entry has none: K8 checks every refusal's advice there.
@@ -608,7 +614,7 @@ pub const UNCHECKED: &[Unchecked] = &[
     },
     Unchecked {
         class: "alias-in-let-pattern",
-        forms: "`let p = e; let P = p;`",
+        forms: &["`let p = e; let P = p;`"],
         shards: &["terms"],
         reason: "the advice is a rewrite at the placeholders `p`, `e` and `P`, which no case spells; the class's advised case writes the pattern in a `let` of its own",
     },
@@ -626,13 +632,13 @@ pub const UNCHECKED: &[Unchecked] = &[
     },
     Unchecked {
         class: "function-in-pattern",
-        forms: "`a.bit_or::<Int>(b)`",
+        forms: &["`a.bit_or::<Int>(b)`"],
         shards: &["notation"],
         reason: "the advice spells an operator's method form at the placeholders `a` and `b`, and no case writes `bit_or` as a method",
     },
     Unchecked {
         class: "initializer-remainder",
-        forms: "`k::k![Cmd::Go(), pgm]`",
+        forms: &["`k::k![Cmd::Go(), pgm]`"],
         shards: &["init"],
         reason: "the advice writes the case's own items as one sequence; the class's advised case writes `k::k![pgm]`",
     },
@@ -644,25 +650,27 @@ pub const UNCHECKED: &[Unchecked] = &[
     },
     Unchecked {
         class: "ml-in-condition",
-        forms: "`int::eq`",
+        forms: &["`int::eq`"],
         shards: &["notation", "terms"],
         reason: "the advice names the builtin by its path alone, which no case writes bare; the class's advised case writes the comparison `x == 1`",
     },
     Unchecked {
         class: "notation-in-pattern",
-        forms: r"`{int::lt(..),int::eq(..),int::bit_and(..),int::shift_left(..),int::bit_not(..),int::sub(0\, ..),bool::and_then(..),bool::or_else(..)}`",
+        forms: &[
+            r"`{int::lt(..),int::eq(..),int::bit_and(..),int::shift_left(..),int::bit_not(..),int::sub(0\, ..),bool::and_then(..),bool::or_else(..)}`",
+        ],
         shards: &["terms"],
         reason: "the advice is the builtin call an operator denotes, at the placeholder `..`, which no case writes; the class's advised case writes `int::add(x, 1)` only (an advised case per operator is a generator follow-up)",
     },
     Unchecked {
         class: "record-remainder-in-initializer",
-        forms: "`..base`",
+        forms: &["`..base`"],
         shards: &["terms"],
         reason: "the advice names the record's base at the placeholder `base`; the class's advised case writes `..x`",
     },
     Unchecked {
         class: "sort-test-in-pattern",
-        forms: "`where x: {Sort,Int}`",
+        forms: &["`where x: {Sort,Int}`"],
         shards: &["terms"],
         reason: "the advice is a `where` clause on the case's binder, which no case writes in that spelling; the class's advised cases narrow by a cell's sort, `k::is!` or a typed subject",
     },
@@ -696,15 +704,25 @@ pub fn unchecked_drift(
     let globs = reviewed
         .iter()
         .map(|entry| {
-            Glob::parse(entry.forms)
-                .unwrap_or_else(|reason| panic!("UNCHECKED {}: {reason}", entry.class))
+            entry
+                .forms
+                .iter()
+                .map(|form| {
+                    Glob::parse(form)
+                        .unwrap_or_else(|reason| panic!("UNCHECKED {}: {reason}", entry.class))
+                })
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     let entry_of = |class: &str, forms: &str| {
-        reviewed
-            .iter()
-            .zip(&globs)
-            .position(|(entry, glob)| entry.class == class && glob.matches(forms))
+        let listed = listed_forms(forms);
+        reviewed.iter().zip(&globs).position(|(entry, globs)| {
+            entry.class == class
+                && !listed.is_empty()
+                && listed
+                    .iter()
+                    .all(|form| globs.iter().any(|glob| glob.matches(form)))
+        })
     };
     let mut failures = Vec::new();
     let mut met = vec![false; reviewed.len()];
@@ -720,7 +738,8 @@ pub fn unchecked_drift(
                 "K8: {count} refusals of {class} in the shard {shard} advise {forms}, which the \
                  UNCHECKED entry of {class} for {} reviews for the shards {:?} only: add {shard} \
                  to it",
-                reviewed[index].forms, reviewed[index].shards
+                reviewed[index].forms.join(" | "),
+                reviewed[index].shards
             )),
             Some(index) => met[index] = true,
         }
@@ -734,11 +753,40 @@ pub fn unchecked_drift(
             failures.push(format!(
                 "K8: the UNCHECKED entry of {} for {} lists the shard {shard}, where no refusal \
                  advises it now: drop {shard} from it, or the entry",
-                entry.class, entry.forms
+                entry.class,
+                entry.forms.join(" | ")
             ));
         }
     }
     failures
+}
+
+/// The forms of a list K8 writes ([`Unchecked::forms`]): each in backticks, `drop` before one to
+/// take away, joined by `, `. A form holds no backtick, so each ends at the next one. Empty
+/// where the list is not of that shape.
+#[must_use]
+pub fn listed_forms(forms: &str) -> Vec<&str> {
+    let mut listed = Vec::new();
+    let mut rest = forms;
+    while !rest.is_empty() {
+        let body = rest.strip_prefix("drop ").unwrap_or(rest);
+        let Some(inner) = body.strip_prefix('`') else {
+            return Vec::new();
+        };
+        let Some(end) = inner.find('`') else {
+            return Vec::new();
+        };
+        let length = (rest.len() - inner.len()) + end + 1;
+        listed.push(&rest[..length]);
+        rest = &rest[length..];
+        if !rest.is_empty() {
+            let Some(next) = rest.strip_prefix(", ") else {
+                return Vec::new();
+            };
+            rest = next;
+        }
+    }
+    listed
 }
 
 #[cfg(test)]

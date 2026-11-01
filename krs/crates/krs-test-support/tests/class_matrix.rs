@@ -8,7 +8,7 @@ use std::path::Path;
 
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
-use krs_test_support::class_matrix::advice::{UNCHECKED, Unchecked, unchecked_drift};
+use krs_test_support::class_matrix::advice::{UNCHECKED, Unchecked, listed_forms, unchecked_drift};
 use krs_test_support::class_matrix::attributes::Written;
 use krs_test_support::class_matrix::findings::{
     FINDINGS_FILE, FindingKind, Findings, Owner, Red, RedKind, Summary, audit,
@@ -1159,14 +1159,29 @@ fn a_run_fails_on_unchecked_advice_no_entry_reviews() {
     let reviewed = [
         Unchecked {
             class: "ml-in-condition",
-            forms: "`int::eq`",
+            forms: &["`int::eq`"],
             shards: &["notation", "terms"],
             reason: "r",
         },
         Unchecked {
             class: "sort-test-in-pattern",
-            forms: "`where x: {Sort,Int}`",
+            forms: &["`where x: {Sort,Int}`"],
             shards: &["terms"],
+            reason: "r",
+        },
+        Unchecked {
+            class: "wildcard-at-subject-root",
+            forms: &["`k::rules! \\{ case_*: k::term![*] => *; \\}`"],
+            shards: &["terms"],
+            reason: "r",
+        },
+        Unchecked {
+            class: "configuration-variable-sort",
+            forms: &[
+                "`{x,pgm}: {Int,Map}`",
+                r"`k::project!({Int,Map}\, {x,pgm})`",
+            ],
+            shards: &["init"],
             reason: "r",
         },
     ];
@@ -1179,10 +1194,12 @@ fn a_run_fails_on_unchecked_advice_no_entry_reviews() {
     let drift = |shard, pairs: &[(&str, &str, usize)], whole| {
         unchecked_drift(shard, &observed(pairs), &reviewed, whole)
     };
+    let clause = "`k::rules! { case_1: k::term![_] => 1; }`";
     let every = [
         ("ml-in-condition", "`int::eq`", 41),
         ("sort-test-in-pattern", "`where x: Sort`", 70),
         ("sort-test-in-pattern", "`where x: Int`", 4),
+        ("wildcard-at-subject-root", clause, 1),
     ];
     // Reviewed advice passes at any count, filtered or whole; a filtered run may see a subset.
     assert_eq!(drift("terms", &every, true), Vec::<String>::new());
@@ -1234,6 +1251,82 @@ fn a_run_fails_on_unchecked_advice_no_entry_reviews() {
     assert_eq!(drift("attrs", &[], true), Vec::<String>::new());
 }
 
+/// An entry of [`UNCHECKED`] reviews a refusal whose every listed form one of its globs matches
+/// alone: a form appended to reviewed advice, or one a glob would match only across a form's
+/// backticks, is advice no entry reviews.
+#[test]
+fn a_reviewed_entry_matches_each_listed_form_alone() {
+    let reviewed = [
+        Unchecked {
+            class: "configuration-variable-sort",
+            forms: &[
+                "`{x,pgm}: {Int,Map}`",
+                r"`k::project!({Int,Map}\, {x,pgm})`",
+            ],
+            shards: &["init"],
+            reason: "r",
+        },
+        Unchecked {
+            class: "wildcard-at-subject-root",
+            forms: &["`k::rules! \\{ case_*: k::term![*] => *; \\}`"],
+            shards: &["terms"],
+            reason: "r",
+        },
+    ];
+    let drift = |shard, pairs: &[(&str, &str, usize)], whole| {
+        let observed = pairs
+            .iter()
+            .map(|(class, forms, count)| (((*class).to_owned(), (*forms).to_owned()), *count))
+            .collect::<BTreeMap<_, _>>();
+        unchecked_drift(shard, &observed, &reviewed, whole)
+    };
+    let clause = "`k::rules! { case_1: k::term![_] => 1; }`";
+    let narrowed = [
+        ("configuration-variable-sort", "`pgm: Map`", 1),
+        (
+            "configuration-variable-sort",
+            "`x: Int`, `k::project!(Int, x)`",
+            1,
+        ),
+    ];
+    assert_eq!(drift("init", &narrowed, false), Vec::<String>::new());
+    for (class, forms, shard) in [
+        (
+            "configuration-variable-sort",
+            "`x: Int`, `k::is!(Int, x)`",
+            "init",
+        ),
+        (
+            "configuration-variable-sort",
+            "`drop x`, `pgm: Int`",
+            "init",
+        ),
+        ("configuration-variable-sort", "`k::is!(x): Int`", "init"),
+        (
+            "wildcard-at-subject-root",
+            "`k::rules! { case_1: k::term![_] => 1; }`, `k::absent!(..); }`",
+            "terms",
+        ),
+    ] {
+        let failures = drift(shard, &[(class, forms, 1)], false);
+        assert!(
+            failures
+                .iter()
+                .any(|failure| failure.contains("no entry of UNCHECKED")),
+            "{class} {forms}: {failures:?}"
+        );
+    }
+    assert_eq!(
+        drift("terms", &[("wildcard-at-subject-root", clause, 1)], false),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        listed_forms("drop `x`, `k::project!(Int, x)`"),
+        ["drop `x`", "`k::project!(Int, x)`"]
+    );
+    assert!(listed_forms("`x`,`y`").is_empty());
+}
+
 /// The reviewed unchecked advice ([`UNCHECKED`]) is well formed: one entry per class and forms,
 /// sorted by class, each a class of the table, its forms a glob, its shards case shards, and a
 /// reason.
@@ -1260,13 +1353,21 @@ fn every_reviewed_unchecked_advice_names_a_class_its_shards_and_a_reason() {
             "UNCHECKED: {} is no class of expected.toml",
             entry.class
         );
-        Glob::parse(entry.forms)
-            .unwrap_or_else(|reason| panic!("UNCHECKED {}: {reason}", entry.class));
+        assert!(
+            !entry.forms.is_empty(),
+            "UNCHECKED {}: no forms",
+            entry.class
+        );
+        for form in entry.forms {
+            Glob::parse(form)
+                .unwrap_or_else(|reason| panic!("UNCHECKED {}: {reason}", entry.class));
+        }
         assert!(
             !entry.shards.is_empty()
                 && entry.shards.iter().all(|shard| CASE_SHARDS.contains(shard))
                 && entry.shards.is_sorted(),
-            "UNCHECKED {}: {:?} are not sorted case shards",
+            "UNCHECKED {}: {:?} are not sorted case shards (CASE_SHARDS here copies the shard \
+             tests of krs-cli/tests/class_matrix.rs: a new shard is added to both)",
             entry.class,
             entry.shards
         );

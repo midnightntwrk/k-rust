@@ -19,13 +19,14 @@ use krs_syntax::positions::{
     self as product_table, Admission, Class, Construct, Form, Nesting, Position, RootConstruct,
     Rule, Slot, admits,
 };
+use krs_test_support::class_matrix::findings::{Red, RedKind};
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::oracle::{self, Stage};
 use krs_test_support::class_matrix::pending::{FULL, Pending};
 use krs_test_support::class_matrix::positions::{
     self as model, Entry, Kind, LocalPattern, Notation, Opening, PatternRoot, RewriteSide,
 };
-use krs_test_support::class_matrix::table::{Glob, TERM_ACCEPTS_FILE, Table};
+use krs_test_support::class_matrix::table::{Expected, Glob, TERM_ACCEPTS_FILE, Table};
 use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The disagreements that are not red, as globs over case IDs, and why: the product decides them
@@ -461,7 +462,10 @@ fn the_table_decides_every_term_case_as_the_oracle_does() {
 /// What accounts for a disagreement of the table and the oracle.
 #[derive(Debug, Eq, PartialEq)]
 enum Account<'a> {
-    /// Red: a K2 entry of `pending.toml` (`ID` or `full/ID`), under this finding.
+    /// Red: a K2 entry of `pending.toml` (`ID` or `full/ID`), under this finding, whose red is a
+    /// disagreement of refusal (an under-refusal or an over-refusal, [`Red::of`]): a red for
+    /// another reason (a diagnostic's code or site, rustc's parse error) says nothing of the
+    /// disagreement it would stand beside.
     Pending(&'a str),
     /// Decided by the table: its override of the oracle's refusal, by this rule.
     Overridden(&'a str),
@@ -477,12 +481,23 @@ fn unaccounted_disagreements(
     cases: &[Case],
 ) -> Vec<String> {
     let table = spec();
-    let overridden = table.resolve_cases(cases, registry_kind).overridden;
+    let resolution = table.resolve_cases(cases, registry_kind);
+    let overridden = &resolution.overridden;
     let account = |id: &str| {
         [id.to_owned(), format!("{FULL}{id}")]
             .iter()
-            .find_map(|key| pending.entries.get(key))
-            .map(|entry| Account::Pending(entry.finding.as_str()))
+            .find_map(|key| {
+                let entry = pending.entries.get(key)?;
+                let red = Red::of(
+                    key,
+                    &entry.deviation,
+                    resolution.expected.get(id),
+                    registry_kind,
+                );
+                (matches!(red.kind, RedKind::UnderRefusal | RedKind::OverRefusal)
+                    && !red.rust_syntax)
+                    .then_some(Account::Pending(entry.finding.as_str()))
+            })
             .or_else(|| overridden.get(id).copied().map(Account::Overridden))
     };
     let decisions = NOT_RED
@@ -879,3 +894,53 @@ const COMPOUND_ASSIGNMENTS: [&str; 10] = [
     "a += b", "a -= b", "a *= b", "a /= b", "a %= b", "a &= b", "a |= b", "a ^= b", "a <<= b",
     "a >>= b",
 ];
+
+/// A pending K2 entry accounts for a disagreement of the table and the oracle only as a red of
+/// refusal (an under-refusal or an over-refusal): a red for another reason, a diagnostic's code
+/// or site, says nothing of the disagreement, so it is left unaccounted.
+#[test]
+fn only_a_red_of_refusal_accounts_for_a_disagreement() {
+    let cases = class_matrix::cases();
+    let table = spec();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let decided = NOT_RED
+        .iter()
+        .map(|(pattern, _)| Glob::parse(pattern).expect("NOT_RED holds globs"))
+        .collect::<Vec<_>>();
+    let case = term_cases(&cases)
+        .find(|case| {
+            matches!(
+                resolution.expected.get(&case.id),
+                Some(Expected::Refuse { .. })
+            ) && !resolution.overridden.contains_key(&case.id)
+                && !decided.iter().any(|glob| glob.matches(&case.id))
+                && !case.id.contains(['"', '\\'])
+        })
+        .expect("the table refuses some term case");
+    let disagreements = [(
+        case.id.as_str(),
+        "the table and the oracle disagree".to_owned(),
+    )];
+    let pending = |deviation: &str| {
+        Pending::parse(&format!(
+            "[\"{}\"]\nfinding = \"X\"\ndeviation = \"{deviation}\"\n",
+            case.id
+        ))
+        .unwrap_or_else(|errors| panic!("{errors:#?}"))
+    };
+    // The NOT_RED decisions, whose cases agree here, fail on their own: only the case's line
+    // is read.
+    let of_case = |deviation: &str| {
+        unaccounted_disagreements(&disagreements, &pending(deviation), &cases)
+            .into_iter()
+            .filter(|failure| failure.starts_with(&format!("{}: ", case.id)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(of_case("accepted"), Vec::<String>::new());
+    let diagnostic = of_case("refused: krs::semantic::other at 1..2");
+    assert_eq!(diagnostic.len(), 1, "{diagnostic:?}");
+    assert!(
+        diagnostic[0].contains("no source accounts for it"),
+        "{diagnostic:?}"
+    );
+}
