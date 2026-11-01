@@ -28,6 +28,7 @@
 use std::collections::BTreeMap;
 
 use super::invariants::ObservedDiagnostic;
+use super::table::Glob;
 
 /// The verbs whose imperative proposes a form.
 pub const VERBS: [&str; 22] = [
@@ -568,36 +569,176 @@ pub fn judge(reading: &Reading, sources: &[String], corpus: &Corpus) -> Followed
         .unwrap_or(Followed::Unchecked)
 }
 
-/// Where a shard's run, whose unchecked refusals by class are `observed` ([`Followed::Unchecked`]),
-/// leaves the shard's pin `pinned`: why it fails, or `None`. A whole run (`whole`) fails where
-/// the two differ at all. A run that a filter narrows sees a subset of the shard's cases, whose
-/// counts never exceed the whole run's, since whether a refusal is unchecked depends on the
-/// corpus of every accepted case, not on the filter: so it cannot tell a count that fell, and
-/// fails only where a class turns unchecked that the pin does not list, or where a class's count
-/// exceeds its pin, which no superset of the run can undo.
+/// A refusal's advice that K8 cannot check, reviewed: the forms a class's refusal proposes and no
+/// generated case writes ([`Followed::Unchecked`]), which only the class's reviewed `advice`
+/// states. Each entry is a decision, with its reason. How many refusals meet it follows from the
+/// cases and is not kept: a change that routes more cases to a reviewed advice changes no entry.
+#[derive(Clone, Copy, Debug)]
+pub struct Unchecked {
+    /// The refusal class.
+    pub class: &'static str,
+    /// A glob ([`super::table::Glob`]) over the proposed forms as K8 lists them: each in
+    /// backticks (`drop` before a form to take away), joined by `, `.
+    pub forms: &'static str,
+    /// The case shards whose refusals propose them.
+    pub shards: &'static [&'static str],
+    /// Why no generated case writes them.
+    pub reason: &'static str,
+}
+
+/// The forms of the `#[k::rule]`-to-`k::rules!` advice at a subject's root: the case's own
+/// clause, label and subject included.
+const OWN_CLAUSE: &str =
+    r#"`k::rules! \{ for KItem; #[k::rule(label = "case-*")] case_*: k::term![*] => *; \}`"#;
+
+/// The reason of [`OWN_CLAUSE`]'s entries.
+const OWN_CLAUSE_REASON: &str = "the advice is the case's own sentence rewritten as a clause of `k::rules!` for `KItem`, its label and subject included, which only that rewrite of the case writes; the class's advised case writes the construct at a sort rule's subject root";
+
+/// The forms that narrow a variable to its cell's sort, as a binder's type or as a projection.
+const NARROWED: &str = r"`*: *`{\, `k::project!(*\, *)`,}";
+
+/// The reviewed unchecked advice of every case shard, by class ([`Unchecked`]). A case shard with
+/// no entry has none: K8 checks every refusal's advice there.
+pub const UNCHECKED: &[Unchecked] = &[
+    Unchecked {
+        class: "alias-at-subject-root",
+        forms: OWN_CLAUSE,
+        shards: &["terms"],
+        reason: OWN_CLAUSE_REASON,
+    },
+    Unchecked {
+        class: "alias-in-let-pattern",
+        forms: "`let p = e; let P = p;`",
+        shards: &["terms"],
+        reason: "the advice is a rewrite at the placeholders `p`, `e` and `P`, which no case spells; the class's advised case writes the pattern in a `let` of its own",
+    },
+    Unchecked {
+        class: "configuration-variable-sort",
+        forms: NARROWED,
+        shards: &["terms"],
+        reason: "the advice narrows the case's own variable to the sort of the cell it fills; the class's advised case writes the projection at its own variable and sort (`k::project!(Int, x)`)",
+    },
+    Unchecked {
+        class: "content-sort",
+        forms: NARROWED,
+        shards: &["init"],
+        reason: "the advice narrows the case's own variable to the sort of the cell it fills; the class's advised case writes the projection at its own variable and sort (`k::project!(Int, x)`)",
+    },
+    Unchecked {
+        class: "function-in-pattern",
+        forms: "`a.bit_or::<Int>(b)`",
+        shards: &["notation"],
+        reason: "the advice spells an operator's method form at the placeholders `a` and `b`, and no case writes `bit_or` as a method",
+    },
+    Unchecked {
+        class: "initializer-remainder",
+        forms: "`k::k![Cmd::Go(), pgm]`",
+        shards: &["init"],
+        reason: "the advice writes the case's own items as one sequence; the class's advised case writes `k::k![pgm]`",
+    },
+    Unchecked {
+        class: "island-at-subject-root",
+        forms: OWN_CLAUSE,
+        shards: &["terms"],
+        reason: OWN_CLAUSE_REASON,
+    },
+    Unchecked {
+        class: "ml-in-condition",
+        forms: "`int::eq`",
+        shards: &["notation", "terms"],
+        reason: "the advice names the builtin by its path alone, which no case writes bare; the class's advised case writes the comparison `x == 1`",
+    },
+    Unchecked {
+        class: "notation-in-pattern",
+        forms: r"`{int::lt(..),int::eq(..),int::bit_and(..),int::shift_left(..),int::bit_not(..),int::sub(0\, ..),bool::and_then(..),bool::or_else(..)}`",
+        shards: &["terms"],
+        reason: "the advice is the builtin call an operator denotes, at the placeholder `..`, which no case writes; the class's advised case writes `int::add(x, 1)` only (an advised case per operator is a generator follow-up)",
+    },
+    Unchecked {
+        class: "record-remainder-in-initializer",
+        forms: "`..base`",
+        shards: &["terms"],
+        reason: "the advice names the record's base at the placeholder `base`; the class's advised case writes `..x`",
+    },
+    Unchecked {
+        class: "sort-test-in-pattern",
+        forms: "`where x: {Sort,Int}`",
+        shards: &["terms"],
+        reason: "the advice is a `where` clause on the case's binder, which no case writes in that spelling; the class's advised cases narrow by a cell's sort, `k::is!` or a typed subject",
+    },
+    Unchecked {
+        class: "wildcard-at-subject-root",
+        forms: OWN_CLAUSE,
+        shards: &["terms"],
+        reason: OWN_CLAUSE_REASON,
+    },
+];
+
+/// Where a shard's run, whose unchecked refusals are `observed` by class and proposed forms
+/// ([`Followed::Unchecked`]), leaves the reviewed entries `reviewed` ([`UNCHECKED`]): why it
+/// fails, each failure naming the class, the forms and the entry to update. Every run fails on
+/// unchecked advice no entry reviews, or one whose entry does not list the shard `shard`. A
+/// whole run (`whole`) also fails on an entry that lists the shard and that no refusal of the
+/// run meets: whether a refusal is unchecked depends on the corpus of every accepted case, not
+/// on a filter, but a run that a filter narrows sees only some of the shard's refusals, so only
+/// a whole run can tell that a reviewed advice no longer occurs.
+///
+/// # Panics
+///
+/// Panics if an entry's `forms` is not a glob.
 #[must_use]
 pub fn unchecked_drift(
-    name: &str,
-    observed: &BTreeMap<String, usize>,
-    pinned: &BTreeMap<String, usize>,
+    shard: &str,
+    observed: &BTreeMap<(String, String), usize>,
+    reviewed: &[Unchecked],
     whole: bool,
-) -> Option<String> {
-    if whole {
-        return (observed != pinned).then(|| {
-            format!(
-                "K8's unchecked refusals by class are {observed:?}, where UNCHECKED pins {pinned:?}: review the advice no generated case writes, then pin it"
-            )
-        });
-    }
-    let beyond = observed
+) -> Vec<String> {
+    let globs = reviewed
         .iter()
-        .filter(|(class, count)| pinned.get(*class).is_none_or(|pin| *count > pin))
-        .collect::<BTreeMap<_, _>>();
-    (!beyond.is_empty()).then(|| {
-        format!(
-            "K8's unchecked refusals by class include {beyond:?} in this filtered run, beyond what UNCHECKED pins for the shard {name} ({pinned:?}): review the advice no generated case writes, then pin it"
-        )
-    })
+        .map(|entry| {
+            Glob::parse(entry.forms)
+                .unwrap_or_else(|reason| panic!("UNCHECKED {}: {reason}", entry.class))
+        })
+        .collect::<Vec<_>>();
+    let entry_of = |class: &str, forms: &str| {
+        reviewed
+            .iter()
+            .zip(&globs)
+            .position(|(entry, glob)| entry.class == class && glob.matches(forms))
+    };
+    let mut failures = Vec::new();
+    let mut met = vec![false; reviewed.len()];
+    for ((class, forms), count) in observed {
+        match entry_of(class, forms) {
+            None => failures.push(format!(
+                "K8: {count} refusals of {class} in the shard {shard} advise {forms}, which no \
+                 generated case writes and no entry of UNCHECKED (krs-test-support \
+                 class_matrix::advice) reviews: review the advice, then add an entry with its \
+                 reason, or generate a case that writes it"
+            )),
+            Some(index) if !reviewed[index].shards.contains(&shard) => failures.push(format!(
+                "K8: {count} refusals of {class} in the shard {shard} advise {forms}, which the \
+                 UNCHECKED entry of {class} for {} reviews for the shards {:?} only: add {shard} \
+                 to it",
+                reviewed[index].forms, reviewed[index].shards
+            )),
+            Some(index) => met[index] = true,
+        }
+    }
+    if whole {
+        for (entry, _) in reviewed
+            .iter()
+            .zip(&met)
+            .filter(|(entry, met)| entry.shards.contains(&shard) && !**met)
+        {
+            failures.push(format!(
+                "K8: the UNCHECKED entry of {} for {} lists the shard {shard}, where no refusal \
+                 advises it now: drop {shard} from it, or the entry",
+                entry.class, entry.forms
+            ));
+        }
+    }
+    failures
 }
 
 #[cfg(test)]

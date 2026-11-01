@@ -68,7 +68,7 @@ use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
 use krs_test_support::class_matrix::advice::{
-    Corpus, Followed, Reading, judge, read, unchecked_drift,
+    Corpus, Followed, Reading, UNCHECKED, judge, read, unchecked_drift,
 };
 use krs_test_support::class_matrix::findings::{FINDINGS_FILE, Findings, Red, Summary, audit};
 use krs_test_support::class_matrix::invariants::{
@@ -304,11 +304,32 @@ fn settings() -> (Settings, Option<tempfile::TempDir>) {
     (settings, guard)
 }
 
+/// `KRS_CLASS_FILTER`'s glob over case IDs, where it is set.
+fn filter() -> Option<Glob> {
+    variable("KRS_CLASS_FILTER").map(|pattern| {
+        Glob::parse(&pattern).unwrap_or_else(|reason| panic!("KRS_CLASS_FILTER: {reason}"))
+    })
+}
+
+/// The tests a run with `settings` judges cases by: K1, K2 and K8 always, K3 unless
+/// `KRS_CLASS_CLOSURE=0`, K6 unless `KRS_CLASS_NATIVE=0`, K7 and its twin check where K7 runs.
+fn ran_tests(settings: &Settings) -> BTreeSet<&'static str> {
+    let mut ran = BTreeSet::from(["k1", "k2", "k8"]);
+    if settings.closure {
+        ran.insert("k3");
+    }
+    if settings.native != NativeMode::Off {
+        ran.insert("k6");
+    }
+    if settings.run.is_some() {
+        ran.extend(["k7", "twin"]);
+    }
+    ran
+}
+
 /// The cases of `families`, narrowed by `KRS_CLASS_FILTER`.
 fn selected(families: &[Family]) -> Vec<&'static Case> {
-    let filter = variable("KRS_CLASS_FILTER").map(|pattern| {
-        Glob::parse(&pattern).unwrap_or_else(|reason| panic!("KRS_CLASS_FILTER: {reason}"))
-    });
+    let filter = filter();
     spec()
         .cases
         .iter()
@@ -328,9 +349,11 @@ fn table_miss(
     match expected {
         Expected::Accept(_) if observed.refused() => Some("the table accepts the case".to_owned()),
         Expected::Accept(accepted) => match (accepted.k.as_deref(), k) {
-            (Some(recorded), Some(k)) if recorded != k => {
-                Some("the case emits other K than the table records".to_owned())
-            }
+            (Some(recorded), Some(k)) if recorded != k => Some(format!(
+                "the case emits other K than the table records, {}: re-record its K where the \
+                 change is meant",
+                first_difference(recorded, k)
+            )),
             _ => None,
         },
         Expected::Refuse { name, class, at } => {
@@ -344,6 +367,50 @@ fn table_miss(
             (!error.located_inside(site))
                 .then(|| format!("the table expects the error inside the {at:?}"))
         }
+    }
+}
+
+/// The first line where the K the table records and the K the case emits differ, both shown.
+fn first_difference(recorded: &str, emitted: &str) -> String {
+    let (mut recorded_lines, mut emitted_lines) = (recorded.lines(), emitted.lines());
+    let mut line = 1;
+    loop {
+        match (recorded_lines.next(), emitted_lines.next()) {
+            (Some(was), Some(is)) if was == is => line += 1,
+            (was, is) => {
+                let shown = |text: Option<&str>| {
+                    text.map_or("nothing".to_owned(), |text| format!("`{text}`"))
+                };
+                return format!(
+                    "first at line {line}: the record has {}, the case emits {}",
+                    shown(was),
+                    shown(is)
+                );
+            }
+        }
+    }
+}
+
+/// K2's signature of a judged case: what it did ([`signature`]), and for an accepted case whose
+/// K is not the table's record (`k`, the case's K, `None` in the record mode) that its K moved,
+/// so that a failure names what moved and does not read as a refusal's absence.
+fn k2_signature(
+    resolution: &Resolution<'_>,
+    judged: &Judged,
+    placed: &Placed<'_>,
+    k: Option<&str>,
+) -> String {
+    let moved = match (resolution.expected.get(&judged.id), k) {
+        (Some(Expected::Accept(accepted)), Some(k)) => {
+            !judged.observed.refused()
+                && accepted.k.as_deref().is_some_and(|recorded| recorded != k)
+        }
+        _ => false,
+    };
+    if moved {
+        "accepted, with other K than recorded".to_owned()
+    } else {
+        signature(&judged.observed, placed)
     }
 }
 
@@ -362,8 +429,9 @@ struct Shard {
     failures: Vec<String>,
     lines: String,
     record: String,
-    /// K8's unchecked refusals by class: those whose proposed form no generated case writes.
-    unchecked: BTreeMap<String, usize>,
+    /// K8's unchecked refusals by class and proposed forms: those whose proposed forms no
+    /// generated case writes.
+    unchecked: BTreeMap<(String, String), usize>,
 }
 
 impl Shard {
@@ -387,11 +455,18 @@ impl Shard {
         });
     }
 
-    /// Apply the red list to every verdict, and fail each pending entry of `tests` for these
-    /// `families` that names no verdict; returns the red keys.
-    fn judge(&mut self, pending: &Pending, families: &[Family], stale_check: bool) -> Vec<String> {
+    /// Apply the red list to every verdict, and fail each pending entry of a test that `ran`, of
+    /// a case the run `covers` for that test ([`Pending::unjudged`]), that names no verdict;
+    /// returns the red keys. Each failure names what moved: the deviation, and what the case
+    /// should have done and did not.
+    fn judge(
+        &mut self,
+        pending: &Pending,
+        ran: &BTreeSet<&str>,
+        covers: impl Fn(&str, &str) -> bool,
+    ) -> Vec<String> {
         let mut red = Vec::new();
-        for (test, verdicts) in &self.verdicts {
+        for verdicts in self.verdicts.values() {
             for verdict in verdicts {
                 let observation = if verdict.misses.is_empty() {
                     Observation::Conforms
@@ -410,7 +485,11 @@ impl Shard {
                     Judgement::Red => red.push(verdict.key.clone()),
                     Judgement::Conforms => {}
                     failure => {
-                        self.failures.push(format!("{}: {failure}", verdict.key));
+                        self.failures.push(if verdict.misses.is_empty() {
+                            format!("{}: {failure}", verdict.key)
+                        } else {
+                            format!("{}: {failure} ({})", verdict.key, verdict.misses.join("; "))
+                        });
                         if let Judgement::Unexpected { observed }
                         | Judgement::DeviationChanged { observed, .. } = failure
                         {
@@ -425,27 +504,31 @@ impl Shard {
                     }
                 }
             }
-            if stale_check {
-                let cases = verdicts
-                    .iter()
-                    .filter_map(|verdict| case_of(&verdict.key))
-                    .collect::<BTreeSet<_>>();
-                for key in pending.entries.keys() {
-                    let ours = test_of(key) == *test;
-                    let Some(case) = case_of(key).filter(|_| ours) else {
-                        continue;
-                    };
-                    let in_shard = families
-                        .iter()
-                        .any(|family| case.starts_with(&format!("{}/", family.name())));
-                    if in_shard && !cases.contains(case) {
-                        self.failures.push(format!(
-                            "{key}: pending, but this test judged no case with this ID"
-                        ));
-                    }
-                }
-            }
         }
+        let judged = self
+            .verdicts
+            .iter()
+            .map(|(test, verdicts)| {
+                (
+                    *test,
+                    verdicts
+                        .iter()
+                        .filter_map(|verdict| case_of(&verdict.key))
+                        .collect::<BTreeSet<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let unjudged = pending
+            .unjudged(ran, &judged, covers)
+            .into_iter()
+            .map(|(key, test)| {
+                format!(
+                    "{key}: pending, but {test} judged no case with this ID in this run: it \
+                     conforms, or no such case is generated; remove it from pending.toml"
+                )
+            })
+            .collect::<Vec<_>>();
+        self.failures.extend(unjudged);
         red
     }
 
@@ -541,7 +624,7 @@ fn k2_verdict(
         .flatten()
         .map(|additions| case_k(additions, &case.tag()));
     let misses = k2_misses(resolution, case, judged, k.as_deref());
-    let signature = signature(&judged.observed, &judged.placed(case));
+    let signature = k2_signature(resolution, judged, &judged.placed(case), k.as_deref());
     let observation = if misses.is_empty() {
         Observation::Conforms
     } else {
@@ -605,7 +688,7 @@ fn k2(
     shard.add(
         "k2",
         &judged.id,
-        signature(&judged.observed, &placed),
+        k2_signature(resolution, judged, &placed, k),
         misses,
     );
     covered.is_some()
@@ -717,7 +800,7 @@ fn k8_refusal(shard: &mut Shard, resolution: &Resolution<'_>, corpus: &Corpus, j
             if reading.groups.is_empty() {
                 return;
             }
-            let (signature, miss) = k8_against(
+            let (signature, miss, unchecked) = k8_against(
                 name,
                 &advised,
                 &reading,
@@ -725,10 +808,12 @@ fn k8_refusal(shard: &mut Shard, resolution: &Resolution<'_>, corpus: &Corpus, j
                 resolution,
                 corpus,
             );
-            let unchecked = signature.contains(UNCHECKED_MARK);
             verdict(signature, miss);
-            if unchecked {
-                *shard.unchecked.entry((*name).to_owned()).or_default() += 1;
+            if let Some(forms) = unchecked {
+                *shard
+                    .unchecked
+                    .entry(((*name).to_owned(), forms))
+                    .or_default() += 1;
             }
         }
         Some(Expected::Accept(_)) => {
@@ -744,7 +829,8 @@ fn k8_refusal(shard: &mut Shard, resolution: &Resolution<'_>, corpus: &Corpus, j
 }
 
 /// K8's verdict on a refusal of the class `name` that reads `reading` (its forms `advice`),
-/// against the class's advised cases `advised`: the signature, and the miss where it deviates.
+/// against the class's advised cases `advised`: the signature, the miss where it deviates, and
+/// the proposed forms where no generated case writes them ([`Followed::Unchecked`]).
 fn k8_against(
     name: &str,
     advised: &[String],
@@ -752,7 +838,7 @@ fn k8_against(
     advice: Option<&str>,
     resolution: &Resolution<'_>,
     corpus: &Corpus,
-) -> (String, Option<&'static str>) {
+) -> (String, Option<&'static str>, Option<String>) {
     // The advised cases this form has, generated and accepted, with their own text.
     let mut missing = Vec::new();
     let mut sources = Vec::new();
@@ -777,6 +863,7 @@ fn k8_against(
         (
             format!("{name} advises {}", missing.join("; ")),
             Some("the form a refusal advises does not exist on its form"),
+            None,
         )
     } else {
         let cases = sources
@@ -793,16 +880,19 @@ fn k8_against(
             Followed::Followed => (
                 format!("{name} advises {cases}, which follows {follows}"),
                 None,
+                None,
             ),
             Followed::Unwritten { form, writer } => (
                 format!(
                     "{name}'s refusal advises `{form}`, which {cases} does not write ({writer} does)"
                 ),
                 Some("the refusal advises a form its class's advised case does not write"),
+                None,
             ),
             Followed::Unchecked => (
-                format!("{name} advises {cases}{UNCHECKED_MARK}no generated case writes {follows}"),
+                format!("{name} advises {cases}; unchecked: no generated case writes {follows}"),
                 None,
+                Some(follows.to_owned()),
             ),
         }
     }
@@ -819,62 +909,13 @@ fn write_out(name: &str, shard: &Shard) {
     }
 }
 
-/// What a K8 signature says of a refusal whose proposed forms no generated case writes.
-const UNCHECKED_MARK: &str = "; unchecked: ";
-
-/// K8's unchecked refusals, by shard and class: refusals whose proposed form no generated case
-/// writes, which only the class's reviewed `advice` states (`class_matrix::advice::Followed`).
-/// A shard whose counts differ fails, so a new class or a message that adds unchecked advice is
-/// reviewed before it is pinned here; a case shard listed in [`NO_UNCHECKED`] has none.
-const UNCHECKED: &[(&str, &str, usize)] = &[
-    ("init", "content-sort", 8),
-    ("init", "initializer-remainder", 1),
-    ("notation", "function-in-pattern", 4),
-    ("notation", "ml-in-condition", 27),
-    ("terms", "alias-at-subject-root", 2),
-    // 53: NT-31 lets a `cells!` subject's computed key hold a `let` block, so its two key
-    // positions meet the same `let p = e; let P = p;` advice as every other one.
-    ("terms", "alias-in-let-pattern", 53),
-    ("terms", "configuration-variable-sort", 2),
-    ("terms", "island-at-subject-root", 18),
-    ("terms", "ml-in-condition", 41),
-    // NT-32: the eight builtin-call forms `notation-in-pattern` advises (`int::lt(..)`,
-    // `int::eq(..)`, `int::bit_and(..)`, `int::shift_left(..)`, `bool::and_then(..)`,
-    // `bool::or_else(..)`, `int::sub(0, ..)`, `int::bit_not(..)`) are reached at the positions
-    // below a root that a term's other grammar now reads (264 -> 376), and `k::is!`/`k::project!`
-    // in an `or-branch` advise `where x: Sort` (70 -> 72). No advice text is new; making these
-    // forms checkable (an advised case per operator) is a follow-up of the table and generator.
-    ("terms", "notation-in-pattern", 376),
-    ("terms", "record-remainder-in-initializer", 4),
-    // 74: with NT-31 and NT-32 together, a sort test inside a readable key's `let` or
-    // `k::matches!` pattern is reached (NT-31 admits the outer construct; NT-32 reads its pattern),
-    // with the same `where x: Sort` advice as every other position.
-    ("terms", "sort-test-in-pattern", 74),
-    ("terms", "wildcard-at-subject-root", 2),
-];
-
-/// The case shards whose refusals propose no form outside the generated cases: K8 checks all of
-/// their advice. A case shard is pinned in [`UNCHECKED`] or here.
-const NO_UNCHECKED: &[&str] = &["attrs", "cells", "import", "readable", "runs"];
-
-/// Fail the shard `name` where its unchecked K8 refusals leave [`UNCHECKED`]'s pin
-/// ([`unchecked_drift`]: any difference in a whole run, a class beyond the pin in a run that
-/// `KRS_CLASS_FILTER` narrows, `whole` false), or where it is pinned neither there nor in
-/// [`NO_UNCHECKED`].
+/// Fail the shard `name` where its unchecked K8 refusals leave the reviewed entries of
+/// [`UNCHECKED`] ([`unchecked_drift`]: advice no entry reviews in any run, and in a whole run,
+/// `whole`, an entry of the shard that no refusal meets).
 fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
-    if !NO_UNCHECKED.contains(&name) && !UNCHECKED.iter().any(|(pinned, ..)| *pinned == name) {
-        shard.failures.push(format!(
-            "the shard {name} pins its unchecked K8 refusals neither in UNCHECKED nor in NO_UNCHECKED"
-        ));
-    }
-    let pinned = UNCHECKED
-        .iter()
-        .filter(|(pinned, ..)| *pinned == name)
-        .map(|(_, class, count)| ((*class).to_owned(), *count))
-        .collect::<BTreeMap<_, _>>();
     shard
         .failures
-        .extend(unchecked_drift(name, &shard.unchecked, &pinned, whole));
+        .extend(unchecked_drift(name, &shard.unchecked, UNCHECKED, whole));
 }
 
 /// The own text of every generated case the table accepts, for the forms K8 reads.
@@ -1199,6 +1240,50 @@ fn table_failures(resolution: &Resolution<'_>) -> Vec<String> {
         .collect()
 }
 
+/// Which pending entries a run over `families`, narrowed by `filter`, covers, by test and case:
+/// the cases it selects. A twin entry is covered only where the run also selects the case's twin
+/// (of the selected cases `by_id`), without which no twin verdict is made; a whole run selects
+/// both.
+fn covered<'r>(
+    families: &'r [Family],
+    filter: Option<&'r Glob>,
+    by_id: &BTreeMap<&str, &'r Case>,
+) -> impl Fn(&str, &str) -> bool + 'r {
+    let twinned = class_matrix::twins(by_id.values().copied())
+        .into_iter()
+        .map(|(case, _)| case.id.clone())
+        .collect::<BTreeSet<_>>();
+    move |test: &str, case: &str| {
+        families
+            .iter()
+            .any(|family| case.starts_with(&format!("{}/", family.name())))
+            && filter.is_none_or(|glob| glob.matches(case))
+            && (filter.is_none() || test != "twin" || twinned.contains(case))
+    }
+}
+
+/// Conclude the shard `name` over `families`, whose selected cases are `by_id`, run with
+/// `settings`: its unchecked advice, the red list applied to its verdicts (the entries of the
+/// cases it covers, [`covered`]), its accounting and its output. Returns the red keys.
+fn conclude(
+    name: &str,
+    shard: &mut Shard,
+    families: &[Family],
+    by_id: &BTreeMap<&str, &Case>,
+    settings: &Settings,
+) -> Vec<String> {
+    let filter = filter();
+    check_unchecked(name, shard, filter.is_none());
+    let red = shard.judge(
+        &spec().pending,
+        &ran_tests(settings),
+        covered(families, filter.as_ref(), by_id),
+    );
+    account(name, shard, &red);
+    write_out(name, shard);
+    red
+}
+
 /// Run one shard: judge its cases and apply the table and the red list.
 fn shard(name: &str, families: &[Family]) {
     let cases = selected(families);
@@ -1274,12 +1359,7 @@ fn shard(name: &str, families: &[Family]) {
             recorded.len()
         );
     }
-    let whole = variable("KRS_CLASS_FILTER").is_none();
-    check_unchecked(name, &mut shard, whole);
-    let red = shard.judge(&spec.pending, families, whole);
-    account(name, &mut shard, &red);
-    write_out(name, &shard);
-
+    let red = conclude(name, &mut shard, families, &by_id, &settings);
     for (form, counts) in &forms {
         eprintln!("[krs-class] {name}: K3 {form}: {counts:?}");
     }
@@ -1470,7 +1550,8 @@ fn k5() {
         };
         shard.add("k5", &checked.id, checked.signature(), misses);
     }
-    let red = shard.judge(&spec.pending, &[], false);
+    // K5 checks its own entries (`entry/..`) below: no case test ran.
+    let red = shard.judge(&spec.pending, &BTreeSet::new(), |_, _| false);
     account("k5", &mut shard, &red);
     let judged = checked
         .iter()

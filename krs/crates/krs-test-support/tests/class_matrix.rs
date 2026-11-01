@@ -8,7 +8,7 @@ use std::path::Path;
 
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
-use krs_test_support::class_matrix::advice::unchecked_drift;
+use krs_test_support::class_matrix::advice::{UNCHECKED, Unchecked, unchecked_drift};
 use krs_test_support::class_matrix::attributes::Written;
 use krs_test_support::class_matrix::findings::{
     FINDINGS_FILE, FindingKind, Findings, Owner, Red, RedKind, Summary, audit,
@@ -1151,57 +1151,131 @@ fn the_findings_registry_sees_a_bug_where_it_hides() {
     ]);
 }
 
-/// K8's unchecked refusals against the shard's pin: a whole run fails on any difference; a
-/// filtered run, which sees a subset, only on a class the pin does not list or a count above its
-/// pin, and never on a count below it.
+/// K8's unchecked refusals against the reviewed entries: any run fails on advice no entry reviews
+/// or one whose entry does not list the shard, however many refusals meet it; only a whole run
+/// fails on an entry of the shard no refusal meets, since a filtered run sees a subset.
 #[test]
-fn a_filtered_run_fails_on_unchecked_drift_no_superset_undoes() {
-    let counts = |pairs: &[(&str, usize)]| {
+fn a_run_fails_on_unchecked_advice_no_entry_reviews() {
+    let reviewed = [
+        Unchecked {
+            class: "ml-in-condition",
+            forms: "`int::eq`",
+            shards: &["notation", "terms"],
+            reason: "r",
+        },
+        Unchecked {
+            class: "sort-test-in-pattern",
+            forms: "`where x: {Sort,Int}`",
+            shards: &["terms"],
+            reason: "r",
+        },
+    ];
+    let observed = |pairs: &[(&str, &str, usize)]| {
         pairs
             .iter()
-            .map(|(class, count)| ((*class).to_owned(), *count))
+            .map(|(class, forms, count)| (((*class).to_owned(), (*forms).to_owned()), *count))
             .collect::<BTreeMap<_, _>>()
     };
-    let pinned = counts(&[("ml-in-condition", 41), ("notation-in-pattern", 264)]);
-    let drift = |observed: &[(&str, usize)], whole| {
-        unchecked_drift("terms", &counts(observed), &pinned, whole)
+    let drift = |shard, pairs: &[(&str, &str, usize)], whole| {
+        unchecked_drift(shard, &observed(pairs), &reviewed, whole)
     };
-    // A subset of the pin, or the pin itself, passes a filtered run.
-    assert_eq!(drift(&[], false), None);
-    assert_eq!(drift(&[("ml-in-condition", 3)], false), None);
+    let every = [
+        ("ml-in-condition", "`int::eq`", 41),
+        ("sort-test-in-pattern", "`where x: Sort`", 70),
+        ("sort-test-in-pattern", "`where x: Int`", 4),
+    ];
+    // Reviewed advice passes at any count, filtered or whole; a filtered run may see a subset.
+    assert_eq!(drift("terms", &every, true), Vec::<String>::new());
+    assert_eq!(drift("terms", &every[..1], false), Vec::<String>::new());
+    assert_eq!(drift("terms", &[], false), Vec::<String>::new());
     assert_eq!(
-        drift(
-            &[("ml-in-condition", 41), ("notation-in-pattern", 264)],
-            false
-        ),
-        None
+        drift("terms", &[("ml-in-condition", "`int::eq`", 400)], false),
+        Vec::<String>::new()
     );
-    // A class the pin does not list, or a count above its pin, fails it.
-    let new_class = drift(&[("ml-in-condition", 3), ("content-sort", 1)], false)
-        .expect("a new unchecked class fails a filtered run");
-    assert!(
-        new_class.contains("include {\"content-sort\": 1} in this filtered run, beyond what UNCHECKED pins for the shard terms"),
-        "{new_class}"
-    );
-    let above = drift(&[("ml-in-condition", 42)], false).expect("a count above its pin fails");
-    assert!(above.contains("{\"ml-in-condition\": 42}"), "{above}");
-    // A whole run fails on any difference, a count that fell included.
+    // Advice no entry reviews fails every run: a new class, or new forms of a reviewed class.
+    for whole in [false, true] {
+        let new = drift("terms", &[("content-sort", "`x: Int`", 1)], whole);
+        assert!(
+            new.iter().any(|failure| failure.contains(
+                "1 refusals of content-sort in the shard terms advise `x: Int`, which no generated case writes and no entry of UNCHECKED"
+            )),
+            "{new:?}"
+        );
+        let other = drift("terms", &[("ml-in-condition", "`int::ne`", 2)], whole);
+        assert!(
+            other
+                .iter()
+                .any(|failure| failure.contains("advise `int::ne`")),
+            "{other:?}"
+        );
+        // Reviewed advice in a shard its entry does not list.
+        let elsewhere = drift(
+            "init",
+            &[("sort-test-in-pattern", "`where x: Int`", 1)],
+            whole,
+        );
+        assert!(
+            elsewhere
+                .iter()
+                .any(|failure| failure.contains("for the shards [\"terms\"] only: add init to it")),
+            "{elsewhere:?}"
+        );
+    }
+    // A whole run fails on an entry of the shard no refusal meets; a filtered run cannot tell.
+    let stale = drift("terms", &every[1..], true);
     assert_eq!(
-        drift(
-            &[("ml-in-condition", 41), ("notation-in-pattern", 264)],
-            true
-        ),
-        None
+        stale,
+        [
+            "K8: the UNCHECKED entry of ml-in-condition for `int::eq` lists the shard terms, where no \
+          refusal advises it now: drop terms from it, or the entry"
+        ]
     );
-    let fell = drift(
-        &[("ml-in-condition", 40), ("notation-in-pattern", 264)],
-        true,
+    assert_eq!(drift("terms", &every[1..], false), Vec::<String>::new());
+    assert_eq!(drift("attrs", &[], true), Vec::<String>::new());
+}
+
+/// The reviewed unchecked advice ([`UNCHECKED`]) is well formed: one entry per class and forms,
+/// sorted by class, each a class of the table, its forms a glob, its shards case shards, and a
+/// reason.
+#[test]
+fn every_reviewed_unchecked_advice_names_a_class_its_shards_and_a_reason() {
+    const CASE_SHARDS: [&str; 8] = [
+        "attrs", "cells", "import", "init", "notation", "readable", "runs", "terms",
+    ];
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
     )
-    .expect("a count that fell fails a whole run");
-    assert!(
-        fell.starts_with("K8's unchecked refusals by class are"),
-        "{fell}"
-    );
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let classes = UNCHECKED
+        .iter()
+        .map(|entry| entry.class)
+        .collect::<Vec<_>>();
+    let mut sorted = classes.clone();
+    sorted.sort_unstable();
+    assert_eq!(classes, sorted, "UNCHECKED is sorted by class");
+    for entry in UNCHECKED {
+        assert!(
+            table.classes.contains_key(entry.class),
+            "UNCHECKED: {} is no class of expected.toml",
+            entry.class
+        );
+        Glob::parse(entry.forms)
+            .unwrap_or_else(|reason| panic!("UNCHECKED {}: {reason}", entry.class));
+        assert!(
+            !entry.shards.is_empty()
+                && entry.shards.iter().all(|shard| CASE_SHARDS.contains(shard))
+                && entry.shards.is_sorted(),
+            "UNCHECKED {}: {:?} are not sorted case shards",
+            entry.class,
+            entry.shards
+        );
+        assert!(
+            !entry.reason.is_empty(),
+            "UNCHECKED {}: no reason",
+            entry.class
+        );
+    }
 }
 
 /// The registry's own schema: an entry's owner by its test, sorted names, a known owner, kind and
@@ -2701,5 +2775,57 @@ fn the_notation_familys_name_rules_decide_only_spellings_that_read_a_name() {
     assert!(
         captured.is_empty(),
         "decided by a name rule, reading no name: {captured:#?}"
+    );
+}
+
+/// A run that a filter narrows judges the pending entries of the cases it selects as a whole run
+/// does, every prefix alike: an entry of a selected case that names no verdict of its test (its
+/// case conforms now, say a `k8/` entry of a refusal that turned into an accept) fails it; an
+/// entry of a case the filter leaves out, or of a test the run does not run, does not.
+#[test]
+fn a_filtered_run_fails_on_a_stale_entry_of_any_prefix() {
+    let entry = |key: &str| format!("[{key:?}]\nfinding = \"F\"\ndeviation = \"d\"\n\n");
+    let keys = [
+        "k8/terms/a/x",
+        "k8/terms/b/x",
+        "k3/terms/a/x",
+        "k6/terms/a/x",
+        "k7/terms/a/y",
+        "terms/a/y",
+        "full/terms/a/z",
+        "lattice/c",
+    ];
+    let pending = Pending::parse(&keys.map(entry).concat()).expect("the entries parse");
+    let filter = Glob::parse("terms/a/*").expect("the filter parses");
+    let covers = |_: &str, case: &str| filter.matches(case);
+    // The run judged `terms/a/x` by K2, K3 and K7 and found it accepted, so it has no K8
+    // verdict; `terms/a/y` deviates at K2 and K7, as recorded; `terms/a/z` is no case.
+    let judged = BTreeMap::from([
+        ("k2", BTreeSet::from(["terms/a/x", "terms/a/y"])),
+        ("k3", BTreeSet::from(["terms/a/x"])),
+        ("k7", BTreeSet::from(["terms/a/y"])),
+    ]);
+    let ran = BTreeSet::from(["k1", "k2", "k3", "k7", "k8"]);
+    assert_eq!(
+        pending.unjudged(&ran, &judged, covers),
+        vec![("full/terms/a/z", "k2"), ("k8/terms/a/x", "k8")],
+        "the stale K8 entry of a selected case fails; `k8/terms/b/x` is outside the filter, and \
+         K6 did not run"
+    );
+    // The same entries in a whole run: every case is covered.
+    assert_eq!(
+        pending.unjudged(&ran, &judged, |_, _| true),
+        vec![
+            ("full/terms/a/z", "k2"),
+            ("k8/terms/a/x", "k8"),
+            ("k8/terms/b/x", "k8"),
+        ]
+    );
+    // With K6 run, its entry of a case it judged no definition of fails too.
+    let with_k6 = BTreeSet::from(["k1", "k2", "k3", "k6", "k7", "k8"]);
+    assert!(
+        pending
+            .unjudged(&with_k6, &judged, covers)
+            .contains(&("k6/terms/a/x", "k6"))
     );
 }

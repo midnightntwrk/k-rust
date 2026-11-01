@@ -45,7 +45,7 @@
 //!   full tier observes otherwise (rustc adds an error to the front's, say). The full tier reads
 //!   it in place of `CASE`'s entry.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use toml_edit::DocumentMut;
@@ -275,6 +275,33 @@ impl Pending {
             .keys()
             .map(String::as_str)
             .filter(|id| case_of(id).is_some_and(|case| !ids.contains(&case)))
+            .collect()
+    }
+
+    /// The entries a run should have judged and did not, each with its test: an entry of a test
+    /// the run ran (`ran`, by [`test_of`]), whose case ([`case_of`]) the run covers for that test
+    /// (`covers(test, case)`: in a run that a filter narrows, the cases it selects), and that names
+    /// no case `judged` holds for that test (by test, the cases with a verdict). Such an entry's
+    /// case conforms now, or is no case the generator produces: it must leave the list. A run
+    /// that a filter narrows judges the entries of its cases as a whole run does, every prefix
+    /// alike. [`LATTICE`] entries name no case and are not listed.
+    #[must_use]
+    pub fn unjudged<'a>(
+        &'a self,
+        ran: &BTreeSet<&str>,
+        judged: &BTreeMap<&str, BTreeSet<&str>>,
+        covers: impl Fn(&str, &str) -> bool,
+    ) -> Vec<(&'a str, &'static str)> {
+        self.entries
+            .keys()
+            .filter_map(|key| {
+                let test = test_of(key);
+                let case = case_of(key)?;
+                (ran.contains(test)
+                    && covers(test, case)
+                    && !judged.get(test).is_some_and(|cases| cases.contains(case)))
+                .then_some((key.as_str(), test))
+            })
             .collect()
     }
 

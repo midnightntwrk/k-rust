@@ -2,15 +2,16 @@
 //! classes are those of `krs/tests/class-matrix/expected.toml`, with the same codes; the
 //! oracle's (`class_matrix::oracle`) are too, and cover the product's; and the product's table,
 //! written per position, decides every generated term case as the oracle, written per
-//! construct, does, from the case's own position and nodes. The cases on which the two disagree
-//! are exactly the known findings ([`KNOWN`]), each on the red list (`pending.toml`) under its
-//! finding, so the spec and the product cannot drift apart silently.
+//! construct, does, from the case's own position and nodes. Each case on which the two disagree
+//! is accounted for by one source: its entry on the red list (`pending.toml`, under its finding),
+//! the table's override of the oracle (`expected.toml`), or a decision that it is not red
+//! ([`NOT_RED`], with its reason), so the spec and the product cannot drift apart silently.
 //!
 //! The coverage tests: every form of the product's table has a generated position, every slot of
 //! every form its root and an argument, and every construct of the table and every notation form
 //! of `krs_syntax::notation` a spelling, apart from the listed exceptions with their reasons.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use krs_ir::BuiltinOperator;
@@ -20,53 +21,28 @@ use krs_syntax::positions::{
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::oracle::{self, Stage};
-use krs_test_support::class_matrix::pending::Pending;
+use krs_test_support::class_matrix::pending::{FULL, Pending};
 use krs_test_support::class_matrix::positions::{
     self as model, Entry, Kind, LocalPattern, Notation, Opening, PatternRoot, RewriteSide,
 };
 use krs_test_support::class_matrix::table::{Glob, TERM_ACCEPTS_FILE, Table};
 use krs_test_support::class_matrix::{self, Case, Family};
 
-/// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
-/// the finding of each.
-const KNOWN: [(&str, &str); 1] = [(
-    r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
-    "S0-14",
-)];
-
-/// The disagreements that are no finding's, as globs over case IDs, and why: the product decides
-/// them outside its table, where the oracle's answer is met.
-const NOT_RED: [(&str, &str); 3] = [
+/// The disagreements that are not red, as globs over case IDs, and why: the product decides them
+/// before or outside its table's row, where the oracle's answer is met, so the full tier sees
+/// them conform. Each is a decision, and holds exactly the cases it names: every term case a
+/// glob matches is a disagreement no pending entry and no table override accounts for. A
+/// disagreement that is red is accounted for by its pending entry (`pending.toml`, under its
+/// finding), and one the table decides by its override (`expected.toml`), so neither is listed.
+const NOT_RED: [(&str, &str); 2] = [
     (
         r"terms/{claim/result,claim/result-item-root,readable/result,readable/result-item-root,readable/result-list-element}/Cmd::Pair \{ a: x\, .. \}",
         "a readable result also creates cell instances, whose `..` gives the other cells their defaults, and the table cannot tell an instance's record from a constructor's before resolution: the compiler refuses a constructor's open record there, with the class's code at the record (NT-28)",
     ),
     (
-        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
-        "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure first",
+        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0)),y @ Cmd::Hold(_)}",
+        "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives, `@` and a closure first",
     ),
-    (
-        "terms/desugar/subject/[x, ..]",
-        "a list's brackets in a desugar's `KItem` argument are refused by their sort (`list-notation-sort`), which the compiler meets before the oracle's `collection-in-static-subject` and the table overrides it with",
-    ),
-];
-
-/// The disagreements the product decides before or outside the table's row, which are not red:
-/// the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure
-/// below a function's application; and the compiler refuses an open record there (`key_names`),
-/// which the table cannot tell from a constructor's argument before resolution, as it cannot
-/// tell a readable result's open constructor record from a cell instance's.
-const DECIDED_BEFORE_THE_TABLE: [&str; 10] = [
-    "terms/claim/result-item-root/Cmd::Pair { a: x, .. }",
-    "terms/claim/result/Cmd::Pair { a: x, .. }",
-    "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
-    "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
-    "terms/readable/map-key/function-argument/_",
-    "terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
-    "terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
-    "terms/readable/result-item-root/Cmd::Pair { a: x, .. }",
-    "terms/readable/result-list-element/Cmd::Pair { a: x, .. }",
-    "terms/readable/result/Cmd::Pair { a: x, .. }",
 ];
 
 fn read_class_matrix(file: &str) -> String {
@@ -473,65 +449,91 @@ fn the_table_decides_every_term_case_as_the_oracle_does() {
         judged += 1;
     }
     assert!(judged > 4000, "only {judged} term cases were judged");
-    let known = KNOWN
+    let failures = unaccounted_disagreements(&disagreements, &pending, &cases);
+    assert!(
+        failures.is_empty(),
+        "{} disagreements of the table and the oracle are not accounted for:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// What accounts for a disagreement of the table and the oracle.
+#[derive(Debug, Eq, PartialEq)]
+enum Account<'a> {
+    /// Red: a K2 entry of `pending.toml` (`ID` or `full/ID`), under this finding.
+    Pending(&'a str),
+    /// Decided by the table: its override of the oracle's refusal, by this rule.
+    Overridden(&'a str),
+}
+
+/// The failures of `disagreements`, each a case ID and what the two answers are: a disagreement
+/// that neither `pending.toml`, nor the table's override, nor a [`NOT_RED`] decision accounts
+/// for; a [`NOT_RED`] glob that matches a case that agrees, or that another source accounts for,
+/// or no case at all. Each failure names the case, the entry and the file to update.
+fn unaccounted_disagreements(
+    disagreements: &[(&str, String)],
+    pending: &Pending,
+    cases: &[Case],
+) -> Vec<String> {
+    let table = spec();
+    let overridden = table.resolve_cases(cases, registry_kind).overridden;
+    let account = |id: &str| {
+        [id.to_owned(), format!("{FULL}{id}")]
+            .iter()
+            .find_map(|key| pending.entries.get(key))
+            .map(|entry| Account::Pending(entry.finding.as_str()))
+            .or_else(|| overridden.get(id).copied().map(Account::Overridden))
+    };
+    let decisions = NOT_RED
         .iter()
-        .map(|(pattern, finding)| (*pattern, Some(*finding)))
-        .chain(NOT_RED.iter().map(|(pattern, _)| (*pattern, None)))
-        .map(|(pattern, finding)| {
+        .map(|(pattern, _)| {
             let glob = Glob::parse(pattern).unwrap_or_else(|reason| panic!("{pattern}: {reason}"));
-            (pattern, glob, finding)
+            (*pattern, glob)
         })
         .collect::<Vec<_>>();
-    let unknown = disagreements
+    let disagreeing = disagreements
         .iter()
-        .filter(|(id, _)| !known.iter().any(|(_, glob, _)| glob.matches(id)))
-        .map(|(id, line)| format!("{id}: {line}"))
-        .collect::<Vec<_>>();
-    assert!(
-        unknown.is_empty(),
-        "{} disagreements:\n{}",
-        unknown.len(),
-        unknown.join("\n")
-    );
-    let gone = known
-        .iter()
-        .filter(|(_, glob, _)| !disagreements.iter().any(|(id, _)| glob.matches(id)))
-        .map(|(pattern, _, _)| *pattern)
-        .collect::<Vec<_>>();
-    assert!(
-        gone.is_empty(),
-        "known disagreements that agree now: {gone:?}"
-    );
-    // A disagreement that is red is pending under its finding. One that is not is decided before
-    // the table's row: by a name or sort rule of the table, met before the oracle's resolution
-    // refusal, or by a reader of the product that refuses an inner construct the oracle refuses
-    // too (the table reads a readable key's `let` block as a pattern, the term reader refuses
-    // the `_` in it first); the full tier checks the latter end to end, and
-    // the list of such cases is pinned here.
-    let table = spec();
-    let overridden = table.resolve_cases(&cases, registry_kind).overridden;
-    let mut misfiled = Vec::new();
-    let mut decided_before_the_table = Vec::new();
-    for (id, _) in &disagreements {
-        let (pattern, _, finding) = known
-            .iter()
-            .find(|(_, glob, _)| glob.matches(id))
-            .expect("every disagreement is known");
-        let filed = pending.entries.get(*id).map(|entry| entry.finding.as_str());
-        if filed.is_some() && filed != *finding {
-            misfiled.push(format!(
-                "{id} ({pattern}): pending as {filed:?}, not {finding:?}"
+        .map(|(id, line)| (*id, line.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let mut failures = Vec::new();
+    for (id, line) in &disagreeing {
+        if account(id).is_none() && !decisions.iter().any(|(_, glob)| glob.matches(id)) {
+            failures.push(format!(
+                "{id}: {line}; no source accounts for it: pend it under its finding \
+                 (pending.toml), override the oracle (expected.toml), or decide in NOT_RED \
+                 (positions.rs) why it is not red"
             ));
         }
-        if filed.is_none() && !overridden.contains_key(*id) {
-            decided_before_the_table.push(*id);
+    }
+    for (pattern, glob) in &decisions {
+        let matched = term_cases(cases)
+            .filter(|case| glob.matches(&case.id))
+            .collect::<Vec<_>>();
+        if matched.is_empty() {
+            failures.push(format!(
+                "NOT_RED (positions.rs) `{pattern}` matches no term case: remove it"
+            ));
+        }
+        for case in matched {
+            let id = case.id.as_str();
+            let why = match (disagreeing.contains_key(id), account(id)) {
+                (false, _) => "the table and the oracle agree on it".to_owned(),
+                (true, Some(Account::Pending(finding))) => {
+                    format!("it is red, pending under {finding} (pending.toml)")
+                }
+                (true, Some(Account::Overridden(rule))) => {
+                    format!("the table overrides the oracle on it ({rule}, expected.toml)")
+                }
+                (true, None) => continue,
+            };
+            failures.push(format!(
+                "{id}: NOT_RED (positions.rs) `{pattern}` decides it is not red, but {why}: \
+                 narrow the decision"
+            ));
         }
     }
-    assert!(misfiled.is_empty(), "{misfiled:#?}");
-    assert_eq!(
-        decided_before_the_table, DECIDED_BEFORE_THE_TABLE,
-        "disagreements neither red nor overridden"
-    );
+    failures
 }
 
 /// Every form of the product's table has a generated position.

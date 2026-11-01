@@ -478,13 +478,15 @@ the descriptors of the base and its own. A case is judged by
   as placeholders, where some generated case writes that form (`CLASS's refusal advises `F`,
   which ID does not write`); a form no generated case writes is left to the reviewed field and
   printed `unchecked`, as is advice in prose; and a case the table accepts whose refusal advises a
-  form (`refused where the table accepts, advising ..`). The unchecked refusals are pinned per
-  shard and class (`UNCHECKED` in `krs-cli/tests/class_matrix.rs`; 480 on 2026-10-31, 440 of
-  them in `terms`, and 484 and 444 since NT-14 refuses a sort test in a static subject, whose
-  advice writes `where x: Sort`), and the case shards with none are listed (`NO_UNCHECKED`: `attrs`, `cells`,
-  `import`, `readable`, `runs`): a shard whose counts differ, or that neither lists, fails, so a
-  new class, or a message that adds advice no generated case writes, is reviewed before it is
-  pinned.
+  form (`refused where the table accepts, advising ..`). Unchecked advice is reviewed once per
+  class and forms (`UNCHECKED` in `krs-test-support`'s `class_matrix::advice`: the class, a glob
+  over the forms K8 lists, the shards whose refusals propose them, and why no generated case
+  writes them). How many refusals meet a reviewed advice follows from the cases and is not kept,
+  so a change that routes more cases to it changes no entry. Every run, filtered or not, fails
+  on unchecked advice no entry reviews, or one whose entry does not list the shard; a whole run
+  also fails on an entry of the shard no refusal meets any more. So a new class, or a message
+  that adds advice no generated case writes, is reviewed before it is listed, and a shard with no
+  entry has none.
 
   K8 costs its own shard and a scan: on 2026-10-31, under a load of about 20 to 80 from other
   work, `attrs` (514 cases, 139 accepted) took 85 s at 15 workers, K6 54 checks in 66 s of worker
@@ -550,7 +552,14 @@ A case that deviates fails the suite until `pending.toml` records it, keyed by t
 (`readable/result/pc/None` for K2, `k1/..`, `k3/..`, `k6/..`, `k7/..` and `k8/..` for K1, K3, K6, K7 and K8), with its finding and the
 deviation exactly as the harness prints it. `KRS_CLASS_OUT` writes the entries of every unrecorded
 deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review: name the finding. A pending case that
-conforms, or deviates differently, also fails: remove its entry, or record the new deviation.
+conforms, or deviates differently, also fails: remove its entry, or record the new deviation. A
+run that `KRS_CLASS_FILTER` narrows judges the entries of the cases it selects as a whole run
+does, every prefix alike (`k3/`, `k6/`, `k7/`, `k8/`, `full/`): an entry of a selected case that
+no verdict of its test names fails it (`pending, but k8 judged no case with this ID in this
+run`), as one of a test the run does not run (`KRS_CLASS_NATIVE=0`) does not; a `twin/` entry is
+judged where the run selects the case's twin too. Each failure names what moved: the deviation,
+and what the case should have done. An accepted case whose K is not the recorded K deviates as
+`accepted, with other K than recorded`, with the first line where the two differ.
 
 Every finding is registered in `findings.toml` (`class_matrix::findings`), one table per finding,
 sorted: its `owner` (a ticket `NT-n`, a step `S1` to `S6`, or `kept: REF` for a limit a decision
