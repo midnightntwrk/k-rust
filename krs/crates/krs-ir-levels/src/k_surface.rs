@@ -581,7 +581,7 @@ impl BuiltinRequirements {
 #[must_use]
 pub fn main_cell<D, C, L>(
     configuration: &FixedConfiguration<IrSortRef<D>, C, IrTerm<L>>,
-) -> Option<&FixedCell<IrSortRef<D>, C>>
+) -> krs_ir::MainCell<&FixedCell<IrSortRef<D>, C>>
 where
     C: Clone + Ord,
     L: IrLevel,
@@ -633,17 +633,12 @@ where
         .variables()
         .iter()
         .find(|variable| variable.is_main());
-    let reading = found
-        .iter()
-        .filter(|(_, term)| {
-            main.zip(*term)
-                .is_some_and(|(variable, term)| reads(term, variable.id()))
-        })
-        .collect::<Vec<_>>();
-    match (reading.as_slice(), found.as_slice()) {
-        ([(cell, _)], _) | ([], [(cell, _)]) => Some(*cell),
-        _ => None,
-    }
+    krs_ir::select_main_cell(found.into_iter().map(|(cell, term)| {
+        let reads = main
+            .zip(term)
+            .is_some_and(|(variable, term)| reads(term, variable.id()));
+        (cell, reads)
+    }))
 }
 
 /// Whether a leaf cell's whole initial value `term`, in a cell of declared sort `cell_sort`, is
@@ -1262,7 +1257,9 @@ mod tests {
             initializer,
         )
         .unwrap();
-        main_cell(&configuration).map(|cell| cell.name().to_owned())
+        main_cell(&configuration)
+            .cell()
+            .map(|cell| cell.name().to_owned())
     }
 
     /// The main cell is the computation cell that reads the program, whatever its name and

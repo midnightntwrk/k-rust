@@ -99,8 +99,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Cells, 182),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
-            // shapes, 8 typed cells × 4 contents, and the typed `stmt` written after it starts.
-            (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 + 32 + 1),
+            // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
+            // the typed `stmt` written after it starts.
+            (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1),
             // (81 positions of depth 1 + 25 positions constructs open) × 48 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings

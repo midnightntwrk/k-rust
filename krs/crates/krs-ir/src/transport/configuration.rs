@@ -1031,7 +1031,7 @@ impl HostFixedConfiguration {
 
 type StageCellField<S> =
     ProtocolCellField<<S as Stage>::Cell, <S as Stage>::Sort, <S as Stage>::CellDeclaration>;
-type StageInitializerCell<S> = ProtocolInitializerCell<
+pub(crate) type StageInitializerCell<S> = ProtocolInitializerCell<
     <S as Stage>::Cell,
     <S as Stage>::CellDeclaration,
     ProtocolInitializerStateTerm<Term<S>>,

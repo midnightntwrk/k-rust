@@ -899,6 +899,11 @@ match = 'init/main-k/code/k::k![pgm]'
 class = "main-cell-not-k"
 at = "item"
 
+[[refuse]]
+match = 'init/main-k/code/{head,collection}/k::k![pgm]'
+class = "main-cell-not-k"
+at = "item"
+
 # none-in-initializer
 [[refuse]]
 match = 'init/{counter,env,frame,job,k,pc,stack}/None'
@@ -2645,6 +2650,42 @@ configuration
 <frame>
 <code maincell=""> $PGM:Stmt </code>
 </frame>
+
+rule [hop]:
+<code> hop => done ... </code>
+
+rule [unset]:
+<code> SetItem(V0:KItem) => done ... </code>
+"""
+
+[accept."init/main/code/collection/k::k![pgm]"]
+k = """
+configuration
+<prog> .K </prog>
+<frame>
+<code maincell=""> $PGM:Stmt </code>
+</frame>
+
+rule [hop]:
+<code> hop => done ... </code>
+
+rule [unset]:
+<code> SetItem(V0:KItem) => done ... </code>
+"""
+
+[accept."init/main/code/head/k::k![pgm]"]
+k = """
+configuration
+<prog> .K </prog>
+<frame>
+<code maincell=""> $PGM:Stmt </code>
+</frame>
+
+rule [hop]:
+<code> hop => done ... </code>
+
+rule [unset]:
+<code> SetItem(V0:KItem) => done ... </code>
 """
 
 [accept."init/main/prog/k::k![pgm]"]
@@ -2656,7 +2697,43 @@ configuration
 </frame>
 """
 
+[accept."init/main/prog/collection/k::k![pgm]"]
+k = """
+configuration
+<prog maincell=""> $PGM:Stmt </prog>
+<frame>
+<code> .K </code>
+</frame>
+"""
+
+[accept."init/main/prog/head/k::k![pgm]"]
+k = """
+configuration
+<prog maincell=""> $PGM:Stmt </prog>
+<frame>
+<code> .K </code>
+</frame>
+"""
+
 [accept."init/main-k/k/k::k![pgm]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<frame>
+<code> .K </code>
+</frame>
+"""
+
+[accept."init/main-k/k/collection/k::k![pgm]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<frame>
+<code> .K </code>
+</frame>
+"""
+
+[accept."init/main-k/k/head/k::k![pgm]"]
 k = """
 configuration
 <k> $PGM:Stmt </k>

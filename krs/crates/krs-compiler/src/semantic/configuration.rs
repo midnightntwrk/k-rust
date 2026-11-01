@@ -106,6 +106,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
     check_configuration_variables_read(descriptor, configuration, &initializer)?;
     check_explicit_presence(&cells, &initializer, &binding_sorts)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
+    let transport = configuration;
     let configuration = FixedConfiguration::new(
         semantic_origin(
             descriptor,
@@ -124,19 +125,62 @@ pub(super) fn lower_fixed_configuration_descriptor(
         variables,
         initializer,
     )?;
-    check_main_cell(&configuration)?;
+    check_main_cell(descriptor.id().item_name(), transport, &configuration)?;
     Ok(configuration)
 }
 
-/// Refuses a cell named `k` that is not the configuration's main cell
+/// Refuses a configuration that does not say which of its computation cells is the main cell,
+/// and a cell named `k` that is not the configuration's main cell
 /// ([`krs_ir_levels::k_surface::main_cell`]).
+///
+/// The main cell is the computation: the program starts there, and every sentence that names no
+/// cell of its own (a term rule, a context, a strict production's heating, a `for Stmt` clause, a
+/// `#[k::rule]` fn stated over the computation cell) rewrites it. A configuration with several
+/// `KSequence` cells, none or more than one of which reads the program, has no such cell, and a
+/// definition over it would run its sentences in a cell the configuration does not name.
+///
+/// The collector and the lowering of a rule stated over the computation cell read the main cell
+/// from the descriptor's configuration ([`krs_ir::TransportFixedConfiguration::main_cell`]), the
+/// backends from the lowered one; both apply [`krs_ir::select_main_cell`], so they name the same
+/// cell, which is checked here.
 ///
 /// K takes the cell named `k` as the computation cell by its name: the program starts there and
 /// every cell-free sentence (a term rule, a context, a strict production's heating) runs there.
 /// The main cell KRS reads from the initializer is the `KSequence` cell that holds the program,
 /// so a `k` that is another cell would give the definition a second computation cell, or one
 /// other than its initializer states.
-fn check_main_cell(configuration: &SemanticConfiguration) -> Result<(), DescriptorLoweringError> {
+/// The refusal of configuration `name`, whose computation cells `names` include `reading` that
+/// read the program, for having no main cell; `range` is where it is told.
+pub(super) fn ambiguous_main_cell(
+    name: &str,
+    names: &[&str],
+    reading: usize,
+    range: Option<krs_ir::SourceRange>,
+) -> DescriptorLoweringError {
+    DescriptorLoweringError::MainCell {
+        reason: format!(
+            "configuration `{name}` {}. Place the program, the `main` configuration variable, in \
+             the one `KSequence` cell that holds the computation",
+            krs_ir::ambiguous_main_cell_reason(names, reading),
+        ),
+        range: range.map(Box::new),
+        item: None,
+    }
+}
+
+/// The K name of a configuration's cell `field`: its emitted name, else its Rust field's.
+pub(super) fn cell_name(field: &DescriptorCellField) -> &str {
+    field
+        .emitted_name
+        .as_ref()
+        .map_or(field.rust_field.as_str(), |name| name.value.as_str())
+}
+
+fn check_main_cell(
+    name: &str,
+    transport: &DescriptorFixedConfiguration,
+    configuration: &SemanticConfiguration,
+) -> Result<(), DescriptorLoweringError> {
     type Named<'a> = (
         &'a FixedCell<SemanticSortRef, SemanticId>,
         Option<&'a FixedInitializerCell<SemanticId, SemanticTerm>>,
@@ -160,10 +204,35 @@ fn check_main_cell(configuration: &SemanticConfiguration) -> Result<(), Descript
             }
         })
     }
+    let main = match krs_ir_levels::k_surface::main_cell(configuration) {
+        krs_ir::MainCell::Ambiguous { cells, reading } => {
+            let names = cells.iter().map(|cell| cell.name()).collect::<Vec<_>>();
+            return Err(ambiguous_main_cell(
+                name,
+                &names,
+                reading,
+                configuration
+                    .initializer_origin()
+                    .origin()
+                    .exact_authored_range(),
+            ));
+        }
+        main => main.cell(),
+    };
+    let described = transport
+        .main_cell()
+        .cell()
+        .map(|reference| semantic_cell_id(&reference.cell))
+        .transpose()?;
+    if described.as_ref() != main.map(FixedCell::id) {
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "fixed configuration",
+            "the descriptor's configuration and its lowering name different main cells",
+        ));
+    }
     let Some((k, initialized)) = named_k(configuration.cells(), configuration.initializer()) else {
         return Ok(());
     };
-    let main = krs_ir_levels::k_surface::main_cell(configuration);
     if main.is_some_and(|main| main.id() == k.id()) {
         return Ok(());
     }

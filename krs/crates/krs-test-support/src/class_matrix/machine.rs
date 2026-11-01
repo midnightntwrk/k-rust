@@ -195,12 +195,16 @@ pub(super) fn nested_base() -> BaseText {
 }
 
 /// The main-cell bases: a computation cell `prog`, not named `k`, and a second one, `code`, in
-/// the group `frame`, with the cell-free sentence `step` (a `#[k::rule]` fn, `go => done`),
-/// which K runs in the configuration's main cell (`k_surface::main_cell`): the `KSequence` cell
-/// that holds the program. Its cases are initializers that place the program in one cell or the
-/// other, and the run shows which cell is the main cell.
+/// the group `frame`, with one sentence of each form that names no cell, each rewriting the
+/// configuration's main cell (`krs_ir::select_main_cell`), the `KSequence` cell that holds the
+/// program: the cell-free `step` (a `#[k::rule]` fn, `go => done`), which K places in the main
+/// cell; the `for Stmt` clause `hop => done`, whose computation cell the collector picks; and
+/// `unset`, a `#[k::rule]` fn rooted at a set's construction, which lowering states over the
+/// computation cell, run after the cell-free `mkset => set::item(1)`. Its cases are initializers
+/// that place the program in one cell or the other, and the runs show that every form rewrites
+/// the main cell.
 const MAIN_BEFORE_COMMANDS: &str = r#"use k::builtin::{Int, KSequence};
-use k::{KResult, Term};
+use k::{KItem, KResult, Term};
 
 k::sorts! {
     Stmt;
@@ -213,6 +217,8 @@ k::sorts! {
 pub enum Cmd {
     #[k::syntax("go")] Go(),
     #[k::syntax("done")] Done(),
+    #[k::syntax("hop")] Hop(),
+    #[k::syntax("mkset")] MkSet(),
 "#;
 
 const MAIN_AFTER_COMMANDS: &str = r"}
@@ -220,6 +226,26 @@ const MAIN_AFTER_COMMANDS: &str = r"}
 /// A cell-free sentence, which K runs in the main cell.
 #[k::rule]
 fn step(k::term![Cmd::Go()]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Done()
+}
+
+// A clause that rewrites the head of the computation, the main cell.
+k::rules! {
+    for Stmt;
+    use Cmd::*;
+
+    hop: Hop() => Done();
+}
+
+/// A cell-free sentence that leaves a set at the head of the computation.
+#[k::rule]
+fn mkset(k::term![Cmd::MkSet()]: Term<KItem>) -> Term<KItem> {
+    k::builtin::set::item(1)
+}
+
+/// A rule rooted at a set's construction, stated over the computation cell.
+#[k::rule]
+fn unset(x: Term<KItem>, k::term![k::builtin::set::item(x)]: Term<KItem>) -> Term<KItem> {
     Cmd::Done()
 }
 
@@ -288,9 +314,12 @@ pub(super) const REFUSED_AT_K2: &str = "refused at K2, so no definition is emitt
 
 /// The main-cell shapes: the program in the top-level computation cell `prog` (not named `k`),
 /// in the computation cell `code` inside the group `frame`, and on the `k` base in `k` and in
-/// `code`, beside `k`. Each case's run takes one step, the cell-free `go => done`, which applies
-/// in the main cell, the cell that holds the program; `code` beside `k` is refused
-/// (`main-cell`), since K would take `k` as the computation cell by its name.
+/// `code`, beside `k`. Each shape runs once per form of sentence that names no cell: `go` (the
+/// cell-free `go => done`), `hop` (the `for Stmt` clause, slot `head`) and `mkset` (the
+/// cell-free `mkset => set::item(1)`, then the rule stated over the computation cell, slot
+/// `collection`). Each applies in the main cell, the cell that holds the program, and the other
+/// computation cell stays empty; `code` beside `k` is refused (`main-cell`), since K would take
+/// `k` as the computation cell by its name.
 fn main_cells(cases: &mut Vec<Case>) {
     for (base, top, in_code, refused) in [
         (Base::MainCell, "prog", false, false),
@@ -298,13 +327,13 @@ fn main_cells(cases: &mut Vec<Case>) {
         (Base::MainK, "k", false, false),
         (Base::MainK, "k", true, true),
     ] {
-        let main = if in_code { "code" } else { top };
-        let spec = CaseSpec {
-            family: Family::Init,
-            base,
-            side: Side::Initializer,
-            kind: None,
-            slot: vec![
+        for (form, program, steps) in [
+            (None, "go", 1),
+            (Some("head"), "hop", 1),
+            (Some("collection"), "mkset", 2),
+        ] {
+            let main = if in_code { "code" } else { top };
+            let mut slot = vec![
                 if base == Base::MainK {
                     "main-k"
                 } else {
@@ -312,60 +341,68 @@ fn main_cells(cases: &mut Vec<Case>) {
                 }
                 .to_owned(),
                 main.to_owned(),
-            ],
-            construct: "k::k![pgm]".to_owned(),
-        };
-        let mut item = ItemBuilder::new();
-        let fields = if base == Base::MainK {
-            &MAIN_K_FIELDS
-        } else {
-            &MAIN_FIELDS
-        };
-        initializer(
-            &mut item,
-            MACHINE_HEADER,
-            fields,
-            |item, cell, value| match (cell == top, in_code) {
-                (true, false) => {
-                    item.entry(cell, "k::k![pgm]");
-                }
-                (true, true) => {
-                    item.push(cell).push(": k::k![]");
-                }
-                (false, false) => {
-                    item.push(cell).push(": ").push(value);
-                }
-                (false, true) => {
-                    item.push("frame: Frame { ")
-                        .entry("code", "k::k![pgm]")
-                        .push(" }");
-                }
-            },
-        );
-        let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
-        let done = || Ground::Seq(vec![Ground::ctor("Cmd::Done", Vec::new())]);
-        let (top_value, code_value) = if in_code {
-            (Ground::Seq(Vec::new()), done())
-        } else {
-            (done(), Ground::Seq(Vec::new()))
-        };
-        case.k7 = if refused {
-            K7::skip(SkipKind::Value, REFUSED_AT_K2)
-        } else {
-            K7::Run(Run {
-                program: "go".to_owned(),
-                variables: Vec::new(),
-                depth: 1,
-                steps: 1,
-                cells: vec![
-                    (top.to_owned(), top_value),
-                    ("frame.code".to_owned(), code_value),
-                ],
-                status: Status::Value,
-                forward_only: Vec::new(),
-            })
-        };
-        cases.push(case);
+            ];
+            slot.extend(form.map(str::to_owned));
+            let spec = CaseSpec {
+                family: Family::Init,
+                base,
+                side: Side::Initializer,
+                kind: None,
+                slot,
+                construct: "k::k![pgm]".to_owned(),
+            };
+            let mut item = ItemBuilder::new();
+            let fields = if base == Base::MainK {
+                &MAIN_K_FIELDS
+            } else {
+                &MAIN_FIELDS
+            };
+            initializer(
+                &mut item,
+                MACHINE_HEADER,
+                fields,
+                |item, cell, value| match (cell == top, in_code) {
+                    (true, false) => {
+                        item.entry(cell, "k::k![pgm]");
+                    }
+                    (true, true) => {
+                        item.push(cell).push(": k::k![]");
+                    }
+                    (false, false) => {
+                        item.push(cell).push(": ").push(value);
+                    }
+                    (false, true) => {
+                        item.push("frame: Frame { ")
+                            .entry("code", "k::k![pgm]")
+                            .push(" }");
+                    }
+                },
+            );
+            let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+            let done = || Ground::Seq(vec![Ground::ctor("Cmd::Done", Vec::new())]);
+            let (top_value, code_value) = if in_code {
+                (Ground::Seq(Vec::new()), done())
+            } else {
+                (done(), Ground::Seq(Vec::new()))
+            };
+            case.k7 = if refused {
+                K7::skip(SkipKind::Value, REFUSED_AT_K2)
+            } else {
+                K7::Run(Run {
+                    program: program.to_owned(),
+                    variables: Vec::new(),
+                    depth: steps,
+                    steps,
+                    cells: vec![
+                        (top.to_owned(), top_value),
+                        ("frame.code".to_owned(), code_value),
+                    ],
+                    status: Status::Value,
+                    forward_only: Vec::new(),
+                })
+            };
+            cases.push(case);
+        }
     }
 }
 

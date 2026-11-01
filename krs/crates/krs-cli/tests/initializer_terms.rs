@@ -1137,6 +1137,99 @@ fn the_main_cell_is_the_computation_cell_that_holds_the_program_on_both_routes()
     assert!(!stderr.contains("internal error"), "{stderr}");
 }
 
+/// A machine with the computation cells `prog` and `frame.code`, whose initializer `init` writes
+/// both, and the extra sentences `extra`.
+fn two_computations_source(init: &str, extra: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence}};
+use k::{{KResult, Term}};
+
+k::sorts! {{
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {{
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("done")]
+    Done(),
+}}
+
+#[k::rule]
+fn step(k::term![Cmd::Go()]: Term<Stmt>) -> Term<Stmt> {{
+    Cmd::Done()
+}}
+
+{extra}
+
+#[k::cell]
+pub struct Frame {{
+    #[k::cell]
+    pub code: KSequence,
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub prog: KSequence,
+    #[k::cell(nested)]
+    pub frame: Frame,
+}}
+
+impl Machine {{
+    #[k::init]
+    {init}
+}}
+"#
+    )
+}
+
+/// A configuration with several computation cells names its main cell only by placing the
+/// program in one of them (`krs_ir::select_main_cell`). Where none or both read the program it
+/// has none, so nothing says where the sentences that name no cell run: the configuration is
+/// refused (`main-cell`), and so is a rule stated over the computation cell (`main-cell`, the same
+/// reason) and a `for Stmt` clause, whose computation cell the collector picks
+/// (`computation-cell`), each with the same explanation, never an internal error.
+#[test]
+fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let both = "pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self { prog: k::k![pgm], frame: Frame { code: k::k![pgm] } }\n    }";
+    let neither = "pub fn init() -> Self {\n        Self { prog: k::k![], frame: Frame { code: k::k![] } }\n    }";
+    let head = "k::rules! {\n    for Stmt;\n    use Cmd::*;\n\n    hop: Go() => Done();\n}";
+    let collection = "#[k::rule]\nfn unset(x: Term<k::KItem>, k::term![k::builtin::set::item(x)]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Done()\n}";
+    let mut refused = Vec::new();
+    for (name, init, extra) in [
+        ("both", both, ""),
+        ("neither", neither, ""),
+        ("neither-head", neither, head),
+        ("neither-collection", neither, collection),
+    ] {
+        let manifest = package(
+            temporary.path(),
+            &format!("two-{name}"),
+            &two_computations_source(init, extra),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: {stderr}");
+        assert!(!stderr.contains("internal"), "{name}: {stderr}");
+        let error = stderr
+            .lines()
+            .find(|line| line.starts_with("error[krs::"))
+            .unwrap_or_else(|| panic!("{name}: {stderr}"));
+        refused.push(format!("{name}: {error}"));
+    }
+    expect_test::expect![[r"
+        both: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and more than one reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation
+        neither: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation
+        neither-head: error[krs::analysis::computation-cell]: this rule rewrites the head of the computation, but configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program in the cell that holds the computation, or write the rule as a `for Machine` record, which names its cell
+        neither-collection: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation"]].assert_eq(&refused.join("\n"));
+}
+
 /// A machine whose List collection `job` starts with one instance of its template: a `Job` holds
 /// `payload`, the group `info` with the optional `mark`, and the optional `note`, their templates
 /// `{note}` and `{mark}`; `{rules}` are the machine's rules.

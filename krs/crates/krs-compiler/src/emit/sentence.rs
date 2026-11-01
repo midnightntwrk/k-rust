@@ -539,7 +539,9 @@ fn emit_fixed_configuration(
     writer.push("configuration");
     writer.push("\n");
     let names = context.naming.configuration(configuration);
-    let main = krs_ir_levels::k_surface::main_cell(configuration).map(FixedCell::id);
+    let main = krs_ir_levels::k_surface::main_cell(configuration)
+        .cell()
+        .map(FixedCell::id);
     match configuration.root() {
         ConfigurationRoot::GeneratedTop => emit_fixed_cell_forest(
             configuration.cells(),

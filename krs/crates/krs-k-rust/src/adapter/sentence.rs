@@ -528,7 +528,9 @@ impl Adapter<'_> {
         sentence_index: usize,
     ) -> Result<NativeTerm, AdapterError> {
         // The one cell both backends mark as K's main cell (`k_surface::main_cell`).
-        let main = krs_ir_levels::k_surface::main_cell(configuration).map(FixedCell::id);
+        let main = krs_ir_levels::k_surface::main_cell(configuration)
+            .cell()
+            .map(FixedCell::id);
         let forest = self.fixed_initializer_forest(
             configuration.cells(),
             configuration.initializer(),

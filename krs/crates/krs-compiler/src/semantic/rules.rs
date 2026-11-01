@@ -2320,26 +2320,41 @@ fn computation_rewrite(
         "rule stated over the computation cell",
         "a computation cell rewrite requires a fixed configuration",
     )?;
-    let mut leaves = Vec::new();
-    collect_declared_leaf_identities(
-        &configuration.declaration,
-        declarations,
-        &BTreeSet::new(),
-        &mut BTreeSet::new(),
-        &mut leaves,
-    )?;
-    let mut computation = Vec::new();
-    for leaf in leaves {
-        if let ProtocolCellContent::Leaf { wrapper, sort, .. } =
-            &require_cell_field(&leaf, declarations)?.content
-            && *wrapper == krs_ir::CellWrapper::KCell
-            && sort.sort == DescriptorSortRef::Builtin(BuiltinSort::KSequence)
-        {
-            computation.push(leaf);
+    // The computation is the configuration's main cell, where every sentence that names no
+    // cell runs (`krs_ir::select_main_cell`); a configuration with several computation cells and
+    // no main cell is refused where it is lowered.
+    let computation = match configuration.main_cell() {
+        krs_ir::MainCell::Cell(reference) => &reference.cell,
+        krs_ir::MainCell::NoComputationCell => {
+            return Err(DescriptorLoweringError::ComputationCell {
+                reason: format!(
+                    "this rule rewrites the computation's first item, but configuration `{}` has \
+                     no `KSequence` cell to hold the computation",
+                    configuration_id.item_name()
+                ),
+                range: None,
+                item: None,
+            }
+            .within(
+                descriptor.id(),
+                key_range(descriptor, &rule.pattern_key).as_ref(),
+            ));
         }
-    }
-    let [computation] = computation.as_slice() else {
-        return Err(shape("the configuration has no one computation cell"));
+        krs_ir::MainCell::Ambiguous { cells, reading } => {
+            let names = cells
+                .iter()
+                .map(|reference| {
+                    require_cell_field(&reference.cell, declarations)
+                        .map(super::configuration::cell_name)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Err(super::configuration::ambiguous_main_cell(
+                configuration_id.item_name(),
+                &names,
+                reading,
+                key_range(descriptor, &rule.pattern_key),
+            ));
+        }
     };
     let result_key = rule
         .result_key

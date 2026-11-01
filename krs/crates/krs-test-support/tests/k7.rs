@@ -193,7 +193,7 @@ const STATUSES: &[&str] = &[
     "108 no value: a matching-logic predicate, which only a prover reads",
     "170 no value: a pattern, which names or tests a term and builds none",
     "34 no value: an anonymous variable, which names no value",
-    "19 no value: refused at K2, so no definition is emitted to run",
+    "21 no value: refused at K2, so no definition is emitted to run",
     "5 no value: the condition's stated value, \"s\", is no Bool",
     "5 no value: the condition's stated value, $x, is no Bool",
     "5 no value: the condition's stated value, -1, is no Bool",
@@ -234,7 +234,7 @@ const STATUSES: &[&str] = &[
     "6 no witness: the program would hold a value the generator does not state",
     "1197 runs a counter-witness",
     "1654 runs, liveness",
-    "2501 runs, value",
+    "2507 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern

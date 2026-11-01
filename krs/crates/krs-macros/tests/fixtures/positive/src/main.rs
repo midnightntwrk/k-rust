@@ -1195,7 +1195,7 @@ mod tests {
         assert!(
             two_computations
                 .detail()
-                .contains("has 2 top-level `KSequence` cells, `first`, `second`"),
+                .contains("has 2 `KSequence` cells, `first`, `second`, and none of them reads the program"),
             "{}",
             two_computations.detail()
         );

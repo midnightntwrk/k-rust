@@ -199,6 +199,9 @@ fn head_rule_cell_target(
 pub(super) struct HeadRuleTarget {
     configuration: StableItemId,
     cells: Vec<HeadRuleCellTarget>,
+    /// The configuration's main cell (`krs_ir::select_main_cell`), the computation a rule that
+    /// names no cell rewrites.
+    main: krs_ir::MainCell<krs_ir::DescriptorCellIdentity>,
     /// The children of each nested `#[k::cell]` struct, by its resolved
     /// type: a group record that names fewer leaves some out.
     group_children: HashMap<TypeId, GroupChildren>,
@@ -341,9 +344,28 @@ pub(super) fn resolve_head_rule_targets(
                 &mut cells,
                 &mut group_children,
             )?;
+            let main = configuration
+                .main_cell()
+                .map(|reference| cell_fields.get(&reference.cell.resolve()).cloned());
+            let main = match main {
+                krs_ir::MainCell::Cell(identity) => {
+                    krs_ir::MainCell::Cell(identity.ok_or_else(|| {
+                        CollectionError::new(
+                            CollectionErrorKind::UnresolvedTypeReference,
+                            "the main cell has no stable owner/field identity",
+                        )
+                    })?)
+                }
+                krs_ir::MainCell::NoComputationCell => krs_ir::MainCell::NoComputationCell,
+                krs_ir::MainCell::Ambiguous { cells, reading } => krs_ir::MainCell::Ambiguous {
+                    cells: cells.into_iter().flatten().collect(),
+                    reading,
+                },
+            };
             Ok(HeadRuleTarget {
                 configuration: descriptor.id.clone(),
                 cells,
+                main,
                 group_children,
             })
         })
@@ -409,37 +431,57 @@ fn resolve_head_rule_target<'a>(
             computation: None,
         });
     }
-    let computations = target
-        .cells
-        .iter()
-        .filter(|cell| {
-            cell.wrapper == Some(krs_ir::CellWrapper::KCell)
-                && rule
-                    .computation_cell
-                    .as_ref()
-                    .is_none_or(|computation| cell.names.contains(&computation.name))
-        })
-        .collect::<Vec<_>>();
-    let [computation] = computations.as_slice() else {
-        let configuration = target.configuration.item_name();
-        let detail = match computations.as_slice() {
-            [] => format!(
+    let configuration = target.configuration.item_name();
+    let no_computation = || {
+        CollectionError::new(
+            CollectionErrorKind::ComputationCell,
+            format!(
                 "this rule rewrites the head of the computation, but configuration `{configuration}` has no `KSequence` cell to hold the computation"
             ),
-            several => format!(
-                "this rule rewrites the head of the computation, but configuration `{configuration}` has {} top-level `KSequence` cells, {}, and does not say which holds the computation: write the rule as a `for {configuration}` record, which names its cell",
-                several.len(),
-                names(
-                    several
-                        .iter()
-                        .filter_map(|cell| cell.names.first().map(String::as_str))
-                ),
-            ),
+        )
+    };
+    // A record names its computation cell; a rule that names none rewrites the configuration's
+    // main cell, the computation every sentence that names no cell runs in.
+    let computation = if let Some(named) = &rule.computation_cell {
+        let named = target
+            .cells
+            .iter()
+            .filter(|cell| {
+                cell.wrapper == Some(krs_ir::CellWrapper::KCell) && cell.names.contains(&named.name)
+            })
+            .collect::<Vec<_>>();
+        let [computation] = named.as_slice() else {
+            return Err(no_computation());
         };
-        return Err(CollectionError::new(
-            CollectionErrorKind::ComputationCell,
-            detail,
-        ));
+        *computation
+    } else {
+        match &target.main {
+            krs_ir::MainCell::Cell(main) => target
+                .cells
+                .iter()
+                .find(|cell| &cell.identity == main)
+                .ok_or_else(no_computation)?,
+            krs_ir::MainCell::NoComputationCell => return Err(no_computation()),
+            krs_ir::MainCell::Ambiguous { cells, reading } => {
+                let names = cells
+                    .iter()
+                    .filter_map(|identity| {
+                        target
+                            .cells
+                            .iter()
+                            .find(|cell| &cell.identity == identity)
+                            .and_then(|cell| cell.names.first().map(String::as_str))
+                    })
+                    .collect::<Vec<_>>();
+                return Err(CollectionError::new(
+                    CollectionErrorKind::ComputationCell,
+                    format!(
+                        "this rule rewrites the head of the computation, but configuration `{configuration}` {}. Place the program in the cell that holds the computation, or write the rule as a `for {configuration}` record, which names its cell",
+                        krs_ir::ambiguous_main_cell_reason(&names, *reading),
+                    ),
+                ));
+            }
+        }
     };
     Ok(HeadRuleSelection {
         target,
@@ -1950,6 +1992,7 @@ mod tests {
         };
         let target = HeadRuleTarget {
             configuration: identity.owner.clone(),
+            main: krs_ir::MainCell::Cell(identity.clone()),
             cells: vec![HeadRuleCellTarget {
                 identity,
                 names: vec!["k".to_owned()],
@@ -2518,9 +2561,18 @@ mod tests {
         declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
         cells: Vec<HeadRuleCellTarget>,
     ) -> (krs_ir::DescriptorHeadRule, BTreeSet<ProvenanceKey>) {
+        // The main cell of a configuration whose computation cells the test lists, none of
+        // which reads a program.
+        let main = krs_ir::select_main_cell(
+            cells
+                .iter()
+                .filter(|cell| cell.wrapper == Some(krs_ir::CellWrapper::KCell))
+                .map(|cell| (cell.identity.clone(), false)),
+        );
         let targets = [HeadRuleTarget {
             configuration: state_id(),
             cells,
+            main,
             group_children: HashMap::new(),
         }];
         let anchors = rule.carried_keys().unwrap();

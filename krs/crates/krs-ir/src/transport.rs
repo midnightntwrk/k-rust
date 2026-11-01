@@ -13,5 +13,6 @@ pub mod detail;
 pub mod grammar;
 pub mod head_rule;
 pub(crate) mod keys;
+pub mod main_cell;
 pub mod rule;
 pub(crate) mod validation;
