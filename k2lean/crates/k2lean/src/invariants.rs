@@ -2656,6 +2656,9 @@ pub struct Ctx<'a> {
     pub stated: &'a BTreeSet<String>,
     pub open_eqns: &'a BTreeSet<String>,
     pub recursive: &'a BTreeSet<String>,
+    /// The names `Functions.lean` defines to unfold (each function and its `ruleN` matchers; a
+    /// total function's `owise` equation is its default branch, with no matcher of its own).
+    pub defs: &'a [String],
     pub ctors: &'a [Ctor],
     pub top: &'a str,
     pub ns: &'a str,
@@ -3260,7 +3263,11 @@ pub fn emit(
                 // would unfold first and leave a match stuck on a rule's cell variables
             } else {
                 unfold.push(gs.lean.clone());
-                unfold.extend((1..=es.len()).map(|k| format!("{}.rule{k}", gs.lean)));
+                unfold.extend(
+                    (1..=es.len())
+                        .map(|k| format!("{}.rule{k}", gs.lean))
+                        .filter(|r| cx.defs.contains(r)),
+                );
             }
         }
     }
