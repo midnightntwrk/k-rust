@@ -31,7 +31,7 @@ use krs_test_support::class_matrix::{self, Case, Family};
 /// the finding of each.
 const KNOWN: [(&str, &str); 1] = [(
     r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
-    "NT-2-6",
+    "S0-14",
 )];
 
 /// The disagreements that are no finding's, as globs over case IDs, and why: the product decides
@@ -56,13 +56,14 @@ const NOT_RED: [(&str, &str); 3] = [
 /// below a function's application; and the compiler refuses an open record there (`key_names`),
 /// which the table cannot tell from a constructor's argument before resolution, as it cannot
 /// tell a readable result's open constructor record from a cell instance's.
-const DECIDED_BEFORE_THE_TABLE: [&str; 9] = [
+const DECIDED_BEFORE_THE_TABLE: [&str; 10] = [
     "terms/claim/result-item-root/Cmd::Pair { a: x, .. }",
     "terms/claim/result/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/_",
     "terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
+    "terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
     "terms/readable/result-item-root/Cmd::Pair { a: x, .. }",
     "terms/readable/result-list-element/Cmd::Pair { a: x, .. }",
     "terms/readable/result/Cmd::Pair { a: x, .. }",

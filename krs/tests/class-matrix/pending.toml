@@ -694,7 +694,7 @@ deviation = "krs::syntax::unsupported-term-expression @ spelling"
 
 ["terms/readable/map-key/y @ Cmd::Hold(_)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::syntax::invalid-pattern-as @ spelling"
 
 ["terms/readable/map-key/[x, ..]"]
 finding = "S0-14"
@@ -706,7 +706,7 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["terms/readable/map-key/as-body/\"s\""]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/-(x + 1)"]
 finding = "S0-14"
@@ -714,35 +714,35 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["terms/readable/map-key/as-body/-1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/1.5"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Cmd::Go"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Cmd::Go()"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Cmd::Hold(x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Cmd::Pair { a: x, .. }"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Cmd::Pair { a: x, ..x }"]
 finding = "S0-14"
@@ -750,63 +750,63 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["terms/readable/map-key/as-body/Size(x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/Wrap::<KItem>(x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/[x, ..]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/_"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::anonymous!(Int, \"_V\")"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::builtin::int::add(1, 2)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::builtin::int::add(x, 1)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::builtin::set::item(x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::bytes!(b\"ab\")"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::id!(\"$x\")"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::is!(Int, x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::lexeme!(Word, \"word\")"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::map![x -> 1]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
 finding = "S0-14"
@@ -814,63 +814,63 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["terms/readable/map-key/as-body/k::or_bool!(true, false)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::project!(Int, x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/k::rewrite!(_ => 1)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/map![x -> 1]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/true"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x & 1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x && true"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x + 1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x < 1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x << 1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x == 1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x || true"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/x.add::<Int>(1)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/y @ Cmd::Hold(_)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/as-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
 finding = "S0-14"
@@ -1018,7 +1018,7 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["terms/readable/map-key/as-body/x | 1"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["terms/readable/map-key/or-branch/x | 1"]
 finding = "S0-14"
@@ -1054,55 +1054,55 @@ deviation = "krs::analysis::function-in-pattern @ spelling"
 
 ["terms/readable/map-key/beside-fresh/y @ Cmd::Hold(_)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ spelling"
+deviation = "krs::syntax::invalid-pattern-as @ spelling"
 
 ["notation/readable/map-key/as-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::list::item(x).len()"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::list::item(x)[0]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::list::size(k::builtin::list::item(x))"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty().contains_key(x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty().update(x, 1)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty()[x]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::set::item(x).to_list()"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/or-branch/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 finding = "S0-14"
@@ -1156,63 +1156,63 @@ deviation = "krs::analysis::ambiguous-operator @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty()"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::set::empty()"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::set::item(x)"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/map![0 -> 1]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/map![]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/map![x -> 1, ..k::builtin::map::empty()]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/map![x -> 1, 2 -> 3]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/set![]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/set![x, ..k::builtin::set::empty()]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/set![x, 1]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/as-body/set![x]"]
 finding = "S0-14"
-deviation = "krs::syntax::rust-syntax @ entry"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::empty()"]
 finding = "S0-14"
@@ -2329,950 +2329,6 @@ deviation = "accepted"
 # or an index continues (`x.add::<Int>(1)`, `m[x]` in a `cells!` item or map value, a list element)
 # is now read as the term it continues into, so those cases answer with their class.
 
-["terms/cells-claim/guard/closure-body/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells-claim/item-root/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells-claim/item-root/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells-claim/item-root/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells-claim/item-root/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells-claim/item-root/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells-claim/item-root/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells-claim/item-root/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/item-root/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/cells/map-value/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells/map-value/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells/map-value/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells/map-value/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells/map-value/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells/map-value/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/cells/map-value/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/claim/item-root/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/context-alias/item-root/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/context-alias/item-root/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/context-alias/item-root/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/context-alias/item-root/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/context-alias/item-root/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/context-alias/item-root/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/context-alias/item-root/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["terms/local-rule/subject/rewrite-left/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-left/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/local-rule/subject/rewrite-right/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/item-root/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/list-element/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/function-argument/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-body/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/let-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/update-field/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/closure-body/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-body/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-body/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/!(x < 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/x.add::<Int>(1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/update-field/y @ Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ entry"
-
-["terms/sort-rule/subject-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/subject-root/{ let y = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/subject-root/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x & 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x && true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x + 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x < 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x << 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x == 1"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/cons-element/x || true"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/local-rule/subject/rewrite-left/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/local-rule/subject/rewrite-left/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/local-rule/subject/rewrite-left/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/local-rule/subject/rewrite-left/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/local-rule/subject/rewrite-left/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/local-rule/subject/rewrite-left/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/let-pattern/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/let-pattern/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/let-pattern/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/matches-pattern/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/matches-pattern/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/readable/map-key/matches-pattern/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/let-pattern/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/let-pattern/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/let-pattern/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/let-pattern/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/let-pattern/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/let-pattern/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/matches-pattern/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/matches-pattern/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/matches-pattern/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/matches-pattern/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/matches-pattern/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/guard/matches-pattern/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/subject/as-body/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/subject/as-body/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/subject/as-body/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/subject/as-body/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/subject/as-body/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/rule/subject/as-body/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/let-pattern/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/let-pattern/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/let-pattern/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/let-pattern/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/let-pattern/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/let-pattern/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/matches-pattern/k::builtin::list::item(x).len()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/matches-pattern/k::builtin::list::item(x)[0]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/matches-pattern/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/matches-pattern/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/matches-pattern/k::builtin::map::empty()[x]"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["notation/sort-rule/result/matches-pattern/k::builtin::set::item(x).to_list()"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
 # NT-2-7: `_` where no production field gives it a sort is the descriptor validator's internal message
 # `k::matches!(x, _)` and a `cells!` computation item `KCell(_, ..)` (also the `cells!` rule `krs
 # expand` prints for the readable `{ k: [_, ..] }`) report `krs::analysis::invalid-term` "wildcard has
@@ -3296,22 +2352,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 # answer with the construct's class; the clause's attribute never runs, so the marked production
 # reports `krs::expand::orphan-helper` at the declaration instead. Probe:
 # `terms/desugar/result/y @ Cmd::Hold(_)`. Plan: new.
-
-["terms/alias/result-root-ground/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
-
-["terms/alias/result/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
-
-["terms/desugar/result-root/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
-
-["terms/desugar/result/y @ Cmd::Hold(_)"]
-finding = "NT-2-14"
-deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
 
 # NT-2-15: `krs expand` panics on a readable map read whose value is `_`
 # `{ x -> _, .. }` is accepted, and printing it panics in `krs-compiler/src/reference.rs`: the
@@ -3380,62 +2420,6 @@ deviation = "krs::collect::stale-anchor @ spelling"
 # `terms/init/item/Cmd::Pair { a: x, .. }`. Plan: new.
 # NT-3: an expression's record now keeps its `..`, so a constant and an initializer refuse the open
 # record by its placement, before its names, and their cases conform.
-
-["terms/rule/subject/or-branch/k::is!(Int, x)"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/rule/subject/or-branch/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/rule/subject/or-branch/k::project!(Int, x)"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ entry"
-
-["terms/alias/subject/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/cells-local/subject/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/local-rule/subject/rewrite-left/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/local-rule/subject/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/readable/map-key/let-pattern/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/rule/guard/let-pattern/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/simplification/subject/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/sort-rule/result/let-pattern/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/context-alias/item-root/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/context-alias/subject/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
-
-["terms/context/subject/x | 1"]
-finding = "NT-2-25"
-deviation = "krs::syntax::invalid-pattern-or @ spelling"
 
 # NT-2-26: a constant's whole value that rustc cannot parse gets no KRS answer
 # At a `#[k::constant]` value's root, a construct rustc's parser refuses is reported by rustc
@@ -3520,30 +2504,6 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling"
 # function in a pattern. The refusal is right; its class is not. Plan: read a pattern's top-level
 # `|` as alternatives before the expression fallback reads its branches (`parse_pattern_tokens_at`).
 
-["notation/rule/subject/or-branch/k::builtin::list::item(x).len()"]
-finding = "NT-5-1"
-deviation = "krs::analysis::invalid-term @ entry"
-
-["notation/rule/subject/or-branch/k::builtin::list::item(x)[0]"]
-finding = "NT-5-1"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/rule/subject/or-branch/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-5-1"
-deviation = "krs::syntax::invalid-expression-notation @ entry"
-
-["notation/rule/subject/or-branch/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-5-1"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/rule/subject/or-branch/k::builtin::map::empty()[x]"]
-finding = "NT-5-1"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/rule/subject/or-branch/k::builtin::set::item(x).to_list()"]
-finding = "NT-5-1"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
 # NT-5-2: a simplification rooted at a collection's function fails the semantic theory's validation, unlocated
 # A simplification rewrites an unevaluated application, and `map::get(m, k)`, `list::size(l)` or
 # `set::to_list(s)` is one, as `int::add(x, 1)` is; the oracle admits it. Lowering writes a
@@ -3587,18 +2547,6 @@ deviation = "krs::analysis::ambiguous-operator @ entry"
 # NT-3-1 (K8): the advice check on cases pending above under NT-3-1, whose refusal it reads.
 
 # NT-5-1 (K8): the advice check on cases pending above under NT-5-1, whose refusal it reads.
-
-["k8/notation/rule/subject/or-branch/k::builtin::list::item(x)[0]"]
-finding = "NT-5-1"
-deviation = "alternatives-bind-unequally advises none, and its refusal advises `a.bit_or::<Int>(b)`"
-
-["k8/notation/rule/subject/or-branch/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-5-1"
-deviation = "alternatives-bind-unequally advises none, and its refusal advises `a || b`"
-
-["k8/notation/rule/subject/or-branch/k::builtin::map::empty()[x]"]
-finding = "NT-5-1"
-deviation = "alternatives-bind-unequally advises none, and its refusal advises `a.bit_or::<Int>(b)`"
 
 
 # NT-13-1 (K8): a key a claim's `#[k::claim(..)]` does not take (`owise`, `heat`, `concrete`, an
@@ -5014,45 +3962,9 @@ deviation = "<k> head printed `c9da00999(ak, SetItem ( ak ))`, which does not re
 # findings; the advice itself deviates where the refusal is another class's (S0-14). On the
 # context form, which has no result slot, the class advises the local rule's rewrite right (NT-28).
 
-["terms/local-rule/subject/rewrite-left/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
 ["terms/readable/map-key/as-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-
-["terms/readable/map-key/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/as-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/subject-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["k3/terms/readable/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"

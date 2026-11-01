@@ -134,30 +134,15 @@ owner = "NT-34"
 kind = "feature"
 what = "a readable record cannot read a Set instance's map cell with its other entries open (`m: { 1 -> 2, .. }`)"
 
-["NT-2-14"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "a static clause whose body rustc cannot parse leaves its production's marker orphaned"
-
 ["NT-2-18"]
 owner = "NT-28"
 kind = "bug"
 what = "a negative literal at some roots and in a `let` pattern is refused with a stale anchor"
 
-["NT-2-25"]
-owner = "NT-32"
-kind = "diagnostic"
-what = "a name mistake is reported before a placement mistake"
-
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"
 what = "a constant's whole value that rustc cannot parse gets no KRS answer, and rustc then expands nothing in the crate, so every other KRS diagnostic of it waits on that error"
-
-["NT-2-6"]
-owner = "NT-32"
-kind = "diagnostic"
-what = "a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class"
 
 ["NT-30-2"]
 owner = "S6"
@@ -168,11 +153,6 @@ what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instan
 owner = "NT-36"
 kind = "bug"
 what = "the run printer reverses an alias whose subject writes a builtin collection constructor (`SetItem`), so the printed `<k>` head is no program text"
-
-["NT-5-1"]
-owner = "NT-28"
-kind = "diagnostic"
-what = "alternatives one of which is an index or a collection method are read as the operator `|`"
 
 ["S0-14"]
 owner = "S5"
