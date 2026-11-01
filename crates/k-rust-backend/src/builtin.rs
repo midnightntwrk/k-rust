@@ -896,9 +896,13 @@ pub fn open_applications(
 /// - `isValidPoint` of G1 and of G2 "validates that it actually falls on the respective elliptic
 ///   curve" (:100), a `Bool` for every point term, false off the curve AM-3 names. A `Bool`
 ///   result; any argument sort, every term of which is a point or not.
-/// - The hex digests `Keccak256`, `Sha256`, `Sha3_256` and `RipEmd160`, in their `KRYPTO` and
-///   `HASH` spellings, each "takes a byte string and returns" the hex encoding of its digest
-///   (`krypto.md`:26-30), whose spelling AM-2 fixes: one `Bytes` argument, a `String` result.
+/// - The hex digests `Keccak256`, `Sha256`, `Sha3_256` and `RipEmd160` each "takes a byte string
+///   and returns" the hex encoding of its digest (`krypto.md`:26-30), whose spelling AM-2 fixes:
+///   one `Bytes` argument, a `String` result. They are listed under the hooks k-rust evaluates
+///   them by: the plugin's `KRYPTO` hooks and their `HASH` aliases, and for `Sha3_256`, which the
+///   plugin hooks to `KRYPTO.sha3` (:39), k-rust's `KRYPTO.sha3256` and `HASH.sha3_256`, names no
+///   K source declares; `KRYPTO.sha3` has no evaluator and is not listed (compatibility.md,
+///   "Cryptographic hooks").
 /// - The raw digests `Keccak256raw`, `Sha256raw`, `Sha512_256raw` and `RipEmd160raw` return the
 ///   digest of their byte string as bytes (:47): one `Bytes` argument, a `Bytes` result.
 /// - `Bytes2String` gives the string of the same length whose code points are the bytes (AM-1

@@ -3327,8 +3327,8 @@ endmodule
 /// `^%Int` and `log2Int`, and each equation is the domain the ground evaluator applies
 /// (`int_pow_within`, `int_powmod` and `int_log2` in `k-rust-backend`'s `builtin.rs`), case by
 /// case: `^Int` has a value at every nonnegative exponent and at every exponent of the bases 1
-/// and -1, and none at a negative exponent of another base, 0 included; `^%Int` has that domain
-/// with a nonzero modulus; `log2Int` has a value exactly at a positive argument. Each case is a
+/// and -1, and none at a negative exponent of another base, 0 and the bases below -1 included;
+/// `^%Int` has that domain with a nonzero modulus of either sign; `log2Int` has a value exactly at a positive argument. Each case is a
 /// claim on symbolic operands, which only the equation decides, and one on literal operands,
 /// which the evaluator decides (the controls). Every claim's outcome is collected before the
 /// assertion, so a failure lists them all.
@@ -3353,14 +3353,19 @@ module POWER-DOMAINS-SPEC
   claim [undefined-pow]: <k> .K </k> <v> V:Int => (#if false #then V ^Int -1 #else V #fi) </v> requires V >Int 1
   claim [undefined-zero-pow]: <k> .K </k> <v> V:Int => (#if false #then 0 ^Int E:Int #else V #fi) </v> requires E <Int 0
   claim [undefined-literal-pow]: <k> .K </k> <v> V:Int => (#if false #then 2 ^Int -1 #else V #fi) </v>
+  claim [undefined-negative-base-pow]: <k> .K </k> <v> V:Int => (#if false #then V ^Int -1 #else V #fi) </v> requires V <Int -1
+  claim [undefined-literal-negative-base-pow]: <k> .K </k> <v> V:Int => (#if false #then -2 ^Int -1 #else V #fi) </v>
   claim [undefined-operand-pow]: <k> .K </k> <v> V:Int => (#if false #then (1 divInt 0) ^Int 2 #else V #fi) </v>
   claim [safe-powmod]: <k> .K </k> <v> V:Int => (#if false #then V ^%Int 3 7 #else V #fi) </v>
   claim [safe-symbolic-powmod]: <k> .K </k> <v> V:Int => (#if false #then V ^%Int E:Int M:Int #else V #fi) </v> requires E >=Int 0 andBool M =/=Int 0
   claim [safe-unit-powmod]: <k> .K </k> <v> E:Int => (#if false #then -1 ^%Int E M:Int #else E #fi) </v> requires M =/=Int 0
   claim [safe-literal-powmod]: <k> .K </k> <v> V:Int => (#if false #then -1 ^%Int -1 7 #else V #fi) </v>
+  claim [safe-literal-powmod-negative-modulus]: <k> .K </k> <v> V:Int => (#if false #then -1 ^%Int -1 -5 #else V #fi) </v>
   claim [undefined-modulus-powmod]: <k> .K </k> <v> V:Int => (#if false #then V ^%Int E:Int 0 #else V #fi) </v> requires E >=Int 0
   claim [undefined-exponent-powmod]: <k> .K </k> <v> V:Int => (#if false #then V ^%Int -1 M:Int #else V #fi) </v> requires V >Int 1 andBool M =/=Int 0
   claim [undefined-literal-powmod]: <k> .K </k> <v> V:Int => (#if false #then 2 ^%Int -1 5 #else V #fi) </v>
+  claim [undefined-negative-base-powmod]: <k> .K </k> <v> V:Int => (#if false #then V ^%Int -1 M:Int #else V #fi) </v> requires V <Int -1 andBool M =/=Int 0
+  claim [undefined-literal-negative-base-powmod]: <k> .K </k> <v> V:Int => (#if false #then -2 ^%Int -1 -5 #else V #fi) </v>
   claim [safe-log2]: <k> .K </k> <v> V:Int => (#if false #then log2Int(V) #else V #fi) </v> requires V >Int 0
   claim [safe-literal-log2]: <k> .K </k> <v> V:Int => (#if false #then log2Int(1024) #else V #fi) </v>
   claim [undefined-log2]: <k> .K </k> <v> V:Int => (#if false #then log2Int(V) #else V #fi) </v> requires V <=Int 0
@@ -3381,14 +3386,19 @@ endmodule
         ("undefined-pow", "disproved"),
         ("undefined-zero-pow", "disproved"),
         ("undefined-literal-pow", "disproved"),
+        ("undefined-negative-base-pow", "disproved"),
+        ("undefined-literal-negative-base-pow", "disproved"),
         ("undefined-operand-pow", "disproved"),
         ("safe-powmod", "proven"),
         ("safe-symbolic-powmod", "proven"),
         ("safe-unit-powmod", "proven"),
         ("safe-literal-powmod", "proven"),
+        ("safe-literal-powmod-negative-modulus", "proven"),
         ("undefined-modulus-powmod", "disproved"),
         ("undefined-exponent-powmod", "disproved"),
         ("undefined-literal-powmod", "disproved"),
+        ("undefined-negative-base-powmod", "disproved"),
+        ("undefined-literal-negative-base-powmod", "disproved"),
         ("safe-log2", "proven"),
         ("safe-literal-log2", "proven"),
         ("undefined-log2", "disproved"),

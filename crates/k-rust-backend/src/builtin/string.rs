@@ -101,8 +101,8 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
 ///   `[START..END)` holds no code point. At `0` and at `lengthString(S)` `domains.md`'s own
 ///   `replaceFirst` rule (STRING-COMMON, beside `substrString`'s declaration), part of the
 ///   hook's specification, fixes it nonetheless: `replaceFirst(S, S, R)` "replaces exactly one
-///   ocurrence of the string, the first occurrence" (`domains.md`:1844-1845), which gives `R`,
-///   and its rule (:1901-1902) gives `substrString(S, 0, 0) +String R +String substrString(S,
+///   ocurrence of the string, the first occurrence" (`domains.md`:1849-1850), which gives `R`,
+///   and its rule (:1906-1908) gives `substrString(S, 0, 0) +String R +String substrString(S,
 ///   |S|, |S|)` (`findString(S, S, 0)` is 0), so both have length 0 and are `""` in every model.
 ///   At `S = ""` that search starts at the length, so this rests on a search from
 ///   `lengthString(S)` being described (the empty needle occurs at the length, [`find`]): the

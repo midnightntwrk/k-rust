@@ -67,7 +67,7 @@
 //!
 //! [[cost]]
 //! mode = "opaque \\ceil or absence expansion (expansion_obligations)"
-//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member"
+//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -747,13 +747,20 @@ fn expansion_obligations(
         return Ok(true);
     }
     expanded.retain(|predicate| !holds(predicate));
-    // Each member is judged against the expansion as it stands here, dropped members included:
-    // the other obligations of `s` are those of its proper subterms, so a member dropped on the
-    // strength of another dropped one rests, through a chain of ever smaller subterms, on members
-    // that are kept or hold.
-    let members = expanded.clone();
-    let mut kept = Vec::with_capacity(members.len());
-    for predicate in members.iter() {
+    // A member `\ceil(s)` is dropped only when the judgement holds of `s` and every other
+    // obligation of `ceil_term(s)` is a member, assumed or held. `ceil_term` emits the
+    // obligations of every node below `s`, whether or not a ceil equation applies at a node, so
+    // those of `s`'s arguments are among the ones checked, and with the judgement they imply
+    // `\ceil(s)`. Each member is judged against the expansion as it stands here, dropped members
+    // included: a cited member that is dropped too rests in turn on the obligations below its own
+    // subject, so the citations descend through ever smaller subterms to members that are kept
+    // or hold, as long as each ceil equation in the expansion states an application's
+    // definedness through its own subterms (every `#Ceil` equation of the embedded `domains.md`
+    // does). A ceil equation whose right-hand side holds `\ceil(t)` of a `t` that is no subterm
+    // of its left-hand side could let two dropped members cite each other.
+    let members = expanded.iter().collect::<FxHashSet<&Predicate>>();
+    let mut dropped = Vec::with_capacity(expanded.len());
+    for predicate in expanded.iter() {
         let stated = match predicate {
             Predicate::Ceil(subject) if predicate != atom => {
                 defined_where_its_arguments_are(definition, subject)?
@@ -769,11 +776,11 @@ fn expansion_obligations(
             }
             _ => false,
         };
-        if !stated {
-            kept.push(predicate.clone());
-        }
+        dropped.push(stated);
     }
-    *expanded = kept;
+    drop(members);
+    let mut dropped = dropped.into_iter();
+    expanded.retain(|_| !dropped.next().unwrap_or(false));
     Ok(false)
 }
 
@@ -787,9 +794,10 @@ fn defined_where_its_arguments_are(
     definition: &BackendDefinition,
     term: &Term,
 ) -> SimplifyResult<bool> {
-    Ok(defined_uncomputed(definition, term)?
+    // The two readings of the hook's text first: `defined_uncomputed` may evaluate the hook.
+    Ok(crate::builtin::defined_on_every_argument(definition, term)
         || crate::builtin::implementation_chosen(term).is_some_and(|chosen| chosen.defined)
-        || crate::builtin::defined_on_every_argument(definition, term))
+        || defined_uncomputed(definition, term)?)
 }
 
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
