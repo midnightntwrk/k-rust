@@ -5180,11 +5180,3 @@ deviation = "different"
 finding = "NT-2-7"
 deviation = "krs::analysis::invalid-term @ spelling"
 
-["k3/terms/readable/map-key/let-body/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-key/let-pattern/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-

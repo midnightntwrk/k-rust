@@ -99,7 +99,7 @@ pub(super) fn declared_type_table(
     Ok(declarations)
 }
 
-type HostCellKey = (TypeId, TypeId);
+pub(super) type HostCellKey = (TypeId, TypeId);
 
 pub(super) fn declared_cell_field_table(
     pending: &[PendingDescriptor],

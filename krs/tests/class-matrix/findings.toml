@@ -139,11 +139,6 @@ owner = "NT-28"
 kind = "diagnostic"
 what = "a static clause whose body rustc cannot parse leaves its production's marker orphaned"
 
-["NT-2-16"]
-owner = "NT-30"
-kind = "bug"
-what = "`krs expand` prints a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block so that the re-check refuses it"
-
 ["NT-2-18"]
 owner = "NT-28"
 kind = "bug"

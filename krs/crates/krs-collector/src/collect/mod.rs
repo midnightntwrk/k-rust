@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use krs_ir::measure::Timings;
 use krs_ir::{
-    Descriptor, DescriptorBundle, DescriptorDeclaration, HostBuiltinRegistry, HostDescriptor,
-    HostItemId, HostProvenanceError, IntLiterals, ItemKind, PackageId, PackageSettings,
-    RawKProfile, SchemaVersion, StableItemId,
+    Descriptor, DescriptorBundle, DescriptorDeclaration, HostApplicationIdentity,
+    HostBuiltinRegistry, HostDescriptor, HostItemId, HostProvenanceError, IntLiterals, ItemKind,
+    PackageId, PackageSettings, RawKProfile, SchemaVersion, StableItemId,
 };
 
 use crate::facade::FacadeAliases;
@@ -408,27 +408,53 @@ fn locate_main_cell_refusals(
     }
 }
 
+/// The tables every descriptor's payload is resolved against.
+struct ResolutionTables {
+    context_aliases: HashMap<HostItemId, StableItemId>,
+    declarations: HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    cell_fields: HashMap<resolve::HostCellKey, krs_ir::DescriptorCellIdentity>,
+    head_targets: Vec<resolve::HeadRuleTarget>,
+}
+
+/// Sorts `pending` by final identity (K namespace order; host identities sort by Cargo package)
+/// and builds the tables its payloads are resolved against.
+fn resolution_tables(
+    pending: &mut [PendingDescriptor],
+    contexts: &[PreparedContext],
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<ResolutionTables, CollectionError> {
+    pending.sort_by(|left, right| left.id.cmp(&right.id));
+    let context_aliases = pending
+        .iter()
+        .filter(|pending| pending.id.item_kind() == ItemKind::ContextAlias)
+        .map(|pending| (pending.host.id.clone(), pending.id.clone()))
+        .collect::<HashMap<_, _>>();
+    let declarations = declared_type_table(pending, builtins)?;
+    let cell_fields = declared_cell_field_table(pending)?;
+    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields)?;
+    locate_main_cell_refusals(&mut head_targets, pending, contexts);
+    Ok(ResolutionTables {
+        context_aliases,
+        declarations,
+        cell_fields,
+        head_targets,
+    })
+}
+
 fn resolve_pending_descriptors(
     mut pending: Vec<PendingDescriptor>,
     contexts: &[PreparedContext],
     builtins: Option<&HostBuiltinRegistry>,
     timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
-    let (context_aliases, declarations, cell_fields, head_targets) =
-        timings.try_span("collector.resolve.tables", |_| {
-            // Final identities sort by K namespace; host identities sort by Cargo package.
-            pending.sort_by(|left, right| left.id.cmp(&right.id));
-            let context_aliases = pending
-                .iter()
-                .filter(|pending| pending.id.item_kind() == ItemKind::ContextAlias)
-                .map(|pending| (pending.host.id.clone(), pending.id.clone()))
-                .collect::<HashMap<_, _>>();
-            let declarations = declared_type_table(&pending, builtins)?;
-            let cell_fields = declared_cell_field_table(&pending)?;
-            let mut head_targets = resolve_head_rule_targets(&pending, &cell_fields)?;
-            locate_main_cell_refusals(&mut head_targets, &pending, contexts);
-            Ok::<_, CollectionError>((context_aliases, declarations, cell_fields, head_targets))
-        })?;
+    let ResolutionTables {
+        context_aliases,
+        declarations,
+        cell_fields,
+        head_targets,
+    } = timings.try_span("collector.resolve.tables", |_| {
+        resolution_tables(&mut pending, contexts, builtins)
+    })?;
     let mut source_cache = BTreeMap::new();
     let mut resolved = Vec::with_capacity(pending.len());
     let mut declaration_metadata = Vec::with_capacity(pending.len());

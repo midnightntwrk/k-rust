@@ -780,7 +780,9 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     // `#[k::constructor(...)]` no case writes; the class's own message comes back with NT-2-14.
     ("terms", "alias-outside-pattern", 4),
     ("terms", "alias-at-subject-root", 2),
-    ("terms", "alias-in-let-pattern", 51),
+    // 53: NT-31 lets a `cells!` subject's computed key hold a `let` block, so its two key
+    // positions meet the same `let p = e; let P = p;` advice as every other one.
+    ("terms", "alias-in-let-pattern", 53),
     ("terms", "configuration-variable-sort", 2),
     ("terms", "island-at-subject-root", 18),
     ("terms", "ml-in-condition", 41),
