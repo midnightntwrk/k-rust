@@ -334,7 +334,7 @@ endmodule
 "#;
 
 #[test]
-fn conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are_marked() {
+fn only_open_conversion_root_and_crypto_values_are_marked_at_run_time() {
     let rounding = |hook: &str| [mark(hook, "float-rounding")];
     let outside = |hook: &str| [mark(hook, "outside-domain")];
     assert_marked(GAP_VALUES, "i2f(16777217)", &[]);
