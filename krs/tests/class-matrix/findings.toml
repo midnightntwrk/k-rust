@@ -150,9 +150,9 @@ kind = "diagnostic"
 what = "a name mistake is reported before a placement mistake"
 
 ["NT-2-26"]
-owner = "NT-28"
+owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"
-what = "a constant's whole value that rustc cannot parse gets no KRS answer"
+what = "a constant's whole value that rustc cannot parse gets no KRS answer, and rustc then expands nothing in the crate, so every other KRS diagnostic of it waits on that error"
 
 ["NT-2-6"]
 owner = "NT-32"
@@ -177,7 +177,7 @@ what = "alternatives one of which is an index or a collection method are read as
 ["S0-14"]
 owner = "S5"
 kind = "bug"
-what = "a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys"
+what = "a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys: it is read as the term it looks its entry up by, which binds no alias's name"
 by_test = { k8 = "S5" }
 
 ["S0-15"]
