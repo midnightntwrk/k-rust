@@ -354,7 +354,7 @@ def main() -> None:
         (
             "or_pattern_unequal_binders",
             "variable `x` is not bound in all alternatives",
-            "Pair",
+            "Pair(_, y)",
         ),
         (
             "matches_malformed",

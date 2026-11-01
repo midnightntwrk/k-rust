@@ -831,10 +831,6 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     ("init", "initializer-remainder", 1),
     ("notation", "function-in-pattern", 4),
     ("notation", "ml-in-condition", 27),
-    // The four `y @ Cmd::Hold(_)` in an alias's or a desugar's built result (NT-2-14): rustc does
-    // not parse `@` in an expression, so the refusal is the orphan-helper error, whose
-    // `#[k::constructor(...)]` no case writes; the class's own message comes back with NT-2-14.
-    ("terms", "alias-outside-pattern", 4),
     ("terms", "alias-at-subject-root", 2),
     // 53: NT-31 lets a `cells!` subject's computed key hold a `let` block, so its two key
     // positions meet the same `let p = e; let P = p;` advice as every other one.
