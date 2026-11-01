@@ -4498,10 +4498,7 @@ module MAIN
 /// `Float2Int` tie (`float-rounding`) and the root of a negative value (`outside-domain`) stay.
 #[test]
 fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() {
-    let open = [
-        "Float2Int(2.5)",
-        "rootFloat(-4.0, 2)",
-    ];
+    let open = ["Float2Int(2.5)", "rootFloat(-4.0, 2)"];
     let determined = [
         "Int2Float(3, 24, 8)",
         "roundFloat(0.5, 24, 8)",

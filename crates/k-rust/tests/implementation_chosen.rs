@@ -513,11 +513,12 @@ fn a_bottom_outside_a_described_domain_is_marked_and_a_determined_one_is_not() {
     );
     // `replaceAtBytes(B, I, S)` is `#False` where `I + lengthBytes(S)` "is not a valid index":
     // a negative `I` starts the replacement nowhere the text describes (`rpl(-1)`, `\bottom`
-    // taken), and where `I + lengthBytes(S)` is the length of `B` the two readings of "valid
-    // index" disagree (`rpl(1)`, k-rust's value taken). Below 0 or above the length it is no
-    // index under either reading (`rpl(-3)`, `rpl(2)`).
+    // taken). Where `I + lengthBytes(S)` is the length of `B`, the condition is an end bound
+    // (`docs/amendments.md`, AM-7), so the replacement is the value (`rpl(1)`, determined since
+    // GAP A1, unmarked). Below 0 or above the length it is no index under either reading
+    // (`rpl(-3)`, `rpl(2)`).
     assert_marked(OUTSIDE_BOTTOM, "rpl(-1)", &outside("BYTES.replaceAt"));
-    assert_marked(OUTSIDE_BOTTOM, "rpl(1)", &outside("BYTES.replaceAt"));
+    assert_marked(OUTSIDE_BOTTOM, "rpl(1)", &[]);
     assert_marked(OUTSIDE_BOTTOM, "rpl(0)", &[]);
     for determined in [
         "get(5)", "make(-1)", "chr(-1)", "pow(-1)", "cho", "div(0)", "rpl(2)", "rpl(-3)",
