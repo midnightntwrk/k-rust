@@ -147,9 +147,12 @@ partial def fpExpr (env : Environment) (e : Expr) :
       | some c =>
         if auxConst env n then
           let ht ← fpExpr env c.type
-          let hv ← match c.value? with
-            | some v => fpExpr env v
-            | none => pure (tag 0)
+          -- a theorem (`proof_N`) by its statement alone: which proof is not what it means
+          let hv ← match c with
+            | .thmInfo _ => pure (tag 0)
+            | _ => match c.value? with
+              | some v => fpExpr env v
+              | none => pure (tag 0)
           pure (ls.foldl (fun a l => mix a (lv l)) (mix (mix (tag 13) ht) hv))
         else pure (ls.foldl (fun a l => mix a (lv l)) (mix (tag 5) (nm n)))
       | none => pure (ls.foldl (fun a l => mix a (lv l)) (mix (tag 5) (nm n)))
