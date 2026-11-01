@@ -497,7 +497,12 @@
       "summary": [
         "krs prove: 7 of 14 claims proven"
       ],
-      "warnings": []
+      "warnings": [
+        "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
+        "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
+        "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
+        "warning: priority, associativity or a sort requires a bracket around a child of sort `Map`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads"
+      ]
     }
   },
   "cell_map_kprove": {

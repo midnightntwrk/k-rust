@@ -1417,7 +1417,11 @@ def verify_cell_maps(harness: FixtureGate, fixture: Fixture) -> None:
         if fragment not in definition:
             raise GateError(f"{fixture.package}: emitted definition.k omits:\n{fragment}")
     native = native_trusted_proof(harness, fixture, CELL_MAPS_SPEC)
-    if native["statuses"] != CELL_MAPS_STATUSES or native["exit"] != 1 or native["warnings"]:
+    # A leaf that holds a map at a map's key or value has no text that reads back, so its print
+    # states the grouped fallback (NT-40); any other warning is a fault. The pin holds the list.
+    grouped = "grouped in K's default bracket `( .. )`"
+    unexpected = [line for line in native["warnings"] if grouped not in line]
+    if native["statuses"] != CELL_MAPS_STATUSES or native["exit"] != 1 or unexpected:
         raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
     harness.pins.expect(("cell_map_proofs", fixture.package), native)
     java = java_claim_proofs(harness, emitted, CELL_MAPS_SPEC, tuple(CELL_MAPS_STATUSES))
