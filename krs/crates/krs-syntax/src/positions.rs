@@ -789,10 +789,10 @@ impl Class {
                 "`k::fragment!` names a nested cell term, and an initializer builds its nested cells with their structs"
             }
             Self::LetOutsideTerm => {
-                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
+                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern, outside a key its subject computes: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
             }
             Self::MatchesOutsideCondition => {
-                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
+                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern, outside a key its subject computes: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
             }
             Self::MlInInitializer => {
                 "a matching-logic predicate states a property of a symbolic state, and an initializer builds one concrete state"
@@ -819,7 +819,7 @@ impl Class {
                 "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); a list of an element and a rest is moreover one spelling of the list, which static expansion matches as written: name the whole list and use the name in the result"
             }
             Self::RewriteInMapKey => {
-                "a map key is what the map is looked up by, and a rewrite there would move the entry to another key, a removal and an insertion that may meet a key the map already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`"
+                "a map key is what the map is looked up by, as a set's element is what the set is, and a rewrite there would move the entry to another key, or replace the element by another, a removal and an insertion that may meet a key or an element the collection already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`"
             }
             Self::RewriteOutsideLocalRule => {
                 "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern"
@@ -965,13 +965,10 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             if nesting.in_matches_pattern {
                 // A `k::matches!` in a condition is part of the matching that decides whether
                 // the sentence applies; in a result or an initializer it is a test of the built
-                // term, and in a key a rule's pattern computes, of the term the key is computed
-                // from, which is built as a result is.
-                if matches!(position.slot, Slot::Result | Slot::InitializerValue)
-                    || (matches!(position.slot, Slot::Subject)
-                        && nesting.in_map_key
-                        && !form.is_claim())
-                {
+                // term. In a key a pattern computes, the test is a function of the names the key
+                // reads, whose equations state it in their conditions, where `name @ pattern`
+                // means what it means in any condition.
+                if matches!(position.slot, Slot::Result | Slot::InitializerValue) {
                     Refuse(Class::AliasOutsidePattern)
                 } else {
                     Admit
@@ -1012,7 +1009,8 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // holds either, as its end state and conditions do; KRS lifts a claim's into functions the
         // definition declares, since the provers lower them only in a definition's sentences
         // (NT-15). A `cells!` value is a cell's content (S6 decides whether that changes for
-        // readable rules written as `cells!` rules). A key a pattern over evaluated terms looks up
+        // readable rules written as `cells!` rules), except a key a `cells!` subject computes,
+        // which denotes what the same key of a readable rule does. A key a pattern over evaluated terms looks up
         // is computed from names the pattern binds elsewhere and looked up, so it holds either,
         // as it holds a function's application: the value is a function of those names, which
         // KRS lifts into a function of its own and applies there, so no binder of the construct
@@ -1038,7 +1036,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 Rule::LetOutsideTerm
             };
             if position.in_local_pattern()
-                || cells_value(position)
+                || (cells_value(position) && !key_computed)
                 || (in_pattern_key && !key_computed)
                 || (pattern
                     && !form.is_claim()
@@ -1065,7 +1063,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             _ => After(Rule::MlPredicateAsTerm),
         },
         // A rewrite marks what changes inside a single-body rule's subject, where a map changes
-        // values: its keys are what it is looked up by.
+        // values: its keys are what it is looked up by, and so are a set's elements.
         Construct::Rewrite => {
             if !matches!(position.slot, Slot::Subject)
                 || !form.rewrites_inside_subject()
@@ -1073,7 +1071,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 || position.in_local_pattern()
             {
                 Refuse(Class::RewriteOutsideLocalRule)
-            } else if nesting.in_map_key && !nesting.in_set_element {
+            } else if nesting.in_map_key {
                 Refuse(Class::RewriteInMapKey)
             } else {
                 Admit

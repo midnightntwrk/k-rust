@@ -291,11 +291,17 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error>;
 
     /// Enters (`true`) or leaves (`false`) the element of a set's singleton
-    /// ([`ValidationStage::is_set_element`]). In a pattern the set is looked
-    /// up by it, as a map by a key: it is computed from names the pattern
-    /// binds elsewhere, so it may hold a `let` block, a `k::matches!` test or
-    /// a record update, which the expander's position table and the compiler
-    /// judge there.
+    /// ([`ValidationStage::is_set_element`]). In a pattern a set's element is
+    /// read as a key is, which may be computed from names the pattern binds
+    /// elsewhere and hold a `let` block, a `k::matches!` test or a record
+    /// update, or may select an element by matching, or be matched as written
+    /// (a simplification's, a static clause's): whether it computes depends on
+    /// the sentence and on the names the pattern binds, which this walk does
+    /// not see. The transport therefore admits those constructs in any set's
+    /// element and defers the judgement to the expander's position table and
+    /// the compiler; a `#let` or `:=K` the compiler leaves in a left side
+    /// after lifting is refused by the IR's own validation
+    /// (`krs_ir_levels::ir_validation`).
     fn set_element(&mut self, _entering: bool) {}
 }
 

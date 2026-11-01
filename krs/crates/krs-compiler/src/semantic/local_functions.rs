@@ -102,9 +102,15 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
         let rewritten = if host {
             rule.try_map_terms(&mut |term| lifter.term(term))?
         } else {
-            let patterns = pattern_terms(rule);
+            // A pattern term is told by its node's source-map key, which names that node alone
+            // in the sentence, so a term `try_map_terms` hands over is the pattern's however it
+            // reaches the mapper.
+            let patterns = pattern_terms(rule)
+                .into_iter()
+                .map(|pattern| pattern.origin().key().clone())
+                .collect::<BTreeSet<_>>();
             rule.try_map_terms(&mut |term| {
-                if patterns.iter().any(|pattern| std::ptr::eq(*pattern, term)) {
+                if patterns.contains(term.origin().key()) {
                     lifter.pattern(term)
                 } else {
                     Ok(term.clone())
@@ -201,7 +207,7 @@ fn keys_hold_local_function(rule: &SemanticRule) -> bool {
 
 /// The terms of `rule` that hold its left side: a rewrite's pre-pattern, a single-body rule's
 /// authored term (whose rewrites' left sides are its pattern), and each configuration clause's
-/// matched term. The terms are those [`SemanticRule::try_map_terms`] maps, by reference.
+/// matched term, each among the terms [`SemanticRule::try_map_terms`] maps.
 fn pattern_terms(rule: &SemanticRule) -> Vec<&SemanticTerm> {
     match rule.relational_body() {
         RuleBodyRef::Term(body) => vec![body.local_term().unwrap_or_else(|| body.from())],
@@ -589,6 +595,15 @@ fn occurrences(term: &SemanticTerm, read: &mut Vec<SemanticId>, bound: &mut BTre
             }
         }
     }
+}
+
+/// The names `term` reads outside the patterns of its local functions, in first-occurrence
+/// order, which a function lifted out of it would take as its parameters.
+pub(super) fn free_names(term: &SemanticTerm, free: &mut Vec<SemanticId>) {
+    let mut read = Vec::new();
+    let mut bound = BTreeSet::new();
+    occurrences(term, &mut read, &mut bound);
+    free.extend(read.into_iter().filter(|name| !bound.contains(name)));
 }
 
 /// Every name `pattern` binds.

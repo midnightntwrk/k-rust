@@ -261,8 +261,9 @@ impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
             || self.in_let_pattern
     }
 
-    /// Whether the walk stands in a set's element outside a local pattern, which a left-hand
-    /// side looks the set up by and computes from names bound elsewhere.
+    /// Whether the walk stands in a set's element outside a local pattern, where the walk admits
+    /// what a computed element may hold and defers the judgement
+    /// ([`TermValidation::set_element`]).
     const fn in_set_element(&self) -> bool {
         self.set_elements > 0 && !self.in_matches_pattern && !self.in_let_pattern
     }

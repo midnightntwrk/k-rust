@@ -805,3 +805,130 @@ fn function_context_cells_have_their_roles_and_one_definition() {
         )))
     );
 }
+
+/// The name `name` in a left side.
+fn reference<S: ValidationStage>(name: &str, ordinal: u32) -> Term<S> {
+    let key = ProvenanceKey::new(ProvenanceRole::RuleLeftReference, ordinal);
+    Term::Variable {
+        key: key.clone(),
+        path_key: key,
+        name: name.to_owned(),
+    }
+}
+
+/// `{ let y = x; y }`, under keys of its own for each `ordinal`.
+fn block<S: ValidationStage>(ordinal: u32) -> Term<S> {
+    Term::Let {
+        key: ProvenanceKey::new(ProvenanceRole::Let, ordinal),
+        pattern: Box::new(reference("y", ordinal * 10 + 1)),
+        sort: None,
+        value: Box::new(reference("x", ordinal * 10 + 2)),
+        body: Box::new(reference("y", ordinal * 10 + 3)),
+    }
+}
+
+/// `reference(argument)` in a left side.
+fn applied<S: ValidationStage>(reference: S::Application, argument: Term<S>) -> Term<S> {
+    Term::Application {
+        instance: Vec::new(),
+        head_class: DescriptorApplicationHeadClass::Applied,
+        reference,
+        path_key: key(ProvenanceRole::RuleLeftApplicationHead),
+        arguments: crate::Arguments::Positional(vec![Box::new(argument)]),
+        update: None,
+        open: false,
+    }
+}
+
+/// Validates `term` as a left side over `bindings`.
+fn check<S: ValidationStage>(
+    term: &Term<S>,
+    bindings: &[ProtocolRuleBinding<S::Sort>],
+) -> Result<(), StateTransportError> {
+    validate_rule_term(
+        term,
+        ValidationSide::Left,
+        bindings,
+        &mut Vec::new(),
+        &mut RuleWalk::default(),
+        &mut WireKeys::default(),
+    )
+}
+
+/// A set's element in a left side is read as a key: the walk admits a `let` block there, which
+/// the position table and the compiler judge, and keeps refusing one inside a local pattern within
+/// the element and in a field of any other application. A host occurrence is told by its authored
+/// path, a descriptor occurrence by its resolved operation.
+#[test]
+fn a_set_s_element_admits_a_let_block_outside_its_local_patterns() {
+    let descriptor = |application: DescriptorApplicationRef| DescriptorApplicationReference {
+        key: key(ProvenanceRole::RuleLeftApplicationHead),
+        application,
+    };
+    let singleton = || descriptor(DescriptorApplicationRef::Set(crate::SetOperation::Item));
+    let constructor = || {
+        descriptor(DescriptorApplicationRef::Declared(item(
+            "Wrap",
+            ItemKind::Constructor,
+        )))
+    };
+    let host = |path: &'static str| HostApplicationReference {
+        key: key(ProvenanceRole::RuleLeftApplicationHead),
+        target: HostApplicationTarget::Nominal(HostTypeReference {
+            key: HostTypeKey(std::any::TypeId::of::<()>),
+            authored_path: path.into(),
+        }),
+    };
+    // `x` is the rule's binding; `y` is the block's.
+    let descriptor_bindings = [ProtocolRuleBinding {
+        name: "x".into(),
+        kind: ProtocolRuleBindingKind::Term {
+            sort: descriptor_sort(ProvenanceRole::RuleBindingType, ItemKind::Sort),
+        },
+    }];
+    let host_bindings = [ProtocolRuleBinding {
+        name: "x".into(),
+        kind: ProtocolRuleBindingKind::Term {
+            sort: host_sort(ProvenanceRole::RuleBindingType),
+        },
+    }];
+    let check_descriptor = |term: Term<DescriptorStage>| check(&term, &descriptor_bindings);
+    let check_host = |term: Term<HostStage>| check(&term, &host_bindings);
+    let refused = Err(StateTransportError::InvalidTerm(
+        StateTermReason::LetInPattern,
+    ));
+    assert_eq!(
+        check_descriptor(applied::<DescriptorStage>(singleton(), block(1))),
+        Ok(())
+    );
+    assert_eq!(
+        check_descriptor(applied::<DescriptorStage>(constructor(), block(1))),
+        refused
+    );
+    // A `let` block inside a test's pattern within the element is a pattern's, not the element's.
+    let test = |ordinal| Term::Matches {
+        key: ProvenanceKey::new(ProvenanceRole::Matches, ordinal),
+        subject: Box::new(reference("x", ordinal * 10 + 4)),
+        pattern: Box::new(block(ordinal)),
+    };
+    assert_eq!(
+        check_descriptor(applied::<DescriptorStage>(singleton(), test(2))),
+        refused
+    );
+    assert_eq!(
+        check_host(applied::<HostStage>(
+            host("k::builtin::set::item"),
+            block(1)
+        )),
+        Ok(())
+    );
+    assert_eq!(
+        check_host(applied::<HostStage>(host("set::item"), block(1))),
+        Ok(())
+    );
+    // Another spelling of the singleton reads its element as a field (finding NT-31-1).
+    assert_eq!(
+        check_host(applied::<HostStage>(host("item"), block(1))),
+        refused
+    );
+}

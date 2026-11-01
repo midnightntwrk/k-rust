@@ -417,7 +417,9 @@ k::claims! {
 /// computation's first item, which the construction matches where the item is that collection,
 /// so the rule is stated over the computation cell, for a set and a list, in a fn rule and a
 /// single-body one. A context's subject root names the production whose argument the context
-/// evaluates, which a collection is not, so a collection there is refused.
+/// evaluates, which a collection is not, so a collection there is refused. A set's element is
+/// what the set is looked up by, as a map's key is, so a rewrite inside one is refused as in a
+/// key: replacing an element may meet one the set already holds.
 #[test]
 fn a_collection_at_a_rule_root_matches_the_computation_item_and_no_context_heats_one() {
     let outcomes = outcomes([
@@ -431,7 +433,11 @@ fn a_collection_at_a_rule_root_matches_the_computation_item_and_no_context_heats
         ),
         (
             "local-rule-set",
-            "#[k::rule]\nfn sloc(x: Term<KItem>, k::term![k::builtin::set::item(k::rewrite!(x => ExpSyntax::Done()))]: Term<KItem>) {}\n",
+            "#[k::rule]\nfn sloc(x: Term<KItem>, r: Term<k::builtin::Set>, k::term![k::builtin::set::concat(k::rewrite!(k::builtin::set::item(x) => k::builtin::set::empty()), r)]: Term<KItem>) {}\n",
+        ),
+        (
+            "local-rule-set-element",
+            "#[k::rule]\nfn sel(x: Term<KItem>, k::term![k::builtin::set::item(k::rewrite!(x => ExpSyntax::Done()))]: Term<KItem>) {}\n",
         ),
         (
             "context-set",
@@ -463,6 +469,16 @@ fn a_collection_at_a_rule_root_matches_the_computation_item_and_no_context_heats
                 (
                     true,
                     [],
+                ),
+            ),
+            (
+                "local-rule-set-element",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-local-rewrite]: a map key is what the map is looked up by, as a set's element is what the set is, and a rewrite there would move the entry to another key, or replace the element by another, a removal and an insertion that may meet a key or an element the collection already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`; here it stands in a set's element in the subject of a single-body `#[k::rule]` fn",
+                        "--> src/lib.rs:50:55",
+                    ],
                 ),
             ),
             (

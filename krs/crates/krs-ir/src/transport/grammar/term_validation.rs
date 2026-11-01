@@ -50,8 +50,9 @@ impl<F> GrammarTermValidation<'_, F> {
             || self.in_let_pattern
     }
 
-    /// Whether the term is matched, outside a set's element a subject looks its set up by,
-    /// which is computed from names bound elsewhere.
+    /// Whether the term is matched, outside a set's element, where the walk admits what a
+    /// computed element may hold and defers the judgement
+    /// ([`crate::transport::validation::TermValidation::set_element`]).
     const fn matched(&self) -> bool {
         self.in_pattern()
             && (self.set_elements == 0 || self.in_matches_pattern || self.in_let_pattern)

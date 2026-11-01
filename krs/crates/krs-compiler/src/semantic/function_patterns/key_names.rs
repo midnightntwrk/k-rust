@@ -184,18 +184,22 @@ fn selection_reason(key: &Key<'_, '_>, selector: &str, computes: &Computes<'_>) 
     }
 }
 
-/// Why a `let` block or `k::matches!`, `computes`, never matches in `key`, which `selector` makes
-/// a selection: the construct is the application of a function generated for it, which the
-/// matched part never meets.
+/// Why a `let` block or `k::matches!`, `computes`, is refused in `key`, which `selector` makes a
+/// selection: a selection binds its names by matching the entries the collection holds, and KRS
+/// computes a construct only in a key or an instance whose names the pattern binds elsewhere.
 fn local_selection_reason(key: &Key<'_, '_>, selector: &str, computes: &Computes<'_>) -> String {
-    format!(
-        "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching {held} rather than computing the {looked} looked up; {what} is the application of a function generated for it, which no evaluated {one} is, so the key never matches: a key holds it only where the pattern binds every other name the key holds elsewhere, so that the key is computed and looked up",
-        what = computes.what,
-        place = key.lookup.place(),
-        held = key.lookup.held(),
-        looked = key.lookup.looked_up(),
-        one = key.lookup.looked_up(),
-    )
+    let what = &computes.what;
+    let place = key.lookup.place();
+    let held = key.lookup.held();
+    match key.lookup {
+        Lookup::Instance => format!(
+            "{what} stands in {place} that also holds {selector}, so the instance selects one by matching {held} as they stand, rather than computing the instance looked up; KRS computes {what} only in an instance whose every cell is written and computed from names the pattern binds elsewhere, and does not solve a selection for the names {what} reads: bind the selected part elsewhere in the pattern and write every cell to look the instance up, or match a variable here and relate it to that value in the sentence's condition"
+        ),
+        Lookup::MapKey | Lookup::SetElement => format!(
+            "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching {held} rather than computing the {looked} looked up; KRS computes {what} only in a key whose every other name the pattern binds elsewhere, and does not solve a selection for the names {what} reads: bind the selected part elsewhere in the pattern so the key is computed and looked up, or match a variable here and relate it to that value in the sentence's condition",
+            looked = key.lookup.looked_up(),
+        ),
+    }
 }
 
 /// The refusal of the construct that computes, `computes`: its class's.

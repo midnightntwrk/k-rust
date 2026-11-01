@@ -676,8 +676,323 @@ fn a_local_function_in_a_selection_key_is_refused() {
         .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
-            "error[krs::expand::let-outside-term]: a `let` block stands in a map key that also holds the name `z`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; a `let` block is the application of a function generated for it, which no evaluated key is, so the key never matches: a key holds it only where the pattern binds every other name the key holds elsewhere, so that the key is computed and looked up",
+            "error[krs::expand::let-outside-term]: a `let` block stands in a map key that also holds the name `z`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; KRS computes a `let` block only in a key whose every other name the pattern binds elsewhere, and does not solve a selection for the names a `let` block reads: bind the selected part elsewhere in the pattern so the key is computed and looked up, or match a variable here and relate it to that value in the sentence's condition",
             "   |                                                         ^^^^^^^^^^",
         ]
     "#]].assert_debug_eq(&headlines);
+}
+
+const PARTIAL_KEYS: &str = r#"
+use k::builtin::{Bool, Int, KSequence, Map, Set};
+use k::{KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Arg;
+    Value: KResult;
+    impl Value for Int;
+    impl Arg for Int;
+    impl Arg for Bool;
+}
+
+#[k::constructors(sort = Arg, result = KResult)]
+pub enum ArgSyntax {
+    #[k::syntax("pair {a} {b}")]
+    Pair { a: Int, b: Int },
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Plain, Block, Whole, Part, Found, Both, Probe))]
+pub enum StmtSyntax {
+    #[k::syntax("plain {a}")]
+    Plain { a: Arg },
+    #[k::syntax("block {a}")]
+    Block { a: Arg },
+    #[k::syntax("whole {a}")]
+    Whole { a: Arg },
+    #[k::syntax("part {a}")]
+    Part { a: Arg },
+    #[k::syntax("found {a} {s}")]
+    Found { a: Arg, s: Set },
+    #[k::syntax("both {n}")]
+    Both { n: Int },
+    #[k::syntax("probe {n}")]
+    Probe { n: Int },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub acc: Value,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "ENV")] env: Map,
+    ) -> Self {
+        Self {
+            k: k::k![pgm],
+            env,
+            acc: 0,
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    plain: { k: [Plain(a), ..], env: { k::project!(Int, a) -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    block: { k: [Block(a), ..], env: { { let y = a; k::project!(Int, a) } -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    whole: { k: [Whole(ArgSyntax::Pair(_, b)), ..], env: { b -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    part: { k: [Part(a), ..], env: { { let ArgSyntax::Pair { a: _, b } = a; b } -> v, .. }, acc: _ } => { k: [..], acc: v } where v: Int;
+    both: { k: [Both(n), ..], env: { { let m = n; m } -> v, .. }, acc: _ } => { k: [..], acc: { let w = v; w + 1 } } where v: Int;
+    probe: { k: [Probe(n), ..], acc: _ } => { k: [..], acc: Has(n, k::builtin::set::item(2)) };
+}
+
+#[k::function(total, internal)]
+pub fn Has(n: Term<Int>, s: Term<Set>) -> Term<Int>;
+
+#[k::equation]
+fn has_next(k::term![Has(n, k::builtin::set::item(n + 1))]: Term<Int>) -> Term<Int> {
+    1
+}
+
+#[k::equation(owise)]
+fn has_other(k::term![Has(_, _)]: Term<Int>) -> Term<Int> {
+    0
+}
+
+#[k::rule(label = "found")]
+fn found(k::term![StmtSyntax::Found(a, k::builtin::set::item({ let y = a; k::project!(Int, a) }))]: k::Term<Stmt>) -> k::Term<Stmt> {
+    StmtSyntax::Plain(a)
+}
+"#;
+
+/// A projection in a key, and a `let` statement whose pattern may not match, denote a value
+/// only where the projection's operand has its sort and where the pattern matches. Written
+/// inside a `let` block, they mean what they mean written in the block's place: the rule
+/// requires their definedness in its condition, over the names it binds, and its key is a fresh
+/// name the condition equates with the block's value after that, so no route computes the block
+/// where it has no value. The `let` spelling of each rule applies exactly where its plain
+/// spelling does: `plain`/`block` at an `Int` and not at `true`, `whole`/`part` at a pair and not
+/// at an `Int`. KRS lifts only the blocks of a rule's pattern, never its result's (`both`). An
+/// equation's subject is matched as written, so a set's element it computes is a fresh name its
+/// condition equates with the element's value (`has_next`).
+#[test]
+fn a_partial_construct_in_a_key_s_block_is_guarded_as_written_in_its_place() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "partial-keys", PARTIAL_KEYS);
+    let (definition, _) = emit(target.path(), &manifest, &temporary.path().join("emitted"));
+    let lines = definition
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.contains("<env>")
+                || line.contains("<acc>")
+                || line.contains("requires")
+                || line.contains("SetItem")
+                || line.contains("krsLocal_")
+        })
+        .map(|line| {
+            let line = line.split(" [label(").next().unwrap_or(line);
+            // A lifted function's name is a digest of its sentence's identity.
+            let mut parts = line.split("krsLocal_");
+            let mut normalized = parts.next().unwrap_or_default().to_owned();
+            for rest in parts {
+                normalized.push_str("krsLocal_");
+                normalized.push_str(rest.get(24..).unwrap_or(rest));
+            }
+            normalized
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "syntax Int ::= \"krsLocal_\" \"(\" Int \")\" [symbol(krsLocal_), function]",
+            "<env> $ENV:Map </env>",
+            "<acc> ( 0 ):Value </acc>",
+            "<env> Krs_Instance1:Int |-> V:Int ... </env>",
+            "<acc> _ => V:Int </acc>",
+            "requires isInt(A:Arg) andThenBool (Krs_Instance1:Int ==K ( #let Y:Arg = A:Arg #in {A:Arg}:>Int ))",
+            "<env> krsLocal_ ( N:Int ) |-> V:Int ... </env>",
+            "<acc> _ => ( #let W:Int = V:Int #in W:Int +Int 1 ) </acc>",
+            "rule found A:Arg SetItem(Krs_Instance1:Int) => plain A:Arg",
+            "requires isInt(A:Arg) andThenBool (Krs_Instance1:Int ==K ( #let Y:Arg = A:Arg #in {A:Arg}:>Int ))",
+            "rule krsLocal_ ( N:Int ) => ( #let M:Int = N:Int #in M:Int )",
+            "rule has ( N:Int , SetItem(Krs_Instance0:Int) ) => 1",
+            "requires Krs_Instance0:Int ==K (N:Int +Int 1)",
+            "<env> Krs_Instance1:Int |-> V:Int ... </env>",
+            "<acc> _ => V:Int </acc>",
+            "requires ( pair _ _ :=K A:Arg ) andThenBool (Krs_Instance1:Int ==K ( #let pair _ B:Int = A:Arg #in B:Int ))",
+            "<env> A:Arg |-> V:Int ... </env>",
+            "<acc> _ => V:Int </acc>",
+            "requires isInt(A:Arg)",
+            "<acc> _ => has ( N:Int , SetItem(2) ) </acc>",
+            "<env> B:Int |-> V:Int ... </env>",
+            "<acc> _ => V:Int </acc>",
+        ]
+    "#]]
+    .assert_debug_eq(&lines);
+
+    for (program, acc) in [
+        ("plain 3", Some("7")),
+        ("plain true", None),
+        ("block 3", Some("7")),
+        ("block true", None),
+        ("whole pair 1 2", Some("5")),
+        ("whole 3", None),
+        ("part pair 1 2", Some("5")),
+        ("part 3", None),
+        ("both 3", Some("8")),
+        ("probe 1", Some("1")),
+        ("probe 5", Some("0")),
+    ] {
+        let path = temporary.path().join("program.pgm");
+        fs::write(&path, program).unwrap();
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &manifest,
+            "run",
+            &[
+                path.to_str().unwrap(),
+                "-c",
+                "ENV=3 |-> 7 true |-> 9 2 |-> 5",
+                "--output",
+                "kast",
+            ],
+        );
+        let ended = stdout
+            .split("`<acc>`(#token(\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next());
+        let done = stdout.contains("`<k>`(.K)");
+        match acc {
+            Some(acc) => assert!(
+                success && done && ended == Some(acc),
+                "{program}:\n{stdout}\n{stderr}"
+            ),
+            None => assert!(
+                success && !done && ended == Some("0"),
+                "{program}:\n{stdout}\n{stderr}"
+            ),
+        }
+    }
+}
+
+/// A guard a key's block needs that reads a name the block binds cannot be stated in the
+/// sentence's condition, which reads only the sentence's names: the construct is refused at its
+/// place, a projection with its class, a `let` statement with its own.
+#[test]
+fn a_guard_over_a_block_s_own_name_is_refused_at_its_construct() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut headlines = Vec::new();
+    for (name, from, to) in [
+        (
+            "projection",
+            "{ let y = a; k::project!(Int, a) }",
+            "{ let y = a; k::project!(Int, y) }",
+        ),
+        (
+            "statement",
+            "{ let ArgSyntax::Pair { a: _, b } = a; b }",
+            "{ let y = a; let ArgSyntax::Pair { a: _, b } = y; b }",
+        ),
+    ] {
+        let manifest = package(
+            temporary.path(),
+            &format!("partial-keys-{name}"),
+            &PARTIAL_KEYS.replace(from, to),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{stderr}");
+        headlines.extend(
+            stderr
+                .lines()
+                .filter(|line| line.starts_with("error") || line.contains('^'))
+                .map(str::to_owned),
+        );
+    }
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::invalid-sort-test]: in a key the pattern computes, this projection (or this read, which KRS projects to `Int`) denotes a value only where its operand has that sort, and the sentence applies only where it does, which its condition must test; the operand reads `y`, which the enclosing `let` block binds, and the condition reads only the sentence's names: project a name the sentence binds, or write the projection outside the block",
+            "   |                                                     ^^^^^^^^^^^^^^^^^^^",
+            "error[krs::analysis::invalid-let]: this `let` statement's pattern may not match its value, and in a key the pattern computes the sentence applies only where it matches, which its condition must test; the value reads `y`, which an earlier statement of the block binds, and the condition reads only the sentence's names: match the value in the block's first statement, or bind the value to a name (`let y = ..`), whose statement always matches",
+            "   |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        ]
+    "#]]
+    .assert_debug_eq(&headlines);
+}
+
+/// The syntax reads an application as a set's singleton by its path, before names are resolved
+/// (finding NT-31-1): another spelling of the builtin singleton reads its element as a
+/// constructor's field, which refuses a `let` block at placement, an over-refusal; and a
+/// constructor of the author's whose path ends in `set::item` reads as a set's element until
+/// resolution tells it is a constructor, where the descriptor's own check refuses the block as
+/// an internal error. Both are the finding's, pinned here until it is fixed.
+#[test]
+fn a_set_s_element_is_read_by_the_path_that_names_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let element = "k::builtin::set::item({ let y = a; k::project!(Int, a) })";
+    let own = r#"
+pub mod set {
+    #![allow(non_camel_case_types)]
+    use super::Arg;
+    #[k::constructor(sort = Arg, syntax = "item {a}")]
+    pub struct item {
+        pub a: k::Term<Arg>,
+    }
+}
+"#;
+    let mut headlines = Vec::new();
+    for (name, source) in [
+        (
+            "renamed",
+            format!(
+                "use k::builtin::set::item;\n{}",
+                PARTIAL_KEYS.replace(element, "item({ let y = a; y })")
+            ),
+        ),
+        (
+            "own",
+            format!(
+                "{}{own}",
+                PARTIAL_KEYS
+                    .replace(element, "set::item({ let y = a; y }), _")
+                    .replace(
+                        "Found { a: Arg, s: Set }",
+                        "Found { a: Arg, s: Arg, t: Set }"
+                    )
+                    .replace(
+                        "#[k::syntax(\"found {a} {s}\")]",
+                        "#[k::syntax(\"found {a} {s} {t}\")]"
+                    )
+            ),
+        ),
+    ] {
+        let manifest = package(temporary.path(), &format!("set-element-{name}"), &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{stderr}");
+        headlines.extend(
+            stderr
+                .lines()
+                .filter(|line| line.starts_with("error"))
+                .map(|line| line.split(": ").next().unwrap_or(line).to_owned()),
+        );
+    }
+    expect_test::expect![[r#"
+        [
+            "error[krs::expand::let-outside-term]",
+            "error[krs::collect::provenance-mismatch]",
+        ]
+    "#]]
+    .assert_debug_eq(&headlines);
 }

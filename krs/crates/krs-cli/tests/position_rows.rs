@@ -299,7 +299,7 @@ fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
                 (
                     false,
                     [
-                        "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer; here it stands in the subject of a single-body `#[k::rule]` fn",
+                        "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern, outside a key its subject computes: write the block in a rule's or an equation's result or condition, a fn body, or an initializer; here it stands in the subject of a single-body `#[k::rule]` fn",
                         "--> src/lib.rs:42:20",
                     ],
                 ),
@@ -354,7 +354,7 @@ fn a_rewrite_in_a_map_key_is_refused_at_the_rewrite() {
                 (
                     false,
                     [
-                        "error[krs::syntax::invalid-local-rewrite]: a map key is what the map is looked up by, and a rewrite there would move the entry to another key, a removal and an insertion that may meet a key the map already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`; here it stands in a map key in the subject of a single-body `cells!` rule",
+                        "error[krs::syntax::invalid-local-rewrite]: a map key is what the map is looked up by, as a set's element is what the set is, and a rewrite there would move the entry to another key, or replace the element by another, a removal and an insertion that may meet a key or an element the collection already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`; here it stands in a map key in the subject of a single-body `cells!` rule",
                         "--> src/lib.rs:47:45",
                     ],
                 ),

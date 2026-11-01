@@ -94,14 +94,29 @@ pub(super) struct InstanceGuards {
 }
 
 /// One construct an instance or a key computes: the fresh variable written in
-/// its place, and the guard `variable ==K value`; or, for a key that is a
-/// projection, no variable and the guard that the projection is defined.
+/// its place, and the guard `variable ==K value`; or, for a projection in a
+/// key, no variable and the guard that the projection is defined; or, for a
+/// `let` statement in a key whose pattern may not match, no variable and the
+/// guard that it matches.
 #[derive(Debug)]
 pub(super) struct Guard {
     variable: Option<SemanticVariable>,
     equation: SemanticTerm,
     /// The construct's node, where the guard's conjunction is anchored.
     key: ProvenanceKey,
+    /// The construct whose value the guard states or whose definedness it requires.
+    kind: GuardKind,
+}
+
+/// What a [`Guard`] states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GuardKind {
+    /// `variable ==K value`: a fresh name for a construct's value.
+    Value,
+    /// `isS(t)`: a projection, or a read KRS projects, is defined.
+    Sort,
+    /// `P :=K e`: a `let` statement's value matches its pattern.
+    Matches,
 }
 
 impl InstanceGuards {
@@ -185,16 +200,27 @@ impl SentenceGuards {
         let Some(first) = self.0.into_iter().next() else {
             return Ok(());
         };
+        let item = Box::new(descriptor.id().clone());
+        let range = descriptor
+            .provenance()
+            .origin_for(&first.key)
+            .and_then(krs_ir::OriginStack::exact_authored_range)
+            .map(Box::new);
+        if first.kind == GuardKind::Matches {
+            return Err(DescriptorLoweringError::InvalidLet {
+                item,
+                reason: format!(
+                    "this key holds a `let` statement whose pattern may not match its value, so the key denotes a value only where it matches; a pattern that looks the key up must also require that, and {sentence} has no condition to hold it: bind the value to a name instead (`let y = ..`), whose statement always matches"
+                ),
+                range,
+            });
+        }
         Err(DescriptorLoweringError::InvalidSortTest {
-            item: Box::new(descriptor.id().clone()),
+            item,
             reason: format!(
                 "this key holds a sort projection, or a read projected to a sort below `KItem`, which denotes a value only where its operand has that sort; a pattern that looks the key up must also require that, and {sentence} has no condition to hold it: bind the key's name at its sort instead (`x: S`, the sort `S` the key is projected to), so the key is matched at that sort"
             ),
-            range: descriptor
-                .provenance()
-                .origin_for(&first.key)
-                .and_then(krs_ir::OriginStack::exact_authored_range)
-                .map(Box::new),
+            range,
         })
     }
 }
@@ -280,6 +306,7 @@ impl StructuredTermBuilder<'_> {
             variable: Some(SemanticVariable::new(id.clone(), sort.clone())),
             equation,
             key: key.clone(),
+            kind: GuardKind::Value,
         });
         Ok(SemanticTerm::variable(
             semantic_origin(descriptor, key, "instance-guard-match")?,
@@ -298,6 +325,21 @@ impl StructuredTermBuilder<'_> {
         sort: SemanticSortRef,
         operand: &SemanticTerm,
     ) -> Result<(), DescriptorLoweringError> {
+        if let Some(name) = self.block_local_read(operand) {
+            return Err(DescriptorLoweringError::InvalidSortTest {
+                item: Box::new(self.descriptor.id().clone()),
+                reason: format!(
+                    "in a key the pattern computes, this projection (or this read, which KRS projects to `{}`) denotes a value only where its operand has that sort, and the sentence applies only where it does, which its condition must test; the operand reads `{name}`, which the enclosing `let` block binds, and the condition reads only the sentence's names: project a name the sentence binds, or write the projection outside the block",
+                    super::overload::sort_name(&sort)
+                ),
+                range: self
+                    .descriptor
+                    .provenance()
+                    .origin_for(&key)
+                    .and_then(krs_ir::OriginStack::exact_authored_range)
+                    .map(Box::new),
+            });
+        }
         let guards = self
             .instance_guards
             .as_mut()
@@ -314,8 +356,63 @@ impl StructuredTermBuilder<'_> {
             variable: None,
             equation: defined,
             key,
+            kind: GuardKind::Sort,
         });
         Ok(())
+    }
+
+    /// Adds the guard `P' :=K value`, anchored at the `let` statement `key`
+    /// names, whose pattern `pattern` may not match `value`: the statement,
+    /// and the key that holds it, denote a value only where it matches. The
+    /// guard tests a copy of the pattern whose names are wildcards (the test
+    /// binds nothing the condition reads, and the statement's own names stay
+    /// its own) and a copy of the value, both under source-map keys of their
+    /// own.
+    pub(super) fn require_match(
+        &mut self,
+        key: ProvenanceKey,
+        pattern: &SemanticTerm,
+        value: &SemanticTerm,
+    ) -> Result<(), DescriptorLoweringError> {
+        let ordinal = self.instance_guards.as_ref().map_or(0, InstanceGuards::len);
+        let suffix = format!("~key-test-{ordinal}");
+        let tested = value.map_origins(&mut |origin| suffixed(origin, &suffix));
+        let pattern =
+            self.wildcarded(&pattern.map_origins(&mut |origin| suffixed(origin, &suffix)));
+        let test = SemanticTerm::matches(
+            semantic_origin(self.descriptor, key.clone(), "key-let-test")?,
+            SemanticSortRef::Builtin(BuiltinSort::Bool),
+            tested,
+            pattern,
+            Vec::new(),
+        );
+        self.instance_guards
+            .as_mut()
+            .expect("a key's `let` statement is guarded where the sentence gathers guards")
+            .guards
+            .push(Guard {
+                variable: None,
+                equation: test,
+                key,
+                kind: GuardKind::Matches,
+            });
+        Ok(())
+    }
+
+    /// `pattern` with each name it binds replaced by a fresh wildcard of the
+    /// name's sort, which the sentence declares.
+    fn wildcarded(&mut self, pattern: &SemanticTerm) -> SemanticTerm {
+        if let krs_ir_levels::SemanticTermKind::Variable { .. } = pattern.kind() {
+            let id = SemanticId::wildcard(self.wildcard_offset + self.wildcards.len());
+            self.wildcards
+                .push(SemanticVariable::new(id.clone(), pattern.sort().clone()));
+            return SemanticTerm::variable(pattern.origin().clone(), pattern.sort().clone(), id);
+        }
+        let Ok(term) =
+            super::statics::map_children::<std::convert::Infallible>(pattern, &mut |child| {
+                Ok(self.wildcarded(child))
+            });
+        term
     }
 }
 

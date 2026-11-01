@@ -1417,13 +1417,15 @@ struct RuleWalk {
     /// Whether the term being validated is a whole K-sequence item, whose
     /// root rewrite may remove it (`k::rewrite!(x => ())`).
     k_item_root: bool,
-    /// How many sets' elements enclose the term ([`TermValidation::set_element`]).
+    /// How many sets' elements, and `cells!` map keys, enclose the term
+    /// ([`TermValidation::set_element`]).
     set_elements: usize,
 }
 
 impl RuleWalk {
-    /// Whether the term stands in a set's element outside a local pattern, which a left-hand
-    /// side looks the set up by and computes from names bound elsewhere.
+    /// Whether the term stands in a set's element outside a local pattern, where the walk admits
+    /// what a computed element may hold and defers the judgement
+    /// ([`super::validation::TermValidation::set_element`]).
     const fn in_set_element(&self) -> bool {
         self.set_elements > 0 && !self.in_matches_pattern && !self.in_let_pattern
     }
@@ -2252,14 +2254,20 @@ fn validate_rule_state<S: RuleValidationStage>(
                                 StateTermReason::RewriteOutsideSingleBodyRule,
                             ));
                         }
-                        validate_rule_term::<S>(
+                        // A key a pattern looks up is read as a set's element is: it may be
+                        // computed from names bound elsewhere, which the position table and the
+                        // compiler judge.
+                        walk.set_elements += 1;
+                        let validated = validate_rule_term::<S>(
                             &item.key,
                             side.into(),
                             bindings,
                             discovered,
                             walk,
                             keys,
-                        )?;
+                        );
+                        walk.set_elements -= 1;
+                        validated?;
                         validate_rule_term::<S>(
                             &item.value,
                             side.into(),

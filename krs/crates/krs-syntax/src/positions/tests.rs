@@ -12,7 +12,7 @@ fn positions() -> Vec<Position> {
             _ => &[Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures],
         };
         for &slot in slots {
-            for bits in 0_u8..128 {
+            for bits in 0_u16..256 {
                 positions.push(Position {
                     form,
                     slot,
@@ -21,7 +21,8 @@ fn positions() -> Vec<Position> {
                         in_let_pattern: bits & 2 != 0,
                         in_rewrite: bits & 4 != 0,
                         in_map_key: bits & 8 != 0,
-                        in_set_element: false,
+                        // The walker marks a set's element as a key too.
+                        in_set_element: bits & 128 != 0 && bits & 8 != 0,
                         in_computed_key: bits & 16 != 0,
                         in_selected_key: bits & 32 != 0,
                         in_braced_instance: bits & 64 != 0,
@@ -189,13 +190,25 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         admits(selected, Construct::Let),
         Admission::Refuse(Class::LetOutsideTerm)
     );
-    // A `cells!` key is a cell's content, which holds no `let` (S0-17's boundary).
+    // A key a `cells!` subject computes denotes what the same key of a readable rule does, so it
+    // holds a `let` as that key does; a `cells!` result's key is a cell's content, which holds
+    // none (S0-17's boundary).
     let cells_key = Position {
         form: Form::CellsRule,
         ..key
     };
     assert_eq!(
         admits(cells_key, Construct::Let),
+        Admission::After(Rule::LetOutsideTerm)
+    );
+    assert_eq!(
+        admits(
+            Position {
+                slot: Slot::Result,
+                ..cells_key
+            },
+            Construct::Let
+        ),
         Admission::Refuse(Class::LetOutsideTerm)
     );
     assert_eq!(
@@ -233,7 +246,8 @@ fn a_computed_key_holds_a_local_function_where_its_pattern_meets_evaluated_terms
             Admission::After(Rule::MatchesOutsideCondition)
         );
     }
-    // A test in a key computes the key, a built term: `@` in its pattern names no matched term.
+    // A test in a key is a function of the names the key reads, whose equations state the test
+    // in their conditions, where `@` in its pattern means what it means in any condition.
     let key_test = Position {
         nesting: Nesting {
             in_matches_pattern: true,
@@ -241,8 +255,16 @@ fn a_computed_key_holds_a_local_function_where_its_pattern_meets_evaluated_terms
         },
         ..computed
     };
+    assert_eq!(admits(key_test, Construct::As), Admission::Admit);
+    // In a result a test's pattern tests a built term, which `@` names no part of.
     assert_eq!(
-        admits(key_test, Construct::As),
+        admits(
+            Position {
+                slot: Slot::Result,
+                ..key_test
+            },
+            Construct::As
+        ),
         Admission::Refuse(Class::AliasOutsidePattern)
     );
     // A simplification's and a static clause's patterns meet unevaluated terms, where the
@@ -817,4 +839,51 @@ fn a_subject_root_is_the_matched_head_and_a_value_root_a_term() {
     assert_eq!(PatternRoot::Clause.at(true), PatternRoot::Value);
     assert_eq!(PatternRoot::Clause.at(false), PatternRoot::Subject);
     assert_eq!(PatternRoot::Subject.at(true), PatternRoot::Subject);
+}
+
+#[test]
+fn a_set_s_element_in_a_pattern_reads_as_a_key() {
+    let element = Position {
+        nesting: Nesting {
+            in_map_key: true,
+            in_set_element: true,
+            ..Position::root(Form::RuleFn, Slot::Subject).nesting
+        },
+        ..Position::root(Form::RuleFn, Slot::Subject)
+    };
+    assert_eq!(
+        element.to_string(),
+        "a set's element in the subject of a `#[k::rule]` fn"
+    );
+    // A set's element is computed from names bound elsewhere, as a key is.
+    assert_eq!(
+        admits(element, Construct::Let),
+        Admission::After(Rule::LetOutsideTerm)
+    );
+    assert_eq!(
+        admits(element, Construct::SortTest),
+        Admission::After(Rule::SortTestInPattern)
+    );
+    // Replacing an element in place may meet one the set already holds, as re-keying an entry
+    // may meet a key the map holds.
+    for form in [Form::LocalRule, Form::CellsLocalRule] {
+        assert_eq!(
+            admits(Position { form, ..element }, Construct::Rewrite),
+            Admission::Refuse(Class::RewriteInMapKey)
+        );
+        // Outside the element, inside the single-body rule's subject, the rewrite is admitted.
+        assert_eq!(
+            admits(Position::root(form, Slot::Subject), Construct::Rewrite),
+            Admission::Admit
+        );
+    }
+    // In a `cells!` subject too.
+    let cells = Position {
+        form: Form::CellsRule,
+        ..element
+    };
+    assert_eq!(
+        admits(cells, Construct::Matches),
+        Admission::After(Rule::MatchesOutsideCondition)
+    );
 }

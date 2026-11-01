@@ -1108,6 +1108,17 @@ impl StructuredTermBuilder<'_> {
                 ),
             ));
         }
+        if self.in_guarded_key() && !irrefutable(&lowered, value.sort(), self.sort_parents) {
+            if let Some(name) = self.block_local_read(&value) {
+                return Err(self.invalid_let(
+                    key,
+                    format!(
+                        "this `let` statement's pattern may not match its value, and in a key the pattern computes the sentence applies only where it matches, which its condition must test; the value reads `{name}`, which an earlier statement of the block binds, and the condition reads only the sentence's names: match the value in the block's first statement, or bind the value to a name (`let y = ..`), whose statement always matches"
+                    ),
+                ));
+            }
+            self.require_match(key.clone(), &lowered, &value)?;
+        }
         self.locals.let_scopes.push(scope);
         let body = self.lower(body, expected_sort, false);
         self.locals.let_scopes.pop();
@@ -1120,6 +1131,21 @@ impl StructuredTermBuilder<'_> {
             body,
             binds,
         ))
+    }
+
+    /// The first name `term` reads that an enclosing `let` statement binds: a guard of a key
+    /// stands in the sentence's condition, where no such name is bound.
+    pub(super) fn block_local_read(&self, term: &SemanticTerm) -> Option<String> {
+        let mut read = Vec::new();
+        super::local_functions::free_names(term, &mut read);
+        read.iter().find_map(|id| {
+            self.locals.let_scopes.iter().rev().find_map(|scope| {
+                scope
+                    .iter()
+                    .find(|(_, (local, _))| local == id)
+                    .map(|(name, _)| name.clone())
+            })
+        })
     }
 
     /// The identity and sort of `name` if an enclosing `let` binds it.
@@ -2143,12 +2169,18 @@ impl StructuredTermBuilder<'_> {
 
     /// A `let` block or `k::matches!` in a guarded key: the value of a function of the names it
     /// reads, which the key looks up as it looks up a function's application
-    /// ([`Self::lower_key_application`]). Below it every position is built, and is evaluated
-    /// where the function is, so nothing in it is guarded: a projection it holds is the
-    /// function's own, as in any function's body. KRS lifts the construct into that function
-    /// once the sentence is lowered ([`super::local_functions`]), except in an equation's
-    /// function context, which is matched as written: there the key is a fresh name `K` with
-    /// the guard `K ==K value`, which reads the construct in the equation's condition.
+    /// ([`Self::lower_key_application`]). KRS lifts the construct into that function once the
+    /// sentence is lowered ([`super::local_functions`]). Below it every position is computed,
+    /// and what has no value everywhere is guarded as below an application: a projection, or a
+    /// read KRS projects, with `isS(t)` ([`Self::lower_key_projection`]), and a `let`
+    /// statement whose pattern may not match with the test that it does
+    /// ([`Self::lower_let`]). Each guard is stated in the sentence's condition, over the names
+    /// the sentence binds, so the rule applies exactly where the construct has a value, as it
+    /// would with the construct's body written in its place; a guard that would read a name the
+    /// block binds is refused at its construct. A construct that made a guard is a fresh name
+    /// `K` with the guard `K ==K value` after them, so its value is computed in the condition
+    /// only once they held, and the key is not lifted; so is every construct of an equation's
+    /// function context, which is matched as written.
     fn lower_key_local_function(
         &mut self,
         term: &DescriptorTerm,
@@ -2159,11 +2191,13 @@ impl StructuredTermBuilder<'_> {
             unreachable!("only a `let` block or `k::matches!` is lowered as one");
         };
         let matched = self.key_matched();
-        let guards = self.instance_guards.take();
+        let guards_before = self.key_guards();
+        self.key_computes(true);
         let lowered = self.lower_term(term, expected_sort, subject);
-        self.instance_guards = guards;
+        self.key_computes(false);
         let lowered = lowered.map_err(|error| self.locate(error, term))?;
-        if matched && self.key_matched_as_written() {
+        let guarded_below = self.key_guards() > guards_before;
+        if matched && (guarded_below || self.key_matched_as_written()) {
             let sort = lowered.sort().clone();
             return self
                 .guard_equal(key.clone(), sort, lowered)
@@ -3907,10 +3941,11 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// The refusal of a `let` block or `k::matches!` (`matches`) at `key`, where the sentence's
-    /// pattern matches terms as they are ([`Self::local_function_in_pattern`]): the expander's
-    /// position table leaves only a cell of a braced collection instance to the compiler, which
-    /// a Map collection's instance is, matched by its cells, and a pattern there never meets the
-    /// application of the function generated for the construct.
+    /// pattern matches terms as they are ([`Self::local_function_in_pattern`]), and never meets
+    /// the application of the function generated for the construct. The expander's position
+    /// table leaves to the compiler a cell of a braced collection instance, which is matched in a
+    /// Map collection's instance, and a field of an application whose path reads as a set's
+    /// element and resolves to a constructor; the reason names both.
     fn local_function_matched(
         &self,
         key: &ProvenanceKey,
@@ -3924,7 +3959,7 @@ impl StructuredTermBuilder<'_> {
         DescriptorLoweringError::LocalFunctionInPattern {
             item: Box::new(self.descriptor.id().clone()),
             reason: format!(
-                "{what} is the application of a function generated for it, and no term a pattern meets is an application of it, so a pattern holding one never matches: here it stands in a cell the pattern matches, as a Map collection's instance is matched by its cells, where a Set collection's instance computed from names bound elsewhere is looked up"
+                "{what} is the application of a function generated for it, and no term a pattern meets is an application of it, so a pattern holding one never matches: here it stands where the pattern matches the term it meets, outside every key and set's element the pattern computes, as a constructor's field is matched, and a cell of a Map collection's instance (a Set collection's instance computed from names bound elsewhere is looked up instead)"
             ),
             matches,
             range: self.authored_range(key),
@@ -3969,6 +4004,20 @@ impl StructuredTermBuilder<'_> {
             self.authored_range(Self::term_key(term)).as_deref(),
         )
     }
+}
+
+/// Whether `pattern`, a lowered `let` pattern, matches every value of sort `value`: a name, or
+/// `_`, whose sort `value` is below. Every other pattern is tested: a constructor's pattern
+/// matches only that constructor's values, and a test that always holds denotes the same.
+fn irrefutable(
+    pattern: &SemanticTerm,
+    value: &SemanticSortRef,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> bool {
+    matches!(
+        pattern.kind(),
+        krs_ir_levels::SemanticTermKind::Variable { .. }
+    ) && semantic_is_subsort(value, pattern.sort(), sort_parents)
 }
 
 /// Whether a `let` pattern is one name or `_` (`let x = v`, `let _ = v`),
