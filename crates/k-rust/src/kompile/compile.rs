@@ -1594,8 +1594,8 @@ mod tests {
                 artifact_digest(&artifacts.macros_kore),
             ],
             [
-                String::from("363205cc0fe05e19fbbbc0373feca3d375b18227fc3761bdff2952a55696fbf6",),
-                String::from("25c46880e81a5133968bbdb0fa5549a30232b4fcc2c47000458d048d1ec2cd9b",),
+                String::from("9f67b2f12184fde9a987d0b5790034b01888e54f1fab193fa8cda4a54744c81b",),
+                String::from("b1d91ba62de85a5b149810fd1e15b0fbd73d05f83206f75a222f598012f9e8a6",),
                 String::from("a78f2c566b2439463a2e7ca515bbfa3f92948506583cbadaebdd507f277542bd",),
             ],
         );
