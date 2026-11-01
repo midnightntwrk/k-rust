@@ -652,6 +652,15 @@ rule cTAG ( (1 => go) , _ ) [anywhere, label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/local-rule/anywhere on what it writes"]
+k = """
+// krs-capability: AnywhereRule krsRule_DIGEST
+
+rule cTAG ( (V0:KItem => go) , _ ) [anywhere, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/local-rule/cool, hole = x"]
 k = """
 rule cTAG ( (V0:KItem => go) , _ ) [cool, label(krsRule_DIGEST)]

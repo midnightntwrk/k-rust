@@ -69,6 +69,11 @@ owner = "S6"
 kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
+["NT-41-1"]
+owner = "NT-38"
+kind = "bug"
+what = "an `anywhere` rule whose result its own subject matches again rewrites without end, so no state of a run of it is final; k-rust applies it once and reports the run stuck at a term the rule still matches, a false statement about the state, and runs two anywhere rules that rewrite into each other without end, so a `--depth` bound does not end the run (k-rust engine follow-up; the rule-forms gate pins both)"
+
 ["S0-14"]
 owner = "S5"
 kind = "bug"

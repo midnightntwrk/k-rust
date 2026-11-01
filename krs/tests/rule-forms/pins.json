@@ -12,7 +12,8 @@
     "krs-rule-forms-heat-cool": "ed5aa7b9240e9fbf0fcfacc17d4730513b969186b1297adf1d84b7cf7c324172",
     "krs-rule-forms-contexts": "c50732ffc14df3fd201ab48fbabcdaa173ce6af2d081c5b3b80aa525df10120b",
     "krs-rule-forms-contexts-lvalue": "6f20ce814890248a7332fe96b0acfd6980fe9f636f226ec810093164e636993b",
-    "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42"
+    "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42",
+    "krs-rule-forms-anywhere-stutter": "a85ea6dab5860c19d4c63d09e049999d16ad94cde47449e6b651f92515922917"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -56,6 +57,9 @@
     },
     "krs-rule-forms-contexts-evaluate": {
       "definition.k": "862e3f5e29f3020e8023b1ffa027c03bca9016d1b1a77f13a538e5f3c985db7f"
+    },
+    "krs-rule-forms-anywhere-stutter": {
+      "definition.k": "b4526c4e08feb63f62919f7147dae45e4d03b3cdd739e8f18fde68c0fc84027d"
     }
   },
   "reference_sha256": {
@@ -1159,6 +1163,13 @@
       "twin-mismatch": [],
       "ispair-match": [],
       "ispair-int": []
+    }
+  },
+  "known_wrong_outputs": {
+    "krs-rule-forms-anywhere-stutter": {
+      "stutter": "exit 0: <k> wrap(p(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(p(go, b))`",
+      "stutter-long": "exit 0: <k> wrap(r(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(r(go, b))`",
+      "two-cycle": "no end within 20 s"
     }
   }
 }

@@ -232,7 +232,7 @@ advice = "attrs/{form}/heat, hole = x, result = Word"
 
 [class.existential-outside-step]
 code = "krs::expand::existential-placement"
-doc = "`#[k::ensures]` or `#[k::exists]`, which state what a step's result satisfies and which of its values are existential, on a sentence that reaches no result state: an equation, a simplification, a static clause, a context"
+doc = "`#[k::ensures]` or `#[k::exists]`, which state what a step's result satisfies and which of its values are existential, on a sentence that reaches no result state: an equation, a simplification, a static clause, a context; or `#[k::exists]` on an `anywhere` rule of either form, which replaces an application in place by the one term its result writes, as an equation gives an application its value, so that no value of its result is existential"
 advice = "none"
 
 [class.fragment-in-initializer]
@@ -242,7 +242,7 @@ advice = "none"
 
 [class.fresh-outside-step]
 code = "krs::expand::fresh-placement"
-doc = "`#[k::fresh]`, a value a transition step draws, on a sentence that is no transition: a claim, an equation, a simplification, a static clause, a context, a context alias"
+doc = "`#[k::fresh]`, a value a transition step draws, on a sentence that is no transition: a claim, an equation, a simplification, a static clause, a context, a context alias; or on an `anywhere` rule of either form, which replaces an application in place by the one term its result writes and takes no step that draws one"
 advice = "none"
 
 [class.function-in-pattern]
