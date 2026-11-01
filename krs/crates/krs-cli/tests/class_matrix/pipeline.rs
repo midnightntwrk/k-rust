@@ -97,6 +97,8 @@ pub struct Judged {
     pub keys: Option<Vec<String>>,
     /// How many cases shared the source that judged the case, the case included.
     pub batch: usize,
+    /// The IDs of the other cases of the source that judged the case.
+    pub neighbours: Vec<String>,
     /// The K sentences the case adds to its base, once accepted.
     pub additions: Option<Vec<String>>,
     /// K3's verdict, for an accepted case that is no initializer, when the run checks closure.
@@ -108,10 +110,12 @@ pub struct Judged {
     /// How the twin check's runs of the case ended, by witness
     /// ([`krs_test_support::class_matrix::twin_runs`]), for a case K6 accepted, when K7 runs.
     pub twin_ends: Vec<(&'static str, String)>,
-    /// K7's batch interference ([`Worker::check_interference`]): the case's run deviated beside
-    /// the other cases of its check and shows another verdict alone, and what the neighbours that
-    /// change it write, or that the batched verdict did not reproduce. Its K7 verdict is then the
-    /// run alone's, and the shard fails.
+    /// Batch interference: K7's ([`Worker::check_interference`]), where the case's run deviated
+    /// beside the other cases of its check and shows another verdict alone, or K2's
+    /// ([`judge_all`]), where its refusal or acceptance was an unexpected failure beside the other
+    /// cases of its batch and is another alone; and what the neighbours that change it write, or
+    /// that the batched verdict did not reproduce. The case is then judged by its verdict alone,
+    /// and the shard fails.
     pub interference: Option<String>,
 }
 
@@ -187,30 +191,36 @@ pub struct Settings {
     pub run: Option<Duration>,
 }
 
-/// Judge every case of `cases` through the pipeline, in ID order.
+/// What K2 makes of a case's judgement, for judging a batched verdict again alone
+/// ([`judge_all`]).
+pub struct K2Verdict {
+    /// Whether the red list does not expect it: a deviation not recorded, or a recorded one that
+    /// changed.
+    pub unexpected: bool,
+    /// The verdict as the red list compares it: `conforms`, or the deviation's signature.
+    pub observed: String,
+}
+
+/// Judge every case of `cases` through the pipeline, in ID order. `k2` is K2's verdict on a
+/// judged case: a case judged beside others whose verdict is an unexpected failure is judged
+/// again alone, and by that judgement ([`rejudge`]).
 ///
 /// # Panics
 ///
 /// Panics if a worker panics outside the lowering of a case, which the harness does not expect.
 #[must_use]
-pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
+pub fn judge_all(
+    cases: &[&Case],
+    settings: &Settings,
+    k2: &(dyn Fn(&Judged) -> K2Verdict + Sync),
+) -> Vec<Judged> {
     let jobs = Mutex::new(batches(cases, settings.batch));
     let judged = Mutex::new(Vec::with_capacity(cases.len()));
     let builds = AtomicUsize::new(0);
     let cost = NativeCost::default();
     std::thread::scope(|scope| {
         for index in 0..settings.workers.max(1) {
-            let worker = Worker {
-                root: settings.scratch.join(format!("worker-{index}")),
-                builds: &builds,
-                closure: settings.closure,
-                native: (settings.native != NativeMode::Off).then_some(NativeRun {
-                    refused_by_table: &settings.refused_by_table,
-                    cost: &cost,
-                    alone: settings.native == NativeMode::Alone,
-                    run: settings.run,
-                }),
-            };
+            let worker = Worker::new(settings, index, &builds, &cost);
             let jobs = &jobs;
             let judged = &judged;
             scope.spawn(move || {
@@ -232,8 +242,10 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
     });
     let mut judged = judged.into_inner().expect("the results are not poisoned");
     judged.sort_by(|left, right| left.id.cmp(&right.id));
+    let again = rejudge(cases, settings, &builds, &cost, k2, &mut judged);
     eprintln!(
-        "[krs-class] {} cases judged in {} package builds",
+        "[krs-class] {} cases judged in {} package builds; {again} unexpected K2 verdicts judged \
+         again alone",
         judged.len(),
         builds.load(Ordering::Relaxed)
     );
@@ -338,6 +350,77 @@ pub fn collect_source(
     worker.collect(source)
 }
 
+/// K2's batch interference. A case's verdict is meant to be its own: its errors are attributed to
+/// it by their ranges, and it is lowered from its own descriptors. But a neighbour can change what
+/// its batch's crate expands at all (rustc expands nothing in a crate one of whose items it cannot
+/// parse, so a case's own rustc error then stands without KRS's answer beside it), and then the
+/// case's verdict depends on its batch. So each case judged beside others whose K2 verdict is an
+/// unexpected failure (a deviation not recorded, or a recorded one that changed) is judged again
+/// alone, and by that judgement: batching is only how the builds are shared. Where the verdict
+/// alone differs, the neighbours are bisected down to those beside which it still differs
+/// ([`bisect`]), which the failure names ([`interference`]); where it is the same, the batched
+/// verdict stands. Returns the number of cases judged again.
+fn rejudge(
+    cases: &[&Case],
+    settings: &Settings,
+    builds: &AtomicUsize,
+    cost: &NativeCost,
+    k2: &(dyn Fn(&Judged) -> K2Verdict + Sync),
+    judged: &mut [Judged],
+) -> usize {
+    let by_id = cases
+        .iter()
+        .map(|case| (case.id.as_str(), *case))
+        .collect::<BTreeMap<_, _>>();
+    let requests = judged
+        .iter()
+        .enumerate()
+        .filter(|(_, judged)| !judged.neighbours.is_empty())
+        .filter_map(|(index, judged)| {
+            let verdict = k2(judged);
+            verdict.unexpected.then_some((index, verdict.observed))
+        })
+        .collect::<Vec<_>>();
+    let count = requests.len();
+    let jobs = Mutex::new(requests);
+    let again = Mutex::new(Vec::new());
+    let batched = &*judged;
+    std::thread::scope(|scope| {
+        for index in 0..settings.workers.max(1).min(count) {
+            let worker = Worker::new(settings, index, builds, cost);
+            let (jobs, again, by_id) = (&jobs, &again, &by_id);
+            scope.spawn(move || {
+                fs::create_dir_all(&worker.root).expect("the worker directory is created");
+                loop {
+                    let Some((index, verdict)) =
+                        jobs.lock().expect("the job queue is not poisoned").pop()
+                    else {
+                        break;
+                    };
+                    let judged = &batched[index];
+                    let neighbours = judged
+                        .neighbours
+                        .iter()
+                        .filter_map(|id| by_id.get(id.as_str()).copied())
+                        .collect::<Vec<_>>();
+                    if let Some(alone) =
+                        worker.judge_alone(by_id[judged.id.as_str()], &neighbours, &verdict, k2)
+                    {
+                        again
+                            .lock()
+                            .expect("the results are not poisoned")
+                            .push((index, alone));
+                    }
+                }
+            });
+        }
+    });
+    for (index, alone) in again.into_inner().expect("the results are not poisoned") {
+        judged[index] = alone;
+    }
+    count
+}
+
 /// The shared cases of each base in chunks of at most `size`, and every other case alone, the
 /// largest jobs last so that workers take them first.
 fn batches<'a>(cases: &[&'a Case], size: usize) -> Vec<Vec<&'a Case>> {
@@ -364,9 +447,79 @@ struct Worker<'a> {
     native: Option<NativeRun<'a>>,
 }
 
-impl Worker<'_> {
+impl<'w> Worker<'w> {
+    /// The worker `index` of a run: its directory and Cargo target are the same in every phase of
+    /// the run.
+    fn new(
+        settings: &'w Settings,
+        index: usize,
+        builds: &'w AtomicUsize,
+        cost: &'w NativeCost,
+    ) -> Self {
+        Worker {
+            root: settings.scratch.join(format!("worker-{index}")),
+            builds,
+            closure: settings.closure,
+            native: (settings.native != NativeMode::Off).then_some(NativeRun {
+                refused_by_table: &settings.refused_by_table,
+                cost,
+                alone: settings.native == NativeMode::Alone,
+                run: settings.run,
+            }),
+        }
+    }
+
     fn target(&self) -> PathBuf {
         self.root.join("target")
+    }
+
+    /// [`rejudge`] for `case`, whose K2 verdict beside `neighbours` was `batched`: its judgement
+    /// alone, which carries the interference where its verdict alone differs, or `None` where the
+    /// batched verdict stands. The bisection judges by K2 only: it collects and lowers, and makes
+    /// no check or run.
+    fn judge_alone(
+        &self,
+        case: &Case,
+        neighbours: &[&Case],
+        batched: &str,
+        k2: &(dyn Fn(&Judged) -> K2Verdict + Sync),
+    ) -> Option<Judged> {
+        let beside = |worker: &Worker<'_>, others: &[&Case]| {
+            let mut set = vec![case];
+            set.extend_from_slice(others);
+            let mut out = Vec::new();
+            worker.judge(set, &mut out);
+            out.into_iter().find(|judged| judged.id == case.id)
+        };
+        let mut alone = beside(self, &[])?;
+        let verdict = k2(&alone).observed;
+        if verdict == batched {
+            return None;
+        }
+        let k2_only = Worker {
+            root: self.root.clone(),
+            builds: self.builds,
+            closure: false,
+            native: None,
+        };
+        let culprits = bisect(neighbours, |others| {
+            beside(&k2_only, others).is_some_and(|judged| k2(&judged).observed != verdict)
+        });
+        let named = |set: &[&Case]| {
+            set.iter()
+                .map(|culprit| format!("`{}`", culprit.id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        alone.interference = Some(interference(
+            "K2",
+            &culprits,
+            neighbours.len(),
+            batched,
+            &verdict,
+            named,
+        ));
+        Some(alone)
     }
 
     /// Judge `cases` as one package, attributing failures and bisecting as the module says.
@@ -408,7 +561,11 @@ impl Worker<'_> {
                 Err(error) => {
                     let diagnostics = observe_error(&error);
                     if count == 1 {
-                        out.push(judged(&rendered.cases[0], refused(diagnostics), 1));
+                        out.push(judged(
+                            &rendered.cases[0],
+                            refused(diagnostics),
+                            &rendered.cases,
+                        ));
                         return;
                     }
                     let mut by_case = BTreeMap::<usize, Vec<ObservedDiagnostic>>::new();
@@ -433,7 +590,11 @@ impl Worker<'_> {
                         .iter()
                         .map(|(index, diagnostics)| {
                             let placed = &rendered.cases[*index];
-                            out.push(judged(placed, refused(diagnostics.clone()), count));
+                            out.push(judged(
+                                placed,
+                                refused(diagnostics.clone()),
+                                &rendered.cases,
+                            ));
                             placed.case.id.clone()
                         })
                         .collect::<BTreeSet<_>>();
@@ -749,7 +910,14 @@ impl Worker<'_> {
             };
             out.interference.insert(
                 placed.case.id.clone(),
-                interference(&culprits, neighbours.len(), &batched, &alone, named),
+                interference(
+                    "K7",
+                    &culprits,
+                    neighbours.len(),
+                    &batched.signature(),
+                    &alone.signature(),
+                    named,
+                ),
             );
             out.ran.insert(placed.case.id.clone(), alone);
         }
@@ -979,26 +1147,27 @@ fn bisect<T: Copy>(neighbours: &[T], mut differs: impl FnMut(&[T]) -> bool) -> C
     }
 }
 
-/// The failure of a case whose batched verdict `batched` differs from its verdict alone, `alone`,
-/// beside `count` neighbours that `culprits` bisected; `named` names a set of them.
+/// The failure of a case whose batched verdict of `test` (`K2`, `K7`), with the signature
+/// `batched`, differs from its verdict alone, `alone`, beside `count` neighbours that `culprits`
+/// bisected; `named` names a set of them.
 fn interference<T>(
+    test: &str,
     culprits: &Culprits<T>,
     count: usize,
-    batched: &Ran,
-    alone: &Ran,
+    batched: &str,
+    alone: &str,
     named: impl Fn(&[T]) -> String,
 ) -> String {
-    let (batched, alone) = (batched.signature(), alone.signature());
     match culprits {
         Culprits::Narrowed(set) | Culprits::Whole(set) => format!(
-            "batch interference: K7 deviates beside {count} other cases ({batched}), and alone \
-             it is {alone}; it still differs beside {}",
+            "batch interference: {test} deviates beside {count} other cases ({batched}), and \
+             alone it is {alone}; it still differs beside {}",
             named(set)
         ),
         Culprits::NotReproduced => format!(
-            "K7's batched verdict did not reproduce (flaky?): it deviated beside {count} other \
-             cases ({batched}), and alone it is {alone}, from which its run beside the same cases \
-             again does not differ; it is judged by its run alone"
+            "{test}'s batched verdict did not reproduce (flaky?): it deviated beside {count} other \
+             cases ({batched}), and alone it is {alone}, from which its verdict beside the same \
+             cases again does not differ; it is judged by its verdict alone"
         ),
     }
 }
@@ -1073,7 +1242,6 @@ fn back_half(
     placed: &Placed<'_>,
     base: Option<&[String]>,
 ) -> Judged {
-    let batch = all.len();
     let bundle = sub_bundle(&collected.bundle, all, Some(placed));
     let mut keys = anchors_outside(&bundle, all, placed);
     let emitted = catch_unwind(AssertUnwindSafe(|| collected.emit_k(bundle)));
@@ -1084,11 +1252,11 @@ fn back_half(
                 diagnostics: observe_reports(&emitted.warnings.envelopes),
                 panic: None,
             };
-            let mut judged = judged(placed, observed, batch);
+            let mut judged = judged(placed, observed, all);
             judged.additions = base.map(|base| additions(&emitted_sentences(&emitted), base));
             judged
         }
-        Ok(Err(error)) => judged(placed, refused(observe_error(&error)), batch),
+        Ok(Err(error)) => judged(placed, refused(observe_error(&error)), all),
         Err(panic) => {
             let message = panic_message(&*panic);
             let observed = Observed {
@@ -1096,7 +1264,7 @@ fn back_half(
                 diagnostics: Vec::new(),
                 panic: Some(message),
             };
-            judged(placed, observed, batch)
+            judged(placed, observed, all)
         }
     };
     keys.extend(
@@ -1255,7 +1423,7 @@ fn owner<'p, 'a>(descriptor: &krs_ir::Descriptor, all: &'p [Placed<'a>]) -> Opti
     })
 }
 
-fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
+fn judged(placed: &Placed<'_>, observed: Observed, all: &[Placed<'_>]) -> Judged {
     Judged {
         id: placed.case.id.clone(),
         observed,
@@ -1264,7 +1432,12 @@ fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
         entry: placed.entry.clone(),
         command: placed.command.clone(),
         keys: None,
-        batch,
+        batch: all.len(),
+        neighbours: all
+            .iter()
+            .filter(|other| other.case.id != placed.case.id)
+            .map(|other| other.case.id.clone())
+            .collect(),
         additions: None,
         closure: None,
         native: None,
@@ -1743,13 +1916,34 @@ mod tests {
         let batched = Ran::Deviates("no defined result".to_owned());
         let alone = Ran::Deviates("not applied: 1 of 3 steps".to_owned());
         let named = |set: &[i32]| format!("{set:?}");
-        let interfered = interference(&Culprits::Narrowed(vec![6]), 8, &batched, &alone, named);
+        let (batched, alone) = (batched.signature(), alone.signature());
+        let interfered = interference(
+            "K7",
+            &Culprits::Narrowed(vec![6]),
+            8,
+            &batched,
+            &alone,
+            named,
+        );
         assert_eq!(
             interfered,
             "batch interference: K7 deviates beside 8 other cases (no defined result), and alone \
              it is not applied: 1 of 3 steps; it still differs beside [6]"
         );
-        let flaky = interference(&Culprits::NotReproduced, 8, &batched, &alone, named);
+        let k2 = interference(
+            "K2",
+            &Culprits::Whole(vec![4]),
+            1,
+            "krs::rust-expansion::uncoded-error @ spelling",
+            "conforms",
+            named,
+        );
+        assert_eq!(
+            k2,
+            "batch interference: K2 deviates beside 1 other cases (krs::rust-expansion::uncoded-error \
+             @ spelling), and alone it is conforms; it still differs beside [4]"
+        );
+        let flaky = interference("K7", &Culprits::NotReproduced, 8, &batched, &alone, named);
         assert!(
             flaky.starts_with("K7's batched verdict did not reproduce (flaky?)")
                 && !flaky.contains("batch interference"),

@@ -37,7 +37,7 @@
 //! `pending.toml` records, so it cannot be computed from the entry; K2 fails on it as a violation.
 //! A K2 red is also *Rust syntax* where its deviation names `krs::syntax::rust-syntax` and the
 //! table names no class of that code for its case: the error of the layer below the table, a Rust
-//! parser's, reached the author where the construct has a class of its own ([`RUST_SYNTAX`]). It
+//! parser's, reached the author where the construct has a class of its own. It
 //! is a diagnostic or an over-refusal like any other, and the tag keeps the whole family one count
 //! in a summary (finding NT-2-6).
 //!
@@ -372,9 +372,6 @@ impl RedKind {
     }
 }
 
-/// The code of a Rust parser's error that KRS forwards: the answer only where a class names it.
-pub const RUST_SYNTAX: &str = "krs::syntax::rust-syntax";
-
 /// The computed kind of one red: its [`RedKind`], whether its deviation names an internal code,
 /// whether it records a panic, and whether it is a Rust parser's error where the table names
 /// another class.
@@ -386,7 +383,7 @@ pub struct Red {
     pub internal: bool,
     /// Whether its deviation records a panic ([`panicked`]).
     pub panicked: bool,
-    /// Whether it is a K2 red whose deviation names [`RUST_SYNTAX`] where the table's class for
+    /// Whether it is a K2 red whose deviation names `krs::syntax::rust-syntax` where the table's class for
     /// the case has another code, or the table accepts it.
     pub rust_syntax: bool,
 }
@@ -421,9 +418,10 @@ impl Red {
             },
         };
         let internal = codes(deviation).any(|code| code_kind(code) == Some(CodeKind::Internal));
+        let rust_syntax_code = krs_diagnostic::codes::syntax::RUST_SYNTAX;
         let rust_syntax = matches!(kind, RedKind::Diagnostic | RedKind::OverRefusal)
-            && codes(deviation).any(|code| code == RUST_SYNTAX)
-            && !matches!(expected, Some(Expected::Refuse { class, .. }) if class.code == RUST_SYNTAX);
+            && codes(deviation).any(|code| code == rust_syntax_code.as_str())
+            && !matches!(expected, Some(Expected::Refuse { class, .. }) if class.code == rust_syntax_code.as_str());
         Self {
             kind,
             internal,

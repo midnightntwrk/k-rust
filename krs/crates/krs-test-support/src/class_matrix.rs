@@ -73,7 +73,9 @@
 //! `x`), which the overlap check refuses when the two are printed together. So is a case whose
 //! sentence changes what the base's sentences denote, as an equation's function context makes
 //! its function one of the configuration too, which every other case's application of it would
-//! then carry.
+//! then carry. So is a constant whose value rustc cannot parse: rustc parses the item before any
+//! attribute runs and then expands nothing in the crate, which would hide every other case's
+//! answer.
 //!
 //! **Count.** [`cases`] asserts at most [`FRONT_CASE_CAP`] cases, whose documentation argues the
 //! budget: the fast tier runs every case in-process, and the cap, not a timed assertion, keeps it
@@ -513,7 +515,8 @@ pub enum Packaging {
     /// matches what another case's subject matches (`_`, `x`) makes the two rules' heads overlap,
     /// which the overlap check refuses when they are printed together; or its sentence changes
     /// what the base's sentences denote (an equation's function context makes its function one
-    /// of the configuration too, in every case printed with it).
+    /// of the configuration too, in every case printed with it); or it is a constant whose value
+    /// rustc cannot parse, which stops the expansion of the whole crate.
     Alone(Command),
 }
 

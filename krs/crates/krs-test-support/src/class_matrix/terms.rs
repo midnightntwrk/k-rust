@@ -3367,9 +3367,18 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
         item.term(construct);
     }
     item.push(after);
+    // rustc parses a `const` item whole before any attribute of the crate runs, and a value it
+    // cannot parse, one holding `name @ pattern` outside a `let` pattern (no Rust expression
+    // holds one), stops the expansion of the whole crate: every other case beside it would show
+    // rustc's errors alone, so such a case is rendered alone.
+    let stops_expansion = slot.form == "constant"
+        && spelling
+            .nodes
+            .iter()
+            .any(|node| node.construct == C::As && !node.path.contains(&Opening::LetPattern));
     let packaging = if slot.form == "init" {
         Packaging::Own(OwnReason::Initializer)
-    } else if slot.own_package {
+    } else if slot.own_package || stops_expansion {
         Packaging::Alone(command)
     } else {
         Packaging::Shared(command)

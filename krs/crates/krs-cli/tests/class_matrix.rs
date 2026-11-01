@@ -85,7 +85,7 @@ use krs_test_support::class_matrix::table::{
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
 use closure::{Closure, case_k};
-use pipeline::{Judged, Native, NativeMode, Settings};
+use pipeline::{Judged, K2Verdict, Native, NativeMode, Settings};
 use runs::Ran;
 
 /// Whether a case no table entry decides fails the suite: the table covers every generated case,
@@ -371,7 +371,6 @@ impl Shard {
     /// for K6, `k7/<ID>` for K7, `twin/<ID>` for K7's twin check, and for K2 by the case's ID, or
     /// `full/<ID>` when `pending.toml` has that entry.
     fn add(&mut self, test: &'static str, id: &str, signature: String, misses: Vec<String>) {
-        let full = format!("{FULL}{id}");
         self.verdicts.entry(test).or_default().push(Verdict {
             key: match test {
                 "k1" => format!("{KEYS}{id}"),
@@ -381,8 +380,7 @@ impl Shard {
                 "twin" => format!("{TWIN}{id}"),
                 "k8" => format!("{ADVICE}{id}"),
                 "k5" => id.to_owned(),
-                _ if spec().pending.entries.contains_key(&full) => full,
-                _ => id.to_owned(),
+                _ => k2_key(id),
             },
             signature,
             misses,
@@ -497,6 +495,72 @@ impl Shard {
     }
 }
 
+/// A K2 verdict's pending key: the case's ID, or `full/<ID>` when `pending.toml` has that entry.
+fn k2_key(id: &str) -> String {
+    let full = format!("{FULL}{id}");
+    if spec().pending.entries.contains_key(&full) {
+        full
+    } else {
+        id.to_owned()
+    }
+}
+
+/// What K2 finds `judged` miss: the table-free invariants, and the table where it covers the
+/// case ([`k2`]).
+fn k2_misses(
+    resolution: &Resolution<'_>,
+    case: &Case,
+    judged: &Judged,
+    k: Option<&str>,
+) -> Vec<String> {
+    let placed = judged.placed(case);
+    let covered = resolution.expected.get(&judged.id);
+    let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
+    let observed = without_rustc_parse_error(&judged.observed, &placed);
+    let mut misses = violations(&observed, site, registry_kind)
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if let Some(expected) = covered {
+        misses.extend(table_miss(expected, &observed, &placed, k));
+    }
+    misses
+}
+
+/// K2's verdict on a judged case as the pipeline needs it to judge an unexpected failure again
+/// alone ([`pipeline::judge_all`]); `recording` leaves the K out of the table's comparison, as
+/// the shard does.
+fn k2_verdict(
+    resolution: &Resolution<'_>,
+    case: &Case,
+    judged: &Judged,
+    recording: bool,
+) -> K2Verdict {
+    let k = (!judged.observed.refused() && !recording)
+        .then_some(judged.additions.as_deref())
+        .flatten()
+        .map(|additions| case_k(additions, &case.tag()));
+    let misses = k2_misses(resolution, case, judged, k.as_deref());
+    let signature = signature(&judged.observed, &judged.placed(case));
+    let observation = if misses.is_empty() {
+        Observation::Conforms
+    } else {
+        Observation::Deviates(&signature)
+    };
+    let unexpected = matches!(
+        spec().pending.judge(&k2_key(&judged.id), observation),
+        Judgement::Unexpected { .. } | Judgement::DeviationChanged { .. }
+    );
+    K2Verdict {
+        unexpected,
+        observed: if misses.is_empty() {
+            "conforms".to_owned()
+        } else {
+            signature
+        },
+    }
+}
+
 /// K2: the table-free invariants, and the table where it covers the case. `k` is the case's K
 /// for the table's comparison, `None` in the record mode. At a position rustc parses, rustc's
 /// parse error beside KRS's one error at the same spelling is left out of the judgement
@@ -512,15 +576,7 @@ fn k2(
 ) -> bool {
     let placed = judged.placed(case);
     let covered = resolution.expected.get(&judged.id);
-    let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
-    let observed = without_rustc_parse_error(&judged.observed, &placed);
-    let mut misses = violations(&observed, site, registry_kind)
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    if let Some(expected) = covered {
-        misses.extend(table_miss(expected, &observed, &placed, k));
-    }
+    let misses = k2_misses(resolution, case, judged, k);
     let messages = judged
         .observed
         .errors()
@@ -786,6 +842,12 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     ("terms", "configuration-variable-sort", 2),
     ("terms", "island-at-subject-root", 18),
     ("terms", "ml-in-condition", 41),
+    // NT-32: the eight builtin-call forms `notation-in-pattern` advises (`int::lt(..)`,
+    // `int::eq(..)`, `int::bit_and(..)`, `int::shift_left(..)`, `bool::and_then(..)`,
+    // `bool::or_else(..)`, `int::sub(0, ..)`, `int::bit_not(..)`) are reached at the positions
+    // below a root that a term's other grammar now reads (264 -> 376), and `k::is!`/`k::project!`
+    // in an `or-branch` advise `where x: Sort` (70 -> 72). No advice text is new; making these
+    // forms checkable (an advised case per operator) is a follow-up of the table and generator.
     ("terms", "notation-in-pattern", 376),
     ("terms", "record-remainder-in-initializer", 4),
     ("terms", "sort-test-in-pattern", 72),
@@ -1125,6 +1187,19 @@ fn accepted_ks(
     (ks, recorded)
 }
 
+/// The table's errors, each a failure of every shard (an uncovered case only where
+/// [`UNCOVERED_IS_A_TABLE_ERROR`]).
+fn table_failures(resolution: &Resolution<'_>) -> Vec<String> {
+    resolution
+        .errors
+        .iter()
+        .filter(|error| {
+            UNCOVERED_IS_A_TABLE_ERROR || !matches!(error, TableError::Uncovered { .. })
+        })
+        .map(|error| format!("table: {error}"))
+        .collect()
+}
+
 /// Run one shard: judge its cases and apply the table and the red list.
 fn shard(name: &str, families: &[Family]) {
     let cases = selected(families);
@@ -1139,19 +1214,19 @@ fn shard(name: &str, families: &[Family]) {
         .map(|(id, _)| id.clone())
         .collect();
     let started = std::time::Instant::now();
-    let judged = pipeline::judge_all(&cases, &settings);
     let by_id = cases
         .iter()
         .map(|case| (case.id.as_str(), *case))
         .collect::<BTreeMap<_, _>>();
-
-    let mut shard = Shard::default();
-    for error in &resolution.errors {
-        if UNCOVERED_IS_A_TABLE_ERROR || !matches!(error, TableError::Uncovered { .. }) {
-            shard.failures.push(format!("table: {error}"));
-        }
-    }
     let recording = variable("KRS_CLASS_RECORD").is_some_and(|value| value != "0");
+    let judged = pipeline::judge_all(&cases, &settings, &|judged: &Judged| {
+        k2_verdict(resolution, by_id[judged.id.as_str()], judged, recording)
+    });
+
+    let mut shard = Shard {
+        failures: table_failures(resolution),
+        ..Shard::default()
+    };
     let mut accepted = 0;
     let mut uncovered = 0;
     let mut forms = BTreeMap::new();
