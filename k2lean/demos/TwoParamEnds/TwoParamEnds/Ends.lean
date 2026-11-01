@@ -1,6 +1,6 @@
 import TwoParamInst.Inst
 import Corout.Measure
-import Corout.Progress
+import Corout.Defined
 import KPrelude.Measure
 
 /-!
@@ -18,8 +18,9 @@ that does not step (`ends`), which holds code, as every configuration a corout r
 
 The fixture also states where a segment may end, `segEnd` (a `yield` or the code's end), and that
 `<k>` holds code, `kOk`. `gen --progress` proves that a configuration holding code is a segment end
-or has a rule that applies (`Corout.progress`). Where a rule applies, a step exists: `loop`'s also
-needs `app` defined, which it is everywhere (`app_some`). So a segment ends only at a segment end
+or steps (`Corout.progress_step`): a rule applies, and its right-hand side has a value, `loop`'s
+through `app`'s totality (`Corout.Total.app`, which the generator states for a function K declares
+`total`, and proves). So a segment ends only at a segment end
 (`ends_segEnd`): the code the instance keeps (`after`, what follows the `yield`) is never what is left
 of a segment that stopped early.
 -/
@@ -63,24 +64,6 @@ theorem hooks_some (R : Int) (C : TwoParam.SortStmts) :
   obtain ⟨C', r, n, rfl⟩ := shape_of he ⟨_, _, _, rfl⟩
   exact ⟨⟨_, hr⟩, _, hc⟩
 
-/-- `app` has a value at every two lists of statements, by its two equations. -/
-theorem app_some : ∀ (A T : Corout.SortStmts), ∃ r, Corout.K.«app(_,_)_COROUT_Stmts_Stmts_Stmts» A T = some r
-  | .«_;_» S A, T => by
-    obtain ⟨r, h⟩ := app_some A T
-    exact ⟨_, by rw [Corout.Eqn.«app(_,_)_COROUT_Stmts_Stmts_Stmts_2», h, Option.bind_some]⟩
-  | .«.List{"_;__COROUT-SYNTAX_Stmts_Stmt_Stmts"}_Stmts», T =>
-    ⟨T, Corout.Eqn.«app(_,_)_COROUT_Stmts_Stmts_Stmts_1» T⟩
-
-/-- Where a rule of corout applies, a step exists. -/
-theorem step_of_app {c : Corout.SortGeneratedTopCell} (h : Corout.App c) : ∃ c', Corout.Step c c' := by
-  cases h with
-  | add => exact ⟨_, Corout.Step.add ..⟩
-  | dbl => exact ⟨_, Corout.Step.dbl ..⟩
-  | loop M C r n B hreq =>
-    obtain ⟨_, ha⟩ := app_some B (.«_;_» (.«loop(_,_)» (IntHook.sub M 1) (.«{_}» B)) C)
-    exact ⟨_, Corout.Step.loop _ _ _ _ _ _ hreq ha⟩
-  | «loop-done» M G C r n hreq => exact ⟨_, Corout.Step.«loop-done» M G C r n hreq⟩
-
 /-- Where a segment ends, nothing steps. -/
 theorem terminal_of_ends {R : Int} {C : Corout.SortStmts} {e : Corout.SortGeneratedTopCell}
     (h : Ends R C e) : Terminal Corout.Step e := by
@@ -98,11 +81,10 @@ theorem ends_segEnd {R : Int} {C : Corout.SortStmts} {e : Corout.SortGeneratedTo
   obtain ⟨C', r, n, rfl⟩ := shape_of h ⟨_, _, _, rfl⟩
   have hI : Corout.Invariant (.«<generatedTop>» (.«<T>» (.«<k>» (.kseq (.inj_Stmts C') .dotk)) r) n) :=
     Corout.Eqn.«kOk(_)_COROUT_Bool_K_1» C'
-  rcases Corout.progress _ hI with he | ha
+  rcases Corout.progress_step _ hI with he | ⟨_, hs⟩
   · exact he
-  · obtain ⟨_, hs⟩ := step_of_app ha
-    exact absurd hs (ht _)
+  · exact absurd hs (ht _)
 
-#k2l_assert_axioms defined ends hooks_some app_some step_of_app terminal_of_ends ends_segEnd
+#k2l_assert_axioms defined ends hooks_some terminal_of_ends ends_segEnd
 
 end TwoParamEnds

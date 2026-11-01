@@ -921,6 +921,7 @@ with `no_stuck_step` and `always_step` as `no_stuck` and `always` are built from
 
 Measured (2026-11-01, light gate libraries):
 - `vm`, `vmstuck`, `vmpri`: `div`'s `/Int` under its `requires B =/=Int 0`, the only rule with a premise; no outcome.
+- `corout`: `loop`'s `app(B, …)`, by `app`'s totality (`Total.app`, EQ-24, read by `k2l_value_all`); no outcome. `TwoParamEnds.ends_segEnd` uses `progress_step`, and its hand lemmas `app_some` and `step_of_app` are gone.
 - `coro`, `corojoin`: 8 and 12 rules (the rebuilt cell map of each, and `spawn`'s); `spawn` is refuted: its child `child(P, N)` is unbound only if a process's nonce exceeds every child it has spawned, a fact about the map's bindings together that `kOk` does not state and no generated invariant closer reads yet (INV-14). The witness has `root` at `spawn` with nonce `0` beside an ended `child(root, 0)`.
 - `ImpTypes`, `ExprTypes`: kimp's and EXPR's `X / Y => X /Int Y` has no guard, so it has no value at a divisor `0`: unproved (its refutation needs a typed witness; SND-20b), so their type soundness is now stated to a step, with the division the one outcome.
 - `ImpPlusTypes`: 57 rules, 52 proved; unproved: `#getc` and `#write` (I/O hooks the model leaves undefined, §3.6), `String2Int` of the input's digits, and the fresh store location of `int` and thread id of `spawn` (unbound only under a freshness invariant such as `demos/ImpPlusFresh`'s, which the typing is not).
