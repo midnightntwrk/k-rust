@@ -54,80 +54,20 @@ kind = "bug"
 what = "an optional cell's pattern accepts a leaf spelling (`counter: x`, `counter: 0`) as present (decision D5: require `Some(..)`/`None`)"
 risk = "KRS writes the presence pattern `<counter> X </counter>`, which `Some(x)` says: `counter: x` reads as \"whatever the counter holds\", but the rule never applies to an absent counter, silently"
 
-["NT-13-1"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a key or value a claim's `#[k::claim(..)]` does not take is `rust-syntax`, where the other markers answer `unknown-argument`, `invalid-argument-value` or `invalid-rule-key` at the key"
-
-["NT-13-10"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a helper on a `#[k::context_alias]` is refused as an orphan helper advising a `#[k::rule]` before it, which makes it mean nothing there either"
-
-["NT-13-11"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a sentence key on a static clause's, an initializer's or a constant's marker is `unexpected-attribute-payload`, where the same mistake on another marker answers its own class"
-
-["NT-13-12"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a key that means something on other sentences is `unknown-argument` on a context, a context alias, an equation or a simplification, where the rule markers answer `invalid-rule-key`"
-
-["NT-13-13"]
-owner = "NT-34"
-kind = "feature"
-what = "two `#[k::requires]` on one sentence are refused, where they state their conjunction"
-
-["NT-13-14"]
-owner = "NT-34"
-kind = "feature"
-what = "a `#[k::requires]` before its rule fn's `#[k::rule]` is refused as an orphan helper, where the attributes of one item state one sentence whatever their order"
-
 ["NT-13-15"]
 owner = "NT-34"
 kind = "feature"
 what = "`concrete(x)` on an equation and a table row is refused, advising bare `concrete`, where the reference lists `concrete(x, ..)` as an equation key"
 
-["NT-13-2"]
-owner = "NT-34"
-kind = "feature"
-what = "a label is refused on an equation, a simplification, a table row, a function shorthand and a `k::claims!` clause, where other sentences take one"
-
 ["NT-13-3"]
 owner = "NT-33"
 kind = "feature"
-what = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]` (a documented boundary the oracle does not share), and the error lies outside the attribute"
+what = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]` (a documented boundary the oracle does not share); refused at the helper since NT-33"
 
 ["NT-13-4"]
 owner = "NT-33"
 kind = "feature"
-what = "`anywhere` on a single-body rule or a `for Sort` clause is refused outside the attribute, or advising a form the clause already is"
-
-["NT-13-5"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a placement mistake answered under another mistake's code (a context's `#[k::ensures]` as `invalid-local-rewrite`, a readable claim's `#[k::fresh]` as `unsupported-rule-signature`)"
-
-["NT-13-6"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a helper on a `#[k::constant]` is `rust-syntax` (\"expected `fn`\") at the whole item, outside the attribute"
-
-["NT-13-8"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "a function shorthand's `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` and `#[k::priority]` are refused advising a form that is refused for the same helper"
-
-["NT-13-9"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "the retired `#[k::priority(N)]` is refused advising `#[k::equation(priority = N)]` on every sentence, whatever its marker"
-
-["NT-19-1"]
-owner = "NT-33"
-kind = "diagnostic"
-what = "an anonymous `..` in a map literal answers `invalid-state-macro` in a `cells!` result that builds a Set instance's map, `invalid-expression-notation` elsewhere"
+what = "`anywhere` on a single-body rule or a `for Sort` clause is refused (at the key since NT-33): both forms rewrite where their subject heads the computation cell, and neither is lowered as an anywhere rule"
 
 ["NT-19-2"]
 owner = "NT-34"
