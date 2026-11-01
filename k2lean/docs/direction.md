@@ -1,6 +1,7 @@
 # k2lean's direction: one definition's theorems, systems of semantics, protocols
 
 Status: written by B on 2026-10-29 from a discussion with Sebastien, reviewed by core and C; Sebastien gave the go-ahead to flesh out and implement it the same day, with §9's recommendations as the working answers.
+Updated by C on 2026-11-01 from a discussion with Sebastien: design-time reasoning as k2lean's activity, Starstream's interleaving as built, independence's purpose (§3 to §7, with `product.md` §4).
 [`product.md`](product.md) holds the decisions and requirements; this note holds the map they fit in, and the directions beyond what exists.
 A direction moves into `product.md` when Sebastien decides it.
 
@@ -82,7 +83,7 @@ Today IMP++'s soundness counts a thread waiting at `join` as finished, which is 
 A proved theorem should be an input to the next, by name in Lean, not restated:
 - a proved invariant is the legality that claims, confluence and soundness assume;
 - a determinism theorem of one process discharges confluence's `SameThreadJoins` (one process stepping two ways from one state); `demos/UtxoConf/Joins.lean` proves it by hand today;
-- confluence's commutation lemmas are what independence (proving steps in parallel) rests on (`product.md` §4, CNF-15), once they hold in both directions: today they prove that two steps enabled at one state join, and independence also needs that a step taken after another could have been taken before it, which fails exactly at handoffs (a resume enabling a child); Lipton's and partial-order reduction rest on the same facts, but apply only to a definition written finer than its atomic unit;
+- confluence's commutation lemmas are what independence rests on (`product.md` §4, CNF-15: projection, which splits a design-time problem by footprint, and reordering, which covers every order from one per class), once they hold in both directions: today they prove that two steps enabled at one state join, and independence also needs that a step taken after another could have been taken before it, which fails exactly at handoffs (a resume enabling a child); partial-order reduction is the reordering use at the layer's own unit, and Lipton's reduction applies only to a definition written finer than its atomic unit;
 - soundness plus linearity gives a session-typed language's guarantees (§6).
 
 **Today:** claims consume three kinds of theorem by name: the invariant a library generated with `gen --invariant` proves preserved (`--assume-invariant`, `invariants.md`), relate's and refine's bisimulations (`--transfer`, `AF.of_bisim`, `EF.of_stutter`), and determinism (`--transfer-det`, `AF_iff_EF_of_det`).
@@ -99,7 +100,7 @@ Starstream, as one example of the shape (§7 for others):
 |---|---|---|
 | Computation | Wasm, the code a UTXO runs | KWasm exists in K |
 | Language | Starstream, compiled to Wasm | Starstream's codebase; not K today (§7) |
-| Interleaving | a transaction: a finite DAG of UTXO transitions, executed in an order the DAG allows, with legality rules (Starstream's codebase, not written yet). Its step is a segment: a coroutine's run from a resume to its next yield or raised effect, atomic by Starstream's model. The coordination script names every input UTXO ahead; the path is known only once it runs (a ZK prover follows the trace of a run made without ZK) | not written |
+| Interleaving | a transaction: a coordination script resuming UTXOs, with legality rules. Its step is a segment: a coroutine's run from a resume to its next yield or raised effect, atomic by Starstream's model. A run executes as one sequential trace; at design time, statements quantify over the orders in which the segments of several scripts and transactions may come (`product.md` §4). The coordination script names every input UTXO ahead; the path is known only once it runs (a ZK prover follows the trace of a run made without ZK) | Quint (the specification) and Rust (the circuit), in Starstream's codebase; not K. Replacing the Quint is Starstream's open question |
 | Ledger | validity of a transaction, the UTXO set | could be K, or a Lean library |
 
 Proofs are made at several units, depending on how far one zooms in: a folding step, a segment, a transaction, a change to the UTXO set (`product.md` §4).
@@ -129,7 +130,9 @@ Adjacent layers connect in three ways, each needing its own mechanism:
 3. **Interleaving: many instances of one layer side by side.**
    This is confluence's and independence's home (`product.md` §4), at two levels, each its own statement over its own definition:
    - *inside one interleaving:* the segments of different UTXOs that read nothing the others write;
-   - *across transactions:* transactions whose input UTXOs are disjoint, at the ledger's level, as a parallel executor relies on.
+   - *across transactions:* transactions whose input UTXOs are disjoint, at the ledger's level, as a ZK proof made against an earlier UTXO set and a parallel executor rely on.
+
+   Its main design-time use is projection (`product.md` §4): a UTXO's property in the context of some coordination scripts, with every other script and transaction factored out.
 
    A property of the interleaving (every order the DAG allows gives the same effects) is not a property of one contract over the ways its UTXO can evolve; the second is the contract author's, through invariants and claims (§7).
    In the `utxo` fixture a transaction's DAG is implicit: ids derive from content, so a spend is enabled only once its output exists, and the DAG's edges are the enabling relation.
@@ -157,16 +160,18 @@ A second, hand-written model of the same layer (for a model checker, say) is a s
     What there is to prove is that each step terminates (one function, §1), that no execution gets stuck (§2), that every execution ends (here a measure every step decreases: the transitions of the DAG not yet run), and that every order the DAG allows gives the same result (confluence).
     **Today** for the fixture `handoff` (CNF-22): the work left is the measure, written by hand (`HandoffConf.terminates`), and `HandoffSeqRel.transaction` composes it with confluence and the script's own order through `KPrelude.Ends`. The generated form is built (`gen --measure`, `design.md` §3.10): the author's measure as a K function, its lemmas as K simplification rules, one obligation per rule that the step lowers it. Its first consumer is §8 step 4's lower layer: every segment of `corout` ends, so the parameterized form's segments always have a result (`demos/TwoParamEnds`). The upper layer's measure (the work left, a sum over a cell map, as handoff's) is next.
     There is no fairness question: the interleaving borrows concurrency's vocabulary (coroutines, schedules) without its starvation problem.
-    What plays the part of scheduling is performance: which steps are independent, so that their proofs can be made in parallel (§4, at two levels).
-    That is a commutation question (confluence's footprints, `product.md` §4), not a liveness one.
-  - *Unbounded executions* (a server, threads that run forever; in Starstream's terms, a resume repeated forever, whether through Starstream's own constructs or Nightstream's folding directly, which is Starstream's design question): progress holds only under an assumption about the scheduler, such as "a process that can step is eventually chosen" (fairness).
+    What plays the part of scheduling is the space design-time reasoning covers: which steps are independent, so that a statement splits by footprint and holds over every order from one per class (§4, at two levels).
+    That is a commutation question (confluence's footprints, `product.md` §4), not a liveness one; ZK proving, which follows a recorded trace, does not need it.
+  - *Unbounded executions* (a server, threads that run forever; in Starstream's terms, a UTXO's life across an unbounded sequence of transactions, each of them finite, with any other transactions in between, the setting most of its temporal and session-type questions are asked in (`product.md` §4); and a resume repeated forever, whether through Starstream's own constructs or Nightstream's folding directly, which is Starstream's design question): progress holds only under an assumption about the scheduler, such as "a process that can step is eventually chosen" (fairness).
     This needs runs, the assumption stated over them, and ranking arguments.
+    Not every such property needs fairness: "a UTXO used only by script S can always be resumed" says that from every reachable state some continuation resumes it, a possibility, which no assumption about the scheduler enters. It is neither an invariant nor a claim of one program, and k2lean cannot state it today (`product.md` §8, question 2).
     **Proposed:** a new layer over the same step relation, in Lean, not a separate tool. This answers `product.md` §8 question 2 ("whether Lean is the right tool"), which stays open until Sebastien decides it.
   - *A decreasing measure* (every step decreases a quantity) proves some properties with one obligation per rule, as termination measures do today, but many properties have no such measure; richer disciplines such as session types (§6) are meant to cover more.
   **Open (§9, question 3):** liveness under fairness as its own branch, designed when a customer's property needs it.
 - **Exploration is not proof.**
   Finding a bad schedule is a search over runs; k-rust's engine searches K definitions (its fuzzer, §10, searches inputs), and model checkers such as TLA+'s or Quint's search their own models.
   Whether a separate model checker earns its place is open; if it does, the principle of §4 applies: its model is generated from the K definition, or proved equal to it.
+  Proposed (C, 2026-11-01; `product.md` §8, question 4): no translation to Quint; temporal search belongs in k-rust's engine, over the same definition.
 
 ## 6. Session types
 
@@ -182,6 +187,7 @@ A session-typed language guarantees, for programs its checker accepts:
 | Delivery (some systems) | every pending message is eventually received | liveness (§5): in a finite execution, no stuck states plus termination; in an unbounded one, under fairness |
 
 So a session-typed language is not a new theorem kind: it is soundness, an invariant, confluence and, for delivery, liveness, over one checker the author writes in K.
+The checker is the language designer's, written in KRS; no separate construct checks programs (Sebastien, 2026-11-01). Independence's projection (`product.md` §4) is what gives a session type's local view, one UTXO and the scripts it talks to, its meaning.
 
 **Why revisit them now.**
 Starstream today has no session types, by an explicit decision: the cost in what humans must read, write and reason about looked too high for a concept with little adoption in decades.
@@ -206,11 +212,11 @@ Today's coverage is in `product.md` §4; this table is the catalog §8's first s
 | KWasm | type soundness of validation, if validation is written as K functions (not checked); no stuck states; the computation layer under Starstream |
 | RISC-V, SM83 | no stuck states and determinism; claims about programs; agreement with a reference model, possibly not in K (a cross-language question, §4). SM83 is being written by Sebastien in a repository of its own, updated as k2lean's features land: the instruction-set validation, and a test of the end-user experience |
 | Starstream language | type soundness with affine continuations (a linearity invariant); one contract's properties over the ways its UTXO can evolve, written by the contract's author as invariants and claims (as K audits Solidity contracts); agreement with the Wasm it compiles to (a certified-compiler question, §4; kink's corpus today) |
-| Starstream interleaving | every order a transaction's DAG allows gives the same result, under legality (confluence); independent segments, for proving them in parallel; at-most-once resumption (an invariant); no segment stuck |
-| A ledger | value conservation, unique ids, no double spend (invariants); validity of a transaction as legality; independent transactions (disjoint inputs), for proving them in parallel; possibly a Lean library |
+| Starstream interleaving | a UTXO's properties in the context of coordination scripts, other transactions factored out (independence's projection); every order independent segments may come in gives the same result, under legality (confluence); at-most-once resumption (an invariant); no segment stuck; a UTXO can always be resumed (a temporal statement k2lean cannot state yet) |
+| A ledger | value conservation, unique ids, no double spend (invariants); validity of a transaction as legality; independent transactions (disjoint inputs), which a ZK proof made against an earlier UTXO set relies on; possibly a Lean library |
 
 **Starstream today and its possible futures.**
-- *Today:* Starstream does not use K. It types suspended continuations as affine (storable and movable, never duplicated) and has no session types, by choice.
+- *Today:* Starstream does not use K. Its interleaving is specified in Quint and built as a Rust circuit (§4). It types suspended continuations as affine (storable and movable, never duplicated) and has no session types, by choice.
 - *Planning drafts:* `starstream-fv/plan/` holds AI-generated brainstorming from before k-rust existed: directionally accurate, not requirements. Its obligation lists (M-1 to M-7, O-1 to O-12, G-1 to G-7) are used here as examples of the properties such a system needs, and its tool choices (Quint for the process level, among others) predate what k-rust and k2lean now offer, so they are to be re-decided from first principles.
 - *Possible futures*, each Starstream's to decide and build: its semantics in K, over KWasm; a session-typed protocol layer if §6's experiment shows a readable form; unbounded programs (a resume repeated forever), where fairness could apply (§5), through Starstream or through Nightstream's folding directly, which Starstream decides.
 
