@@ -924,7 +924,13 @@ fn main() {
                         ns,
                         init: None,
                     };
-                    let o = measure::emit(&cx, spec, &stated, &open_cases, hand.exists())
+                    // `--measure-invariant`: the measure under the library's kind 1 invariant
+                    let inv = a.rest.iter().any(|x| x == "--measure-invariant").then(|| {
+                        inv_unfold.as_deref().unwrap_or_else(|| {
+                            panic!("--measure-invariant needs a kind 1 invariant (--invariant)")
+                        })
+                    });
+                    let o = measure::emit(&cx, spec, &stated, &open_cases, hand.exists(), inv)
                         .unwrap_or_else(|e| panic!("measure: {e}"));
                     write(
                         &out.join(ns).join("MeasureDefs.lean"),

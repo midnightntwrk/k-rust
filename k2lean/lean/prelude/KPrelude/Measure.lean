@@ -92,6 +92,34 @@ theorem terminates_on {S : α → α → Prop} {H : α → Prop} (hH : Preserved
       rw [hv']; rfl⟩)
     (nat μ) (fun _ _ ⟨hc, hs⟩ hst => nat_lt (h hc hst) hs) c ⟨hc, hs⟩
 
+/-- Under `H`, a step from `c` to `c'` lowers the measure `μ`: where `H` holds at `c` and the measure
+is defined there, it is defined at `c'` and smaller there. Nonnegativity is not part of it: under an
+invariant it is a property of the invariant's configurations, stated once (`terminates_inv`'s
+`hb`), not shown again at each rule's target. -/
+def Dec (H : α → Prop) (μ : α → Option Int) (c c' : α) : Prop :=
+  H c → (μ c).isSome → ∃ v v', μ c = some v ∧ μ c' = some v' ∧ v' < v
+
+/-- Under a preserved `H` the measure is nonnegative where it is defined, and every step from a
+configuration satisfying `H` lowers it (`Dec`): no infinite path starts where `H` holds and the
+measure is defined. Along a run from there, `H` holds (`hH`) and the measure stays defined (`Dec`),
+so it is nonnegative at both ends of every step (`hb`), and its `toNat` decreases. -/
+theorem terminates_inv {S : α → α → Prop} {H : α → Prop} (hH : Preserved S H) (μ : α → Option Int)
+    (hb : ∀ c, H c → (μ c).isSome → ∃ v, μ c = some v ∧ 0 ≤ v)
+    (h : ∀ {c c' : α}, S c c' → Dec H μ c c') :
+    ∀ c, H c → (μ c).isSome → Paths.Terminates S c := fun c hc hs =>
+  Ends.terminates_of_measure_on (H := fun c => H c ∧ (μ c).isSome)
+    (fun c c' ⟨hc, hs⟩ hst => ⟨hH c c' hc hst, by
+      obtain ⟨_, _, _, hv', _⟩ := h hst hc hs
+      rw [hv']; rfl⟩)
+    (nat μ) (fun a b ⟨ha, hs⟩ hst => by
+      obtain ⟨v, v', hv, hv', hlt⟩ := h hst ha hs
+      obtain ⟨w, hw, h0⟩ := hb b (hH a b ha hst) (by rw [hv']; rfl)
+      rw [hv', Option.some.injEq] at hw
+      subst hw
+      simp only [nat, hv, hv', Option.getD_some]
+      omega)
+    c ⟨hc, hs⟩
+
 /-- A terminal configuration reachable from `a` is the first one on the way: a configuration with a
 step is not terminal. -/
 theorem firstReach_of_star {S : α → α → Prop} {a b : α} (h : Star S a b) (hb : Terminal S b) :
@@ -259,6 +287,16 @@ syntax (name := measureNorm) "k2l_measure_norm" " [" ident,* "]" : tactic
       | none => []
       | some (_, g') => [g']
 
+/-- `k2l_measure_coll [unfold]`: under an invariant over every element of a collection (`EntriesOn Q
+m`, the invariant at a rule's source), its facts at what the rule matches (`K2LPreserve.forwardColl`):
+`Q (k, v)` at a matched binding, `EntriesOn Q r` at the rest, each normalized by the unfolding set
+(`unfold`, which then holds the invariant's). Nothing where no such hypothesis is in the context. -/
+syntax (name := measureColl) "k2l_measure_coll" " [" ident,* "]" : tactic
+
+@[tactic measureColl] def evalMeasureColl : Tactic := fun stx => do
+  let us : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
+  K2LPreserve.forwardColl (fun _ => do evalTactic (← `(tactic| try k2l_measure_norm [$[$us],*]))) 4
+
 /-- `k2l_measure_cells`: the rule's variables that stand for a cell or another value of one form
 (`{ B }`, on the arity-indexed family too) taken apart, as the invariant tactic does
 (`casesCells`): a measure's equations match the constructors inside (`loop(M, _)` holds a `{ B }`). -/
@@ -267,15 +305,18 @@ elab "k2l_measure_cells" : tactic => KPrelude.K2LPreserve.casesCells
 /-- `k2l_measure_arith`: the obligation's arithmetic once the measure's values are known: the hooks
 in Lean's arithmetic (`k2l_arith`, with `maxInt` and `minInt` by `IntHook.max_eq` and `min_eq`),
 then `k2l_int_arith` (each `if` split, the sign of each product of nonnegative factors,
-`k2l_int_omega`, `grind`), on the obligation or on each of its two parts. A call's value known by an equation (`v = e`, from the
-author's lemma at the call) is substituted first, so that the `if`s of `e` are the goal's. -/
+`k2l_int_omega`, `grind`), on the obligation or, where it is a conjunction, on each of its two
+parts (`And.intro`, which fails on anything else; an anonymous constructor would be elaborated
+against the structure of an `Int` comparison, and its error logged rather than thrown). A call's
+value known by an equation (`v = e`, from the author's lemma at the call) is substituted first, so
+that the `if`s of `e` are the goal's. -/
 macro "k2l_measure_arith" : tactic => `(tactic| (
   (try simp only [k2l_arith, IntHook.max_eq, IntHook.min_eq, decide_eq_true_eq, Option.some.injEq,
     exists_and_left, exists_eq_left', exists_eq', and_true, true_and] at *)
   (try subst_vars)
   first
   | k2l_int_arith
-  | (refine ⟨?_, ?_⟩ <;> k2l_int_arith)))
+  | (apply And.intro <;> k2l_int_arith)))
 
 /-- An identifier as a `simp` argument. -/
 def simpArgOf (i : Ident) : MetaM K2LPreserve.SimpArg := do
@@ -346,14 +387,26 @@ right-hand side. A call that right-hand side makes to a function with rule match
 of recursive functions, bounded by the author's lemmas, and arithmetic. -/
 syntax (name := measureWeight) "k2l_measure_weight" " [" ident,* "]" " [" ident,* "]" : tactic
 
-@[tactic measureWeight] def evalMeasureWeight : Tactic := fun stx => do
-  let us : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
-  let ls : Array Ident := stx[5].getSepArgs.map (⟨·⟩)
+/-- `k2l_measure_weight_on [unfold] [lemmas]`: a weight is nonnegative wherever it is defined at a
+binding where an invariant over every element holds, `∀ k v a, Q (k, v) → g k v = some a → 0 ≤ a`
+(`MapHook.sumOf_nonneg_on`'s premise): as `k2l_measure_weight`, with the binding's cells taken
+apart (`casesCells`), so that the measure's projections and the invariant's read the same contents,
+and the invariant's fact at the binding (`Q (k, v)`, unfolded by `unfold`) read by the arithmetic. -/
+syntax (name := measureWeightOn) "k2l_measure_weight_on" " [" ident,* "]" " [" ident,* "]" : tactic
+
+/-- `k2l_measure_weight`, and with `on` `k2l_measure_weight_on`. -/
+def measureWeightCore (us ls : Array Ident) (on : Bool) : TacticM Unit := do
   let hw := mkIdent `k2l_w
+  let hq := mkIdent `k2l_q
   let base ← (← getMainGoal).withContext do return (← getLCtx).getFVarIds
-  evalTactic (← `(tactic| intro _ _ _ $hw:ident))
   let usA ← us.mapM (fun i => (simpArgOf i : TacticM _))
-  evalTactic (← `(tactic| try simp only [$[$usA],*] at $hw:ident))
+  if on then
+    evalTactic (← `(tactic| intro _ _ _ $hq:ident $hw:ident))
+    K2LPreserve.casesCells
+    evalTactic (← `(tactic| all_goals (try simp only [$[$usA],*] at $hq:ident)))
+  else
+    evalTactic (← `(tactic| intro _ _ _ $hw:ident))
+  evalTactic (← `(tactic| all_goals (try simp only [$[$usA],*] at $hw:ident)))
   let g ← getMainGoal
   let fs ← g.withContext do
     let some d := (← getLCtx).findFromUserName? `k2l_w | return #[]
@@ -372,6 +425,31 @@ syntax (name := measureWeight) "k2l_measure_weight" " [" ident,* "]" " [" ident,
   evalTactic (← `(tactic| all_goals (try subst_vars)))
   evalTactic (← `(tactic| all_goals k2l_measure_facts [$[$ls],*]))
   evalTactic (← `(tactic| all_goals k2l_measure_arith))
+
+@[tactic measureWeight] def evalMeasureWeight : Tactic := fun stx =>
+  measureWeightCore (stx[2].getSepArgs.map (⟨·⟩)) (stx[5].getSepArgs.map (⟨·⟩)) false
+
+@[tactic measureWeightOn] def evalMeasureWeightOn : Tactic := fun stx =>
+  measureWeightCore (stx[2].getSepArgs.map (⟨·⟩)) (stx[5].getSepArgs.map (⟨·⟩)) true
+
+/-- `have n : ty := by tac` on the main goal, with `tac` run on a goal of its own: true when it closes
+it, with no error logged and no `sorry` in the proof. An error inside a nested `by` is logged rather
+than thrown, so a `have` whose proof fails would stand on `sorry`; here a failure restores the
+state, so that the caller can try something else. -/
+def haveBy (n : Name) (ty : Term) (tac : TSyntax `tactic) : TacticM Bool := do
+  let g ← getMainGoal
+  let errors : TacticM Nat := do
+    return (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+  let e0 ← errors
+  K2LPreserve.tryRec (g.withContext do
+    let tyE ← Term.elabTermAndSynthesize ty (some (.sort .zero))
+    let mv ← mkFreshExprSyntheticOpaqueMVar tyE
+    let gs ← Tactic.run mv.mvarId! (evalTactic tac)
+    let pf ← instantiateMVars mv
+    unless gs.isEmpty && !pf.hasSorry && (← errors) == e0 do throwError "haveBy: not proved"
+    let (_, g') ← g.note n pf tyE
+    replaceMainGoal [g']
+    pure true) (pure false)
 
 /-- The sums `MapHook.sumOf g m` in `e`, outside binders: their weights and maps. -/
 def sumAtoms (e : Expr) : MetaM (Array (Expr × Expr)) := do
@@ -405,7 +483,9 @@ measure that adds a weight per binding, `MeasureSum`). Each fold's call is read 
 weight, and then `sumOf g m`), and split along the maps the rule matches and builds, by the hooks
 too (`K2LPreserve.sumSplit`, shared with invariants); and each sum left over a map (the rest) is
 nonnegative, its weight being so: by the lemma of `weights` (`∀ k v a, g k v = some a → 0 ≤ a`)
-whose weight is the sum's, else by `k2l_measure_weight` there. -/
+whose weight is the sum's, else by `k2l_measure_weight` there, else, where an invariant holds at
+every binding of the map (`EntriesOn Q m`, under the invariant), by `MapHook.sumOf_nonneg_on` and
+`k2l_measure_weight_on`. -/
 syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" " [" ident,* "]"
   " [" ident,* "]" : tactic
 
@@ -438,17 +518,34 @@ syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" 
           pure (some l)
         else
           let n := Name.mkSimple s!"k2l_wn{weights.size}"
-          let ok ← K2LPreserve.tryRec (do
-            let wt ← (← getMainGoal).withContext (Term.exprToSyntax w)
-            evalTactic (← `(tactic| have $(mkIdent n):ident : ∀ k v a, $wt k v = some a → 0 ≤ a := by
-              k2l_measure_weight [$[$us],*] [$[$ls],*]))
-            pure true) (pure false)
+          let wt ← (← getMainGoal).withContext (Term.exprToSyntax w)
+          let ok ← haveBy n (← `(∀ k v a, $wt k v = some a → 0 ≤ a))
+            (← `(tactic| k2l_measure_weight [$[$us],*] [$[$ls],*]))
           weights := weights.push (w, n)
           pure (if ok then some n else none)
-    let some hn := hn | continue
-    let mt ← (← getMainGoal).withContext (Term.exprToSyntax m)
-    K2LPreserve.tryRec (evalTactic (← `(tactic|
-      have := MapHook.sumOf_nonneg $(mkIdent hn):ident $mt))) (pure ())
+    match hn with
+    | some hn =>
+      let mt ← (← getMainGoal).withContext (Term.exprToSyntax m)
+      K2LPreserve.tryRec (evalTactic (← `(tactic|
+        have := MapHook.sumOf_nonneg $(mkIdent hn):ident $mt))) (pure ())
+    | none =>
+      -- an invariant over every element of the map (`EntriesOn Q m`, a measure under the
+      -- invariant): the weight nonnegative where it holds
+      let es ← (← getMainGoal).withContext do
+        let mut es : Array (Expr × Expr) := #[]
+        for d in ← getLCtx do
+          if d.isImplementationDetail then continue
+          if let some (q, m') := K2LPreserve.entriesOn? (← instantiateMVars d.type) then
+            if m' == m then es := es.push (d.toExpr, q)
+        return es
+      for (e, q) in es do
+        let (et, qt, wt) ← (← getMainGoal).withContext do
+          return (← Term.exprToSyntax e, ← Term.exprToSyntax q, ← Term.exprToSyntax w)
+        let hq := mkIdent `k2l_wq
+        if ← haveBy `k2l_wq (← `(∀ k v a, $qt (k, v) → $wt k v = some a → 0 ≤ a))
+            (← `(tactic| k2l_measure_weight_on [$[$us],*] [$[$ls],*])) then
+          evalTactic (← `(tactic| have := MapHook.sumOf_nonneg_on $et $hq:ident))
+          break
   -- what is left to show, part by part; the parts the source gives are its facts
   evalTactic (← `(tactic| try and_intros))
   evalTactic (← `(tactic| all_goals (try assumption)))
@@ -478,8 +575,9 @@ macro "k2l_measure" " [" us:ident,* "]" " [" ls:ident,* "]" " [" ss:ident,* "]"
   `(tactic| (
     repeat intro
     k2l_measure_cells
-    all_goals (try simp only [KPrelude.Measure.Lower] at *)
+    all_goals (try simp only [KPrelude.Measure.Lower, KPrelude.Measure.Dec] at *)
     (try k2l_measure_norm [$us,*])
+    all_goals (try k2l_measure_coll [$us,*])
     all_goals k2l_measure_sum [$ss,*] [$us,*] [$ls,*] [$ws,*]
     all_goals (try k2l_measure_norm [$us,*])
     all_goals k2l_measure_facts [$ls,*]

@@ -17,7 +17,8 @@ in the canonical order, which is the sum in any order (`sumOf_concat`, by permut
   here at `Int`); `fold_sum_isSome`: the fold is defined where that holds.
 - `sumOf_concat`, `sumOf_element`, `sumOf_unit`: the sum of a defined `M₁ M₂` is the sum of both,
   which is what a rule's case reads at the maps it matches (`K |-> V REST`) and builds.
-- `sumOf_nonneg`: with every weight nonnegative, so is the sum.
+- `sumOf_nonneg`: with every weight nonnegative, so is the sum; `sumOf_nonneg_on`: with the weight
+  nonnegative wherever an invariant over every element holds (`EntriesOn`), so is the sum.
 - `sumOf_remove`, `sumOf_update`, `remove_of_lookup_none` and their `ClaimsDef` forms: what a rule
   reads at a map it writes by the hooks rather than by a pattern (`M[K <- V]`, `M[K <- undef]`): the
   binding at `k` taken out, the rest's sum and definedness unchanged.
@@ -88,6 +89,24 @@ theorem sumOf_nonneg {g : K → V → Option Int} (hg : ∀ k v a, g k v = some 
       cases h : g p.1 p.2 with
       | none => simp
       | some a => simpa using hg _ _ _ h
+    omega
+
+/-- With `Q` at every binding and the weight nonnegative wherever `Q` holds, the sum is
+nonnegative: a sum bounded by an invariant over every element (a measure under the invariant). -/
+theorem sumOf_nonneg_on {Q : K × V → Prop} {g : K → V → Option Int} {m : M} (hm : EntriesOn Q m)
+    (hg : ∀ k v a, Q (k, v) → g k v = some a → 0 ≤ a) : 0 ≤ sumOf g m := by
+  have hl : ∀ p ∈ toList m, Q p := hm
+  unfold sumOf sumL
+  generalize toList m = l at hl ⊢
+  induction l with
+  | nil => simp
+  | cons p t ih =>
+    rw [List.map_cons, List.sum_cons]
+    have h1 : 0 ≤ (g p.1 p.2).getD 0 := by
+      cases h : g p.1 p.2 with
+      | none => simp
+      | some a => simpa using hg _ _ _ (hl p List.mem_cons_self) h
+    have := ih (fun q hq => hl q (List.mem_cons_of_mem _ hq))
     omega
 
 /-- A fold that adds the weight of each binding, from its instances: `F(.Map) => 0` and, at a

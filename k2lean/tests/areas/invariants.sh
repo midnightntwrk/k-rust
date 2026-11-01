@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, tickets, fuel, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
 
@@ -17,7 +17,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;; ledger) echo Ledger ;; escrow) echo Escrow ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;; ledger) echo Ledger ;; escrow) echo Escrow ;; tickets) echo Tickets ;; fuel) echo Fuel ;;
     simpleinv|simplestore|simplet|simpleenvs) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -81,6 +81,17 @@ gen_invariants() {
     escrow) GEN_ARGS=(--kore "$FIXTURES/escrow/definition.kore" --runtime "$FIXTURES/escrow/runtime.json"
             --out "$o" --name Escrow --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant conserved@T) ;;
+    # a measure under the invariant (INV-20; `Measure.bound` once, each rule's `Dec`): tickets, whose
+    # measure counts what was issued while the rules check what is left, so it is nonnegative only by
+    # the invariant relating them (a sum over a map); fuel, tasks paying for each step from their own
+    # fuel, the measure summed over the <task> cell collection and nonnegative only by the invariant
+    # on every task's fuel (`MapHook.sumOf_nonneg_on`)
+    tickets) GEN_ARGS=(--kore "$FIXTURES/tickets/definition.kore" --runtime "$FIXTURES/tickets/runtime.json"
+            --out "$o" --name Tickets --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant pool@pool --measure todo@pool --measure-invariant) ;;
+    fuel) GEN_ARGS=(--kore "$FIXTURES/fuel/definition.kore" --runtime "$FIXTURES/fuel/runtime.json"
+            --out "$o" --name Fuel --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant nonneg@fuel --measure work@tasks --measure-invariant) ;;
     # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
             --out "$o" --name KWalk --prelude ../../lean --open-obligations "$o/open-obligations.txt"
@@ -178,8 +189,22 @@ invcases() { # DIR NAME: build NAME.Invariants, at most three attempts; the last
   done
   bad "invariant $d" "$L/build-$d-inv.log"; unbuilt "$o" "$L/build-$d-inv.log" "$n.Invariants"; return 1
 }
+meascases() { # DIR NAME: build NAME.Measure, at most three attempts; the last log is build-DIR-meas.log
+  local d=$1 n=$2 o=$GEN/$1 k
+  for k in 1 2 3; do
+    if lbuild "$o" "build-$d-meas-$k" "$n.Measure"; then
+      cp "$L/build-$d-meas-$k.log" "$L/build-$d-meas.log"; ok "measure $d" "$L/build-$d-meas.log"; return 0
+    fi
+    cp "$L/build-$d-meas-$k.log" "$L/build-$d-meas.log"
+    [ "$k" = 3 ] && break
+    "$G" open-from-log "$o/$n/Measure.lean" "$L/build-$d-meas-$k.log" "$o/open-measure-cases.txt" >> "$L/gen-$d.log" 2>&1
+    genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
+  done
+  bad "measure $d" "$L/build-$d-meas.log"; unbuilt "$o" "$L/build-$d-meas.log" "$n.Measure"; return 1
+}
 inv_reset() { # DIR: GATE_RETRY_OPEN also retries the open invariant cases
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-invariant-cases.txt"
+  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$GEN/$1/open-measure-cases.txt" ] && : > "$GEN/$1/open-measure-cases.txt"
   return 0
 }
 inv_lib() { # DIR NAME [keep]: a library built only as far as its invariant needs (its Equations, for
@@ -301,6 +326,10 @@ gate_invariants() {
   # value conserved, a sum over a map (tests/fixtures/ledger, tests/fixtures/escrow; closer 2b)
   runs lib ledger && inv_lib ledger Ledger
   runs lib escrow && inv_lib escrow Escrow
+  # a measure under the invariant (tests/fixtures/tickets, tests/fixtures/fuel; INV-20): the
+  # invariant first, then `Measure.lean`, which imports it
+  runs lib tickets && inv_lib tickets Tickets && meascases tickets Tickets
+  runs lib fuel && inv_lib fuel Fuel && meascases fuel Fuel
   runs negative krsimp-ill-typed && negative_ill_typed
   # SIMPLE with the K function `holdsOk` (demos/k/simple-inv), as for kimpinv; "every store value
   # is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's top cell

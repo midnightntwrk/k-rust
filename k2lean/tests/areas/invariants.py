@@ -18,6 +18,8 @@ LIBS = {
     "twoparamvals": {"ns": "TwoParam", "tier": "light", "guard": False},
     "ledger": {"ns": "Ledger", "tier": "light", "guard": False},
     "escrow": {"ns": "Escrow", "tier": "light", "guard": False},
+    "tickets": {"ns": "Tickets", "tier": "light", "guard": False},
+    "fuel": {"ns": "Fuel", "tier": "light", "guard": False},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
@@ -42,6 +44,8 @@ INVS = {
     "twoparamvals": {"ns": "TwoParam", "tier": "light"},
     "ledger": {"ns": "Ledger", "tier": "light"},
     "escrow": {"ns": "Escrow", "tier": "light"},
+    "tickets": {"ns": "Tickets", "tier": "light"},
+    "fuel": {"ns": "Fuel", "tier": "light"},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy"},
@@ -60,14 +64,19 @@ NEGATIVE = {"krsimp-ill-typed": {"tier": "light"}}
 
 def measure_meas(d, ns):
     """The step measure of library d (`gen --measure`, `d/NS/Measure.lean`): its rule cases, those
-    proved by `k2l_measure`, and the open ones (open-measure-cases.txt)."""
+    proved by `k2l_measure`, and the open ones (open-measure-cases.txt); under the invariant
+    (`--measure-invariant`), also how its bound is proved (`Measure.bound`: "auto" or "hand")."""
     def measure(c):
         m = read(c.tree / "generated" / d / ns / "Measure.lean")
         ol = read(c.tree / "generated" / d / "open-measure-cases.txt") or ""
         opened = sorted(l.split(" | ")[0].strip() for l in ol.splitlines() if l.strip() and not l.startswith("#"))
-        return {"cases": len(re.findall(r"^theorem .* : Step\.Rel\.", m, re.M)) if m else None,
-                "auto": len(re.findall(r":= by k2l_meas$", m, re.M)) if m else None,
-                "open": opened}
+        r = {"cases": len(re.findall(r"^theorem .* : Step\.Rel\.", m, re.M)) if m else None,
+             "auto": len(re.findall(r"^theorem .* : Step\.Rel\..*:= by k2l_meas$", m, re.M)) if m else None,
+             "open": opened}
+        b = re.search(r"^theorem Measure\.bound .*:= (.*)$", m, re.M) if m else None
+        if b:
+            r["bound"] = "auto" if b.group(1) == "by k2l_meas" else "hand"
+        return r
     return measure
 
 
@@ -81,4 +90,7 @@ RECORDS = {
     # twolayer's measure (the confluence area's library twolayer, built by its demo TwoLayerTx): the
     # work left in the tasks and in the suspended processes' code, two sums
     "twolayer-measure": {"tier": "light", "measure": measure_meas("twolayer", "TwoLayer"), "sources": []},
+    # measures under the invariant (INV-20): each rule's decrease under it, and its bound once
+    "tickets-measure": {"tier": "light", "measure": measure_meas("tickets", "Tickets"), "sources": []},
+    "fuel-measure": {"tier": "light", "measure": measure_meas("fuel", "Fuel"), "sources": []},
 }
