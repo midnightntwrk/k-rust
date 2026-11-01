@@ -3,6 +3,7 @@
 //! KEVM-shaped machine prove their claims, emit the reference claims' K,
 //! and expand to the reference fns; and the clause shapes a claim rejects.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1353,6 +1354,168 @@ fn a_run_computes_the_same_with_or_without_the_claims() {
     assert_eq!(with, without);
     let state = without[0].split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(state.contains("<pc> 0 </pc>"), "{state}");
+
+    // The run compile itself (`krs build --backend haskell` is the compile `krs run` runs): the
+    // claims are KORE `claim` sentences, which no backend applies as a step, none is an axiom,
+    // and what else the claims add is fresh function symbols with their own equations, so every
+    // axiom of the compile without them is there unchanged and no axiom is added to a symbol it
+    // declares.
+    let compiled = |root: &str| {
+        let manifest = temporary.path().join(root).join("claim-runs/Cargo.toml");
+        let output = manifest.with_file_name("run-compile");
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "build",
+            &["--backend", "haskell", "--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{root}: {stderr}");
+        fs::read_to_string(output.join("definition.kore")).unwrap()
+    };
+    claims_are_no_rules(&compiled("without"), &compiled("with"));
+}
+
+/// The structural half of [`a_run_computes_the_same_with_or_without_the_claims`]: the run
+/// compile `with` the claims holds them as KORE `claim` sentences, which no backend applies as a
+/// step, none as an axiom, and adds to the compile `without` them only fresh function symbols and
+/// axioms about them, none a rewrite or an equation of a symbol `without` declares.
+fn claims_are_no_rules(without: &str, with: &str) {
+    let (without, with) = (kore_sentences(without), kore_sentences(with));
+    let claims = with
+        .iter()
+        .filter(|sentence| sentence.starts_with("claim{"))
+        .collect::<Vec<_>>();
+    assert_eq!(claims.len(), 12, "every claim is a `claim` sentence");
+    assert!(
+        !without
+            .iter()
+            .any(|sentence| sentence.starts_with("claim{"))
+    );
+    // Each claim's label, as its `claim` sentence carries it: no axiom carries one.
+    let labels = claims
+        .iter()
+        .filter_map(|claim| claim.split_once("label{}(\"").map(|(_, rest)| rest))
+        .filter_map(|rest| rest.split_once("\")").map(|(label, _)| label))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(labels.len(), claims.len(), "{labels:?}");
+    assert!(labels.contains("ORG-KRS-CLAIM-RUNS.rogue"), "{labels:?}");
+    for axiom in with
+        .iter()
+        .filter(|sentence| sentence.starts_with("axiom{"))
+    {
+        assert!(
+            !labels
+                .iter()
+                .any(|label| axiom.contains(&format!("label{{}}(\"{label}\")"))),
+            "no axiom is a claim:\n{axiom}"
+        );
+    }
+    // The symbols the claims add: the lifted functions (`krsLocal_<digest>`) and the functions
+    // the frontend makes of their blocks and tests, each a function no other symbol is.
+    let symbol = |sentence: &String| {
+        sentence
+            .strip_prefix("symbol ")
+            .or_else(|| sentence.strip_prefix("hooked-symbol "))
+            .and_then(|rest| rest.split_once('{'))
+            .map(|(name, _)| (name.to_owned(), sentence.contains("function{}()")))
+    };
+    let declared = without
+        .iter()
+        .filter_map(symbol)
+        .map(|(name, _)| name)
+        .collect::<BTreeSet<_>>();
+    let fresh = with
+        .iter()
+        .filter_map(symbol)
+        .filter(|(name, _)| !declared.contains(name))
+        .collect::<Vec<_>>();
+    assert!(
+        fresh
+            .iter()
+            .filter(|(name, _)| name.starts_with("LblkrsLocal"))
+            .count()
+            >= 11,
+        "{fresh:?}"
+    );
+    assert!(fresh.iter().all(|(_, function)| *function), "{fresh:?}");
+    let fresh = fresh.into_iter().map(|(name, _)| name).collect::<Vec<_>>();
+    let (without, with) = (
+        without.into_iter().collect::<BTreeSet<_>>(),
+        with.into_iter().collect::<BTreeSet<_>>(),
+    );
+    for axiom in without
+        .iter()
+        .filter(|sentence| sentence.starts_with("axiom{"))
+    {
+        assert!(
+            with.contains(axiom),
+            "the claims leave every axiom as it is:\n{axiom}"
+        );
+    }
+    for axiom in with
+        .iter()
+        .filter(|sentence| sentence.starts_with("axiom{") && !without.contains(*sentence))
+    {
+        assert!(
+            !axiom.contains("\\rewrites"),
+            "a claim adds no rule:\n{axiom}"
+        );
+        assert!(
+            fresh
+                .iter()
+                .any(|name| axiom.contains(&format!("{name}{{"))),
+            "an axiom the claims add is about a fresh function:\n{axiom}"
+        );
+        // An equation's left side, where it is an application, is a fresh function's: the
+        // conclusion's `\equals`, which follows the `requires` (whose tests are `\equals` too).
+        let left = axiom
+            .rsplit_once("\\equals{")
+            .and_then(|(_, rest)| rest.split_once("}("))
+            .map(|(_, rest)| rest.trim_start())
+            .filter(|left| left.starts_with("Lbl"))
+            .and_then(|left| left.split('{').next());
+        assert!(
+            left.is_none_or(|left| fresh.iter().any(|name| name == left)),
+            "the claims add no equation to a symbol of the definition:\n{axiom}"
+        );
+    }
+}
+
+/// The sentences of a KORE definition text, each from its keyword (`axiom{`, `claim{`,
+/// `symbol `, ..), indented as a module's sentence, to the next sentence's, whitespace
+/// normalized and without the indentation.
+fn kore_sentences(kore: &str) -> Vec<String> {
+    let mut sentences = Vec::new();
+    let mut current: Option<String> = None;
+    for line in kore.lines() {
+        let starts = [
+            "  axiom{",
+            "  claim{",
+            "  symbol ",
+            "  hooked-symbol ",
+            "  sort ",
+            "  hooked-sort ",
+            "  alias ",
+            "  import ",
+            "module ",
+            "endmodule",
+        ]
+        .iter()
+        .any(|keyword| line.starts_with(keyword));
+        if starts {
+            sentences.extend(current.take());
+            current = Some(String::new());
+        }
+        if let Some(sentence) = &mut current {
+            sentence.push(' ');
+            sentence.push_str(line.trim());
+        }
+    }
+    sentences.extend(current);
+    sentences
+        .into_iter()
+        .map(|sentence| sentence.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect()
 }
 
 /// A claim written in an author spec module holds no `let` block or `k::matches!` for now
