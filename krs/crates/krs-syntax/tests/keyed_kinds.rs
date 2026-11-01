@@ -5,9 +5,29 @@
 //! rule's subject keys (finding NT-2-17); a constant keyed no turbofish instance (NT-2-19). Each
 //! form here holds one node of every kind its terms admit before expansion judges them.
 
-use krs_syntax::{ConstantItem, KrsSyntax, StateRuleItem, TermExpression};
+use krs_syntax::{ConstantItem, KrsSyntax, StateRuleItem, TermExpression, TermNode};
 
-/// The nodes of `terms` that hold no key, by kind and index, for an assertion message.
+/// The keys a node of `node`'s kind holds at least: one for its own place, one per turbofish
+/// instance of an application head, and one per part of a lexeme (its sort and text), a sort
+/// test (its shell and sort) and an alias (its shell and name).
+fn parts(node: &TermNode) -> usize {
+    match node {
+        TermNode::ApplicationHead(path) => {
+            1 + path
+                .segments
+                .last()
+                .map_or(0, |segment| match &segment.arguments {
+                    syn::PathArguments::AngleBracketed(arguments) => arguments.args.len(),
+                    _ => 0,
+                })
+        }
+        TermNode::Lexeme { .. } | TermNode::SortTest { .. } | TermNode::As { .. } => 2,
+        _ => 1,
+    }
+}
+
+/// The nodes of `terms` that hold fewer keys than their kind has parts, by index and kind, for
+/// an assertion message.
 fn unkeyed<'a>(terms: impl IntoIterator<Item = &'a TermExpression>) -> Vec<String> {
     terms
         .into_iter()
@@ -15,7 +35,7 @@ fn unkeyed<'a>(terms: impl IntoIterator<Item = &'a TermExpression>) -> Vec<Strin
             term.nodes()
                 .iter()
                 .enumerate()
-                .filter(|(index, _)| term.keys().node(*index).is_empty())
+                .filter(|(index, node)| term.keys().node(*index).len() < parts(node))
                 .map(|(index, node)| format!("{index}: {node:?}"))
                 .collect::<Vec<_>>()
         })
