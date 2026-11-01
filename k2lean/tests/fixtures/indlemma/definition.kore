@@ -270,7 +270,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,19,12,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -283,7 +283,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,19,13,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -296,7 +296,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -306,7 +306,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     ),
@@ -317,7 +317,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,19,13,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,19,15,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -1262,7 +1262,7 @@ module INDLEMMA
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,20,21,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,20,23,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     ),
@@ -1272,7 +1272,27 @@ module INDLEMMA
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,18,32,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,18,34,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblcw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(SortStmts{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,18,48,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+    ),
+    total{}()
+  ]
+  symbol Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(SortStmts{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,18,50,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     ),
@@ -1284,7 +1304,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -1296,7 +1316,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -1308,7 +1328,7 @@ module INDLEMMA
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
     )
@@ -2044,6 +2064,24 @@ module INDLEMMA
       \equals{SortInt{}, R}(
         Val:SortInt{},
         Lblmu'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(K0:SortStmts{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblcw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(K0:SortStmts{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(K0:SortStmts{})
       )
     )
     [functional{}()]
@@ -5482,7 +5520,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("d99c506114d828ad2350406d644790fc23c6af814fb51e1b0ba2449358528ae3"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,27)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,27)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5521,7 +5559,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("7764320ca456160ad6eb6310d3eb6d8cf3c6a2c35d23363741d4a203b5ac0a5f"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5557,7 +5595,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("56b40aeb7aac13cfe1be3fcddbf7aeb3794b7ccb73779b8a54a52f580e516923"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,59)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5618,7 +5656,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("2da4adb719f499ec7f1f09b74ab61ee54e87ee001bbd04e9bf8d1505aad50b8a"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,90)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,90)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5660,7 +5698,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("9c71d524ec8b3606f00164d2e7c7b66a3cb817fe8b5077adaca6d7823d3b27cf"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5684,7 +5722,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("4a2b00f50d6314af9f22548d6a6e32d2bcde9d6ee36005265470dd06602d3c44"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,3,33,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,3,35,23)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5717,7 +5755,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("f6f4871e654a35748769816bc3930df9d04b49969c392c076eefd331785eac8a"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,3,34,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5765,7 +5803,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("7f3aedd8ff8519d298fc6f231f45db75215a98414384e7c3650f9fd270c787be"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,3,35,84)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,3,37,84)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       )
@@ -5783,7 +5821,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("22e636418c99496d119cf828f669eca22847d0f362cfbafcc832e24bf56f0b85"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,3,39,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,46)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       ),
@@ -5810,7 +5848,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("99e9604f948a0dfc7f267409cd50de9944d52e3dc717bac912b8848306eb8a31"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,58)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       ),
@@ -5829,7 +5867,7 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("e5cd5c44c79d46707d6637b37876ef3f94a63bba1c78b83f212a90844623cb1d"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       ),
@@ -5860,7 +5898,156 @@ module INDLEMMA
     )
     [
       UNIQUE'Unds'ID{}("c1ebf48cb574c84f33b4ea9b6eb66ef5eff2ba9ee258cb364dcf28b6e5de9e77"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,63)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,63)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortStmts{}, R}(X0:SortStmts{}, VarB:SortStmts{}), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lblcw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            \dv{SortInt{}}("2"),
+            Lblmu'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(VarB:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b6c8e12954ad8e2a18e7baf75f31124d327e9ca553817c077f8cd990e153c2db"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,29)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'INDLEMMA-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts'QuotRBraUnds'Stmts{}()
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("02ffdb6cea55458ce37fb2f5133323ab915f3e2b96d5c535ed600adbc5da4478"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'UndsSClnUndsUnds'INDLEMMA-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts{}(
+              Lbladd'LParUndsRParUnds'INDLEMMA-SYNTAX'Unds'Stmt'Unds'Int{}(Var'Unds'Gen0:SortInt{}),
+              VarC:SortStmts{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(VarC:SortStmts{}),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("0cb2ed1f67e9666e40a3f1fa2d4f521868aa8a2864ce524135076d4f60e1d412"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,31)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortStmts{}, R}(
+            X0:SortStmts{},
+            Lbl'UndsSClnUndsUnds'INDLEMMA-SYNTAX'Unds'Stmts'Unds'Stmt'Unds'Stmts{}(
+              Lblloop'LParUndsCommUndsRParUnds'INDLEMMA-SYNTAX'Unds'Stmt'Unds'Int'Unds'Code{}(
+                Var'Unds'Gen0:SortInt{},
+                Lbl'LBraUndsRBraUnds'INDLEMMA-SYNTAX'Unds'Code'Unds'Stmts{}(VarB:SortStmts{})
+              ),
+              VarC:SortStmts{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(X0:SortStmts{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            Lblcw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(VarB:SortStmts{}),
+            Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(VarC:SortStmts{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("6992d3dfca9f331f28d4ae2d2d4cf80819680cde040fc0fe9e3703b161e8e6b8"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,3,53,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lblcw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(Var'Unds'B:SortStmts{}),
+          \dv{SortInt{}}("2")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("c3e98562031709d2d11df4a43855f8c4626e7729581aa08295281c7e31fbe423"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lbllw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(Var'Unds'C:SortStmts{}),
+          \dv{SortInt{}}("0")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("0e4e3a312710f8d76c0702abf48fcc5a7628dd0f2c23e014beb5f5034d179c54"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,47)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
       ),
@@ -6773,7 +6960,7 @@ module INDLEMMA
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,1,43,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,1,56,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
   )

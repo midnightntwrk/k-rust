@@ -37,4 +37,37 @@ initialize registerBuiltinAttribute {
 def equationsOf (env : Environment) (f : Name) : Array Name :=
   ((k2lEquationExt.getState env).get? f).getD #[]
 
+/-! The proved lemmas of an author about the value of a generated function's call, by function:
+`@[k2l_value]`, which the generator writes on each theorem of `Equations` that states an author's
+simplification or lemma about a call's value (`g(X) >=Int 0 => true`, stated `Option.bind (K.g X) f =
+some true`) and is proved. A later proof that cases on a call of `g` reads, from the lemma, that the
+call is defined and what its value satisfies (`k2l_value_facts`, EQ-23). -/
+
+/-- The function a lemma about a call's value is about: the body of its type, after its binders, is
+`Option.bind (g xs) f = some c` with `g` a constant; none for a theorem of another form. -/
+def valueHead? (type : Expr) : MetaM (Option Name) :=
+  forallTelescopeReducing type fun _ body => do
+    let some (_, lhs, rhs) := body.eq? | return none
+    unless lhs.isAppOfArity ``Option.bind 4 && rhs.isAppOfArity ``Option.some 2 do return none
+    let .const g _ := (lhs.getArg! 2).getAppFn | return none
+    return some g
+
+initialize k2lValueExt : SimpleScopedEnvExtension (Name × Name) (NameMap (Array Name)) ←
+  registerSimpleScopedEnvExtension {
+    addEntry := fun m (g, thm) => m.insert g (((m.get? g).getD #[]).push thm)
+    initial := {}
+  }
+
+initialize registerBuiltinAttribute {
+  name := `k2l_value
+  descr := "a proved lemma of an author about the value of a call, which a later proof that cases on the call reads"
+  add := fun decl _ kind => do
+    if let some g ← (valueHead? (← getConstInfo decl).type).run' then
+      k2lValueExt.add (g, decl) kind
+}
+
+/-- The proved lemmas about the value of a call of `g`, in the order the library states them. -/
+def valueLemmasOf (env : Environment) (g : Name) : Array Name :=
+  ((k2lValueExt.getState env).get? g).getD #[]
+
 end KPrelude

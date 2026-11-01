@@ -153,7 +153,12 @@ fn params() {
 /// with the induction arm on the variables the functions recurse on (EQ-21).
 #[test]
 fn indlemma() {
-    snapshot_with("indlemma", "IndLemma", &["--extra-fns", "mu"], "expected");
+    snapshot_with(
+        "indlemma",
+        "IndLemma",
+        &["--extra-fns", "mu,cw,lw"],
+        "expected",
+    );
 }
 
 /// Termination measures: a negated earlier guard (`sumTo`), a constructor rank (`fee`), and a

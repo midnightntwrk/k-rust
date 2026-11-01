@@ -27,17 +27,17 @@ inductive App : SortGeneratedTopCell → Prop where
       App (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M Gen0) C)) SortK.dotk)) Gen2 Gen1)
 
 inductive Step : SortGeneratedTopCell → SortGeneratedTopCell → Prop where
-  /-- `add(I); C` (indlemma.k:27:3) -/
+  /-- `add(I); C` (indlemma.k:29:3) -/
   | «add(I); C» (I : SortInt) (C : SortStmts) (R_2 : SortInt) (DotVar0 : SortGeneratedCounterCell) :
       Step (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«add(_)» I) C)) SortK.dotk)) (SortRegCell.«<reg>» R_2) DotVar0)
         (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts C) SortK.dotk)) (SortRegCell.«<reg>» (KPrelude.IntHook.add R_2 I)) DotVar0)
-  /-- `loop(M, {B}); C` (indlemma.k:28:3) -/
+  /-- `loop(M, {B}); C` (indlemma.k:30:3) -/
   | «loop(M, {B}); C» (M : SortInt) (C : SortStmts) (Gen2 : SortRegCell) (Gen1 : SortGeneratedCounterCell) (B : SortStmts) (r : SortStmts)
       (hreq : KPrelude.IntHook.gt M (0 : Int) = true)
       (hr : K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts» B (SortStmts.«_;_» (SortStmt.«loop(_,_)» (KPrelude.IntHook.sub M (1 : Int)) (SortCode.«{_}» B)) C) = some r) :
       Step (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M (SortCode.«{_}» B)) C)) SortK.dotk)) Gen2 Gen1)
         (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts r) SortK.dotk)) Gen2 Gen1)
-  /-- `loop(M, _); C` (indlemma.k:29:3) -/
+  /-- `loop(M, _); C` (indlemma.k:31:3) -/
   | «loop(M, _); C» (M : SortInt) (Gen0 : SortCode) (C : SortStmts) (Gen2 : SortRegCell) (Gen1 : SortGeneratedCounterCell)
       (hreq : KPrelude.IntHook.le M (0 : Int) = true) :
       Step (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M Gen0) C)) SortK.dotk)) Gen2 Gen1)

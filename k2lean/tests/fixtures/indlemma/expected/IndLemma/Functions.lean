@@ -82,5 +82,57 @@ decreasing_by all_goals first
   | k2l_decreasing []
   | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
 
+/-! `cw(_)_INDLEMMA_Int_Stmts` -/
+def K.«cw(_)_INDLEMMA_Int_Stmts».rule1 (x0 : SortStmts) : Option (Option SortInt) :=
+  match K.«mu(_)_INDLEMMA_Int_Stmts» x0 with
+  | some r =>
+    some (some (KPrelude.IntHook.add (2 : Int) r))
+  | none => some none
+def K.«cw(_)_INDLEMMA_Int_Stmts» (x0 : SortStmts) : Option SortInt :=
+  match K.«cw(_)_INDLEMMA_Int_Stmts».rule1 x0 with
+  | some r => r
+  | none =>
+    none
+
+/-! `lw(_)_INDLEMMA_Int_Stmts` (recursive) -/
+def K.«lw(_)_INDLEMMA_Int_Stmts» (x0 : SortStmts) : Option SortInt :=
+  let e1 : Option (Option SortInt) :=
+    match x0 with
+    | SortStmts.«.List{"_;__INDLEMMA-SYNTAX_Stmts_Stmt_Stmts"}_Stmts» =>
+      some (some (0 : Int))
+    | _ => none
+  match e1 with
+  | some r => r
+  | none =>
+    let e2 : Option (Option SortInt) :=
+      match x0 with
+      | SortStmts.«_;_» (SortStmt.«add(_)» Gen0) C =>
+        match hr : K.«lw(_)_INDLEMMA_Int_Stmts» C with
+        | some r =>
+          some (some r)
+        | none => some none
+      | _ => none
+    match e2 with
+    | some r => r
+    | none =>
+      let e3 : Option (Option SortInt) :=
+        match x0 with
+        | SortStmts.«_;_» (SortStmt.«loop(_,_)» Gen0 (SortCode.«{_}» B)) C =>
+          match hr : K.«cw(_)_INDLEMMA_Int_Stmts» B with
+          | some r =>
+            match hr_2 : K.«lw(_)_INDLEMMA_Int_Stmts» C with
+            | some r_1 =>
+              some (some (KPrelude.IntHook.add r r_1))
+            | none => some none
+          | none => some none
+        | _ => none
+      match e3 with
+      | some r => r
+      | none =>
+        none
+decreasing_by all_goals first
+  | k2l_decreasing []
+  | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
+
 
 end IndLemma

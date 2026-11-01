@@ -17,19 +17,19 @@ namespace IndLemma
 
 open KPrelude
 
-/-- Rule `add(I); C` (indlemma.k:27:3) keeps `P`. -/
+/-- Rule `add(I); C` (indlemma.k:29:3) keeps `P`. -/
 def Step.Case.«add(I); C» (P : SortGeneratedTopCell → Prop) : Prop :=
   ∀ (I : SortInt) (C : SortStmts) (R_2 : SortInt) (DotVar0 : SortGeneratedCounterCell),
     P (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«add(_)» I) C)) SortK.dotk)) (SortRegCell.«<reg>» R_2) DotVar0) →
     P (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts C) SortK.dotk)) (SortRegCell.«<reg>» (KPrelude.IntHook.add R_2 I)) DotVar0)
 
-/-- Rule `loop(M, {B}); C` (indlemma.k:28:3) keeps `P`. -/
+/-- Rule `loop(M, {B}); C` (indlemma.k:30:3) keeps `P`. -/
 def Step.Case.«loop(M, {B}); C» (P : SortGeneratedTopCell → Prop) : Prop :=
   ∀ (M : SortInt) (C : SortStmts) (Gen2 : SortRegCell) (Gen1 : SortGeneratedCounterCell) (B : SortStmts) (r : SortStmts) (hreq : KPrelude.IntHook.gt M (0 : Int) = true) (hr : K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts» B (SortStmts.«_;_» (SortStmt.«loop(_,_)» (KPrelude.IntHook.sub M (1 : Int)) (SortCode.«{_}» B)) C) = some r),
     P (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M (SortCode.«{_}» B)) C)) SortK.dotk)) Gen2 Gen1) →
     P (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts r) SortK.dotk)) Gen2 Gen1)
 
-/-- Rule `loop(M, _); C` (indlemma.k:29:3) keeps `P`. -/
+/-- Rule `loop(M, _); C` (indlemma.k:31:3) keeps `P`. -/
 def Step.Case.«loop(M, _); C» (P : SortGeneratedTopCell → Prop) : Prop :=
   ∀ (M : SortInt) (Gen0 : SortCode) (C : SortStmts) (Gen2 : SortRegCell) (Gen1 : SortGeneratedCounterCell) (hreq : KPrelude.IntHook.le M (0 : Int) = true),
     P (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M Gen0) C)) SortK.dotk)) Gen2 Gen1) →
@@ -48,19 +48,19 @@ theorem Step.preserves_of {P : SortGeneratedTopCell → Prop}
   | «loop(M, _); C» x1 x2 x3 x4 x5 x6 => exact «loop(M, _); C» x1 x2 x3 x4 x5 x6 hc
 /-! ## The per-rule principle for a relation between the two sides of a step -/
 
-/-- Rule `add(I); C` (indlemma.k:27:3) relates its left- and right-hand sides by `Q`. -/
+/-- Rule `add(I); C` (indlemma.k:29:3) relates its left- and right-hand sides by `Q`. -/
 def Step.Rel.«add(I); C» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
   ∀ (I : SortInt) (C : SortStmts) (R_2 : SortInt) (DotVar0 : SortGeneratedCounterCell),
     Q (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«add(_)» I) C)) SortK.dotk)) (SortRegCell.«<reg>» R_2) DotVar0)
       (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts C) SortK.dotk)) (SortRegCell.«<reg>» (KPrelude.IntHook.add R_2 I)) DotVar0)
 
-/-- Rule `loop(M, {B}); C` (indlemma.k:28:3) relates its left- and right-hand sides by `Q`. -/
+/-- Rule `loop(M, {B}); C` (indlemma.k:30:3) relates its left- and right-hand sides by `Q`. -/
 def Step.Rel.«loop(M, {B}); C» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
   ∀ (M : SortInt) (C : SortStmts) (Gen2 : SortRegCell) (Gen1 : SortGeneratedCounterCell) (B : SortStmts) (r : SortStmts) (hreq : KPrelude.IntHook.gt M (0 : Int) = true) (hr : K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts» B (SortStmts.«_;_» (SortStmt.«loop(_,_)» (KPrelude.IntHook.sub M (1 : Int)) (SortCode.«{_}» B)) C) = some r),
     Q (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M (SortCode.«{_}» B)) C)) SortK.dotk)) Gen2 Gen1)
       (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts r) SortK.dotk)) Gen2 Gen1)
 
-/-- Rule `loop(M, _); C` (indlemma.k:29:3) relates its left- and right-hand sides by `Q`. -/
+/-- Rule `loop(M, _); C` (indlemma.k:31:3) relates its left- and right-hand sides by `Q`. -/
 def Step.Rel.«loop(M, _); C» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
   ∀ (M : SortInt) (Gen0 : SortCode) (C : SortStmts) (Gen2 : SortRegCell) (Gen1 : SortGeneratedCounterCell) (hreq : KPrelude.IntHook.le M (0 : Int) = true),
     Q (SortGeneratedTopCell.«<generatedTop>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmts (SortStmts.«_;_» (SortStmt.«loop(_,_)» M Gen0) C)) SortK.dotk)) Gen2 Gen1)

@@ -6,15 +6,15 @@
   "syntax_module": "INDLEMMA-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "2f07c5151f253ac07819b0084fabf11dc22339e7704b800c721606b22ab4d56d"
+    "sha256": "bb837d20ad79e7f3e07604cdf7f5d772842790241961fa265ac62e709ca925cb"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "fa03c5be38363ae7e66caf063b5f9a9c2693c6f740d9a7248c2c766b523fa777"
+    "sha256": "dbdaf477dcab67b70c21668ac41fcd3c1b8bfb0d985413f0f6702045e3411adc"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "1fdabeb4f61b9b923c78594ab3eb06386bdc4036a293ba1ade757651551e6703"
+    "sha256": "452118aeb851beef00abcb47bc10d454a71a43c1eb29003a6434a371094d1a56"
   },
   "configuration_variables": {
     "PGM": "Stmts"
@@ -155,6 +155,12 @@
     "99e9604f948a0dfc7f267409cd50de9944d52e3dc717bac912b8848306eb8a31",
     "e5cd5c44c79d46707d6637b37876ef3f94a63bba1c78b83f212a90844623cb1d",
     "c1ebf48cb574c84f33b4ea9b6eb66ef5eff2ba9ee258cb364dcf28b6e5de9e77",
+    "b6c8e12954ad8e2a18e7baf75f31124d327e9ca553817c077f8cd990e153c2db",
+    "02ffdb6cea55458ce37fb2f5133323ab915f3e2b96d5c535ed600adbc5da4478",
+    "0cb2ed1f67e9666e40a3f1fa2d4f521868aa8a2864ce524135076d4f60e1d412",
+    "6992d3dfca9f331f28d4ae2d2d4cf80819680cde040fc0fe9e3703b161e8e6b8",
+    "c3e98562031709d2d11df4a43855f8c4626e7729581aa08295281c7e31fbe423",
+    "0e4e3a312710f8d76c0702abf48fcc5a7628dd0f2c23e014beb5f5034d179c54",
     "a400736a941654c9cd074b30ea5e7bcd7ba6449b8997abbe3d29d3347c3f43c6",
     "84d998be3f027b1ee4fb142679541fe0074a2389be8ea89c5eda37a47b99b9a9",
     "e0ec2c616aec3ea3c17e2933879bc3fe5358fc7ff19640dcdbb3714f7cb7fa90",

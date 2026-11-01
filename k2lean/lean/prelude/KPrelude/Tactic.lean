@@ -569,10 +569,72 @@ uses an equation `t = x` only from left to right); a case `simp_all` leaves is c
 (a `requires` that excludes an earlier equation's by linear arithmetic). -/
 macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> first | (simp_all [k2l_eq, $xs,*]; done) | ((try simp_all [k2l_eq, $xs,*]) <;> omega)))
 
+/-! ### An author's lemma about a call's value, read where a proof cases on the call (EQ-23)
+
+A lemma `g(X) >=Int 0 => true` of an author is stated `Option.bind (K.g X) f = some true` and, once
+proved, tagged `@[k2l_value]`. A later proof that cases on a call `K.g a` (`k2l_case_call`) reads
+from it that the call is defined and what its value satisfies: `pw(I & P) => iw(I) +Int 1 +Int
+pw(P)` with `iw(new(_, {C})) => 2 +Int mu(C)` is nonnegative because `mu(C)` is defined and
+nonnegative, which `mu`'s lemma says and the cases alone do not. -/
+
+/-- A bind that has a value binds a value. -/
+theorem k2l_value_def {α β : Type _} {o : Option α} {f : α → Option β} {c : β}
+    (h : o.bind f = some c) : o ≠ none := by
+  intro h'; simp [h'] at h
+
+/-- What a bind that has a value says of the value it binds. -/
+theorem k2l_value_val {α β : Type _} {o : Option α} {f : α → Option β} {c : β} {v : α}
+    (h : o.bind f = some c) (hv : o = some v) : f v = some c := by
+  subst hv; simpa using h
+
+/-- `k2l_value_facts`: for each hypothesis `K.g a = some v` (a case of `k2l_case_call`) and each
+proved lemma about `g`'s value (`@[k2l_value]`) whose binders the call determines, the lemma's
+statement of `v`, `f v = some c`, added as `k2l_valN` unless it is already a hypothesis (the
+`simp` that follows reads it as arithmetic: `0 ≤ v` from `mu(C) >=Int 0`); a hypothesis
+`K.g a = none` that such a lemma excludes closes the goal. It runs right after each case, before
+the call's equations rewrite the case's hypothesis. A lemma with premises is not read (its binders
+are not all determined by the call). Fails when it adds nothing and closes nothing. -/
+elab "k2l_value_facts" : tactic => withMainContext do
+  let env ← getEnv
+  let g ← getMainGoal
+  let mut facts : Array (Expr × Expr) := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | continue
+    let .const fn _ := lhs.getAppFn | continue
+    let lemmas := valueLemmasOf env fn
+    if lemmas.isEmpty then continue
+    let isNone := rhs.isAppOfArity ``Option.none 1
+    unless isNone || rhs.isAppOfArity ``Option.some 2 do continue
+    for l in lemmas do
+      let pl? ← observing? do
+        let c ← mkConstWithFreshMVarLevels l
+        let (ms, _, body) ← forallMetaTelescopeReducing (← inferType c)
+        let some (_, blhs, _) := body.eq? | throwError "not a lemma about a value"
+        unless ← isDefEq (blhs.getArg! 2) lhs do throwError "another call"
+        let ms ← ms.mapM instantiateMVars
+        if ms.any (·.hasExprMVar) then throwError "a binder the call does not determine"
+        pure (mkAppN c ms)
+      let some pl := pl? | continue
+      if isNone then
+        let ne ← mkAppM ``k2l_value_def #[pl]
+        g.assign (← mkFalseElim (← g.getType) (mkApp ne d.toExpr))
+        replaceMainGoal []
+        return
+      let pf ← mkAppM ``k2l_value_val #[pl, d.toExpr]
+      let ty ← instantiateMVars (← inferType pf)
+      unless (← getLCtx).any (fun d' => d'.type == ty) || facts.any (·.1 == ty) do
+        facts := facts.push (ty, pf)
+  if facts.isEmpty then throwError "k2l_value_facts: no call with a lemma about its value"
+  let hs := facts.mapIdx fun i (ty, pf) =>
+    { userName := Name.mkSimple s!"k2l_val{i}", type := ty, value := pf : Hypothesis }
+  let (_, g') ← g.assertHypotheses hs
+  replaceMainGoal [g']
+
 /-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),
 which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
 are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
-macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
+macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> (try k2l_value_facts) <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> (try k2l_value_facts) <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
 
 /-! ### An equation by its own row
 
@@ -1285,7 +1347,8 @@ macro "k2l_int_arith" : tactic => `(tactic| (
 macro "k2l_eqn_ind_close" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
   all_goals (try k2l_eqns_simp)
   all_goals (try simp only [Option.bind] at *)
-  all_goals (repeat' (k2l_case_call <;> (try k2l_eqns_simp) <;> try simp only [Option.bind] at *))
+  all_goals (repeat' (k2l_case_call <;> (try k2l_value_facts) <;> (try k2l_eqns_simp) <;>
+    try simp only [Option.bind] at *))
   all_goals (try simp_all [k2l_eq, $xs,*])
   all_goals first | rfl | k2l_int_arith))
 

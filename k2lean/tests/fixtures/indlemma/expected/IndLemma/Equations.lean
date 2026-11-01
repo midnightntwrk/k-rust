@@ -232,6 +232,40 @@ theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (I
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
+/-- cw(_)_INDLEMMA_Int_Stmts equation 1 -/
+@[k2l_equation]
+theorem Eqn.«cw(_)_INDLEMMA_Int_Stmts_1» (B : SortStmts) :
+    K.«cw(_)_INDLEMMA_Int_Stmts» B = (Option.bind (K.«mu(_)_INDLEMMA_Int_Stmts» B) fun r => some (KPrelude.IntHook.add (2 : Int) r)) := by
+  intros
+  first
+  | k2l_eqn_row K.«cw(_)_INDLEMMA_Int_Stmts» [K.«cw(_)_INDLEMMA_Int_Stmts», K.«cw(_)_INDLEMMA_Int_Stmts».rule1]
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]
+    | (unfold K.«cw(_)_INDLEMMA_Int_Stmts» K.«cw(_)_INDLEMMA_Int_Stmts».rule1; k2l_eqn_b [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»])
+    | (unfold K.«cw(_)_INDLEMMA_Int_Stmts» K.«cw(_)_INDLEMMA_Int_Stmts».rule1; k2l_eqn_c [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]))
+
+/-- lw(_)_INDLEMMA_Int_Stmts equation 1 -/
+@[k2l_equation]
+theorem Eqn.«lw(_)_INDLEMMA_Int_Stmts_1» :
+    K.«lw(_)_INDLEMMA_Int_Stmts» SortStmts.«.List{"_;__INDLEMMA-SYNTAX_Stmts_Stmt_Stmts"}_Stmts» = some (0 : Int) := by
+  intros
+  k2l_eqn_r K.«lw(_)_INDLEMMA_Int_Stmts» []
+
+/-- lw(_)_INDLEMMA_Int_Stmts equation 2 -/
+@[k2l_equation]
+theorem Eqn.«lw(_)_INDLEMMA_Int_Stmts_2» (Gen0 : SortInt) (C : SortStmts) :
+    K.«lw(_)_INDLEMMA_Int_Stmts» (SortStmts.«_;_» (SortStmt.«add(_)» Gen0) C) = (Option.bind (K.«lw(_)_INDLEMMA_Int_Stmts» C) fun r => some r) := by
+  intros
+  k2l_eqn_r K.«lw(_)_INDLEMMA_Int_Stmts» []
+
+/-- lw(_)_INDLEMMA_Int_Stmts equation 3 -/
+@[k2l_equation]
+theorem Eqn.«lw(_)_INDLEMMA_Int_Stmts_3» (Gen0 : SortInt) (B : SortStmts) (C : SortStmts) :
+    K.«lw(_)_INDLEMMA_Int_Stmts» (SortStmts.«_;_» (SortStmt.«loop(_,_)» Gen0 (SortCode.«{_}» B)) C) = (Option.bind (K.«cw(_)_INDLEMMA_Int_Stmts» B) fun r => (Option.bind (K.«lw(_)_INDLEMMA_Int_Stmts» C) fun r_1 => some (KPrelude.IntHook.add r r_1))) := by
+  intros
+  k2l_eqn_r K.«lw(_)_INDLEMMA_Int_Stmts» [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]
+
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 1 -/
 @[k2l_equation]
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortInt)
@@ -970,6 +1004,7 @@ theorem Simp.s_44257f63a99a (I1 : SortInt) (I2 : SortInt)
   | (k2l_eqn_c [])
 
 /-- simplification 22e636418c99 (indlemma.k) -/
+@[k2l_value]
 theorem Simp.s_22e636418c99 (C : SortStmts) :
     (Option.bind (K.«mu(_)_INDLEMMA_Int_Stmts» C) fun r => some (KPrelude.IntHook.ge r (0 : Int))) = some true := by
   intros
@@ -993,6 +1028,7 @@ theorem Simp.s_99e9604f948a (A : SortStmts) (B : SortStmts) :
   | k2l_eqn_ind B []
 
 /-- simplification e5cd5c44c79d (indlemma.k) -/
+@[k2l_value]
 theorem Simp.s_e5cd5c44c79d (A : SortStmts) :
     (Option.bind (K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts» A SortStmts.«.List{"_;__INDLEMMA-SYNTAX_Stmts_Stmt_Stmts"}_Stmts») fun r => some r) = some A := by
   intros
@@ -1014,6 +1050,30 @@ theorem Simp.s_c1ebf48cb574 (A : SortStmts) (B : SortStmts) (C : SortStmts) :
   | (k2l_eqn_c [])
   | k2l_eqn_ind A []
   | k2l_eqn_ind B []
+  | k2l_eqn_ind C []
+
+/-- simplification c3e985620317 (indlemma.k) -/
+@[k2l_value]
+theorem Simp.s_c3e985620317 (B : SortStmts) :
+    (Option.bind (K.«cw(_)_INDLEMMA_Int_Stmts» B) fun r => some (KPrelude.IntHook.ge r (2 : Int))) = some true := by
+  intros
+  first
+  | k2l_eqn_a [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]
+  | (k2l_eqn_b [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»])
+  | (k2l_eqn_c [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»])
+  | (simp only [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]; k2l_eqn_c [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»])
+
+/-- simplification 0e4e3a312710 (indlemma.k) -/
+@[k2l_value]
+theorem Simp.s_0e4e3a312710 (C : SortStmts) :
+    (Option.bind (K.«lw(_)_INDLEMMA_Int_Stmts» C) fun r => some (KPrelude.IntHook.ge r (0 : Int))) = some true := by
+  intros
+  first
+  | k2l_eqn_a []
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
   | k2l_eqn_ind C []
 
 /-- simplification c3ef047673d1 () -/

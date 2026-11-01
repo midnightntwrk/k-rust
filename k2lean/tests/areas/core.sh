@@ -80,9 +80,9 @@ gen_core() {
     alias) libs_fixture_args "$1" ;;
     # the fixture of function equations over an overloaded list (tests/fixtures/overload)
     overload) libs_fixture_args "$1" ;;
-    # the fixture of an author's lemmas that hold by induction (tests/fixtures/indlemma); `mu` is
-    # called by no rule
-    indlemma) libs_fixture_args "$1"; GEN_ARGS+=(--extra-fns mu) ;;
+    # the fixture of an author's lemmas that hold by induction, and by an earlier lemma about a
+    # function they call (tests/fixtures/indlemma); `mu`, `cw` and `lw` are called by no rule
+    indlemma) libs_fixture_args "$1"; GEN_ARGS+=(--extra-fns mu,cw,lw) ;;
     # recursive functions whose termination measures the generator synthesizes (demos/k/term),
     # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"

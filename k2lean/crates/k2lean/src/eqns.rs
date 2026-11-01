@@ -1424,6 +1424,12 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
                 let mut alts = format!(
                     "{norm}\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
                 );
+                // an author's lemma about a call's value, where the function is its own to unfold
+                // (`simp`, which reaches its call inside the bind): cases on the calls, each
+                // reading the earlier lemmas about the called functions' values (EQ-23)
+                if first.is_empty() && !own.is_empty() && is_value_lemma(s) {
+                    alts.push_str(&format!("\n  | (simp only [{own}]; k2l_eqn_c [{own}])"));
+                }
                 if owise {
                     alts.push_str(&format!("\n  | ({first}{eqn_o} [{own}])"));
                 }
@@ -1454,9 +1460,12 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
                 Some(h) if *h != budget.default => format!("set_option maxHeartbeats {h} in\n"),
                 _ => String::new(),
             };
-            // a K equation's theorem is one a claim's proof may rewrite with (`k2l_equation`)
+            // a K equation's theorem is one a claim's proof may rewrite with (`k2l_equation`); an
+            // author's lemma about a call's value is one a later proof reads (`k2l_value`)
             let attr = if s.name.starts_with("Eqn.") {
                 "@[k2l_equation]\n"
+            } else if is_value_lemma(s) {
+                "@[k2l_value]\n"
             } else {
                 ""
             };
@@ -1468,6 +1477,21 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
     }
     o.push_str(&format!("end {ns}\n"));
     o
+}
+
+/// Whether `s` is an author's lemma about the value of a generated function's call, without
+/// premises (a premise binds `hreq…`, `howise…` or `hnf…`, a K variable an upper-case letter or `_`):
+/// a simplification or lemma stated `Option.bind (K.g xs) f = some c` (`g(X) >=Int 0 =>
+/// true`), which a later proof that cases on a call of `g` reads (`k2l_value`, EQ-23).
+fn is_value_lemma(s: &Stated) -> bool {
+    (s.name.starts_with("Simp.") || s.name.starts_with("Lemma."))
+        && s.statement
+            .rsplit_once(" :\n    ")
+            .is_some_and(|(binders, body)| {
+                !binders.contains("(h")
+                    && body.starts_with("(Option.bind (K.")
+                    && body.contains(") = some ")
+            })
 }
 
 /// The weight of a statement, the unit `--equations-part-weight` bounds: 1 plus the definitions
@@ -1755,6 +1779,57 @@ mod tests {
             &BTreeSet::new(),
         );
         assert!(!o.contains("k2l_eqn_ind"), "{o}");
+    }
+
+    /// An author's lemma about a call's value (`cw(_) >=Int 2`) is tagged `@[k2l_value]` and, its
+    /// function being its own to unfold, gets the cases that read the earlier lemmas about the
+    /// functions it calls (EQ-23); an equation between two calls is no such lemma, and an open
+    /// one is no theorem.
+    #[test]
+    fn a_lemma_about_a_value_is_tagged_and_reads_the_earlier_ones() {
+        let value = " :\n    (Option.bind (K.cw B) fun r => some (KPrelude.IntHook.ge r (2 : Int))) = some true";
+        let cw = st(
+            "Simp.s_000000000001",
+            &format!(" (B : SortStmts){value}"),
+            &[],
+        );
+        // with a premise, an equation between two calls, a statement of no call
+        let req = st(
+            "Simp.s_000000000002",
+            &format!(" (B : SortStmts)\n    (hreq0 : K.p B = true){value}"),
+            &[],
+        );
+        let calls = st(
+            "Simp.s_000000000003",
+            " (B : SortStmts) :\n    (Option.bind (K.cw B) fun r => some r) = (Option.bind (K.mu B) fun r => some r)",
+            &[],
+        );
+        let none = &sample()[2];
+        assert!(is_value_lemma(&cw));
+        assert!(!is_value_lemma(&req) && !is_value_lemma(&calls) && !is_value_lemma(none));
+        let defs = ["K.cw".to_string(), "K.cw.rule1".to_string()];
+        let all = [cw.clone(), req, calls, none.clone()];
+        let o = emit("N", &all, &BTreeSet::new(), &defs, &BTreeSet::new());
+        assert_eq!(o.matches("@[k2l_value]\n").count(), 1, "{o}");
+        assert!(
+            o.contains("@[k2l_value]\ntheorem Simp.s_000000000001"),
+            "{o}"
+        );
+        assert_eq!(
+            o.matches("\n  | (simp only [K.cw, K.cw.rule1]; k2l_eqn_c [K.cw, K.cw.rule1])")
+                .count(),
+            1,
+            "{o}"
+        );
+        let open: BTreeSet<String> = [cw.name.clone()].into();
+        let o = emit(
+            "N",
+            std::slice::from_ref(&cw),
+            &open,
+            &defs,
+            &BTreeSet::new(),
+        );
+        assert!(!o.contains("k2l_value"), "{o}");
     }
 
     #[test]
