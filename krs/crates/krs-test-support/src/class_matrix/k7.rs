@@ -439,9 +439,24 @@ pub struct Run {
     pub forward_only: Vec<String>,
     /// Whether the case's sentence applies in the run as stated. A run where it must not (its
     /// condition fails at the witness, its postcondition fails, a restriction or a `cfg` leaves
-    /// it out) ends as the run without it does, by design: it fails where the sentence applies,
-    /// so K7's dependency check, which removes the sentence, does not judge it.
+    /// it out) ends as the run without it does, by design ([`Removed::Unchanged`]): K7's
+    /// dependency check requires that, and a sibling case at the same slot whose sentence applies
+    /// shows it takes part ([`super::applied_sibling`]).
     pub applies: bool,
+}
+
+/// What a case's runs show on its definition without what the case states, as the generator
+/// states it: K7's dependency check, which takes it out ([`super::Removal`]) and runs the case's
+/// plans again, judges each case by it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Removed {
+    /// Some run ends otherwise, in its steps or its cells: what the case states takes part in it.
+    Changes,
+    /// No run ends otherwise, by design, for the reason: the check requires that none does.
+    Unchanged(&'static str),
+    /// No definition is without it, for the reason: the check requires that the definition
+    /// without it is refused.
+    Refused(&'static str),
 }
 
 /// Why K7 does not run a case.

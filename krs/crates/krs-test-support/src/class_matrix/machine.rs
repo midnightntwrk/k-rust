@@ -10,7 +10,7 @@
 use std::sync::LazyLock;
 
 use super::config_drivers;
-use super::k7::{Ground, K7, Run, SkipKind, Status};
+use super::k7::{Ground, K7, Removed, Run, SkipKind, Status};
 use super::{
     Base, BaseText, Case, CaseSpec, CellKind, Command, Family, ItemBuilder, OwnReason, Packaging,
     Side,
@@ -883,8 +883,35 @@ fn cell_value(kind: CellKind, value: &str) -> Case {
     if kind == CellKind::Collection {
         unread_template(&mut case.k7);
     }
+    if case.k7 == machine_start(&[], &[]) {
+        case.removed = Removed::Unchanged(BASE_VALUE);
+    } else if kind == CellKind::Collection && same_cells(&case.k7, &machine_start(&[], &[])) {
+        case.removed = Removed::Unchanged(TEMPLATE_UNCHANGED);
+    }
     case
 }
+
+/// Why a collection's initializer case changes no run without it: its run reads the base's
+/// other cells only ([`TEMPLATE_UNREAD`]), which the base's own initializer writes alike.
+const TEMPLATE_UNCHANGED: &str = "a collection's initializer writes one instance's template, which no run creates, so the run reads the base's other cells, as the base's own initializer states them";
+
+/// Whether two plans run the same program to the same cells (whatever each checks of them).
+fn same_cells(plan: &K7, base: &K7) -> bool {
+    match (plan, base) {
+        (K7::Run(plan), K7::Run(base)) => {
+            Run {
+                status: base.status,
+                ..plan.clone()
+            } == *base
+        }
+        _ => false,
+    }
+}
+
+/// Why an initializer case whose plan states its base's configuration changes no run without
+/// it: the case writes the base's value of its cell (in its own spelling, or the base's), so the
+/// run on the base's own initializer is the same, and only the case's initializer stands in it.
+const BASE_VALUE: &str = "the case's initializer writes its base's value of the cell, so the run on the base's own initializer states the same configuration";
 
 /// Why an initializer case's run reads nothing of its spelling, for each case K7 runs as
 /// liveness only for that reason ([`super::initializer_unread`]).
@@ -1051,6 +1078,7 @@ fn field_order(cases: &mut Vec<Case>) {
         item.entry = Some(range);
         let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
         case.k7 = machine_start(&[], &[]);
+        case.removed = Removed::Unchanged(FIELD_ORDER);
         cases.push(case);
     }
     cases.push(nested_reversed());
@@ -1129,8 +1157,13 @@ fn nested_reversed() -> Case {
     let mut cells = machine_cells();
     cells.push(("frame.aux", Ground::Int(1)));
     case.k7 = start_with(cells, &[], &[]);
+    case.removed = Removed::Unchanged(FIELD_ORDER);
     case
 }
+
+/// Why a field-order case's run is the run on its base's own initializer: the order of an
+/// initializer's fields means nothing, so the case's initializer states the base's configuration.
+const FIELD_ORDER: &str = "an initializer's field order means nothing, so the case's initializer states its base's configuration, which the run on the base's own initializer shows";
 
 /// The machine's initializer up to its first field.
 const MACHINE_HEADER: &str = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self {\n";
@@ -1514,7 +1547,29 @@ fn typed_initializer_named(slot: &str, cell: &str, content: &str) -> Case {
     );
     let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
     case.k7 = typed_start(cell, content);
+    let base = start_with(typed_cells(), &[], &[("ANY", "1")]);
+    if case.k7 == base {
+        case.removed = Removed::Unchanged(BASE_VALUE);
+    } else if cell == "slot" && same_cells(&case.k7, &base) {
+        case.removed = Removed::Unchanged(TEMPLATE_UNCHANGED);
+    }
     case
+}
+
+/// The typed base's cells as its own initializer writes them, with `ANY` bound to 1.
+fn typed_cells() -> Vec<(&'static str, Ground)> {
+    let unit = || Ground::ctor("Val::Unit", Vec::new());
+    vec![
+        ("k", Ground::Seq(vec![go()])),
+        ("leaf", unit()),
+        ("stmt", go()),
+        ("any", Ground::Int(1)),
+        ("list", Ground::List(Vec::new())),
+        ("map", Ground::map(Vec::new())),
+        ("boxed.inner", unit()),
+        ("opt", Ground::Absent),
+        ("slots.slot[item]", Ground::List(Vec::new())),
+    ]
 }
 
 /// K7's plan for a typed initializer case: the run starts with the program `go` and `ANY` bound
@@ -1535,17 +1590,8 @@ fn typed_start(cell: &str, content: &str) -> K7 {
     } else {
         vec![go()]
     };
-    let cells = vec![
-        ("k", Ground::Seq(k)),
-        ("leaf", unit()),
-        ("stmt", go()),
-        ("any", Ground::Int(1)),
-        ("list", Ground::List(Vec::new())),
-        ("map", Ground::map(Vec::new())),
-        ("boxed.inner", unit()),
-        ("opt", Ground::Absent),
-        ("slots.slot[item]", Ground::List(Vec::new())),
-    ];
+    let mut cells = typed_cells();
+    cells[0].1 = Ground::Seq(k);
     let changed = match cell {
         "list" => Some(Ground::List(vec![value])),
         "map" => Some(Ground::map(vec![(Ground::Int(0), value)])),

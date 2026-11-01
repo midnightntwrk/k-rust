@@ -562,6 +562,9 @@ pub struct Case {
     /// An attribute case's form and attribute, which the attribute axis's oracle reads
     /// ([`Case::oracle`]); `None` outside the attribute family.
     pub attribute: Option<attributes::Pair>,
+    /// What the case's runs show without what it states, where the case's own data decides it
+    /// ([`Case::removed`]).
+    removed: k7::Removed,
     item: String,
     spelling: Range<usize>,
     entry: Range<usize>,
@@ -616,6 +619,33 @@ impl Case {
     #[must_use]
     pub const fn replaces_initializer(&self) -> bool {
         matches!(self.packaging, Packaging::Own(OwnReason::Initializer))
+    }
+
+    /// What K7's dependency check takes out of the case's definition.
+    #[must_use]
+    pub const fn removal(&self) -> Removal {
+        if self.attribute.is_some() {
+            Removal::Attribute
+        } else if self.replaces_initializer() {
+            Removal::Initializer
+        } else {
+            Removal::Sentences
+        }
+    }
+
+    /// What the case's runs show without what [`Case::removal`] takes out, as the generator
+    /// states it: an attribute case's from what its plan states the attribute does, a run whose
+    /// plan states its sentence does not apply none changed ([`k7::Run::applies`]), a field
+    /// order none changed (the order of an initializer's fields means nothing, so the base's
+    /// initializer states the same configuration), and every other run changed.
+    #[must_use]
+    pub fn removed(&self) -> k7::Removed {
+        match &self.k7 {
+            k7::K7::Run(plan) if !plan.applies && self.attribute.is_none() => {
+                k7::Removed::Unchanged(UNAPPLIED)
+            }
+            _ => self.removed.clone(),
+        }
     }
 
     /// The case rendered alone on its base.
@@ -778,6 +808,65 @@ pub fn cases() -> Vec<Case> {
         panic!("two class-test cases share the ID {}", pair[0].id);
     }
     cases
+}
+
+/// What K7's dependency check takes out of a case's definition, to see whether the case's runs
+/// depend on what the case states ([`Case::removal`], [`k7::Removed`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Removal {
+    /// Every case's sentences: the base and the cases' commands only, a static clause's
+    /// production unmarked (with no clause, nothing expands it) and its rule that writes it kept.
+    Sentences,
+    /// The case's initializer: the base with its own initializer.
+    Initializer,
+    /// The case's attribute: the case rendered without it ([`without_attribute`]), its sentence
+    /// and its sibling kept.
+    Attribute,
+}
+
+/// Why a run whose plan states its sentence does not apply changes nothing without it.
+const UNAPPLIED: &str = "the plan states that the sentence does not apply here (its condition or postcondition fails, or a restriction or a `cfg` leaves it out), so its run is the run without it";
+
+/// The attribute case `case` without its attribute, which K7's dependency check runs the case's
+/// plans on ([`Removal::Attribute`]); `None` for a case of another family.
+#[must_use]
+pub fn without_attribute(case: &Case) -> Option<Case> {
+    terms::without_attribute(case)
+}
+
+/// For a case whose plan states its sentence does not apply ([`k7::Run::applies`]), the first
+/// case of `cases` at the same slot whose plan states it applies, of the case's own family
+/// first, else of another family at the same position (the same ID but its family and its
+/// construct): the run that shows the slot's sentence takes part, which K7's dependency check
+/// judges. `None` where the case's sentence applies, for an attribute case (which the check
+/// judges without its attribute, where the sentence applies), or where no such case is
+/// generated.
+#[must_use]
+pub fn applied_sibling<'c>(cases: &'c [Case], case: &Case) -> Option<&'c Case> {
+    let k7::K7::Run(plan) = &case.k7 else {
+        return None;
+    };
+    if plan.applies || case.attribute.is_some() {
+        return None;
+    }
+    let slot = |case: &Case| {
+        case.id
+            .strip_suffix(case.construct.as_str())
+            .and_then(|slot| slot.split_once('/'))
+            .map(|(_, slot)| slot.to_owned())
+    };
+    let own = slot(case)?;
+    let applied = |other: &&Case| {
+        other.id != case.id
+            && slot(other).as_deref() == Some(own.as_str())
+            && matches!(&other.k7, k7::K7::Run(plan) if plan.applies)
+            && other.removed() == k7::Removed::Changes
+    };
+    cases
+        .iter()
+        .filter(applied)
+        .find(|other| other.family == case.family)
+        .or_else(|| cases.iter().find(applied))
 }
 
 /// Why K7 runs no counter-witness of a run family's case ([`Family::twin`]), `None` for a case that
@@ -1052,6 +1141,7 @@ impl CaseSpec {
             k7_counters: Vec::new(),
             unkeyed: false,
             attribute: None,
+            removed: k7::Removed::Changes,
             item: item.text.clone(),
             spelling,
             entry,

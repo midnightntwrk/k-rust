@@ -3337,6 +3337,11 @@ pub(super) fn cases(cases: &mut Vec<Case>) {
     attributes::cases(cases);
 }
 
+/// The attribute case `case` without its attribute ([`super::without_attribute`]).
+pub(super) fn without_attribute(case: &Case) -> Option<Case> {
+    attributes::without_attribute(case)
+}
+
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let construct = spelling.text(slot.at.form);
     let imported = family == Family::Import;

@@ -46,6 +46,15 @@
 //! what it wrote runs without end ([`Status::Endless`]); a sentence about the solver's function
 //! has no driver. A pair the oracle refuses ([`super::super::attributes::TOGETHER`]) is not run.
 //!
+//! **K7's dependency check** runs a case's plan and counter run again on the case without its
+//! attribute ([`without_attribute`]), the sentence and its sibling kept: some run must end
+//! otherwise where the plan states what the attribute does (a condition that fails, `owise`'s and
+//! a priority's winner, `heat`, `cool`, `anywhere`, `symbolic`), none where the plan is the slot's
+//! own (a label, a condition that holds, `concrete`, `smt_lemma`, `priority = 40`, the extras
+//! that apply as without them), and the case without it is refused where the result uses the
+//! name the attribute binds (`exists`, `fresh`) or the attribute admits the overlap with the
+//! sibling (`nondet`) ([`super::super::k7::Removed`]).
+//!
 //! The case's sentences are its own and its sibling's, both over its own command, and the base's
 //! driver rules have priority 10: a case's priority (20) and its sibling's (30, 60) lie after the
 //! drivers', so a driver rule, which matches only the driver commands, applies first where a
@@ -57,7 +66,7 @@ use super::super::attributes::{
     Attribute, Effect, Extra, Form, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair,
     Written, pairs,
 };
-use super::super::k7::{Ground, K7, Run, SkipKind, Status};
+use super::super::k7::{Ground, K7, Removed, Run, SkipKind, Status};
 use super::super::{
     Base, Case, CaseSpec, Command, Family, ItemBuilder, OwnReason, Packaging, Side,
 };
@@ -69,19 +78,44 @@ pub(in super::super) fn cases(cases: &mut Vec<Case>) {
     let slots = slots();
     let spellings = spellings();
     for pair in pairs() {
-        let form = pair.form();
-        let slot = slots
-            .iter()
-            .find(|slot| {
-                slot.form == form.name && slot.position == form.position && slot.opener.is_none()
-            })
-            .unwrap_or_else(|| panic!("no slot {}/{}", form.name, form.position));
-        let spelling = spellings
-            .iter()
-            .find(|spelling| spelling.text == form.hole)
-            .unwrap_or_else(|| panic!("no spelling {}", form.hole));
-        cases.push(case(pair, slot, spelling));
+        let (slot, spelling) = slot_of(pair, &slots, &spellings);
+        cases.push(case(pair, slot, spelling, true));
     }
+}
+
+/// The attribute case `case` without its attribute, as K7's dependency check runs it: the same
+/// item, command and plans, with no attribute written where the case writes it (a key left out
+/// of its marker, a helper line left empty, a production's key off the case's command). `None`
+/// for a case of another family.
+pub(in super::super) fn without_attribute(case: &Case) -> Option<Case> {
+    let pair = case.attribute?;
+    let slots = slots();
+    let spellings = spellings();
+    let (slot, spelling) = slot_of(pair, &slots, &spellings);
+    Some(super::super::Case {
+        removed: case.removed.clone(),
+        ..self::case(pair, slot, spelling, false)
+    })
+}
+
+/// The subject slot and the hole's spelling of `pair`'s form.
+fn slot_of<'s>(
+    pair: Pair,
+    slots: &'s [Slot],
+    spellings: &'s [Spelling],
+) -> (&'s Slot, &'s Spelling) {
+    let form = pair.form();
+    let slot = slots
+        .iter()
+        .find(|slot| {
+            slot.form == form.name && slot.position == form.position && slot.opener.is_none()
+        })
+        .unwrap_or_else(|| panic!("no slot {}/{}", form.name, form.position));
+    let spelling = spellings
+        .iter()
+        .find(|spelling| spelling.text == form.hole)
+        .unwrap_or_else(|| panic!("no spelling {}", form.hole));
+    (slot, spelling)
 }
 
 /// The marker of the production a static form's clause is of, with `key`.
@@ -112,7 +146,9 @@ fn solver_template(form: Form) -> String {
     format!("{function}{sentence}")
 }
 
-fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
+/// The case of `pair`, or with `attributed` false the same case without its attribute
+/// ([`without_attribute`]).
+fn case(pair: Pair, slot: &Slot, spelling: &Spelling, attributed: bool) -> Case {
     let form = pair.form();
     let written = pair.written();
     let text = written.text();
@@ -126,7 +162,7 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let tag = spec.tag();
     let marker = match written {
-        Written::Production(key) => Some(production_marker(form, key)),
+        Written::Production(key) if attributed => Some(production_marker(form, key)),
         _ => slot.marker,
     };
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(marker);
@@ -156,7 +192,8 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     // the clause's own marker, which the key is about.
     let spelled = match written {
         Written::Production(_) => marker_of(form).trim(),
-        _ => text,
+        _ if attributed => text,
+        _ => "",
     };
     let sibling = attribute
         .and_then(|attribute| sibling(form, attribute))
@@ -170,9 +207,26 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let template = expand(&template);
     let sibling = expand(&sibling);
-    let (before, after) = template
+    let (mut before, mut after) = template
         .split_once("ATTRIBUTE")
         .expect("every attribute template has the attribute's place");
+    // Without the attribute, a marker that held only its key is bare (a clause's or a row's,
+    // which the attribute alone writes, is gone), and a key beside others takes its separator
+    // with it.
+    if spelled.is_empty() {
+        if let (Some(open), Some(close)) = (before.strip_suffix('('), after.strip_prefix(')')) {
+            (before, after) = (open, close);
+            if self::marker(form).is_none()
+                && let (Some(line), Some(rest)) = (before.rfind('\n'), after.strip_prefix("]\n"))
+            {
+                (before, after) = (&before[..=line], rest);
+            }
+        } else if let Some(rest) = before.strip_suffix(", ") {
+            before = rest;
+        } else if let Some(rest) = after.strip_prefix(", ") {
+            after = rest;
+        }
+    }
     let mut item = ItemBuilder::new();
     item.push(before)
         .term(&spelled.replace("TAG", &tag))
@@ -193,26 +247,29 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let mut case = spec.finish(packaging, &item);
     case.attribute = Some(pair);
-    let (plan, counter) = case_plan(pair, &case.id, slot, spelling, &command);
+    let (plan, counter, removed) = case_plan(pair, &case.id, slot, spelling, &command);
     case.k7 = plan;
     case.k7_counters = counter.into_iter().collect();
+    case.removed = removed;
     case
 }
 
-/// What K7 runs a case of `pair` on ([module docs](self)), and its counter run.
+/// What K7 runs a case of `pair` on ([module docs](self)), its counter run, and what removing
+/// what the case states does to them.
 fn case_plan(
     pair: Pair,
     id: &str,
     slot: &Slot,
     spelling: &Spelling,
     command: &Command,
-) -> (K7, Option<Run>) {
+) -> (K7, Option<Run>, Removed) {
     let form = pair.form();
     match pair {
         Pair::Attribute(_, attribute) => plan(form, attribute, slot, spelling, command),
         Pair::Malformed(..) => (
             K7::skip(SkipKind::Form, "a malformed attribute is refused"),
             None,
+            Removed::Changes,
         ),
         Pair::Extra(_, extra) => extra_plan(form, extra, slot, spelling, command),
         Pair::Together(..) => {
@@ -227,6 +284,7 @@ fn case_plan(
                     "the sentence cannot take both attributes, and is refused",
                 ),
                 None,
+                Removed::Changes,
             )
         }
     }
@@ -546,8 +604,78 @@ fn applied_items(form: Form, cmd: &Command, first: Ground, used: Option<Ground>)
     }
 }
 
-/// What K7 runs an accepted case on, and its counter run ([module docs](self)).
+/// What K7 runs an accepted case on, its counter run, and what the case's runs show without its
+/// attribute ([module docs](self)).
 fn plan(
+    form: Form,
+    attribute: Attribute,
+    slot: &Slot,
+    spelling: &Spelling,
+    cmd: &Command,
+) -> (K7, Option<Run>, Removed) {
+    let (plan, counter) = attribute_plan(form, attribute, slot, spelling, cmd);
+    let removed = removed(form, attribute, &plan, counter.as_ref());
+    (plan, counter, removed)
+}
+
+/// Why removing `attribute` from a case of `form` whose runs are `plan` and `counter` changes no
+/// run, where it changes none ([`Removed`]). It changes one where the plan states what the
+/// attribute does: a run where the sentence does not apply, or applies where it would not, or
+/// a result the attribute decides. Elsewhere the runs are the slot's plan, the run the sentence
+/// makes without the attribute, and the reason says why that is the attribute's meaning there.
+fn removed(form: Form, attribute: Attribute, plan: &K7, counter: Option<&Run>) -> Removed {
+    let transition = matches!(
+        form.name,
+        "rule" | "local-rule" | "sort-rule" | "readable" | "cells" | "cells-local"
+    );
+    let equation = matches!(form.name, "equation" | "table");
+    if !matches!(plan, K7::Run(_)) {
+        return Removed::Changes;
+    }
+    match attribute {
+        // The counter run, where the sibling matches too, shows the sibling's result, which the
+        // default priority, before the sibling's 60, would not.
+        Attribute::Owise if transition || equation => Removed::Changes,
+        Attribute::Priority
+        | Attribute::RequiresFails
+        | Attribute::Symbolic
+        | Attribute::Heat
+        | Attribute::HeatResult
+        | Attribute::Anywhere
+            if transition || equation =>
+        {
+            Removed::Changes
+        }
+        Attribute::EnsuresFails | Attribute::Cool if transition => Removed::Changes,
+        Attribute::RequiresFails if form.name == "context" => Removed::Changes,
+        Attribute::PriorityLate if transition || equation => Removed::Unchanged(
+            "`priority = 40` orders the sentence after its sibling's 30, as the default 50 does: the key's case is `priority = 20`'s, whose winner it changes",
+        ),
+        Attribute::Exists | Attribute::Fresh if transition => Removed::Refused(
+            "the result uses the name the attribute binds, which nothing binds without it",
+        ),
+        Attribute::Nondet if transition => Removed::Refused(
+            "`nondet` admits the sentence's overlap with its sibling, whose subject matches the command at 2 too: without it the two rules overlap, which the definition refuses",
+        ),
+        Attribute::Label => Removed::Unchanged("a label names the sentence, which no run reads"),
+        Attribute::Concrete | Attribute::ConcreteBinders => Removed::Unchanged(
+            "`concrete` leaves out symbolic applications only, and K7 runs concrete ones",
+        ),
+        Attribute::SmtLemma => Removed::Unchanged(
+            "`smt_lemma` gives the equation to the solver too, which no concrete run consults",
+        ),
+        Attribute::RequiresHolds | Attribute::Ensures => Removed::Unchanged(
+            "the condition holds where the case runs, as no condition does: its failing case shows it is read",
+        ),
+        _ if counter.is_none() => Removed::Unchanged(
+            "the attribute leaves the run the sentence makes without it, which is the slot's plan",
+        ),
+        _ => Removed::Changes,
+    }
+}
+
+/// [`plan`]'s runs.
+fn attribute_plan(
     form: Form,
     attribute: Attribute,
     slot: &Slot,
@@ -676,7 +804,7 @@ fn extra_plan(
     slot: &Slot,
     spelling: &Spelling,
     cmd: &Command,
-) -> (K7, Option<Run>) {
+) -> (K7, Option<Run>, Removed) {
     if matches!(extra.written, Written::SolverFunction(_)) {
         return (
             K7::skip(
@@ -684,17 +812,25 @@ fn extra_plan(
                 "the function the case declares for the solver has no driver command",
             ),
             None,
+            Removed::Changes,
         );
     }
     let base = drivers::plan(slot, spelling, cmd);
     if matches!(base, K7::Skip(_)) {
-        return (base, None);
+        return (base, None, Removed::Changes);
     }
     match extra.effect {
-        Effect::Applies => (base, None),
+        Effect::Applies => (
+            base,
+            None,
+            Removed::Unchanged(
+                "the sentence applies as without what the extra writes, which is the slot's plan",
+            ),
+        ),
         Effect::Unapplied => (
             K7::Run(unapplied(form, &program_at(form, cmd, int(1)), cmd)),
             None,
+            Removed::Changes,
         ),
         // An anywhere rule that rewrites what it wrote: below `hold(..)`, its application at `1`
         // writes a command it matches again, so the rewriting has no end.

@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_test_support::class_matrix::k7::{Ground, K7, Meaning, SkipKind, Status};
+use krs_test_support::class_matrix::k7::{Ground, K7, Meaning, Removed, SkipKind, Status};
 use krs_test_support::class_matrix::{self, Base, Case, Command, Extent, Family, Side};
 
 fn term_case(cases: &[Case], id: &str) -> Case {
@@ -1035,5 +1035,81 @@ fn every_static_result_has_a_rule_twin_with_runs_on_each_witness() {
     assert_eq!(
         programs("terms/alias/result-root-ground/1"),
         [format!("1: {name} (0 steps)")]
+    );
+}
+
+/// K7's dependency check runs an attribute case's plans on the case without its attribute: that
+/// case has the same ID, command and plans, its own source lacks the attribute as written (a
+/// production's key leaves the command's marker), and only the attribute's text differs.
+#[test]
+fn every_attribute_case_without_its_attribute_writes_no_attribute() {
+    let mut cases = 0;
+    for case in class_matrix::cases() {
+        let Some(pair) = case.attribute else {
+            continue;
+        };
+        let without = class_matrix::without_attribute(&case)
+            .unwrap_or_else(|| panic!("{}: no case without its attribute", case.id));
+        assert_eq!(without.id, case.id);
+        assert_eq!(without.k7, case.k7, "{}", case.id);
+        assert_eq!(without.k7_counters, case.k7_counters, "{}", case.id);
+        assert_eq!(without.removed(), case.removed(), "{}", case.id);
+        assert_eq!(
+            without.command().map(|command| &command.name),
+            case.command().map(|command| &command.name),
+            "{}",
+            case.id
+        );
+        let (own, bare) = (case.own_source(), without.own_source());
+        assert_ne!(own, bare, "{}: the attribute is not removed", case.id);
+        let text = pair.written().text().replace("TAG", &case.tag());
+        let written = match pair.written() {
+            class_matrix::attributes::Written::Production(key) => key.to_owned(),
+            _ => text,
+        };
+        assert_eq!(
+            own.matches(&written).count(),
+            bare.matches(&written).count() + 1,
+            "{}: `{written}` is not what is removed:\n{own}\n--\n{bare}",
+            case.id
+        );
+        for empty in ["()]", "(, ", ", )"] {
+            assert!(
+                own.contains(empty) || !bare.contains(empty),
+                "{}: an empty key left in `{bare}`",
+                case.id
+            );
+        }
+        cases += 1;
+    }
+    assert!(cases > 0);
+}
+
+/// A run whose plan states that its sentence does not apply changes nothing without the
+/// sentence, so K7's dependency check shows nothing of it: each names a case at its slot (in its
+/// own family, or another family's at the same position) whose sentence applies, which the
+/// check judges.
+#[test]
+fn every_unapplied_run_names_a_case_at_its_slot_that_applies() {
+    let cases = class_matrix::cases();
+    let mut unapplied = 0;
+    let mut missing = Vec::new();
+    for case in &cases {
+        let K7::Run(plan) = &case.k7 else {
+            continue;
+        };
+        if plan.applies || case.attribute.is_some() {
+            continue;
+        }
+        unapplied += 1;
+        match class_matrix::applied_sibling(&cases, case) {
+            Some(sibling) => assert_eq!(sibling.removed(), Removed::Changes, "{}", case.id),
+            None => missing.push(case.id.clone()),
+        }
+    }
+    assert!(unapplied > 0);
+    assert!(
+        missing.is_empty(),
+        "unapplied runs with no applied case at their slot: {missing:#?}"
     );
 }

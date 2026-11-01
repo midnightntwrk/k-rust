@@ -382,7 +382,7 @@ fn first_difference(recorded: &str, emitted: &str) -> String {
     loop {
         match (recorded_lines.next(), emitted_lines.next()) {
             (Some(was), Some(is)) if was == is => line += 1,
-            (None, None) => return "in their line endings only".to_owned(),
+            (None, None) => return "in a trailing newline or their line endings only".to_owned(),
             (was, is) => {
                 let shown = |text: Option<&str>| {
                     text.map_or("nothing".to_owned(), |text| format!("`{text}`"))
@@ -438,6 +438,8 @@ struct Shard {
     /// K8's unchecked refusals by class and proposed forms: those whose proposed forms no
     /// generated case writes.
     unchecked: BTreeMap<(String, String), usize>,
+    /// K7's dependency check's outcomes, by their kind (`depends`, `unchanged`, `not made`, ..).
+    dependency: BTreeMap<String, usize>,
 }
 
 impl Shard {
@@ -529,8 +531,10 @@ impl Shard {
             .into_iter()
             .map(|(key, test)| {
                 format!(
-                    "{key}: pending, but {test} judged no case with this ID in this run: it \
-                     conforms, or no such case is generated; remove it from pending.toml"
+                    "{key}: pending, but {test} made no verdict on this case in this run: it \
+                     conforms, a test before {test} now stops it (see that test's line for the \
+                     case), or no such case is generated; remove it from pending.toml, or record \
+                     the earlier test's deviation"
                 )
             })
             .collect::<Vec<_>>();
@@ -1100,9 +1104,29 @@ fn k6(shard: &mut Shard, judged: &Judged) {
 /// sentence applied, with the value the generator states. A case K7 did not run (no plan, K6
 /// refused it, or a run with `KRS_CLASS_RUN=0`) has no K7 verdict.
 fn k7(shard: &mut Shard, judged: &Judged) {
-    if let Some(independent) = &judged.independent {
-        writeln!(shard.lines, "k7-independent\t{}\t{independent}", judged.id)
-            .expect("writing to a String cannot fail");
+    if let Some(dependency) = &judged.dependency {
+        // A run whose plan states its sentence does not apply names the case at its slot whose
+        // run shows that the sentence takes part.
+        let cases = &spec().cases;
+        let sibling = cases
+            .binary_search_by(|case| case.id.as_str().cmp(&judged.id))
+            .ok()
+            .and_then(|index| class_matrix::applied_sibling(cases, &cases[index]))
+            .map_or_else(String::new, |sibling| {
+                format!("; `{}` shows the sentence applies at its slot", sibling.id)
+            });
+        writeln!(
+            shard.lines,
+            "k7-dependency\t{}\t{dependency}{sibling}",
+            judged.id
+        )
+        .expect("writing to a String cannot fail");
+        let outcome = dependency
+            .split([':', ','])
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        *shard.dependency.entry(outcome).or_default() += 1;
     }
     if let Some(ran) = &judged.ran {
         let misses = match ran {
@@ -1289,6 +1313,15 @@ fn conclude(
         &ran_tests(settings),
         covered(families, filter.as_ref(), by_id),
     );
+    if !shard.dependency.is_empty() {
+        let counts = shard
+            .dependency
+            .iter()
+            .map(|(outcome, count)| format!("{outcome} {count}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!("[krs-class] {name}: K7's dependency check: {counts}");
+    }
     account(name, shard, &red);
     write_out(name, shard);
     red

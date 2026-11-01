@@ -39,10 +39,78 @@ impl Ran {
     }
 }
 
-/// Run `run` on `semantics`, the definition `krs run` loads, within `limit`; `own` is the name of
-/// the case's command (`C64289ea3`), whose aliases the case prints with beside the base's.
-pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Option<&str>) -> Ran {
-    let inputs = ConfigInputs {
+/// How a case's run ended on a definition without what the case states (K7's dependency check,
+/// `pipeline::Worker::check_dependency`), judged by the plan's steps and cells only: a print is
+/// the printer's, not the sentence's, so it is not read back here.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Without {
+    /// The run completed and ended otherwise than the plan states, in its steps or its cells
+    /// (or, for a static clause's counter run, in whether the program expands): what it showed.
+    Differs(String),
+    /// The run completed and ended as the plan states.
+    Same,
+    /// The run did not complete (the program does not configure, the time limit, a state that
+    /// does not decode, more than one state), so it shows neither: why.
+    NotMade(String),
+}
+
+/// Run `run` on `semantics`, a definition without what the case states, within `limit`
+/// ([`Without`]).
+pub fn run_without(semantics: &mut Semantics, run: &Run, limit: Duration) -> Without {
+    let report = match bounded(semantics, &inputs(run), run.depth, limit) {
+        Ok(_) if run.status == Status::Unexpanded => {
+            return Without::Differs("expanded where the plan states it is not".to_owned());
+        }
+        Err(deviation)
+            if run.status == Status::Unexpanded && deviation.contains("survived expansion") =>
+        {
+            return Without::Same;
+        }
+        Ok(report) => report,
+        Err(deviation) => return Without::NotMade(deviation),
+    };
+    let views = match semantics.views(&report.state) {
+        Ok(views) => views,
+        Err(error) => {
+            return steps_deviation(run, &report, "").map_or_else(
+                || Without::NotMade(format!("the state does not decode: {error}")),
+                Without::Differs,
+            );
+        }
+    };
+    let index = semantics.values();
+    let observed = match views.as_slice() {
+        [View::State(view)] => run
+            .cells
+            .iter()
+            .map(|(cell, expected)| (cell, expected, read(view, index, cell)))
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    if let Some(deviation) = steps_deviation(run, &report, &shown_cells(&observed)) {
+        return Without::Differs(deviation);
+    }
+    match views.as_slice() {
+        [View::State(_)] => match verdict(run, &report, &observed) {
+            Ran::Conforms(_) => Without::Same,
+            Ran::Deviates(deviation) => Without::Differs(deviation),
+        },
+        [View::Bottom] => Without::Differs(format!(
+            "no configuration (\\bottom) after {} of {} steps",
+            report.steps, run.steps
+        )),
+        _ => Without::NotMade(format!(
+            "{} states after {} of {} steps",
+            views.len(),
+            report.steps,
+            run.steps
+        )),
+    }
+}
+
+/// The inputs `krs run` gives `run`'s program: the program as `$PGM`, and its variables.
+fn inputs(run: &Run) -> ConfigInputs {
+    ConfigInputs {
         program: Some(ProgramInput {
             name: "program".to_owned(),
             text: run.program.clone(),
@@ -53,7 +121,13 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
             .map(|(name, text)| (name.clone(), text.as_str().into()))
             .collect(),
         stdin: None,
-    };
+    }
+}
+
+/// Run `run` on `semantics`, the definition `krs run` loads, within `limit`; `own` is the name of
+/// the case's command (`C64289ea3`), whose aliases the case prints with beside the base's.
+pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Option<&str>) -> Ran {
+    let inputs = inputs(run);
     let report = match bounded(semantics, &inputs, run.depth, limit) {
         // A run without end ends only at its step bound or its time limit.
         Err(deviation) if run.status == Status::Endless && deviation.starts_with("time limit") => {
@@ -196,18 +270,7 @@ fn case_printer(printer: &unparse::Unparser, own: Option<&str>) -> unparse::Unpa
 /// expansion, which `krs run` refuses to execute); or what else it showed. Twins compare these
 /// texts.
 pub fn twin_end(semantics: &mut Semantics, run: &Run, root: bool, limit: Duration) -> String {
-    let inputs = ConfigInputs {
-        program: Some(ProgramInput {
-            name: "program".to_owned(),
-            text: run.program.clone(),
-        }),
-        variables: run
-            .variables
-            .iter()
-            .map(|(name, text)| (name.clone(), text.as_str().into()))
-            .collect(),
-        stdin: None,
-    };
+    let inputs = inputs(run);
     let report = match bounded(semantics, &inputs, run.depth, limit) {
         Ok(report) => report,
         Err(deviation) if deviation.contains("survived expansion") => {
@@ -316,10 +379,39 @@ fn bounded(
 /// K7's verdict on a run that ended after `report.steps` steps with the cells `observed`, each
 /// beside the term the plan states.
 fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)]) -> Ran {
-    let show = |side: fn(&(&String, &Ground, Ground)) -> String| {
-        observed.iter().map(side).collect::<Vec<_>>().join(", ")
-    };
-    let shown = show(|(cell, _, value)| format!("{cell} = {value}"));
+    let shown = shown_cells(observed);
+    if let Some(deviation) = steps_deviation(run, report, &shown) {
+        return Ran::Deviates(deviation);
+    }
+    if observed
+        .iter()
+        .all(|(_, expected, value)| expected.agrees(value))
+    {
+        Ran::Conforms(run.status)
+    } else {
+        let expected = observed
+            .iter()
+            .map(|(cell, expected, _)| format!("{cell} = {expected}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ran::Deviates(format!(
+            "another value: {shown}, where the plan states {expected}"
+        ))
+    }
+}
+
+/// The cells a run ended with, as a deviation shows them.
+fn shown_cells(observed: &[(&String, &Ground, Ground)]) -> String {
+    observed
+        .iter()
+        .map(|(cell, _, value)| format!("{cell} = {value}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// How a run that ended after `report.steps` steps took other steps than the plan states, if it
+/// did, with the cells it ended with (`shown`, which may be empty).
+fn steps_deviation(run: &Run, report: &RunReport, shown: &str) -> Option<String> {
     // The cells, after a separator, where the plan reads any.
     let cells = if shown.is_empty() {
         String::new()
@@ -329,13 +421,13 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
     // A rule that matched and whose result has no value ends the run undefined, which is no
     // stuck rule.
     if report.steps < run.steps && report.halt == Halt::Undefined {
-        return Ran::Deviates(format!(
+        return Some(format!(
             "no defined result: after {} of {} steps, the next state is undefined{cells}",
             report.steps, run.steps,
         ));
     }
     if report.steps < run.steps {
-        return Ran::Deviates(format!(
+        return Some(format!(
             "not applied: {} of {} steps, then {}{cells}",
             report.steps,
             run.steps,
@@ -343,22 +435,12 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
         ));
     }
     if report.steps > run.steps {
-        return Ran::Deviates(format!(
+        return Some(format!(
             "applied where it should not: {} steps where the plan takes {}{cells}",
             report.steps, run.steps,
         ));
     }
-    if observed
-        .iter()
-        .all(|(_, expected, value)| expected.agrees(value))
-    {
-        Ran::Conforms(run.status)
-    } else {
-        let expected = show(|(cell, expected, _)| format!("{cell} = {expected}"));
-        Ran::Deviates(format!(
-            "another value: {shown}, where the plan states {expected}"
-        ))
-    }
+    None
 }
 
 /// The cell at `path` as the generator states it (`Run::cells`): a leaf's content, an optional

@@ -387,23 +387,52 @@ the descriptors of the base and its own. A case is judged by
   nothing (`no driver`, `no witness`, `no value`). `KRS_CLASS_RUN=0` skips K7; without K6
   (`KRS_CLASS_NATIVE=0`) it does not run, and says so.
 
-  *The dependency check* (`Worker::check_dependency`). A witness shows what a case's sentences
-  mean only if its run depends on them. So each case whose run conforms is run again, by the same
-  plan, on the definition of the base and the cases' commands without any case's sentence (one
-  more check per accepted K6 check), where it must not conform: one that conforms there too
-  deviates (`the run conforms without the case's sentences too: it shows nothing they do`), as
-  does one the check cannot be made for (`K7's dependency check: ..`). Three kinds are exempt,
-  each for its reason, and listed in the TSV (`k7-independent` lines): a case whose plan states
-  that its sentence does not apply (`Run::applies`: a condition or postcondition that fails, a
-  restriction or a `cfg` that leaves it out), whose run is by design the run without it and fails
-  where it applies; a static clause's case (its production is marked for expansion, and no
-  definition holds it without the clause; its counter runs show what it expands); and an
-  initializer's (the definition without it has no configuration). `KRS_CLASS_DEPENDS=0` skips the
-  check. On 2026-11-02 it made 15 checks and 80 runs in the `runs` shard (54 s of worker time
-  beside K6's 50 s; the shard took 134 s against 122 s), 16 checks and 90 runs in `import` (65 s
-  beside K6's 132 s) and 11 checks and 88 runs in `attrs` (38 s beside 160 s), and on samples of
-  `terms` (677 cases, 276 runs) and `notation` (320 cases, 132 runs) about half K6's worker time;
-  it found no conforming run that does not depend on its sentences outside the exemptions.
+  *The dependency check* (`Worker::check_dependency`). A run is evidence of what a case states
+  only if it depends on it. So each case whose run conforms is run again, by the same plans, on a
+  definition without what the case states (`Case::removal`), and judged by its steps and cells
+  only (a print is the printer's, so it is not read back there):
+  - a term case: the base and every case's command, with no case's sentence; a static clause's
+    production is unmarked there (with no clause nothing expands it), and the case's rule that
+    writes the production (`drive(N) => Cmd::NAME(1, w)`) kept. One definition serves a batch,
+    since each case's command is its own production;
+  - an initializer's case: the base with its own initializer (collected once per run);
+  - an attribute case: the case without its attribute (a key left out of its marker, a helper
+    line left empty, a production's key off the command), its sentence and its sibling kept,
+    collected as one package per batch. Its counter run is run too, since an attribute that orders
+    the sentence among its sibling's (`owise`) shows where both match.
+
+  The check shows that what the case states takes part in the run: a rule's step is not taken
+  (`not applied: 0 of 1 steps`), an expansion leaves the production, a value or a cell differs.
+  It does not show that the run's value depends on how the construct at the hole is lowered: for
+  a rule, removing the sentence mostly removes the step, and the old `hold(size(v))` witnesses,
+  which stated an application no equation evaluates, would have passed it. That is shown, for a
+  value the generator states, by the value itself; where the stated value is computed from the
+  input `x` (1), a second input would show it depends on `x`, which the generator does not state
+  (filed as NT-39-1).
+
+  Dependence is shown only by a run that completes and ends otherwise (`depends: ..`). A run that
+  ends as stated deviates (`the runs end as stated without what the case states too`). A run that
+  does not complete (the program does not configure, the time limit, a state that does not
+  decode) shows nothing: the check is not made, and the case deviates with why (`K7's dependency
+  check: not made: ..`), as where the definition without it is refused (bisected down to one case,
+  so that the reason is the case's own, and given by its codes; the messages are in the TSV only).
+  A run that panics stops its semantics' use: the cases after it run on a fresh load. The
+  generator states where nothing changes by design (`k7::Removed`), and the check requires it:
+  a plan that states its sentence does not apply (`Run::applies`; a case at the same slot whose
+  sentence applies, `class_matrix::applied_sibling`, shows that it takes part, and
+  `tests/k7.rs` requires one), an initializer's field order, an attribute whose plan is the
+  slot's own (a label, a condition that holds, `concrete`, `smt_lemma`, `priority = 40`, which
+  orders the sentence after its sibling's 30 as the default 50 does); and where no definition is
+  without it (`exists`, `fresh`: the result uses the name the attribute binds). Every outcome is
+  a TSV line (`k7-dependency`: `depends`, `unchanged, as stated`, `refused, as stated`,
+  `independent`, `not made`), and each shard prints the counts. `KRS_CLASS_DEPENDS=0` skips the
+  check. Its cost is about one check per accepted K6 check, and one collection more per batch of
+  attribute cases; under `KRS_CLASS_NATIVE=alone`, which checks each case alone, it doubles K6's
+  checks. On 2026-11-02, before the attribute and initializer counterfactuals, it made 15 checks
+  and 80 runs in the `runs` shard (54 s of worker time beside K6's 50 s; the shard took 134 s
+  against 122 s), 16 checks and 90 runs in `import` (65 s beside K6's 132 s) and 11 checks and 88
+  runs in `attrs` (38 s beside 160 s), and on samples of `terms` (677 cases, 276 runs) and
+  `notation` (320 cases, 132 runs) about half K6's worker time.
 
   *The twin check* (`class_matrix::twins`, keyed `twin/<case ID>`). A static clause's result is
   the term a program's expansion writes in place of the clause's production, which then evaluates
@@ -578,8 +607,9 @@ deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review: 
 conforms, or deviates differently, also fails: remove its entry, or record the new deviation. A
 run that `KRS_CLASS_FILTER` narrows judges the entries of the cases it selects as a whole run
 does, every prefix alike (`k3/`, `k6/`, `k7/`, `k8/`, `full/`): an entry of a selected case that
-no verdict of its test names fails it (`pending, but k8 judged no case with this ID in this
-run`), as one of a test the run does not run (`KRS_CLASS_NATIVE=0`) does not; a `twin/` entry is
+no verdict of its test names fails it (`pending, but k8 made no verdict on this case in this
+run`: it conforms, or a test before it now stops it, which that test's line shows), as one of a
+test the run does not run (`KRS_CLASS_NATIVE=0`) does not; a `twin/` entry is
 judged where the run selects the case's twin too. Each failure names what moved: the deviation,
 and what the case should have done. An accepted case whose K is not the recorded K deviates as
 `accepted, with other K than recorded`, with the first line where the two differ.
