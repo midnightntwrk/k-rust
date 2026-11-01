@@ -190,9 +190,10 @@ impl Semantics {
     }
 
     /// Where `whole`, `printer`'s print of `content` in the cell `cell` at `place`, carries a
-    /// warning: each largest part of `content` whose own print carries none, with the sort its
-    /// symbol declares, printed alone (at most [`PART_BOUND`] prints; a part of no such sort is
-    /// looked into). Empty where `whole` carries no warning.
+    /// warning: each largest part of `content` whose own print carries none, at the sort it
+    /// stands at (an injection's target, else the sort its symbol declares), printed alone (at
+    /// most [`PART_BOUND`] prints; a part of no such sort is looked into). Empty where `whole`
+    /// carries no warning.
     fn parts<'t>(
         &self,
         printer: &unparse::Unparser,
@@ -214,10 +215,21 @@ impl Semantics {
         let mut stack: Vec<&'t Pattern> = below(content);
         let mut prints = 0;
         while let Some(part) = stack.pop() {
-            let Some(sort) = self
-                .values
-                .sort_of(part)
-                .and_then(|sort| sort.strip_prefix("Sort").map(unparse::decode_kore))
+            // A part injected into a wider sort stands at that sort, where its print (through an
+            // alias of the wider sort, say) is read.
+            let sort = match part {
+                Pattern::Application { symbol, .. } if symbol.name == "inj" => {
+                    match symbol.sort_parameters.get(1) {
+                        Some(Sort::Application { name, arguments }) if arguments.is_empty() => {
+                            Some(name.clone())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => self.values.sort_of(part),
+            };
+            let Some(sort) =
+                sort.and_then(|sort| sort.strip_prefix("Sort").map(unparse::decode_kore))
             else {
                 stack.extend(below(part));
                 continue;
