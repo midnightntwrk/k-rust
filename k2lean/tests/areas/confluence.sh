@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The confluence area: `confluence` (RaceConf: every schedule of the fixture race, library race;
 # SimpleConf: SIMPLE's steps of two threads joined generically, library simple, with SIMPLE's
-# pairs of rules classified; UtxoConf: the same for the fixture utxo, coroutines over a UTXO
+# pairs of rules classified and slots refuted at peaks its witness programs reach; UtxoConf: the same for the fixture utxo, coroutines over a UTXO
 # ledger, library utxo; HandoffConf: the same for the fixture handoff, tasks of a coordination
 # script run when their inputs are ready, library handoff; HandoffSeqRel: the script run in its
 # order, the fixture handoffseq, into handoff, library handoffseq; DrfConf: workers writing one
@@ -69,12 +69,18 @@ relate_confluence() {
   esac
 }
 # simple_witnesses DIR: SIMPLE's witness programs, each beside its initial configuration (krust's
-# `krun --depth 0`): `div-nondet`, whose division's strict operands have effects.
+# `krun --depth 0`): `div-nondet`, whose division's strict operands have effects, and the demo's
+# (demos/SimpleConf/witnesses): strict operators with operands to evaluate, two threads declaring,
+# reading and writing at once, and threads that lock, meet and throw, whose peaks refute the slots
+# listed `| refuted NAME`.
 # krun reads stdin, so it gets /dev/null: a gate run in the background whose stdin never closes would
 # block there.
 simple_witnesses() {
-  rm -rf "${1:?}" && mkdir -p "$1" && cp "$SD/tests/diverse/div-nondet.simple" "$1/" &&
-    "$KRUST" krun --definition "$(kore_dir simple)" --depth 0 --sort Stmt "$1/div-nondet.simple" < /dev/null > "$1/div-nondet.kore"
+  rm -rf "${1:?}" && mkdir -p "$1" &&
+    cp "$SD/tests/diverse/div-nondet.simple" "$DEMOS"/SimpleConf/witnesses/*.simple "$1/" &&
+    for p in "$1"/*.simple; do
+      "$KRUST" krun --definition "$(kore_dir simple)" --depth 0 --sort Stmt "$p" < /dev/null > "${p%.simple}.kore" || return 1
+    done
 }
 # impplus_witnesses DIR: IMP++'s witness programs (demos/ImpPlusConf/witnesses), each beside its initial
 # configuration (krust's `krun --depth 0`): two threads printing, assigning, incrementing, declaring and
@@ -275,7 +281,8 @@ gate_confluence() {
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;
   # the views and slots built against the library simple (core), the open slots false together
-  # (`Open.refuted`): two runs of SIMPLE's test `div-nondet` print different results
+  # (`Open.refuted`): two runs of each witness program print different results; the slots listed
+  # `| refuted W` false one by one, at peaks the program W reaches (`witness.W.peaks`)
   if runs output simple-confluence.toml; then
     phase "confluence SimpleConf"
     kc simple && scaffold "confluence SimpleConf" libs_confluence SimpleConf "$MEAS/simple-confluence.toml" &&

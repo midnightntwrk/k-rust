@@ -1,66 +1,73 @@
 # The slots of SimpleConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
-# each is a field of `Open`, the premise of `terminal_unique`; two runs of `div-nondet` (`--witnesses`) show they are false together (`Open.refuted`).
+# each is a field of `Open`, the premise of `obs_unique`; two runs of each witness (`--witnesses`) show they
+# are false together (`Open.refuted`). `NAME | refuted WITNESS` is refuted on its own, at a peak the program
+# WITNESS (`div-nondet`, or demos/SimpleConf/witnesses) reaches: a configuration whose steps by the slot's
+# two rules have no common configuration within one step each (`k2l_peaks`). Left open: `read()` and the
+# stdin stream (no program reaches them), `execute` (it steps once, first), a declaration against a read or
+# a write of another thread (true: the fresh location is none the other reads, which needs an invariant),
+# a thread's end, `join` and the locks against each other (they commute), the plain overload of `_,_`'s
+# heating orders, and `return`, `popx`, `throw` and `setEnv` against themselves in one thread.
 join.same.«return V;».«return V;»
 join.same.«read() #0fc146».«read() #0fc146»
 join.same.«read() #0fc146».«read() #aef085»
 join.same.popx.popx
 join.same.«throw V;».«throw V;»
-join.same.«rendezvous V;».«rendezvous V;»
+join.same.«rendezvous V;».«rendezvous V;» | refuted meet
 join.same.«setEnv(Env)».«setEnv(_)»
 join.same.«setEnv(_)».«setEnv(Env)»
 join.same.«read() #aef085».«read() #0fc146»
 join.same.«read() #aef085».«read() #aef085»
-join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«HOLE = _»
+join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat» | refuted array
+join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat» | refuted array
+join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted div-nondet
+join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted div-nondet
+join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat» | refuted ops
+join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«HOLE = _» | refuted spawns
 join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1»
+join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1» | refuted ops
 join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat»
-join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1»
-join.same.«HOLE = _».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»
-join.same.«lvalue(_[HOLE])».«lvalue(HOLE[_])»
-join.same.«lvalue(HOLE[_])».«lvalue(_[HOLE])»
-join.open.«var X;».«var X;»
-join.open.«var X;».«var X[N];»
-join.open.«var X;».«function F(Xs) S»
+join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1» | refuted ops
+join.same.«HOLE = _».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat» | refuted spawns
+join.same.«lvalue(_[HOLE])».«lvalue(HOLE[_])» | refuted array
+join.same.«lvalue(HOLE[_])».«lvalue(_[HOLE])» | refuted array
+join.open.«var X;».«var X;» | refuted decl
+join.open.«var X;».«var X[N];» | refuted decl
+join.open.«var X;».«function F(Xs) S» | refuted decl
 join.open.«var X;».«X:Id»
 join.open.«var X;».«++ loc(L)»
 join.open.«var X;».«loc(L) = V»
 join.open.«var X;».«lookup(L)»
-join.open.«var X[N];».«var X;»
-join.open.«var X[N];».«var X[N];»
-join.open.«var X[N];».«function F(Xs) S»
+join.open.«var X[N];».«var X;» | refuted decl
+join.open.«var X[N];».«var X[N];» | refuted decl
+join.open.«var X[N];».«function F(Xs) S» | refuted decl
 join.open.«var X[N];».«X:Id»
 join.open.«var X[N];».«++ loc(L)»
 join.open.«var X[N];».«loc(L) = V»
 join.open.«var X[N];».«lookup(L)»
-join.open.«function F(Xs) S».«var X;»
-join.open.«function F(Xs) S».«var X[N];»
-join.open.«function F(Xs) S».«function F(Xs) S»
+join.open.«function F(Xs) S».«var X;» | refuted decl
+join.open.«function F(Xs) S».«var X[N];» | refuted decl
+join.open.«function F(Xs) S».«function F(Xs) S» | refuted decl
 join.open.«function F(Xs) S».«X:Id»
 join.open.«function F(Xs) S».«++ loc(L)»
 join.open.«function F(Xs) S».«loc(L) = V»
@@ -70,14 +77,14 @@ join.open.execute.«lambda(Xs, S)(Vs)»
 join.open.«X:Id».«var X;»
 join.open.«X:Id».«var X[N];»
 join.open.«X:Id».«function F(Xs) S»
-join.open.«X:Id».«++ loc(L)»
-join.open.«X:Id».«loc(L) = V»
+join.open.«X:Id».«++ loc(L)» | refuted incr
+join.open.«X:Id».«loc(L) = V» | refuted assign
 join.open.«++ loc(L)».«var X;»
 join.open.«++ loc(L)».«var X[N];»
 join.open.«++ loc(L)».«function F(Xs) S»
-join.open.«++ loc(L)».«X:Id»
-join.open.«++ loc(L)».«++ loc(L)»
-join.open.«++ loc(L)».«loc(L) = V»
+join.open.«++ loc(L)».«X:Id» | refuted incr
+join.open.«++ loc(L)».«++ loc(L)» | refuted incr
+join.open.«++ loc(L)».«loc(L) = V» | refuted incr
 join.open.«++ loc(L)».«lookup(L)»
 join.open.«lambda(Xs, S)(Vs)».execute
 join.open.«read() #0fc146».«read() #0fc146»
@@ -88,19 +95,19 @@ join.open.«read() #0fc146».«STDIN-STREAM.stdinTrim»
 join.open.«loc(L) = V».«var X;»
 join.open.«loc(L) = V».«var X[N];»
 join.open.«loc(L) = V».«function F(Xs) S»
-join.open.«loc(L) = V».«X:Id»
-join.open.«loc(L) = V».«++ loc(L)»
-join.open.«loc(L) = V».«loc(L) = V»
-join.open.«loc(L) = V».«lookup(L)»
-join.open.«print(V, Es);».«print(V, Es);»
-join.open.«spawn S».«spawn S»
+join.open.«loc(L) = V».«X:Id» | refuted assign
+join.open.«loc(L) = V».«++ loc(L)» | refuted incr
+join.open.«loc(L) = V».«loc(L) = V» | refuted assign
+join.open.«loc(L) = V».«lookup(L)» | refuted array
+join.open.«print(V, Es);».«print(V, Es);» | refuted meet
+join.open.«spawn S».«spawn S» | refuted spawns
 join.open.«.K».«.K»
 join.open.«.K».«join T;»
 join.open.«.K».«acquire V:Val; #aa08d0»
 join.open.«.K».«release V:Val; #8d12cb»
 join.open.«join T;».«.K»
 join.open.«acquire V:Val; #aa08d0».«.K»
-join.open.«acquire V:Val; #aa08d0».«acquire V:Val; #aa08d0»
+join.open.«acquire V:Val; #aa08d0».«acquire V:Val; #aa08d0» | refuted locks
 join.open.«acquire V:Val; #aa08d0».«release V:Val; #8d12cb»
 join.open.«release V:Val; #8d12cb».«.K»
 join.open.«release V:Val; #8d12cb».«acquire V:Val; #aa08d0»
@@ -109,7 +116,7 @@ join.open.«lookup(L)».«var X;»
 join.open.«lookup(L)».«var X[N];»
 join.open.«lookup(L)».«function F(Xs) S»
 join.open.«lookup(L)».«++ loc(L)»
-join.open.«lookup(L)».«loc(L) = V»
+join.open.«lookup(L)».«loc(L) = V» | refuted array
 join.open.«read() #aef085».«read() #0fc146»
 join.open.«read() #aef085».«read() #aef085»
 join.open.«read() #aef085».«STDIN-STREAM.stdinParseString»

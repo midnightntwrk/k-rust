@@ -1,0 +1,7 @@
+// Three threads at one rendezvous: two of them meet and print, the third waits for ever.
+
+function main() {
+  spawn { rendezvous 1; print(1); };
+  spawn { rendezvous 1; print(2); };
+  rendezvous 1; print(3);
+}

@@ -961,7 +961,7 @@ enum Mark {
     Hand,
     /// refuted by the hand module (`hand.NAME.refuted : ¬ NAME.statement`)
     Refuted,
-    /// refuted at a peak the witness reaches (`--witnesses`, `k2l_peak`): still a field of `Open`
+    /// refuted at a peak the witness reaches (`--witnesses`, `k2l_peaks`): still a field of `Open`
     RefutedBy(String),
 }
 
@@ -4570,7 +4570,7 @@ def SameThreadJoins : Prop :=
         let refutes = if !refuted.is_empty() {
             "\nA slot listed `| refuted` is refuted by the hand module (`hand.join.K.r₁.r₂.refuted`), and refutes its\npremise (`P_refuted`); `terminal_unique` is then not stated. The premises are sufficient, not\nnecessary: a refuted premise says nothing of whether the definition is confluent."
         } else if !so.witnesses.is_empty() {
-            "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted on its\nown (`NAME.refuted`): a configuration the witness reaches has steps by its two rules that do not\njoin within one step each (`k2l_peak`). That refutes the slot, not the definition: two steps may\njoin later."
+            "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted on its\nown (`NAME.refuted`): a configuration the witness reaches has steps by its two rules that do not\njoin within one step each (`witness.NAME.peaks`, `k2l_peaks`). That refutes the slot, not the definition: two steps may\njoin later."
         } else {
             ""
         };
@@ -4604,7 +4604,8 @@ def SameThreadJoins : Prop :=
     /// The witnesses (`--witnesses`): each program's initial configuration, its two runs that end
     /// with different observations (`witness.NAME.refutes`), and from them `Open.refuted`, through
     /// `terminal_unique`, whose premise is `Open`; and each slot listed `| refuted NAME`, refuted at
-    /// a peak `NAME` reaches (`k2l_peak`, the views' `peak_open`, `peak_same`, `peak_key`).
+    /// a peak `NAME` reaches (`witness.NAME.peaks` by `k2l_peaks`, the views' `peak_open`, `peak_same`,
+    /// `peak_key`).
     #[allow(clippy::too_many_arguments)]
     fn emit_witnesses(
         body: &mut String,
@@ -4679,20 +4680,50 @@ def SameThreadJoins : Prop :=
         .unwrap();
         guard.push("Open.refuted".into());
         // each slot listed `| refuted W`: a peak reached from `W`, whose steps by the slot's two rules
-        // do not join (`k2l_peak`); a same-thread or keyed slot through `join_static` at its pair,
-        // which needs the pair's other slot proved, or not a premise
-        let peak_runs = match &so.fuel {
-            Some(n) => format!(
-                "{name}.successorsF {n}, {name}.successorsF_sound, {name}.successors, {name}.successors_iff.mpr"
-            ),
-            None => format!("{name}.successors, {name}.successors_iff"),
+        // do not join; a same-thread or keyed slot through `join_static` at its pair, which needs the
+        // pair's other slot proved, or not a premise. The peaks of one witness are found and checked
+        // together (`witness.W.peaks`, `k2l_peaks`): the kernel evaluates the configurations their
+        // paths share once, and each slot takes its pair's peak from them (`Peaks.get`)
+        let witness_of = |sn: &str| match so.list.get(sn) {
+            Some(super::Mark::RefutedBy(w)) => w.clone(),
+            _ => unreachable!(),
         };
+        let mut pairs: Vec<(String, Vec<(usize, usize)>)> = Vec::new();
+        let mut index: Vec<usize> = Vec::new();
         for &(k, i, j) in by_runs {
-            let sn = slot_name((k, i, j));
-            let w = match so.list.get(&sn) {
-                Some(super::Mark::RefutedBy(w)) => crate::names::ident(w),
-                _ => unreachable!(),
+            let w = witness_of(&slot_name((k, i, j)));
+            let at = match pairs.iter().position(|(v, _)| *v == w) {
+                Some(at) => at,
+                None => {
+                    pairs.push((w, Vec::new()));
+                    pairs.len() - 1
+                }
             };
+            let ps = &mut pairs[at].1;
+            index.push(match ps.iter().position(|&p| p == (i, j)) {
+                Some(n) => n,
+                None => {
+                    ps.push((i, j));
+                    ps.len() - 1
+                }
+            });
+        }
+        for (w, ps) in &pairs {
+            let id = crate::names::ident(w);
+            let list: Vec<String> = ps
+                .iter()
+                .map(|&(i, j)| format!("(.{}, .{})", rs[i].lean, rs[j].lean))
+                .collect();
+            writeln!(
+                body,
+                "set_option maxRecDepth 100000 in\n/-- The peaks `witness.{id}` reaches, one for each pair of rules: a configuration whose steps by\nthe two have no common configuration within one step each, all checked together (`k2l_peaks`). -/\ntheorem witness.{id}.peaks :\n    KPrelude.TwoRuns.Peaks {name}.Step onlyBy witness.{id}\n      [{}] := by\n  k2l_peaks {runs}\n",
+                list.join(",\n       ")
+            )
+            .unwrap();
+        }
+        for (&(k, i, j), &n) in by_runs.iter().zip(&index) {
+            let sn = slot_name((k, i, j));
+            let w = crate::names::ident(&witness_of(&sn));
             // the pair's other slot, as `join_static_pair` takes it
             let partner = |pk: usize, not_premise: &str| {
                 let pn = slot_name((pk, i, j));
@@ -4740,7 +4771,7 @@ def SameThreadJoins : Prop :=
             };
             writeln!(
                 body,
-                "set_option maxRecDepth 100000 in\n/-- `{sn}` is refuted: from `witness.{w}`, a configuration whose steps by its two rules have\nno common configuration within one step each (`k2l_peak`). -/\ntheorem {sn}.refuted : ¬ {sn}.statement :=\n  {lemma} (r₁ := .{ri}) (r₂ := .{rj}) (c₀ := witness.{w})\n    (by k2l_peak {peak_runs}){extra}\n\n#k2l_refuted {sn}\n",
+                "set_option maxRecDepth 100000 in\n/-- `{sn}` is refuted: from `witness.{w}`, a configuration whose steps by its two rules have\nno common configuration within one step each (`witness.{w}.peaks`). -/\ntheorem {sn}.refuted : ¬ {sn}.statement :=\n  {lemma} (r₁ := .{ri}) (r₂ := .{rj}) (c₀ := witness.{w})\n    (witness.{w}.peaks.get {n} rfl){extra}\n\n#k2l_refuted {sn}\n",
                 ri = rs[i].lean,
                 rj = rs[j].lean,
             )

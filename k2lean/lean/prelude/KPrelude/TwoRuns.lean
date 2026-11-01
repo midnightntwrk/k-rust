@@ -27,6 +27,9 @@ the two paths it found (`k2l_two_runs`).
 - `PeakApart`, `peak_of`: a configuration reached from `c₀` with two steps, each by one rule alone
   (`only`), that have no common configuration within one step each (`noJoin`): what refutes a
   join of two rules' steps, one slot of a confluence proof (`k2l_peak`).
+- `Peaks`, `peaks_of`, `Peaks.get`: the peaks one program reaches, for several pairs of rules,
+  checked by one Boolean (`peaksApart`), so that the kernel evaluates once the configurations
+  their paths share (`k2l_peaks`).
 -/
 
 namespace KPrelude.TwoRuns
@@ -185,6 +188,31 @@ theorem peak_of {ρ : Type v} [DecidableEq α] {S : α → α → Prop} {next al
     · cases h
   · cases h
 
+/-- The peaks reached from `c₀`, one for each pair of rules of `rs` (`PeakApart`). -/
+def Peaks {ρ : Type v} (S : α → α → Prop) (only : ρ → α → α → Bool) (c₀ : α) (rs : List (ρ × ρ)) :
+    Prop :=
+  ∀ x ∈ rs, PeakApart S only x.1 x.2 c₀
+
+/-- The peak of the `k`th pair. -/
+theorem Peaks.get {ρ : Type v} {S : α → α → Prop} {only : ρ → α → α → Bool} {c₀ : α}
+    {rs : List (ρ × ρ)} (h : Peaks S only c₀ rs) (k : Nat) {r₁ r₂ : ρ}
+    (hk : nth rs k = some (r₁, r₂)) : PeakApart S only r₁ r₂ c₀ :=
+  h _ (mem_of_nth hk)
+
+/-- The peaks of `l` (each a pair of rules, a path from `c₀` and two successor indices), one
+Boolean: the kernel evaluates a configuration that two paths share once. -/
+def peaksApart {ρ : Type v} [DecidableEq α] (next all : α → List α) (only : ρ → α → α → Bool)
+    (c₀ : α) (l : List (ρ × ρ × List Nat × Nat × Nat)) : Bool :=
+  l.all fun x => peakApart next all only x.1 x.2.1 c₀ x.2.2.1 x.2.2.2.1 x.2.2.2.2
+
+theorem peaks_of {ρ : Type v} [DecidableEq α] {S : α → α → Prop} {next all : α → List α}
+    (hs : ∀ c c' : α, c' ∈ next c → S c c') (hc : ∀ c c' : α, S c c' → c' ∈ all c)
+    {only : ρ → α → α → Bool} {c₀ : α} (l : List (ρ × ρ × List Nat × Nat × Nat))
+    (h : peaksApart next all only c₀ l = true) : Peaks S only c₀ (l.map fun x => (x.1, x.2.1)) := by
+  intro x hx
+  obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
+  exact peak_of hs hc _ _ _ (List.all_eq_true.mp h y hy)
+
 /-! ## The search, run by the elaborator -/
 
 section Search
@@ -330,5 +358,47 @@ syntax (name := k2lPeak) "k2l_peak " term ", " term (", " term ", " term)? (", "
   let t₂ ← IO.monoMsNow
   logInfo m!"k2l_peak: {n} configurations visited ({t₁ - t₀} ms); the peak after {p.length} steps, \
     successors {i₁} and {i₂}, checked by the kernel ({t₂ - t₁} ms)"
+
+/-- `k2l_peaks next, hs, all, hc` closes `Peaks S only c₀ [(r₁, r₂), …]`: for each pair it searches
+the configurations reachable from `c₀` by `next` for a peak (`peakApart`), then has the kernel check
+every path and the successors found in one Boolean (`peaks_of`), which evaluates a configuration
+that two paths share once. The other forms are `k2l_peak`'s. -/
+syntax (name := k2lPeaks) "k2l_peaks " term ", " term (", " term ", " term)? (", " num)? : tactic
+
+@[tactic k2lPeaks] def evalK2lPeaks : Tactic := fun stx => withMainContext do
+  let nextStx : Term := ⟨stx[1]⟩
+  let hStx : Term := ⟨stx[3]⟩
+  let (allStx, hsStx, hcStx) : Term × Term × Term ←
+    if stx[4].isNone then pure (nextStx, ← `(($hStx).mp), ← `(($hStx).mpr))
+    else pure (⟨stx[4][1]⟩, hStx, ⟨stx[4][3]⟩)
+  let budget := if stx[5].isNone then 100000 else stx[5][1].isNatLit?.getD 100000
+  let tgt ← instantiateMVars (← getMainTarget)
+  unless tgt.isAppOfArity ``Peaks 6 do
+    throwError "k2l_peaks: the goal is not `Peaks S only c₀ rs`: {tgt}"
+  let args := tgt.getAppArgs
+  let (only, c₀) := (args[3]!, args[4]!)
+  let some (_, rs) := args[5]!.listLit? | throwError "k2l_peaks: the pairs are not a list: {args[5]!}"
+  let next ← instantiateMVars (← Term.elabTerm nextStx none)
+  let all ← instantiateMVars (← Term.elabTerm allStx none)
+  let t₀ ← IO.monoMsNow
+  let mut items : Array Term := #[]
+  let mut visited := 0
+  for r in rs do
+    let some (r₁, r₂) := r.app4? ``Prod.mk |>.map (fun (_, _, a, b) => (a, b))
+      | throwError "k2l_peaks: not a pair of rules: {r}"
+    let e ← instantiateMVars (← mkAppM ``peakSearch #[next, all, only, r₁, r₂, c₀, mkNatLit budget])
+    let (res, n) ← evalPeakSearch e
+    visited := visited + n
+    let some (p, i₁, i₂) := res
+      | throwError "k2l_peaks: no peak of `{r₁}` and `{r₂}` that does not join among the {n} \
+          configurations reachable from `{c₀}` visited (budget {budget})"
+    items := items.push (← `(($(← Term.exprToSyntax r₁), $(← Term.exprToSyntax r₂), $(quote p),
+      $(quote i₁), $(quote i₂))))
+  let t₁ ← IO.monoMsNow
+  evalTactic (← `(tactic| exact KPrelude.TwoRuns.peaks_of (next := $nextStx) (all := $allStx)
+    (fun _ _ h => $hsStx h) (fun _ _ h => $hcStx h) [$items,*] (by decide +kernel)))
+  let t₂ ← IO.monoMsNow
+  logInfo m!"k2l_peaks: {rs.length} peaks, {visited} configurations visited ({t₁ - t₀} ms), checked \
+    by the kernel together ({t₂ - t₁} ms)"
 
 end KPrelude.TwoRuns

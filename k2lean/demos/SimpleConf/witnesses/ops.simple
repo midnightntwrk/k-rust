@@ -1,0 +1,16 @@
+// The heating orders of SIMPLE's strict operators. Heating is free to pick either operand, so
+// every operator of the tree below, both of whose operands are unevaluated, is reached within the
+// tree's height, where its two heating rules apply to one configuration. `x` is declared but not
+// assigned, so the tree's evaluation is stuck at its first lookup; two threads print, so two runs
+// end with different outputs (a print is a run's last step: the output's flush has no step).
+
+function f(u, v) {
+  return u;
+}
+
+function main() {
+  var x;
+  spawn { print(1); };
+  spawn { print(2); };
+  ((x + x < x - x) == (x * x <= x / x)) != ((x % x > x) == (f(x, x) >= x));
+}

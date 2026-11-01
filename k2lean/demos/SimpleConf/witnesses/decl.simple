@@ -1,0 +1,7 @@
+// Two threads declaring variables, arrays and functions at once: each declaration takes the next
+// location, so which thread takes which depends on the order.
+
+function main() {
+  spawn { var a; var b[1]; function g() { } print(1); };
+  var c; var d[1]; function h() { } print(2);
+}

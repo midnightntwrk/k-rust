@@ -1,0 +1,10 @@
+// One thread assigning an array element as another reads it, the element's index computed: the
+// reader prints the first value or the second.
+
+var a[1];
+
+function main() {
+  a[0 + 0] = 0;
+  spawn { a[0] = 1; print(1); };
+  print(a[0 + 0]);
+}

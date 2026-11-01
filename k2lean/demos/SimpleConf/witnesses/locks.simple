@@ -1,0 +1,6 @@
+// Two threads taking one lock: the first to take it prints first.
+
+function main() {
+  spawn { acquire 1; print(1); release 1; };
+  acquire 1; print(2); release 1;
+}

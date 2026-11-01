@@ -1,7 +1,7 @@
 # The slots of ImpPlusConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
 # each is a field of `Open`, the premise of `obs_unique`. `NAME | refuted WITNESS` is refuted at a peak the
 # program WITNESS (demos/ImpPlusConf/witnesses) reaches: a configuration whose steps by the slot's two rules
-# have no common configuration within one step each (`k2l_peak`). Left open: `read()` and the stdin stream
+# have no common configuration within one step each (`k2l_peaks`). Left open: `read()` and the stdin stream
 # (`#getc` is undefined in the model, so no program reaches them), `<=`'s two heating rules (seqstrict:
 # never both enabled), `.K` against itself, and the keyed pairs whose steps join wherever these programs
 # reach them (two reads of one variable, a declaration's fresh location against a read or a write).

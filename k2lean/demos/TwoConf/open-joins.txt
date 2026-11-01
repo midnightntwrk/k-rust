@@ -2,7 +2,7 @@
 # each is a field of `Open`, the premise of `terminal_unique`; two runs of each witness (`--witnesses`:
 # two tasks creating one process, resuming it once twice, spending one output twice) show they are
 # false together (`Open.refuted`). `NAME | refuted WITNESS` is refuted on its own, at a peak the witness
-# reaches (`k2l_peak`). The two-segment pairs (`yield`, `end`) are false only where two segments of one
+# reaches (`k2l_peaks`). The two-segment pairs (`yield`, `end`) are false only where two segments of one
 # process run at once, which no script reaches, so they stay open. Under the script's well-formedness
 # `wf` every slot is proved (`TwoConf.Legal`).
 join.key.new.new | refuted two-news

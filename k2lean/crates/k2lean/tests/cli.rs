@@ -1505,7 +1505,8 @@ fn confluence_witnesses_refute_by_two_runs() {
         "theorem witness.«two-workers».refutes :\n    ¬ KPrelude.TwoRuns.UniqueFrom Drf.Step obs witness.«two-workers» := by\n  k2l_two_runs Drf.successors, Drf.successors_iff\n",
         "structure Open : Prop where\n  «open.put.put» : join.open.put.put.statement\n",
         "theorem Open.refuted : ¬ Open := fun P =>\n  witness.«two-workers».refutes fun h₁ t₁ h₂ t₂ => congrArg obs (terminal_unique P h₁ t₁ h₂ t₂)\n",
-        "theorem join.open.put.put.refuted : ¬ join.open.put.put.statement :=\n  peak_open (r₁ := .put) (r₂ := .put) (c₀ := witness.«two-workers»)\n    (by k2l_peak Drf.successors, Drf.successors_iff)\n\n#k2l_refuted join.open.put.put\n",
+        "theorem witness.«two-workers».peaks :\n    KPrelude.TwoRuns.Peaks Drf.Step onlyBy witness.«two-workers»\n      [(.put, .put)] := by\n  k2l_peaks Drf.successors, Drf.successors_iff\n",
+        "theorem join.open.put.put.refuted : ¬ join.open.put.put.statement :=\n  peak_open (r₁ := .put) (r₂ := .put) (c₀ := witness.«two-workers»)\n    (witness.«two-workers».peaks.get 0 rfl)\n\n#k2l_refuted join.open.put.put\n",
     ] {
         assert!(m.contains(x), "{x}\n{m}");
     }

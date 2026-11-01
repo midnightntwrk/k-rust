@@ -1,0 +1,8 @@
+// Two threads spawning at once, one thread ending as another joins, and a thrown value caught.
+
+function main() {
+  var t = spawn { spawn { print(1); }; };
+  spawn { print(2); };
+  join t;
+  try { throw 3; } catch(e) { print(e); }
+}

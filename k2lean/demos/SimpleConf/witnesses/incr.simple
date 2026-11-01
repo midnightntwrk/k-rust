@@ -1,0 +1,9 @@
+// One thread incrementing a variable as another assigns it, increments it and reads it. Each
+// prints last (a print is a run's last step: the output's flush has no step).
+
+var x = 0;
+
+function main() {
+  spawn { ++x; print(1); };
+  x = 2; ++x; print(x);
+}

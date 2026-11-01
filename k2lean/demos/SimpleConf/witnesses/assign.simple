@@ -1,0 +1,8 @@
+// Two threads assigning one variable at once, and one reading it as the other assigns it.
+
+var x = 0;
+
+function main() {
+  spawn { x = 1; print(1); };
+  x = 2; print(x);
+}
