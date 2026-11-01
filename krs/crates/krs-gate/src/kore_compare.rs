@@ -4,7 +4,7 @@
 //! Beyond metadata and per-sentence alpha normalization, it excludes no sentence: a named field projection (`project:<owner>:<field>`) on either route is compared like any other sentence, so one that only one route declares is a difference.
 //! It also applies four declared k-rust differences, `scripts/reference-normalisations.toml` N33, N37, N51 and N52.
 //! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
-//! N51 removes from the native module each selector domain and inverse that equals the pair rebuilt from its projection's identity equation; N52 removes two exactly named definedness rules of k-rust's builtin `domains.md`.
+//! N51 removes from the native module each selector domain and inverse that equals the pair rebuilt from its projection's identity equation; N52 removes five exactly named definedness rules of k-rust's builtin `domains.md` (`divInt` and `bitRangeInt`, and AM-12's `^Int`, `^%Int`, and `log2Int`).
 //! It names the generated lambda symbols of `#fun`, `#let`, and `:=K` after their definitions and uses rather than by the `#lambda<hints>_<n>` spelling each frontend chooses (`lambda_labels`).
 
 use std::collections::{BTreeMap, BTreeSet};

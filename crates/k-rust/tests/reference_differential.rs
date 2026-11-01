@@ -2388,18 +2388,43 @@ const DIV_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{
 /// #Ceil(@L) [simplification]`.
 const BIT_RANGE_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{SortInt{},Q0}(LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(@VarI:SortInt{}, @VarO:SortInt{}, @VarL:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{},Q0}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarO:SortInt{}, \dv{SortInt{}}("0")), Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarL:SortInt{}, \dv{SortInt{}}("0"))), \dv{SortBool{}}("true")), \ceil{SortInt{},Q0}(@VarI:SortInt{})), \ceil{SortInt{},Q0}(@VarO:SortInt{})), \ceil{SortInt{},Q0}(@VarL:SortInt{})), \top{Q0}())))"#;
 
-/// N52: drop from the port's definition two definedness rules of its builtin `domains.md`.
+/// N52: the port's builtin `INT-SYMBOLIC-KORE` rule `#Ceil(@I1:Int ^Int @I2:Int) =>
+/// {(@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1) #Equals true} #And #Ceil(@I1) #And
+/// #Ceil(@I2) [simplification]` (AM-12).
+const POW_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{SortInt{},Q0}(Lbl'UndsXor-'Int'Unds'{}(@VarI1:SortInt{}, @VarI2:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{},Q0}(Lbl'Unds'orBool'Unds'{}(Lbl'Unds'orBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("1"))), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("-1"))), \dv{SortBool{}}("true")), \ceil{SortInt{},Q0}(@VarI1:SortInt{})), \ceil{SortInt{},Q0}(@VarI2:SortInt{})), \top{Q0}())))"#;
+
+/// N52: the port's builtin `INT-SYMBOLIC-KORE` rule `#Ceil(@I1:Int ^%Int @I2:Int @I3:Int) =>
+/// {(@I3 =/=Int 0 andBool (@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1)) #Equals true}
+/// #And #Ceil(@I1) #And #Ceil(@I2) #And #Ceil(@I3) [simplification]` (AM-12).
+const POW_MOD_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{SortInt{},Q0}(Lbl'UndsXor-Perc'Int'UndsUnds'{}(@VarI1:SortInt{}, @VarI2:SortInt{}, @VarI3:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{},Q0}(Lbl'Unds'andBool'Unds'{}(Lbl'UndsEqlsSlshEqls'Int'Unds'{}(@VarI3:SortInt{}, \dv{SortInt{}}("0")), Lbl'Unds'orBool'Unds'{}(Lbl'Unds'orBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("1"))), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("-1")))), \dv{SortBool{}}("true")), \ceil{SortInt{},Q0}(@VarI1:SortInt{})), \ceil{SortInt{},Q0}(@VarI2:SortInt{})), \ceil{SortInt{},Q0}(@VarI3:SortInt{})), \top{Q0}())))"#;
+
+/// N52: the port's builtin `INT-SYMBOLIC-KORE` rule `#Ceil(log2Int(@I:Int)) => {(@I >Int 0)
+/// #Equals true} #And #Ceil(@I) [simplification]` (AM-12).
+const LOG2_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{SortInt{},Q0}(Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(@VarI:SortInt{})), \and{Q0}(\and{Q0}(\equals{SortBool{},Q0}(Lbl'Unds-GT-'Int'Unds'{}(@VarI:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \ceil{SortInt{},Q0}(@VarI:SortInt{})), \top{Q0}())))"#;
+
+/// N52: drop from the port's definition five definedness rules of its builtin `domains.md`.
 /// `#Ceil(bitRangeInt(I, O, L))` is entailed by the unconditional equation
 /// `bitRangeInt(I, O, L) = (I >>Int O) modInt (1 <<Int L)` and the definedness rules of `>>Int`,
 /// `<<Int` and `modInt`, since `1 <<Int L` is positive for `L >=Int 0`. `#Ceil(I1 divInt I2)`
 /// states that the quotient of a division by zero is no integer, the domain of the hooked partial
-/// operation, which the conditional equation of `divInt` leaves open at zero. An axiom is dropped
-/// only when its sort parameters and pattern are exactly one of the two rules, its source is
+/// operation, which the conditional equation of `divInt` leaves open at zero. The three rules of
+/// AM-12 state the domains of hooked partial operations that no equation of the library defines:
+/// the power `I1 ^Int I2` is an integer for every `I2 >=Int 0`, and for `I2 = -n` it is
+/// `1 / I1^n`, an integer exactly when `I1` is 1 or -1 and no number for `I1 = 0`;
+/// `I1 ^%Int I2 I3` equals `(I1 ^Int I2) %Int I3` in value, so it is defined where the power is
+/// and `I3` is nonzero; `log2Int` of zero or a negative number is `#False`. An axiom is dropped
+/// only when its sort parameters and pattern are exactly one of the five rules, its source is
 /// `krust-builtin://domains.md`, it carries `simplification` without a priority, and its only
 /// other attributes are its identifier and location. Returns the number of axioms dropped.
 fn normalize_builtin_definedness_rules(actual: &mut Definition) -> usize {
-    let rules = [DIV_INT_DEFINEDNESS, BIT_RANGE_INT_DEFINEDNESS]
-        .map(|rule| parse_pattern(rule).expect("N52 rule parses"));
+    let rules = [
+        DIV_INT_DEFINEDNESS,
+        BIT_RANGE_INT_DEFINEDNESS,
+        POW_INT_DEFINEDNESS,
+        POW_MOD_INT_DEFINEDNESS,
+        LOG2_INT_DEFINEDNESS,
+    ]
+    .map(|rule| parse_pattern(rule).expect("N52 rule parses"));
     let source = kore_application(
         "org'Stop'kframework'Stop'attributes'Stop'Source",
         vec![Pattern::String("Source(krust-builtin://domains.md)".into())],
@@ -3498,18 +3523,27 @@ fn selector_contract_normalizer_keeps_axioms_it_cannot_rebuild_exactly() {
     ));
 }
 
-/// N52 fixtures: the two builtin definedness rules as the port emits them.
+/// N52 fixtures: the five builtin definedness rules as the port emits them.
 const DIV_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(Lbl'Unds'divInt'Unds'{}(@VarI1:SortInt{}, @VarI2:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'UndsEqlsSlshEqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI1:SortInt{})), \ceil{SortInt{}, Q0}(@VarI2:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("d"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1395,3,1395,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}("")]
 "#;
 const BIT_RANGE_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(@VarI:SortInt{}, @VarO:SortInt{}, @VarL:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarO:SortInt{}, \dv{SortInt{}}("0")), Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarL:SortInt{}, \dv{SortInt{}}("0"))), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI:SortInt{})), \ceil{SortInt{}, Q0}(@VarO:SortInt{})), \ceil{SortInt{}, Q0}(@VarL:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("r"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}()]
 "#;
 
-/// N52 drops exactly the two builtin rules, and nothing that differs from them in its pattern,
+const POW_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(Lbl'UndsXor-'Int'Unds'{}(@VarI1:SortInt{}, @VarI2:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'orBool'Unds'{}(Lbl'Unds'orBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("1"))), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("-1"))), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI1:SortInt{})), \ceil{SortInt{}, Q0}(@VarI2:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("p"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1399,3,1399,155)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}("")]
+"#;
+const POW_MOD_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(Lbl'UndsXor-Perc'Int'UndsUnds'{}(@VarI1:SortInt{}, @VarI2:SortInt{}, @VarI3:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'andBool'Unds'{}(Lbl'UndsEqlsSlshEqls'Int'Unds'{}(@VarI3:SortInt{}, \dv{SortInt{}}("0")), Lbl'Unds'orBool'Unds'{}(Lbl'Unds'orBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("1"))), Lbl'UndsEqlsEqls'Int'Unds'{}(@VarI1:SortInt{}, \dv{SortInt{}}("-1")))), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI1:SortInt{})), \ceil{SortInt{}, Q0}(@VarI2:SortInt{})), \ceil{SortInt{}, Q0}(@VarI3:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("m"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1400,3,1400,203)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}("")]
+"#;
+const LOG2_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(@VarI:SortInt{})), \and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds-GT-'Int'Unds'{}(@VarI:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("l"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1401,3,1401,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}("")]
+"#;
+
+/// N52 drops exactly the five builtin rules, and nothing that differs from them in its pattern,
 /// sort parameters, source or attributes.
 #[test]
 fn builtin_definedness_normalizer_drops_only_the_exact_builtin_rules() {
-    let mut actual = test_module(&format!("{DIV_INT_RULE}{BIT_RANGE_INT_RULE}"));
-    assert_eq!(normalize_builtin_definedness_rules(&mut actual), 2);
+    let mut actual = test_module(&format!(
+        "{DIV_INT_RULE}{BIT_RANGE_INT_RULE}{POW_INT_RULE}{POW_MOD_INT_RULE}{LOG2_INT_RULE}"
+    ));
+    assert_eq!(normalize_builtin_definedness_rules(&mut actual), 5);
     assert!(actual.modules[0].sentences.is_empty());
     for changed in [
         DIV_INT_RULE.replace(r#"\dv{SortInt{}}("0")"#, r#"\dv{SortInt{}}("1")"#),
@@ -3524,8 +3558,19 @@ fn builtin_definedness_normalizer_drops_only_the_exact_builtin_rules() {
             r#"simplification{}(""), concrete{}()"#,
         ),
         DIV_INT_RULE.replace("axiom{R, Q0}", "axiom{Q0, R}"),
+        // AM-12's rules with another condition (an exponent from 1, a base of 2, a zero divisor
+        // allowed, a nonnegative argument), another source, and a priority.
+        POW_INT_RULE.replace(r#"\dv{SortInt{}}("0")"#, r#"\dv{SortInt{}}("1")"#),
+        POW_INT_RULE.replace(r#"\dv{SortInt{}}("-1")"#, r#"\dv{SortInt{}}("2")"#),
+        POW_MOD_INT_RULE.replace("Lbl'UndsEqlsSlshEqls'Int'Unds'", "Lbl'UndsEqlsEqls'Int'Unds'"),
+        LOG2_INT_RULE.replace("Lbl'Unds-GT-'Int'Unds'", "Lbl'Unds-GT-Eqls'Int'Unds'"),
+        POW_MOD_INT_RULE.replace("krust-builtin://domains.md", "imp.k"),
+        LOG2_INT_RULE.replace(r#"simplification{}("")"#, r#"simplification{}("40")"#),
     ] {
-        assert_ne!(changed, DIV_INT_RULE);
+        assert!(
+            ![DIV_INT_RULE, POW_INT_RULE, POW_MOD_INT_RULE, LOG2_INT_RULE].contains(&changed.as_str()),
+            "{changed}"
+        );
         let mut actual = test_module(&changed);
         assert_eq!(normalize_builtin_definedness_rules(&mut actual), 0, "{changed}");
         assert_eq!(actual, test_module(&changed));
