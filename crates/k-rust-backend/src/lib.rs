@@ -25,6 +25,7 @@ pub mod diagnostic;
 pub mod evaluation;
 pub mod externalize;
 pub mod fresh;
+pub mod ill_formed;
 pub mod implication;
 pub mod literal;
 pub mod matching;

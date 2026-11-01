@@ -296,8 +296,8 @@ fn contradicted_preservation(
     )
 }
 
-/// What kind of finding of the load-time critical-pair check a [`ValueClaimFinding`] is, named
-/// as the diagnostic `kompile` reports it under.
+/// What kind of load-time finding a [`ValueClaimFinding`] is, named as the diagnostic `kompile`
+/// reports it under.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum ValueClaimFindingCode {
     /// A row of the constructor and overload preconditions the definition violates.
@@ -307,6 +307,10 @@ pub enum ValueClaimFindingCode {
     /// written, and an equation not shown consistent with an equation that rewrites some
     /// instances of one of its arguments.
     UnjoinedCriticalPair,
+    /// A use the text does not type or bound, seen in a sentence's form
+    /// ([`ill_formed_use_findings`]): an arithmetic `Float` application over two formats, or a
+    /// machine-integer literal its width cannot hold.
+    IllFormedUse,
 }
 
 impl ValueClaimFindingCode {
@@ -316,14 +320,15 @@ impl ValueClaimFindingCode {
                 crate::diagnostic::DiagnosticCode::ValueClaimPrecondition
             }
             Self::UnjoinedCriticalPair => crate::diagnostic::DiagnosticCode::UnjoinedCriticalPair,
+            Self::IllFormedUse => crate::diagnostic::DiagnosticCode::IllFormedUse,
         }
     }
 }
 
-/// One finding of the load-time critical-pair check (`k_rust_backend::confluence`), as data
-/// independent of the loaded definition's terms: the equations by unique id, why the check
-/// reports them, the symbols whose claims they withdraw, and the text the author is told, rendered
-/// once from the verdict. The warning of `krun`, `kprove` and the RPC server
+/// One finding of the load-time critical-pair check (`k_rust_backend::confluence`), or one
+/// ill-formed use the load sees ([`ill_formed_use_findings`]), as data independent of the loaded
+/// definition's terms: the equations by unique id, why the check reports them, the symbols whose
+/// claims they withdraw, and the text the author is told, rendered once from the verdict. The warning of `krun`, `kprove` and the RPC server
 /// ([`value_claim_warnings`]) and the located diagnostic of `kompile`
 /// ([`value_claim_diagnostics`]) are both made from it, so a verdict stored or reported as these
 /// findings is shown as a computed one is.
@@ -553,10 +558,88 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
     findings
 }
 
-/// The warnings `krun`, `kprove` and the RPC server print for the findings of the load-time
-/// critical-pair check ([`value_claim_findings`]).
+/// The ill-formed uses of `definition` the load sees (GAP category E,
+/// `k_rust_backend::ill_formed`), one finding each, located at the sentence that holds it: an
+/// arithmetic `Float` application whose operands' forms fix two formats, which no text gives a
+/// result format, and a machine-integer literal its width cannot hold, which the literal rule
+/// gives no element. Nothing is refused: an execution still takes k-rust's value and marks the
+/// run (classes `float-destination` and `literal`), and every other evaluation withholds it.
+pub fn ill_formed_use_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
+    use k_rust_backend::ill_formed::{IllFormed, Sentence, ill_formed_uses};
+    /// The characters of the application a warning prints before it cuts it short.
+    const APPLICATION_CHARACTERS: usize = 240;
+    ill_formed_uses(definition)
+        .into_iter()
+        .map(|found| {
+            let sentence = format!(
+                "the {} {}",
+                match found.sentence {
+                    Sentence::Rule => "rule",
+                    Sentence::Equation => "equation",
+                },
+                found.attributes.diagnostic_name(k_label)
+            );
+            let (reason, message) = match &found.found {
+                IllFormed::MixedFormats {
+                    hook,
+                    application,
+                    left,
+                    right,
+                } => {
+                    let mut text =
+                        KorePrinter::compact().print_pattern(&externalize::term(application));
+                    if let Some((cut, _)) = text.char_indices().nth(APPLICATION_CHARACTERS) {
+                        text.truncate(cut);
+                        text.push_str("...");
+                    }
+                    let consequence = if left.is_computed() && right.is_computed() {
+                        "an execution takes k-rust's pick, binary64, and marks the run (class float-destination), and every other evaluation leaves the application unevaluated"
+                    } else {
+                        "k-rust leaves the application unevaluated"
+                    };
+                    (
+                        format!("`{hook}` over the formats p{}x{} and p{}x{}", left.precision, left.exponent_bits, right.precision, right.exponent_bits),
+                        format!(
+                            "{sentence} applies `{hook}` to Floats of the formats {left} and {right} ({text}): domains.md gives the operation over one format and names no result format for two, so {consequence}"
+                        ),
+                    )
+                }
+                IllFormed::WideLiteral(literal) => (
+                    format!("the machine-integer literal `{literal}` outside its width"),
+                    format!(
+                        "{sentence} holds the machine-integer literal `{literal}`, whose value its width `W` cannot hold (it is outside [-2^(W-1), 2^W)): domains.md gives it no element, so an execution takes k-rust's, the value modulo 2^W, and marks every attempt of the {} (class literal), and every other evaluation stops such an attempt undecided; Int2MInt of the integer is that element in every model",
+                        match found.sentence {
+                            Sentence::Rule => "rule",
+                            Sentence::Equation => "equation",
+                        }
+                    ),
+                ),
+            };
+            ValueClaimFinding {
+                code: ValueClaimFindingCode::IllFormedUse,
+                first: found.attributes.identifier().map(str::to_owned),
+                second: None,
+                reason,
+                withdrawn: Vec::new(),
+                message,
+            }
+        })
+        .collect()
+}
+
+/// Every load-time finding of `definition`: those of the critical-pair check
+/// ([`value_claim_findings`]), then the ill-formed uses ([`ill_formed_use_findings`]).
+fn load_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
+    let mut findings = value_claim_findings(definition);
+    findings.extend(ill_formed_use_findings(definition));
+    findings
+}
+
+/// The warnings `krun`, `kprove` and the RPC server print at load: the findings of the
+/// critical-pair check ([`value_claim_findings`]) and the ill-formed uses
+/// ([`ill_formed_use_findings`]).
 pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
-    value_claim_findings(definition)
+    load_findings(definition)
         .iter()
         .map(value_claim_warning)
         .collect()
@@ -567,29 +650,48 @@ pub fn value_claim_warning(finding: &ValueClaimFinding) -> String {
     format!("warning: {}", finding.message)
 }
 
-/// The located diagnostics `kompile` reports for the findings of the load-time critical-pair
-/// check ([`value_claim_findings`]): each at the written position of its first equation in
+/// The located diagnostics `kompile` reports for the load-time findings: those of the
+/// critical-pair check ([`value_claim_findings`]) and the ill-formed uses
+/// ([`ill_formed_use_findings`]), each at the written position of its first sentence in
 /// `definition`, or of its second when the first has no unique id of its own, with the input
-/// addresses the compiler recorded for that equation in `provenance`.
+/// addresses the compiler recorded for that sentence in `provenance`.
 pub fn value_claim_diagnostics(
     definition: &BackendDefinition,
     provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
 ) -> Vec<crate::diagnostic::Diagnostic> {
-    let findings = value_claim_findings(definition);
+    let findings = load_findings(definition);
     if findings.is_empty() {
         return Vec::new();
     }
-    // The written positions of the executable equations, which are the equations findings name.
-    let origins = definition
-        .function_theory()
+    // The written positions of the sentences findings name: the executable equations (the
+    // critical-pair check's), and the rewrite rules and other equations an ill-formed use is in.
+    let rules = definition
+        .rewrite_theory()
         .values()
         .flat_map(|priorities| priorities.values().flatten())
-        .filter_map(|rule| {
-            Some((
-                rule.attributes.identifier()?,
-                rule.attributes.origins.first()?,
-            ))
-        })
+        .map(|indexed| &*indexed.rule);
+    let equations = [
+        definition.function_theory(),
+        definition.simplification_theory(),
+        definition.ceil_theory(),
+    ]
+    .into_iter()
+    .flat_map(|theory| {
+        theory
+            .values()
+            .flat_map(|priorities| priorities.values().flatten())
+            .map(|rule| &**rule)
+    });
+    let predicate_equations = definition
+        .predicate_simplification_theory()
+        .values()
+        .flatten()
+        .map(|rule| &rule.attributes);
+    let origins = equations
+        .chain(rules)
+        .map(|rule| &rule.attributes)
+        .chain(predicate_equations)
+        .filter_map(|attributes| Some((attributes.identifier()?, attributes.origins.first()?)))
         .collect::<std::collections::BTreeMap<_, _>>();
     findings
         .iter()

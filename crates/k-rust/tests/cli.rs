@@ -2456,6 +2456,109 @@ endmodule
     );
 }
 
+/// GAP A3 (category E): an arithmetic `Float` application whose operands' forms fix two formats,
+/// which `domains.md` gives no result format, and a machine-integer literal its width cannot hold,
+/// which it gives no element, are named once each at load, with the sentence and its written
+/// position, whatever the run reaches; nothing is refused, and the run of `go()` still takes
+/// k-rust's binary64 sum. A form fixes a format without being ground (`convert`: the format
+/// arguments of `Int2Float`). The controls are not named: one format (`same`), an operand bound
+/// only at run time (`free`, the run's mark alone), an in-range literal (`narrow`), and a hook
+/// whose result format no text gives (`sin`: `sinFloat(0.5f)` has no evident format).
+#[test]
+fn krun_names_each_ill_formed_float_application_and_wide_mint_literal_at_load() {
+    const ILL_FORMED: &str = r#"
+requires "domains.md"
+module ILL-SYNTAX
+  imports INT-SYNTAX
+  imports FLOAT-SYNTAX
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax Pgm ::= go() | nested() | convert(Int) | same(Int) | free(Float) | narrow() | wide()
+               | sin()
+endmodule
+module ILL
+  imports ILL-SYNTAX
+  imports INT
+  imports FLOAT
+  imports MINT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= done(K)
+  syntax Float ::= mixf() [function]
+  syntax MInt{8} ::= widef() [function]
+  rule [mixed]: <k> go() => done(0.5f +Float 2.0) ... </k>
+  rule [nested]: <k> nested() => done(minFloat(Int2Float(1, 24, 8), absFloat(2.0)) +Float 2.0f) ... </k>
+  rule [convert]: <k> convert(I) => done(Int2Float(I, 24, 8) *Float 2.0) ... </k>
+  rule [same]: <k> same(I) => done(Int2Float(I, 24, 8) *Float 2.0f) ... </k>
+  rule [free]: <k> free(F) => done(F +Float 2.0) ... </k>
+  rule [narrow]: <k> narrow() => done(255p8) ... </k>
+  rule [wide]: <k> wide() => done(256p8) ... </k>
+  rule [sin]: <k> sin() => done(sinFloat(0.5f) +Float 2.0) ... </k>
+  rule [mixf]: mixf() => 1.0f -Float 1.0
+  rule [widef]: widef() => -129p8
+endmodule
+"#;
+    let output = krun_mint_program(ILL_FORMED, "ILL", "go()");
+    let result = compact_success(&output);
+    assert!(result.contains("2.5000000000000000e+00p53x11"), "{result}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    // The load's warnings name a sentence; the run's own warning of its float-destination mark
+    // (`go()` reads the mixed sum) names a path.
+    let warnings = stderr
+        .lines()
+        .filter(|line| {
+            line.starts_with("warning: the rule ") || line.starts_with("warning: the equation ")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        stderr.contains("read a value of FLOAT.add the definition leaves open (float-destination)"),
+        "{stderr}"
+    );
+    let named = |label: &str| {
+        warnings
+            .iter()
+            .filter(|warning| warning.contains(&format!(" ILL.{label} at ")))
+            .collect::<Vec<_>>()
+    };
+    let expected: [(&str, &str, &[&str]); 6] = [
+        (
+            "mixed",
+            "rule",
+            &[
+                "`FLOAT.add`",
+                "p24x8 (precision 24, 8 exponent bits)",
+                "p53x11 (precision 53, 11 exponent bits)",
+                "(class float-destination)",
+            ],
+        ),
+        ("nested", "rule", &["`FLOAT.min`", "p24x8", "p53x11"]),
+        ("convert", "rule", &["`FLOAT.mul`", "p24x8", "p53x11"]),
+        ("mixf", "equation", &["`FLOAT.sub`", "p24x8", "p53x11"]),
+        ("wide", "rule", &["`256p8`", "(class literal)", "Int2MInt"]),
+        ("widef", "equation", &["`-129p8`", "(class literal)"]),
+    ];
+    for (label, kind, needles) in expected {
+        let found = named(label);
+        assert_eq!(found.len(), 1, "{label}: {stderr}");
+        let warning = found[0];
+        assert!(
+            warning.starts_with(&format!("warning: the {kind} ILL.{label} at ")),
+            "{label}: {warning}"
+        );
+        assert!(warning.contains("definition.k:"), "{label}: {warning}");
+        for needle in needles {
+            assert!(warning.contains(needle), "{label}: {needle}: {warning}");
+        }
+    }
+    for label in ["same", "free", "narrow", "sin"] {
+        assert!(named(label).is_empty(), "{label}: {stderr}");
+    }
+    assert_eq!(
+        warnings.len(),
+        expected.len(),
+        "one warning per ill-formed use and no other: {stderr}"
+    );
+}
+
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
 fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
     let (root, definition) = fixture();
@@ -14272,6 +14375,13 @@ endmodule
 /// keeping the argument's sign (`docs/amendments.md`, AM-4 to AM-6), so each claim holds in every
 /// model the amended text admits: 2^24 + 1 is a tie to the even 2^24, sqrt(2) rounds to
 /// `1.4142135623730951`, and the floor of 0.5 is `+0.0`.
+///
+/// GAP A3: `rtf-odd-negative`, `rtf-odd-zero` and `rtf-nan` are proven: in a positive degree the
+/// root of a NaN is the NaN, of `-0.0` in an odd degree `-0.0`, and an odd root of a negative value
+/// the negated root of its magnitude (`docs/amendments.md`, AM-11). An even root of `-0.0`
+/// (`rtf-even-zero`, `+0.0` by `rootn` and `-0.0` by IEEE 754's squareRoot, which `sqrtFloat`'s
+/// rule ties to it) and a degree of 0 (`rtf-degree-zero`, where the partial hook may be
+/// undefined) stay undecided.
 #[test]
 fn kprove_proves_no_claim_that_depends_on_an_open_value() {
     let source = format!(
@@ -14304,6 +14414,11 @@ module OPEN-SPEC
   claim [rtf-exact]: <k> rtf(4.0, 2) => r(2.0) </k>
   claim [rtf-negative]: <k> rtf(-4.0, 2) => r(NaN) </k>
   claim [rtf-negative-some]: <k> rtf(-4.0, 2) => r(?_F:Float) </k>
+  claim [rtf-odd-negative]: <k> rtf(-8.0, 3) => r(-2.0) </k>
+  claim [rtf-odd-zero]: <k> rtf(-0.0, 3) => r(-0.0) </k>
+  claim [rtf-nan]: <k> rtf(NaN, 2) => r(NaN) </k>
+  claim [rtf-even-zero]: <k> rtf(-0.0, 2) => r(0.0) </k>
+  claim [rtf-degree-zero]: <k> rtf(4.0, 0) => r(NaN) </k>
   claim [fl-half]: <k> fl(0.5) => r(0.0) </k>
   claim [fl-some]: <k> fl(0.5) => r(?_F:Float) </k>
   claim [fl-integer]: <k> fl(1.5) => r(1.0) </k>
@@ -14330,6 +14445,8 @@ endmodule
         "ecdsa-failure",
         "rtf-negative",
         "rtf-negative-some",
+        "rtf-even-zero",
+        "rtf-degree-zero",
         "ecdsa-some",
     ] {
         assert_undecided(&verdicts, claim, &output);
@@ -14350,6 +14467,9 @@ endmodule
         "i2f-zero",
         "rtf-inexact",
         "fl-half",
+        "rtf-odd-negative",
+        "rtf-odd-zero",
+        "rtf-nan",
         "kec-some",
         "kraw-digest",
         "s2b-latin1",

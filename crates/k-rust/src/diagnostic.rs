@@ -47,6 +47,9 @@ pub enum WarningCategory {
     /// k-rust's own: the load-time critical-pair check withdrew value claims, or a precondition
     /// of the value claims does not hold (`k_rust_backend::confluence`). Shown by default.
     ValueClaims,
+    /// k-rust's own: an application or a literal the text does not type or bound, seen at load
+    /// (`k_rust_backend::ill_formed`). Shown by default.
+    IllFormedUse,
     UselessRule,
     UnresolvedFunctionSymbol,
     MalformedMarkdown,
@@ -214,6 +217,7 @@ diagnostic_codes! {
     TermTooDeep => "TermTooDeep",
     UnjoinedCriticalPair => "UnjoinedCriticalPair",
     ValueClaimPrecondition => "ValueClaimPrecondition",
+    IllFormedUse => "IllFormedUse",
 }
 
 impl fmt::Display for DiagnosticCode {
@@ -242,6 +246,7 @@ impl DiagnosticCode {
             Self::UnjoinedCriticalPair | Self::ValueClaimPrecondition => {
                 Some(WarningCategory::ValueClaims)
             }
+            Self::IllFormedUse => Some(WarningCategory::IllFormedUse),
             Self::ClaimInDefinition
             | Self::DuplicateSentenceLabel
             | Self::DuplicateConfigurationCell

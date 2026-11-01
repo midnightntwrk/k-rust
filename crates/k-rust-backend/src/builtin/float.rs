@@ -200,6 +200,68 @@ pub(crate) fn mixed_destination(hook: &str, arguments: &[Term]) -> Option<MixedP
     MixedPair::of(left, right)
 }
 
+/// The two formats of `hook` applied to `arguments` when `hook` is one of the Float-valued binary
+/// hooks `mixed_destination` reads (`+Float`, `-Float`, `*Float`, `/Float`, `minFloat`,
+/// `maxFloat`) and the load reads two different formats from its operands' form
+/// ([`evident_format`]); `None` otherwise. `domains.md` gives these operations over one format
+/// (their `smt-hook`s apply `fp.add` and the others to two operands of one sort, rounded to it)
+/// and names no result format for two, so such an application is ill-formed (GAP category E):
+/// the load names it (`crate::ill_formed`), and an execution still marks the value it takes
+/// ([`mixed_destination`]).
+pub(crate) fn evident_mixed_formats(
+    hook: &str,
+    arguments: &[Term],
+) -> Option<(FloatFormat, FloatFormat)> {
+    BinaryOperation::of(hook)?;
+    let [left, right] = arguments else {
+        return None;
+    };
+    let (left, right) = (evident_format(left)?, evident_format(right)?);
+    (left != right).then_some((left, right))
+}
+
+/// The format of the `Float` `term` denotes where its form alone fixes it, whatever its
+/// variables are bound to: the suffix of a literal; the format arguments of `Int2Float`,
+/// `roundFloat`, `maxValueFloat` and `minValueFloat` when both are positive integer values; and,
+/// for an operation whose result is in its operands' format by its `smt-hook` (`--Float`,
+/// `absFloat`, `%Float` and the six of [`evident_mixed_formats`]) or by an amendment
+/// (`floorFloat`, `ceilFloat`, `truncFloat`, AM-6; `rootFloat`, AM-4 and AM-11), the format its
+/// `Float` operands all have. `None` for a variable, for every other application (a hook whose
+/// result format no text gives, such as `sinFloat`), and for operands of two formats.
+fn evident_format(term: &Term) -> Option<FloatFormat> {
+    let same = |left: &Term, right: &Term| {
+        let left = evident_format(left)?;
+        (left == evident_format(right)?).then_some(left)
+    };
+    match term.kind() {
+        TermKind::Injection { term, .. } => evident_format(term),
+        TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::Float) => {
+            let text = value.as_utf8().ok()?;
+            is_float_syntax(text).then(|| split_token(text).1).flatten()
+        }
+        TermKind::Application {
+            symbol, arguments, ..
+        } => match (symbol.attributes.hook.as_deref()?, arguments.as_slice()) {
+            ("FLOAT.int2float" | "FLOAT.round", [_, precision, exponent_bits])
+            | ("FLOAT.maxValue" | "FLOAT.minValue", [precision, exponent_bits]) => {
+                match read_format(precision, exponent_bits) {
+                    FormatArguments::Format(format) => Some(format),
+                    FormatArguments::NoFormat | FormatArguments::Symbolic => None,
+                }
+            }
+            (
+                "FLOAT.neg" | "FLOAT.abs" | "FLOAT.floor" | "FLOAT.ceil" | "FLOAT.trunc",
+                [operand],
+            )
+            | ("FLOAT.root", [operand, _]) => evident_format(operand),
+            ("FLOAT.rem", [left, right]) => same(left, right),
+            (hook, [left, right]) if BinaryOperation::of(hook).is_some() => same(left, right),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Why `signFloat` applied to `arguments` reads a value the definition leaves open, when its
 /// argument is a NaN of any format; `None` otherwise.
 ///
@@ -288,14 +350,16 @@ pub(crate) fn float2int_tie(arguments: &[Term]) -> bool {
 /// `outside-domain`, `super::chosen_value`).
 ///
 /// "Compute the Nth integer root `rootFloat` of a float" (`domains.md`, "Floating-point
-/// mathematics") describes, for a positive finite `F` and a positive degree, the positive real
-/// `N`th root, correctly rounded to `F`'s format under roundTiesToEven where no float is that
-/// root (`docs/amendments.md`, AM-4; `sqrtFloat` follows by its rule `rootFloat(F, 2)`), which is
-/// the evaluator's value: determined. Elsewhere (a zero, an infinity, a NaN, a negative `F`, a
-/// degree of 0 or below) the description gives no value, so every value, and `\bottom`, is a
-/// model's: the evaluator's IEEE `rootn` value is k-rust's pick. A negative `F` with an odd
-/// degree is among them: the text does not say that "the Nth integer root" of a negative float
-/// is its real root.
+/// mathematics") is IEEE 754's `rootn` in a positive degree ([`root_described`]): for a positive
+/// finite `F`, correctly rounded to `F`'s format under roundTiesToEven (`docs/amendments.md`,
+/// AM-4; `sqrtFloat` follows by its rule `rootFloat(F, 2)`), and, by AM-11, the NaN of a NaN, a
+/// zero or an infinity of a zero or an infinity, and in an odd degree the negated root of a
+/// negative value's magnitude; those are the evaluator's values: determined. Elsewhere the
+/// description gives no value, so every value, and `\bottom`, is a model's, and the evaluator's
+/// IEEE `rootn` value is k-rust's pick: a degree of 0 or below, an even root of a negative value
+/// (no real root; the hook is declared partial, as the block declares every function with a
+/// restricted real domain), and an even root of `-0.0`, where `rootn` gives `+0.0` and IEEE
+/// 754's squareRoot, which `sqrtFloat`'s rule ties to the degree 2, gives `-0.0`.
 pub(crate) fn root_outside_domain(arguments: &[Term]) -> bool {
     let [radicand, degree] = arguments else {
         return false;
@@ -306,8 +370,15 @@ pub(crate) fn root_outside_domain(arguments: &[Term]) -> bool {
     let Some(degree) = read_int(degree) else {
         return false;
     };
-    let radicand = radicand.as_f64();
-    !(radicand.is_finite() && radicand > 0.0 && degree.is_positive())
+    !root_described(radicand.as_f64(), &degree)
+}
+
+/// Whether the amended description gives `rootFloat(radicand, degree)` its value
+/// (`docs/amendments.md`, AM-4 and AM-11): a positive degree, odd or of a radicand whose sign bit
+/// is clear (a NaN, `+0.0`, a positive value, `+Infinity`).
+fn root_described(radicand: f64, degree: &BigInt) -> bool {
+    degree.is_positive()
+        && (degree.magnitude().bit(0) || radicand.is_nan() || radicand.is_sign_positive())
 }
 
 #[derive(Clone, Copy)]
@@ -616,6 +687,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
         "FLOAT.floor" => inspect(hook, arguments, |value| float_term(value.floor())),
         "FLOAT.ceil" => inspect(hook, arguments, |value| float_term(value.ceil())),
         "FLOAT.trunc" => inspect(hook, arguments, |value| float_term(value.trunc())),
+        // IEEE 754's `rootn` (`docs/amendments.md`, AM-4 and AM-11 in a positive degree).
         "FLOAT.root" => root(hook, arguments),
         "FLOAT.add" | "FLOAT.sub" | "FLOAT.mul" | "FLOAT.div" | "FLOAT.min" | "FLOAT.max" => {
             let operation = BinaryOperation::of(hook).expect("a binary Float operation");
@@ -645,8 +717,7 @@ fn sampled_root(value: KFloat, degree: &BigInt) -> KFloat {
     let Some(seed) = choice_sampling::seed() else {
         return root;
     };
-    let radicand = value.as_f64();
-    if radicand.is_finite() && radicand > 0.0 && degree.is_positive() {
+    if root_described(value.as_f64(), degree) {
         return root;
     }
     choice_sampling::taken(super::ChosenClass::OutsideDomain);
@@ -1112,11 +1183,12 @@ mod tests {
         // Outside the domain: another value of the format.
         let (own, other) = floats("FLOAT.root", &[float("-4.0"), int(2)]);
         assert!(own.is_nan() && other.as_f64() == 0.0);
-        let (own, other) = floats("FLOAT.root", &[float("0.0"), int(3)]);
+        let (own, other) = floats("FLOAT.root", &[float("-0.0"), int(2)]);
         assert!(own.as_f64() == 0.0 && other.is_nan());
         // Determined values do not move: those no text left open, and those the amendments
         // determine (an inexact or overflowing conversion, 0, an inexact root, a rounding to an
-        // integer of a NaN, an infinity or to a zero).
+        // integer of a NaN, an infinity or to a zero, and a root in a positive degree of a NaN, a
+        // zero, an infinity or an odd root of a negative value).
         for (hook, arguments) in [
             ("FLOAT.int2float", vec![int(3), int(24), int(8)]),
             ("FLOAT.round", vec![float("0.5"), int(24), int(8)]),
@@ -1138,6 +1210,14 @@ mod tests {
             ("FLOAT.ceil", vec![float("-0.5")]),
             ("FLOAT.ceil", vec![float("Infinity")]),
             ("FLOAT.trunc", vec![float("NaN")]),
+            ("FLOAT.root", vec![float("0.0"), int(3)]),
+            ("FLOAT.root", vec![float("-0.0"), int(3)]),
+            ("FLOAT.root", vec![float("0.0f"), int(2)]),
+            ("FLOAT.root", vec![float("NaN"), int(2)]),
+            ("FLOAT.root", vec![float("Infinity"), int(2)]),
+            ("FLOAT.root", vec![float("-Infinity"), int(3)]),
+            ("FLOAT.root", vec![float("-8.0"), int(3)]),
+            ("FLOAT.root", vec![float("-3.0f"), int(3)]),
         ] {
             let (own, other) = both(hook, &arguments);
             assert_eq!(own, other, "{hook}{arguments:?}");

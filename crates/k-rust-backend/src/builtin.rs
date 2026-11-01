@@ -34,6 +34,7 @@ pub use crate::collection_role::{
 pub(crate) use collection_item::{Operand as CollectionOperand, read as read_collection_item};
 pub use declaration_facts::DeclarationFacts;
 pub(crate) use evaluated::evaluates;
+pub(crate) use float::evident_mixed_formats;
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
 pub(crate) use hook_signature::{LoadedSorts, render as render_sort};
 pub(crate) use result_collection::{ResultCollection, stored_at};
@@ -435,8 +436,9 @@ pub enum ChosenClass {
     FloatRounding,
     /// An outcome of a hook where its description gives none and does not exclude every value
     /// (`\bottom` and every value are models): the values of `ecdsaRecover` and `ecdsaPubKey`
-    /// outside their documented inputs and of `rootFloat` outside a positive finite value and a
-    /// positive degree; and the evaluators' `\bottom` at their scoped sites
+    /// outside their documented inputs and of `rootFloat` in a degree of 0 or below, or in an
+    /// even degree of a negative value or `-0.0` (`docs/amendments.md`, AM-11); and the
+    /// evaluators' `\bottom` at their scoped sites
     /// ([`Undefinedness::Undescribed`]).
     OutsideDomain,
     /// The element of a literal the literal rules leave open (`crate::literal`): a machine-integer
@@ -613,8 +615,9 @@ impl<'a> HookOutcome<'a> {
 ///   `binder` production, renamed or not: KORE terms are not quotiented by renaming and the
 ///   contract fixes no names (`substitution::substitutes_under_a_binder`).
 /// - `OutsideDomain`: the failure value of `ecdsaRecover` and `ecdsaPubKey`, which the evaluator
-///   gives exactly outside the documented inputs (`krypto::is_failure_value`); `rootFloat`
-///   outside a positive finite value and a positive degree (`float::root_outside_domain`); and
+///   gives exactly outside the documented inputs (`krypto::is_failure_value`); `rootFloat` in a
+///   degree of 0 or below, and of a negative value or `-0.0` in an even degree
+///   (`float::root_outside_domain`; `docs/amendments.md`, AM-4 and AM-11, determine the rest); and
 ///   the evaluator's `\bottom` at a site where the description
 ///   covers only some arguments ([`Undefinedness::Undescribed`]): `decodeBytes` of a sequence
 ///   the encoding does not decode, `ordChar` of a string that is not one code point,
@@ -5088,22 +5091,28 @@ mod tests {
     }
 
     /// GAP K1: where a description gives no value and does not exclude every value, k-rust's
-    /// value is `outside-domain`, of unknown definedness at a partial symbol: `rootFloat` outside
-    /// a positive finite value and a positive degree, and the ECDSA failure values. A recovered
-    /// key or a public key is determined (a hex `String` whose letter digits are lowercase,
-    /// AM-2). GAP A2: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's roundToIntegral
-    /// (`docs/amendments.md`, AM-6), so every argument is determined, a NaN, an infinity and a
-    /// non-integer rounding to a zero among them.
+    /// value is `outside-domain`, of unknown definedness at a partial symbol: `rootFloat` in a
+    /// degree of 0 or below, and of a negative value or `-0.0` in an even degree, and the ECDSA
+    /// failure values. A recovered key or a public key is determined (a hex `String` whose letter
+    /// digits are lowercase, AM-2). GAP A2: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE
+    /// 754's roundToIntegral (`docs/amendments.md`, AM-6), so every argument is determined, a NaN,
+    /// an infinity and a non-integer rounding to a zero among them. GAP A3: in a positive degree,
+    /// `rootFloat` of a NaN, a zero other than `-0.0` in an even degree, an infinity other than
+    /// `-Infinity` in an even degree, and a negative value in an odd degree are IEEE 754's
+    /// `rootn` (AM-11).
     #[test]
     fn values_outside_a_described_domain_are_outside_domain() {
         let open = [
             ("FLOAT.root", vec![float_term("-4.0"), Term::int(2)]),
-            ("FLOAT.root", vec![float_term("-8.0"), Term::int(3)]),
-            ("FLOAT.root", vec![float_term("0.0"), Term::int(2)]),
-            ("FLOAT.root", vec![float_term("Infinity"), Term::int(2)]),
-            ("FLOAT.root", vec![float_term("NaN"), Term::int(2)]),
+            ("FLOAT.root", vec![float_term("-8.0f"), Term::int(4)]),
+            ("FLOAT.root", vec![float_term("-Infinity"), Term::int(2)]),
+            ("FLOAT.root", vec![float_term("-0.0"), Term::int(2)]),
+            ("FLOAT.root", vec![float_term("-0.0f"), Term::int(4)]),
             ("FLOAT.root", vec![float_term("4.0"), Term::int(0)]),
+            ("FLOAT.root", vec![float_term("NaN"), Term::int(0)]),
             ("FLOAT.root", vec![float_term("4.0"), Term::int(-2)]),
+            ("FLOAT.root", vec![float_term("-8.0"), Term::int(-3)]),
+            ("FLOAT.root", vec![float_term("0.0"), Term::int(-3)]),
             (
                 "KRYPTO.ecdsaRecover",
                 vec![
@@ -5140,6 +5149,17 @@ mod tests {
             ("FLOAT.trunc", vec![float_term("-0.7f")]),
             ("FLOAT.floor", vec![float_term("NaN")]),
             ("FLOAT.ceil", vec![float_term("-Infinity")]),
+            ("FLOAT.root", vec![float_term("NaN"), Term::int(2)]),
+            ("FLOAT.root", vec![float_term("NaN"), Term::int(3)]),
+            ("FLOAT.root", vec![float_term("0.0"), Term::int(2)]),
+            ("FLOAT.root", vec![float_term("0.0f"), Term::int(3)]),
+            ("FLOAT.root", vec![float_term("-0.0"), Term::int(3)]),
+            ("FLOAT.root", vec![float_term("Infinity"), Term::int(2)]),
+            ("FLOAT.root", vec![float_term("Infinityf"), Term::int(3)]),
+            ("FLOAT.root", vec![float_term("-Infinity"), Term::int(3)]),
+            ("FLOAT.root", vec![float_term("-8.0"), Term::int(3)]),
+            ("FLOAT.root", vec![float_term("-2.0f"), Term::int(5)]),
+            ("FLOAT.root", vec![float_term("-2.0"), Term::int(1)]),
         ];
         for (hook, arguments) in &determined {
             assert_eq!(chosen_class(hook, arguments), None, "{hook}{arguments:?}");

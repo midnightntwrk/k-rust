@@ -295,6 +295,11 @@ fn float_letter_case_and_substitution_values_computed_at_run_time_are_marked() {
 /// GAP A2: the inexact and zero `Int2Float`, the inexact `roundFloat` and root and `floorFloat`
 /// to a zero are IEEE 754's (`docs/amendments.md`, AM-4 to AM-6), so they are unmarked; the
 /// `Float2Int` tie and the root of a negative value stay marked.
+///
+/// GAP A3: in a positive degree, the root of a NaN, of a zero or an infinity but `-0.0` and
+/// `-Infinity` in an even degree, and an odd root of a negative value are IEEE 754's `rootn`
+/// (`docs/amendments.md`, AM-11), so they are unmarked; an even root of a negative value or of
+/// `-0.0`, and a degree of 0 or below, stay marked.
 const GAP_VALUES: &str = r#"
 module MAIN
   imports INT
@@ -342,6 +347,12 @@ fn conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are
     assert_marked(GAP_VALUES, "rt(2.0, 2)", &[]);
     assert_marked(GAP_VALUES, "rt(4.0, 2)", &[]);
     assert_marked(GAP_VALUES, "rt(-4.0, 2)", &outside("FLOAT.root"));
+    assert_marked(GAP_VALUES, "rt(-0.0, 2)", &outside("FLOAT.root"));
+    assert_marked(GAP_VALUES, "rt(4.0, 0)", &outside("FLOAT.root"));
+    assert_marked(GAP_VALUES, "rt(-8.0, 3)", &[]);
+    assert_marked(GAP_VALUES, "rt(0.0, 2)", &[]);
+    assert_marked(GAP_VALUES, "rt(NaN, 2)", &[]);
+    assert_marked(GAP_VALUES, "rt(-Infinity, 3)", &[]);
     assert_marked(GAP_VALUES, "fl(0.5)", &[]);
     assert_marked(GAP_VALUES, "fl(-0.5)", &[]);
     assert_marked(GAP_VALUES, "fl(1.5)", &[]);

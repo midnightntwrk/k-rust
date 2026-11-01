@@ -406,3 +406,47 @@ Each entry has these fields:
   in module `INT-SYMBOLIC-KORE` (:1394-1396).
 - Status: local
 - Replaces: K text, marked lines `domains.md`:1395 and :1398, added (they replace no upstream line).
+
+### AM-11: The edges of rootFloat in a positive degree are IEEE 754's rootn
+
+- Upstream: `domains.md` at K v7.1.337, :1464-1467, :1577, :1600, :1607, :1671
+- Passage:
+
+  > Provided here is the syntax of an implementation of arbitrary-precision
+  > floating-point arithmetic in K based on a generalization of the IEEE 754
+  > standard. This type is hooked to an implementation of floats provided by the
+  > backend.
+
+  > * Compute the Nth integer root `rootFloat` of a float.
+
+  > * Compute the square root `sqrtFloat` of a float.
+
+  ```k
+    syntax Float ::= rootFloat(Float, Int)        [function, hook(FLOAT.root)]
+  ```
+
+  ```k
+    rule sqrtFloat(F:Float) => rootFloat(F, 2)
+  ```
+
+- k-rust reads: in a positive degree `N`, `rootFloat(F, N)` is IEEE 754's `rootn(F, N)` in `F`'s format at every `F` that is not negative and at every `F` when `N` is odd, `-0.0` in an even degree excepted: the root of a NaN is the format's NaN; of `+0.0` is `+0.0`, and of `-0.0` in an odd degree `-0.0`; of `+Infinity` is `+Infinity`, and of `-Infinity` in an odd degree `-Infinity`; and of a negative finite `F` in an odd degree it is the negation of the root of `-F`, correctly rounded as [AM-4](#am-4-float-conversions-and-roots-round-to-nearest-ties-to-even) reads that root.
+- Reason: the section's model is IEEE 754, and "the Nth integer root" is its operation with an integer degree, `rootn(x, n)`, the real `x^(1/n)` correctly rounded (IEEE 754-2019 §9.2); AM-4 reads it so at a positive finite `F`, and the text gives the operation the same words at every float.
+  For an odd `N` every real `x` has exactly one real `y` with `y^N = x`, the negation of the root of `|x|`: it is the only real a `Float` result can be, and it is `rootn`'s value.
+  The root of 0 is 0: `+0.0` gives `+0.0`, and for an odd `N`, where the root is an odd function whose values left of 0 are negative, `-0.0` gives `-0.0`, as `rootn` gives.
+  IEEE 754 construes an infinite operand as the limit of real operands of growing magnitude (§6.1): the root of a positive value grows without bound with it, and for an odd `N` the root of a negative one falls without bound, so `+Infinity` gives `+Infinity` and `-Infinity` in an odd degree `-Infinity`.
+  An operation of IEEE 754 with a quiet NaN operand and a floating-point result delivers a quiet NaN (§6.2), and a format has one NaN ([compatibility.md, Backend scope](compatibility.md#backend-scope)).
+  Three edges stay open. The hook is not declared `total`, and in its block every function of one `Float` whose real counterpart is defined on all reals is (`absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, `expFloat`, `sinFloat`, `cosFloat`, `atanFloat`) while those undefined on some reals are not (`logFloat`, `tanFloat`, `asinFloat`, `acosFloat`, `sqrtFloat`), :1607-1626: where no real root exists the text admits `\bottom` beside IEEE 754's NaN. That is an even root of a negative value, `-Infinity` included, and a degree of 0 or below, whose Nth root real mathematics does not define (`x^(1/0)` has no value; IEEE 754's `x^(1/n)` for a negative `n` extends the word). And an even root of `-0.0`: `rootn` gives `+0.0` (§9.2.1) and IEEE 754's squareRoot `-0.0` (§5.4.1), while the text calls `sqrtFloat` the square root and defines it as `rootFloat(F, 2)`, so the two IEEE operations it names give one application two values, and no sign rule for an even root of `-0.0` is evident.
+- Evidence: `values_outside_a_described_domain_are_outside_domain` (k-rust-backend `builtin.rs`: the determined roots and the open ones) and `float_root_is_the_ieee_rootn_of_every_degree` (the evaluator's values), with `a_seed_takes_the_other_tie_integer_and_another_root_outside_the_domain` (`builtin/float.rs`, `choice-sampling`); [implementation_chosen.rs](../crates/k-rust/tests/implementation_chosen.rs) `conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are_marked` (`rt(-8.0, 3)`, `rt(0.0, 2)`, `rt(NaN, 2)`, `rt(-Infinity, 3)` unmarked; `rt(-0.0, 2)`, `rt(4.0, 0)` marked); [cli.rs](../crates/k-rust/tests/cli.rs) `kprove_proves_no_claim_that_depends_on_an_open_value` (`rtf-odd-negative`, `rtf-odd-zero`, `rtf-nan` proven; `rtf-even-zero`, `rtf-degree-zero` undecided); [kompile_passes.rs](../crates/k-rust/tests/kompile_passes.rs) `leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded`; [choice_sampling.rs](../crates/k-rust/tests/choice_sampling.rs) (the three determined roots are controls).
+  The evaluator computes `rootn`'s special values in [k-rust-backend `builtin/float/root.rs`](../crates/k-rust-backend/src/builtin/float/root.rs) (`special_root`) and the odd root of a negative value as the negated root of its magnitude; no reference differential of k-rust's runs these roots on the Java or Haskell backend.
+- Upstream proposal:
+
+  ```diff
+  -* Compute the Nth integer root `rootFloat` of a float.
+  +* Compute the Nth integer root `rootFloat` of a float. In a positive degree it is
+  +  IEEE 754's `rootn`: NaN for a NaN, `+0.0` and `+Infinity` for themselves, and in
+  +  an odd degree the real root of a negative value, `-0.0` for `-0.0` and
+  +  `-Infinity` for `-Infinity`.
+  ```
+
+- Status: local
+- Replaces: class `outside-domain` at `rootFloat(F, N)` with `N` positive and `F` a NaN, `+0.0` or `+Infinity`, or, with `N` odd, `-0.0`, `-Infinity` or a negative finite value; the class keeps a degree of 0 or below, and an even degree of a negative value or of `-0.0`.

@@ -783,6 +783,18 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// them are unmarked again and compared, with the elements P-F1 and P-F2 state, so admission takes
 /// on what it took on before K1 and K3, now on a determined reading rather than a premise (the
 /// README's P-F1 and P-F2 wording is the kink session's, GK-2).
+///
+/// GAP A3 re-pin (ticket A3, `docs/amendments.md` AM-11): two passages changed, and both now
+/// state as determined values k-rust's evaluator computed all along. In a positive degree,
+/// `rootFloat` of a NaN, of `+0.0` and `+Infinity`, and in an odd degree of `-0.0`,
+/// `-Infinity` and a negative value is IEEE 754's `rootn`, where it was class `outside-domain`.
+/// (1) The fold paragraph (2f3e04d1 -> d45d4f62) leaves unfolded only a degree of 0 or below and
+/// an even root of a negative value or of `-0.0`, so the fold writes those roots again, each the
+/// evaluator's `rootn` value, which it wrote before GAP K1. (2) The `rootFloat` bullet
+/// (3263c247 -> febdbf85) says the same and cites AM-11; the execution values it lists are
+/// unchanged. The element of every literal is unchanged, and every value the fold now writes is
+/// one this admission took on before K1 (k-rust's IEEE arithmetic, `rootFloat`'s NaN among it),
+/// so admission reads the same.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -855,12 +867,12 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Constant folding",
                 "The `FLOAT` hooks are folded exactly where the backend computes them",
-                "2f3e04d1f80f32cf6da768dce1a9c5c59b3af507d52a0bb1db233267f749e196",
+                "d45d4f62ef38ba5a34158008b1f0c1c8e8e533fabc2d1d8656336268cfb5d8cf",
             ),
             passage(
                 "## Hook values at the edges of their domains",
                 "- `rootFloat(F, N)` is \"the Nth integer root\" of `F`",
-                "3263c2477ea4c667e12ea6de8e99e66d1ef3f40d04d0a6d82f7d39c19552152a",
+                "febdbf85f7283b254b3ddffebbf63c51a1973a87778ecf516f24d2e32c849a81",
             ),
         ],
     );

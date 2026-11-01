@@ -241,7 +241,8 @@ const POWER: &[Program] = &[
 /// GAP A2: the class-labelled controls include the conversions, the inexact root and the
 /// roundings to an integer the amendments determine (`docs/amendments.md`, AM-4 to AM-6; K5's
 /// probes of `float-rounding` and `outside-domain`), and the `Infinity` lexeme (AM-8; K5's
-/// exempted `literal` probe).
+/// exempted `literal` probe). GAP A3: the roots in a positive degree of a NaN, a zero, and an
+/// odd one of a negative value (AM-11).
 const CONTROLS: &[Program] = &[
     program("order", PROBES, "keysOne(1)"),
     program("item", PROBES, "choiceOne(1)"),
@@ -267,6 +268,9 @@ const CONTROLS: &[Program] = &[
     program("float-rounding", GAP, "i2f(0)"),
     program("float-rounding", GAP, "rnd(0.1)"),
     program("float-rounding", GAP, "rt(2.0, 3)"),
+    program("outside-domain", GAP, "rt(-8.0, 3)"),
+    program("outside-domain", GAP, "rt(0.0, 2)"),
+    program("outside-domain", GAP, "rt(NaN, 2)"),
     program("outside-domain", GAP, "fl(1.5)"),
     program("outside-domain", GAP, "fl(0.5)"),
     program("outside-domain", GAP, "flinf(1.0)"),

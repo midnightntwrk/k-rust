@@ -4496,9 +4496,18 @@ module MAIN
 /// GAP A2: `Int2Float`, `roundFloat`, an inexact root and `floorFloat`, `ceilFloat` and
 /// `truncFloat` are IEEE 754's (`docs/amendments.md`, AM-4 to AM-6), so they fold again; the
 /// `Float2Int` tie (`float-rounding`) and the root of a negative value (`outside-domain`) stay.
+///
+/// GAP A3: in a positive degree, the root of a NaN, of a zero or an infinity but `-0.0` and
+/// `-Infinity` in an even degree, and an odd root of a negative value are IEEE 754's `rootn`
+/// (`docs/amendments.md`, AM-11), so they fold; an even root of `-0.0` and a degree of 0 stay.
 #[test]
 fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() {
-    let open = ["Float2Int(2.5)", "rootFloat(-4.0, 2)"];
+    let open = [
+        "Float2Int(2.5)",
+        "rootFloat(-4.0, 2)",
+        "rootFloat(-0.0, 2)",
+        "rootFloat(4.0, 0)",
+    ];
     let determined = [
         "Int2Float(3, 24, 8)",
         "roundFloat(0.5, 24, 8)",
@@ -4515,6 +4524,12 @@ fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() 
         "floorFloat(0.5)",
         "ceilFloat(-0.5)",
         "truncFloat(Infinity)",
+        "rootFloat(-8.0, 3)",
+        "rootFloat(-0.0, 3)",
+        "rootFloat(0.0, 2)",
+        "rootFloat(NaN, 2)",
+        "rootFloat(Infinity, 2)",
+        "rootFloat(-Infinity, 3)",
     ];
     let rules = open
         .iter()
