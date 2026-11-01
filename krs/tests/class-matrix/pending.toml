@@ -3514,147 +3514,11 @@ deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-err
 # printer makes a binder of `_` ("`r#_` cannot be a raw identifier"). Probe:
 # `k3/terms/readable/map-value/_`. Plan: new.
 
-["k3/terms/readable/map-value/_"]
-finding = "NT-2-15"
-deviation = "printed surface refused: krs expand panicked: `r#_` cannot be a raw identifier"
-
 # NT-2-16: `krs expand` refuses a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block
 # `Wrap::<KItem>(x)` in a readable record, claim or `for Stmt` clause, and `Wrap::<dyn KItemSort>(x)`
 # in a table row, are accepted, and printing them fails with `krs::reference::external-declaration`
 # (unlocated). Probe: `k3/terms/readable/subject/Wrap::<KItem>(x)`.
 # Plan: new.
-
-["k3/terms/claim/item-root/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/claim/result-item-root/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/claim/result/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/claim/subject/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/item-root/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/list-element/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-key/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-key/function-argument/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/result-item-root/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/result-list-element/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/result/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/subject-depth-2/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/subject/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/result-root/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/result/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/result/function-argument/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/result/let-body/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/result/let-pattern/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/result/update-field/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/subject-depth-2/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/subject-root-term/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/subject-root/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/sort-rule/subject/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/table/result/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/table/subject-depth-2/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/table/subject/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/collection-child/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/cons-element/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-key/update-field/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-key-child/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-key/beside-fresh/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/map-value-child/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
-
-["k3/terms/readable/set-instance-child/Wrap::<KItem>(x)"]
-finding = "NT-2-16"
-deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
 
 # NT-2-17: a context alias's subject reports `missing-provenance-key` for islands, alternatives, an alias and a turbofish
 # A context alias's pattern admits these as any `cells!` subject does; the product reports
@@ -5964,18 +5828,6 @@ deviation = "refused where the table accepts, advising `concrete`"
 # no collected rule is. Probe: `#[cfg(any())] r: Cmd::C(x, _) => Cmd::Hold(x);` in
 # `k::rules! { for Stmt; .. }`, then `krs expand`.
 
-["k3/attrs/readable/cfg that does not hold"]
-finding = "NT-13-16"
-deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
-
-["k3/attrs/sort-rule/cfg that does not hold"]
-finding = "NT-13-16"
-deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
-
-["k3/attrs/table/cfg that does not hold"]
-finding = "NT-13-16"
-deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
-
 # S0-9 (K8): the advice check on cases pending above under S0-9, whose refusal it reads.
 
 ["k8/cells/result/job/k::configuration::Cell(0)"]
@@ -6623,6 +6475,14 @@ deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
+["k3/terms/sort-rule/result/let-body/Wrap::<KItem>(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/sort-rule/result/let-pattern/Wrap::<KItem>(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
 ["k8/terms/context/guard/Cmd::Pair { a: x, ..x }"]
 finding = "NT-16-4"
 deviation = "record-update-base advises terms/context/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }, which is not generated"
@@ -6644,3 +6504,23 @@ deviation = "record-update-in-pattern advises none, and its refusal advises `{ l
 ["terms/context-alias/map-key/k::project!(Int, x)"]
 finding = "NT-18-1"
 deviation = "krs::expand::missing-provenance-key @ spelling"
+["k3/terms/readable/map-value/_"]
+finding = "NT-30-1"
+deviation = "different"
+
+["k3/terms/claim/item-root/Wrap::<KItem>(x)"]
+finding = "NT-30-2"
+deviation = "different"
+
+["k3/terms/readable/item-root/Wrap::<KItem>(x)"]
+finding = "NT-30-2"
+deviation = "different"
+
+["k3/terms/sort-rule/subject-root-term/Wrap::<KItem>(x)"]
+finding = "NT-30-2"
+deviation = "different"
+
+["k3/terms/sort-rule/subject-root/Wrap::<KItem>(x)"]
+finding = "NT-30-2"
+deviation = "different"
+

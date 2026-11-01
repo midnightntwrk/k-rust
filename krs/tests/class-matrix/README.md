@@ -156,7 +156,10 @@ the descriptors of the base and its own. A case is judged by
   `krs expand`, the printed source is collected again, and each case's own K sentences must be
   emitted again, byte for byte or after the normalization of `class_matrix/closure.rs`
   (alpha-renaming, `... </k>` for an explicit computation rest, `...` for a frame variable used
-  once or `_` there, and the digest of a generated label). Each shard prints, per form, how many cases are byte-identical, equal after
+  once or `_` there, and the digest of a generated label). A case the printed source holds no item
+  of (a clause under `#[cfg(any())]`, which denotes no sentence) is judged by its command's
+  declaration alone. A panic of `krs expand` is recorded as the printed surface refused, with its
+  message. Each shard prints, per form, how many cases are byte-identical, equal after
   normalization, different, or refused in the printed source. `KRS_CLASS_CLOSURE=0` skips it;
 - K6, once accepted (initializers included) and not refused by the table: the definition the case
   emits, its base and the case alone, passes the judgement `krs check` makes without `--backend`

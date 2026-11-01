@@ -1408,8 +1408,9 @@ fn base_sentences(collected: &CollectedDefinition, all: &[Placed<'_>]) -> Option
 
 /// The cases `printed`, the source `krs expand` printed for them, holds, placed where their
 /// items are: each top-level item that names the case's tag (a printed form can be several items,
-/// a function and its equation), the first with the case's command variant. The IDs of the cases
-/// it holds no item for are the error.
+/// a function and its equation), the first with the case's command variant; a case that it holds
+/// no item for, at its command variant alone. The IDs of the cases it holds neither for are the
+/// error.
 fn locate<'a>(printed: &str, cases: &[&'a Case]) -> Result<Vec<Placed<'a>>, Vec<String>> {
     use syn::spanned::Spanned as _;
     let Ok(file) = syn::parse_file(printed) else {
@@ -1454,7 +1455,19 @@ fn locate<'a>(printed: &str, cases: &[&'a Case]) -> Result<Vec<Placed<'a>>, Vec<
             });
         }
         if placed.len() == before {
-            missing.push(case.id.clone());
+            // A case whose sentence is configured out (`#[cfg(any())]`) denotes none, and its
+            // printed form is its absence: what it adds is its command alone, so it is placed
+            // there and judged by the sentences it emits, which its command's syntax is.
+            match command.take() {
+                Some(command) => placed.push(Placed {
+                    case,
+                    item: command.start..command.start,
+                    spelling: command.start..command.start,
+                    entry: command.start..command.start,
+                    command: Some(command),
+                }),
+                None => missing.push(case.id.clone()),
+            }
         }
     }
     if missing.is_empty() {

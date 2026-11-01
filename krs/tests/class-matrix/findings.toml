@@ -89,11 +89,6 @@ owner = "NT-34"
 kind = "feature"
 what = "`concrete(x)` on an equation and a table row is refused, advising bare `concrete`, where the reference lists `concrete(x, ..)` as an equation key"
 
-["NT-13-16"]
-owner = "NT-30"
-kind = "bug"
-what = "a `k::rules!` clause or `k::equations!` row under a `cfg` that does not hold is accepted, but `krs expand` fails with the internal `krs::reference::rule-coverage`"
-
 ["NT-13-2"]
 owner = "NT-34"
 kind = "feature"
@@ -159,16 +154,6 @@ owner = "NT-28"
 kind = "diagnostic"
 what = "a static clause whose body rustc cannot parse leaves its production's marker orphaned"
 
-["NT-2-15"]
-owner = "NT-30"
-kind = "bug"
-what = "`krs expand` panics on a readable map read whose value is `_`"
-
-["NT-2-16"]
-owner = "NT-30"
-kind = "bug"
-what = "`krs expand` prints a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block so that the re-check refuses it"
-
 ["NT-2-17"]
 owner = "NT-28"
 kind = "bug"
@@ -232,8 +217,7 @@ what = "a construct no Rust pattern or expression spells, nested below a slot's 
 ["NT-2-7"]
 owner = "NT-28"
 kind = "bug"
-what = "`_` where no production field gives it a sort is the descriptor validator's message; `krs expand` prints `_` at an item root so that the re-check refuses it"
-by_test = { k3 = "NT-30" }
+what = "`_` where no production field gives it a sort is the descriptor validator's message, and `krs expand` prints `_` at an item root so that the re-check refuses it by the same message (NT-30: the printer is right; the K3 rows clear with the K2 fix)"
 
 ["NT-3-1"]
 owner = "NT-31"
@@ -244,6 +228,16 @@ what = "a set's element in a pattern refuses what a key admits: computed constru
 owner = "NT-31"
 kind = "feature"
 what = "a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up"
+
+["NT-30-1"]
+owner = "NT-30"
+kind = "bug"
+what = "the readable route reads a map value `_` as a binder named `_`, so the printed `map![x -> _, ..]` emits other K, and two `_` values are refused as a duplicate binding"
+
+["NT-30-2"]
+owner = "S6"
+kind = "bug"
+what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
 ["NT-35-1"]
 owner = "NT-36"
