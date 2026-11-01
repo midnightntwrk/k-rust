@@ -399,6 +399,7 @@ fn main_cells(cases: &mut Vec<Case>) {
                     ],
                     status: Status::Value,
                     forward_only: Vec::new(),
+                    applies: true,
                 })
             };
             cases.push(case);
@@ -1010,6 +1011,7 @@ fn start_with(
         cells: read,
         status,
         forward_only: Vec::new(),
+        applies: true,
     })
 }
 

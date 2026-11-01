@@ -437,6 +437,11 @@ pub struct Run {
     /// NT-23-1). And a case's own command whose clause's subject holds a token that would print
     /// as text no program reads back as it (`$x`, NT-23-3).
     pub forward_only: Vec<String>,
+    /// Whether the case's sentence applies in the run as stated. A run where it must not (its
+    /// condition fails at the witness, its postcondition fails, a restriction or a `cfg` leaves
+    /// it out) ends as the run without it does, by design: it fails where the sentence applies,
+    /// so K7's dependency check, which removes the sentence, does not judge it.
+    pub applies: bool,
 }
 
 /// Why K7 does not run a case.

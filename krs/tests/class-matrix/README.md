@@ -259,7 +259,12 @@ the descriptors of the base and its own. A case is judged by
   `sone(2)`), a selection by its witness; a map key, a list or cons element and a collection's instance are first set up by the
   terms base's driver commands (`then(setenv(..), cNAME(1, 0))`), one step each at priority 10,
   so that no driver rule overlaps a case's; an equation's function is applied from the base's
-  rules `call(a, b) => hold(probe(a, b))` and `sizeof(a) => hold(size(a))`; a context heats the
+  rules `call(a, b) => hold(probe(a, b))`, `callk(a, b) => hold(probek(a, b))` and
+  `sizeof(a) => hold(size(a))`, and where the hole is an argument in an equation's result it is
+  `Wk`'s, in `ProbeK(Cmd::NAME(), x) => Wk(HOLE)`, so that the run ends with `hold(wrap(v))`, a
+  value (`Size` has no equation, so `size(v)` would name none); a simplification rewrites `Zero`,
+  whose equation makes it 0, to 0 or to `Kz(HOLE)`, which is 0 too, so that it states a true
+  equation at `Int`; a context heats the
   token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
   which the run's parse expands, and its result read in the expansion; an initializer, of the
   term family or of the configuration families' `init` (the machine and typed bases, with `$PGM`
@@ -381,6 +386,21 @@ the descriptors of the base and its own. A case is judged by
   stated `value`, `liveness` only (a witness, or a value the generator does not state), or why
   nothing (`no driver`, `no witness`, `no value`). `KRS_CLASS_RUN=0` skips K7; without K6
   (`KRS_CLASS_NATIVE=0`) it does not run, and says so.
+
+  *The dependency check* (`Worker::check_dependency`). A witness shows what a case's sentences
+  mean only if its run depends on them. So each case whose run conforms is run again, by the same
+  plan, on the definition of the base and the cases' commands without any case's sentence (one
+  more check per accepted K6 check), where it must not conform: one that conforms there too
+  deviates (`the run conforms without the case's sentences too: it shows nothing they do`), as
+  does one the check cannot be made for (`K7's dependency check: ..`). Three kinds are exempt,
+  each for its reason, and listed in the TSV (`k7-independent` lines): a case whose plan states
+  that its sentence does not apply (`Run::applies`: a condition or postcondition that fails, a
+  restriction or a `cfg` that leaves it out), whose run is by design the run without it and fails
+  where it applies; a static clause's case (its production is marked for expansion, and no
+  definition holds it without the clause; its counter runs show what it expands); and an
+  initializer's (the definition without it has no configuration). `KRS_CLASS_DEPENDS=0` skips the check. On 2026-11-02 it made 15 checks and 80
+  runs in the `runs` shard (54 s of worker time beside K6's 50 s; the shard took 134 s against
+  122 s), and found no conforming run that does not depend on its sentences.
 
   *The twin check* (`class_matrix::twins`, keyed `twin/<case ID>`). A static clause's result is
   the term a program's expansion writes in place of the clause's production, which then evaluates

@@ -915,6 +915,7 @@ pub fn twin_runs(case: &Case) -> Vec<(&'static str, k7::Run)> {
                     cells: Vec::new(),
                     status: k7::Status::Liveness,
                     forward_only: Vec::new(),
+                    applies: true,
                 },
             )
         })

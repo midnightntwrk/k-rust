@@ -285,6 +285,11 @@ fn settings() -> (Settings, Option<tempfile::TempDir>) {
             Some("0") => None,
             Some(other) => panic!("KRS_CLASS_RUN={other:?} is not 0 or 1"),
         },
+        depends: match variable("KRS_CLASS_DEPENDS").as_deref() {
+            None | Some("1") => true,
+            Some("0") => false,
+            Some(other) => panic!("KRS_CLASS_DEPENDS={other:?} is not 0 or 1"),
+        },
     };
     let mut settings = settings;
     if settings.native == NativeMode::Off && settings.run.is_some() {
@@ -377,6 +382,7 @@ fn first_difference(recorded: &str, emitted: &str) -> String {
     loop {
         match (recorded_lines.next(), emitted_lines.next()) {
             (Some(was), Some(is)) if was == is => line += 1,
+            (None, None) => return "in their line endings only".to_owned(),
             (was, is) => {
                 let shown = |text: Option<&str>| {
                     text.map_or("nothing".to_owned(), |text| format!("`{text}`"))
@@ -1094,6 +1100,10 @@ fn k6(shard: &mut Shard, judged: &Judged) {
 /// sentence applied, with the value the generator states. A case K7 did not run (no plan, K6
 /// refused it, or a run with `KRS_CLASS_RUN=0`) has no K7 verdict.
 fn k7(shard: &mut Shard, judged: &Judged) {
+    if let Some(independent) = &judged.independent {
+        writeln!(shard.lines, "k7-independent\t{}\t{independent}", judged.id)
+            .expect("writing to a String cannot fail");
+    }
     if let Some(ran) = &judged.ran {
         let misses = match ran {
             Ran::Conforms(_) => Vec::new(),
@@ -1615,6 +1625,7 @@ fn k7_bounds_a_program_whose_expansion_or_run_does_not_end() {
         native: NativeMode::Batched,
         refused_by_table: BTreeSet::new(),
         run: Some(limit),
+        depends: false,
     };
     let spin = bound_source(
         "    #[k::syntax(\"spin({a})\")] #[k::desugar] Spin { a: KItem },\n",
@@ -1637,6 +1648,7 @@ fn k7_bounds_a_program_whose_expansion_or_run_does_not_end() {
             cells: Vec::new(),
             status: Status::Liveness,
             forward_only: Vec::new(),
+            applies: true,
         };
         let ran = Mutex::new(None);
         let visit = |semantics: &mut krs_exec::Semantics| {

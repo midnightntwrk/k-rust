@@ -191,6 +191,7 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             cells: vec![("k".to_owned(), Ground::Seq(vec![hold(int(1))]))],
             status: Status::Liveness,
             forward_only: base_forward_only(),
+            applies: true,
         });
     }
     for other in neighbour_values(witness) {
@@ -202,6 +203,7 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             cells: Vec::new(),
             status: Status::Unexpanded,
             forward_only: base_forward_only(),
+            applies: true,
         });
     }
     runs
@@ -221,6 +223,7 @@ fn beside_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run>
         cells: vec![("k".to_owned(), Ground::Seq(vec![pair(int(1), int(1))]))],
         status: Status::Liveness,
         forward_only: base_forward_only(),
+        applies: true,
     });
     runs
 }
@@ -559,6 +562,7 @@ impl Driver<'_> {
                 .collect(),
             status,
             forward_only: base_forward_only(),
+            applies: true,
         }))
     }
 
@@ -583,6 +587,7 @@ impl Driver<'_> {
         };
         if !holds {
             run.steps -= 1;
+            run.applies = false;
         }
         Ok(K7::Run(run))
     }

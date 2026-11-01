@@ -515,6 +515,7 @@ fn subject(matched: Result<Matched, &'static str>, command: &Command) -> Plans {
         cells: vec![("k".to_owned(), Ground::Seq(Vec::new()))],
         status: Status::Liveness,
         forward_only: Vec::new(),
+        applies: true,
     });
     let counters = matched.counters.map(|setups| {
         setups
@@ -529,6 +530,7 @@ fn subject(matched: Result<Matched, &'static str>, command: &Command) -> Plans {
                     cells: Vec::new(),
                     status: Status::Liveness,
                     forward_only: Vec::new(),
+                    applies: true,
                 }
             })
             .collect()
@@ -552,6 +554,7 @@ fn computation_subject(computation: Result<Computation, &'static str>) -> Plans 
         cells: vec![("pc".to_owned(), int(1))],
         status: Status::Liveness,
         forward_only: Vec::new(),
+        applies: true,
     });
     let counters = computation.counters.map(|counters| {
         counters
@@ -564,6 +567,7 @@ fn computation_subject(computation: Result<Computation, &'static str>) -> Plans 
                 cells: Vec::new(),
                 status: Status::Liveness,
                 forward_only: Vec::new(),
+                applies: true,
             })
             .collect()
     });
@@ -592,6 +596,7 @@ fn result(kind: CellKind, written: Result<Written, &'static str>, command: &Comm
         ],
         status: status(&written.value),
         forward_only: Vec::new(),
+        applies: true,
     });
     Plans {
         k7: plan,
@@ -614,6 +619,7 @@ fn computation_result(program: &Setup, written: Result<Written, &'static str>) -
         cells: vec![("k".to_owned(), written.value.clone())],
         status: status(&written.value),
         forward_only: Vec::new(),
+        applies: true,
     });
     Plans {
         k7: plan,

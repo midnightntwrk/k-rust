@@ -488,6 +488,7 @@ fn run(program: &Ground, steps: u64, items: Vec<Ground>, status: Status) -> Run 
         cells: vec![("k".to_owned(), Ground::Seq(items))],
         status,
         forward_only: drivers::base_forward_only(),
+        applies: true,
     }
 }
 
@@ -500,18 +501,22 @@ fn unapplied(form: Form, program: &Ground, cmd: &Command) -> Run {
                 unreachable!("an equation's program is `call(..)`")
             };
             let argument = fields[1].clone();
-            run(
-                program,
-                1,
-                vec![hold(Ground::unevaluated(
-                    "probe",
-                    vec![command(cmd, Vec::new()), argument],
-                ))],
-                Status::Value,
-            )
+            Run {
+                applies: false,
+                ..run(
+                    program,
+                    1,
+                    vec![hold(Ground::unevaluated(
+                        "probe",
+                        vec![command(cmd, Vec::new()), argument],
+                    ))],
+                    Status::Value,
+                )
+            }
         }
         _ => Run {
             depth: 1,
+            applies: false,
             ..run(program, 0, vec![program.clone()], Status::Value)
         },
     }

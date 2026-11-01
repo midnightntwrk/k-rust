@@ -117,6 +117,11 @@ pub struct Judged {
     /// that the batched verdict did not reproduce. The case is then judged by its verdict alone,
     /// and the shard fails.
     pub interference: Option<String>,
+    /// K7's dependency check ([`Worker::check_dependency`]), for a case whose run conforms, when
+    /// the run makes it: how the same run ended on the definition without the case's sentences,
+    /// where it conforms there too (so the run shows nothing the sentences do), or why that
+    /// definition could not be judged.
+    pub independent: Option<String>,
 }
 
 /// How a run judges its accepted cases by K6.
@@ -189,6 +194,9 @@ pub struct Settings {
     /// K7's time limit per program, when the run runs the accepted cases (K6 compiles what they
     /// run on, so K7 runs only with K6).
     pub run: Option<Duration>,
+    /// Whether K7 also runs each conforming case on the definition without its sentences
+    /// ([`Worker::check_dependency`]).
+    pub depends: bool,
 }
 
 /// What K2 makes of a case's judgement, for judging a batched verdict again alone
@@ -279,6 +287,14 @@ pub fn judge_all(
             cost.apart_checks.load(Ordering::Relaxed),
             apart.as_secs_f64(),
         );
+        if settings.depends {
+            eprintln!(
+                "[krs-class] K7's dependency check ran {} programs in {} checks without the cases' sentences, {:.1} s of worker time",
+                cost.depend_runs.load(Ordering::Relaxed),
+                cost.depend_checks.load(Ordering::Relaxed),
+                Duration::from_nanos(cost.depend_nanos.load(Ordering::Relaxed)).as_secs_f64(),
+            );
+        }
     }
     judged
 }
@@ -297,6 +313,9 @@ struct NativeCost {
     run_nanos: AtomicU64,
     apart_checks: AtomicUsize,
     apart_nanos: AtomicU64,
+    depend_checks: AtomicUsize,
+    depend_runs: AtomicUsize,
+    depend_nanos: AtomicU64,
 }
 
 /// A worker's part in K6.
@@ -309,6 +328,8 @@ struct NativeRun<'a> {
     alone: bool,
     /// K7's time limit per program, when the run runs accepted cases.
     run: Option<Duration>,
+    /// Whether K7 makes its dependency check.
+    depends: bool,
 }
 
 /// K7's verdicts made on one loaded definition, and the cases a panic left unrun there.
@@ -326,6 +347,7 @@ struct Verdicts {
     ran: BTreeMap<String, Ran>,
     twin_ends: BTreeMap<String, Vec<(&'static str, String)>>,
     interference: BTreeMap<String, String>,
+    independent: BTreeMap<String, String>,
 }
 
 /// Collect `source` alone, as a package in the directory `name` of the scratch, with a target of
@@ -465,6 +487,7 @@ impl<'w> Worker<'w> {
                 cost,
                 alone: settings.native == NativeMode::Alone,
                 run: settings.run,
+                depends: settings.depends,
             }),
         }
     }
@@ -641,6 +664,7 @@ impl<'w> Worker<'w> {
             judged.ran = verdicts.ran.remove(&judged.id);
             judged.twin_ends = verdicts.twin_ends.remove(&judged.id).unwrap_or_default();
             judged.interference = verdicts.interference.remove(&judged.id);
+            judged.independent = verdicts.independent.remove(&judged.id);
         }
     }
 
@@ -729,6 +753,7 @@ impl<'w> Worker<'w> {
                     self.run_apart(collected, all, cases, out);
                 }
                 self.check_interference(collected, all, cases, judged, out);
+                self.check_dependency(collected, all, cases, out);
             }
             (refused, [placed]) => {
                 out.native.insert(placed.case.id.clone(), refused);
@@ -920,6 +945,108 @@ impl<'w> Worker<'w> {
                 ),
             );
             out.ran.insert(placed.case.id.clone(), alone);
+        }
+    }
+
+    /// K7's dependency check. A K7 witness shows what a case's sentences mean only if its run's
+    /// verdict depends on them: so each case of `cases` whose run conforms is run again, by the
+    /// same plan, on the definition of the base and the cases' commands without any case's
+    /// sentence, where it must not conform. A case that conforms there too deviates
+    /// ([`INDEPENDENT`]), as does one the check cannot be made for, unless an exemption
+    /// ([`exemption`]) says why removing its sentence makes no definition; each is recorded
+    /// (`independent`). Each case's command is its own production, which no other case's
+    /// sentence rewrites, so one definition serves every case of the check.
+    fn check_dependency(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'_>],
+        cases: &[&Placed<'_>],
+        out: &mut Verdicts,
+    ) {
+        let Some(run) = self.native.filter(|run| run.depends) else {
+            return;
+        };
+        let Some(limit) = run.run else {
+            return;
+        };
+        let (conforming, marked): (Vec<_>, Vec<_>) = cases
+            .iter()
+            .filter(|placed| {
+                matches!(placed.case.k7, K7::Run(_))
+                    && matches!(out.ran.get(&placed.case.id), Some(Ran::Conforms(_)))
+            })
+            .copied()
+            .partition(|placed| exemption(placed).is_none());
+        for placed in marked {
+            out.independent.insert(
+                placed.case.id.clone(),
+                format!("exempt: {}", exemption(placed).unwrap_or_default()),
+            );
+        }
+        if conforming.is_empty() {
+            return;
+        }
+        let bundle = commands_only(&collected.bundle, all);
+        let ended = Mutex::new(BTreeMap::new());
+        let visit = |semantics: &mut Semantics| {
+            for placed in &conforming {
+                let K7::Run(plan) = &placed.case.k7 else {
+                    continue;
+                };
+                let own = placed.case.command().map(|command| command.name.as_str());
+                let ran = catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit, own)))
+                    .unwrap_or_else(|panic| {
+                        Ran::Deviates(format!("panic: {}", panic_message(&*panic)))
+                    });
+                run.cost.depend_runs.fetch_add(1, Ordering::Relaxed);
+                ended
+                    .lock()
+                    .expect("the runs are not poisoned")
+                    .insert(placed.case.id.clone(), ran);
+            }
+        };
+        let started = Instant::now();
+        let checked = catch_unwind(AssertUnwindSafe(|| {
+            collected.check_visiting(bundle, Some(&visit))
+        }));
+        let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        run.cost.depend_checks.fetch_add(1, Ordering::Relaxed);
+        run.cost.depend_nanos.fetch_add(elapsed, Ordering::Relaxed);
+        let ended = ended.into_inner().expect("the runs are not poisoned");
+        for placed in conforming {
+            let id = &placed.case.id;
+            let note = match (&checked, ended.get(id)) {
+                (Ok(Ok(_)), Some(Ran::Conforms(_))) => {
+                    // The run shows nothing the sentences do: K7's verdict deviates.
+                    out.ran
+                        .insert(id.clone(), Ran::Deviates(INDEPENDENT.to_owned()));
+                    INDEPENDENT.to_owned()
+                }
+                (Ok(Ok(_)), Some(Ran::Deviates(_))) => continue,
+                (Ok(Ok(_)), None) => "its run was not made without the case's sentences".to_owned(),
+                (Ok(Err(error)), _) => format!(
+                    "the definition without the cases' sentences is refused: {}: {}",
+                    native_signature(error),
+                    observe_error(error)
+                        .into_iter()
+                        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                        .map(|diagnostic| diagnostic.message.replace(['\n', '\t'], " "))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                ),
+                (Err(panic), _) => format!(
+                    "the definition without the cases' sentences panicked: {}",
+                    panic_message(&**panic)
+                ),
+            };
+            // Where the check could not be made, no exemption says why: K7's verdict deviates.
+            if note != INDEPENDENT {
+                out.ran.insert(
+                    id.clone(),
+                    Ran::Deviates(format!("K7's dependency check: {note}")),
+                );
+            }
+            out.independent.insert(id.clone(), note);
         }
     }
 
@@ -1380,6 +1507,80 @@ fn lowers_as_alone(
     together == expected
 }
 
+/// Why K7's dependency check does not run a static clause's case without its clause: the
+/// clause's production is marked for expansion, and a definition whose marked production nothing
+/// expands is refused, so there is no definition without the clause to run on. Its counter runs
+/// judge that the clause expands only what its subject matches.
+const STATIC_CLAUSE_EXEMPT: &str = "a static clause's production is marked for expansion, and no definition holds a marked production without the clause that expands it; the clause's counter runs show what it expands";
+
+/// Why an initializer's case is not run without its sentence: the initializer is the definition's
+/// configuration, which a definition without it does not have.
+const INITIALIZER_EXEMPT: &str = "an initializer's case replaces the base's initializer, and the definition without it has no configuration to run";
+
+/// K7's deviation of a case whose run conforms on the definition without its sentences too.
+const INDEPENDENT: &str =
+    "the run conforms without the case's sentences too: it shows nothing they do";
+
+/// Why a case whose plan states that its sentence does not apply is not run without it: its run
+/// is by design the run without the sentence, and it fails where the sentence applies.
+const UNAPPLIED_EXEMPT: &str = "the plan states that the sentence does not apply here (its condition or postcondition fails, or a restriction or a `cfg` leaves it out), so its run is the run without it, and fails where the sentence applies";
+
+/// Why K7's dependency check does not run `placed` without its sentences, if it does not.
+fn exemption(placed: &Placed<'_>) -> Option<&'static str> {
+    if matches!(&placed.case.k7, K7::Run(plan) if !plan.applies) {
+        Some(UNAPPLIED_EXEMPT)
+    } else if static_production(placed) {
+        Some(STATIC_CLAUSE_EXEMPT)
+    } else if placed.case.replaces_initializer() {
+        Some(INITIALIZER_EXEMPT)
+    } else {
+        None
+    }
+}
+
+/// Whether `placed`'s command is a static clause's production (`#[k::desugar]`, `#[k::alias]`).
+fn static_production(placed: &Placed<'_>) -> bool {
+    placed
+        .case
+        .command()
+        .is_some_and(|command| command.marker.is_some())
+}
+
+/// The descriptors of the base and of every case's command (its constructor, and what its
+/// declaration in the base's command family declares) but a static clause's production, without
+/// any case's sentence: the definition a case's program runs on when its sentences are removed.
+fn commands_only(bundle: &DescriptorBundle, all: &[Placed<'_>]) -> DescriptorBundle {
+    let descriptors = bundle
+        .descriptors()
+        .iter()
+        .filter(|descriptor| {
+            owner(descriptor, all).is_none_or(|placed| {
+                let commanded = placed
+                    .case
+                    .command()
+                    .is_some_and(|command| command.name == descriptor.id().item_name());
+                let declared = case_range(descriptor.origin())
+                    .is_some_and(|range| placed.region(&range) == "command");
+                (commanded || declared) && !static_production(placed)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let kept = descriptors
+        .iter()
+        .map(|descriptor| descriptor.id().clone())
+        .collect::<BTreeSet<_>>();
+    let declarations = bundle
+        .declarations()
+        .iter()
+        .filter(|declaration| kept.contains(declaration.id()))
+        .cloned()
+        .collect();
+    DescriptorBundle::with_declarations(descriptors, declarations)
+        .and_then(|sub| sub.with_package_settings(bundle.package_settings().to_vec()))
+        .expect("a subset of a valid bundle is valid")
+}
+
 /// The descriptors of the base and of the cases `keep` selects ([`owner`]).
 fn sub_bundle_of(
     bundle: &DescriptorBundle,
@@ -1444,6 +1645,7 @@ fn judged(placed: &Placed<'_>, observed: Observed, all: &[Placed<'_>]) -> Judged
         ran: None,
         twin_ends: Vec::new(),
         interference: None,
+        independent: None,
     }
 }
 
