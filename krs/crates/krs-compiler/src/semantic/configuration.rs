@@ -137,7 +137,10 @@ pub(super) fn lower_fixed_configuration_descriptor(
 /// cell of its own (a term rule, a context, a strict production's heating, a `for Stmt` clause, a
 /// `#[k::rule]` fn stated over the computation cell) rewrites it. A configuration with several
 /// `KSequence` cells, none or more than one of which reads the program, has no such cell, and a
-/// definition over it would run its sentences in a cell the configuration does not name.
+/// definition over it would run its sentences in a cell the configuration does not name. That
+/// is the configuration's mistake, refused here once: a sentence that needs the main cell (a
+/// `for Stmt` clause in the collector, a `#[k::rule]` fn stated over the computation cell in
+/// [`super::rules`]) reports this same refusal, at the initializer, and adds none of its own.
 ///
 /// The collector and the lowering of a rule stated over the computation cell read the main cell
 /// from the descriptor's configuration ([`krs_ir::TransportFixedConfiguration::main_cell`]), the
@@ -149,33 +152,6 @@ pub(super) fn lower_fixed_configuration_descriptor(
 /// The main cell KRS reads from the initializer is the `KSequence` cell that holds the program,
 /// so a `k` that is another cell would give the definition a second computation cell, or one
 /// other than its initializer states.
-/// The refusal of configuration `name`, whose computation cells `names` include `reading` that
-/// read the program, for having no main cell; `range` is where it is told.
-pub(super) fn ambiguous_main_cell(
-    name: &str,
-    names: &[&str],
-    reading: usize,
-    range: Option<krs_ir::SourceRange>,
-) -> DescriptorLoweringError {
-    DescriptorLoweringError::MainCell {
-        reason: format!(
-            "configuration `{name}` {}. Place the program, the `main` configuration variable, in \
-             the one `KSequence` cell that holds the computation",
-            krs_ir::ambiguous_main_cell_reason(names, reading),
-        ),
-        range: range.map(Box::new),
-        item: None,
-    }
-}
-
-/// The K name of a configuration's cell `field`: its emitted name, else its Rust field's.
-pub(super) fn cell_name(field: &DescriptorCellField) -> &str {
-    field
-        .emitted_name
-        .as_ref()
-        .map_or(field.rust_field.as_str(), |name| name.value.as_str())
-}
-
 fn check_main_cell(
     name: &str,
     transport: &DescriptorFixedConfiguration,
@@ -207,15 +183,15 @@ fn check_main_cell(
     let main = match krs_ir_levels::k_surface::main_cell(configuration) {
         krs_ir::MainCell::Ambiguous { cells, reading } => {
             let names = cells.iter().map(|cell| cell.name()).collect::<Vec<_>>();
-            return Err(ambiguous_main_cell(
-                name,
-                &names,
-                reading,
-                configuration
+            return Err(DescriptorLoweringError::MainCell {
+                reason: krs_ir::ambiguous_main_cell_refusal(name, &names, reading),
+                range: configuration
                     .initializer_origin()
                     .origin()
-                    .exact_authored_range(),
-            ));
+                    .exact_authored_range()
+                    .map(Box::new),
+                item: None,
+            });
         }
         main => main.cell(),
     };

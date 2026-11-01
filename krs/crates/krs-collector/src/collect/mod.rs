@@ -387,6 +387,26 @@ fn locate_at_host(
     }
 }
 
+/// Locates each configuration's main-cell refusal at that configuration's initializer, whose
+/// descriptor holds the provenance: a rule that reports it is about another item.
+fn locate_main_cell_refusals(
+    targets: &mut [resolve::HeadRuleTarget],
+    pending: &[PendingDescriptor],
+    contexts: &[PreparedContext],
+) {
+    for target in targets {
+        let Some(owner) = pending
+            .iter()
+            .find(|pending| &pending.id == target.configuration())
+        else {
+            continue;
+        };
+        target.locate_main_refusal(|error| {
+            locate_at_host(error, &owner.host, &owner.id, owner.context_index, contexts)
+        });
+    }
+}
+
 fn resolve_pending_descriptors(
     mut pending: Vec<PendingDescriptor>,
     contexts: &[PreparedContext],
@@ -404,7 +424,8 @@ fn resolve_pending_descriptors(
                 .collect::<HashMap<_, _>>();
             let declarations = declared_type_table(&pending, builtins)?;
             let cell_fields = declared_cell_field_table(&pending)?;
-            let head_targets = resolve_head_rule_targets(&pending, &cell_fields)?;
+            let mut head_targets = resolve_head_rule_targets(&pending, &cell_fields)?;
+            locate_main_cell_refusals(&mut head_targets, &pending, contexts);
             Ok::<_, CollectionError>((context_aliases, declarations, cell_fields, head_targets))
         })?;
     let mut source_cache = BTreeMap::new();
@@ -448,7 +469,13 @@ fn resolve_pending_descriptors(
         }) {
             Ok(value) => value,
             Err(error) => {
-                let error = error.with_provenance(&provenance).with_item(&pending.id);
+                // An error about another item (a configuration's refusal that a rule needing
+                // its main cell reports) is located at that item already.
+                let error = if error.source_range().is_some() {
+                    error
+                } else {
+                    error.with_provenance(&provenance).with_item(&pending.id)
+                };
                 loop_failure = Some(("collector.resolve.payload", error));
                 break;
             }

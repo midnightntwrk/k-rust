@@ -1190,21 +1190,23 @@ impl Machine {{
 
 /// A configuration with several computation cells names its main cell only by placing the
 /// program in one of them (`krs_ir::select_main_cell`). Where none or both read the program it
-/// has none, so nothing says where the sentences that name no cell run: the configuration is
-/// refused (`main-cell`), and so is a rule stated over the computation cell (`main-cell`, the same
-/// reason) and a `for Stmt` clause, whose computation cell the collector picks
-/// (`computation-cell`), each with the same explanation, never an internal error.
+/// has none, so nothing says where the sentences that name no cell run. That is the
+/// configuration's mistake, and the author is told it once, at the initializer (`main-cell`):
+/// `for Stmt` clauses, whose computation cell the collector picks, and `#[k::rule]` fns stated over
+/// the computation cell, which lowering places, report that one refusal and add none of their
+/// own, never an internal error. Every error the check prints is listed, with where it points.
 #[test]
 fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let both = "pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self { prog: k::k![pgm], frame: Frame { code: k::k![pgm] } }\n    }";
     let neither = "pub fn init() -> Self {\n        Self { prog: k::k![], frame: Frame { code: k::k![] } }\n    }";
-    let head = "k::rules! {\n    for Stmt;\n    use Cmd::*;\n\n    hop: Go() => Done();\n}";
-    let collection = "#[k::rule]\nfn unset(x: Term<k::KItem>, k::term![k::builtin::set::item(x)]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Done()\n}";
+    let head = "k::rules! {\n    for Stmt;\n    use Cmd::*;\n\n    hop: Go() => Done();\n    hip: Done() => Go();\n}";
+    let collection = "#[k::rule]\nfn unset(x: Term<k::KItem>, k::term![k::builtin::set::item(x)]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Done()\n}\n\n#[k::rule]\nfn unget(k::term![k::builtin::set::item(Cmd::Go())]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Go()\n}";
     let mut refused = Vec::new();
     for (name, init, extra) in [
         ("both", both, ""),
+        ("both-head", both, head),
         ("neither", neither, ""),
         ("neither-head", neither, head),
         ("neither-collection", neither, collection),
@@ -1217,86 +1219,319 @@ fn a_configuration_whose_computation_cells_do_not_name_one_is_refused() {
         let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
         assert!(!success, "{name}: {stderr}");
         assert!(!stderr.contains("internal"), "{name}: {stderr}");
-        let error = stderr
-            .lines()
-            .find(|line| line.starts_with("error[krs::"))
-            .unwrap_or_else(|| panic!("{name}: {stderr}"));
-        refused.push(format!("{name}: {error}"));
+        let lines = stderr.lines().collect::<Vec<_>>();
+        let errors = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with("error"))
+            .map(|(at, line)| {
+                // The source line the error points at, as the report quotes it.
+                let place = lines[at..]
+                    .iter()
+                    .skip_while(|line| !line.trim_start().starts_with("-->"))
+                    .find_map(|line| line.split_once(" | ").map(|(_, source)| source.trim()))
+                    .unwrap_or("nowhere");
+                let code = line.split(']').next().unwrap_or(line);
+                format!("{code}] at `{place}`")
+            })
+            .collect::<Vec<_>>();
+        refused.push(format!("{name}: {}", errors.join("; ")));
+        let reading = if init == both {
+            "more than one reads the program"
+        } else {
+            "none of them reads the program"
+        };
+        assert!(
+            stderr.contains(&format!("configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and {reading}: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation")),
+            "{name}: {stderr}"
+        );
     }
-    expect_test::expect![[r"
-        both: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and more than one reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation
-        neither: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation
-        neither-head: error[krs::analysis::computation-cell]: this rule rewrites the head of the computation, but configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program in the cell that holds the computation, or write the rule as a `for Machine` record, which names its cell
-        neither-collection: error[krs::analysis::main-cell]: configuration `Machine` has 2 `KSequence` cells, `prog`, `code`, and none of them reads the program: the computation is the `KSequence` cell whose initial value reads the main configuration variable, where the program starts and where every sentence that names no cell runs. Place the program, the `main` configuration variable, in the one `KSequence` cell that holds the computation"]].assert_eq(&refused.join("\n"));
+    expect_test::expect![[r#"
+        both: error[krs::analysis::main-cell] at `pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {`
+        both-head: error[krs::analysis::main-cell] at `pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {`
+        neither: error[krs::analysis::main-cell] at `pub fn init() -> Self {`
+        neither-head: error[krs::analysis::main-cell] at `pub fn init() -> Self {`
+        neither-collection: error[krs::analysis::main-cell] at `pub fn init() -> Self {`"#]]
+    .assert_eq(&refused.join("\n"));
 }
 
-/// A machine whose leaf cells start with values of strict subsorts of their declared sorts, a
-/// parametric constructor's applications among them, so that KRS writes each value cast to its
-/// cell's sort, `( wrap ( unit ) ):Stmt`.
-const CASTS: &str = r#"
-use k::builtin::{Int, KSequence};
-use k::{KItem, KResult, Term};
+/// The program is read where the main variable occurs free (R1, NT-29): a `let` in the frame's
+/// computation cell that binds the name `pgm` makes another variable, which lowering gives its
+/// own identity, so `frame.code` does not read the program and `prog`, which does, is the main
+/// cell. Both readers of the main cell, the descriptor's (the collector's, a `for Stmt` clause's
+/// cell) and the lowered configuration's (the backends' marking), agree: the configuration is
+/// accepted, `prog` is marked, `krs run` runs the cell-free `step` there (and its status line
+/// names `<prog>`, the computation), and the clause `hop` rewrites `prog`.
+#[test]
+fn a_let_that_binds_the_program_s_name_does_not_read_the_program() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let shadow = "pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self { prog: k::k![pgm], frame: Frame { code: k::k![{ let pgm = Cmd::Done(); pgm }] } }\n    }";
+    let head = "k::rules! {\n    for Stmt;\n    use Cmd::*;\n\n    hop: Done() => Go();\n}";
+    let program = temporary.path().join("program.txt");
+    fs::write(&program, "go\n").unwrap();
+    for (name, extra) in [("shadow", ""), ("shadow-head", head)] {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &two_computations_source(shadow, extra),
+        );
+        let definition = emit(target.path(), &manifest);
+        assert!(
+            definition.contains("<prog maincell=\"\"> $PGM:Stmt </prog>"),
+            "{name}:\n{definition}"
+        );
+        assert_eq!(definition.matches("maincell").count(), 1, "{name}");
+        if extra.is_empty() {
+            let (success, stdout, stderr) = krs(
+                target.path(),
+                &manifest,
+                "run",
+                &[program.to_str().unwrap()],
+            );
+            let stdout = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(
+                stdout.contains("<prog> done ~> .K </prog>")
+                    && stdout.contains("<code> done ~> .K </code>"),
+                "{name}: `krs run` runs `step` in <prog> ({success}):\n{stdout}\n{stderr}"
+            );
+            // The status line names the computation by the main cell (R6, NT-29).
+            assert!(
+                stderr.contains("krs run: stuck after 1 step; <prog> starts with `done`"),
+                "{name}: {stderr}"
+            );
+        } else {
+            let hop = definition
+                .lines()
+                .find(|line| line.contains("label(hop)") || line.contains("done => go"))
+                .unwrap_or_else(|| panic!("{name}: the clause `hop` is emitted:\n{definition}"));
+            assert!(
+                hop.contains("<prog>"),
+                "{name}: `hop` rewrites <prog>: {hop}"
+            );
+        }
+    }
+}
 
-k::sorts! {
+/// One sort of the class-matrix bases' lattice ([`CAST_SORTS`]).
+struct CastSort {
+    name: &'static str,
+    parents: &'static [&'static str],
+    /// A ground value of the sort; none for `KItem`.
+    value: Option<&'static str>,
+    /// Whether its values are domain values, at which a parametric production has no instance.
+    domain: bool,
+    /// The turbofish marker that names it; empty where none is written.
+    marker: &'static str,
+}
+
+/// The sort lattice of the class-matrix bases (`k::sorts! { Stmt; Value: Stmt + KResult; impl
+/// Value for Int; }`) with the builtin `Bool`, `KItem` above them all.
+const CAST_SORTS: [CastSort; 5] = [
+    CastSort {
+        name: "Int",
+        parents: &["Value"],
+        value: Some("1"),
+        domain: true,
+        marker: "",
+    },
+    CastSort {
+        name: "Value",
+        parents: &["Stmt"],
+        value: Some("Val::Unit()"),
+        domain: false,
+        marker: "dyn ValueSort",
+    },
+    CastSort {
+        name: "Stmt",
+        parents: &["KItem"],
+        value: Some("Cmd::Go()"),
+        domain: false,
+        marker: "dyn StmtSort",
+    },
+    CastSort {
+        name: "Bool",
+        parents: &["KItem"],
+        value: Some("true"),
+        domain: true,
+        marker: "",
+    },
+    CastSort {
+        name: "KItem",
+        parents: &[],
+        value: None,
+        domain: false,
+        marker: "dyn k::KItemSort",
+    },
+];
+
+/// Whether `sort` is `above` or one of its subsorts in [`CAST_SORTS`].
+fn cast_subsort(sort: &str, above: &str) -> bool {
+    sort == above
+        || CAST_SORTS
+            .iter()
+            .find(|candidate| candidate.name == sort)
+            .is_some_and(|sort| {
+                sort.parents
+                    .iter()
+                    .any(|parent| cast_subsort(parent, above))
+            })
+}
+
+/// One generated leaf cell of the cast machine: its name, its declared sort, its initial value,
+/// and, for a value the initializer computes (a `let` block, `k::matches!`, `k::is!`), the value
+/// the run must start the cell with: the name of a cell holding it plainly, or a literal.
+struct CastCell {
+    name: String,
+    sort: &'static str,
+    value: String,
+    computes: Option<String>,
+}
+
+/// Every leaf cell the cast machine starts, one per root kind KRS may write cast to its cell's
+/// sort (`k_surface::initial_value_needs_cell_sort`) at each pair of a cell sort and a value sort
+/// below it in [`CAST_SORTS`]: the plain value (`p`), a `let` block computing it (`l`), the
+/// parametric `Wrap` of it with its instance solved (`w`) and named by a turbofish at that least
+/// instance (`t`); the configuration variable `v: Value` and its `Wrap` (`v`, `wv`); and in a
+/// `Bool` or `KItem` cell a `k::matches!` test (`m`) and a sort predicate (`i`) of `v`.
+fn cast_cells() -> Vec<CastCell> {
+    let mut cells = Vec::new();
+    let cell = |name: String, sort, value: String, computes: Option<String>| CastCell {
+        name,
+        sort,
+        value,
+        computes,
+    };
+    for cell_sort in CAST_SORTS.iter().filter(|sort| sort.name != "Int") {
+        let cell_sort = cell_sort.name;
+        let c = cell_sort.to_lowercase();
+        for value_sort in &CAST_SORTS {
+            let Some(value) = value_sort.value else {
+                continue;
+            };
+            if !cast_subsort(value_sort.name, cell_sort) {
+                continue;
+            }
+            let v = value_sort.name.to_lowercase();
+            cells.push(cell(format!("p{v}{c}"), cell_sort, value.to_owned(), None));
+            cells.push(cell(
+                format!("l{v}{c}"),
+                cell_sort,
+                format!("{{ let x = {value}; x }}"),
+                Some(format!("p{v}{c}")),
+            ));
+            if !value_sort.domain {
+                cells.push(cell(
+                    format!("w{v}{c}"),
+                    cell_sort,
+                    format!("crate::Wrap({value})"),
+                    None,
+                ));
+                cells.push(cell(
+                    format!("t{v}{c}"),
+                    cell_sort,
+                    format!("crate::Wrap::<{}>({value})", value_sort.marker),
+                    None,
+                ));
+            }
+        }
+        if cast_subsort("Value", cell_sort) {
+            cells.push(cell(format!("v{c}"), cell_sort, "v".to_owned(), None));
+            cells.push(cell(
+                format!("wv{c}"),
+                cell_sort,
+                "crate::Wrap(v)".to_owned(),
+                None,
+            ));
+        }
+        if cast_subsort("Bool", cell_sort) {
+            cells.push(cell(
+                format!("m{c}"),
+                cell_sort,
+                "k::matches!(v, Val::Unit())".to_owned(),
+                Some("true".to_owned()),
+            ));
+            cells.push(cell(
+                format!("i{c}"),
+                cell_sort,
+                "k::is!(Int, v)".to_owned(),
+                Some("false".to_owned()),
+            ));
+        }
+    }
+    cells
+}
+
+/// A machine over [`CAST_SORTS`] whose computation cell `k` holds the program, `held` the
+/// configuration variable `v`, and whose other leaf cells are `cells` (name, sort, initial
+/// value), with `extra` items beside it.
+fn cast_machine(cells: &[(&str, &str, &str)], extra: &str) -> String {
+    use std::fmt::Write as _;
+    let mut declared = String::new();
+    let mut initial = String::new();
+    for (name, sort, value) in cells {
+        writeln!(declared, "    #[k::cell]\n    pub {name}: {sort},").unwrap();
+        writeln!(initial, "            {name}: {value},").unwrap();
+    }
+    format!(
+        r#"#![allow(unused_imports)]
+use k::builtin::{{Bool, Int, KSequence}};
+use k::{{KItem, KResult, Term}};
+
+k::sorts! {{
     Stmt;
     Value: Stmt + KResult;
     impl Value for Int;
-}
+}}
 
 #[k::constructors(sort = Value, result = KResult)]
-pub enum Val {
+pub enum Val {{
     #[k::syntax("unit")]
     Unit(),
-}
+}}
 
-#[k::constructor(sort = S, syntax = "wrap({inner})")]
-pub struct Wrap<S: ?Sized> {
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {{
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("uns({{a}})")]
+    Uns {{ a: Stmt }},
+}}
+
+#[k::constructor(sort = S, syntax = "wrap({{inner}})")]
+pub struct Wrap<S: ?Sized> {{
     pub inner: Term<S>,
-}
+}}
+
+{extra}
 
 #[k::configuration]
-pub struct Machine {
+pub struct Machine {{
     #[k::cell]
     pub k: KSequence,
     #[k::cell]
-    pub vstmt: Stmt,
-    #[k::cell]
-    pub wstmt: Stmt,
-    #[k::cell]
-    pub ivalue: Value,
-    #[k::cell]
-    pub iany: KItem,
-    #[k::cell]
-    pub wany: KItem,
-    #[k::cell]
-    pub vvar: Stmt,
-    #[k::cell]
-    pub wvar: Stmt,
-}
+    pub held: Value,
+{declared}}}
 
-impl Machine {
+impl Machine {{
     #[k::init]
     pub fn init(
         #[k::config_var(name = "PGM", main)] pgm: Stmt,
         #[k::config_var(name = "V")] v: Value,
-    ) -> Self {
-        Self {
+    ) -> Self {{
+        Self {{
             k: k::k![pgm],
-            vstmt: Val::Unit(),
-            wstmt: crate::Wrap(Val::Unit()),
-            ivalue: 1,
-            iany: 2,
-            wany: crate::Wrap(Val::Unit()),
-            vvar: v,
-            wvar: crate::Wrap(v),
-        }
-    }
+            held: v,
+{initial}        }}
+    }}
+}}
+"#
+    )
 }
-"#;
 
 /// The text route's KORE definition: the emitted `definition.k` compiled by k-rust's text
-/// frontend, as `krust kcompile` compiles it.
-fn text_route_kore(definition: &str) -> String {
+/// frontend, as `krust kcompile` compiles it, or the frontend's error.
+fn text_route_kore(definition: &str) -> Result<String, String> {
     use k_rust::builtin;
     use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
     use k_rust::outer::{LoadOptions, ResolvedSource, load_for_compilation};
@@ -1318,10 +1553,10 @@ fn text_route_kore(definition: &str) -> String {
             ..LoadOptions::default()
         },
     )
-    .unwrap_or_else(|error| panic!("the text route loads the definition: {error}"));
+    .map_err(|error| format!("the text route loads the definition: {error}"))?;
     compile_loaded_definition(&loaded, CompileOptions::default())
-        .unwrap_or_else(|error| panic!("the text route compiles the definition: {error}"))
-        .definition_kore
+        .map(|compiled| compiled.definition_kore)
+        .map_err(|error| format!("the text route compiles the definition: {error}"))
 }
 
 /// The initial value of each leaf cell `<name>` a KORE definition builds: the content of the
@@ -1371,22 +1606,154 @@ fn kore_initial_cells(kore: &str, names: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// A cast KRS writes means the same on every route that reads it (NT-22-F3). KRS casts a leaf
-/// cell's whole initial value to the cell's sort where the value's head does not give that sort
-/// (a strict subsort, a parametric constructor), and a configuration variable to its sort; the
-/// cast states the sort and computes nothing, so the cell starts with the value, and a parametric
-/// application keeps the instance its arguments solve (`wrap{Value}(unit)` in a `Stmt` cell,
-/// injected). The text route (`definition.k` through k-rust's text frontend) and the native route
-/// (`krs build`, which `krs run` runs) compile the same initial value for every cell, at each sort
-/// pair the machine has: `Value` below `Stmt`, `Int` below `Value` and `KItem`, and a parametric
-/// application in a `Stmt` and a `KItem` cell, of a constant and of a configuration variable.
+/// The values no function computes compile to one KORE term on both routes: the native initial
+/// values of the cells of `cells` that compute nothing, which the text route (`definition`
+/// without the computed cells, NT-29-1) compiles alike. The whole `definition` does not load on
+/// the text route, until NT-29-1 is fixed.
+fn uncomputed_cells_agree(definition: &str, native_kore: &str, cells: &[CastCell]) -> Vec<String> {
+    let uncomputed = cells
+        .iter()
+        .filter(|cell| cell.computes.is_none())
+        .map(|cell| cell.name.as_str())
+        .collect::<Vec<_>>();
+    let readable = definition
+        .lines()
+        .filter(|line| {
+            !cells.iter().any(|cell| {
+                cell.computes.is_some()
+                    && line.trim_start().starts_with(&format!("<{}> ", cell.name))
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text_kore = text_route_kore(&readable).unwrap_or_else(|error| panic!("{error}"));
+    let native = kore_initial_cells(native_kore, &uncomputed);
+    assert_eq!(
+        native,
+        kore_initial_cells(&text_kore, &uncomputed),
+        "{}",
+        configuration(definition)
+    );
+    let unread = text_route_kore(definition).expect_err(
+        "the text frontend reads a computed configuration value (NT-29-1 fixed): compare those \
+         cells too",
+    );
+    assert!(unread.contains("could not parse configuration"), "{unread}");
+    native
+}
+
+/// The values the initializer computes: the native run of the package `manifest` starts each
+/// computed cell of `cells` with its value, a plain cell's or a literal.
+fn computed_cells_start_with_their_values(target: &Path, manifest: &Path, cells: &[CastCell]) {
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "go").unwrap();
+    let (success, stdout, stderr) = krs(
+        target,
+        manifest,
+        "run",
+        &["-c", "V=unit", program.to_str().unwrap()],
+    );
+    let state = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let started = |name: &str| {
+        let open = format!("<{name}> ");
+        let start = state
+            .find(&open)
+            .unwrap_or_else(|| panic!("no <{name}> in the run ({success}):\n{stdout}\n{stderr}"))
+            + open.len();
+        let end = state[start..].find(&format!(" </{name}>")).expect("closed") + start;
+        state[start..end].to_owned()
+    };
+    for cell in cells {
+        let Some(expected) = &cell.computes else {
+            continue;
+        };
+        let expected = if expected.starts_with('p') {
+            started(expected)
+        } else {
+            expected.clone()
+        };
+        assert_eq!(started(&cell.name), expected, "<{}>", cell.name);
+    }
+}
+
+/// A turbofish above the instance the arguments solve, where nothing fixes it: at a leaf cell's
+/// root, at every pair of a value sort and a cell sort strictly above it, and in a rule's result.
+/// Each package, under `root`, is checked alone; the first error of each.
+fn turbofishes_above_the_solved_instance(target: &Path, root: &Path) -> Vec<String> {
+    let mut above = Vec::new();
+    for value_sort in CAST_SORTS.iter().filter(|sort| !sort.domain) {
+        let Some(value) = value_sort.value else {
+            continue;
+        };
+        for cell_sort in &CAST_SORTS {
+            if cell_sort.name != value_sort.name
+                && cast_subsort(value_sort.name, cell_sort.name)
+                && !cell_sort.marker.is_empty()
+            {
+                above.push((
+                    format!("{}-in-{}", value_sort.name, cell_sort.name),
+                    cast_machine(
+                        &[(
+                            "x",
+                            cell_sort.name,
+                            &format!("crate::Wrap::<{}>({value})", cell_sort.marker),
+                        )],
+                        "",
+                    ),
+                ));
+            }
+        }
+    }
+    above.push((
+        "Value-in-a-result".to_owned(),
+        cast_machine(
+            &[],
+            "#[k::rule]\nfn go(k::term![Cmd::Go()]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Uns(crate::Wrap::<dyn StmtSort>(Val::Unit()))\n}",
+        ),
+    ));
+    above
+        .iter()
+        .map(|(name, source)| {
+            let manifest = package(root, &format!("above-{}", name.to_lowercase()), source);
+            let (success, _, stderr) = krs(target, &manifest, "check", &[]);
+            assert!(!success, "{name}: {stderr}");
+            let error = stderr
+                .lines()
+                .find(|line| line.starts_with("error"))
+                .unwrap_or_else(|| panic!("{name}: {stderr}"));
+            format!("{name}: {error}")
+        })
+        .collect()
+}
+
+/// A cast KRS writes means the same on every route that reads it (NT-22-F3), checked at every
+/// pair of a cell sort and a value sort below it that the bases' lattice has ([`cast_cells`]).
+/// KRS casts a leaf cell's whole initial value to the cell's sort where its head does not give
+/// that sort (a strict subsort, a parametric production, a `let` block, `k::matches!`, a sort
+/// predicate); the cast states the sort and computes nothing, so the cell starts with the value,
+/// and a parametric application keeps the instance its arguments solve (`wrap{Value}(unit)` in a
+/// `Stmt` cell, injected), which is the only instance a turbofish may name there.
+///
+/// - A value no function computes compiles to the same initial value through the emitted text
+///   (k-rust's text frontend) and natively (`krs build`, which `krs run` runs).
+/// - A computed value starts its cell, on the native route, with the value it computes: a `let`
+///   block's is the plain value's, the test's and the predicate's the Bool of `v = unit`. The text
+///   frontend does not read `#let`, `:=K` or a sort predicate in a configuration (NT-29-1), so
+///   these cells are left out of its definition, and the whole definition is checked to fail.
+/// - A turbofish above the instance the arguments solve, at a cell's root or in a rule's result
+///   (no head, so no strict cast fixes it), would hold another term on each route: it is refused
+///   (`parametric-instance`) at each such pair.
 #[test]
 fn a_cast_initial_value_is_the_same_value_on_both_routes() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let manifest = package(temporary.path(), "casts", CASTS);
+    let cells = cast_cells();
+    let listed = cells
+        .iter()
+        .map(|cell| (cell.name.as_str(), cell.sort, cell.value.as_str()))
+        .collect::<Vec<_>>();
+    let manifest = package(temporary.path(), "casts", &cast_machine(&listed, ""));
     let definition = emit(target.path(), &manifest);
-    let cells = ["vstmt", "wstmt", "ivalue", "iany", "wany", "vvar", "wvar"];
     let output = manifest.with_file_name("native");
     let (success, _, stderr) = krs(
         target.path(),
@@ -1395,32 +1762,87 @@ fn a_cast_initial_value_is_the_same_value_on_both_routes() {
         &["--backend", "haskell", "--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let native = kore_initial_cells(
-        &fs::read_to_string(output.join("definition.kore")).unwrap(),
-        &cells,
-    );
-    let text = kore_initial_cells(&text_route_kore(&definition), &cells);
-    assert_eq!(native, text, "{}", configuration(&definition));
+    let native_kore = fs::read_to_string(output.join("definition.kore")).unwrap();
+    let native = uncomputed_cells_agree(&definition, &native_kore, &cells);
+    computed_cells_start_with_their_values(target.path(), &manifest, &cells);
+    let refused = turbofishes_above_the_solved_instance(target.path(), temporary.path());
     expect_test::expect![[r#"
         <k> $PGM:Stmt </k>
-        <vstmt> ( unit ):Stmt </vstmt>
-        <wstmt> ( wrap ( unit ) ):Stmt </wstmt>
-        <ivalue> ( 1 ):Value </ivalue>
-        <iany> ( 2 ):KItem </iany>
-        <wany> ( wrap ( unit ) ):KItem </wany>
-        <vvar> ( $V:Value ):Stmt </vvar>
-        <wvar> ( wrap ( $V:Value ) ):Stmt </wvar>
-        vstmt: inj{SortValue{}, SortStmt{}}(LblvalUnit{}())
-        wstmt: inj{SortValue{}, SortStmt{}}(Lblwrap{SortValue{}}(LblvalUnit{}()))
-        ivalue: inj{SortInt{}, SortValue{}}(\dv{SortInt{}}("1"))
-        iany: inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))
-        wany: inj{SortValue{}, SortKItem{}}(Lblwrap{SortValue{}}(LblvalUnit{}()))
-        vvar:  inj{SortValue{}, SortStmt{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) 
-        wvar:  inj{SortValue{}, SortStmt{}}( Lblwrap{SortValue{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) ) "#]]
-    .assert_eq(&format!(
-        "{}\n{}",
+        <held> $V:Value </held>
+        <pintvalue> ( 1 ):Value </pintvalue>
+        <lintvalue> ( #let X:Int = 1 #in X:Int ):Value </lintvalue>
+        <pvaluevalue> unit </pvaluevalue>
+        <lvaluevalue> ( #let X_2:Value = unit #in X_2:Value ):Value </lvaluevalue>
+        <wvaluevalue> ( wrap ( unit ) ):Value </wvaluevalue>
+        <tvaluevalue> ( wrap ( unit ) ):Value </tvaluevalue>
+        <vvalue> $V:Value </vvalue>
+        <wvvalue> ( wrap ( $V:Value ) ):Value </wvvalue>
+        <pintstmt> ( 1 ):Stmt </pintstmt>
+        <lintstmt> ( #let X_3:Int = 1 #in X_3:Int ):Stmt </lintstmt>
+        <pvaluestmt> ( unit ):Stmt </pvaluestmt>
+        <lvaluestmt> ( #let X_4:Value = unit #in X_4:Value ):Stmt </lvaluestmt>
+        <wvaluestmt> ( wrap ( unit ) ):Stmt </wvaluestmt>
+        <tvaluestmt> ( wrap ( unit ) ):Stmt </tvaluestmt>
+        <pstmtstmt> go </pstmtstmt>
+        <lstmtstmt> ( #let X_5:Stmt = go #in X_5:Stmt ):Stmt </lstmtstmt>
+        <wstmtstmt> ( wrap ( go ) ):Stmt </wstmtstmt>
+        <tstmtstmt> ( wrap ( go ) ):Stmt </tstmtstmt>
+        <vstmt> ( $V:Value ):Stmt </vstmt>
+        <wvstmt> ( wrap ( $V:Value ) ):Stmt </wvstmt>
+        <pboolbool> true </pboolbool>
+        <lboolbool> ( #let X_6:Bool = true #in X_6:Bool ):Bool </lboolbool>
+        <mbool> ( unit :=K $V:Value ):Bool </mbool>
+        <ibool> ( isInt($V:Value) ):Bool </ibool>
+        <pintkitem> ( 1 ):KItem </pintkitem>
+        <lintkitem> ( #let X_7:Int = 1 #in X_7:Int ):KItem </lintkitem>
+        <pvaluekitem> ( unit ):KItem </pvaluekitem>
+        <lvaluekitem> ( #let X_8:Value = unit #in X_8:Value ):KItem </lvaluekitem>
+        <wvaluekitem> ( wrap ( unit ) ):KItem </wvaluekitem>
+        <tvaluekitem> ( wrap ( unit ) ):KItem </tvaluekitem>
+        <pstmtkitem> ( go ):KItem </pstmtkitem>
+        <lstmtkitem> ( #let X_9:Stmt = go #in X_9:Stmt ):KItem </lstmtkitem>
+        <wstmtkitem> ( wrap ( go ) ):KItem </wstmtkitem>
+        <tstmtkitem> ( wrap ( go ) ):KItem </tstmtkitem>
+        <pboolkitem> ( true ):KItem </pboolkitem>
+        <lboolkitem> ( #let X_10:Bool = true #in X_10:Bool ):KItem </lboolkitem>
+        <vkitem> ( $V:Value ):KItem </vkitem>
+        <wvkitem> ( wrap ( $V:Value ) ):KItem </wvkitem>
+        <mkitem> ( unit :=K $V:Value ):KItem </mkitem>
+        <ikitem> ( isInt($V:Value) ):KItem </ikitem>
+        pintvalue: inj{SortInt{}, SortValue{}}(\dv{SortInt{}}("1"))
+        pvaluevalue: LblvalUnit{}()
+        wvaluevalue: Lblwrap{SortValue{}}(LblvalUnit{}())
+        tvaluevalue: Lblwrap{SortValue{}}(LblvalUnit{}())
+        vvalue:  Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) 
+        wvvalue:  Lblwrap{SortValue{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) 
+        pintstmt: inj{SortInt{}, SortStmt{}}(\dv{SortInt{}}("1"))
+        pvaluestmt: inj{SortValue{}, SortStmt{}}(LblvalUnit{}())
+        wvaluestmt:  inj{SortValue{}, SortStmt{}}(Lblwrap{SortValue{}}(LblvalUnit{}())) 
+        tvaluestmt:  inj{SortValue{}, SortStmt{}}(Lblwrap{SortValue{}}(LblvalUnit{}())) 
+        pstmtstmt: LblcmdGo{}()
+        wstmtstmt: Lblwrap{SortStmt{}}(LblcmdGo{}())
+        tstmtstmt: Lblwrap{SortStmt{}}(LblcmdGo{}())
+        vstmt:  inj{SortValue{}, SortStmt{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) 
+        wvstmt:  inj{SortValue{}, SortStmt{}}( Lblwrap{SortValue{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) ) 
+        pboolbool: \dv{SortBool{}}("true")
+        pintkitem: inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))
+        pvaluekitem: inj{SortValue{}, SortKItem{}}(LblvalUnit{}())
+        wvaluekitem:  inj{SortValue{}, SortKItem{}}(Lblwrap{SortValue{}}(LblvalUnit{}())) 
+        tvaluekitem:  inj{SortValue{}, SortKItem{}}(Lblwrap{SortValue{}}(LblvalUnit{}())) 
+        pstmtkitem: inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())
+        wstmtkitem:  inj{SortStmt{}, SortKItem{}}(Lblwrap{SortStmt{}}(LblcmdGo{}())) 
+        tstmtkitem:  inj{SortStmt{}, SortKItem{}}(Lblwrap{SortStmt{}}(LblcmdGo{}())) 
+        pboolkitem: inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true"))
+        vkitem:  inj{SortValue{}, SortKItem{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) 
+        wvkitem:  inj{SortValue{}, SortKItem{}}( Lblwrap{SortValue{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) ) 
+        Value-in-Stmt: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Value, not the turbofish's Stmt; the turbofish of a term that is not an equation or rule head must name the instance K solves
+        Value-in-KItem: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Value, not the turbofish's KItem; the turbofish of a term that is not an equation or rule head must name the instance K solves
+        Stmt-in-KItem: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Stmt, not the turbofish's KItem; the turbofish of a term that is not an equation or rule head must name the instance K solves
+        Value-in-a-result: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Value, not the turbofish's Stmt; the turbofish of a term that is not an equation or rule head must name the instance K solves"#]].assert_eq(&format!(
+        "{}\n{}\n{}",
         configuration(&definition),
-        native.join("\n")
+        native.join("\n"),
+        refused.join("\n")
     ));
 }
 

@@ -45,9 +45,12 @@ pub enum CollectionErrorKind {
     /// A rule at the head of the computation needs exactly one configuration, and the definition
     /// has none or several.
     ConfigurationCount,
-    /// A rule at the head of the computation needs exactly one top-level `KSequence` cell in its
-    /// configuration.
+    /// A rule at the head of the computation needs a computation cell in its configuration, and
+    /// the configuration has no `KSequence` cell, or the record names a cell that is not one.
     ComputationCell,
+    /// A configuration with several `KSequence` cells, none or more than one of which reads the
+    /// program, which a rule at the head of the computation needs: the configuration's refusal.
+    MainCell,
     /// A display filename was not a normalized relative source hint.
     InvalidDisplayFile,
     /// A display or resolved source file escaped its Cargo package directory.
@@ -206,6 +209,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::InvalidConfiguration => codes::collect::INVALID_CONFIGURATION,
             CollectionErrorKind::ConfigurationCount => codes::analysis::CONFIGURATION_COUNT,
             CollectionErrorKind::ComputationCell => codes::analysis::COMPUTATION_CELL,
+            CollectionErrorKind::MainCell => codes::analysis::MAIN_CELL,
             CollectionErrorKind::InvalidDisplayFile => codes::collect::INVALID_DISPLAY_FILE,
             CollectionErrorKind::SourceOutsidePackage => codes::collect::SOURCE_OUTSIDE_PACKAGE,
             CollectionErrorKind::AmbiguousSourcePath => codes::collect::AMBIGUOUS_SOURCE_PATH,
@@ -341,6 +345,7 @@ mod tests {
                 CollectionErrorKind::ComputationCell,
                 codes::analysis::COMPUTATION_CELL,
             ),
+            (CollectionErrorKind::MainCell, codes::analysis::MAIN_CELL),
             (
                 CollectionErrorKind::InvalidDisplayFile,
                 codes::collect::INVALID_DISPLAY_FILE,

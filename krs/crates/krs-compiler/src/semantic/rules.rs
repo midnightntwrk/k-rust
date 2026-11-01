@@ -2234,7 +2234,14 @@ pub(super) fn lower_structured_rule_descriptor(
             descriptor.id().clone(),
             rule.sentence_kind,
             variables,
-            computation_rewrite(descriptor, rule, declarations, subject, result)?,
+            computation_rewrite(
+                descriptor,
+                rule,
+                declarations,
+                (sort_parents, catalog),
+                subject,
+                result,
+            )?,
         )?
     } else {
         // A single-body rule's body is its subject, whose rewrites sit below
@@ -2302,6 +2309,10 @@ fn computation_rewrite(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
     declarations: &DescriptorIndex<'_>,
+    (sort_parents, catalog): (
+        &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+        &BTreeMap<StableItemId, ProductionSignature>,
+    ),
     subject: SemanticTerm,
     result: Option<SemanticTerm>,
 ) -> Result<FixedConfigurationRewrite<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -2321,8 +2332,7 @@ fn computation_rewrite(
         "a computation cell rewrite requires a fixed configuration",
     )?;
     // The computation is the configuration's main cell, where every sentence that names no
-    // cell runs (`krs_ir::select_main_cell`); a configuration with several computation cells and
-    // no main cell is refused here with the reason its own lowering gives.
+    // cell runs (`krs_ir::select_main_cell`).
     let computation = match configuration.main_cell() {
         krs_ir::MainCell::Cell(reference) => &reference.cell,
         krs_ir::MainCell::NoComputationCell => {
@@ -2340,20 +2350,27 @@ fn computation_rewrite(
                 key_range(descriptor, &rule.pattern_key).as_ref(),
             ));
         }
-        krs_ir::MainCell::Ambiguous { cells, reading } => {
-            let names = cells
-                .iter()
-                .map(|reference| {
-                    require_cell_field(&reference.cell, declarations)
-                        .map(super::configuration::cell_name)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            return Err(super::configuration::ambiguous_main_cell(
-                configuration_id.item_name(),
-                &names,
-                reading,
-                key_range(descriptor, &rule.pattern_key),
-            ));
+        // A configuration with several computation cells and no main cell is the
+        // configuration's mistake, which its own lowering refuses: the rule has that one cause,
+        // so it reports the configuration's refusal, at the configuration, and adds none.
+        krs_ir::MainCell::Ambiguous { .. } => {
+            let owner = declarations
+                .get(configuration_id)
+                .ok_or_else(|| shape("the configuration has no descriptor"))?;
+            return Err(
+                match super::configuration::lower_fixed_configuration_descriptor(
+                    owner,
+                    configuration,
+                    declarations,
+                    sort_parents,
+                    catalog,
+                ) {
+                    Err(refusal) => {
+                        refusal.within(owner.id(), super::origin::item_range(owner).as_ref())
+                    }
+                    Ok(_) => shape("the configuration's lowering accepts it without a main cell"),
+                },
+            );
         }
     };
     let result_key = rule

@@ -484,7 +484,7 @@ fn validate_let<S: ValidationStage, C: TermValidation<S>>(
 }
 
 /// The names a `let` pattern binds: its variables and `name @ ..` aliases.
-pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut BTreeSet<String>) {
+pub(crate) fn let_pattern_names<S: Stage>(term: &Term<S>, names: &mut BTreeSet<String>) {
     match term {
         Term::Variable { name, .. } => {
             names.insert(name.clone());

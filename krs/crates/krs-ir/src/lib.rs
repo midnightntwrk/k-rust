@@ -174,7 +174,7 @@ pub use transport::head_rule::{
     ProtocolHeadRuleList, ProtocolHeadRuleListRest, ProtocolHeadRuleMapEntry,
     ProtocolHeadRuleResult, ProtocolHeadRuleSplice, ProtocolHeadRuleSpliceItem, ResolvedHeadRule,
 };
-pub use transport::main_cell::{MainCell, ambiguous_main_cell_reason, select_main_cell};
+pub use transport::main_cell::{MainCell, ambiguous_main_cell_refusal, select_main_cell};
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
     DescriptorClaimBinder, DescriptorConfigurationReference, DescriptorConfigurationRule,

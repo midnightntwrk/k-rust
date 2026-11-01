@@ -25,7 +25,9 @@ pub enum MainCell<T> {
     /// The configuration has several computation cells and does not say which holds the
     /// computation: none of them, or more than one, reads the program.
     Ambiguous {
-        /// Every computation cell, in declaration order.
+        /// Every computation cell, in the order the reader that gave them lists them: the
+        /// lowered configuration's in declaration order, the initializer's in the order it
+        /// writes them. A refusal names them in declaration order.
         cells: Vec<T>,
         /// How many of them read the program.
         reading: usize,
@@ -85,10 +87,11 @@ pub fn select_main_cell<T>(cells: impl IntoIterator<Item = (T, bool)>) -> MainCe
     }
 }
 
-/// Why a configuration with several computation cells, `names`, of which `reading` read the
-/// program, has no main cell: the explanation every refusal of it gives.
+/// The refusal of configuration `configuration`, whose computation cells are `names` (in
+/// declaration order), of which `reading` read the program, for having no main cell: the one
+/// error every consumer that needs the main cell reports, at the configuration's initializer.
 #[must_use]
-pub fn ambiguous_main_cell_reason(names: &[&str], reading: usize) -> String {
+pub fn ambiguous_main_cell_refusal(configuration: &str, names: &[&str], reading: usize) -> String {
     let count = names.len();
     let names = names
         .iter()
@@ -101,9 +104,11 @@ pub fn ambiguous_main_cell_reason(names: &[&str], reading: usize) -> String {
         "more than one reads the program"
     };
     format!(
-        "has {count} `KSequence` cells, {names}, and {which}: the computation is the `KSequence` \
-         cell whose initial value reads the main configuration variable, where the program starts \
-         and where every sentence that names no cell runs"
+        "configuration `{configuration}` has {count} `KSequence` cells, {names}, and {which}: the \
+         computation is the `KSequence` cell whose initial value reads the main configuration \
+         variable, where the program starts and where every sentence that names no cell runs. \
+         Place the program, the `main` configuration variable, in the one `KSequence` cell that \
+         holds the computation"
     )
 }
 
@@ -166,8 +171,15 @@ fn state_reads<S: Stage>(state: &ProtocolInitializerStateTerm<Term<S>>, name: &s
     }
 }
 
-/// Whether `term` mentions the variable `name` anywhere, as the lowered configuration's reading
-/// of the main cell does (`krs_ir_levels::k_surface::main_cell`).
+/// Whether `term` reads the variable `name`: whether `name` occurs in it free, outside every
+/// binder that names it.
+///
+/// A binder makes its name another variable: the pattern of a `let` and of a `k::matches!` binds
+/// every name it holds, which the `let`'s body then reads in place of the outer one, and a
+/// closure's binder does the same in its body. The lowered configuration's reader
+/// (`krs_ir_levels::k_surface::main_cell`) reads by identity, and lowering gives each such
+/// binder a fresh one, so the two readers answer alike; the configuration's lowering checks
+/// that they name the same main cell.
 fn term_reads<S: Stage>(term: &Term<S>, name: &str) -> bool {
     match term {
         Term::Variable { name: read, .. } => read == name,
@@ -190,16 +202,21 @@ fn term_reads<S: Stage>(term: &Term<S>, name: &str) -> bool {
         }
         Term::SortTest { operand, .. } => term_reads(operand, name),
         Term::As { pattern, .. } => term_reads(pattern, name),
-        Term::Matches {
-            subject, pattern, ..
-        } => term_reads(subject, name) || term_reads(pattern, name),
+        // The pattern binds its names, so only the tested term reads.
+        Term::Matches { subject, .. } => term_reads(subject, name),
         Term::Let {
             pattern,
             value,
             body,
             ..
-        } => term_reads(pattern, name) || term_reads(value, name) || term_reads(body, name),
-        Term::Closure { body, .. } => term_reads(body, name),
+        } => {
+            let mut bound = std::collections::BTreeSet::new();
+            super::validation::let_pattern_names(pattern, &mut bound);
+            term_reads(value, name) || (!bound.contains(name) && term_reads(body, name))
+        }
+        Term::Closure {
+            name: binder, body, ..
+        } => binder != name && term_reads(body, name),
         Term::Rewrite { from, to, .. } => {
             term_reads(from, name) || to.as_deref().is_some_and(|to| term_reads(to, name))
         }
