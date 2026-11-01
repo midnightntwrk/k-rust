@@ -866,16 +866,16 @@ fn a_claim_clause_rejects_rule_only_forms() {
                     "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: `#[k::rule(..)]` is a rule's metadata; a claim clause takes `#[k::claim(..)]`",
                 ],
                 [
-                    "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: `#[k::fresh]` draws values in a rule step; a claim has no fresh binders",
+                    "error[krs::expand::fresh-placement]: a claim is proved, not taken as a step, so `#[k::fresh]`, a value a transition step draws, means nothing on it",
                 ],
                 [
-                    "error[krs::syntax::rust-syntax]: a `k::claims!` clause is labelled by its name: rename the clause instead of writing `label`",
+                    "error[krs::syntax::invalid-argument-value]: `label` must be a portable K claim label: a nonempty string without whitespace, `[`, `]`, `:` or `_`",
                 ],
                 [
                     "error[krs::syntax::rust-syntax]: a `k::claims!` clause is a pair of cell records `{ .. } => { .. }` over the block's configuration",
                 ],
                 [
-                    "error[krs::syntax::rust-syntax]: circularity is valid only on an all-path claim",
+                    "error[krs::syntax::invalid-rule-key]: circularity is valid only on an all-path claim",
                 ],
             ],
             [

@@ -179,7 +179,7 @@
   },
   "diagnostics": {
     "exists-equation": [
-      "error[krs::expand::existential-placement]: existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases"
+      "error[krs::expand::existential-placement]: existential results and ensures state what a step's result satisfies, on claims and transition rules; an equation, a simplification and a static clause reach no result state"
     ],
     "exists-unused": [
       "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential must occur in the rule's result or ensures condition"

@@ -796,7 +796,7 @@
       "error[krs::syntax::invalid-rule-key]: a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there"
     ],
     "priority-alias": [
-      "error[krs::syntax::invalid-rule-key]: static rules have no priority"
+      "error[krs::syntax::invalid-rule-key]: a static production's clauses rewrite each of its applications into one term as it is read, so they never overlap and none is chosen against another: an order (`owise`, `priority`, `nondet`) means nothing on a clause"
     ],
     "unannotated-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `heads` and `tails` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
@@ -817,7 +817,7 @@
       "error[krs::syntax::invalid-rule-key]: functions are deterministic in K; overlapping equations make the function ill-defined"
     ],
     "anywhere-readable": [
-      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+      "error[krs::syntax::invalid-rule-key]: a `for Sort` clause rewrites its subject where it heads the computation cell, and an `anywhere` rule rewrites it wherever it occurs: the clause form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn states"
     ],
     "anywhere-cells": [
       "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
