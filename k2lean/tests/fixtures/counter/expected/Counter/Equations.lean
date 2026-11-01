@@ -356,6 +356,18 @@ theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : S
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
+/-- get(_,_)_COUNTER_Int_Map_Id is total (K's `total`) -/
+@[k2l_value]
+theorem Total.«get(_,_)_COUNTER_Int_Map_Id» (X0 : SortMap) (X1 : SortId) :
+    (Option.bind (K.«get(_,_)_COUNTER_Int_Map_Id» X0 X1) fun _ => some true) = some true := by
+  intros
+  first
+  | k2l_eqn_a [K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
+  | (k2l_eqn_b [K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+  | (k2l_eqn_c [K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+  | (simp only [K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; k2l_eqn_c [K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+
 /-- simplification 72139ee1f2b9 (domains.md) -/
 theorem Simp.s_72139ee1f2b9 (B : SortBool) :
     KPrelude.BoolHook.and B true = B := by

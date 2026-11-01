@@ -349,6 +349,17 @@ theorem Eqn.sumTo_2 (N : SortInt)
   | ((conv => lhs; rw [K.sumTo.eq_def]); k2l_eqn_o [])
   | k2l_eqn_r K.sumTo []
 
+/-- fee is total (K's `total`) -/
+@[k2l_value]
+theorem Total.fee (X0 : SortFork) :
+    (Option.bind (K.fee X0) fun _ => some true) = some true := by
+  intros
+  first
+  | k2l_eqn_a []
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
 /-- simplification 72139ee1f2b9 (domains.md) -/
 theorem Simp.s_72139ee1f2b9 (B : SortBool) :
     KPrelude.BoolHook.and B true = B := by

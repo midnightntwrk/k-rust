@@ -778,6 +778,107 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
     out
 }
 
+/// K's `total` (`functional`, `total`) of the functions a rule's right-hand side reaches, stated
+/// (EQ-24): for each such function whose generated definition is `Option`-valued, `Total.f : ∀ xs,
+/// (Option.bind (K.f xs) fun _ => some true) = some true`, every call has a value. Stated, never
+/// assumed: proved by the generic attempts (by induction for a recursive function, EQ-21), open
+/// otherwise. The form is a lemma about a call's value (`k2l_value`, EQ-23), so every later proof
+/// that cases on a call of `f` reads it. The functions reached are a rule's right-hand side's and,
+/// transitively, those their equations call; the callees come first. A least fixed point
+/// (`partial_fixpoint` in `functions`) has its own statement (`F.total`, TERM-1h), not this one.
+pub fn total_theorems(def: &Def, m: &Model, fns: &Fns, functions: &str) -> Vec<Stated> {
+    // the least fixed points of `Functions.lean`
+    let mut lfp: BTreeSet<String> = BTreeSet::new();
+    let mut current: Option<&str> = None;
+    for l in functions.lines() {
+        if let Some(rest) = l.strip_prefix("def ") {
+            current = rest.split(' ').next();
+        } else if l.starts_with("partial_fixpoint")
+            && let Some(c) = current
+        {
+            lfp.insert(c.to_string());
+        }
+    }
+    let eqs = crate::funcs::equations(def);
+    let mut roots = BTreeSet::new();
+    for a in &def.axioms {
+        if let P::Rewrites(_, _, r) = &a.pattern {
+            crate::funcs::applied(r, def, &mut roots);
+        }
+    }
+    // callees first: a depth-first walk through the equations' right-hand sides and conditions
+    fn visit(
+        f: &str,
+        eqs: &BTreeMap<String, Vec<crate::funcs::Equation>>,
+        def: &Def,
+        seen: &mut BTreeSet<String>,
+        order: &mut Vec<String>,
+    ) {
+        if !seen.insert(f.to_string()) {
+            return;
+        }
+        let mut callees = BTreeSet::new();
+        for e in eqs.get(f).map(|v| v.as_slice()).unwrap_or(&[]) {
+            crate::funcs::applied(&e.rhs, def, &mut callees);
+            for q in &e.requires {
+                crate::funcs::applied(q, def, &mut callees);
+            }
+        }
+        for g in &callees {
+            visit(g, eqs, def, seen, order);
+        }
+        order.push(f.to_string());
+    }
+    let mut seen = BTreeSet::new();
+    let mut order = Vec::new();
+    for f in &roots {
+        visit(f, &eqs, def, &mut seen, &mut order);
+    }
+    let mut out = Vec::new();
+    for f in order {
+        let Some(sig) = fns.get(&f) else { continue };
+        let total = def
+            .symbols
+            .get(&f)
+            .is_some_and(|s| s.attrs.has("functional") || s.attrs.has("total"));
+        if !total || !sig.partial || !sig.lean.starts_with("K.") || lfp.contains(&sig.lean) {
+            continue;
+        }
+        let xs: Vec<String> = (0..sig.args.len()).map(|i| format!("X{i}")).collect();
+        let binders: String = xs
+            .iter()
+            .zip(&sig.args)
+            .map(|(x, s)| format!(" ({x} : {s})"))
+            .collect();
+        let call = if xs.is_empty() {
+            sig.lean.clone()
+        } else {
+            format!("{} {}", sig.lean, xs.join(" "))
+        };
+        let induct = xs
+            .iter()
+            .zip(&sig.args)
+            .filter(|(_, s)| recursive_sort(m, s))
+            .map(|(x, _)| (x.clone(), sig.lean.clone()))
+            .collect();
+        out.push(Stated {
+            name: format!("Total.{}", names::ident(&names::demangle(&f))),
+            what: format!("{} is total (K's `total`)", names::demangle(&f)),
+            unfold_first: vec![],
+            case_first: vec![],
+            simp_with: vec![],
+            normalizers: vec![],
+            nf: vec![],
+            statement: format!(
+                "{binders} :\n    (Option.bind ({call}) fun _ => some true) = some true"
+            ),
+            row: None,
+            induct,
+        });
+    }
+    out
+}
+
 /// `base`, or `base_k` for its `k`-th use (`k ≥ 2`).
 fn numbered(base: String, taken: &mut BTreeMap<String, usize>) -> String {
     let seen = taken.entry(base.clone()).or_insert(0);
@@ -1484,7 +1585,7 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
 /// a simplification or lemma stated `Option.bind (K.g xs) f = some c` (`g(X) >=Int 0 =>
 /// true`), which a later proof that cases on a call of `g` reads (`k2l_value`, EQ-23).
 fn is_value_lemma(s: &Stated) -> bool {
-    (s.name.starts_with("Simp.") || s.name.starts_with("Lemma."))
+    (s.name.starts_with("Simp.") || s.name.starts_with("Lemma.") || s.name.starts_with("Total."))
         && s.statement
             .rsplit_once(" :\n    ")
             .is_some_and(|(binders, body)| {
@@ -1784,6 +1885,47 @@ mod tests {
     /// An author's lemma about a call's value (`cw(_) >=Int 2`) is tagged `@[k2l_value]` and, its
     /// function being its own to unfold, gets the cases that read the earlier lemmas about the
     /// functions it calls (EQ-23); an equation between two calls is no such lemma, and an open
+    /// K's `total` is stated for the functions a rule's right-hand side reaches (EQ-24): indlemma's
+    /// `loop` rule calls `app`, declared total and well-founded, so `Total.app` is stated, as a
+    /// lemma about a call's value, with induction on each argument; `mu`, which no rule calls, is
+    /// not.
+    #[test]
+    fn a_total_function_a_rule_calls_is_stated_total() {
+        let def = crate::funcs::tests::fixture("indlemma");
+        let (m, g) = crate::funcs::tests::generated(&def);
+        let st = total_theorems(&def, &m, &g.fns, &g.lean);
+        let names: Vec<&str> = st.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("Total.«app(")),
+            "{names:?}"
+        );
+        assert!(!names.iter().any(|n| n.contains("mu(")), "{names:?}");
+        let app = st
+            .iter()
+            .find(|s| s.name.starts_with("Total.«app("))
+            .unwrap();
+        assert!(is_value_lemma(app), "{}", app.statement);
+        assert!(
+            app.statement.ends_with("fun _ => some true) = some true"),
+            "{}",
+            app.statement
+        );
+        let vars: Vec<&str> = app.induct.iter().map(|(v, _)| v.as_str()).collect();
+        assert_eq!(vars, ["X0", "X1"]);
+        let o = emit(
+            "N",
+            std::slice::from_ref(app),
+            &BTreeSet::new(),
+            &g.unfold,
+            &g.recursive,
+        );
+        assert!(o.contains("@[k2l_value]\ntheorem Total.«app("), "{o}");
+        assert!(
+            o.contains("\n  | k2l_eqn_ind X0 []") && o.contains("\n  | k2l_eqn_ind X1 []"),
+            "{o}"
+        );
+    }
+
     /// one is no theorem.
     #[test]
     fn a_lemma_about_a_value_is_tagged_and_reads_the_earlier_ones() {

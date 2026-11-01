@@ -14,4 +14,5 @@ open Peano KPrelude
 #k2l_assert_axioms Peano.ser_SortKItem_inj
 #k2l_assert_axioms Peano.Step.preserves_of
 #k2l_assert_axioms Peano.Eqn.«_|Set__SET_Set_Set_Set_1» Peano.Eqn.«double(_)_PEANO_Nat_Nat_1» Peano.Eqn.«even(_)_PEANO_B_Nat_1» Peano.Eqn.«even(_)_PEANO_B_Nat_2» Peano.Eqn.«odd(_)_PEANO_B_Nat_1» Peano.Eqn.«odd(_)_PEANO_B_Nat_2» Peano.Eqn.«pick(_,_)_PEANO_Nat_B_Nat_1» Peano.Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2»
-#k2l_assert_axioms Peano.Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_1» Peano.Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_2» Peano.Eqn.pushList_1 Peano.Simp.s_c3ef047673d1
+#k2l_assert_axioms Peano.Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_1» Peano.Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_2» Peano.Eqn.pushList_1 Peano.Total.«odd(_)_PEANO_B_Nat» Peano.Total.«even(_)_PEANO_B_Nat» Peano.Total.«plus(_,_)_PEANO_Nat_Nat_Nat» Peano.Total.«double(_)_PEANO_Nat_Nat» Peano.Total.«pick(_,_)_PEANO_Nat_B_Nat»
+#k2l_assert_axioms Peano.Simp.s_c3ef047673d1
