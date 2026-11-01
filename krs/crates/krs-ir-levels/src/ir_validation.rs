@@ -1697,11 +1697,23 @@ pub(crate) fn validate_existentials<L: Validation>(
         }
         RuleBodyRef::Configuration { body, .. } => {
             for part in body.parts() {
-                if let Some(term) = part.pre_term() {
-                    collect_term_variables::<L>(term, &mut left_uses);
-                }
-                if let Some(term) = part.post_term() {
-                    collect_term_variables::<L>(term, &mut right_uses);
+                // A single-body clause (KF-011) is read through its images: its
+                // rewrites' right sides write the after-state.
+                if let ClausePart::Matched {
+                    before,
+                    after: PartPost::Local,
+                    ..
+                } = part
+                {
+                    collect_term_variables::<L>(&before.pre_pattern(), &mut left_uses);
+                    collect_term_variables::<L>(&before.post_term(), &mut right_uses);
+                } else {
+                    if let Some(term) = part.pre_term() {
+                        collect_term_variables::<L>(term, &mut left_uses);
+                    }
+                    if let Some(term) = part.post_term() {
+                        collect_term_variables::<L>(term, &mut right_uses);
+                    }
                 }
                 if let Some(binding) = part.frame().and_then(CellContentFrame::binding) {
                     left_uses.insert(binding.clone());

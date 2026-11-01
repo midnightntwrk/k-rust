@@ -420,9 +420,9 @@ fn parse_readable_instance(
     Ok(InstanceItem::new(range, label, owner, fields, rest))
 }
 
-/// One readable instance child: `[items.., ..]` for a computation cell, or
-/// a term; a braced list's child in a pattern is read as a key is
-/// ([`parse_readable_instances`]).
+/// One readable instance child: `[items.., ..]` for a computation cell, a
+/// map cell's entries `{ k -> v, .. }`, or a term; a braced list's child in a
+/// pattern is read as a key is ([`parse_readable_instances`]).
 fn parse_readable_child(
     tokens: TokenStream,
     context: StateMacroContext,
@@ -435,6 +435,19 @@ fn parse_readable_child(
         context => readable_term(tokens, context),
     };
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    // A map cell's entries with its other entries open, `{ k -> v, .. }`, as a readable record
+    // reads a map cell's entries, and as a `cells!` instance writes `map![k -> v, ..]`.
+    if let [TokenTree::Group(group)] = trees.as_slice()
+        && group.delimiter() == proc_macro2::Delimiter::Brace
+        && contains_top_level_arrow(group)
+        && top_level_items(group.stream()).last().is_some_and(is_dots)
+    {
+        return Ok(StateTerm::Map(crate::state_macro::parse_map(
+            group.stream(),
+            context,
+            Some(TokenRange::for_tokens(&tokens)?),
+        )?));
+    }
     if let [TokenTree::Group(group)] = trees.as_slice()
         && group.delimiter() == proc_macro2::Delimiter::Bracket
     {
@@ -665,7 +678,7 @@ pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> Result<Ex
         return Err(fork.error("a map item requires a key before `->`").into());
     }
     input.advance_to(&fork);
-    let error = match syn::parse2::<Expr>(tokens.clone()) {
+    let error = match crate::term::parse_expression_tokens(&tokens) {
         Ok(key) => return Ok(key),
         Err(error) => error,
     };

@@ -504,6 +504,14 @@ fn configuration_rule_bindings(
     }
     let mut requires_sorts = subject_sorts.clone();
     requires_sorts.extend(remainder_sorts.clone());
+    // A single-body rule (KF-011) writes its after-state in its rewrites'
+    // right sides, inside the subject, which therefore see its existentials
+    // and fresh binders (the parser refuses a left-image binding of them).
+    if rule.result.is_none() {
+        for binder in rule.existentials.iter().chain(&rule.fresh) {
+            subject_sorts.insert(binder.name.clone(), semantic_sort_ref(&binder.sort.sort));
+        }
+    }
     result_sorts.extend(remainder_sorts);
     Ok(ConfigurationRuleBindings {
         subject_sorts,

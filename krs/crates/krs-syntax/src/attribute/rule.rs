@@ -83,8 +83,6 @@ pub(crate) const EVALUATION_WITHOUT_HOLE: &str = "a heat or cool rule names the 
 pub(crate) const HOLE_WITHOUT_EVALUATION: &str =
     "`hole` and `result` are keys of a heat or cool rule; add `heat` or `cool`";
 pub(crate) const EVALUATION_WITH_ORDER: &str = "a heat or cool rule is ordered by its hole: K adds `requires notBool isKResult(HOLE)` to heating and `requires isKResult(HOLE)` to cooling; it takes no `owise`, `priority`, `nondet`, or `anywhere`";
-/// The diagnostic for `anywhere` on a single-body rule (one that returns `()`), at the key.
-pub const ANYWHERE_ON_SINGLE_BODY_RULE: &str = "a single-body rule (one that returns `()`) marks its changes with `k::rewrite!` where its subject heads the computation cell; the form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn with a result states";
 /// The diagnostic for `anywhere` on a readable clause or a `cells!` rule.
 pub const ANYWHERE_NOT_TERM_SHAPED: &str =
     "an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn";

@@ -800,8 +800,8 @@ fn cells_matched(kind: CellKind, spelling: &str) -> Result<Matched, &'static str
 /// instance written whole is looked up, so its witness is the object it denotes, and its
 /// counter-witnesses are that object with another key or value where the spelling computes one,
 /// and with an entry more in its exact map; an instance whose map writes `..` selects the objects
-/// whose map holds the written entry, so its witness has another entry beside it; an instance
-/// record with `..` (`Obj { key: 1, .. }`) leaves its map open, so its witness's map is not the
+/// whose map holds the written entry, so its witness has another entry beside it, and its
+/// counter-witnesses hold another value at the key, or lack the key; an instance record with `..` (`Obj { key: 1, .. }`) leaves its map open, so its witness's map is not the
 /// template's empty one.
 fn bag_matched(spelling: &str) -> Result<Matched, &'static str> {
     use Extent::{Exact, Open};
@@ -842,7 +842,7 @@ fn bag_matched(spelling: &str) -> Result<Matched, &'static str> {
         "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
         | "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }" => {
             instance(
-                Matched::between(more(), vec![beside(1, &[(1, 3)])]),
+                Matched::between(more(), vec![beside(1, &[(1, 3)]), beside(1, &[(3, 4)])]),
                 Open(1),
             )
         }

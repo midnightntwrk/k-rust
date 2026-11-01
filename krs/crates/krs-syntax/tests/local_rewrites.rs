@@ -172,10 +172,6 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
             "has an empty body",
         ),
         (
-            ASSIGN.replace("#[k::rule]", "#[k::rule]\n#[k::fresh(l: Loc)]"),
-            "a single-body rule takes no",
-        ),
-        (
             ASSIGN.replace("k::rewrite!(_ => value)", "k::rewrite!(_ value)"),
             "`k::rewrite!` expects `from => to`",
         ),
@@ -186,6 +182,39 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
             "expected {expected:?}, got {error}"
         );
     }
+}
+
+/// A single-body rule's `#[k::fresh]` and `#[k::exists]` name values its rewrites' right sides
+/// write, as a rule with a result's result does: a right side may use them, the left image may not
+/// bind them, and one no right side or `ensures` uses declares nothing.
+#[test]
+fn a_single_body_rules_result_binders_are_its_right_sides_names() {
+    let fresh = ASSIGN
+        .replace("#[k::rule]", "#[k::rule]\n#[k::fresh(l: Value)]")
+        .replace("k::rewrite!(_ => value)", "k::rewrite!(_ => l)");
+    let rule = StateRuleItem::parse_source(&fresh).unwrap();
+    assert_eq!(rule.existentials().fresh().len(), 1);
+    let exists = fresh.replace("#[k::fresh(l: Value)]", "#[k::exists(l: Value)]");
+    let rule = StateRuleItem::parse_source(&exists).unwrap();
+    assert_eq!(rule.existentials().binders().len(), 1);
+    let ensures = ASSIGN.replace(
+        "#[k::rule]",
+        "#[k::rule]\n#[k::ensures(k::is!(Value, value))]",
+    );
+    let rule = StateRuleItem::parse_source(&ensures).unwrap();
+    assert!(rule.existentials().ensures().is_some());
+
+    let unused = ASSIGN.replace("#[k::rule]", "#[k::rule]\n#[k::fresh(l: Value)]");
+    let error = StateRuleItem::parse_source(&unused).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("must occur in the rule's result"),
+        "{error}"
+    );
+    let matched = ASSIGN.replace("#[k::rule]", "#[k::rule]\n#[k::fresh(value: Value)]");
+    let error = StateRuleItem::parse_source(&matched).unwrap_err();
+    assert!(error.to_string().contains("cannot be matched"), "{error}");
 }
 
 /// A rewrite outside a single-body rule's subject, inside another rewrite, or

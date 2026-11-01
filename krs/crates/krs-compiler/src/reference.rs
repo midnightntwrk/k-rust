@@ -2674,6 +2674,29 @@ fn render_instance(
                 let items = items.into_iter().chain(tail);
                 quote!(k::k![#(#items),*])
             }
+            // A map cell's entries, its other entries open where the record leaves them so.
+            State::Map(krs_ir::ProtocolRuleMap {
+                body: krs_ir::ProtocolRuleMapBody::Items { items, remainder },
+                ..
+            }) => {
+                let entries = items
+                    .iter()
+                    .map(|item| {
+                        let key =
+                            render_term(&item.key, pattern, rendering.package, rendering.bundle)?;
+                        let value =
+                            render_term(&item.value, pattern, rendering.package, rendering.bundle)?;
+                        Ok(quote!(#key -> #value))
+                    })
+                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+                let rest = match remainder {
+                    krs_ir::ProtocolRuleFrame::Exact => None,
+                    krs_ir::ProtocolRuleFrame::Anonymous { .. } => Some(quote!(..)),
+                    _ => return Err(ReferenceExpansionError::UnsupportedState),
+                };
+                let parts = entries.into_iter().chain(rest);
+                quote!(k::map![#(#parts),*])
+            }
             _ => return Err(ReferenceExpansionError::UnsupportedState),
         };
         fields.push(quote!(#name: #value));

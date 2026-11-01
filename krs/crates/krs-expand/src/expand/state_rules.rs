@@ -428,12 +428,23 @@ pub(super) fn configuration_rule(
     } else {
         Form::CellsRule
     };
+    // A single-body rule's rewrites' right sides write its after-state, so they also see the
+    // existentials and fresh binders (the parser refuses a subject binding of their names).
+    let subject_idents = if rule.result().is_none() {
+        binding_idents
+            .iter()
+            .cloned()
+            .chain(rule.existentials().names())
+            .collect::<Vec<_>>()
+    } else {
+        binding_idents.clone()
+    };
     let mut left = StateRuleBuilder::new(
         &facade,
         &ledger,
         nonce,
         &cfg,
-        &binding_idents,
+        &subject_idents,
         RuleSide::Left,
         form,
     );
@@ -885,39 +896,8 @@ impl<'a> StateRuleBuilder<'a> {
         map: &MapExpression,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
-        let ledger = self.terms.ledger;
-        // Every shell has its payload key: an empty one is anchored at
-        // its invocation.
-        let payload_key = ledger.define(map.payload_key())?;
-        let body = match map.body() {
-            MapBody::Empty { explicit_dot } => ProtocolRuleMapBody::Empty {
-                explicit_dot: *explicit_dot,
-            },
-            MapBody::Items { items, remainder } => {
-                let mut values = Vec::new();
-                for item in items {
-                    values.push(ProtocolRuleMapItem {
-                        key_key: ledger.define(item.key().keys().payload())?,
-                        key: self.expand_key(KeyedTerm::of(item.key()), slots)?,
-                        value_key: ledger.define(item.value().keys().payload())?,
-                        value: self.expand_keyed(KeyedTerm::of(item.value()), slots)?,
-                    });
-                }
-                ProtocolRuleMapBody::Items {
-                    items: values,
-                    remainder: expand_frame(ledger, remainder, map.remainder_key())?,
-                }
-            }
-            MapBody::Update { base, key, value } => ProtocolRuleMapBody::Update {
-                base_key: ledger.define(base.keys().payload())?,
-                base: self.expand_keyed(KeyedTerm::of(base), slots)?,
-                key_key: ledger.define(key.keys().payload())?,
-                key: self.expand_key(KeyedTerm::of(key), slots)?,
-                value_key: ledger.define(value.keys().payload())?,
-                value: self.expand_keyed(KeyedTerm::of(value), slots)?,
-            },
-        };
-        Ok(ProtocolRuleMap { payload_key, body })
+        let side = self.term_side();
+        map_wire(&mut self.terms, side, map, slots)
     }
 
     /// Expands one term the configuration holds, at the side's slot.
@@ -927,15 +907,6 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         self.terms.expand_wire(term, self.term_side(), slots)
-    }
-
-    /// Expands a map's key, a collection entry the map is looked up by.
-    fn expand_key(
-        &mut self,
-        term: KeyedTerm<'_>,
-        slots: &mut WireSlots,
-    ) -> crate::Result<WireTerm> {
-        self.terms.expand_key_wire(term, self.term_side(), slots)
     }
 }
 
@@ -959,6 +930,49 @@ fn expand_frame(
             binding: binding.unraw().to_string(),
         }),
     }
+}
+
+/// The wire form of a map a configuration holds, on `side`: its keys are what the map is looked
+/// up by, its values terms of the side, and its remainder keyed by the map.
+pub(super) fn map_wire(
+    terms: &mut TermBuilder<'_>,
+    side: TermSide,
+    map: &MapExpression,
+    slots: &mut WireSlots,
+) -> crate::Result<ProtocolRuleMap<WireTerm>> {
+    let ledger = terms.ledger;
+    // Every shell has its payload key: an empty one is anchored at
+    // its invocation.
+    let payload_key = ledger.define(map.payload_key())?;
+    let body = match map.body() {
+        MapBody::Empty { explicit_dot } => ProtocolRuleMapBody::Empty {
+            explicit_dot: *explicit_dot,
+        },
+        MapBody::Items { items, remainder } => {
+            let mut values = Vec::new();
+            for item in items {
+                values.push(ProtocolRuleMapItem {
+                    key_key: ledger.define(item.key().keys().payload())?,
+                    key: terms.expand_key_wire(KeyedTerm::of(item.key()), side, slots)?,
+                    value_key: ledger.define(item.value().keys().payload())?,
+                    value: terms.expand_wire(KeyedTerm::of(item.value()), side, slots)?,
+                });
+            }
+            ProtocolRuleMapBody::Items {
+                items: values,
+                remainder: expand_frame(ledger, remainder, map.remainder_key())?,
+            }
+        }
+        MapBody::Update { base, key, value } => ProtocolRuleMapBody::Update {
+            base_key: ledger.define(base.keys().payload())?,
+            base: terms.expand_wire(KeyedTerm::of(base), side, slots)?,
+            key_key: ledger.define(key.keys().payload())?,
+            key: terms.expand_key_wire(KeyedTerm::of(key), side, slots)?,
+            value_key: ledger.define(value.keys().payload())?,
+            value: terms.expand_wire(KeyedTerm::of(value), side, slots)?,
+        },
+    };
+    Ok(ProtocolRuleMap { payload_key, body })
 }
 
 /// The wire form of an instance record's rest (KF-023).

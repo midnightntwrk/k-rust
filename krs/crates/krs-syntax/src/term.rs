@@ -1494,7 +1494,7 @@ impl TermExpression {
         // and a pattern names its head instead. A `|` where a pattern's
         // alternatives stand joins them, so the tokens are read as the
         // pattern they are around the expressions they hold.
-        let expression = syn::parse2::<Expr>(tokens.clone()).ok();
+        let expression = parse_expression_tokens(&tokens).ok();
         if let Some(expression) = expression
             .as_ref()
             .filter(|expression| !crate::recover::holds_alternatives(expression))
@@ -1534,7 +1534,7 @@ impl TermExpression {
         let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
         match Pat::parse_multi.parse2(tokens.clone()) {
             Ok(pattern) => Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value),
-            Err(error) => match syn::parse2::<Expr>(tokens.clone()) {
+            Err(error) => match parse_expression_tokens(&tokens) {
                 Ok(expression) => Self::from_pattern_expression(expression),
                 Err(_) => match crate::recover::pattern(&tokens) {
                     Some(pattern) => {
@@ -1892,10 +1892,12 @@ pub(crate) fn parse_term_expression(input: syn::parse::ParseStream<'_>) -> syn::
         // pattern's `..base` in a `let`) only when the whole parse ends: the
         // expression's own tokens, read alone, report them here, where the
         // other readings are still open.
-        Ok(parsed) if !expression.peek(syn::Token![@]) => {
-            match syn::parse2::<Expr>(tokens_between(start, expression.cursor())) {
+        Ok(mut parsed) if !expression.peek(syn::Token![@]) => {
+            let tokens = tokens_between(start, expression.cursor());
+            match syn::parse2::<Expr>(tokens.clone()) {
                 Ok(_) => {
                     input.advance_to(&expression);
+                    crate::rule::keep_let_literal_spans(&mut parsed, tokens);
                     return Ok(parsed);
                 }
                 Err(error) => error,
@@ -1999,6 +2001,14 @@ fn continues_into_operator(after: syn::parse::ParseStream<'_>) -> bool {
 }
 
 /// The tokens from `start` up to `end`.
+/// Parses `tokens` as a Rust expression whose `let` patterns' negative literals keep the spans
+/// of their `-` and digits ([`crate::rule::keep_let_literal_spans`]).
+pub(crate) fn parse_expression_tokens(tokens: &TokenStream) -> syn::Result<Expr> {
+    let mut expression = syn::parse2::<Expr>(tokens.clone())?;
+    crate::rule::keep_let_literal_spans(&mut expression, tokens.clone());
+    Ok(expression)
+}
+
 pub(crate) fn tokens_between(
     start: syn::buffer::Cursor<'_>,
     end: syn::buffer::Cursor<'_>,

@@ -706,7 +706,8 @@ fn k7_shows_what_each_accepted_attribute_does() {
             "table"
         ]
     );
-    assert_eq!(forms("Anywhere"), ["local-rule", "rule", "sort-rule"]);
+    // A `for Sort` clause's header anchors it at the head of the computation cell.
+    assert_eq!(forms("Anywhere"), ["local-rule", "rule"]);
 }
 
 /// A class whose code's registry summary advises a form names an advised case: the registry's
@@ -862,5 +863,133 @@ fn the_parsers_misplaced_key_table_answers_with_the_oracles_class() {
         checked > 100,
         "the cross-check reads the axis: {checked} pairs"
     );
+    assert!(disagreements.is_empty(), "{disagreements:#?}");
+}
+
+/// What the reference states of an attribute on a form: taken, or refused with a class.
+#[derive(Clone, Copy, Debug)]
+enum Stated {
+    Takes,
+    Refuses(krs_test_support::class_matrix::oracle::Class),
+}
+
+/// The boundaries the reference states for attributes on sentence forms, each by the phrase that
+/// states it (in `language.mdx` or `boundaries.mdx`), the forms and attributes it covers, and
+/// what it says of them. A boundary the documentation states and the oracle does not share is the
+/// bug class NT-13-3 was (a documented refusal the oracle accepted, which no test tied together);
+/// every pair here is also an `attrs/FORM/ATTRIBUTE` case, so the class matrix ties the product to
+/// the same statement.
+const DOCUMENTED_BOUNDARIES: &[(&str, &[&str], &[&str], Stated)] = {
+    use krs_test_support::class_matrix::oracle::Class;
+    &[
+        (
+            "mean on it what they mean on the rule with that result",
+            &["local-rule", "cells-local"],
+            &["Exists", "Fresh", "Ensures"],
+            Stated::Takes,
+        ),
+        (
+            "A term-shaped single-body rule takes `anywhere`",
+            &["local-rule"],
+            &["Anywhere"],
+            Stated::Takes,
+        ),
+        (
+            "never as a readable clause, a `cells!` rule or a `for Sort` clause",
+            &["readable", "cells", "cells-local", "sort-rule"],
+            &["Anywhere"],
+            Stated::Refuses(Class::AnywhereOutsideTermRule),
+        ),
+        (
+            "`anywhere` outside a term-shaped transition",
+            &["claim", "equation", "simplification", "context"],
+            &["Anywhere"],
+            Stated::Refuses(Class::AnywhereOutsideTermRule),
+        ),
+        (
+            "`#[k::fresh]` binders on transitions",
+            &["rule", "sort-rule", "readable", "cells"],
+            &["Fresh"],
+            Stated::Takes,
+        ),
+        (
+            "`#[k::fresh]` on an equation, simplification, alias, claim, context, context alias",
+            &[
+                "equation",
+                "simplification",
+                "alias",
+                "claim",
+                "cells-claim",
+                "context",
+                "context-alias",
+            ],
+            &["Fresh"],
+            Stated::Refuses(Class::FreshOutsideStep),
+        ),
+        (
+            "the helpers on an equation, simplification, or alias are rejected",
+            &["equation", "simplification", "alias"],
+            &["Exists", "Ensures"],
+            Stated::Refuses(Class::ExistentialOutsideStep),
+        ),
+        (
+            "and with `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`",
+            &["context"],
+            &["Exists", "Ensures"],
+            Stated::Refuses(Class::ExistentialOutsideStep),
+        ),
+        (
+            "`#[k::simplification(..)]` and `#[k::equation(..)]` take `concrete`, `concrete(x, ..)`, `symbolic`",
+            &["equation", "simplification"],
+            &["Concrete", "ConcreteBinders", "Symbolic"],
+            Stated::Takes,
+        ),
+        (
+            "a restriction (`concrete`, `symbolic`, `smt_lemma`) outside an equation or a simplification",
+            &["rule", "readable", "claim", "context"],
+            &["Concrete", "Symbolic"],
+            Stated::Refuses(Class::RestrictionOutsideFunction),
+        ),
+    ]
+};
+
+/// Every boundary the reference states for an attribute on a form is stated where the list says,
+/// and the oracle answers it as stated (the class matrix then judges the product by the oracle).
+#[test]
+fn the_oracle_shares_every_attribute_boundary_the_reference_states() {
+    use krs_test_support::class_matrix::attributes::{expected, form_named};
+    let reference =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs-site/src/pages/reference");
+    let flatten = |text: String| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let documents = ["language.mdx", "boundaries.mdx"].map(|name| {
+        flatten(std::fs::read_to_string(reference.join(name)).expect("the reference page"))
+    });
+    let mut disagreements = Vec::new();
+    for (phrase, forms, attributes, stated) in DOCUMENTED_BOUNDARIES {
+        if !documents.iter().any(|document| document.contains(phrase)) {
+            disagreements.push(format!("the reference no longer states {phrase:?}"));
+        }
+        for form in *forms {
+            let form = form_named(form);
+            for name in *attributes {
+                let attribute = *Attribute::ALL
+                    .iter()
+                    .find(|attribute| format!("{attribute:?}") == *name)
+                    .unwrap_or_else(|| panic!("no attribute {name}"));
+                let agrees = match (stated, expected(form.sentence, attribute)) {
+                    (Stated::Takes, Outcome::Accept) => true,
+                    (Stated::Refuses(class), Outcome::Refuse(refusal)) => refusal.class == *class,
+                    _ => false,
+                };
+                if !agrees {
+                    disagreements.push(format!(
+                        "{}/{name}: the reference states {stated:?} ({phrase:?}), the oracle {:?}",
+                        form.name,
+                        expected(form.sentence, attribute)
+                    ));
+                }
+            }
+        }
+    }
     assert!(disagreements.is_empty(), "{disagreements:#?}");
 }

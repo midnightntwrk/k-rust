@@ -846,12 +846,12 @@ fn readable_state_wire(
                 tail,
             })
         }
+        // A map cell's entries, `{ k -> v, .. }`, of a collection's instance.
         StateTerm::Map(map) => {
-            return Err(ExpandError::new_spanned(
-                expand::CELL_COLLECTION_PLACEMENT,
-                map.tokens(),
-                "a readable collection instance holds terms and `[..]` sequences; write a map child with `cells!`",
-            ));
+            let braced = context.braced;
+            State::Map(context.builder.in_instances(braced, |builder| {
+                super::state_rules::map_wire(builder, term_side, map, context.slots)
+            })?)
         }
         StateTerm::Instances(list) => {
             let instance = |item: &krs_syntax::InstanceItem,

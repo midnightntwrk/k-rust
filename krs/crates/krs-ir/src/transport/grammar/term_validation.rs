@@ -21,6 +21,9 @@ use crate::{
 pub(super) struct GrammarTermValidation<'a, F> {
     pub(super) provenance: F,
     pub(super) bindings: &'a BTreeSet<String>,
+    /// The names the right side of a `k::rewrite!` may use: the bindings, and a single-body
+    /// rule's existentials and fresh binders, which its rewrites' right sides write.
+    pub(super) rewrite_right_bindings: &'a BTreeSet<String>,
     pub(super) seen_variables: &'a mut BTreeSet<String>,
     pub(super) allow_wildcards: bool,
     /// Whether the validator is inside a `k::matches!` pattern, whose names
@@ -84,7 +87,12 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         {
             return Ok(());
         }
-        if !self.bindings.contains(name) {
+        let bindings = if self.in_rewrite_right {
+            self.rewrite_right_bindings
+        } else {
+            self.bindings
+        };
+        if !bindings.contains(name) {
             return Err(GrammarTransportError::InvalidBinding(name.to_owned()));
         }
         if !self.in_rewrite_right {

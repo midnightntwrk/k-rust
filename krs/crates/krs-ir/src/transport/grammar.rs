@@ -2464,6 +2464,7 @@ impl DescriptorTerm {
             &mut term_validation::GrammarTermValidation {
                 provenance,
                 bindings,
+                rewrite_right_bindings: bindings,
                 seen_variables,
                 allow_wildcards,
                 in_matches_pattern: false,
@@ -2478,7 +2479,8 @@ impl DescriptorTerm {
 
     /// Validates the subject of a single-body rule (KF-011): like a rule
     /// subject, and its `k::rewrite!` islands are admitted; their right
-    /// sides use the subject's bindings without binding them.
+    /// sides use `right_bindings` (the subject's bindings, and the rule's
+    /// existentials and fresh binders) without binding them.
     ///
     /// # Errors
     ///
@@ -2487,6 +2489,7 @@ impl DescriptorTerm {
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
         bindings: &BTreeSet<String>,
+        right_bindings: &BTreeSet<String>,
         seen_variables: &mut BTreeSet<String>,
     ) -> Result<(), GrammarTransportError> {
         if super::validation::misplaced_empty_rewrite(self, false) {
@@ -2499,6 +2502,7 @@ impl DescriptorTerm {
             &mut term_validation::GrammarTermValidation {
                 provenance,
                 bindings,
+                rewrite_right_bindings: right_bindings,
                 seen_variables,
                 allow_wildcards: true,
                 in_matches_pattern: false,
@@ -2598,9 +2602,11 @@ impl StructuredRuleDescriptor {
     }
 
     /// Validates the result keys and sort, or a single-body rule's lack of
-    /// them (KF-011): a transition that is not an anywhere rule, whose
-    /// subject holds a `k::rewrite!`, with no result binders, function
-    /// context, or clause metadata. Returns whether the rule is single-body.
+    /// them (KF-011): a transition whose subject holds a `k::rewrite!`, with
+    /// no function context or clause metadata (its `anywhere`, existentials,
+    /// fresh binders and ensures condition are a transition's, about the
+    /// right image its rewrites write). Returns whether the rule is
+    /// single-body.
     fn validate_result_shape(
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
@@ -2614,10 +2620,6 @@ impl StructuredRuleDescriptor {
             }
             (None, None, None)
                 if self.sentence_kind == SentenceKind::Transition
-                    && self.anywhere.is_none()
-                    && self.existentials.is_empty()
-                    && self.ensures.is_none()
-                    && self.fresh.is_empty()
                     && self.unbound_variables.is_none()
                     && self.function_context.is_none()
                     && super::validation::contains_rewrite(&self.subject) =>
@@ -2880,9 +2882,11 @@ impl StructuredRuleDescriptor {
         self.validate_typed_bindings(provenance)?;
         let mut subject_variables = BTreeSet::new();
         if single_body {
+            let right_bindings = self.validate_existentials(&bindings, provenance)?;
             self.subject.validate_single_body_subject(
                 provenance,
                 &bindings,
+                &right_bindings,
                 &mut subject_variables,
             )?;
         } else {

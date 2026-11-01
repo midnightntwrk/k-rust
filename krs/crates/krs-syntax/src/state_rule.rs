@@ -779,32 +779,25 @@ impl StateRuleItem {
         let typed_bindings = parse_typed_bindings(&item)?;
         let mut bindings = Vec::new();
         collect_cells_bindings(&subject, &mut bindings)?;
-        // A result helper on a single-body rule is refused at the helper, before the rewrites'
-        // names are judged against the left image the helper would have named them in.
-        if result.is_none()
-            && form != StateRuleForm::Context
-            && let Some(helper) = result_helper(&item.attrs)
-        {
-            return Err(local_rewrite_error(
-                SINGLE_BODY_BINDERS.to_owned(),
-                helper.path().span(),
-            ));
-        }
-        validate_rewrite_right_sides(&subject, &bindings)?;
+        // A single-body rule's `#[k::exists]` and `#[k::fresh]` name values its rewrites' right
+        // sides write, as a result does: the right sides may use them beside the left image's
+        // bindings. A context rewrites only its hole, so its helpers are refused below.
+        let existentials = RuleExistentials::take(&mut item.attrs)?;
+        let result_names = if form == StateRuleForm::Context {
+            Vec::new()
+        } else {
+            existentials.names()
+        };
+        validate_rewrite_right_sides(&subject, &bindings, &result_names)?;
         attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
         if let Some(result) = &result {
             validate_result_reuses(&result.result, &bindings)?;
         }
         let requires = take_requires_helper(&mut item.attrs)?;
-        let existentials = RuleExistentials::take(&mut item.attrs)?;
-        if result.is_none()
+        if form == StateRuleForm::Context
             && let Some(helper) = existentials.attributes().first()
         {
-            return Err(if form == StateRuleForm::Context {
-                context_helper_error(helper)
-            } else {
-                local_rewrite_error(SINGLE_BODY_BINDERS.to_owned(), helper.path().span())
-            });
+            return Err(context_helper_error(helper));
         }
         for condition in requires
             .as_ref()
@@ -819,9 +812,12 @@ impl StateRuleItem {
             .map(|binding| binding.name.clone())
             .collect::<Vec<_>>();
         existentials.check_shadowing(&subject_names)?;
+        // A single-body rule writes its after-state in its rewrites' right sides, the only place
+        // of its subject a name the shadowing check left unbound can stand.
         let mut result_terms = Vec::new();
-        if let Some(result) = &result {
-            append_cells_terms(&result.result, &mut result_terms);
+        match &result {
+            Some(result) => append_cells_terms(&result.result, &mut result_terms),
+            None => append_cells_terms(&subject, &mut result_terms),
         }
         existentials.check_scope(requires.as_ref().map(RuleCondition::term), &result_terms)?;
         Self {
@@ -1477,23 +1473,6 @@ pub(crate) const SINGLE_BODY_BODY: &str = "a single-body rule (one that returns 
 /// The reason given for a single-body rule without a rewrite.
 pub(crate) const SINGLE_BODY_WITHOUT_REWRITE: &str = "a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result";
 
-/// The reason given for result binders on a single-body rule.
-pub(crate) const SINGLE_BODY_BINDERS: &str = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: write a rule with a result to introduce new values";
-
-/// The first `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]` among `attributes`.
-pub(crate) fn result_helper(attributes: &[syn::Attribute]) -> Option<&syn::Attribute> {
-    attributes.iter().find(|attribute| {
-        matches!(
-            crate::surface::helper_entry(attribute.path()),
-            Some(
-                crate::surface::AttributeMacro::Exists
-                    | crate::surface::AttributeMacro::Ensures
-                    | crate::surface::AttributeMacro::Fresh
-            )
-        )
-    })
-}
-
 /// The reason given for a rewrite in a rule that has a result.
 pub(crate) const REWRITE_WITH_RESULT: &str = "`k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state";
 
@@ -1521,6 +1500,7 @@ fn cells_rewrite_spans(cells: &CellsExpression) -> Vec<proc_macro2::Span> {
 fn validate_rewrite_right_sides(
     cells: &CellsExpression,
     bindings: &[StateRuleBinding],
+    result_names: &[Ident],
 ) -> Result<(), SyntaxError> {
     let mut terms = Vec::new();
     append_cells_terms(cells, &mut terms);
@@ -1528,6 +1508,7 @@ fn validate_rewrite_right_sides(
         .iter()
         .filter(|binding| binding.kind == StateRuleBindingKind::Term)
         .map(|binding| binding.name.clone())
+        .chain(result_names.iter().cloned())
         .collect::<Vec<_>>();
     for term in terms {
         crate::term::check_rewrite_right_bindings(term.tree(), &names)?;

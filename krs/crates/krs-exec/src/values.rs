@@ -574,7 +574,9 @@ pub(crate) struct CellNode {
 /// The backend's symbol table as decoding and encoding read it.
 struct BackendSymbols {
     known: HashSet<String>,
-    free_constructors: HashSet<String>,
+    /// The symbols whose applications a state holds are values of a KRS constructor: the free
+    /// constructors and the equation heads (constructors an `anywhere` rule rewrites).
+    value_constructors: HashSet<String>,
     /// The result sort of each symbol whose result sort is a sort without parameters.
     result_sorts: HashMap<String, String>,
     collections: HashMap<String, (Collection, Role)>,
@@ -584,15 +586,21 @@ struct BackendSymbols {
 impl BackendSymbols {
     fn scan(backend: &BackendDefinition) -> Self {
         let mut known = HashSet::new();
-        let mut free_constructors = HashSet::new();
+        let mut value_constructors = HashSet::new();
         let mut result_sorts = HashMap::new();
         let mut collections = HashMap::new();
         let mut builders: [CollectionSymbols; 3] = Default::default();
         for (name, symbol) in backend.symbols() {
             let name = name.to_string();
             known.insert(name.clone());
-            if symbol.attributes.head_role() == HeadRole::FreeConstructor {
-                free_constructors.insert(name.clone());
+            // A constructor an `anywhere` rule rewrites is an equation head: its applications are
+            // evaluated as a function's are, so one a state holds is in normal form, a value of
+            // the constructor it still is.
+            if matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor | HeadRole::EquationHead
+            ) {
+                value_constructors.insert(name.clone());
             }
             if let k_rust::k_rust_backend::term::SortNode::Application {
                 name: sort,
@@ -646,7 +654,7 @@ impl BackendSymbols {
         }
         Self {
             known,
-            free_constructors,
+            value_constructors,
             result_sorts,
             collections,
             builders,
@@ -667,7 +675,7 @@ pub struct ValueIndex {
     /// Hooks of the backend's sorts, by KAST name, for the KAST conversion of an encoded value.
     kast_sort_hooks: HashMap<String, String>,
     known_symbols: HashSet<String>,
-    free_constructors: HashSet<String>,
+    value_constructors: HashSet<String>,
     result_sorts: HashMap<String, String>,
     collections: HashMap<String, (Collection, Role)>,
     builders: [CollectionSymbols; 3],
@@ -772,7 +780,7 @@ impl ValueIndex {
             sort_hooks,
             kast_sort_hooks: kast_sort_hooks.clone(),
             known_symbols: symbols.known,
-            free_constructors: symbols.free_constructors,
+            value_constructors: symbols.value_constructors,
             result_sorts: symbols.result_sorts,
             collections: symbols.collections,
             builders: symbols.builders,
@@ -963,7 +971,7 @@ impl ValueIndex {
                     return self.collection(pattern, collection);
                 }
                 match self.ctors_by_symbol.get(name) {
-                    Some(info) if self.free_constructors.contains(name) => {
+                    Some(info) if self.value_constructors.contains(name) => {
                         self.constructor(pattern, info, symbol, arguments)
                     }
                     _ => opaque(),

@@ -117,6 +117,202 @@ fn collect_negative_literals(
     }
 }
 
+/// Gives each negative literal of a `let` pattern in `expression` the `-` and the digits of
+/// `tokens`, the source tokens `expression` was parsed from.
+///
+/// syn reads `-1` in a pattern as one literal token whose span is the join of the `-`'s and the
+/// digits' where the host joins spans, and the `-`'s alone where it cannot: a pattern a sentence
+/// reads from its own tokens takes both spans from them ([`NegativeLiteralSpans`]), but a `let`
+/// pattern is read from the expression syn built, which kept neither. Each such literal becomes
+/// the tokens it was written as ([`Pat::Verbatim`]), which the pattern reader reads with their
+/// spans, so that its range is the same in every host.
+///
+/// The `let`s of `tokens` and of `expression` pair in source order, outside macro invocations,
+/// whose tokens their own readers scan. Where they do not pair (another count of `let`s, or of
+/// negative literals in one pattern), the expression keeps what syn built.
+pub(crate) fn keep_let_literal_spans(expression: &mut syn::Expr, tokens: TokenStream) {
+    use syn::visit::Visit;
+    use syn::visit_mut::VisitMut;
+
+    struct Lets(usize);
+    impl<'a> Visit<'a> for Lets {
+        fn visit_local(&mut self, local: &'a syn::Local) {
+            self.0 += 1;
+            syn::visit::visit_local(self, local);
+        }
+    }
+
+    struct Rewrite(std::vec::IntoIter<Vec<(proc_macro2::Punct, proc_macro2::Literal)>>);
+    impl VisitMut for Rewrite {
+        fn visit_local_mut(&mut self, local: &mut syn::Local) {
+            if let Some(signs) = self.0.next() {
+                let mut literals = Vec::new();
+                if negative_pattern_literals(&mut local.pat, &mut literals)
+                    && literals.len() == signs.len()
+                {
+                    for (literal, (minus, digits)) in literals.into_iter().zip(signs) {
+                        *literal = Pat::Verbatim(TokenStream::from_iter([
+                            TokenTree::Punct(minus),
+                            TokenTree::Literal(digits),
+                        ]));
+                    }
+                }
+            }
+            syn::visit_mut::visit_local_mut(self, local);
+        }
+    }
+
+    let mut signs = Vec::new();
+    collect_let_signs(tokens, &mut signs);
+    let mut lets = Lets(0);
+    lets.visit_expr(expression);
+    if lets.0 == signs.len() {
+        Rewrite(signs.into_iter()).visit_expr_mut(expression);
+    }
+}
+
+/// Pushes the `-1` literal patterns of `pattern` in source order; returns whether they are all
+/// its negative literals (a range's bound, which no [`Pat::Verbatim`] stands for, is not one).
+fn negative_pattern_literals<'a>(pattern: &'a mut Pat, literals: &mut Vec<&'a mut Pat>) -> bool {
+    use syn::visit::Visit;
+
+    /// Whether a pattern holds a negative literal anywhere.
+    struct Holds(bool);
+    impl<'a> Visit<'a> for Holds {
+        fn visit_lit(&mut self, literal: &'a syn::Lit) {
+            self.0 |= negative_literal(literal);
+        }
+    }
+
+    if let Pat::Lit(literal) = &*pattern
+        && negative_literal(&literal.lit)
+    {
+        literals.push(pattern);
+        return true;
+    }
+    match pattern {
+        Pat::Ident(identifier) => identifier
+            .subpat
+            .as_mut()
+            .is_none_or(|(_, subpattern)| negative_pattern_literals(subpattern, literals)),
+        Pat::Or(or) => or
+            .cases
+            .iter_mut()
+            .all(|case| negative_pattern_literals(case, literals)),
+        Pat::Paren(paren) => negative_pattern_literals(&mut paren.pat, literals),
+        Pat::Reference(reference) => negative_pattern_literals(&mut reference.pat, literals),
+        Pat::Slice(slice) => slice
+            .elems
+            .iter_mut()
+            .all(|element| negative_pattern_literals(element, literals)),
+        Pat::Struct(record) => record
+            .fields
+            .iter_mut()
+            .all(|field| negative_pattern_literals(&mut field.pat, literals)),
+        Pat::Tuple(tuple) => tuple
+            .elems
+            .iter_mut()
+            .all(|element| negative_pattern_literals(element, literals)),
+        Pat::TupleStruct(tuple) => tuple
+            .elems
+            .iter_mut()
+            .all(|element| negative_pattern_literals(element, literals)),
+        Pat::Type(typed) => negative_pattern_literals(&mut typed.pat, literals),
+        // A macro's tokens are its reader's.
+        Pat::Macro(_) => true,
+        other => {
+            let mut holds = Holds(false);
+            holds.visit_pat(other);
+            !holds.0
+        }
+    }
+}
+
+/// Whether `literal` is a numeric literal syn read with its `-`.
+fn negative_literal(literal: &syn::Lit) -> bool {
+    match literal {
+        syn::Lit::Int(integer) => integer.base10_digits().starts_with('-'),
+        syn::Lit::Float(float) => float.base10_digits().starts_with('-'),
+        _ => false,
+    }
+}
+
+/// Pushes, for each `let` of `tokens` in source order outside macro invocations, the `-` and
+/// the digits of each negative literal of its pattern (the tokens up to its lone `=`).
+fn collect_let_signs(
+    tokens: TokenStream,
+    signs: &mut Vec<Vec<(proc_macro2::Punct, proc_macro2::Literal)>>,
+) {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < tokens.len() {
+        match &tokens[index] {
+            TokenTree::Ident(ident) if ident == "let" => {
+                let mut pattern = Vec::new();
+                index += 1;
+                while index < tokens.len() && !lone_equals(&tokens, index) {
+                    pattern.push(tokens[index].clone());
+                    index += 1;
+                }
+                let mut literals = Vec::new();
+                negative_literals_outside_macros(&pattern, &mut literals);
+                signs.push(literals);
+                continue;
+            }
+            TokenTree::Group(group) if !invokes_macro(&tokens, index) => {
+                collect_let_signs(group.stream(), signs);
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+}
+
+/// The `-` and digits of each negative literal of `tokens`, outside macro invocations.
+fn negative_literals_outside_macros(
+    tokens: &[TokenTree],
+    literals: &mut Vec<(proc_macro2::Punct, proc_macro2::Literal)>,
+) {
+    for (index, token) in tokens.iter().enumerate() {
+        match token {
+            TokenTree::Group(group) if !invokes_macro(tokens, index) => {
+                let inner = group.stream().into_iter().collect::<Vec<_>>();
+                negative_literals_outside_macros(&inner, literals);
+            }
+            TokenTree::Punct(punct) if punct.as_char() == '-' => {
+                if let Some(TokenTree::Literal(literal)) = tokens.get(index + 1)
+                    && literal
+                        .to_string()
+                        .starts_with(|character: char| character.is_ascii_digit())
+                {
+                    literals.push((punct.clone(), literal.clone()));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether the group at `index` is a macro invocation's: after `name!`, where `name` is no
+/// keyword (`if !(..)` negates a group).
+fn invokes_macro(tokens: &[TokenTree], index: usize) -> bool {
+    index >= 2
+        && matches!(&tokens[index - 1], TokenTree::Punct(bang) if bang.as_char() == '!')
+        && matches!(&tokens[index - 2], TokenTree::Ident(name) if syn::parse2::<Ident>(name.to_token_stream()).is_ok())
+}
+
+/// Whether the token at `index` is a lone `=`, which ends a `let` pattern: not part of `==`,
+/// `=>`, `<=`, `>=`, `!=` or `..=`.
+fn lone_equals(tokens: &[TokenTree], index: usize) -> bool {
+    let TokenTree::Punct(punct) = &tokens[index] else {
+        return false;
+    };
+    punct.as_char() == '='
+        && punct.spacing() == proc_macro2::Spacing::Alone
+        && !(index > 0
+            && matches!(&tokens[index - 1], TokenTree::Punct(previous) if previous.spacing() == proc_macro2::Spacing::Joint))
+}
+
 /// Supported subject-pattern shell.
 #[derive(Clone, Debug)]
 #[expect(

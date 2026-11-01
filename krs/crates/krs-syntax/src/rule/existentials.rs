@@ -206,6 +206,21 @@ impl RuleExistentials {
         requires: Option<&TermExpression>,
         result: &[&TermExpression],
     ) -> Result<(), SyntaxError> {
+        let result = result.iter().map(|term| term.nodes()).collect::<Vec<_>>();
+        self.check_scope_in(requires, &result)
+    }
+
+    /// [`Self::check_scope`] over the nodes of the terms that write the result: a single-body
+    /// rule's subject, whose rewrites' right sides write its after-state.
+    ///
+    /// # Errors
+    ///
+    /// Names the first misplaced or unused binder.
+    pub(crate) fn check_scope_in(
+        &self,
+        requires: Option<&TermExpression>,
+        result: &[&[crate::TermNode]],
+    ) -> Result<(), SyntaxError> {
         for binder in self.binders() {
             if requires.is_some_and(|term| references(term, binder.name())) {
                 return Err(unsupported_rule_signature(
@@ -213,7 +228,9 @@ impl RuleExistentials {
                     binder.name().span(),
                 ));
             }
-            let used = result.iter().any(|term| references(term, binder.name()))
+            let used = result
+                .iter()
+                .any(|nodes| references_in(nodes, binder.name()))
                 || self
                     .ensures
                     .as_ref()
@@ -232,7 +249,9 @@ impl RuleExistentials {
                     binder.name().span(),
                 ));
             }
-            let used = result.iter().any(|term| references(term, binder.name()))
+            let used = result
+                .iter()
+                .any(|nodes| references_in(nodes, binder.name()))
                 || self
                     .ensures
                     .as_ref()
@@ -373,7 +392,12 @@ impl RuleExistentials {
 
 /// Whether `term` references the bare name `name`.
 pub(super) fn references(term: &TermExpression, name: &Ident) -> bool {
-    term.nodes().iter().any(|node| match node {
+    references_in(term.nodes(), name)
+}
+
+/// Whether `nodes` reference the bare name `name`.
+fn references_in(nodes: &[crate::TermNode], name: &Ident) -> bool {
+    nodes.iter().any(|node| match node {
         crate::TermNode::Reference(path) => {
             path.leading_colon.is_none()
                 && path.segments.len() == 1

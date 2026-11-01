@@ -1428,7 +1428,32 @@ fn infer_readable_state(
         State::Present { value } => {
             infer_readable_state(builder, declarations, field, value, subject)?;
         }
-        State::Absent | State::Map(_) => {}
+        State::Absent => {}
+        // A map cell's entries, as a `cells!` map's: a subject's keys are looked up.
+        State::Map(map) => match &map.body {
+            krs_ir::ProtocolRuleMapBody::Empty { .. } => {}
+            krs_ir::ProtocolRuleMapBody::Items { items, .. } => {
+                for item in items {
+                    let key_sort = builder.collections.element_sort(&item.key);
+                    if subject {
+                        builder.infer_key(&item.key, key_sort.as_ref())?;
+                    } else {
+                        builder.infer(&item.key, key_sort.as_ref(), false)?;
+                    }
+                    let value_sort = builder.collections.element_sort(&item.value);
+                    builder.infer(&item.value, value_sort.as_ref(), subject)?;
+                }
+            }
+            krs_ir::ProtocolRuleMapBody::Update {
+                base, key, value, ..
+            } => {
+                builder.infer(base, Some(&SemanticSortRef::map()), subject)?;
+                for term in [key, value] {
+                    let element_sort = builder.collections.element_sort(term);
+                    builder.infer(term, element_sort.as_ref(), subject)?;
+                }
+            }
+        },
         State::Term(term) | State::Group(term) => builder.infer(term, Some(&sort), subject)?,
         State::KSequence(sequence) => {
             for item in &sequence.items {
@@ -1481,6 +1506,65 @@ fn infer_readable_state(
 /// were inferred with the whole rule and are lowered by its builder.
 struct HeadStateLowering<'a, 'b> {
     builder: &'a mut StructuredTermBuilder<'b>,
+}
+
+impl HeadStateLowering<'_, '_> {
+    /// Lowers an instance's map cell, `{ k -> v, .. }`, as a `cells!` instance's `map![..]`: a
+    /// subject's keys are what it looks the entries up by, and its rest is the cell's frame.
+    fn lower_map(
+        &mut self,
+        map: &krs_ir::ProtocolRuleMap<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let descriptor = self.builder.descriptor;
+        let key = &map.payload_key;
+        if *sort != SemanticSortRef::map() {
+            return Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                "map occurs in a non-Map rule cell",
+            )
+            .within(descriptor.id(), key_range(descriptor, key).as_ref()));
+        }
+        let element = |builder: &mut StructuredTermBuilder<'_>, term: &DescriptorTerm| {
+            let sort = builder.collections.element_sort(term);
+            builder.lower(term, sort.as_ref(), subject)
+        };
+        let operands = match &map.body {
+            krs_ir::ProtocolRuleMapBody::Empty { .. } => MapOperands::Empty,
+            krs_ir::ProtocolRuleMapBody::Items { items, .. } => {
+                let mut entries = Vec::with_capacity(items.len());
+                for item in items {
+                    let key = if subject {
+                        let sort = self.builder.collections.element_sort(&item.key);
+                        self.builder.lower_key(&item.key, sort.as_ref())?
+                    } else {
+                        element(self.builder, &item.key)?
+                    };
+                    entries.push(MapEntry {
+                        key,
+                        value: element(self.builder, &item.value)?,
+                    });
+                }
+                MapOperands::items(entries).map_err(|error| {
+                    DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
+                })?
+            }
+            krs_ir::ProtocolRuleMapBody::Update {
+                base, key, value, ..
+            } => MapOperands::Update {
+                map: self
+                    .builder
+                    .lower(base, Some(&SemanticSortRef::map()), subject)?,
+                key: element(self.builder, key)?,
+                value: element(self.builder, value)?,
+            },
+        };
+        Ok(SemanticTerm::map(
+            semantic_origin(descriptor, key.clone(), "readable-map")?,
+            operands,
+        ))
+    }
 }
 
 impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
@@ -1545,16 +1629,18 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
                     items,
                 ))
             }
-            State::Map(_) | State::Present { .. } | State::Absent | State::Instances(_) => {
+            State::Map(map) => self.lower_map(map, sort, subject),
+            State::Present { .. } | State::Absent | State::Instances(_) => {
                 Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
-                    "a readable cell state holds terms and `[..]` sequences",
+                    "a readable cell state holds terms, `[..]` sequences and maps",
                 ))
             }
         }
     }
 
-    /// A readable state holds no `map![..]`, so a result's is lowered as any result state.
+    /// A readable result's instance writes no map (its `{ k -> v, .. }` leaves entries open,
+    /// which a written cell cannot), so a result's state is lowered as any result state.
     fn lower_result(
         &mut self,
         state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,

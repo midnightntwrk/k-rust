@@ -533,17 +533,15 @@ impl RuleItem {
             && returns_unit
             && (item.block.stmts.is_empty() || rewrite.is_some());
         let single_body = single_body || form == ClauseForm::Context;
-        // A result helper on a single-body rule is refused at the helper, before the rewrites'
-        // names are judged against the left image the helper would have named them in.
-        if single_body
-            && form != ClauseForm::Context
-            && let Some(helper) = crate::state_rule::result_helper(&item.attrs)
-        {
-            return Err(crate::term::local_rewrite_error(
-                crate::state_rule::SINGLE_BODY_BINDERS.to_owned(),
-                helper.path().span(),
-            ));
-        }
+        // A single-body rule's `#[k::exists]` and `#[k::fresh]` name values its rewrites' right
+        // sides write, as a result does: the right sides may use them beside the left image's
+        // bindings. A context rewrites only its hole, so its helpers are refused below.
+        let existentials = RuleExistentials::take(&mut item.attrs)?;
+        let result_names = if form == ClauseForm::Context {
+            Vec::new()
+        } else {
+            existentials.names()
+        };
         let mut unchanged = None;
         match (single_body, rewrite) {
             (false, Some(rewrite)) => {
@@ -560,7 +558,13 @@ impl RuleItem {
                 ));
             }
             (true, Some(_)) => {
-                crate::term::check_rewrite_right_bindings(&subject_tree, pattern.bindings())?;
+                let names = pattern
+                    .bindings()
+                    .iter()
+                    .chain(&result_names)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                crate::term::check_rewrite_right_bindings(&subject_tree, &names)?;
             }
             (false, None) => {}
         }
@@ -603,25 +607,22 @@ impl RuleItem {
             (Some(result_sort), Some(result))
         };
         let requires = take_requires_helper(&mut item.attrs)?;
-        let existentials = RuleExistentials::take(&mut item.attrs)?;
-        if single_body && let Some(helper) = existentials.attributes().first() {
-            return Err(if form == ClauseForm::Context {
-                crate::state_rule::context_helper_error(helper)
-            } else {
-                crate::term::local_rewrite_error(
-                    crate::state_rule::SINGLE_BODY_BINDERS.to_owned(),
-                    helper.path().span(),
-                )
-            });
+        if form == ClauseForm::Context
+            && let Some(helper) = existentials.attributes().first()
+        {
+            return Err(crate::state_rule::context_helper_error(helper));
         }
         // A readable clause checks its existentials against every cell it
         // writes (`RuleClause::check_existentials`); its item has only the head.
         if root == PatternRoot::Subject {
             existentials.check_shadowing(pattern.bindings())?;
-            existentials.check_scope(
-                requires.as_ref().map(RuleCondition::term),
-                &result.iter().collect::<Vec<_>>(),
-            )?;
+            // A single-body rule writes its after-state in its rewrites' right sides, the only
+            // place of its subject a name the shadowing check left unbound can stand.
+            let written = match &result {
+                Some(result) => result.nodes(),
+                None => pattern.nodes(),
+            };
+            existentials.check_scope_in(requires.as_ref().map(RuleCondition::term), &[written])?;
         }
 
         Self {
@@ -757,6 +758,16 @@ impl RuleItem {
     #[must_use]
     pub const fn existentials(&self) -> &RuleExistentials {
         &self.existentials
+    }
+
+    /// The names the subject may reference: its bindings, then the existentials and fresh
+    /// binders, which only a single-body rule's rewrites' right sides can use there (a subject
+    /// binding of the same name is refused).
+    #[must_use]
+    pub fn subject_bindings(&self) -> Vec<syn::Ident> {
+        let mut bindings = self.parameter.pattern.bindings().to_vec();
+        bindings.extend(self.existentials.names());
+        bindings
     }
 
     /// Subject and function-context bindings followed by the existentials:
@@ -1112,10 +1123,9 @@ impl RuleItem {
             });
         }
 
+        let bindings = &self.subject_bindings();
         match &self.parameter.pattern {
-            RulePattern::Native {
-                nodes, bindings, ..
-            } => {
+            RulePattern::Native { nodes, .. } => {
                 let mut ordinal = 0_usize;
                 for node in nodes {
                     let path = match node {
@@ -1154,7 +1164,7 @@ impl RuleItem {
                     ordinal += 1;
                 }
             }
-            RulePattern::TermMacro { term, bindings, .. } => {
+            RulePattern::TermMacro { term, .. } => {
                 push_symbol_candidates(&mut candidates, term, bindings);
             }
         }
@@ -1190,7 +1200,7 @@ impl RuleItem {
             &mut candidates,
             self.parameter.pattern.nodes(),
             self.parameter.pattern.keys(),
-            self.parameter.pattern.bindings(),
+            &self.subject_bindings(),
         );
         let result_bindings = self.result_bindings();
         if let Some(result) = &self.result {

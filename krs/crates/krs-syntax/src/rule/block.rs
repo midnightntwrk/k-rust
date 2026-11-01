@@ -1135,14 +1135,11 @@ fn allocate_readable_state_keys(
                 allocate_readable_term_keys(keys, item, side)?;
             }
         }
-        crate::StateTerm::Map(_) => {
-            return Err(SyntaxError::new(
-                crate::SyntaxErrorKind::InvalidStateMacro {
-                    macro_name: "rules",
-                    reason: "a readable collection instance holds terms and `[..]` sequences; write a map child with `cells!`",
-                },
-                proc_macro2::Span::call_site(),
-            ));
+        crate::StateTerm::Map(map) => {
+            map.allocate_keys(keys, position)?;
+            for term in map.terms_mut() {
+                allocate_readable_term_keys(keys, term, side)?;
+            }
         }
         crate::StateTerm::Instances(list) => {
             // Each child's state is keyed right after its name.

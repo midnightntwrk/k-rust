@@ -8,7 +8,8 @@
 //! `priority`, `nondet`) is written beside a sibling of the form, one sentence of the same kind
 //! over the case's command whose subject also matches the command at `2`
 //! ([`sibling`]); an attribute whose meaning needs a use (an existential, a fresh value, a
-//! desugar clause's unbound name) has its result use the name ([`result_use`]).
+//! desugar clause's unbound name) has its result use the name ([`result_use`]); `anywhere` on a
+//! single-body rule rewrites a literal its rewrite's right side is not ([`rewrite_once`]).
 //!
 //! **K7.** Each case's run is its slot's driver plan (`super::drivers`) on the hole's spelling,
 //! changed where the attribute changes what the sentence does:
@@ -134,6 +135,11 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     };
     if let Some(used) = attribute.and_then(|attribute| result_use(form, attribute)) {
         template = used;
+    }
+    if attribute == Some(Attribute::Anywhere)
+        && let Some(once) = rewrite_once(form)
+    {
+        template = once;
     }
     let template = write_attribute(form, &template, written, attribute);
     // A production's key is written on the case's command, outside its item: the spelling is
@@ -342,6 +348,20 @@ fn result_use(form: Form, attribute: Attribute) -> Option<String> {
     };
     assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
     Some(template.replacen(old, new, 1).replace("NAMEUSE", name))
+}
+
+/// The template of a single-body rule whose rewrite's right image its left image no longer
+/// matches, for `anywhere`, which rewrites every occurrence of the left image, its own results
+/// included: the slot's `x => Cmd::Go()` writes a command its left image matches again, a rewrite
+/// that never ends, so the case rewrites `1`, which `Cmd::Go()` is not.
+fn rewrite_once(form: Form) -> Option<String> {
+    if form.name != "local-rule" {
+        return None;
+    }
+    let template = slots_template(form);
+    let (old, new) = ("k::rewrite!(x => Cmd::Go())", "k::rewrite!(1 => Cmd::Go())");
+    assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
+    Some(template.replacen(old, new, 1))
 }
 
 /// The template of `form`'s slot with its hole holding the form's spelling.

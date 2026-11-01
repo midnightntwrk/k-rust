@@ -1414,6 +1414,10 @@ struct RuleWalk {
     allow_rewrite: bool,
     /// Whether the validator is inside the right side of a `k::rewrite!`.
     in_rewrite_right: bool,
+    /// The names a single-body rule's rewrites' right sides use besides the
+    /// left image's bindings: its existentials and fresh binders, values of
+    /// the after-state those right sides write.
+    rewrite_right_names: BTreeSet<String>,
     /// Whether the term being validated is a whole K-sequence item, whose
     /// root rewrite may remove it (`k::rewrite!(x => ())`).
     k_item_root: bool,
@@ -1839,6 +1843,15 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     let mut discovered = Vec::new();
     let mut subject = RuleWalk {
         allow_rewrite: result.is_none(),
+        rewrite_right_names: if result.is_none() && !context {
+            rule.existentials
+                .iter()
+                .chain(&rule.fresh)
+                .map(|binder| binder.name.clone())
+                .collect()
+        } else {
+            BTreeSet::new()
+        },
         ..RuleWalk::default()
     };
     validate_rule_cells::<S>(
@@ -2479,10 +2492,15 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         let local = self.walk.in_matches_pattern
             || self.walk.in_let_pattern
             || self.let_scopes.iter().any(|scope| scope.contains(name));
+        // A single-body rule's existential or fresh binder, which its
+        // rewrites' right sides write.
+        let result_binder =
+            self.walk.in_rewrite_right && self.walk.rewrite_right_names.contains(name);
         // A result or a condition sees every variable the left side binds,
         // the computation and map remainders included.
         let uses = !matches!(self.side, ValidationSide::Left);
         if !local
+            && !result_binder
             && !binding_has_kind(self.bindings, name, RuleBindingUse::Term)
             && !(uses
                 && (binding_has_kind(self.bindings, name, RuleBindingUse::KSequenceFrame)

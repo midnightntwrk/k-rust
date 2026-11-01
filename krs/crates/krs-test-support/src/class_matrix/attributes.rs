@@ -27,8 +27,11 @@
 //!   may not overlap (a production may have several clauses, each for its own shapes): none of
 //!   them is chosen against another;
 //! - `anywhere` makes a transition rewrite its subject's root application wherever it occurs, which
-//!   a term-shaped transition has; a configuration-shaped one matches cells, which occur only at
-//!   their place, and a function's equations apply wherever its application occurs already;
+//!   a term-shaped transition has, a single-body rule's included (its subject's right image
+//!   replaces the application); a configuration-shaped one matches cells, which occur only at
+//!   their place, a `for Sort` clause's header anchors it at the head of the computation cell,
+//!   which `anywhere` would contradict, and a function's equations apply wherever its application
+//!   occurs already;
 //! - `heat`/`cool` (with `hole = x`) make a transition a heating or cooling step, which K orders
 //!   by whether its hole is a result; `result = S` names the sort a heated hole's evaluation ends
 //!   in, which a context and a context alias name too, and which means nothing on a sentence
@@ -65,7 +68,8 @@
 //! **Classes.** A refused attribute's class names the mistake, whatever the form it is made on:
 //! an order on a sentence that is chosen against none (`owise` on a simplification apart, which
 //! states what a prover cannot decide), `nondet` on a function, a restriction outside a
-//! function, `anywhere` outside a term-shaped transition, `result` without heating, `recursive`
+//! function, `anywhere` outside a term-shaped transition or on a `for Sort` clause, `result`
+//! without heating, `recursive`
 //! on a sentence, `unbound_variables` elsewhere than on a desugar clause, a condition on a
 //! static clause, an existential or a postcondition on a sentence that reaches no result, a fresh
 //! value outside a transition. Any other key, and every sentence key on a declaration's marker
@@ -105,6 +109,8 @@ pub enum Sentence {
     Transition {
         /// Whether its subject is a term (`#[k::rule]` fn, `for Sort` clause), not cells.
         term_shaped: bool,
+        /// Whether its block's `for Sort` header anchors it at the head of the computation cell.
+        anchored: bool,
     },
     /// An equation of a function, chosen among the function's equations.
     Equation {
@@ -168,14 +174,24 @@ const fn form(
     }
 }
 
-const TERM_RULE: Sentence = Sentence::Transition { term_shaped: true };
-const CELLS_RULE: Sentence = Sentence::Transition { term_shaped: false };
+const TERM_RULE: Sentence = Sentence::Transition {
+    term_shaped: true,
+    anchored: false,
+};
+const HEAD_RULE: Sentence = Sentence::Transition {
+    term_shaped: true,
+    anchored: true,
+};
+const CELLS_RULE: Sentence = Sentence::Transition {
+    term_shaped: false,
+    anchored: false,
+};
 
 /// Every form of the attribute axis, one per slot form of the term family.
 pub const FORMS: [Form; 18] = [
     form("rule", "subject", "_", TERM_RULE, "rule"),
     form("local-rule", "subject", "_", TERM_RULE, "rule"),
-    form("sort-rule", "subject", "_", TERM_RULE, "rule"),
+    form("sort-rule", "subject", "_", HEAD_RULE, "rule"),
     form("readable", "subject", "_", CELLS_RULE, "rule"),
     form("cells", "subject", "_", CELLS_RULE, "rule"),
     form("cells-local", "subject", "_", CELLS_RULE, "rule"),
@@ -810,7 +826,13 @@ pub const fn means(sentence: Sentence, attribute: Attribute) -> bool {
         A::Owise => transition || matches!(sentence, S::Equation { .. }),
         A::Priority | A::PriorityLate => transition || function,
         A::Nondet | A::Heat | A::Cool | A::HeatResult | A::Fresh => transition,
-        A::Anywhere => matches!(sentence, S::Transition { term_shaped: true }),
+        A::Anywhere => matches!(
+            sentence,
+            S::Transition {
+                term_shaped: true,
+                anchored: false
+            }
+        ),
         A::EvaluationResult => matches!(sentence, S::Context | S::ContextAlias),
         A::Concrete | A::ConcreteBinders | A::Symbolic | A::SmtLemma => function,
         A::OnePath | A::Circularity | A::Trusted => matches!(sentence, S::Claim),

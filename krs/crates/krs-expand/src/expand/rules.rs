@@ -698,28 +698,18 @@ fn expand_ordinary_rule(
             (SentenceKind::Desugar, "desugar", &no_metadata)
         }
     };
-    // A single-body rule (KF-011) is a transition that is not an anywhere
-    // rule: its subject's `k::rewrite!` islands say what changes.
+    // A single-body rule (KF-011) is a transition: its subject's `k::rewrite!` islands say what
+    // changes. With `anywhere` it rewrites the application its subject's root names wherever it
+    // occurs, to the subject's right image, as the rule with that result would.
     if rule.result().is_none()
-        && sentence_kind == krs_ir::SentenceKind::Transition
-        && let Some(anywhere) = attribute.anywhere()
-    {
-        // The mistake is the key, on a form that states no anywhere rule.
-        return Err(krs_syntax::SyntaxError::new(
-            krs_syntax::SyntaxErrorKind::InvalidRuleKey {
-                reason: krs_syntax::ANYWHERE_ON_SINGLE_BODY_RULE,
-            },
-            anywhere.span(),
+        && !matches!(
+            sentence_kind,
+            krs_ir::SentenceKind::Context | krs_ir::SentenceKind::Transition
         )
-        .into());
-    }
-    if rule.result().is_none()
-        && sentence_kind != krs_ir::SentenceKind::Context
-        && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
         return Err(krs_syntax::SyntaxError::new(
             krs_syntax::SyntaxErrorKind::InvalidLocalRewrite {
-                reason: "a single-body rule (one that returns `()`) is a `#[k::rule]` transition, never an anywhere rule, an equation, a simplification, an alias, or a desugar clause; return the result instead".to_owned(),
+                reason: "a single-body rule (one that returns `()`) is a `#[k::rule]` transition, never an equation, a simplification, an alias, or a desugar clause; return the result instead".to_owned(),
             },
             rule.item().sig.ident.span(),
         )
