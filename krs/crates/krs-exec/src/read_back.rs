@@ -26,12 +26,21 @@
 //!
 //! A cell is not read back, for a stated reason ([`ReadBack::Skipped`]), where its print says it
 //! is no program text (a warning: a symbol printed as KAST, an application whose instance no
-//! text fixes printed as KORE), where it groups a child of a sort but `K` in K's default bracket
-//! `( .. )`, which neither grammar has (a map whose key is a map: `_|->_` is non-associative and
-//! no bracket groups a map, so neither grammar writes that term at all), where its sort has
-//! parameters (no `--sort` names one), and where it holds a part no grammar of the definition
-//! writes: a variable (a symbolic state's), a matching-logic connective, a cell, a token neither
-//! grammar reads back as itself (the `Id` `$x`).
+//! text fixes printed as KORE, a child grouped in K's default bracket `( .. )` where the
+//! definition declares no bracket, which neither grammar has: a map whose key is a map, as
+//! `_|->_` is non-associative and no bracket groups a map, so neither grammar writes that term
+//! at all), where it is a claim's text, which groups a child that way without a warning (a
+//! `krs prove` leaf, [`unparse::Grammar::Claim`]), where its sort has parameters (no `--sort`
+//! names one), and where it holds a part no grammar of the definition writes: a variable (a
+//! symbolic state's), a matching-logic connective, a cell, a token neither grammar reads back as
+//! itself (the `Id` `$x`).
+//!
+//! A program `krs parse --output program` prints ([`Semantics::read_back_program`]) is program
+//! text by what the command is for: it is read back with the program grammar at the sort it was
+//! parsed at, and both are compared as programs, their macros and aliases expanded, so that a
+//! print through an alias reads back as the program written without it. It is not read back
+//! where its print says it is no program text ([`unparse::Warning::Ungrouped`]: a child that
+//! needs a bracket the definition does not declare, printed bare).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -51,6 +60,8 @@ pub struct PrintedCell<'t> {
     cell: String,
     /// What the cell's content is read back at.
     at: At,
+    /// The grammar the print is text of.
+    grammar: unparse::Grammar,
     /// The term the state holds there.
     pub content: &'t Pattern,
     /// Its print.
@@ -66,6 +77,8 @@ enum At {
     Sort(String),
     /// A leaf cell whose declared sort, here in KORE, has parameters.
     Parametric(String),
+    /// A printed program, at the sort it was parsed at (`None`: `$PGM`'s).
+    Program(Option<String>),
 }
 
 /// How a printed cell reads back.
@@ -95,16 +108,18 @@ pub(crate) enum Read {
 pub(crate) type ReadKey = (Reader, String, String, String);
 
 impl Semantics {
-    /// Every cell of `state` that a print is read back by, printed by `printer` as `krs run`
-    /// prints a state (pretty, without colour): first each main cell's first item, then every
-    /// other leaf cell's content.
+    /// Every cell of `state` that a print is read back by, printed by `printer` as text of
+    /// `grammar`, as `krs run` (a configuration value's) and `krs prove` (a claim's) print a state
+    /// (pretty, without colour): first each main cell's first item, then every other leaf cell's
+    /// content.
     #[must_use]
     pub fn printed_cells<'t>(
         &self,
         printer: &unparse::Unparser,
         state: &'t Term,
+        grammar: unparse::Grammar,
     ) -> Vec<PrintedCell<'t>> {
-        let options = unparse::Options::new(unparse::Mode::Pretty);
+        let options = unparse::Options::new(unparse::Mode::Pretty).for_grammar(grammar);
         let main = self.main_cell().map(|cell| format!("<{cell}>"));
         let mut heads = Vec::new();
         let mut cells = Vec::new();
@@ -120,6 +135,7 @@ impl Semantics {
                         place: format!("{label} head"),
                         cell,
                         at: At::Head,
+                        grammar,
                         content: item,
                         printed: printer.print_kore(item, &options),
                     });
@@ -146,6 +162,7 @@ impl Semantics {
                 place: label,
                 cell,
                 at,
+                grammar,
                 content,
                 printed: printer.print_kore(content, &options),
             });
@@ -154,8 +171,8 @@ impl Semantics {
         heads
     }
 
-    /// Every printed cell of `state`, as [`Self::printed_cells`] prints it with the printer
-    /// `krs run` prints with, and how it reads back ([`Self::read_back`]).
+    /// Every printed cell of `state`, as [`Self::printed_cells`] prints it, as text of `grammar`,
+    /// with the printer `krs run` prints with, and how it reads back ([`Self::read_back`]).
     ///
     /// # Errors
     ///
@@ -163,8 +180,9 @@ impl Semantics {
     pub fn check_prints<'t>(
         &mut self,
         state: &'t Term,
+        grammar: unparse::Grammar,
     ) -> Result<Vec<(PrintedCell<'t>, ReadBack)>, ExecError> {
-        let cells = self.printed_cells(&self.unparser, state);
+        let cells = self.printed_cells(&self.unparser, state, grammar);
         cells
             .into_iter()
             .map(|cell| {
@@ -182,20 +200,15 @@ impl Semantics {
     ///
     /// Returns [`ExecError::Backend`] where a grammar's parser cannot be built.
     pub fn read_back(&mut self, cell: &PrintedCell<'_>) -> Result<ReadBack, ExecError> {
-        if !cell.printed.warnings.is_empty() {
-            let warnings = cell
-                .printed
-                .warnings
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Ok(ReadBack::Skipped(format!(
-                "its print says it is no program text: {warnings}"
-            )));
+        if let Some(reason) = stated_fallback(&cell.printed) {
+            return Ok(ReadBack::Skipped(reason));
         }
-        // The ground K-value grammar a `K` cell is read with has the bracket at `K`.
-        if cell.printed.grouped.iter().any(|sort| sort != "K") {
+        // A claim's print groups a child in K's default bracket without a warning (a value's
+        // states it, above, or is read back as it is); the ground K-value grammar a `K` cell is
+        // read with has the bracket at `K`.
+        if cell.grammar == unparse::Grammar::Claim
+            && cell.printed.grouped.iter().any(|sort| sort != "K")
+        {
             let sorts = cell
                 .printed
                 .grouped
@@ -204,7 +217,7 @@ impl Semantics {
                 .collect::<Vec<_>>()
                 .join(", ");
             return Ok(ReadBack::Skipped(format!(
-                "its print groups {sorts} in K's default bracket `( .. )`, where the definition declares no bracket, which neither grammar it is read with has"
+                "it is a claim's text: its print groups {sorts} in K's default bracket `( .. )`, where the definition declares no bracket, which a claim reads and neither grammar it is read back with has"
             )));
         }
         if let At::Parametric(sort) = &cell.at {
@@ -238,11 +251,47 @@ impl Semantics {
         })
     }
 
+    /// How `printed`, the print of the program `input` that `krs parse --output program` prints
+    /// at `sort` (by default `$PGM`'s), reads back: with the program grammar at that sort, as the
+    /// program `input` is, their macros and aliases expanded (module documentation).
+    ///
+    /// # Errors
+    ///
+    /// Fails where `input` does not parse, as [`Self::parse`] does.
+    pub fn read_back_program(
+        &mut self,
+        sort: Option<&str>,
+        input: &ProgramInput,
+        printed: &Printed,
+    ) -> Result<ReadBack, ExecError> {
+        if let Some(reason) = stated_fallback(printed) {
+            return Ok(ReadBack::Skipped(reason));
+        }
+        let program = self.parse(sort, input)?;
+        let cell = PrintedCell {
+            place: "the printed program".to_owned(),
+            cell: String::new(),
+            at: At::Program(sort.map(str::to_owned)),
+            grammar: unparse::Grammar::Value,
+            content: program.kore(),
+            printed: printed.clone(),
+        };
+        Ok(match self.read(Reader::Program, &cell) {
+            Read::Terms(read) => self.compare(&cell, &read, true),
+            Read::Fails(error) => fails_to_read(&cell, &error),
+            Read::NoSort => ReadBack::Fails(format!(
+                "{} `{}` has a sort the program grammar does not have",
+                cell.place, cell.printed.text
+            )),
+        })
+    }
+
     /// `cell`'s print read with `reader`'s grammar, as [`Self::read_back`] states, kept by text.
     fn read(&mut self, reader: Reader, cell: &PrintedCell<'_>) -> Read {
         let at = match &cell.at {
             At::Head => injected_sort(cell.content),
             At::Sort(sort) => Some(sort.clone()),
+            At::Program(sort) => sort.clone(),
             At::Parametric(_) => None,
         };
         let key = (
@@ -262,6 +311,14 @@ impl Semantics {
     fn read_uncached(&mut self, reader: Reader, cell: &PrintedCell<'_>, at: Option<&str>) -> Read {
         let text = &cell.printed.text;
         let read = match (reader, &cell.at) {
+            (Reader::Program, At::Program(sort)) => {
+                let input = ProgramInput {
+                    name: cell.place.clone(),
+                    text: text.clone(),
+                };
+                self.parse(sort.as_deref(), &input)
+                    .map(|term| vec![term.kore().clone()])
+            }
             (Reader::Program, _) => {
                 let Some(at) = at else {
                     return Read::NoSort;
@@ -287,6 +344,7 @@ impl Semantics {
             // definition's), and the print reads back where the term the state holds is one of
             // them.
             (Reader::Main, At::Head) => self.parse_computation_head_readings(text),
+            (Reader::Main, At::Program(_)) => return Read::NoSort,
             (Reader::Main, _) => match at {
                 Some(at) => self.parse_cell_readings(&cell.cell, at, text),
                 None => return Read::NoSort,
@@ -402,6 +460,22 @@ impl Semantics {
         }
         Ok(None)
     }
+}
+
+/// Why `printed` is no text to read back, where its own warnings say so: a symbol printed as
+/// KAST, an instance printed as KORE, a child grouped in K's default bracket or printed bare
+/// where the definition declares no bracket that takes it.
+fn stated_fallback(printed: &Printed) -> Option<String> {
+    if printed.warnings.is_empty() {
+        return None;
+    }
+    let warnings = printed
+        .warnings
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(format!("its print says it is no program text: {warnings}"))
 }
 
 /// Whether `read` and `token` are domain values of one text, whatever their sorts.

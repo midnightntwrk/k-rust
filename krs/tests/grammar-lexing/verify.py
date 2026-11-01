@@ -454,7 +454,9 @@ def verify_format(harness: FixtureGate, pins: Ledger, workspace: Path, refresh: 
     # The coloured run reports no marks; the same run's `--output json` report does.
     report = json.loads(harness.run_command(FORMAT, "run", "--output", "json", program))["run"]
     pins.expect(("implementation_chosen", FORMAT.package), {"format": sorted(krs_gate.chosen_values(report))})
-    # `kast --output program` formats with the authored format, so `%c` and `%r` print as letters.
+    # `krs parse --output program` formats with the authored format; its colour codes `%c` and `%r`
+    # print nothing (`kast` prints them as the letters `c` and `r`, which no grammar reads back), so
+    # the print reads back as the program under the gate's `KRS_CHECK_PRINTS`.
     pins.expect(("format", "krs_parse_program"), harness.run_command(FORMAT, "parse", "--output", "program", program))
     print(f"PASS grammar-lexing {FORMAT.package} reference snapshot: {k.finish()}")
 

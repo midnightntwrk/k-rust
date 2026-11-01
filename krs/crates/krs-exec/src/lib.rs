@@ -816,7 +816,10 @@ impl Semantics {
 
     /// Parse program text as [`Self::parse`] does and print it through the program grammar, as `kast --output program` does.
     ///
-    /// Macros print as parsed, and the main module's aliases are reversed.
+    /// Macros print as parsed, and the main module's aliases are reversed. Where a child needs a
+    /// bracket the definition does not declare (an alias reversed into a production that binds
+    /// tighter than the child), it is printed bare and the print says so
+    /// ([`krs_unparse::Warning::Ungrouped`]); [`Self::read_back_program`] reads a print back.
     ///
     /// # Errors
     ///
@@ -1230,11 +1233,21 @@ impl Semantics {
     /// Print a term through the definition's grammar, as `krun --output pretty` prints a configuration (KF-017).
     ///
     /// The text has no trailing newline; [`Printed::warnings`] lists the problems that degraded it (labels printed as KAST, invalid colour lists).
+    /// It is the text of a configuration value, as `krs run` and `krs search` print a state ([`krs_unparse::Grammar::Value`]).
     #[must_use]
     pub fn unparse(&self, term: &Term, color: bool) -> Printed {
+        self.unparse_for(term, color, krs_unparse::Grammar::Value)
+    }
+
+    /// Print a term as [`Self::unparse`] does, as text of `grammar`: a `krs prove` leaf is a
+    /// claim's ([`krs_unparse::Grammar::Claim`]).
+    #[must_use]
+    pub fn unparse_for(&self, term: &Term, color: bool, grammar: krs_unparse::Grammar) -> Printed {
         self.unparser.print_kore(
             term.kore(),
-            &krs_unparse::Options::new(krs_unparse::Mode::Pretty).with_color(color),
+            &krs_unparse::Options::new(krs_unparse::Mode::Pretty)
+                .with_color(color)
+                .for_grammar(grammar),
         )
     }
 

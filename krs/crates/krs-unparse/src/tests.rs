@@ -146,25 +146,30 @@ fn on_large_stack(body: impl FnOnce() + Send + 'static) {
 
 fn check_definition(name: &str) {
     let mut fixture = Fixture::compile(name);
+    // The goldens are compared as text; that a configuration value's print states the default
+    // bracket it groups in is `program_mode_prints_a_bracketless_sort_bare`'s.
+    let pretty = Options::new(Mode::Pretty).for_grammar(Grammar::Claim);
+    // `kast --output program` prints an authored format's colour codes `%c` and `%r` as the
+    // letters `c` and `r`, which no grammar reads as the program; KRS prints nothing for them.
     assert_eq!(
         fixture.print(&fixture.program, Options::new(Mode::Program)),
-        golden(name, "program"),
+        golden(name, "program").replace("c//noter", "//note"),
         "{name}: kast --output program"
     );
     let final_state = fixture.run(None);
     assert_eq!(
-        fixture.print(&final_state, Options::new(Mode::Pretty)),
+        fixture.print(&final_state, pretty),
         golden(name, "run"),
         "{name}: krun --output pretty"
     );
     assert_eq!(
-        fixture.print(&final_state, Options::new(Mode::Pretty).with_color(true)),
+        fixture.print(&final_state, pretty.with_color(true)),
         golden(name, "color"),
         "{name}: krun --color on"
     );
     let first_step = fixture.run(Some(1));
     assert_eq!(
-        fixture.print(&first_step, Options::new(Mode::Pretty)),
+        fixture.print(&first_step, pretty),
         golden(name, "depth1"),
         "{name}: krun --depth 1"
     );
@@ -218,15 +223,28 @@ fn program_mode_prints_a_bracketless_sort_bare() {
             pretty.text
         );
         // `Tm` has no bracket production, so `1 | 2` below `&` is grouped in K's default
-        // bracket, which the print reports: no program grammar reads it.
+        // bracket, which the print reports: no program grammar reads it, and a configuration
+        // value's print says so.
         assert_eq!(pretty.grouped, ["Tm"]);
-        assert_eq!(pretty.warnings, []);
-        // `kast --output program` adds no parentheses where the sort has no bracket production.
+        assert_eq!(pretty.warnings, [Warning::Grouped(vec!["Tm".to_owned()])]);
+        // A claim's grammar reads the default bracket.
+        let claim = fixture.unparser.print_kore(
+            &state,
+            &Options::new(Mode::Pretty).for_grammar(Grammar::Claim),
+        );
+        assert_eq!((claim.text, claim.grouped), (pretty.text, pretty.grouped));
+        assert_eq!(claim.warnings, []);
+        // `kast --output program` adds no parentheses where the sort has no bracket production,
+        // and says that the text is no program for the term.
         let printed = fixture
             .unparser
             .print_kore(&state, &Options::new(Mode::Program));
         assert!(printed.text.contains("tm 1 | 2 & 3 ;"), "{}", printed.text);
         assert_eq!(printed.grouped, Vec::<String>::new());
+        assert_eq!(
+            printed.warnings,
+            [Warning::Ungrouped(vec!["Tm".to_owned()])]
+        );
     });
 }
 

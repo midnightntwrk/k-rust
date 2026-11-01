@@ -23,7 +23,15 @@
 //!
 //! [`Mode::Program`] prints a parsed program as `kast --output program` does: no substitution
 //! filtering, and a child that needs brackets in a sort without a bracket production is printed
-//! bare, as the Java frontend's `AddBrackets` does.
+//! bare.
+//!
+//! A print is text of a grammar, which reads it back as the term. Where priority, associativity
+//! or a sort requires a bracket around a child and no bracket production takes it, no text of
+//! the program grammar writes the term, and the print says so: [`Mode::Program`] prints the
+//! child bare and warns ([`Warning::Ungrouped`]); [`Mode::Pretty`] groups it in K's default
+//! bracket `( .. )` ([`Printed::grouped`]), which a rule's or a claim's grammar reads, and warns
+//! where the text is for programs and configuration values ([`Grammar::Value`],
+//! [`Warning::Grouped`]).
 //!
 //! A symbol without a printable production (no `format` in `syntaxDefinition.kore`) is printed as
 //! KAST text and reported in [`Printed::warnings`].
@@ -73,11 +81,28 @@ pub enum Mode {
     Program,
 }
 
+/// The grammar a [`Mode::Pretty`] print is text of, by what reads it: which brackets its reader
+/// has. ([`Mode::Program`] prints program text, which the program grammar reads.)
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Grammar {
+    /// The grammars of programs and configuration values (a `krs run` or `krs search` state, a
+    /// `-c` value): they have K's default bracket `( .. )` only at `K`, in the ground K-value
+    /// grammar a `K` cell is read with. Grouping a child of another sort in it is a stated
+    /// fallback ([`Warning::Grouped`]).
+    #[default]
+    Value,
+    /// A rule's or a claim's grammar (a `krs prove` leaf, which a claim states again): K's
+    /// default bracket groups every sort.
+    Claim,
+}
+
 /// Printing options.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Options {
     /// Which printer to reproduce.
     pub mode: Mode,
+    /// The grammar a [`Mode::Pretty`] print is for.
+    pub grammar: Grammar,
     /// Write the productions' colours as ANSI escape codes.
     pub color: bool,
     /// Print each `alias` in reverse, as K always does.
@@ -92,6 +117,7 @@ impl Options {
     pub const fn new(mode: Mode) -> Self {
         Self {
             mode,
+            grammar: Grammar::Value,
             color: false,
             reverse_aliases: true,
             sort_collections: true,
@@ -102,6 +128,13 @@ impl Options {
     #[must_use]
     pub const fn with_color(mut self, color: bool) -> Self {
         self.color = color;
+        self
+    }
+
+    /// The same options for text of `grammar`.
+    #[must_use]
+    pub const fn for_grammar(mut self, grammar: Grammar) -> Self {
+        self.grammar = grammar;
         self
     }
 }
@@ -128,6 +161,22 @@ pub enum Warning {
     /// Applications of parametric productions whose instance their text does not fix: printed,
     /// each would read back at another instance, so each is printed as its KORE pattern.
     Instance(Vec<String>),
+    /// [`Mode::Program`]: children of these sorts (K names) need a bracket that no bracket
+    /// production of the definition gives, and are printed bare, which the program grammar does
+    /// not read as the term.
+    Ungrouped(Vec<String>),
+    /// [`Mode::Pretty`] for [`Grammar::Value`]: children of these sorts (K names, `K` aside) are
+    /// grouped in K's default bracket `( .. )`, which neither a program nor a configuration value
+    /// reads.
+    Grouped(Vec<String>),
+}
+
+fn sorts(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn labels(symbols: &[String]) -> String {
@@ -172,6 +221,16 @@ impl fmt::Display for Warning {
                 "no program text fixes the instance of {}, which would read back at another; printed as KORE",
                 labels(symbols)
             ),
+            Self::Ungrouped(names) => write!(
+                formatter,
+                "priority, associativity or a sort requires a bracket around a child of sort {}, and the definition declares no bracket that takes it: printed bare, which a program reads as another term or none",
+                sorts(names)
+            ),
+            Self::Grouped(names) => write!(
+                formatter,
+                "priority, associativity or a sort requires a bracket around a child of sort {}, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which a rule or a claim reads and neither a program nor a configuration value does",
+                sorts(names)
+            ),
             Self::ReversalBound(symbol) => write!(
                 formatter,
                 "reversing the aliases of `{}` did not finish within {REVERSAL_BOUND} applications; printed unreversed",
@@ -194,9 +253,9 @@ pub struct Printed {
     /// none that takes it. A rule's or a claim's grammar reads it; the program grammar and the
     /// main module's value grammar (`-c` values, cell expectations) have no such bracket (the
     /// ground K-value grammar of a `K` cell has it at `K` only), so for them the text does not
-    /// read back. A map whose key is a map (`( 1 |-> 2 ) |-> 3`)
-    /// has no other text there: `_|->_` is non-associative, ranks above `.Map` and `_Map_`, and
-    /// no bracket groups a map.
+    /// read back ([`Warning::Grouped`], for [`Grammar::Value`]). A map whose key is a map
+    /// (`( 1 |-> 2 ) |-> 3`) has no other text there: `_|->_` is non-associative, ranks above
+    /// `.Map` and `_Map_`, and no bracket groups a map.
     pub grouped: Vec<String>,
 }
 
@@ -482,7 +541,7 @@ impl Unparser {
         instance::fix_instances(&self.data, &mut node, &mut unfixed);
         let brackets = Brackets::new(&self.data, fallback);
         node = brackets.add(&node, None, None);
-        let grouped = brackets.grouped();
+        let unbracketed = brackets.unbracketed();
         // Keys printed while sorting are not output: only the final pass reports.
         let mut problems = Problems::default();
         let mut printer = Printer::new(&self.data, options.color, &mut problems);
@@ -512,10 +571,30 @@ impl Unparser {
         if !unfixed.is_empty() {
             warnings.push(Warning::Instance(list(&unfixed)));
         }
+        let grouped = match fallback {
+            Fallback::Nothing => {
+                if !unbracketed.is_empty() {
+                    warnings.push(Warning::Ungrouped(list(&unbracketed)));
+                }
+                Vec::new()
+            }
+            Fallback::Parentheses => {
+                // The ground K-value grammar of a `K` cell has the bracket at `K`.
+                let unread = unbracketed
+                    .iter()
+                    .filter(|sort| *sort != "K")
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if options.grammar == Grammar::Value && !unread.is_empty() {
+                    warnings.push(Warning::Grouped(unread));
+                }
+                list(&unbracketed)
+            }
+        };
         Printed {
             text,
             warnings,
-            grouped: list(&grouped),
+            grouped,
         }
     }
 }

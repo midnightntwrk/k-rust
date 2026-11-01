@@ -51,8 +51,9 @@ all of them accepted the fixture (`krs/crates/krs-cli/src/command/agreement.rs`)
 
 A gate constructed with `check_prints=True` also sets `KRS_CHECK_PRINTS=1` for its `krs`
 commands and `krs-gate` sessions: every state printed through the definition's grammar is read
-back, cell by cell, and a print that does not read back as the state fails the command
-(`Semantics::check_prints`, `krs/crates/krs-exec/src/read_back.rs`).
+back, cell by cell, and so is every program `krs parse --output program` prints; a print that
+does not read back as the state or the program fails the command (`Semantics::check_prints`,
+`Semantics::read_back_program`, `krs/crates/krs-exec/src/read_back.rs`).
 """
 
 from __future__ import annotations
@@ -165,8 +166,9 @@ class FixtureGate:
     """The agreed KORE attribute lines of each package compared with `attributes`."""
     check_prints: bool = False
     """Whether every state `krs run`, `search` and `prove` and the gate's `exec.run` print through
-    the definition's grammar is read back as the state (`KRS_CHECK_PRINTS=1`): a print that does
-    not read back fails the command. A gate whose printed outputs are pinned opts in."""
+    the definition's grammar is read back as the state, and every program `krs parse --output
+    program` and the gate's `term.unparse` print as the program (`KRS_CHECK_PRINTS=1`): a print
+    that does not read back fails the command. A gate whose printed outputs are pinned opts in."""
 
     def __post_init__(self) -> None:
         if self.check_prints:

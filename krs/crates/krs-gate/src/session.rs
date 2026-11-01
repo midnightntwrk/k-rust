@@ -460,7 +460,7 @@ impl Session {
             // fails the request.
             if std::env::var_os("KRS_CHECK_PRINTS").as_deref() == Some(std::ffi::OsStr::new("1")) {
                 let failures = semantics
-                    .check_prints(&report.state)?
+                    .check_prints(&report.state, krs_exec::unparse::Grammar::Value)?
                     .into_iter()
                     .filter_map(|(_, read)| match read {
                         krs_exec::ReadBack::Fails(failure) => Some(failure),
@@ -481,6 +481,8 @@ impl Session {
 
     /// `krs parse --output program` (`mode` `"program"`, with `program` text and an optional `sort`),
     /// or `--output pretty` of a KORE pattern (`mode` `"pretty"`, with `kore` text).
+    /// With `KRS_CHECK_PRINTS=1`, a program's print is read back as `krs parse --output program`
+    /// reads it back.
     fn unparse(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let color = request
             .get("color")
@@ -498,7 +500,18 @@ impl Session {
                     text: required_string(request, "program")?.to_owned(),
                 };
                 let sort = request.get("sort").and_then(Value::as_str);
-                semantics.unparse_program(sort, &input, color)?
+                let printed = semantics.unparse_program(sort, &input, color)?;
+                if std::env::var_os("KRS_CHECK_PRINTS").as_deref()
+                    == Some(std::ffi::OsStr::new("1"))
+                    && let krs_exec::ReadBack::Fails(failure) =
+                        semantics.read_back_program(sort, &input, &printed)?
+                {
+                    return Err(format!(
+                        "KRS_CHECK_PRINTS: a printed program does not read back as the program:\n  {failure}"
+                    )
+                    .into());
+                }
+                printed
             }
             "pretty" => {
                 let pattern = parse_pattern(required_string(request, "kore")?)?;

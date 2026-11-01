@@ -75,7 +75,7 @@ impl<'a> Printer<'a> {
         printer
     }
 
-    /// Format the productions of `program` as the Java frontend does (`kast --output program`).
+    /// Format the productions of `program` by their authored formats (`kast --output program`).
     pub fn with_program(mut self, program: &'a ProgramFormats) -> Self {
         self.program = Some(program);
         self
@@ -186,7 +186,7 @@ impl<'a> Printer<'a> {
             return;
         }
         if let Some(production) = self.program.and_then(|program| program.get(name)) {
-            self.java_format(app, production);
+            self.authored_format(app, production);
             return;
         }
         let Some(format) = self.data.format.get(name) else {
@@ -271,8 +271,13 @@ impl<'a> Printer<'a> {
 }
 
 impl Printer<'_> {
-    /// `Formatter.format` of the Java frontend: `%N` names a production item, any other `%x` prints `x`.
-    fn java_format(&mut self, app: &App, production: &ProgramProduction) {
+    /// The program grammar's authored `format`: `%N` names a production item, `%n %i %d` lay
+    /// out, the colour codes `%c` and `%r` print nothing (they colour, as in [`Mode::Pretty`],
+    /// and a letter in their place would be text no grammar reads as the program), and any
+    /// other `%x` prints `x`.
+    ///
+    /// [`Mode::Pretty`]: crate::Mode::Pretty
+    fn authored_format(&mut self, app: &App, production: &ProgramProduction) {
         let name = app.sym.name.as_str();
         let format = production.format.as_bytes();
         let mut local_indent = 0_i64;
@@ -292,6 +297,7 @@ impl Printer<'_> {
             index += 2;
             match code {
                 b'n' => self.newline(),
+                b'c' | b'r' => {}
                 b'i' => {
                     self.indent += 1;
                     local_indent += 1;

@@ -268,8 +268,9 @@ impl CargoFixture {
 ///
 /// KRS CLI integration tests should use [`krs_command!`] so Cargo expands its binary path in the test crate.
 /// The process reads back every state `krs run`, `search` and `prove` print through the
-/// definition's grammar (`KRS_CHECK_PRINTS=1`): a print that does not read back as its state
-/// fails the command, so every test that prints a state checks that it reads back.
+/// definition's grammar, and every program `krs parse --output program` prints
+/// (`KRS_CHECK_PRINTS=1`): a print that does not read back as its state or program fails the
+/// command, so every test that prints one checks that it reads back.
 #[must_use]
 pub fn krs_command(binary: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(binary);
@@ -278,8 +279,8 @@ pub fn krs_command(binary: impl AsRef<OsStr>) -> Command {
 }
 
 /// The environment variable that makes `krs run`, `search` and `prove` read every state they
-/// print through the definition's grammar back, and fail where one does not read back as the
-/// state.
+/// print through the definition's grammar back, and `krs parse --output program` the program it
+/// prints, and fail where one does not read back as the state or the program.
 pub const CHECK_PRINTS: &str = "KRS_CHECK_PRINTS";
 
 /// Run the KRS CLI at `binary` with `args` and return its captured output.

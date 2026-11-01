@@ -1,11 +1,10 @@
 //! The program grammar's own formats, for [`crate::Mode::Program`].
 //!
-//! `kast --output program` formats each production with the Java frontend's `Formatter`, which
-//! reads the production's authored `format` attribute: `%N` names the N-th production item
-//! (terminal or non-terminal), `%n %i %d` lay out, and any other `%x` prints `x`, so the colour
-//! codes `%c` and `%r` print the letters `c` and `r`. `syntaxDefinition.kore` records only the
-//! format `kprint` reads, in which authored and generated colour codes cannot be told apart, so the
-//! authored formats are read from the frontend definition.
+//! [`crate::Mode::Program`] formats each production with its authored `format` attribute: `%N`
+//! names the N-th production item (terminal or non-terminal), `%n %i %d` lay out, the colour
+//! codes `%c` and `%r` print nothing, and any other `%x` prints `x`. `syntaxDefinition.kore`
+//! records only the format `kprint` reads, in which authored and generated colour codes cannot be
+//! told apart, so the authored formats are read from the frontend definition.
 
 use std::collections::BTreeMap;
 

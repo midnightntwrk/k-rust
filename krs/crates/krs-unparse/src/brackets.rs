@@ -17,11 +17,12 @@ use crate::node::{App, Node, Sym};
 const BARE_LEFT: u8 = 1;
 const BARE_RIGHT: u8 = 2;
 
-/// What to do when a child needs brackets and its sort has no bracket production.
+/// What to do when a child needs brackets and its sort has no bracket production. Either way
+/// the child's sort is kept ([`Brackets::unbracketed`]): the text is not what the grammar of a
+/// program reads as the term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Fallback {
-    /// `kprint`: K's default bracket `( .. )`, which no production of the definition declares:
-    /// the sorts it groups are kept ([`Brackets::grouped`]).
+    /// `kprint`: K's default bracket `( .. )`, which no production of the definition declares.
     Parentheses,
     /// `kast --output program`: print the child as it is.
     Nothing,
@@ -30,8 +31,9 @@ pub(crate) enum Fallback {
 pub(crate) struct Brackets<'a> {
     data: &'a PrintData,
     fallback: Fallback,
-    /// The sorts of the children [`Fallback::Parentheses`] grouped, by K name.
-    grouped: RefCell<BTreeSet<String>>,
+    /// The sorts of the children that needed a bracket no production of the definition gives,
+    /// by K name.
+    unbracketed: RefCell<BTreeSet<String>>,
 }
 
 /// `get_nt_position_in_prod`: the item index of the `position`-th non-terminal.
@@ -57,16 +59,17 @@ impl<'a> Brackets<'a> {
         Self {
             data,
             fallback,
-            grouped: RefCell::new(BTreeSet::new()),
+            unbracketed: RefCell::new(BTreeSet::new()),
         }
     }
 
-    /// The sorts of the children grouped with K's default bracket `( .. )`
-    /// ([`crate::Printed::grouped`]): where priority, associativity or a sort requires a bracket
-    /// around a child and no bracket production of a sort the position admits takes the
-    /// child's sort.
-    pub fn grouped(self) -> BTreeSet<String> {
-        self.grouped.into_inner()
+    /// The sorts of the children the fallback printed: where priority, associativity or a sort
+    /// requires a bracket around a child and no bracket production of a sort the position admits
+    /// takes the child's sort. With [`Fallback::Parentheses`] they are grouped in K's default
+    /// bracket ([`crate::Printed::grouped`]), with [`Fallback::Nothing`] printed bare
+    /// ([`crate::Warning::Ungrouped`]).
+    pub fn unbracketed(self) -> BTreeSet<String> {
+        self.unbracketed.into_inner()
     }
 
     fn terminals(&self, sym: &Sym) -> Option<&'a [u8]> {
@@ -221,12 +224,12 @@ impl<'a> Brackets<'a> {
                 }
             }
         }
+        self.unbracketed
+            .borrow_mut()
+            .insert(sort_name(inner_sort.as_ref()));
         match self.fallback {
             Fallback::Nothing => inner.clone(),
             Fallback::Parentheses => {
-                self.grouped
-                    .borrow_mut()
-                    .insert(sort_name(inner_sort.as_ref()));
                 let mut sym = Sym::new("bracket", Vec::new());
                 sym.sort = inner_sort;
                 Node::app(sym, vec![inner.clone()])

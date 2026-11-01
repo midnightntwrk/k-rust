@@ -240,7 +240,7 @@ fn printed_reads_back(
                 .any(|name| symbol.strip_prefix("Lblcmd") == Some(name.as_str()))
         });
     let options = unparse::Options::new(unparse::Mode::Pretty);
-    for cell in semantics.printed_cells(&case, state) {
+    for cell in semantics.printed_cells(&case, state, unparse::Grammar::Value) {
         let expected = stated.print_kore(cell.content, &options);
         if expected.text != cell.printed.text {
             return Some(format!(
