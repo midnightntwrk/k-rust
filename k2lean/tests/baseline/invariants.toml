@@ -128,6 +128,12 @@ cases = 6
 auto = 6
 open = []
 
+[twolayer-measure]
+tier = "light"
+cases = 12
+auto = 12
+open = []
+
 [demo.KrsImpTyping]
 tier = "light"
 guarded = 17

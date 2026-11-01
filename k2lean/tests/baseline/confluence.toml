@@ -916,76 +916,76 @@ guarded = 174
 preserve = []
 
 [demo.TwoConf.slots]
-"Legal.join.key.end.end" = { status = "generic", id = "ea5c7ea0534d9f7c" }
-"Legal.join.key.end.new" = { status = "generic", id = "fe4d59b86e2ce8eb" }
-"Legal.join.key.end.yield" = { status = "generic", id = "b53b30dd91d61747" }
-"Legal.join.key.end.«resume-lit»" = { status = "generic", id = "64871ca98d4a37ac" }
-"Legal.join.key.end.«resume-oid»" = { status = "generic", id = "9aa29ded621eb1f5" }
-"Legal.join.key.new.end" = { status = "generic", id = "9b181f5a445e893f" }
-"Legal.join.key.new.new" = { status = "generic", id = "b0bfcae642c9342c" }
-"Legal.join.key.new.yield" = { status = "generic", id = "ed1f8e1cc43e35d6" }
-"Legal.join.key.new.«resume-lit»" = { status = "generic", id = "3636848794bab456" }
-"Legal.join.key.new.«resume-oid»" = { status = "generic", id = "1a8bef986b440383" }
-"Legal.join.key.yield.end" = { status = "generic", id = "7d1865df13392b63" }
-"Legal.join.key.yield.new" = { status = "generic", id = "169a4bd081866b7d" }
-"Legal.join.key.yield.yield" = { status = "generic", id = "5ed9003fcf458740" }
-"Legal.join.key.yield.«resume-lit»" = { status = "generic", id = "4cb17295ede31dfa" }
-"Legal.join.key.yield.«resume-oid»" = { status = "generic", id = "0bfc62b93797cb2b" }
-"Legal.join.key.«resume-lit».end" = { status = "generic", id = "39595d76c4f19495" }
-"Legal.join.key.«resume-lit».new" = { status = "generic", id = "5f3e4a8608956efe" }
-"Legal.join.key.«resume-lit».yield" = { status = "generic", id = "d067c490e119f507" }
-"Legal.join.key.«resume-lit».«resume-lit»" = { status = "generic", id = "5d7b42106028f98c" }
-"Legal.join.key.«resume-lit».«resume-oid»" = { status = "generic", id = "52400f8a4e81b965" }
-"Legal.join.key.«resume-oid».end" = { status = "generic", id = "0577916973bd171f" }
-"Legal.join.key.«resume-oid».new" = { status = "generic", id = "9a9df1bc3728d1e1" }
-"Legal.join.key.«resume-oid».yield" = { status = "generic", id = "4e8f588d713dca69" }
-"Legal.join.key.«resume-oid».«resume-lit»" = { status = "generic", id = "f4d8337f984e5119" }
-"Legal.join.key.«resume-oid».«resume-oid»" = { status = "generic", id = "ab1faeb446779dde" }
-"Legal.join.open.fork.fork" = { status = "generic", id = "eae806ad46299cc5" }
-"Legal.join.same.add.add" = { status = "generic", id = "0d47ce131db08a87" }
-"Legal.join.same.add.dbl" = { status = "generic", id = "69120c85e9e6c848" }
-"Legal.join.same.add.end" = { status = "generic", id = "b71a017d8321894e" }
-"Legal.join.same.add.loop" = { status = "generic", id = "3ac373138d1dcf42" }
-"Legal.join.same.add.yield" = { status = "generic", id = "7b340712c699d8be" }
-"Legal.join.same.add.«loop-done»" = { status = "generic", id = "e3dce46b72a769e1" }
-"Legal.join.same.dbl.add" = { status = "generic", id = "196abdcfb0ac209c" }
-"Legal.join.same.dbl.dbl" = { status = "generic", id = "d9f8eb3421e05c99" }
-"Legal.join.same.dbl.end" = { status = "generic", id = "6e9155fead060b7b" }
-"Legal.join.same.dbl.loop" = { status = "generic", id = "5ae2b5157269947e" }
-"Legal.join.same.dbl.yield" = { status = "generic", id = "608a150565c1f3b3" }
-"Legal.join.same.dbl.«loop-done»" = { status = "generic", id = "1589d20071e9b6bf" }
-"Legal.join.same.done.done" = { status = "generic", id = "67d6b2ea4fdad7fa" }
-"Legal.join.same.end.add" = { status = "generic", id = "7df1e2c794a13164" }
-"Legal.join.same.end.dbl" = { status = "generic", id = "45c415a0cfe481b2" }
-"Legal.join.same.end.end" = { status = "generic", id = "4bdf263f5e7cafc2" }
-"Legal.join.same.end.loop" = { status = "generic", id = "b6cc4dc306f4058d" }
-"Legal.join.same.end.yield" = { status = "generic", id = "3a60be667e753168" }
-"Legal.join.same.end.«loop-done»" = { status = "generic", id = "34158299ca53fc74" }
-"Legal.join.same.fork.fork" = { status = "generic", id = "c92491fe6287df88" }
-"Legal.join.same.loop.add" = { status = "generic", id = "d4505f72d059a04b" }
-"Legal.join.same.loop.dbl" = { status = "generic", id = "69f7b9bf92473029" }
-"Legal.join.same.loop.end" = { status = "generic", id = "c45156aeaf1d879c" }
-"Legal.join.same.loop.loop" = { status = "generic", id = "3ddf535935dbc158" }
-"Legal.join.same.loop.yield" = { status = "generic", id = "9552197ba8d7b93a" }
-"Legal.join.same.loop.«loop-done»" = { status = "generic", id = "d3f9a6faa8ae6135" }
-"Legal.join.same.new.new" = { status = "generic", id = "9c043fe4b6b3beb7" }
-"Legal.join.same.nil.nil" = { status = "generic", id = "73ff44b4e71be629" }
-"Legal.join.same.yield.add" = { status = "generic", id = "e06a962329dae914" }
-"Legal.join.same.yield.dbl" = { status = "generic", id = "dd4f03e6aa58ebf5" }
-"Legal.join.same.yield.end" = { status = "generic", id = "a2e527a2ae221265" }
-"Legal.join.same.yield.loop" = { status = "generic", id = "8f03369405af310c" }
-"Legal.join.same.yield.yield" = { status = "generic", id = "3a2e71d32ae7d165" }
-"Legal.join.same.yield.«loop-done»" = { status = "generic", id = "fffc9eb82742e276" }
-"Legal.join.same.«loop-done».add" = { status = "generic", id = "d1ab5f0462756242" }
-"Legal.join.same.«loop-done».dbl" = { status = "generic", id = "87ae4ac807fce6a8" }
-"Legal.join.same.«loop-done».end" = { status = "generic", id = "2143d2060bad63f1" }
-"Legal.join.same.«loop-done».loop" = { status = "generic", id = "81b0ae30860e7245" }
-"Legal.join.same.«loop-done».yield" = { status = "generic", id = "381ee5d277653265" }
-"Legal.join.same.«loop-done».«loop-done»" = { status = "generic", id = "35ebeac1904c22de" }
-"Legal.join.same.«resume-lit».«resume-lit»" = { status = "generic", id = "45bec4f1164a6a87" }
-"Legal.join.same.«resume-lit».«resume-oid»" = { status = "generic", id = "4a8c6a3131166376" }
-"Legal.join.same.«resume-oid».«resume-lit»" = { status = "generic", id = "2f54e7f50f80cc94" }
-"Legal.join.same.«resume-oid».«resume-oid»" = { status = "generic", id = "818faf2f2ef7b010" }
+"Legal.join.key.end.end" = { status = "generic", id = "6412a66da992a3f2" }
+"Legal.join.key.end.new" = { status = "generic", id = "a7751d1ec5371f89" }
+"Legal.join.key.end.yield" = { status = "generic", id = "28aca7ebeca49424" }
+"Legal.join.key.end.«resume-lit»" = { status = "generic", id = "4dad4d0a3cf269c1" }
+"Legal.join.key.end.«resume-oid»" = { status = "generic", id = "65a14fd12e0e9c9f" }
+"Legal.join.key.new.end" = { status = "generic", id = "8b3e7d64463a2e98" }
+"Legal.join.key.new.new" = { status = "generic", id = "aac91a642c47fc5c" }
+"Legal.join.key.new.yield" = { status = "generic", id = "e4cf1a707908594c" }
+"Legal.join.key.new.«resume-lit»" = { status = "generic", id = "d02a5979d317524f" }
+"Legal.join.key.new.«resume-oid»" = { status = "generic", id = "309f7740f4f88f9e" }
+"Legal.join.key.yield.end" = { status = "generic", id = "759ea62532e704af" }
+"Legal.join.key.yield.new" = { status = "generic", id = "3ce86fc4843368a3" }
+"Legal.join.key.yield.yield" = { status = "generic", id = "2e5f15f130f4ffd4" }
+"Legal.join.key.yield.«resume-lit»" = { status = "generic", id = "9041b363c5862ec8" }
+"Legal.join.key.yield.«resume-oid»" = { status = "generic", id = "aa8419ef0dbf4653" }
+"Legal.join.key.«resume-lit».end" = { status = "generic", id = "65c6d6f8f7c4d551" }
+"Legal.join.key.«resume-lit».new" = { status = "generic", id = "481dcae3ea75a485" }
+"Legal.join.key.«resume-lit».yield" = { status = "generic", id = "2c61b8c2fb1991ca" }
+"Legal.join.key.«resume-lit».«resume-lit»" = { status = "generic", id = "2291b0fc211113b0" }
+"Legal.join.key.«resume-lit».«resume-oid»" = { status = "generic", id = "42c791140cb957ff" }
+"Legal.join.key.«resume-oid».end" = { status = "generic", id = "44dd7581526a515e" }
+"Legal.join.key.«resume-oid».new" = { status = "generic", id = "fc2719e232584ae0" }
+"Legal.join.key.«resume-oid».yield" = { status = "generic", id = "08f4d57a920aa7f0" }
+"Legal.join.key.«resume-oid».«resume-lit»" = { status = "generic", id = "87f4741c954568f4" }
+"Legal.join.key.«resume-oid».«resume-oid»" = { status = "generic", id = "1901a861cd453efb" }
+"Legal.join.open.fork.fork" = { status = "generic", id = "93ca85068dbec9e5" }
+"Legal.join.same.add.add" = { status = "generic", id = "b4ecc4153514bc0d" }
+"Legal.join.same.add.dbl" = { status = "generic", id = "207b0d41b4493cfa" }
+"Legal.join.same.add.end" = { status = "generic", id = "7a051ee09264cd5b" }
+"Legal.join.same.add.loop" = { status = "generic", id = "dc6efb8c7c529393" }
+"Legal.join.same.add.yield" = { status = "generic", id = "1dc26da10d190b26" }
+"Legal.join.same.add.«loop-done»" = { status = "generic", id = "23b5d70234baafb7" }
+"Legal.join.same.dbl.add" = { status = "generic", id = "9373ddf0739c5dcb" }
+"Legal.join.same.dbl.dbl" = { status = "generic", id = "5f1c77280f252e76" }
+"Legal.join.same.dbl.end" = { status = "generic", id = "5c5f1631bff8c662" }
+"Legal.join.same.dbl.loop" = { status = "generic", id = "0307a2238c08242a" }
+"Legal.join.same.dbl.yield" = { status = "generic", id = "137b531f01a3ba63" }
+"Legal.join.same.dbl.«loop-done»" = { status = "generic", id = "49e04c6c3b24185d" }
+"Legal.join.same.done.done" = { status = "generic", id = "20e5863c922b4600" }
+"Legal.join.same.end.add" = { status = "generic", id = "6daceaee0419868c" }
+"Legal.join.same.end.dbl" = { status = "generic", id = "7aef233134389f14" }
+"Legal.join.same.end.end" = { status = "generic", id = "1833126247890d92" }
+"Legal.join.same.end.loop" = { status = "generic", id = "2a8bd750a8b895f4" }
+"Legal.join.same.end.yield" = { status = "generic", id = "3183fea8a5539c09" }
+"Legal.join.same.end.«loop-done»" = { status = "generic", id = "cb08c38dab488e88" }
+"Legal.join.same.fork.fork" = { status = "generic", id = "4674d05e05b236fb" }
+"Legal.join.same.loop.add" = { status = "generic", id = "753be5555db7242c" }
+"Legal.join.same.loop.dbl" = { status = "generic", id = "409fb485f6ea08bf" }
+"Legal.join.same.loop.end" = { status = "generic", id = "271b1951dc244cac" }
+"Legal.join.same.loop.loop" = { status = "generic", id = "6a2310332cb3646c" }
+"Legal.join.same.loop.yield" = { status = "generic", id = "e1024cf67d30a0bf" }
+"Legal.join.same.loop.«loop-done»" = { status = "generic", id = "bbbf27902236281d" }
+"Legal.join.same.new.new" = { status = "generic", id = "ff2ac2a59ae8858b" }
+"Legal.join.same.nil.nil" = { status = "generic", id = "96ccecc2c2eaa42a" }
+"Legal.join.same.yield.add" = { status = "generic", id = "145bbe9c86570760" }
+"Legal.join.same.yield.dbl" = { status = "generic", id = "03d0cdfa6ed88c83" }
+"Legal.join.same.yield.end" = { status = "generic", id = "9e65212b9e43347b" }
+"Legal.join.same.yield.loop" = { status = "generic", id = "5c349c58540cc8bb" }
+"Legal.join.same.yield.yield" = { status = "generic", id = "2e4f956286ff8619" }
+"Legal.join.same.yield.«loop-done»" = { status = "generic", id = "cc1945f078dda484" }
+"Legal.join.same.«loop-done».add" = { status = "generic", id = "38727a0023072396" }
+"Legal.join.same.«loop-done».dbl" = { status = "generic", id = "321306b85d6a9410" }
+"Legal.join.same.«loop-done».end" = { status = "generic", id = "e5588a393a46fa7a" }
+"Legal.join.same.«loop-done».loop" = { status = "generic", id = "f98ccf3ffbd82a40" }
+"Legal.join.same.«loop-done».yield" = { status = "generic", id = "e6704a18239c2dce" }
+"Legal.join.same.«loop-done».«loop-done»" = { status = "generic", id = "0ee69c661fdb327b" }
+"Legal.join.same.«resume-lit».«resume-lit»" = { status = "generic", id = "1be418ad82d3d3da" }
+"Legal.join.same.«resume-lit».«resume-oid»" = { status = "generic", id = "93fd728c8f4ccc64" }
+"Legal.join.same.«resume-oid».«resume-lit»" = { status = "generic", id = "5cb592b514f19ddf" }
+"Legal.join.same.«resume-oid».«resume-oid»" = { status = "generic", id = "c2b40f4028c87cfb" }
 "join.key.end.end" = { status = "open", id = "64c8959b6d427282" }
 "join.key.end.new" = { status = "generic", id = "6d077f37fa3847e8" }
 "join.key.end.yield" = { status = "open", id = "f689e3e05f701b89" }
@@ -1094,7 +1094,12 @@ preserve = []
 
 [demo.TwoParamTx]
 tier = "light"
-guarded = 42
+guarded = 43
+preserve = []
+
+[demo.TwoLayerTx]
+tier = "light"
+guarded = 94
 preserve = []
 
 [demo.ImpPlusConf]
@@ -1374,8 +1379,8 @@ preserve = []
 "generated/corout/Corout/Equations.lean" = { tier = "light", sha256 = "cc1f4622f7df16ae632dc3432bf0cb8df8ee6e5f231e77a4b35863c4b4c9cf17" }
 "generated/corout/Corout/Functions.lean" = { tier = "light", sha256 = "65af37efdf4943ba71744c46a27e4f5cd62b02cb4d4cb6d41090d95c58b5362a" }
 "generated/corout/Corout/Init.lean" = { tier = "light", sha256 = "8e8f2d31f3610f6b125ac90082b3bdd0ebd6207ffc95152dbed8fe36b93fb91b" }
-"generated/corout/Corout/Measure.lean" = { tier = "light", sha256 = "a6e18172c80334ad255859c5b2e731327de4869ac96667d9c01dc48626048f7c" }
-"generated/corout/Corout/MeasureDefs.lean" = { tier = "light", sha256 = "b7160ff1b1a94f9bb32dd3e8868c6a837869051482d0b7fec8bd38ce55b12c97" }
+"generated/corout/Corout/Measure.lean" = { tier = "light", sha256 = "9a204887ff254a7acaa39091533bf2b08865abd8323af311593e4abf8d95e465" }
+"generated/corout/Corout/MeasureDefs.lean" = { tier = "light", sha256 = "5b9833e56a57a8266c65d53a012577450b64f2c3f447f214535b38506fd7bdd2" }
 "generated/corout/Corout/Preserves.lean" = { tier = "light", sha256 = "d2f92c488020cb1b938b7492a26c7fb5a39bbaec85b43f11be19d7e5b276db94" }
 "generated/corout/Corout/Rules.lean" = { tier = "light", sha256 = "8ef54ba47eebfe8e38eb9c10457b02e090bbc03a8ef3c728818dcb44938ad535" }
 "generated/corout/Corout/Terms.lean" = { tier = "light", sha256 = "096a45d3476881a4db45438d393b5524eff575c01cb939fbd982f2cf1acc9284" }
@@ -1460,18 +1465,20 @@ preserve = []
 "generated/twolayer/TwoLayer.lean" = { tier = "light", sha256 = "6952cdbd09c16ec5ded5fa187b0496683c19d19c8a3987bf0095da9788a64554" }
 "generated/twolayer/TwoLayer/Adequacy.lean" = { tier = "light", sha256 = "ed7badecebd25e9c4143ebfa90742e2c227c0531c73f8223b6dcd006d3cf41ca" }
 "generated/twolayer/TwoLayer/Determinism.lean" = { tier = "light", sha256 = "1b0ead9b8b6a07d231e5452204a18bbef4a86d25d3825543bdc09f07982e73e6" }
-"generated/twolayer/TwoLayer/EqBase.lean" = { tier = "light", sha256 = "bfa2950c124d819a93a1619a493ab52b4e945bce7e8ad9823575fbff73c85820" }
-"generated/twolayer/TwoLayer/Equations.lean" = { tier = "light", sha256 = "1c38f57b49173ff0f87cd706a314924b7885440cc103c07c394d1c77058fb915" }
-"generated/twolayer/TwoLayer/Functions.lean" = { tier = "light", sha256 = "aeb5e9eae504894192f37ed637149269fb0d7e9cbac02d359cff17a03b27e50d" }
+"generated/twolayer/TwoLayer/EqBase.lean" = { tier = "light", sha256 = "2d777226194f4987318eee3c03f01459cb37d7856ad921e634f301a4570481eb" }
+"generated/twolayer/TwoLayer/Equations.lean" = { tier = "light", sha256 = "4976aedcc556ec8cc87080ad83f3a13ae2f00b671479767077e2c1c8fd515fc6" }
+"generated/twolayer/TwoLayer/Functions.lean" = { tier = "light", sha256 = "6fdc964ed00eb008cb2091479a4dcd1ed69f01f4f3918f40280fbf5bb2691dbe" }
 "generated/twolayer/TwoLayer/Init.lean" = { tier = "light", sha256 = "889bac65edff5f7909dc0aa364d5eab1e0d4ded3cd3a61b53b2a045248913902" }
 "generated/twolayer/TwoLayer/InvariantDefs.lean" = { tier = "light", sha256 = "bdeb65cad5b99708ce4943ffcab010a4921f16cc52c35c981e5f195c880dcba1" }
 "generated/twolayer/TwoLayer/Invariants.lean" = { tier = "light", sha256 = "f82b35477ffcf0da4f9ed39c867f19fbb00bba3501158255f65f8ef6ea136ed3" }
+"generated/twolayer/TwoLayer/Measure.lean" = { tier = "light", sha256 = "cf8bc7788172108e7a6e57e688ddbfab0e5d0d0bcd3da1e5e6766d96afd75925" }
+"generated/twolayer/TwoLayer/MeasureDefs.lean" = { tier = "light", sha256 = "b90d00deb9e273dd14339f247e04e7cb0ede3ca99bf097b7fb55575ff4c61b99" }
 "generated/twolayer/TwoLayer/Preserves.lean" = { tier = "light", sha256 = "85ae97c34663eecc566ee16f86f093826bb5d44dbf190d4cbefeb5711a560f31" }
 "generated/twolayer/TwoLayer/Rules.lean" = { tier = "light", sha256 = "c04c2c8a58d3cf8b2dbceb1efcb7b437cf21f5e270b16b272278431403c0453e" }
 "generated/twolayer/TwoLayer/Terms.lean" = { tier = "light", sha256 = "5f4ca16d1fa41165eb9598efd26f7e5d0223b9157c03671f97aa10d1f10459df" }
 "generated/twolayer/TwoLayerBench/Main.lean" = { tier = "light", sha256 = "8a234ce601ba888541632db87e145282ea684c8c6c4aa926bd9d79ddf8752fab" }
 "generated/twolayer/TwoLayerBench/Programs.lean" = { tier = "light", sha256 = "38962359903939dbbfefc6a8fd1c07876839cdb4611463f9c9f4f3b70f00bda2" }
-"generated/twolayer/TwoLayerTest/Axioms.lean" = { tier = "light", sha256 = "88b153c83fb471b1f1651c1d396b4d4cf8df3fcc363186ca690cfc7c411e3027" }
+"generated/twolayer/TwoLayerTest/Axioms.lean" = { tier = "light", sha256 = "76aac1bad58776e299050f0100a395a549d997cd6d6a56e2dac6a3ce8b13c4cd" }
 "generated/twolayer/TwoLayerTest/Main.lean" = { tier = "light", sha256 = "f07cb4ef9d0fce356558cabc437df20dd4961e60bad7dfc0fa0663b8d7456d00" }
 "generated/twolayer/invariant-unfold.txt" = { tier = "light", sha256 = "931dc6493c78000d89f0c1e506111b0108623d4f2f2c1a06a5f6bdf6911d6862" }
 "generated/twolayer/lakefile.lean" = { tier = "light", sha256 = "f191d98c73d7bb11bac0c274adc1d1e19a4763cc9f1a6d0435ef9b948f074030" }
@@ -1485,8 +1492,8 @@ preserve = []
 "generated/twoparam/TwoParam/Init.lean" = { tier = "light", sha256 = "9f6bde553641c2245d81bf0b226402ea3cc2963aeb6dca9d8b193c26b0982a39" }
 "generated/twoparam/TwoParam/InvariantDefs.lean" = { tier = "light", sha256 = "058b63badbff5dca9ebd2bfbf590b62f5cf25d5e2e8144e13fdca120d4d765f6" }
 "generated/twoparam/TwoParam/Invariants.lean" = { tier = "light", sha256 = "5fe0f78fdbbbfac313bdab2000116b9b079a8e2d83736584460a701cf5a20eb0" }
-"generated/twoparam/TwoParam/Measure.lean" = { tier = "light", sha256 = "abe598547632747f1ac9660a3e14929ec1bdb671446f82801b9043e3b73baf38" }
-"generated/twoparam/TwoParam/MeasureDefs.lean" = { tier = "light", sha256 = "9514759a595ff6b86bb52701745d87d95db7ab12e5cbecc6c26aa130a59c8f67" }
+"generated/twoparam/TwoParam/Measure.lean" = { tier = "light", sha256 = "f712b78844de5fb1d4bbb86a10fc199df5f5cd92ee9e7f5dedc9c7b79ea22e9c" }
+"generated/twoparam/TwoParam/MeasureDefs.lean" = { tier = "light", sha256 = "ffe934cdadbb1533a7a9097f721441320659a23dfbf1483a80adba7d081ef122" }
 "generated/twoparam/TwoParam/Preserves.lean" = { tier = "light", sha256 = "29a06ed58ff58ff8ee37fac0820a0aa01b58464f158d1ee19e871061ac0baf01" }
 "generated/twoparam/TwoParam/Rules.lean" = { tier = "light", sha256 = "7e11837643ed2f44ac7a80d5e2fe79664328448f88adab5beb87da972d283bbe" }
 "generated/twoparam/TwoParam/Terms.lean" = { tier = "light", sha256 = "c0848fbf9eea54c3292f5c9a92b7c963a873571bde9854551b517f9b118ad8b5" }
