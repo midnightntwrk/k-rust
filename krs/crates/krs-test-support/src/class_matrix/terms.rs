@@ -29,7 +29,7 @@ mod drivers;
 
 use std::fmt::Write as _;
 
-use super::k7::{Ground, Meaning};
+use super::k7::{Ground, K7, Meaning, Removed};
 use super::positions::Construct as C;
 use super::positions::Form::{
     Alias, CellsClaim, CellsLocalRule, CellsRule, Constant, Context, ContextAlias, Desugar,
@@ -3342,6 +3342,15 @@ pub(super) fn without_attribute(case: &Case) -> Option<Case> {
     attributes::without_attribute(case)
 }
 
+/// Whether `plan` runs no step and states of its end only that the computation holds one item,
+/// any term ([`super::BUILT_UNSTATED`]).
+fn states_one_item_only(plan: &K7) -> bool {
+    matches!(plan, K7::Run(run)
+        if run.steps == 0
+            && matches!(run.cells.as_slice(),
+                [(cell, Ground::Seq(items))] if cell == "k" && items.as_slice() == [Ground::Any]))
+}
+
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let construct = spelling.text(slot.at.form);
     let imported = family == Family::Import;
@@ -3420,6 +3429,12 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     case.rustc_parses = slot.rustc_parses;
     case.k7 = plan;
     case.k7_counters = counters;
+    if matches!(slot.form, "alias" | "desugar")
+        && slot.side == Side::Result
+        && states_one_item_only(&case.k7)
+    {
+        case.removed = Removed::Unchanged(super::BUILT_UNSTATED);
+    }
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.
     case.unkeyed = slot.side == Side::Subject && slot.path.is_empty();

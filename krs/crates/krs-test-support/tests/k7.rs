@@ -1113,3 +1113,44 @@ fn every_unapplied_run_names_a_case_at_its_slot_that_applies() {
         "unapplied runs with no applied case at their slot: {missing:#?}"
     );
 }
+
+/// A static clause's result case whose plan states only that the computation ends with one item
+/// changes nothing without the clause ([`class_matrix::BUILT_UNSTATED`]), so K7's dependency
+/// check shows nothing of it: each has a rule twin, which the twin check compares the term it
+/// builds with, and the twin's own run takes the rule's step, which the check judges as changed.
+/// No other case is stated so, and every other static clause's result run is judged as changed.
+#[test]
+fn every_static_result_that_states_one_item_only_has_a_rule_twin_that_takes_a_step() {
+    let cases = class_matrix::cases();
+    let twins = class_matrix::twins(&cases);
+    let mut stated = BTreeSet::new();
+    for (case, twin) in &twins {
+        let K7::Run(run) = &case.k7 else {
+            continue;
+        };
+        if case.removed() != Removed::Unchanged(class_matrix::BUILT_UNSTATED) {
+            assert_eq!(case.removed(), Removed::Changes, "{}", case.id);
+            continue;
+        }
+        stated.insert(case.id.as_str());
+        assert_eq!(run.steps, 0, "{}", case.id);
+        assert_eq!(twin.removed(), Removed::Changes, "{}", twin.id);
+        assert!(
+            matches!(&twin.k7, K7::Run(run) if run.steps > 0 && run.applies),
+            "{}: its rule twin {} takes no step",
+            case.id,
+            twin.id
+        );
+    }
+    assert!(stated.contains("terms/alias/result-root/Size(x)"));
+    let elsewhere = cases
+        .iter()
+        .filter(|case| case.removed() == Removed::Unchanged(class_matrix::BUILT_UNSTATED))
+        .filter(|case| !stated.contains(case.id.as_str()))
+        .map(|case| case.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        elsewhere.is_empty(),
+        "stated with no rule twin: {elsewhere:#?}"
+    );
+}

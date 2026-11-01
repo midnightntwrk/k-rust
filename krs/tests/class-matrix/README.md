@@ -423,7 +423,12 @@ the descriptors of the base and its own. A case is judged by
   `tests/k7.rs` requires one), an initializer's field order, an initializer that writes its
   base's value of the cell or a collection's template (which no run creates), an attribute whose
   plan is the slot's own (a label, a condition that holds, `concrete`, `smt_lemma`,
-  `priority = 40`, which orders the sentence after its sibling's 30 as the default 50 does); and
+  `priority = 40`, which orders the sentence after its sibling's 30 as the default 50 does), a
+  static clause's result at its root whose hole has no stated value (`Size(x)`, which no equation
+  evaluates: the plan states only that the computation ends with one item, as the unexpanded
+  command does; the clause's whole effect is the term it builds, which the twin check below
+  compares with its rule twin's, whose run takes the rule's step, and `tests/k7.rs` requires
+  that twin); and
   where no definition is without it (`exists`, `fresh`: the result uses the name the attribute
   binds; `nondet`: the sentence overlaps its sibling), each such case collected alone. Every outcome is
   a TSV line (`k7-dependency`: `depends`, `unchanged, as stated`, `refused, as stated`,

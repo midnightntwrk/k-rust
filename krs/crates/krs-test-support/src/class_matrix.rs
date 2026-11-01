@@ -637,7 +637,8 @@ impl Case {
     /// states it: an attribute case's from what its plan states the attribute does, a run whose
     /// plan states its sentence does not apply none changed ([`k7::Run::applies`]), a field
     /// order none changed (the order of an initializer's fields means nothing, so the base's
-    /// initializer states the same configuration), and every other run changed.
+    /// initializer states the same configuration), a static clause's result that states one item
+    /// only none changed ([`BUILT_UNSTATED`]), and every other run changed.
     #[must_use]
     pub fn removed(&self) -> k7::Removed {
         match &self.k7 {
@@ -826,6 +827,14 @@ pub enum Removal {
 
 /// Why a run whose plan states its sentence does not apply changes nothing without it.
 const UNAPPLIED: &str = "the plan states that the sentence does not apply here (its condition or postcondition fails, or a restriction or a `cfg` leaves it out), so its run is the run without it";
+
+/// Why a static clause's result case whose hole is the result's root and has no stated value
+/// changes no run without it: the clause takes no step, and its plan states only that the
+/// computation ends with one item, which the program's command, unexpanded on the production
+/// unmarked, is too. The clause's whole effect is the term it builds, which the twin check
+/// compares with its rule twin's ([`twins`]); the twin's rule takes a step the run without it
+/// does not.
+pub const BUILT_UNSTATED: &str = "the clause's result is the hole, which has no stated value, so the plan states only that the computation ends with one item, as the command unexpanded does; the twin check compares the term the clause builds with its rule twin's, whose run takes the rule's step";
 
 /// The attribute case `case` without its attribute, which K7's dependency check runs the case's
 /// plans on ([`Removal::Attribute`]); `None` for a case of another family.
