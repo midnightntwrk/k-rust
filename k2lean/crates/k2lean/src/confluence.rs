@@ -3970,8 +3970,12 @@ def SameThreadJoins : Prop :=
     /// attempt: two bindings of a map that claim one thing are one (`k2l_one_binding`, from a
     /// fold of claims in the invariant), and the two instances are then one (`k2l_det`).
     const ONE_BINDING_OPEN: &str = "\n    | (k2l_one_binding\n       k2l_det\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)";
-    /// The same for a keyed slot, at each key `k2l_keyed` leaves.
-    const ONE_BINDING_KEYED: &str = "\n    | (k2l_keyed hk\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | (k2l_one_binding\n            k2l_det\n            all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩))";
+    /// The same for a keyed slot, at each key `k2l_keyed` leaves; and two keys that neither a
+    /// constructor nor a requirement tells apart are told apart, or a case where two steps' keys
+    /// are one is closed, by what the invariant says of a matched binding (`k2l_entry_refute`,
+    /// from a walk in the invariant: an output below its process's count is not the output that
+    /// process writes next).
+    const ONE_BINDING_KEYED: &str = "\n    | (k2l_keyed hk refute (k2l_entry_refute)\n       all_goals first\n         | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩\n         | k2l_entry_refute\n         | (k2l_one_binding\n            k2l_det\n            all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩))";
 
     /// The sorts whose values are all `KResult`s that a rule's condition asks `isKResult` of, as
     /// pairs `(T, S)` of names without `Sort`: `T` a sort some rule's variant asks
@@ -4181,7 +4185,8 @@ def SameThreadJoins : Prop :=
         // `k2l_refute_computed`: two instances refuted by a side condition that computes; and
         // (`KPrelude.Tactic`) `k2l_arith_omega`: by two side conditions that contradict as arithmetic
         writeln!(m, "import {}\nimport KPrelude.Progress", so.views).unwrap();
-        // `k2l_one_binding`: under the invariant, two bindings that claim one thing are one
+        // `k2l_one_binding`: under the invariant, two bindings that claim one thing are one; and
+        // `k2l_entry_refute`: a binding's test, which the invariant states, refutes a case
         if so.inv.is_some() {
             writeln!(m, "import KPrelude.OneBinding").unwrap();
         }

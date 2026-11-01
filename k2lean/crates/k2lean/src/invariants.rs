@@ -72,6 +72,9 @@
 //! whose every binding passes has the value `true` at every binding, whichever comes first. Both
 //! join the unfolding set, so the invariant reads as
 //! `EntriesOn` facts, which the collection lemmas and `MapHook.wf_of_concat` and its kin read.
+//! Where the walk is a whole part of the invariant over the configuration's cells,
+//! `Invariant.f_entry` (`@[k2l_entries]`) states that under the invariant a binding a match finds
+//! passes the test, which a confluence slot reads (`k2l_entry_refute`).
 //!
 //! **Maps built on an `Int` range.** A function of the definition (called by a rule, not
 //! necessarily by the invariant) with the two equations `f(A, B, P…) => .Map requires A >Int B`
@@ -4328,6 +4331,82 @@ exact KPrelude.MapHook.same_key_of_claimsOK hw hc h₁ h₂ x x₁ x₂\n\n",
             key = c.key,
             val = c.val,
             mty = c.map,
+            cells = ct.name,
+        ));
+    }
+    // each binding of a walk's map passes the walk's test (`Invariant.w_entry`, `@[k2l_entries]`,
+    // which `k2l_entry_refute` applies in a confluence slot): only for a walk that is a whole
+    // part, `f(…) => w(V, P…)` with `V` and each parameter `P` variables of the cells `f`
+    // matches, so that the map and the parameters are projections of the configuration; one per
+    // walk, from the first such part. The proof is `_apart`'s: the part's `simp only [part,
+    // f_cells, Option.bind_fun_some]` leaves the walk's call, which `Invariant.w_walk` (or
+    // `w_walk_cell`, for a cell's map) reads binding by binding.
+    let mut entries: BTreeSet<String> = BTreeSet::new();
+    for (pi, p) in parts.iter().enumerate() {
+        let (Some(ct), None, Some((_, true))) = (&p.cells, &p.elem_path, &p.func) else {
+            continue;
+        };
+        let P::App(ws, _, a) = &ct.rhs else { continue };
+        let Some(w) = cx
+            .fns
+            .get(ws)
+            .and_then(|g| walks.iter().find(|w| w.lean == g.lean))
+        else {
+            continue;
+        };
+        if a.len() != w.params.len() + 1 || !entries.insert(w.base.clone()) {
+            continue;
+        }
+        // each argument read off the configuration, through its cells' projections
+        let read = |q: &P| -> Option<String> {
+            let P::Var(v, _) = q else { return None };
+            let mut at = paren(&p.read);
+            for pn in ct.reads.get(v)? {
+                at = format!("({pn} {at})");
+            }
+            Some(at)
+        };
+        let Some(reads) = a.iter().map(read).collect::<Option<Vec<String>>>() else {
+            entries.remove(&w.base);
+            continue;
+        };
+        let b = &w.base;
+        let pa: String = reads
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != w.pos)
+            .map(|(_, r)| format!(" {r}"))
+            .collect();
+        let (map, walk) = match &w.cell {
+            Some(_) => (
+                format!("(Invariant.{b}_map {})", reads[w.pos]),
+                format!("Invariant.{b}_walk_cell"),
+            ),
+            None => (reads[w.pos].clone(), format!("Invariant.{b}_walk")),
+        };
+        let last = parts.len() - 1;
+        let conj = match (parts.len(), pi) {
+            (1, _) => String::new(),
+            (_, i) if i == last => ".2".repeat(i),
+            (_, i) => format!("{}.1", ".2".repeat(i)),
+        };
+        d.push_str(&format!(
+            "/-- Each binding of the map that the walk `{l}` reads, in a configuration under the invariant,\n\
+passes the walk's test (`{part}`; `KPrelude.MapHook.entry_of_concat_element`). Stated only for a\n\
+walk that is a whole part of the invariant, over a map and parameters that projections of the\n\
+configuration reach. -/\n\
+@[k2l_entries]\n\
+theorem Invariant.{b}_entry {{c : {top}}} (h : Invariant c) {{k : {key}}} {{v : {val}}} {{D : {mty}}}\n    \
+(h₁ : KPrelude.MapHook.concat (KPrelude.MapHook.element k v) D = some {map}) :\n    \
+Invariant.{b}_test k v{pa} := by\n  \
+have h : {part} c := by unfold Invariant at h; exact h{conj}\n  \
+simp only [{part}, {cells}, Option.bind_fun_some] at h\n  \
+exact KPrelude.MapHook.entry_of_concat_element h₁ (({walk} _{pa}).1 h).2\n\n",
+            l = w.lean,
+            part = p.name,
+            key = w.key,
+            val = w.val,
+            mty = w.map,
             cells = ct.name,
         ));
     }

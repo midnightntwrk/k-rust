@@ -61,12 +61,12 @@ module TWOPARAM
        <procs> ... Q |-> (st(N, R, C) => st(N +Int 1, segReg(R +Int V, C), segCode(R +Int V, C))) ... </procs>
        <vals> ... .Map => o(Q, N) |-> segReg(R +Int V, C) ... </vals> [label(resume-lit)]
   // A resume with an output spends it and writes its own in one step: the step changes <vals> at
-  // two keys. A segment never spends its own output (`o(Q, N)` exists only once this resume has
-  // run), and the requirement says so: it tells the two keys apart for confluence's commutation.
+  // two keys. A segment never spends its own output: `o(Q, N)` exists only once this resume has
+  // run, which the outputs' invariant `valsOk` below states (every output's index is below its
+  // process's count, and Q's is N).
   rule <k> resume(Q, N, I:Oid) => .K </k>
        <procs> ... Q |-> (st(N, R, C) => st(N +Int 1, segReg(R +Int V, C), segCode(R +Int V, C))) ... </procs>
-       <vals> ... (I |-> V:Int => .Map) (.Map => o(Q, N) |-> segReg(R +Int V, C)) ... </vals>
-    requires I =/=K o(Q, N) [label(resume-oid)]
+       <vals> ... (I |-> V:Int => .Map) (.Map => o(Q, N) |-> segReg(R +Int V, C)) ... </vals> [label(resume-oid)]
   rule <tasks> (<task> <tid> _ </tid> <k> .K </k> ... </task> => .Bag) ... </tasks> [label(done)]
 
   // The script's well-formedness, `wf` (`gen --invariant wf@T`): twolayer's, with no running

@@ -7973,21 +7973,7 @@ module TWOPARAM
           ),
           Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
-        \equals{SortBool{}, SortGeneratedTopCell{}}(
-          Lbl'UndsEqlsSlshEqls'K'Unds'{}(
-            kseq{}(inj{SortOid{}, SortKItem{}}(VarI:SortOid{}), dotk{}()),
-            kseq{}(
-              inj{SortOid{}, SortKItem{}}(
-                Lblo'LParUndsCommUndsRParUnds'TWOPARAM-SYNTAX'Unds'Oid'Unds'Int'Unds'Int{}(
-                  VarQ:SortInt{},
-                  VarN:SortInt{}
-                )
-              ),
-              dotk{}()
-            )
-          ),
-          \dv{SortBool{}}("true")
-        )
+        \top{SortGeneratedTopCell{}}()
       ),
       \and{SortGeneratedTopCell{}}(
         Lbl'-LT-'generatedTop'-GT-'{}(
@@ -8050,9 +8036,9 @@ module TWOPARAM
       )
     )
     [
-      UNIQUE'Unds'ID{}("9c4e1ef005ada6276beacc3117130e25b6e89c66bdaff2277b7cd9c8d09c3cf2"),
+      UNIQUE'Unds'ID{}("63ee44d172d72e53440a00cbdd30a591a5ac363f0765c8bd81e7060a217d0254"),
       label{}("resume-oid"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(66,3,69,48)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(67,3,69,114)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
       )

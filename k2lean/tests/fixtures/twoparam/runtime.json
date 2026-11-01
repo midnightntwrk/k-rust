@@ -6,15 +6,15 @@
   "syntax_module": "TWOPARAM-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "47d5b076caa8e15a5574a13398ac5e291b28e15d6ba80559e5ec36d76bb40b83"
+    "sha256": "d2485f17f05e303028ffd68936319a5493f0539aa1952b9a3e988cd14d65fb5b"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "813aa30c2560a2deb03c83f82c4d02e4694e53e7c0733b43c591b7559fcab484"
+    "sha256": "fa247d7e9c5dfc01769ba3808c868ceb0a7df4339b462b18c13ff4668e35cd96"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "ecf11acbd0fd3d634116558a70c0aa866a0dab6297dfbbc6510fe913e3646893"
+    "sha256": "3eba133aa1042c696ee32c9bae7dcb1dac4494db49985d43d0625e0e99bea1a7"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -159,7 +159,7 @@
     "e3828795d847a2f7433bf7e2c5eb06f95bc1c54e08eeecab7da83772f64dc25a",
     "75726e061aa5c3f36fbf115a1ba3b7bbaab52f512bfcdd9d7a3cfe1d97fe1c29",
     "a4e0d7e4ddcb6ab7ff98d26e43f6dc5eb1ebdea5964705719ed5a2c39e71e391",
-    "9c4e1ef005ada6276beacc3117130e25b6e89c66bdaff2277b7cd9c8d09c3cf2",
+    "63ee44d172d72e53440a00cbdd30a591a5ac363f0765c8bd81e7060a217d0254",
     "42eccaa9f55905ed8b46d0c65d538dbc4fb14ebed56834467d93a639fc64c40c",
     "2e4f676d20c6f1ad7e59ed25a0a9ae471744b501d28e6106e4ef592ac16a31c9",
     "d99cd528dca279ed64eb222644e15f6fbf8ae2e7ef05a8d875f15c40fec868e9",

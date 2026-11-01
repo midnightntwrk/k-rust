@@ -2117,8 +2117,9 @@ macro_rules
 For `hk : ¬ ch₁.KCompat ch₂`, the changes of two steps from one configuration at the cells holding
 a map: per cell, a change is `none` (a hypothesis `ch.f = none`, of the rule's class), or at the
 keys its rule's match fixes (`MCh.fx_ins`, `only_ins`, `fx_rem`, `fx_repl` with `k2l_ne`, `fx_ext`
-at one key; `fx_move` at two, told apart by `k2l_ne` or by a requirement `A =/=K B` of the rule;
-from a hypothesis `MCh.Step ch.f L L'` and the match, found up to reducible unfolding: `L` and `L'`
+at one key; `fx_move` at two, told apart by `k2l_ne`, by a requirement `A =/=K B` of the rule, or,
+with `refute (tac)`, by `tac` once their equation is substituted (`k2l_entry_refute`, under an
+invariant that places one key apart from the other); from a hypothesis `MCh.Step ch.f L L'` and the match, found up to reducible unfolding: `L` and `L'`
 as the matches state them). Per cell where both are at keys, it cases on every pair of keys: equal,
 `cases` on the equation, then `k2l_det`, the goals left to the caller; all different, `hk` is
 refuted by `MCh.compat_atL`. It fails when a change's keys are not found, or two changes' keys do
@@ -2144,9 +2145,15 @@ def keyedHyps : MetaM (Array (Expr × Expr)) := do
 theorem KEqHook.ne_true {α : Type} [DecidableEq α] {a b : α} (h : KEqHook.ne a b = true) : a ≠ b := by
   simpa [KEqHook.ne] using h
 
+/-- A tactic that refutes two keys' equation once it is substituted (`k2l_keyed hk refute (tac)`):
+under a program hypothesis, what the invariant says of the configuration's bindings. -/
+abbrev KeyedRefute := Option (TSyntax ``Lean.Parser.Tactic.tacticSeq)
+
 /-- Whether `k2l_ne` closes the goal `g`, or a requirement `A =/=K B` among the hypotheses does: a
-goal `x ≠ y` where `A` becomes `B` once `x` is rewritten to `y`. -/
-def keyedNe (g : MVarId) (hyps : Array (Expr × Expr) := #[]) : TacticM Bool := do
+goal `x ≠ y` where `A` becomes `B` once `x` is rewritten to `y`; or else the refutation `refute`,
+after the equation `x = y` is substituted (or taken apart by `cases`). -/
+def keyedNe (g : MVarId) (hyps : Array (Expr × Expr) := #[]) (refute : KeyedRefute := none) :
+    TacticM Bool := do
   let s ← saveState
   try
     let gs ← Tactic.run g (evalTactic (← `(tactic| k2l_ne)))
@@ -2169,6 +2176,18 @@ def keyedNe (g : MVarId) (hyps : Array (Expr × Expr) := #[]) : TacticM Bool := 
       s.restore
     catch _ =>
       s.restore
+  if let some t := refute then
+    let s ← saveState
+    try
+      -- without error recovery: a refutation that fails must fail here, not be admitted
+      let gs ← Tactic.run g <| Term.withoutErrToSorry <| withoutRecover do
+        evalTactic (← `(tactic| intro k2l_h))
+        evalTactic (← `(tactic| first | subst k2l_h | cases k2l_h))
+        evalTactic (← `(tactic| all_goals ($t)))
+      if gs.isEmpty then return true
+      s.restore
+    catch _ =>
+      s.restore
   return false
 
 /-- Whether the hypothesis type `h` may be an instance of the pattern `t` (`concat a R = some m`):
@@ -2184,7 +2203,8 @@ def keyedQuick (h t : Expr) : MetaM Bool := do
 
 /-- Fill the explicit arguments `is` of a lemma: a hypothesis of each one's type, or `k2l_ne` for
 an inequation, in order, backtracking. -/
-partial def keyedFill (ms : Array Expr) (hyps : Array (Expr × Expr)) : List Nat → TacticM Bool
+partial def keyedFill (ms : Array Expr) (hyps : Array (Expr × Expr)) (refute : KeyedRefute) :
+    List Nat → TacticM Bool
   | [] => return true
   | i :: rest => do
     let m := ms[i]!
@@ -2192,19 +2212,20 @@ partial def keyedFill (ms : Array Expr) (hyps : Array (Expr × Expr)) : List Nat
       let ty ← instantiateMVars (← inferType m)
       if ty.isAppOfArity ``Ne 3 then
         let g ← mkFreshExprMVar ty
-        return (← keyedNe g.mvarId! hyps) && (← isDefEq m g) && (← keyedFill ms hyps rest)
+        return (← keyedNe g.mvarId! hyps refute) && (← isDefEq m g) && (← keyedFill ms hyps refute rest)
       for (p, pty) in hyps do
         unless pty.getAppFn == ty.getAppFn && (← keyedQuick pty ty) do continue
         let s ← (Meta.saveState : MetaM _)
         if (← withReducible (isDefEq pty ty)) && (← isDefEq m p) then
-          if ← keyedFill ms hyps rest then return true
+          if ← keyedFill ms hyps refute rest then return true
         s.restore
       return false
-    else keyedFill ms hyps rest
+    else keyedFill ms hyps refute rest
 
 /-- `lem` at the step `st` (its argument `MCh.Step _ _ _`) and hypotheses for its other explicit
 arguments. -/
-def keyedApply (lem : Name) (st : Expr) (hyps : Array (Expr × Expr)) : TacticM (Option Expr) := do
+def keyedApply (lem : Name) (st : Expr) (hyps : Array (Expr × Expr)) (refute : KeyedRefute) :
+    TacticM (Option Expr) := do
   let s ← saveState
   try
     let c ← mkConstWithFreshMVarLevels lem
@@ -2217,7 +2238,7 @@ def keyedApply (lem : Name) (st : Expr) (hyps : Array (Expr × Expr)) : TacticM 
             s.restore
             return none
         else ex := ex.push i
-    unless ← keyedFill ms hyps ex.toList do
+    unless ← keyedFill ms hyps refute ex.toList do
       s.restore
       return none
     for i in [0:ms.size] do
@@ -2252,7 +2273,7 @@ def keyedNone (x : Expr) (hyps : Array (Expr × Expr)) : MetaM (Option Expr) := 
   return none
 
 /-- The keys the change `x` is at, from its step and the match of its rule. -/
-def keyedFx (x : Expr) (hyps : Array (Expr × Expr)) : TacticM (Option KeyedFx) := do
+def keyedFx (x : Expr) (hyps : Array (Expr × Expr)) (refute : KeyedRefute) : TacticM (Option KeyedFx) := do
   let mut fx : Option KeyedFx := none
   for (st, ty) in hyps do
     unless ty.isAppOf ``MCh.Step do continue
@@ -2263,7 +2284,7 @@ def keyedFx (x : Expr) (hyps : Array (Expr × Expr)) : TacticM (Option KeyedFx) 
     let mut only : Option Expr := none
     let mut facts : Array Expr := #[]
     for lem in [``MCh.fx_ins, ``MCh.only_ins, ``MCh.fx_rem, ``MCh.fx_repl, ``MCh.fx_ext, ``MCh.fx_move] do
-      let some e ← keyedApply lem st hyps | continue
+      let some e ← keyedApply lem st hyps refute | continue
       for (p, pty) in ← keyedParts e (← inferType e) do
         if pty.isAppOf ``MCh.At then
           if atP.isNone then atP := some (← mkAppM ``MCh.atL_of_at #[p], [pty.getAppArgs.back!])
@@ -2314,7 +2335,12 @@ def keyedAnd : List Expr → MetaM Expr
   | p :: ps => do mkAppM ``And.intro #[p, ← keyedAnd ps]
 
 /-- See above. -/
-elab "k2l_keyed " hk:ident : tactic => withMainContext do
+syntax (name := k2lKeyed) "k2l_keyed " ident (&" refute " "(" tacticSeq ")")? : tactic
+
+@[tactic k2lKeyed] def evalK2LKeyed : Tactic := fun stx => withMainContext do
+  let hk : Ident := ⟨stx[1]⟩
+  -- the optional group's node holds its parts directly: `refute`, `(`, the tactics, `)`
+  let refute : KeyedRefute := if stx[2].getNumArgs > 0 then some ⟨stx[2][2]⟩ else none
   let hkE := (← getLocalDeclFromUserName hk.getId).toExpr
   let hkTy ← instantiateMVars (← inferType hkE)
   unless hkTy.isAppOfArity ``Not 1 do throwError "k2l_keyed: {hk} is not a negation"
@@ -2338,8 +2364,8 @@ elab "k2l_keyed " hk:ident : tactic => withMainContext do
       let (b₁, b₂) := (b.appFn!.appArg!, b.appArg!)
       cells := cells.push (some (← mkAppOptM ``Or.inr #[a, b, ← mkAppOptM ``Or.inl #[b₁, b₂, p]]), none)
     else
-      let some f₁ ← keyedFx x hyps | throwError "k2l_keyed: no key for {x}"
-      let some f₂ ← keyedFx y hyps | throwError "k2l_keyed: no key for {y}"
+      let some f₁ ← keyedFx x hyps refute | throwError "k2l_keyed: no key for {x}"
+      let some f₂ ← keyedFx y hyps refute | throwError "k2l_keyed: no key for {y}"
       cells := cells.push (none, some (f₁, f₂))
   -- the facts that a key is not bound, as hypotheses for `k2l_det`
   let mut g ← getMainGoal
