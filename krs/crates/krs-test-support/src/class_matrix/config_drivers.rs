@@ -801,8 +801,9 @@ fn cells_matched(kind: CellKind, spelling: &str) -> Result<Matched, &'static str
 /// counter-witnesses are that object with another key or value where the spelling computes one,
 /// and with an entry more in its exact map; an instance whose map writes `..` selects the objects
 /// whose map holds the written entry, so its witness has another entry beside it, and its
-/// counter-witnesses hold another value at the key, or lack the key; an instance record with `..` (`Obj { key: 1, .. }`) leaves its map open, so its witness's map is not the
-/// template's empty one.
+/// counter-witnesses hold another value at the key, or lack the key; an instance record with
+/// `..` (`Obj { key: 1, .. }`) leaves its map open, so its witness's map is not the template's
+/// empty one.
 fn bag_matched(spelling: &str) -> Result<Matched, &'static str> {
     use Extent::{Exact, Open};
     let beside = |key: i64, entries: &[(i64, i64)]| other_obj().then(add_obj(key, entries));

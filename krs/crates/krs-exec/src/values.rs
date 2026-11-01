@@ -10,16 +10,18 @@
 //! injections compose, so the sort a term sits at belongs to its position: decoding strips
 //! injections, and encoding leaves them to the configuration assembler, which types a value as it
 //! types parsed text. Constructors decode only when the backend treats their symbol as a free
-//! constructor, and builtins have one canonical form each, so two ground values are equal exactly
-//! when the terms they describe are.
+//! constructor, or the application as data (a constructor an `anywhere` rule rewrites, applied
+//! where no equation reduces it), and builtins have one canonical form each, so two ground values
+//! are equal exactly when the terms they describe are.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use k_rust::{
     k_rust_backend::{
-        builtin::canonical_float_text, definition::BackendDefinition, term::HeadRole,
+        builtin::canonical_float_text, data_term::DataHeads, definition::BackendDefinition,
+        term::HeadRole,
     },
     kast::{Label, Sort as KastSort, Term as KastTerm, convert::Converter},
     kompile::{encode_kore_label, encode_kore_sort},
@@ -574,9 +576,11 @@ pub(crate) struct CellNode {
 /// The backend's symbol table as decoding and encoding read it.
 struct BackendSymbols {
     known: HashSet<String>,
-    /// The symbols whose applications a state holds are values of a KRS constructor: the free
-    /// constructors and the equation heads (constructors an `anywhere` rule rewrites).
-    value_constructors: HashSet<String>,
+    free_constructors: HashSet<String>,
+    /// The constructors an `anywhere` rule rewrites: the backend evaluates their applications
+    /// as a function's, so one is a value of its constructor only where it is data
+    /// ([`EquationHeadData`]).
+    equation_heads: HashSet<String>,
     /// The result sort of each symbol whose result sort is a sort without parameters.
     result_sorts: HashMap<String, String>,
     collections: HashMap<String, (Collection, Role)>,
@@ -586,21 +590,22 @@ struct BackendSymbols {
 impl BackendSymbols {
     fn scan(backend: &BackendDefinition) -> Self {
         let mut known = HashSet::new();
-        let mut value_constructors = HashSet::new();
+        let mut free_constructors = HashSet::new();
+        let mut equation_heads = HashSet::new();
         let mut result_sorts = HashMap::new();
         let mut collections = HashMap::new();
         let mut builders: [CollectionSymbols; 3] = Default::default();
         for (name, symbol) in backend.symbols() {
             let name = name.to_string();
             known.insert(name.clone());
-            // A constructor an `anywhere` rule rewrites is an equation head: its applications are
-            // evaluated as a function's are, so one a state holds is in normal form, a value of
-            // the constructor it still is.
-            if matches!(
-                symbol.attributes.head_role(),
-                HeadRole::FreeConstructor | HeadRole::EquationHead
-            ) {
-                value_constructors.insert(name.clone());
+            match symbol.attributes.head_role() {
+                HeadRole::FreeConstructor => {
+                    free_constructors.insert(name.clone());
+                }
+                HeadRole::EquationHead => {
+                    equation_heads.insert(name.clone());
+                }
+                HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {}
             }
             if let k_rust::k_rust_backend::term::SortNode::Application {
                 name: sort,
@@ -654,7 +659,8 @@ impl BackendSymbols {
         }
         Self {
             known,
-            value_constructors,
+            free_constructors,
+            equation_heads,
             result_sorts,
             collections,
             builders,
@@ -675,12 +681,57 @@ pub struct ValueIndex {
     /// Hooks of the backend's sorts, by KAST name, for the KAST conversion of an encoded value.
     kast_sort_hooks: HashMap<String, String>,
     known_symbols: HashSet<String>,
-    value_constructors: HashSet<String>,
+    free_constructors: HashSet<String>,
+    equation_heads: HashSet<String>,
+    equation_head_data: EquationHeadData,
     result_sorts: HashMap<String, String>,
     collections: HashMap<String, (Collection, Role)>,
     builders: [CollectionSymbols; 3],
     cells: Vec<CellNode>,
     top: String,
+}
+
+/// Whether an application of an equation head (a constructor an `anywhere` rule rewrites) is a
+/// value of its constructor: where the backend shows it is data
+/// ([`BackendDefinition::is_data`]). Such a head's applications are evaluated as a function's
+/// are, and its `value-production` declaration states that an application no equation reduces is
+/// a value of its sort; an application an equation still reduces (a state a run left unreduced) is
+/// no value, whatever its symbol, and neither is one whose head the load withdrew value claims
+/// from. The definition's data heads are computed on the first such application decoded.
+struct EquationHeadData {
+    definition: Arc<BackendDefinition>,
+    heads: OnceLock<DataHeads>,
+}
+
+impl fmt::Debug for EquationHeadData {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EquationHeadData")
+            .field("heads", &self.heads.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl EquationHeadData {
+    fn new(definition: Arc<BackendDefinition>) -> Self {
+        Self {
+            definition,
+            heads: OnceLock::new(),
+        }
+    }
+
+    /// Whether the ground application `pattern` is data in the definition.
+    fn holds(&self, pattern: &Pattern) -> bool {
+        let Ok(term) = self
+            .definition
+            .admit_unverified(pattern, &[])
+            .internalize_term()
+        else {
+            return false;
+        };
+        let heads = self.heads.get_or_init(|| self.definition.data_heads());
+        self.definition.is_data(&term, heads)
+    }
 }
 
 const fn collection_slot(collection: Collection) -> usize {
@@ -711,7 +762,7 @@ impl ValueIndex {
     /// Index the KRS declarations of `definition` against the backend's view of its compiled KORE.
     pub(crate) fn new(
         definition: &DefinitionIr,
-        backend: &BackendDefinition,
+        backend: &Arc<BackendDefinition>,
         kast_sort_hooks: &HashMap<String, String>,
     ) -> Self {
         let mut ctors_by_symbol = HashMap::new();
@@ -780,7 +831,9 @@ impl ValueIndex {
             sort_hooks,
             kast_sort_hooks: kast_sort_hooks.clone(),
             known_symbols: symbols.known,
-            value_constructors: symbols.value_constructors,
+            free_constructors: symbols.free_constructors,
+            equation_heads: symbols.equation_heads,
+            equation_head_data: EquationHeadData::new(Arc::clone(backend)),
             result_sorts: symbols.result_sorts,
             collections: symbols.collections,
             builders: symbols.builders,
@@ -971,7 +1024,13 @@ impl ValueIndex {
                     return self.collection(pattern, collection);
                 }
                 match self.ctors_by_symbol.get(name) {
-                    Some(info) if self.value_constructors.contains(name) => {
+                    Some(info) if self.free_constructors.contains(name) => {
+                        self.constructor(pattern, info, symbol, arguments)
+                    }
+                    Some(info)
+                        if self.equation_heads.contains(name)
+                            && self.equation_head_data.holds(pattern) =>
+                    {
                         self.constructor(pattern, info, symbol, arguments)
                     }
                     _ => opaque(),
@@ -1398,7 +1457,80 @@ fn cell_nodes(
 
 #[cfg(test)]
 mod tests {
-    use super::{Decl, Float};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use k_rust::backend::{Backend, BackendOptions};
+    use k_rust::kore::parser::parse_pattern;
+
+    use super::{BackendSymbols, CtorInfo, Decl, EquationHeadData, Float, Value, ValueIndex};
+
+    /// `c` is a constructor an `anywhere` rule rewrites, `c(a) => c(b)`: `c(b)`, which no
+    /// equation reduces, is a value of `c`; `c(a)`, which the rule still reduces, is none.
+    const ANYWHERE: &str = r"[]
+        module MAIN
+            sort SortS{} []
+            symbol a{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+            symbol b{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+            symbol c{}(SortS{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, a{}()), \top{R}())),
+                \equals{SortS{}, R}(c{}(X0:SortS{}), \and{SortS{}}(c{}(b{}()), \top{SortS{}}()))
+            ) [anywhere{}()]
+        endmodule []";
+
+    /// The index of [`ANYWHERE`], whose KRS declarations are `t::S::A`, `t::S::B` and `t::S::C`.
+    fn anywhere_index() -> ValueIndex {
+        let mut backend = Backend::new(ANYWHERE, "MAIN", BackendOptions::default()).unwrap();
+        let definition = backend.select_definition(None).unwrap();
+        let symbols = BackendSymbols::scan(&definition);
+        let mut ctors_by_symbol = HashMap::new();
+        let mut ctors_by_decl = HashMap::new();
+        for (symbol, name, fields) in [("a", "A", &[][..]), ("b", "B", &[]), ("c", "C", &["x"])] {
+            let info = Arc::new(CtorInfo {
+                decl: Decl(format!("t::S::{name}").into()),
+                symbol: symbol.to_owned(),
+                fields: fields.iter().map(|field| Arc::from(*field)).collect(),
+                parameters: 0,
+            });
+            ctors_by_symbol.insert(symbol.to_owned(), info.clone());
+            ctors_by_decl.insert(info.decl.clone(), info);
+        }
+        ValueIndex {
+            ctors_by_symbol,
+            ctors_by_decl,
+            sorts_by_kore: HashMap::new(),
+            kore_by_sort: HashMap::new(),
+            sort_hooks: HashMap::new(),
+            kast_sort_hooks: HashMap::new(),
+            known_symbols: symbols.known,
+            free_constructors: symbols.free_constructors,
+            equation_heads: symbols.equation_heads,
+            equation_head_data: EquationHeadData::new(definition),
+            result_sorts: symbols.result_sorts,
+            collections: symbols.collections,
+            builders: symbols.builders,
+            cells: Vec::new(),
+            top: String::new(),
+        }
+    }
+
+    #[test]
+    fn an_anywhere_constructors_application_is_a_value_only_where_no_equation_reduces_it() {
+        let index = anywhere_index();
+        let decode = |text: &str| index.decode(&parse_pattern(text).unwrap()).unwrap();
+        assert!(
+            matches!(decode("c{}(b{}())"), Value::Ctor(_)),
+            "{:?}",
+            decode("c{}(b{}())")
+        );
+        assert!(
+            matches!(decode("c{}(a{}())"), Value::Opaque(_)),
+            "{:?}",
+            decode("c{}(a{}())")
+        );
+        assert!(matches!(decode("a{}()"), Value::Ctor(_)));
+    }
 
     #[test]
     fn a_float_is_its_value_not_its_spelling() {

@@ -7,7 +7,7 @@ use std::path::Path;
 use krs_test_support::class_matrix::attributes::{
     Attribute, BASE_KEYS, CASE_PRIORITY, DECLARATION_MACROS, DRIVER_PRIORITY, EXTRAS, FORMS,
     LATE_CASE_PRIORITY, MALFORMED, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair,
-    SENTENCE_MACROS, Written, pairs,
+    SENTENCE_MACROS, TOGETHER, Written, pairs,
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::oracle::Outcome;
@@ -494,7 +494,7 @@ fn every_term_slot_form_has_an_attribute_form_and_every_pair_a_case() {
         .collect::<Vec<_>>();
     assert_eq!(
         attribute_cases.len(),
-        FORMS.len() * Attribute::ALL.len() + MALFORMED.len() + EXTRAS.len()
+        FORMS.len() * Attribute::ALL.len() + MALFORMED.len() + EXTRAS.len() + TOGETHER.len()
     );
     assert_eq!(attribute_cases.len(), pairs().len());
     for case in &attribute_cases {
@@ -878,7 +878,9 @@ enum Stated {
 /// what it says of them. A boundary the documentation states and the oracle does not share is the
 /// bug class NT-13-3 was (a documented refusal the oracle accepted, which no test tied together);
 /// every pair here is also an `attrs/FORM/ATTRIBUTE` case, so the class matrix ties the product to
-/// the same statement.
+/// the same statement. Each phrase holds the forms it lists, so that a list edited in the
+/// reference no longer matches. A phrase is read as written, not its scope: a statement widened
+/// beyond its phrase passes until a row says so.
 const DOCUMENTED_BOUNDARIES: &[(&str, &[&str], &[&str], Stated)] = {
     use krs_test_support::class_matrix::oracle::Class;
     &[
@@ -950,6 +952,89 @@ const DOCUMENTED_BOUNDARIES: &[(&str, &[&str], &[&str], Stated)] = {
             &["Concrete", "Symbolic"],
             Stated::Refuses(Class::RestrictionOutsideFunction),
         ),
+        (
+            "an order (`owise`, `priority`, `nondet`) on a sentence chosen against no other, a claim, a context, a context alias or a static clause",
+            &[
+                "claim",
+                "cells-claim",
+                "context",
+                "context-alias",
+                "desugar",
+                "alias",
+            ],
+            &["Owise", "Priority", "Nondet"],
+            Stated::Refuses(Class::OrderOnUnorderedSentence),
+        ),
+        (
+            "`result` on a sentence that heats nothing",
+            &[
+                "rule",
+                "local-rule",
+                "sort-rule",
+                "readable",
+                "cells",
+                "equation",
+                "simplification",
+                "claim",
+                "desugar",
+                "alias",
+            ],
+            &["EvaluationResult"],
+            Stated::Refuses(Class::EvaluationKeyWithoutEvaluation),
+        ),
+        (
+            "`recursive` anywhere but a static production's own marker",
+            &["rule", "equation", "claim", "context", "desugar", "alias"],
+            &["Recursive"],
+            Stated::Refuses(Class::RecursiveOutsideProduction),
+        ),
+        (
+            "`unbound_variables` outside a desugar clause is `krs::syntax::invalid-unbound-variables`",
+            &["rule", "equation", "claim", "alias"],
+            &["UnboundVariables"],
+            Stated::Refuses(Class::UnboundVariablesOutsideDesugar),
+        ),
+        (
+            "`#[k::requires]` on a desugar or an alias clause is refused at the attribute",
+            &["desugar", "alias"],
+            &["RequiresHolds", "RequiresFails"],
+            Stated::Refuses(Class::ConditionOnStaticClause),
+        ),
+    ]
+};
+
+/// A pair boundary: the phrase, the forms, the key, the helpers, and what the phrase says.
+type PairBoundary = (
+    &'static str,
+    &'static [&'static str],
+    &'static str,
+    &'static [&'static str],
+    Stated,
+);
+
+/// The boundaries the reference states for a key and a helper together, each by its phrase, the
+/// forms, the key, the helpers and what it says ([`DOCUMENTED_BOUNDARIES`]), judged by the oracle's
+/// [`together`](krs_test_support::class_matrix::attributes::together); each is also an
+/// `attrs/FORM/..` case of `TOGETHER`. Not covered: the keys that cannot stand together (`anywhere`
+/// or a heating step with an order, `heat` with `cool`), whose classes `MALFORMED` states case by
+/// case rather than an oracle rule, and `#[k::fresh]` on a heat or cool rule, which no case writes.
+const DOCUMENTED_PAIR_BOUNDARIES: &[PairBoundary] = {
+    use krs_test_support::class_matrix::oracle::Class;
+    &[
+        (
+            "an anywhere rule of either form takes no `#[k::exists]`",
+            &["rule", "local-rule"],
+            "Anywhere",
+            &["Exists"],
+            Stated::Refuses(Class::ExistentialOutsideStep),
+        ),
+        (
+            "`#[k::fresh]` on an equation, simplification, alias, claim, context, context alias, anywhere rule",
+            &["rule", "local-rule"],
+            "Anywhere",
+            &["Fresh"],
+            Stated::Refuses(Class::FreshOutsideStep),
+        ),
     ]
 };
 
@@ -957,14 +1042,43 @@ const DOCUMENTED_BOUNDARIES: &[(&str, &[&str], &[&str], Stated)] = {
 /// and the oracle answers it as stated (the class matrix then judges the product by the oracle).
 #[test]
 fn the_oracle_shares_every_attribute_boundary_the_reference_states() {
-    use krs_test_support::class_matrix::attributes::{expected, form_named};
+    use krs_test_support::class_matrix::attributes::{expected, form_named, together};
     let reference =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs-site/src/pages/reference");
     let flatten = |text: String| text.split_whitespace().collect::<Vec<_>>().join(" ");
     let documents = ["language.mdx", "boundaries.mdx"].map(|name| {
         flatten(std::fs::read_to_string(reference.join(name)).expect("the reference page"))
     });
+    let attribute_named = |name: &str| {
+        *Attribute::ALL
+            .iter()
+            .find(|attribute| format!("{attribute:?}") == name)
+            .unwrap_or_else(|| panic!("no attribute {name}"))
+    };
+    let agrees = |stated: &Stated, outcome: Outcome| match (stated, outcome) {
+        (Stated::Takes, Outcome::Accept) => true,
+        (Stated::Refuses(class), Outcome::Refuse(refusal)) => refusal.class == *class,
+        _ => false,
+    };
     let mut disagreements = Vec::new();
+    for (phrase, forms, key, helpers, stated) in DOCUMENTED_PAIR_BOUNDARIES {
+        if !documents.iter().any(|document| document.contains(phrase)) {
+            disagreements.push(format!("the reference no longer states {phrase:?}"));
+        }
+        for form in *forms {
+            let form = form_named(form);
+            for helper in *helpers {
+                let outcome =
+                    together(form.sentence, attribute_named(key), attribute_named(helper));
+                if !agrees(stated, outcome) {
+                    disagreements.push(format!(
+                        "{}/{key} with {helper}: the reference states {stated:?} ({phrase:?}), the oracle {outcome:?}",
+                        form.name
+                    ));
+                }
+            }
+        }
+    }
     for (phrase, forms, attributes, stated) in DOCUMENTED_BOUNDARIES {
         if !documents.iter().any(|document| document.contains(phrase)) {
             disagreements.push(format!("the reference no longer states {phrase:?}"));
@@ -972,16 +1086,8 @@ fn the_oracle_shares_every_attribute_boundary_the_reference_states() {
         for form in *forms {
             let form = form_named(form);
             for name in *attributes {
-                let attribute = *Attribute::ALL
-                    .iter()
-                    .find(|attribute| format!("{attribute:?}") == *name)
-                    .unwrap_or_else(|| panic!("no attribute {name}"));
-                let agrees = match (stated, expected(form.sentence, attribute)) {
-                    (Stated::Takes, Outcome::Accept) => true,
-                    (Stated::Refuses(class), Outcome::Refuse(refusal)) => refusal.class == *class,
-                    _ => false,
-                };
-                if !agrees {
+                let attribute = attribute_named(name);
+                if !agrees(stated, expected(form.sentence, attribute)) {
                     disagreements.push(format!(
                         "{}/{name}: the reference states {stated:?} ({phrase:?}), the oracle {:?}",
                         form.name,

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "packages/anywhere",
+    "packages/anywhere-stutter",
     "packages/casts",
     "packages/contexts",
     "packages/contexts-evaluate",

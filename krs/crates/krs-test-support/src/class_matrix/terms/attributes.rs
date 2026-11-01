@@ -8,8 +8,10 @@
 //! `priority`, `nondet`) is written beside a sibling of the form, one sentence of the same kind
 //! over the case's command whose subject also matches the command at `2`
 //! ([`sibling`]); an attribute whose meaning needs a use (an existential, a fresh value, a
-//! desugar clause's unbound name) has its result use the name ([`result_use`]); `anywhere` on a
-//! single-body rule rewrites a literal its rewrite's right side is not ([`rewrite_once`]).
+//! desugar clause's unbound name) has its result use the name ([`result_use`]), a pair of a key
+//! and a helper too; `anywhere` on a single-body rule rewrites a literal its rewrite's right side
+//! is not ([`rewrite_once`]), and the extra case beside it keeps the slot's rewrite, which its
+//! left image matches again.
 //!
 //! **K7.** Each case's run is its slot's driver plan (`super::drivers`) on the hole's spelling,
 //! changed where the attribute changes what the sentence does:
@@ -30,7 +32,9 @@
 //!   `Word` (where the default `KResult` would leave it), and leaves `word`;
 //! - an existential or a fresh value in the result: the sentence applies, with a value the
 //!   generator does not state;
-//! - every other accepted attribute (a label, `anywhere`, `nondet`, `concrete`, `smt_lemma`, a
+//! - `anywhere`: the sentence applies below `hold(..)` before any step, and, on a single-body
+//!   rule, the counter run, where its left image does not match, leaves the command;
+//! - every other accepted attribute (a label, `nondet`, `concrete`, `smt_lemma`, a
 //!   condition that holds, `ensures` that holds, a context's `result`): the sentence applies as
 //!   the slot's plan states. `concrete` and `concrete(x)` are run on concrete values only, where
 //!   they let the sentence apply: what they restrict, a symbolic application, needs a symbolic
@@ -38,8 +42,9 @@
 //!
 //! The extra cases ([`super::super::attributes::EXTRAS`]) run their slot's plan where the
 //! sentence applies as without them, and the unapplied run where it does not (a condition before
-//! the marker or a second condition that fails, `#[cfg(any())]`); a sentence about the solver's
-//! function has no driver.
+//! the marker or a second condition that fails, `#[cfg(any())]`); an anywhere rule that rewrites
+//! what it wrote runs without end ([`Status::Endless`]); a sentence about the solver's function
+//! has no driver. A pair the oracle refuses ([`super::super::attributes::TOGETHER`]) is not run.
 //!
 //! The case's sentences are its own and its sibling's, both over its own command, and the base's
 //! driver rules have priority 10: a case's priority (20) and its sibling's (30, 60) lie after the
@@ -127,13 +132,18 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(marker);
     let attribute = match pair {
         Pair::Attribute(_, attribute) => Some(attribute),
-        Pair::Malformed(..) | Pair::Extra(..) => None,
+        Pair::Malformed(..) | Pair::Extra(..) | Pair::Together(..) => None,
+    };
+    // The attribute whose meaning needs its name used: the case's, or a pair's helper.
+    let needs_use = match pair {
+        Pair::Together(_, together) => Some(together.helper),
+        _ => attribute,
     };
     let mut template = match written {
         Written::SolverFunction(_) => solver_template(form),
         _ => slot.template.replace("HOLE", form.hole),
     };
-    if let Some(used) = attribute.and_then(|attribute| result_use(form, attribute)) {
+    if let Some(used) = needs_use.and_then(|attribute| result_use(form, attribute)) {
         template = used;
     }
     if attribute == Some(Attribute::Anywhere)
@@ -183,17 +193,43 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let mut case = spec.finish(packaging, &item);
     case.attribute = Some(pair);
-    let (plan, counter) = match pair {
-        Pair::Attribute(_, attribute) => plan(form, attribute, slot, spelling, &command),
+    let (plan, counter) = case_plan(pair, &case.id, slot, spelling, &command);
+    case.k7 = plan;
+    case.k7_counters = counter.into_iter().collect();
+    case
+}
+
+/// What K7 runs a case of `pair` on ([module docs](self)), and its counter run.
+fn case_plan(
+    pair: Pair,
+    id: &str,
+    slot: &Slot,
+    spelling: &Spelling,
+    command: &Command,
+) -> (K7, Option<Run>) {
+    let form = pair.form();
+    match pair {
+        Pair::Attribute(_, attribute) => plan(form, attribute, slot, spelling, command),
         Pair::Malformed(..) => (
             K7::skip(SkipKind::Form, "a malformed attribute is refused"),
             None,
         ),
-        Pair::Extra(_, extra) => extra_plan(form, extra, slot, spelling, &command),
-    };
-    case.k7 = plan;
-    case.k7_counters = counter.into_iter().collect();
-    case
+        Pair::Extra(_, extra) => extra_plan(form, extra, slot, spelling, command),
+        Pair::Together(..) => {
+            assert_ne!(
+                pair.expected(),
+                super::super::oracle::Outcome::Accept,
+                "{id}: a pair the oracle accepts needs a run"
+            );
+            (
+                K7::skip(
+                    SkipKind::Form,
+                    "the sentence cannot take both attributes, and is refused",
+                ),
+                None,
+            )
+        }
+    }
 }
 
 /// The marker a form's template writes, its attribute path, its own keys (which a case keeps),
@@ -265,6 +301,12 @@ fn write_attribute(
     let (key, helper) = match written {
         // The solver's template has the key's place already.
         Written::SolverFunction(_) => return template.to_owned(),
+        // The whole marker, its keys and the helpers after it, in place of the base's.
+        Written::Marker(_) => {
+            let old = marker_of(form);
+            assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
+            return template.replacen(old, "ATTRIBUTE\n", 1);
+        }
         Written::Production(_) => {
             let old = marker_of(form);
             assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
@@ -353,7 +395,10 @@ fn result_use(form: Form, attribute: Attribute) -> Option<String> {
 /// The template of a single-body rule whose rewrite's right image its left image no longer
 /// matches, for `anywhere`, which rewrites every occurrence of the left image, its own results
 /// included: the slot's `x => Cmd::Go()` writes a command its left image matches again, a rewrite
-/// that never ends, so the case rewrites `1`, which `Cmd::Go()` is not.
+/// that never ends, so the case rewrites `1`, which `Cmd::Go()` is not, and shows what one
+/// application does. The slot's own rewrite is the extra case `anywhere on what it writes`
+/// (`attributes::EXTRAS`), whose run has no end: k-rust's ends it after one application, stuck
+/// at a term the rule still matches (NT-41-1).
 fn rewrite_once(form: Form) -> Option<String> {
     if form.name != "local-rule" {
         return None;
@@ -576,22 +621,7 @@ fn plan(
             );
             (K7::Run(heated), Some(unapplied(form, &at(word()), cmd)))
         }
-        // An anywhere rule rewrites its subject wherever it occurs, as the program's
-        // configuration is built too: below `hold(..)`, before any step.
-        Attribute::Anywhere if transition => {
-            let below = hold(at(int(1)));
-            let items = applied_items(form, cmd, int(1), None)
-                .into_iter()
-                .map(hold)
-                .collect::<Vec<_>>();
-            (
-                K7::Run(Run {
-                    depth: 1,
-                    ..run(&below, 0, items, Status::Value)
-                }),
-                None,
-            )
-        }
+        Attribute::Anywhere if transition => anywhere_plan(form, cmd),
         Attribute::Exists | Attribute::Fresh if transition => (
             K7::Run(run(
                 &at(int(1)),
@@ -610,6 +640,26 @@ fn plan(
         ),
         _ => (base, None),
     }
+}
+
+/// An anywhere rule's run: it rewrites its subject wherever it occurs, as the program's
+/// configuration is built too, below `hold(..)`, before any step. A single-body rule rewrites only
+/// its left image's `1` ([`rewrite_once`]): the counter run, at `2`, leaves the command as it is.
+fn anywhere_plan(form: Form, cmd: &Command) -> (K7, Option<Run>) {
+    let at = |first: Ground| program_at(form, cmd, first);
+    let below = hold(at(int(1)));
+    let items = applied_items(form, cmd, int(1), None)
+        .into_iter()
+        .map(hold)
+        .collect::<Vec<_>>();
+    let counter = (form.name == "local-rule").then(|| unapplied(form, &hold(at(int(2))), cmd));
+    (
+        K7::Run(Run {
+            depth: 1,
+            ..run(&below, 0, items, Status::Value)
+        }),
+        counter,
+    )
 }
 
 /// What K7 runs an extra case on: the slot's plan where the sentence applies as without the
@@ -639,6 +689,21 @@ fn extra_plan(
         Effect::Applies => (base, None),
         Effect::Unapplied => (
             K7::Run(unapplied(form, &program_at(form, cmd, int(1)), cmd)),
+            None,
+        ),
+        // An anywhere rule that rewrites what it wrote: below `hold(..)`, its application at `1`
+        // writes a command it matches again, so the rewriting has no end.
+        Effect::Endless => (
+            K7::Run(Run {
+                cells: Vec::new(),
+                depth: 1,
+                ..run(
+                    &hold(program_at(form, cmd, int(1))),
+                    0,
+                    Vec::new(),
+                    Status::Endless,
+                )
+            }),
             None,
         ),
     }

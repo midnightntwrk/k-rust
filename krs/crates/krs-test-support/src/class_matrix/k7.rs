@@ -386,6 +386,11 @@ pub enum Status {
     /// A static clause's counter run: its subject does not match the program, so the program's
     /// expansion leaves the case's production unexpanded, which `krs run` refuses to execute.
     Unexpanded,
+    /// The sentence applies again to what it wrote, without end (an `anywhere` rule whose result
+    /// its subject matches): the run reaches no final state. It ends only at its step bound or
+    /// its time limit; a run that reports a final state reports a state at which the sentence
+    /// still applies.
+    Endless,
 }
 
 impl Status {
@@ -396,6 +401,7 @@ impl Status {
             Self::Value => "value",
             Self::Liveness => "liveness",
             Self::Unexpanded => "unexpanded",
+            Self::Endless => "endless",
         }
     }
 }

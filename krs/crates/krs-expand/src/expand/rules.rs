@@ -727,6 +727,20 @@ fn expand_ordinary_rule(
             helper.path(),
         ))));
     }
+    if attribute.anywhere().is_some()
+        && !rule.existentials().binders().is_empty()
+        && let Some(helper) = rule.existentials().attributes().iter().find(|helper| {
+            helper
+                .path()
+                .segments
+                .last()
+                .is_some_and(|last| last.ident == "exists")
+        })
+    {
+        return Err(existential_on_anywhere(syn::spanned::Spanned::span(
+            helper.path(),
+        )));
+    }
     let facade = env.facade_path()?;
     let descriptor = krs_syntax::RuleDescriptor::new(rule, sentence)?;
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())?;
@@ -1554,6 +1568,18 @@ pub(super) fn reject_fresh_helper(item: &TokenStream) -> crate::Result<()> {
         return Err(misplaced_fresh(Some(span)));
     }
     Ok(())
+}
+
+/// `#[k::exists]` on an `anywhere` rule, of either form. An anywhere rule replaces an
+/// application, wherever it occurs, by the one term its result writes, in place, as an equation
+/// gives an application its value: it reaches no result state of a step, so none of its result's
+/// values is existential.
+fn existential_on_anywhere(span: Span) -> ExpandError {
+    ExpandError::new(
+        expand::EXISTENTIAL_PLACEMENT,
+        span,
+        "an `anywhere` rule replaces an application, wherever it occurs, by the one term its result writes, as an equation gives an application its value: it reaches no result state, so no value of its result is existential; `#[k::exists]` is not allowed on an anywhere rule",
+    )
 }
 
 /// `#[k::exists]` or `#[k::ensures]` on an equation, simplification, or alias.

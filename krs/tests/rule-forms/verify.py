@@ -27,6 +27,13 @@ the outcomes must agree:
   requirement, and the Java Haskell reference route refuses the definition
   with `krs::capability::unavailable` before anything is kompiled (upstream
   k/anywhere-rules-on-haskell, reviewed, not a request);
+- `anywhere-stutter`: anywhere rules whose result their own subject matches
+  again, single-body and long form, rewrite without end, as do two that
+  rewrite into each other; no state of such a run is final. k-rust's runs are
+  pinned as known wrong outputs (NT-41-1, natively only): it ends each
+  one-rule rewrite after one application and reports the state stuck at a
+  term the rule still matches, and it runs the two-cycle until the gate's
+  time limit, `--depth 5` notwithstanding;
 - `casts`: typed binder parameters on rule fns. `_e: Exp` narrows the
   `Phrase` argument of `isExpression`, whose `owise` equation declares no
   binders, so `isExpression(1)` and `isExpression(1 + 2)` are `true` and
@@ -134,6 +141,7 @@ from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import Fixture, FixtureGate, Program  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
+from support.process import run  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import add_refresh_argument  # noqa: E402
 from support.tools import target_environment, z3_environment  # noqa: E402
@@ -193,6 +201,18 @@ ANYWHERE_REFUSAL = (
     "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); "
     "run this on the LLVM or k-rust route"
 )
+
+ANYWHERE_STUTTER = Fixture(MANIFEST, "krs-rule-forms-anywhere-stutter")
+# Known wrong outputs (NT-41-1): each program rewrites without end, so no run
+# reports a final state. `stutter` and `stutter-long` report one stuck after
+# one application, at a term the rule still matches; `two-cycle` has no end
+# within the limit under `--depth 5`.
+ANYWHERE_STUTTER_PROGRAMS = (
+    ("stutter", "wrap(p(a, b))", ()),
+    ("stutter-long", "wrap(r(a, b))", ()),
+    ("two-cycle", "q(a, a)", ("--depth", "5")),
+)
+ANYWHERE_STUTTER_LIMIT_SECONDS = 20
 
 FRESH = Fixture(MANIFEST, "krs-rule-forms-fresh")
 FRESH_PROGRAMS = (
@@ -435,6 +455,41 @@ def verify_anywhere(harness: FixtureGate, pins: Ledger) -> None:
     if message != ANYWHERE_REFUSAL:
         raise GateError(f"java-haskell-reference refusal changed:\n{message}")
     pins.expect(("capability_refusals", "java-haskell-reference"), message)
+
+
+def verify_anywhere_stutter(harness: FixtureGate, pins: Ledger, workspace: Path) -> None:
+    """Pin k-rust's runs of anywhere rules that rewrite without end (known wrong outputs, NT-41-1)."""
+
+    harness.check(ANYWHERE_STUTTER)
+    harness.expand(ANYWHERE_STUTTER)
+    emitted = harness.emit(ANYWHERE_STUTTER)
+    emitted_attributes(emitted, (
+        "rule p ( (_ => go) , _ ) [anywhere, label(stutter)]",
+        "rule r ( _ , Y:Stmt ) => r ( go , Y:Stmt ) [anywhere, label(stutter-long)]",
+    ))
+    programs = workspace / "anywhere-stutter-programs"
+    programs.mkdir(parents=True, exist_ok=True)
+    observed: dict[str, str] = {}
+    for name, text, options in ANYWHERE_STUTTER_PROGRAMS:
+        path = programs / f"{name}.stmt"
+        path.write_text(text + "\n", encoding="utf-8")
+        argv = ANYWHERE_STUTTER.invocation(harness.krs).argv(
+            "run", *ANYWHERE_STUTTER.argv_extra(), *options, path,
+        )
+        try:
+            process = run(
+                argv, environment=harness.environment, timeout=ANYWHERE_STUTTER_LIMIT_SECONDS, check=False,
+            )
+        except GateError as error:
+            if not str(error).startswith("command timed out"):
+                raise
+            observed[name] = f"no end within {ANYWHERE_STUTTER_LIMIT_SECONDS} s"
+            continue
+        # The printed state and `krs run`'s own report of how the run ended.
+        report = [line for line in process.stderr.splitlines() if line.startswith(("krs run:", "error"))]
+        output = " ".join([*process.stdout.split(), *report])
+        observed[name] = f"exit {process.returncode}: {output}"
+    pins.expect(("known_wrong_outputs", ANYWHERE_STUTTER.package), observed)
 
 
 def verify_fresh(harness: FixtureGate) -> None:
@@ -707,6 +762,9 @@ def main() -> int:
 
         verify_anywhere(harness, pins)
         print("PASS anywhere: drop-a at any depth on both routes, reassociation a pinned k-rust divergence, Java Haskell refused before kompile")
+
+        verify_anywhere_stutter(harness, pins, workspace)
+        print("PASS anywhere-stutter: k-rust's runs of rewrites without end pinned as known wrong outputs (NT-41-1)")
 
         verify_fresh(harness)
         print("PASS fresh: !L:Loc and !T:Int share the generated counter natively and on Java LLVM")

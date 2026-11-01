@@ -101,6 +101,7 @@ Several `#[k::requires]` on one sentence are their conjunction in written order,
 The attributes of one item state one sentence whatever their order, as Rust leaves the order of inert attributes free: a helper (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]`) written before its item's marker belongs to the marker's sentence as it does after it, and is accepted or refused there as it is after it; a helper on an item with no sentence marker is refused at the helper (`krs::expand::orphan-helper`).
 
 A key a sentence's marker does not take is refused at the key, for what it means there (one table, `krs_syntax::misplaced_key`, answers every marker): an order (`owise`, `priority`, `nondet`) on a sentence chosen against no other, a claim, a context, a context alias or a static clause, a restriction (`concrete`, `symbolic`, `smt_lemma`) outside an equation or a simplification, `anywhere` outside a term-shaped transition, `result` on a sentence that heats nothing, and `recursive` anywhere but a static production's own marker are `krs::syntax::invalid-rule-key`; `unbound_variables` outside a desugar clause is `krs::syntax::invalid-unbound-variables`; any other key, and every sentence key on an initializer's or a constant's marker, which declare and take none, is `krs::syntax::unknown-argument`.
+A `for Sort` clause's marker takes `anywhere` as a `#[k::rule]` fn's does, but the clause's header anchors it at the head of the computation cell, where `anywhere` would rewrite its subject wherever it occurs: the block refuses that key after the table has read it, also `krs::syntax::invalid-rule-key`.
 
 ### Rule priority
 
@@ -1129,6 +1130,7 @@ Contexts are outside the overlap check.
 Most rules act at the head of the computation cell, and equations act wherever their function appears.
 `#[k::rule(anywhere)]` gives a constructor that behaviour while it stays a constructor: the rule applies to every subterm its left-hand side matches, and emits `[anywhere]`.
 It is written as a term-shaped `#[k::rule]` function, a single-body one included, never as a readable clause, a `cells!` rule or a `for Sort` clause, whose header anchors it at the head of the computation cell, takes no `owise`, `priority`, or `nondet`, and is outside the overlap check.
+It replaces an application in place by the one term its result writes, as an equation gives an application its value, and reaches no result state of a step, so an anywhere rule of either form takes no `#[k::exists]`: no value of its result is existential (`krs::expand::existential-placement`), and none is drawn fresh ([fresh values](#fresh-values)); `#[k::ensures]` beside it reads the term it writes.
 The k-rust route and Java K's LLVM backend run anywhere rules; K's Haskell backend does not, so a Java Haskell reference step refuses such a definition with `krs::capability::unavailable` before anything is kompiled, and `--allow-anywhere-haskell`, which would drop the rules, is never used.
 `krs emit-k` still writes the rule, marks it with a `// krs-capability: AnywhereRule <label>` comment, and lists the requirement in `symbols.json`.
 
@@ -1137,7 +1139,7 @@ The k-rust route and Java K's LLVM backend run anywhere rules; K's Haskell backe
 A rule normally computes its result from what it matched.
 `#[k::exists(x: Int)]` after `#[k::rule(..)]` says the result contains an unknown integer: the step introduces a symbolic value, which K writes `?X:Int`, and `#[k::ensures(int::ne(x, 0))]` records a condition on it that holds on every later path.
 The same helpers work on a term rule, a `cells!` rule, and a readable clause, where `krs expand` keeps them verbatim before the clause's `#[k::rule(label = ..)]`; on a claim they keep their meaning there, a value the prover must exhibit.
-An existential occurs only in the result and the ensures condition: one in the subject or in `requires`, one the result never mentions, and one that reuses a subject binding's name are syntax errors, and the helpers on an equation, simplification, or alias are rejected.
+An existential occurs only in the result and the ensures condition: one in the subject or in `requires`, one the result never mentions, and one that reuses a subject binding's name are syntax errors, and the helpers on an equation, simplification, or alias are rejected, as is `#[k::exists]` on an [anywhere rule](#anywhere-rules).
 An existential, like a fresh value, has exactly its declared sort: one written where that sort does not fit, `#[k::exists(v: Stmt)]` in an `Int` field, is `krs::analysis::incompatible-binder`, and `krs::analysis::collection-element-sort` at a typed element position.
 Ensures conditions are object-language Bool terms.
 This is symbolic execution, unlike Rust's `rand()`, which produces a concrete value: the Haskell backend and k-rust run such rules, and `krs search` reports one final state per path with its constraints.

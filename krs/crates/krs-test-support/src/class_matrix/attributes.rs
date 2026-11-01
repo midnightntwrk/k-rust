@@ -52,6 +52,9 @@
 //! - `#[k::ensures(c)]` and `#[k::exists(n: S)]` state what a step's result satisfies and which
 //!   of its values are existential: a transition's and a claim's, which reach a result state;
 //! - `#[k::fresh(l: S)]` draws a value in a transition step;
+//! - an `anywhere` rule replaces an application in place by the term its result writes, as an
+//!   equation gives an application its value: no value of its result is existential or drawn
+//!   fresh ([`TOGETHER`], [`together`]);
 //! - `unbound_variables = [..]` names the names a desugar clause's result leaves to the sentence
 //!   it is expanded in, which only a desugar clause is;
 //! - `recursive` is a property of a static production (on its own marker, [`Extra`]), not of a
@@ -69,11 +72,11 @@
 //! an order on a sentence that is chosen against none (`owise` on a simplification apart, which
 //! states what a prover cannot decide), `nondet` on a function, a restriction outside a
 //! function, `anywhere` outside a term-shaped transition or on a `for Sort` clause, `result`
-//! without heating, `recursive`
-//! on a sentence, `unbound_variables` elsewhere than on a desugar clause, a condition on a
-//! static clause, an existential or a postcondition on a sentence that reaches no result, a fresh
-//! value outside a transition. Any other key, and every sentence key on a declaration's marker
-//! (an initializer's, a constant's, a function shorthand's, which declare and order nothing), is a
+//! without heating, `recursive` on a sentence, `unbound_variables` elsewhere than on a desugar
+//! clause, a condition on a static clause, an existential or a postcondition on a sentence that
+//! reaches no result, a fresh value outside a transition, an existential or a fresh value on an
+//! `anywhere` rule. Any other key, and every sentence key on a declaration's marker (an
+//! initializer's, a constant's, a function shorthand's, which declare and order nothing), is a
 //! key the marker does not take (`unknown-key`); and a helper the form's own grammar takes none
 //! of is that form's mistake (an initializer's, a constant's, a function shorthand's, a table
 //! row's, a context alias's).
@@ -261,6 +264,9 @@ pub enum Written {
     /// A key of the form's marker, on a sentence of a function the solver has a symbol for: the
     /// case declares the function, with `smtlib`, and states its sentence about it.
     SolverFunction(&'static str),
+    /// The form's whole marker with its keys, and the helpers after it, in place of the base's
+    /// marker.
+    Marker(&'static str),
 }
 
 impl Written {
@@ -273,7 +279,8 @@ impl Written {
             | Self::Helper(text)
             | Self::HelperBefore(text)
             | Self::Production(text)
-            | Self::SolverFunction(text) => text,
+            | Self::SolverFunction(text)
+            | Self::Marker(text) => text,
         }
     }
 }
@@ -553,6 +560,8 @@ pub enum Effect {
     Applies,
     /// The sentence does not apply: a condition fails, or the sentence is configured out.
     Unapplied,
+    /// The sentence applies again to what it wrote, without end: the run reaches no final state.
+    Endless,
 }
 
 /// An attribute case beyond the axis's product: a placement or a combination of attributes, on
@@ -591,8 +600,12 @@ const REQUIRES_TWICE: &str = "#[k::requires(k::is!(Int, x))]\n#[k::requires(k::i
 ///   condition and a postcondition that fail, so the run shows them kept;
 /// - two conditions on one sentence, which applies where both hold;
 /// - `#[doc]` and `#[cfg(..)]` on a clause: documentation, and a configuration that holds
-///   (`all()`) or does not (`any()`), which keeps the clause out of the definition.
-pub const EXTRAS: [Extra; 20] = [
+///   (`all()`) or does not (`any()`), which keeps the clause out of the definition;
+/// - `anywhere` on a single-body rule whose subject's right image its left image matches again
+///   (the slot's `x => Cmd::Go()`): the rule rewrites what it wrote, wherever it occurs, so the
+///   rewriting has no end, and a run reaches no final state (K7 shows a run that ends as stuck at
+///   a term the rule still matches, NT-41-1).
+pub const EXTRAS: [Extra; 21] = [
     extra(
         "desugar",
         "recursive production",
@@ -713,7 +726,102 @@ pub const EXTRAS: [Extra; 20] = [
         Written::Helper("#[cfg(any())]"),
         Effect::Unapplied,
     ),
+    extra(
+        "local-rule",
+        "anywhere on what it writes",
+        Written::Key("anywhere"),
+        Effect::Endless,
+    ),
 ];
+
+/// A key of a sentence's marker and a helper beside it, on a form that takes each alone, whose
+/// meanings may not combine ([`together`]). Its ID's construct is its `name`, and its spelling
+/// the marker and the helper as written.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Together {
+    /// The form.
+    pub form: &'static str,
+    /// The case ID's construct.
+    pub name: &'static str,
+    /// The marker's key.
+    pub key: Attribute,
+    /// The helper.
+    pub helper: Attribute,
+    /// The marker with the key and the helper after it, as written.
+    pub written: &'static str,
+}
+
+const fn together_case(
+    form: &'static str,
+    name: &'static str,
+    key: Attribute,
+    helper: Attribute,
+    written: &'static str,
+) -> Together {
+    Together {
+        form,
+        name,
+        key,
+        helper,
+        written,
+    }
+}
+
+/// The pairs: `anywhere` with an existential and with a fresh value, on a `#[k::rule]` fn whose
+/// result is written apart and on a single-body one.
+pub const TOGETHER: [Together; 4] = [
+    together_case(
+        "rule",
+        "anywhere with exists",
+        Attribute::Anywhere,
+        Attribute::Exists,
+        "#[k::rule(anywhere)]\n#[k::exists(n: Int)]",
+    ),
+    together_case(
+        "local-rule",
+        "anywhere with exists",
+        Attribute::Anywhere,
+        Attribute::Exists,
+        "#[k::rule(anywhere)]\n#[k::exists(n: Int)]",
+    ),
+    together_case(
+        "rule",
+        "anywhere with fresh",
+        Attribute::Anywhere,
+        Attribute::Fresh,
+        "#[k::rule(anywhere)]\n#[k::fresh(l: Int)]",
+    ),
+    together_case(
+        "local-rule",
+        "anywhere with fresh",
+        Attribute::Anywhere,
+        Attribute::Fresh,
+        "#[k::rule(anywhere)]\n#[k::fresh(l: Int)]",
+    ),
+];
+
+/// What a key and a helper mean together on a sentence of the kind `sentence`: each one's
+/// refusal where the sentence takes it not alone; otherwise accepted, but where their meanings
+/// contradict. An `anywhere` rule replaces an application, wherever it occurs, by the one term
+/// its result writes, in place, as an equation gives an application its value: it reaches no
+/// result state of a step, so no value of its result can be existential (some value, which the
+/// replacement would not determine), and none is drawn fresh by a step. A postcondition beside
+/// it still reads the term it writes, so `ensures` stands.
+#[must_use]
+pub fn together(sentence: Sentence, key: Attribute, helper: Attribute) -> Outcome {
+    use Attribute as A;
+    for attribute in [key, helper] {
+        let alone = expected(sentence, attribute);
+        if alone != Outcome::Accept {
+            return alone;
+        }
+    }
+    match (key, helper) {
+        (A::Anywhere, A::Exists) => refuse(Class::ExistentialOutsideStep),
+        (A::Anywhere, A::Fresh) => refuse(Class::FreshOutsideStep),
+        _ => Outcome::Accept,
+    }
+}
 
 /// What an attribute case writes: an attribute of the axis, a malformed one, or an extra.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -724,6 +832,8 @@ pub enum Pair {
     Malformed(Form, Malformed),
     /// An extra case on a form.
     Extra(Form, Extra),
+    /// A key and a helper together on a form.
+    Together(Form, Together),
 }
 
 impl Pair {
@@ -731,7 +841,10 @@ impl Pair {
     #[must_use]
     pub const fn form(self) -> Form {
         match self {
-            Self::Attribute(form, _) | Self::Malformed(form, _) | Self::Extra(form, _) => form,
+            Self::Attribute(form, _)
+            | Self::Malformed(form, _)
+            | Self::Extra(form, _)
+            | Self::Together(form, _) => form,
         }
     }
 
@@ -742,6 +855,7 @@ impl Pair {
             Self::Attribute(_, attribute) => attribute.written(),
             Self::Malformed(_, malformed) => malformed.written,
             Self::Extra(_, extra) => extra.written,
+            Self::Together(_, together) => Written::Marker(together.written),
         }
     }
 
@@ -750,6 +864,7 @@ impl Pair {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Extra(_, extra) => extra.name,
+            Self::Together(_, together) => together.name,
             _ => self.written().text(),
         }
     }
@@ -761,6 +876,7 @@ impl Pair {
             Self::Attribute(form, attribute) => expected(form.sentence, attribute),
             Self::Malformed(_, malformed) => refuse(malformed.class),
             Self::Extra(..) => Outcome::Accept,
+            Self::Together(form, pair) => together(form.sentence, pair.key, pair.helper),
         }
     }
 }
@@ -778,7 +894,8 @@ pub fn form_named(name: &str) -> Form {
         .unwrap_or_else(|| panic!("no attribute form is named {name}"))
 }
 
-/// Every pair of the axis: every attribute on every form, then the malformed ones and the extras.
+/// Every pair of the axis: every attribute on every form, then the malformed ones, the extras
+/// and the attributes together.
 #[must_use]
 pub fn pairs() -> Vec<Pair> {
     let mut pairs = FORMS
@@ -798,6 +915,11 @@ pub fn pairs() -> Vec<Pair> {
         EXTRAS
             .iter()
             .map(|extra| Pair::Extra(form_named(extra.form), *extra)),
+    );
+    pairs.extend(
+        TOGETHER
+            .iter()
+            .map(|together| Pair::Together(form_named(together.form), *together)),
     );
     pairs
 }

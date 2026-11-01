@@ -2000,7 +2000,6 @@ fn continues_into_operator(after: syn::parse::ParseStream<'_>) -> bool {
         || after.peek(Token![!=])
 }
 
-/// The tokens from `start` up to `end`.
 /// Parses `tokens` as a Rust expression whose `let` patterns' negative literals keep the spans
 /// of their `-` and digits ([`crate::rule::keep_let_literal_spans`]).
 pub(crate) fn parse_expression_tokens(tokens: &TokenStream) -> syn::Result<Expr> {
@@ -2009,6 +2008,7 @@ pub(crate) fn parse_expression_tokens(tokens: &TokenStream) -> syn::Result<Expr>
     Ok(expression)
 }
 
+/// The tokens from `start` up to `end`.
 pub(crate) fn tokens_between(
     start: syn::buffer::Cursor<'_>,
     end: syn::buffer::Cursor<'_>,

@@ -127,9 +127,14 @@ fn collect_negative_literals(
 /// the tokens it was written as ([`Pat::Verbatim`]), which the pattern reader reads with their
 /// spans, so that its range is the same in every host.
 ///
-/// The `let`s of `tokens` and of `expression` pair in source order, outside macro invocations,
-/// whose tokens their own readers scan. Where they do not pair (another count of `let`s, or of
-/// negative literals in one pattern), the expression keeps what syn built.
+/// A `let` here is one that binds a pattern to a value: a `let` statement with an initializer
+/// (`let p = e;`, its `else` block included) and a `let` expression (`if let p = e`, `while let`,
+/// a `let` chain). A `let` statement without an initializer (`let a;`) binds no value its pattern
+/// matches, so neither side counts it. The `let`s of `tokens` and of `expression` pair in source
+/// order, outside macro invocations, whose tokens their own readers scan, and each pair must be
+/// one `let`: its `let` keyword at the same place and its negative literals the same text. Where
+/// any pair is not (another count of `let`s, or of negative literals in one pattern, a keyword
+/// elsewhere, another literal), the expression keeps what syn built.
 pub(crate) fn keep_let_literal_spans(expression: &mut syn::Expr, tokens: TokenStream) {
     use syn::visit::Visit;
     use syn::visit_mut::VisitMut;
@@ -137,37 +142,106 @@ pub(crate) fn keep_let_literal_spans(expression: &mut syn::Expr, tokens: TokenSt
     struct Lets(usize);
     impl<'a> Visit<'a> for Lets {
         fn visit_local(&mut self, local: &'a syn::Local) {
-            self.0 += 1;
+            if local.init.is_some() {
+                self.0 += 1;
+            }
             syn::visit::visit_local(self, local);
+        }
+
+        fn visit_expr_let(&mut self, expression: &'a syn::ExprLet) {
+            self.0 += 1;
+            syn::visit::visit_expr_let(self, expression);
         }
     }
 
-    struct Rewrite(std::vec::IntoIter<Vec<(proc_macro2::Punct, proc_macro2::Literal)>>);
+    struct Rewrite {
+        lets: std::vec::IntoIter<LetSigns>,
+        paired: bool,
+    }
+    impl Rewrite {
+        fn pattern(&mut self, keyword: Span, pattern: &mut Pat) {
+            let Some(token) = self.lets.next() else {
+                self.paired = false;
+                return;
+            };
+            if !same_place(keyword, token.keyword) {
+                self.paired = false;
+                return;
+            }
+            let mut literals = Vec::new();
+            if !negative_pattern_literals(pattern, &mut literals) {
+                return;
+            }
+            if literals.len() != token.signs.len() {
+                self.paired = false;
+                return;
+            }
+            for (literal, (minus, digits)) in literals.into_iter().zip(token.signs) {
+                if literal_text(literal).as_deref() != Some(&format!("-{digits}")) {
+                    self.paired = false;
+                    return;
+                }
+                *literal = Pat::Verbatim(TokenStream::from_iter([
+                    TokenTree::Punct(minus),
+                    TokenTree::Literal(digits),
+                ]));
+            }
+        }
+    }
     impl VisitMut for Rewrite {
         fn visit_local_mut(&mut self, local: &mut syn::Local) {
-            if let Some(signs) = self.0.next() {
-                let mut literals = Vec::new();
-                if negative_pattern_literals(&mut local.pat, &mut literals)
-                    && literals.len() == signs.len()
-                {
-                    for (literal, (minus, digits)) in literals.into_iter().zip(signs) {
-                        *literal = Pat::Verbatim(TokenStream::from_iter([
-                            TokenTree::Punct(minus),
-                            TokenTree::Literal(digits),
-                        ]));
-                    }
-                }
+            if local.init.is_some() {
+                self.pattern(local.let_token.span, &mut local.pat);
             }
             syn::visit_mut::visit_local_mut(self, local);
         }
+
+        fn visit_expr_let_mut(&mut self, expression: &mut syn::ExprLet) {
+            self.pattern(expression.let_token.span, &mut expression.pat);
+            syn::visit_mut::visit_expr_let_mut(self, expression);
+        }
     }
 
-    let mut signs = Vec::new();
-    collect_let_signs(tokens, &mut signs);
-    let mut lets = Lets(0);
-    lets.visit_expr(expression);
-    if lets.0 == signs.len() {
-        Rewrite(signs.into_iter()).visit_expr_mut(expression);
+    let mut lets = Vec::new();
+    collect_let_signs(tokens, &mut lets);
+    let mut count = Lets(0);
+    count.visit_expr(expression);
+    if count.0 != lets.len() {
+        return;
+    }
+    let mut rewritten = expression.clone();
+    let mut rewrite = Rewrite {
+        lets: lets.into_iter(),
+        paired: true,
+    };
+    rewrite.visit_expr_mut(&mut rewritten);
+    if rewrite.paired {
+        *expression = rewritten;
+    }
+}
+
+/// One `let` of the source tokens that binds a pattern: its keyword, and the `-` and digits of
+/// each negative literal of its pattern.
+struct LetSigns {
+    keyword: Span,
+    signs: Vec<(proc_macro2::Punct, proc_macro2::Literal)>,
+}
+
+/// Whether two spans start and end at one place (the same token, where the host gives
+/// locations; every span compares equal where it gives none, and the order decides alone).
+fn same_place(left: Span, right: Span) -> bool {
+    left.start() == right.start() && left.end() == right.end()
+}
+
+/// The text of a literal pattern as syn read it (`-1`, `-1.5`, `-1i64`).
+fn literal_text(pattern: &Pat) -> Option<String> {
+    let Pat::Lit(literal) = pattern else {
+        return None;
+    };
+    match &literal.lit {
+        syn::Lit::Int(integer) => Some(integer.to_string()),
+        syn::Lit::Float(float) => Some(float.to_string()),
+        _ => None,
     }
 }
 
@@ -237,30 +311,33 @@ fn negative_literal(literal: &syn::Lit) -> bool {
     }
 }
 
-/// Pushes, for each `let` of `tokens` in source order outside macro invocations, the `-` and
-/// the digits of each negative literal of its pattern (the tokens up to its lone `=`).
-fn collect_let_signs(
-    tokens: TokenStream,
-    signs: &mut Vec<Vec<(proc_macro2::Punct, proc_macro2::Literal)>>,
-) {
+/// Pushes each `let` of `tokens` that binds a pattern, in source order outside macro
+/// invocations: its pattern is the tokens up to its lone `=`. A `let` whose tokens reach a `;`
+/// first has no initializer, and binds no pattern to a value.
+fn collect_let_signs(tokens: TokenStream, lets: &mut Vec<LetSigns>) {
     let tokens = tokens.into_iter().collect::<Vec<_>>();
     let mut index = 0;
     while index < tokens.len() {
         match &tokens[index] {
             TokenTree::Ident(ident) if ident == "let" => {
-                let mut pattern = Vec::new();
+                let keyword = ident.span();
                 index += 1;
-                while index < tokens.len() && !lone_equals(&tokens, index) {
-                    pattern.push(tokens[index].clone());
+                let start = index;
+                while index < tokens.len()
+                    && !lone_equals(&tokens, index)
+                    && !matches!(&tokens[index], TokenTree::Punct(semi) if semi.as_char() == ';')
+                {
                     index += 1;
                 }
-                let mut literals = Vec::new();
-                negative_literals_outside_macros(&pattern, &mut literals);
-                signs.push(literals);
+                if index < tokens.len() && lone_equals(&tokens, index) {
+                    let mut signs = Vec::new();
+                    negative_literals_outside_macros(&tokens[start..index], &mut signs);
+                    lets.push(LetSigns { keyword, signs });
+                }
                 continue;
             }
             TokenTree::Group(group) if !invokes_macro(&tokens, index) => {
-                collect_let_signs(group.stream(), signs);
+                collect_let_signs(group.stream(), lets);
             }
             _ => {}
         }
@@ -858,5 +935,184 @@ impl RulePattern {
         }
         self.keys()
             .keyed_nodes(nodes, &self.path_ranges()?, self.nodes(), tree)
+    }
+}
+
+#[cfg(test)]
+mod let_literal_tests {
+    use proc_macro2::TokenStream;
+    use quote::ToTokens;
+    use syn::visit::Visit;
+
+    use super::keep_let_literal_spans;
+
+    /// The patterns of the `let`s of `expression` that bind one, in source order, as tokens.
+    fn let_patterns(expression: &syn::Expr) -> Vec<String> {
+        struct Patterns(Vec<String>);
+        impl<'a> Visit<'a> for Patterns {
+            fn visit_local(&mut self, local: &'a syn::Local) {
+                if local.init.is_some() {
+                    self.0.push(shape(&local.pat));
+                }
+                syn::visit::visit_local(self, local);
+            }
+
+            fn visit_expr_let(&mut self, expression: &'a syn::ExprLet) {
+                self.0.push(shape(&expression.pat));
+                syn::visit::visit_expr_let(self, expression);
+            }
+        }
+        /// A literal pattern syn read is `lit:..`, one turned into its tokens `verbatim:..`.
+        fn shape(pattern: &syn::Pat) -> String {
+            struct Leaves(Vec<String>);
+            impl<'a> Visit<'a> for Leaves {
+                fn visit_pat(&mut self, pattern: &'a syn::Pat) {
+                    match pattern {
+                        syn::Pat::Lit(literal) => {
+                            self.0.push(format!("lit:{}", literal.to_token_stream()));
+                        }
+                        syn::Pat::Verbatim(tokens) => self.0.push(format!("verbatim:{tokens}")),
+                        _ => syn::visit::visit_pat(self, pattern),
+                    }
+                }
+            }
+            let mut leaves = Leaves(Vec::new());
+            leaves.visit_pat(pattern);
+            leaves.0.join(" ")
+        }
+        let mut patterns = Patterns(Vec::new());
+        patterns.visit_expr(expression);
+        patterns.0
+    }
+
+    /// The `let` patterns of `source` after [`keep_let_literal_spans`] read its own tokens.
+    fn kept(source: &str) -> Vec<String> {
+        let tokens = source.parse::<TokenStream>().unwrap();
+        let mut expression = syn::parse2::<syn::Expr>(tokens.clone()).unwrap();
+        keep_let_literal_spans(&mut expression, tokens);
+        let_patterns(&expression)
+    }
+
+    #[test]
+    fn each_let_pattern_takes_its_own_literals_in_source_order() {
+        assert_eq!(
+            kept("{ let -1 = x; let -2 = y; true }"),
+            ["verbatim:- 1", "verbatim:- 2"]
+        );
+        // A `let` in another's initializer comes after it, on both sides.
+        assert_eq!(
+            kept("{ let -1 = { let -2 = y; x }; true }"),
+            ["verbatim:- 1", "verbatim:- 2"]
+        );
+        // A `let` statement's `else` block is read after its pattern.
+        assert_eq!(
+            kept("{ let -1 = x else { let -2 = y; return }; true }"),
+            ["verbatim:- 1", "verbatim:- 2"]
+        );
+        assert_eq!(
+            kept("{ let (-1, -2.5) = x; true }"),
+            ["verbatim:- 1 verbatim:- 2.5"]
+        );
+    }
+
+    #[test]
+    fn a_let_in_a_macro_is_its_readers_on_both_sides() {
+        assert_eq!(
+            kept("{ k::m!(let -3 = z;); let -1 = x; true }"),
+            ["verbatim:- 1"]
+        );
+    }
+
+    #[test]
+    fn a_range_bound_stays_as_syn_read_it_and_the_pairing_stays_aligned() {
+        assert_eq!(
+            kept("{ let -5..=-1 = x; let -2 = y; true }"),
+            ["", "verbatim:- 2"]
+        );
+    }
+
+    /// A `let` without an initializer binds no pattern on either side, and a `let` expression
+    /// binds one on both: neither shifts the pairing (the shapes of NT-41's review, R4).
+    #[test]
+    fn a_let_without_initializer_and_a_let_expression_count_alike_on_both_sides() {
+        assert_eq!(
+            kept("{ let a; let -1 = x; a = if let -2 = y { true } else { false }; a }"),
+            ["verbatim:- 1", "verbatim:- 2"]
+        );
+        assert_eq!(kept("{ let a; let b; let -1 = x; true }"), ["verbatim:- 1"]);
+        assert_eq!(
+            kept("{ while let -1 = x { let -2 = y; } true }"),
+            ["verbatim:- 1", "verbatim:- 2"]
+        );
+    }
+
+    /// `tokens` with each literal `from` spelled `to` and each `-` before a literal `drop` removed,
+    /// every other token keeping its span.
+    fn respelled(tokens: TokenStream, from: &str, to: &str, drop: Option<&str>) -> TokenStream {
+        use proc_macro2::{Group, Literal, TokenTree};
+        let trees = tokens.into_iter().collect::<Vec<_>>();
+        let mut out = Vec::new();
+        for (index, tree) in trees.iter().enumerate() {
+            match tree {
+                TokenTree::Group(group) => {
+                    let mut inner =
+                        Group::new(group.delimiter(), respelled(group.stream(), from, to, drop));
+                    inner.set_span(group.span());
+                    out.push(TokenTree::Group(inner));
+                }
+                TokenTree::Literal(literal) if literal.to_string() == from => {
+                    let mut respelled = to.parse::<Literal>().unwrap();
+                    respelled.set_span(literal.span());
+                    out.push(TokenTree::Literal(respelled));
+                }
+                TokenTree::Punct(minus)
+                    if minus.as_char() == '-'
+                        && matches!(trees.get(index + 1), Some(TokenTree::Literal(next)) if Some(next.to_string().as_str()) == drop) =>
+                    {}
+                other => out.push(other.clone()),
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// Tokens that are not the expression's own leave it as syn built it: no literal is taken
+    /// from another `let`, and no pair is half rewritten.
+    #[test]
+    fn a_let_that_does_not_pair_leaves_the_expression_as_syn_built_it() {
+        type Respell = fn(TokenStream) -> TokenStream;
+        let cases: [(&str, Respell); 3] = [
+            // Another literal, at the same places.
+            ("{ let -1 = x; true }", |tokens| {
+                respelled(tokens, "1", "2", None)
+            }),
+            // Another count of literals in one pattern, at the same `let`.
+            ("{ let -3 = x; let (-1, -2) = y; true }", |tokens| {
+                respelled(tokens, "", "", Some("2"))
+            }),
+            // The same tokens with the `let` keyword one column on: a keyword elsewhere.
+            ("{ let -1 = x; true }", |_| {
+                "{  let -1 = x; true }".parse().unwrap()
+            }),
+        ];
+        for (written, tokens_of) in cases {
+            let tokens = written.parse::<TokenStream>().unwrap();
+            let mut built = syn::parse2::<syn::Expr>(tokens.clone()).unwrap();
+            let syn_built = let_patterns(&built);
+            keep_let_literal_spans(&mut built, tokens_of(tokens));
+            assert_eq!(let_patterns(&built), syn_built, "{written}");
+            assert!(
+                syn_built
+                    .iter()
+                    .all(|pattern| !pattern.contains("verbatim")),
+                "{written}"
+            );
+        }
+        // Another count of `let`s.
+        let tokens = "{ let -1 = x; true }".parse::<TokenStream>().unwrap();
+        let mut built = syn::parse2::<syn::Expr>(tokens.clone()).unwrap();
+        let mut more = tokens.into_iter().collect::<Vec<_>>();
+        more.extend("let -2 = y;".parse::<TokenStream>().unwrap());
+        keep_let_literal_spans(&mut built, more.into_iter().collect());
+        assert_eq!(let_patterns(&built), ["lit:- 1"]);
     }
 }

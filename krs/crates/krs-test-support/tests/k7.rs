@@ -188,6 +188,7 @@ const STATUSES: &[&str] = &[
     "180 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "674 no driver: the readable, claim and `cells!` families read cells the machine and typed bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
+    "4 no driver: the sentence cannot take both attributes, and is refused",
     "5 no value: Size is partial and the base gives it no equation, so the definition names no value of its application",
     "5 no value: a cell's value, which the generator's ground terms do not write",
     "108 no value: a matching-logic predicate, which only a prover reads",
@@ -232,7 +233,8 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "77 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "6 no witness: the program would hold a value the generator does not state",
-    "1197 runs a counter-witness",
+    "1198 runs a counter-witness",
+    "1 runs, endless",
     "1654 runs, liveness",
     "2508 runs, value",
 ];
