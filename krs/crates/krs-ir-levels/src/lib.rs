@@ -12,6 +12,7 @@
 //! The author-facing facade and the front-end crates do not depend on this crate.
 
 pub mod collection_operands;
+pub mod definedness;
 pub mod definition;
 mod display;
 pub mod failure_site;
