@@ -3728,7 +3728,7 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
 ///   step and Survives.
 /// - `A2` and `M1` (Z3 profile): the respelled literal names the baseline's element, so the mutant
 ///   loads to the baseline's backend definition and Survives (M1 determined: `01` is the integer 1,
-///   in range for width 8, domains.md 2880-2882 and 2889). Without Z3 the MInt fixture is not
+///   in range for width 8, domains.md 2883-2885 and 2892). Without Z3 the MInt fixture is not
 ///   loadable.
 /// - R3-ADMIT-FLOAT fix round 1: the census refuses the `t12probe.k` rows before any run, so
 ///   they exercise no canonicalization; `census_free_float_spelling_routes_are_not_killed` runs
@@ -9623,7 +9623,7 @@ mod kink_tier {
     /// GAP K1: the test's zero was `Int2Float(0, 53, 11)` from `start(0)`; no text fixes that
     /// conversion's sign (both zeros hold the integer 0), so k-rust marks it `float-rounding` and
     /// the baseline was refused. `start(1)` reaches it as `1.0 -Float 1.0`, which `fp.sub` under
-    /// roundNearestTiesToEven fixes as +0.0 (domains.md 1572), the element k-rust's conversion
+    /// roundNearestTiesToEven fixes as +0.0 (domains.md 1575), the element k-rust's conversion
     /// picked: every row compares the same element as before, in every model, so keeps its status.
     /// Every row is measured before the first assertion.
     #[test]
@@ -9696,7 +9696,7 @@ mod kink_tier {
     /// kink27 GK-0: F8 reaches the NaN as `(1.0 -Float 1.0) /Float (1.0 -Float 1.0)` from
     /// `nans(1)` and F9 the infinity as `1.0 /Float (1.0 -Float 1.0)` from `infs(1)`: `Int2Float`
     /// of 1 is the one binary64 element of value 1, and the `smt-hook`s of `-Float` and `/Float`
-    /// fix the rest (domains.md 1572, 1568), where the routes went through `rootFloat` of a
+    /// fix the rest (domains.md 1575, 1571), where the routes went through `rootFloat` of a
     /// negative value, which no text fixes, and an overflowing `Int2Float`, which no text fixed
     /// before `docs/amendments.md` AM-4. The F8 control's kill
     /// rests on one NaN per format (P-F3, which domains.md fixes: the quotient is the NaN `NaN`

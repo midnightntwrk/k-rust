@@ -418,7 +418,7 @@ Each entry has these fields:
   `divInt` is Euclidean division, which gives one integer for every nonzero divisor, and division by zero is `#False`: the application is defined exactly where its operands are and its divisor is not zero.
   `bitRangeInt` is defined by its equation in module `INT` as `(I >>Int IDX) modInt (1 <<Int LEN)`: `I >>Int IDX` is defined exactly where `IDX` is not negative, `1 <<Int LEN` exactly where `LEN` is not negative, and it is then at least 1, so the remainder's divisor is never zero; the application is defined exactly where its operands are and `IDX` and `LEN` are not negative.
   The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (upstream :1392-1396) and not those of `divInt` and `bitRangeInt`, so a claim whose right-hand side holds `V divInt 32` cannot show that it is defined, though the text says it is.
-  Other partial operations of `INT`, such as `^%Int` with a zero modulus and `log2Int` of a number that is not positive, have no ceil equation in the module either; the amendment adds none for them, so their definedness on symbolic arguments stays what the module leaves it.
+  Other partial operations of `INT`, `^Int` and `^%Int` at a negative exponent, `^%Int` with a zero modulus and `log2Int` of a number that is not positive, have no ceil equation in the module either; AM-12 states theirs.
   The domains are not derived from the hooks' text in the backend instead: the ceil theory of a definition is the one source of an application's definedness for the definedness walk, the simplifier's own reading of a `\ceil`, the value classification of irreducible applications and the solver's function summaries (`ceil_theory` in `k-rust-backend`), so a derived condition would have to be added to that theory at load, as equations no source text states.
 - Evidence: `primitive_integer_domains_and_signed_literal_values_compose_in_claims` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs): `safe-ediv`, `safe-negative-ediv`, `safe-symbolic-ediv`, `safe-range`, `safe-zero-range` and `safe-symbolic-range` are proven, and `undefined-ediv`, `undefined-offset`, `undefined-length` and `undefined-operand` disproved with a certified leaf.
   The ground evaluators return the same domain: a zero divisor and a negative index or length are `\bottom` (`int_partial_binary` and `int_bit_range` in `k-rust-backend`'s `builtin.rs`).
@@ -480,3 +480,89 @@ Each entry has these fields:
 
 - Status: local
 - Replaces: class `outside-domain` at `rootFloat(F, N)` with `N` positive and `F` a NaN, `+0.0` or `+Infinity`, or, with `N` odd, `-0.0`, `-Infinity` or a negative finite value; the class keeps a degree of 0 or below, and an even degree of a negative value or of `-0.0`.
+
+### AM-12: The definedness of `^Int`, `^%Int` and `log2Int` as ceil equations
+
+- Upstream: `domains.md` at K v7.1.337, :1228-1231, :1233-1234, :1250-1251, :1300-1301
+- Passage:
+
+  > * Compute the exponentiation `^Int` of two integers.
+  > * Compute the exponentiation of two integers modulo another integer (`^%Int`).
+  >   `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better
+  >   asymptotic complexity.
+
+  > * Compute the quotient `/Int` or modulus `%Int` of two integers using
+  >   t-division, which rounds towards zero. Division by zero is `#False`.
+
+  ```k
+                   Int "^Int" Int                 [function, symbol(_^Int_), left, smt-hook(^), hook(INT.pow)]
+                 | Int "^%Int" Int Int            [function, symbol(_^%Int__), left, smt-hook((mod (^ #1 #2) #3)), hook(INT.powmod)]
+  ```
+
+  > Log base 2 of zero or a negative number
+  > is `#False`.
+
+- k-rust reads: Module `INT-SYMBOLIC-KORE` states the definedness of `^Int`, `^%Int` and `log2Int` as it states that of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int`: `#Ceil(@I1 ^Int @I2)` is `@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1` with the ceils of both operands, `#Ceil(@I1 ^%Int @I2 @I3)` is `@I3 =/=Int 0` and that condition with the ceils of the three operands, and `#Ceil(log2Int(@I))` is `@I >Int 0` with the ceil of its operand.
+- Ground: evident intent
+- Reason: a ceil equation is an equality of the definition, so it holds only if it states the application's actual domain.
+  `^Int` is the exponentiation of two integers, of sort `Int`, and is not declared `total`: its value is the power `A^B`, which is an integer for every nonnegative `B` (`A ^Int 0` is the empty product 1, `0 ^Int 0` included); for a negative `B = -n` the power is `1 / A^n`, an integer exactly when `|A| = 1` (1 for the base 1, and 1 or -1 by the parity of `n` for the base -1), and no number at all for the base 0, so no element of `Int` is the power there and the application is undefined.
+  The application is defined exactly where its operands are and `B` is not negative or `A` is 1 or -1.
+  `^%Int` is "equal in value to `(A ^Int B) %Int C`": it is defined exactly where that remainder is, where `A ^Int B` is defined and the divisor `C` is not zero ("Division by zero is `#False`"); read as the Euclidean remainder (AM-13), whose division by zero is `#False` as well, the domain is the same.
+  `log2Int` of zero or a negative number is `#False`, and of a positive integer is the index of its highest set bit, an integer: the application is defined exactly where its operand is and is positive.
+  A power the backend does not compute for its size (a result above its bound, [compatibility.md, Resource bounds](compatibility.md#resource-bounds)) is defined: the bound is the evaluator's, and the equation, like the text, gives every such application a value.
+  The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (upstream :1392-1396) and, with AM-10, of `divInt` and `bitRangeInt`, and not these, so a claim whose right-hand side holds `V ^Int 3` cannot show that it is defined, and one holding `V ^Int -1` with `V` above 1 that it is not, though the text says both.
+  The domains are stated as equations rather than derived from the hooks' text in the backend for the reason AM-10 gives: the ceil theory is the one source of an application's definedness.
+- Evidence: `power_modular_power_and_log2_domains_compose_in_claims` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs): on symbolic operands `safe-pow`, `safe-symbolic-pow`, `safe-one-pow`, `safe-minus-one-pow`, `safe-unit-pow`, `safe-powmod`, `safe-symbolic-powmod`, `safe-unit-powmod` and `safe-log2` are proven, and `undefined-pow`, `undefined-zero-pow`, `undefined-modulus-powmod`, `undefined-exponent-powmod` and `undefined-log2` disproved with a certified leaf; the claims on literal operands, which the evaluators decide, are the controls and agree.
+  The ground evaluators apply the same domain case by case (`int_pow_within`, `int_powmod` and `int_log2` in `k-rust-backend`'s `builtin.rs`): the bases 1 and -1 have a power at every exponent, any other base at a negative exponent is `\bottom`; a zero modulus is `\bottom`, and otherwise `^%Int` at a negative exponent is as `^Int`; and an argument of `log2Int` that is not positive is `\bottom` (`undefined_integer_operations_are_bottom` and `powmod_is_the_euclidean_remainder_of_the_power` there).
+- Upstream proposal:
+
+  ```diff
+     rule #Ceil(@I1:Int <<Int  @I2:Int) => {(@I2 >=Int 0)  #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
+  +  rule #Ceil(@I1:Int ^Int @I2:Int) => {(@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
+  +  rule #Ceil(@I1:Int ^%Int @I2:Int @I3:Int) => {(@I3 =/=Int 0 andBool (@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1)) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) #And #Ceil(@I3) [simplification]
+  +  rule #Ceil(log2Int(@I:Int)) => {(@I >Int 0) #Equals true} #And #Ceil(@I) [simplification]
+   endmodule
+  ```
+
+  in module `INT-SYMBOLIC-KORE` (:1396-1397).
+- Status: local
+- Replaces: K text, marked lines `domains.md`:1399-1401, added (they replace no upstream line).
+
+### AM-13: `^%Int` is the Euclidean remainder of the power
+
+- Upstream: `domains.md` at K v7.1.337, :1229-1231, :1233-1237, :1251
+- Passage:
+
+  > * Compute the exponentiation of two integers modulo another integer (`^%Int`).
+  >   `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better
+  >   asymptotic complexity.
+
+  > * Compute the quotient `/Int` or modulus `%Int` of two integers using
+  >   t-division, which rounds towards zero. Division by zero is `#False`.
+  > * Compute the quotient `divInt` or modulus `modInt` of two integers using
+  >   Euclidean division, in which the remainder is always non-negative. Division
+  >   by zero is `#False`.
+
+  ```k
+                 | Int "^%Int" Int Int            [function, symbol(_^%Int__), left, smt-hook((mod (^ #1 #2) #3)), hook(INT.powmod)]
+  ```
+
+- k-rust reads: `A ^%Int B C` is the Euclidean remainder (`modInt`) of `A ^Int B` by `C`, in `[0, |C|)`; where `A ^Int B` is negative this is not the t-division remainder `(A ^Int B) %Int C`, which takes the sign of the dividend.
+- Ground: evident intent
+- Reason: the operation is "the exponentiation of two integers modulo another integer", modular exponentiation, whose value is a residue modulo `C`; the sentence after it states its value through a remainder to say that the operation computes that power reduced by `C` at a better complexity.
+  The production states the value as well: its `smt-hook` is `(mod (^ #1 #2) #3)`, SMT-LIB's `mod` of the power, the Euclidean remainder, in `[0, |C|)` whatever the signs of the power and of `C`.
+  The two statements agree wherever the power is not negative, where the t-division and the Euclidean remainder are one number, and differ only for a negative power (a negative base at an odd exponent), where `%Int`'s remainder is negative or zero; there the text gives one application two values, and the residue the operation names and its own production states is the Euclidean one, the remainder `modInt` computes, which the section calls "always non-negative".
+  So `%Int` in the prose is an omission of the wording, not a second value the text grants, and the reading changes no domain: both remainders are defined exactly where the power is and `C` is not zero (AM-12).
+  The backend states every `^%Int` term to the SMT solver through that `smt-hook` (with the power read as compatibility.md's `^Int` paragraph says), so an evaluator that gave the t-division remainder would let a proof derive two values for one term.
+- Evidence: `powmod_is_the_euclidean_remainder_of_the_power` in `k-rust-backend`'s [builtin.rs](../crates/k-rust-backend/src/builtin.rs) (`-2 ^%Int 3 5` is 2 and `-1 ^%Int -1 5` is 4, where `%Int` would give -3 and -1; the modulus' sign changes nothing); `kprove_proves_nothing_from_a_power_where_no_integer_is_its_value` in [cli.rs](../crates/k-rust/tests/cli.rs) states such terms to the solver; no reference differential of k-rust's runs `^%Int` at a negative power on the Java or Haskell backend.
+- Upstream proposal:
+
+  ```diff
+   * Compute the exponentiation of two integers modulo another integer (`^%Int`).
+  -  `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better
+  +  `A ^%Int B C` is equal in value to `(A ^Int B) modInt C`, but has a better
+     asymptotic complexity.
+  ```
+
+- Status: local
+- Replaces: no class: k-rust's value is unchanged, and `^%Int`'s value was already determined by the production's `smt-hook` in compatibility.md; the amendment records the reading of the prose's `%Int` as the Euclidean remainder.

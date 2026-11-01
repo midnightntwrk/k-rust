@@ -711,13 +711,15 @@ mod kink_tier {
             // (k-rust 0da031036), as kink-patch's literal_digests explains.
             // Re-pin GAP A0: both moved with the builtin files' amendment marks and kast.md's
             // paragraph moved into docs/amendments.md, as kink-patch's literal_digests explains.
+            // Re-pin GAP AM-12: both moved with domains.md's three added definedness rules
+            // (^Int, ^%Int, log2Int), as kink-patch's literal_digests explains.
             assert_eq!(
                 original.value()["baseline"]["semantic_input_sha256"],
-                "55f906dd94458dcdcf44610dde95dc7231657116810426d75d0e5b836b510d66"
+                "f410acd404327763cc0a7f681d9a61df96169c0e56e6d7e857f94aedc4d6b026"
             );
             assert_eq!(
                 original.value()["baseline"]["structure_sha256"],
-                "fa525805732ff346a18fbf8976bc1e733d2af0df8ede02b59daa03bda7fe55f3"
+                "a3de13e7c4c3b3c9e3c0286153695acab8b5dad18623d1a49f57a03f0031bfa1"
             );
             let mutants = original.value()["mutants"].as_array().unwrap();
             assert_eq!(mutants.len(), 4);
@@ -817,13 +819,15 @@ mod kink_tier {
             // (k-rust 0da031036), as kink-patch's literal_digests explains.
             // Re-pin GAP A0: both moved with the builtin files' amendment marks and kast.md's
             // paragraph moved into docs/amendments.md, as kink-patch's literal_digests explains.
+            // Re-pin GAP AM-12: both moved with domains.md's three added definedness rules
+            // (^Int, ^%Int, log2Int), as kink-patch's literal_digests explains.
             assert_eq!(
                 manifest.value()["baseline"]["semantic_input_sha256"],
-                "c122679cdf01c88c227418881fa057473722c31460d1abccffea5289af9bad80"
+                "c7b6b36fc01615720b336633255706076e78b2a48ac073482eb0a51999033a83"
             );
             assert_eq!(
                 manifest.value()["baseline"]["structure_sha256"],
-                "c4c189aebd90a5f34703aeffe2c754ea971fba8d7d7b9cbef87090827661b6af"
+                "39590ac3bbd42e40aa858f33922d76f9a5a57004aa03052d63669f5a9d5a293a"
             );
             assert_eq!(manifest.value()["mutants"].as_array().unwrap().len(), 1);
             let patch = &generation.candidates()[0].patch;

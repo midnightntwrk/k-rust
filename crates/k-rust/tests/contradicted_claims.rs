@@ -1691,12 +1691,31 @@ endmodule
 
     /// A ground result term found undefined refutes the claim only where the step's premises
     /// hold. `pa` and `pb` have `requires` no integer satisfies, so their claims hold vacuously;
-    /// from the symbolic `pa(X)` and `pb(X)` a solver that cannot decide the `requires` lets the
-    /// step carry it, and its successor's undefined `val(1 /Int 0)` is named non-ground: it
-    /// refutes nothing. Without a solver the `requires` is undecided and the step is not taken.
+    /// from the symbolic `pb(X)` a solver that cannot decide the `requires` lets the step carry
+    /// it, and its successor's undefined `val(1 /Int 0)` is named non-ground: it refutes nothing.
+    /// Without a solver the `requires` is undecided and the step is not taken. The `requires` of
+    /// `pa(X)`, `2 ^Int X ==Int 3`, holds only where `2 ^Int X` is defined, at a nonnegative `X`
+    /// (`INT-SYMBOLIC-KORE`'s ceil equation of `^Int`, AM-12), where the solver reads the power as
+    /// itself and finds that no power of 2 is 3: the step is not taken there either, and nothing
+    /// is recorded (GAP AM-12 re-pin: before AM-12 the power's definedness was unknown, the solver
+    /// read it as uninterpreted at a negative `X`, and the step carried the `requires`).
     #[test]
     fn a_result_under_a_carried_requires_refutes_nothing() {
-        for (program, rule) in [("pa(0)", "pa"), ("pb(0)", "pb")] {
+        let (kore, ground) = compile(ROUTES, "pa(0)");
+        let printed = k_rust::kore::printer::Printer::compact().print_pattern(&ground);
+        let symbolic = printed.replacen("\\dv{SortInt{}}(\"0\")", "VarX:SortInt{}", 1);
+        assert_ne!(symbolic, printed);
+        let initial = k_rust::kore::parser::parse_pattern(&symbolic).unwrap();
+        for (name, _, _, result) in each_run(&kore, &initial) {
+            assert!(run_records(&result).is_empty(), "pa(X) under {name}: {result:#}");
+            assert!(
+                leaves(&result)
+                    .iter()
+                    .all(|leaf| leaf["depth"] == 0 && leaf["reason"] == "stuck"),
+                "pa(X) under {name}: {result:#}"
+            );
+        }
+        for (program, rule) in [("pb(0)", "pb")] {
             let symbolic = |source: &str| {
                 let (kore, ground) = compile(source, program);
                 let printed = k_rust::kore::printer::Printer::compact().print_pattern(&ground);
