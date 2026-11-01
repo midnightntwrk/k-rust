@@ -2085,8 +2085,8 @@ fn kcompile_after_load(
             .any(|diagnostic| diagnostic.severity == Severity::Error)
         {
             return Err(
-                "the load-time critical-pair check of the compiled definition reported \
-                 warnings promoted to errors"
+                "the load-time checks of the compiled definition (the critical-pair check and \
+                 the ill-formed uses) reported warnings promoted to errors"
                     .into(),
             );
         }
@@ -4120,28 +4120,29 @@ fn read_stdin_for_stream() -> io::Result<Vec<u8>> {
     Ok(input)
 }
 
-/// The located findings of the backend's load-time critical-pair check on the definition a Rust
-/// compilation emits (`k_rust::backend::execution::value_claim_diagnostics`): the definition is
-/// internalized as `krun` loads it. Without an `anywhere` symbol it declares no equation head,
-/// and the check reports only precondition rows and the equations the evaluator never applies,
-/// which a later load prints; a definition the
-/// backend does not internalize gets none (the load reports it).
+/// The located load-time findings on the definition a Rust compilation emits, which is
+/// internalized as `krun` loads it: the ill-formed uses of every definition
+/// (`k_rust::backend::execution::ill_formed_use_diagnostics`), and with them the findings of the
+/// backend's critical-pair check for a definition with an `anywhere` symbol
+/// (`k_rust::backend::execution::value_claim_diagnostics`). Without an `anywhere` symbol the
+/// definition declares no equation head, and the check reports only precondition rows and the
+/// equations the evaluator never applies, which a later load prints. A definition the backend
+/// does not internalize gets none (the load reports it).
 fn value_claim_diagnostics(
     artifacts: &k_rust::kompile::CompiledKoreArtifacts,
     module: &str,
 ) -> Vec<Diagnostic> {
-    if !artifacts.definition_kore.contains("anywhere{}()") {
-        return Vec::new();
-    }
     let Ok(syntax) = parse_kore_definition(&artifacts.definition_kore) else {
         return Vec::new();
     };
-    match Backend::internalize_definition(&syntax, module) {
-        Ok(definition) => k_rust::backend::execution::value_claim_diagnostics(
-            &definition,
-            &artifacts.sentence_provenance,
-        ),
-        Err(_) => Vec::new(),
+    let Ok(definition) = Backend::internalize_definition(&syntax, module) else {
+        return Vec::new();
+    };
+    let provenance = &artifacts.sentence_provenance;
+    if artifacts.definition_kore.contains("anywhere{}()") {
+        k_rust::backend::execution::value_claim_diagnostics(&definition, provenance)
+    } else {
+        k_rust::backend::execution::ill_formed_use_diagnostics(&definition, provenance)
     }
 }
 

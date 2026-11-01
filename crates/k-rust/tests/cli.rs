@@ -2456,17 +2456,9 @@ endmodule
     );
 }
 
-/// GAP A3 (category E): an arithmetic `Float` application whose operands' forms fix two formats,
-/// which `domains.md` gives no result format, and a machine-integer literal its width cannot hold,
-/// which it gives no element, are named once each at load, with the sentence and its written
-/// position, whatever the run reaches; nothing is refused, and the run of `go()` still takes
-/// k-rust's binary64 sum. A form fixes a format without being ground (`convert`: the format
-/// arguments of `Int2Float`). The controls are not named: one format (`same`), an operand bound
-/// only at run time (`free`, the run's mark alone), an in-range literal (`narrow`), and a hook
-/// whose result format no text gives (`sin`: `sinFloat(0.5f)` has no evident format).
-#[test]
-fn krun_names_each_ill_formed_float_application_and_wide_mint_literal_at_load() {
-    const ILL_FORMED: &str = r#"
+/// The definition of the ill-formed-use tests: six sentences hold an ill-formed use, four controls
+/// none.
+const ILL_FORMED: &str = r#"
 requires "domains.md"
 module ILL-SYNTAX
   imports INT-SYNTAX
@@ -2497,6 +2489,17 @@ module ILL
   rule [widef]: widef() => -129p8
 endmodule
 "#;
+
+/// GAP A3 (category E): an arithmetic `Float` application whose operands' forms fix two formats,
+/// which `domains.md` gives no result format, and a machine-integer literal its width cannot hold,
+/// which it gives no element, are named once each at load, with the sentence and its written
+/// position, whatever the run reaches; nothing is refused, and the run of `go()` still takes
+/// k-rust's binary64 sum. A form fixes a format without being ground (`convert`: the format
+/// arguments of `Int2Float`). The controls are not named: one format (`same`), an operand bound
+/// only at run time (`free`, the run's mark alone), an in-range literal (`narrow`), and a hook
+/// whose result format no text gives (`sin`: `sinFloat(0.5f)` has no evident format).
+#[test]
+fn krun_names_each_ill_formed_float_application_and_wide_mint_literal_at_load() {
     let output = krun_mint_program(ILL_FORMED, "ILL", "go()");
     let result = compact_success(&output);
     assert!(result.contains("2.5000000000000000e+00p53x11"), "{result}");
@@ -2557,6 +2560,77 @@ endmodule
         expected.len(),
         "one warning per ill-formed use and no other: {stderr}"
     );
+}
+
+/// GAP Phase 3, kompile parity: `kcompile` locates the ill-formed uses of every definition it
+/// compiles for the Rust backend, as `krun`, `kprove` and the RPC server name them at every load,
+/// and not only those of a definition with an `anywhere` equation head, whose load also runs the
+/// critical-pair check. `ILL` declares no `anywhere` symbol: each of its six ill-formed uses is one
+/// warning `IllFormedUse` at the written position of its sentence, the four controls get none,
+/// the critical-pair check reports nothing, and `--warnings-to-errors` fails the compilation.
+#[test]
+fn kcompile_locates_the_ill_formed_uses_of_a_definition_without_anywhere_equations() {
+    let (root, definition) = fixture();
+    fs::write(&definition, ILL_FORMED).unwrap();
+    let options = ["--main-module", "ILL"];
+    let compiled = kcompile_for_krun(&definition, &options, &root.join("compiled"));
+    let stderr = String::from_utf8(compiled.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("Warning[IllFormedUse]"))
+        .collect::<Vec<_>>();
+    let at = |line: u32| {
+        format!(
+            "{}:{line}:3: Warning[IllFormedUse]: the ",
+            definition.display()
+        )
+    };
+    for (label, kind, line) in [
+        ("mixed", "rule", Some(20)),
+        ("nested", "rule", None),
+        ("convert", "rule", None),
+        ("mixf", "equation", None),
+        ("wide", "rule", None),
+        ("widef", "equation", Some(29)),
+    ] {
+        let found = warnings
+            .iter()
+            .filter(|warning| warning.contains(&format!(" {kind} ILL.{label} at ")))
+            .collect::<Vec<_>>();
+        assert_eq!(found.len(), 1, "{label}: {stderr}");
+        assert!(
+            found[0].starts_with(&format!("{}:", definition.display())),
+            "{label}: {}",
+            found[0]
+        );
+        if let Some(line) = line {
+            assert!(found[0].starts_with(&at(line)), "{label}: {}", found[0]);
+        }
+    }
+    assert_eq!(warnings.len(), 6, "{stderr}");
+    assert!(
+        !stderr.contains("[UnjoinedCriticalPair]") && !stderr.contains("[ValueClaimPrecondition]"),
+        "{stderr}"
+    );
+
+    let promoted = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(options)
+        .arg("--warnings-to-errors")
+        .arg("--output-directory")
+        .arg(root.join("promoted"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let promoted_stderr = String::from_utf8_lossy(&promoted.stderr);
+    assert!(!promoted.status.success(), "{promoted_stderr}");
+    assert_eq!(
+        promoted_stderr.matches("Error[IllFormedUse]").count(),
+        6,
+        "{promoted_stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
@@ -22924,8 +22998,8 @@ fn kcompile_timings_are_written_when_a_post_compile_check_fails() {
     assert!(!output.status.success(), "{stderr}");
     assert!(
         stderr.contains(
-            "error: the load-time critical-pair check of the compiled definition reported \
-             warnings promoted to errors"
+            "error: the load-time checks of the compiled definition (the critical-pair check \
+             and the ill-formed uses) reported warnings promoted to errors"
         ),
         "{stderr}"
     );

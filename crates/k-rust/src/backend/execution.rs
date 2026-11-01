@@ -659,7 +659,24 @@ pub fn value_claim_diagnostics(
     definition: &BackendDefinition,
     provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
 ) -> Vec<crate::diagnostic::Diagnostic> {
-    let findings = load_findings(definition);
+    located_diagnostics(definition, &load_findings(definition), provenance)
+}
+
+/// The located diagnostics of the ill-formed uses ([`ill_formed_use_findings`]) alone, as
+/// [`value_claim_diagnostics`] locates them.
+pub fn ill_formed_use_diagnostics(
+    definition: &BackendDefinition,
+    provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
+) -> Vec<crate::diagnostic::Diagnostic> {
+    located_diagnostics(definition, &ill_formed_use_findings(definition), provenance)
+}
+
+/// The diagnostic of each of `findings`, at the written position of its sentence in `definition`.
+fn located_diagnostics(
+    definition: &BackendDefinition,
+    findings: &[ValueClaimFinding],
+    provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
+) -> Vec<crate::diagnostic::Diagnostic> {
     if findings.is_empty() {
         return Vec::new();
     }
