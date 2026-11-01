@@ -1325,9 +1325,9 @@ match = 'terms/{readable/map-key/beside-fresh,readable/map-key,readable/map-key/
 class = "list-notation-sort"
 at = "spelling"
 
-# matches-pattern-binder (NT-2 review, NT-31): a `k::matches!` pattern that rebinds the sentence's `x` or binds a name nothing reads, in a key the pattern computes, as in a condition
+# matches-pattern-binder (NT-2 review, NT-31): a `k::matches!` pattern that rebinds the sentence's `x` or binds a name nothing reads (`y @ ..`, which a key's test admits as a condition's does), in a key the pattern computes, as in a condition
 [[refuse]]
-match = 'terms/readable/map-key/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x}'
+match = 'terms/readable/map-key/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x,y @ Cmd::Hold(_)}'
 class = "matches-pattern-binder"
 at = "spelling"
 

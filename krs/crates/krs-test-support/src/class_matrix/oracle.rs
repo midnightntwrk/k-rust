@@ -663,7 +663,13 @@ const fn alias(position: Position) -> Option<Refusal> {
     } else if matches!(nesting.local, Some(LocalPattern::Let)) {
         Some(placement(Class::AliasInLetPattern))
     } else if matches!(nesting.local, Some(LocalPattern::Matches)) {
-        if matches!(position.slot, Slot::Requires) {
+        // A test in a key a pattern computes is a function of the names the key reads, stated
+        // in its equations' conditions, where `@` means what it means in any condition.
+        if matches!(position.slot, Slot::Requires)
+            || (matches!(position.slot, Slot::Subject)
+                && (nesting.entries.contains(Entry::MapKey)
+                    || nesting.entries.contains(Entry::SetElement)))
+        {
             None
         } else {
             Some(placement(Class::AliasOutsidePattern))
@@ -722,7 +728,8 @@ const fn alternatives(position: Position) -> Option<Refusal> {
 /// holds a function's application (a selection is told by [`in_selection`]); a pattern that meets
 /// unevaluated terms (a simplification's, a static clause's) would match a key that is the
 /// generated function's application, which no term holds. A `cells!` cell value's boundary is
-/// S0-17's (S6).
+/// S0-17's (S6), except a key a `cells!` subject computes, which denotes what the same key of a
+/// readable rule does.
 const fn local_term(construct: Construct, position: Position) -> Option<Refusal> {
     let class = if matches!(construct, Construct::Matches) {
         Class::MatchesOutsideCondition
@@ -741,7 +748,8 @@ const fn local_term(construct: Construct, position: Position) -> Option<Refusal>
         // matches, from a Set collection's, which it looks up as a key.
         Some(resolution(class))
     } else if (matches!(position.kind, Kind::Matched) && !claim_state)
-        || in_cells_value(position)
+        || (in_cells_value(position)
+            && !(in_pattern_key && (claim_state || position.form.matches_evaluated_terms())))
         || (in_pattern_key && !claim_state && !position.form.matches_evaluated_terms())
     {
         Some(placement(class))
@@ -775,7 +783,9 @@ const fn predicate(position: Position) -> Option<Refusal> {
 
 /// A rewrite marks what changes inside a single-body rule's subject, or a context's hole, once
 /// and outside any local pattern or predicate. A map changes values there: its keys are what it
-/// is looked up by, and re-keying an entry may meet a key it holds.
+/// is looked up by, and re-keying an entry may meet a key it holds; a set's elements are what it
+/// is looked up by too, and replacing one may meet an element it holds (`_Set_` of the two is
+/// undefined).
 const fn rewrite(position: Position) -> Option<Refusal> {
     let nesting = position.nesting;
     if in_constant(position) {
@@ -787,7 +797,8 @@ const fn rewrite(position: Position) -> Option<Refusal> {
         && !nesting.in_predicate)
     {
         Some(placement(Class::RewriteOutsideLocalRule))
-    } else if nesting.entries.contains(Entry::MapKey) {
+    } else if nesting.entries.contains(Entry::MapKey) || nesting.entries.contains(Entry::SetElement)
+    {
         Some(placement(Class::RewriteInMapKey))
     } else {
         None
