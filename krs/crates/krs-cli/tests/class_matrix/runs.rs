@@ -14,8 +14,8 @@ use std::time::Duration;
 use k_rust::backend::CancellationToken;
 use k_rust::kore::ast::{Pattern, Sort as KoreSort};
 use krs_exec::{
-    CellError, ConfigInputs, Halt, ProgramInput, RunOptions, RunReport, Semantics, SortRef,
-    StateView, Term, Value, ValueIndex, View, unparse,
+    CellError, ConfigInputs, ExecError, Halt, ProgramInput, RunOptions, RunReport, Semantics,
+    SortRef, StateView, Term, Value, ValueIndex, View, unparse,
 };
 use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 
@@ -213,27 +213,41 @@ fn printed_reads_back(
 /// Read `text`, the print of `content` in the cell `cell` (`k` for the computation cell's first
 /// item, whose `sort` is `None`), back as a program reads it: with the program grammar, which
 /// `krs run` reads a program with, at the content's sort (a `<k>` item's is the sort it is injected
-/// from), its aliases and desugars expanded ([`Semantics::parse`]). The main module's grammar is
-/// not the reader: it holds every token sort of the definition, so its scanner reads `word` as an
-/// `Id` wherever it stands, also where the program grammar reads the `Word` the print means, and an
-/// alias whose subject holds that `Word` reads back as another term. Where the program grammar has
-/// no syntax for the sort or the text (a builtin collection, a `K` sequence), the main module's
-/// grammar, which has it, reads it ([`Semantics::parse_k_head`], [`Semantics::parse_cell`]).
+/// from), its aliases and desugars expanded ([`Semantics::parse`]). A `<k>` item is any term a
+/// program can write there, so where its own sort does not read the print, the sort of `$PGM` is
+/// tried too: an alias of a wider sort reads back as a value of the item's (`ak`, a `Stmt` whose
+/// clause gives `1`, for an `Int`). The main module's grammar is not the reader: it holds every
+/// token sort of the definition, so its scanner reads `word` as an `Id` wherever it stands, also
+/// where the program grammar reads the `Word` the print means, and an alias whose subject holds
+/// that `Word` reads back as another term. Only where the program grammar has no syntax for the
+/// sort (no sort to read at, as for a `K` sequence, or a sort it does not have,
+/// [`ExecError::UnknownSort`], as for a builtin collection), the main module's grammar, which has
+/// it, reads it ([`Semantics::parse_k_head`], [`Semantics::parse_cell`]). Text the program grammar
+/// fails to parse at the sorts it has is the print's failure, which the main grammar must not
+/// answer for.
 fn read_back(
     semantics: &mut Semantics,
     cell: &str,
     sort: Option<&str>,
     content: &Pattern,
     text: &str,
-) -> Result<Pattern, krs_exec::ExecError> {
+) -> Result<Pattern, ExecError> {
     let at = sort.map(str::to_owned).or_else(|| injected_sort(content));
     if let Some(at) = &at {
         let input = ProgramInput {
             name: format!("the printed <{cell}>"),
             text: text.to_owned(),
         };
-        if let Ok(term) = semantics.parse(Some(at), &input) {
-            return Ok(term.kore().clone());
+        match semantics.parse(Some(at), &input) {
+            Ok(term) => return Ok(term.kore().clone()),
+            Err(ExecError::UnknownSort { .. }) => {}
+            Err(error) if sort.is_none() => {
+                return semantics
+                    .parse(None, &input)
+                    .map(|term| term.kore().clone())
+                    .map_err(|_| error);
+            }
+            Err(error) => return Err(error),
         }
     }
     match sort {

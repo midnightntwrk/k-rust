@@ -41,11 +41,14 @@ use krs_diagnostic::{Code, untag_rustc_message};
 use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_ir::ProvenanceRole;
+use krs_test_support::class_matrix::findings::{FINDINGS_FILE, Findings, Red, Summary, audit};
 use krs_test_support::class_matrix::invariants::{
     Observed, ObservedDiagnostic, Severity, front_stops_at_rustc_parse, registry_kind, signature,
     violations,
 };
-use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
+use krs_test_support::class_matrix::pending::{
+    Judgement, Observation, Pending, UNASSIGNED, case_of,
+};
 use krs_test_support::class_matrix::table::{Expected, TERM_ACCEPTS_FILE, Table, TableError};
 use krs_test_support::class_matrix::{self, Base, Placed};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
@@ -724,6 +727,39 @@ fn each_shard_of_the_fast_tier_has_its_test() {
     );
 }
 
+/// Account for the reds a shard saw: the registry's audit, which reads only the two files, as the
+/// full tier's does (whether a finding has an entry left is a question of the whole red list,
+/// which no shard's reds answer, so every shard audits it whole), into `failures`, and the reds'
+/// summary by kind and finding.
+fn account(
+    pending: &Pending,
+    expected: &BTreeMap<String, Expected<'_>>,
+    red: &[&str],
+    failures: &mut Vec<String>,
+) -> Summary {
+    let findings = Findings::parse(&read_class_matrix(FINDINGS_FILE))
+        .unwrap_or_else(|errors| panic!("{FINDINGS_FILE}: {errors:#?}"));
+    let kind = |key: &str, deviation: &str| {
+        let expected = case_of(key).and_then(|case| expected.get(case));
+        Red::of(key, deviation, expected, registry_kind)
+    };
+    failures.extend(
+        audit(&findings, pending, |key, entry| kind(key, &entry.deviation))
+            .into_iter()
+            .map(|failure| format!("{FINDINGS_FILE}: {failure}")),
+    );
+    let mut summary = Summary::default();
+    for key in red {
+        let entry = &pending.entries[*key];
+        summary.add(
+            kind(key, &entry.deviation),
+            &entry.finding,
+            &findings.owner_name(&entry.finding, key),
+        );
+    }
+    summary
+}
+
 /// Runs the cases of the families `shard` names, one shard of the fast tier, judged by the whole
 /// table.
 fn front(shard: &[class_matrix::Family]) {
@@ -792,7 +828,7 @@ fn front(shard: &[class_matrix::Family]) {
         }
     }
 
-    let tally = pending.tally(red.iter().copied());
+    let summary = account(&pending, &resolution.expected, &red, &mut table_errors);
     let mut report = format!(
         "class front: {} cases on {threads} threads in {:.2} s: {} accepted at the front, \
          {refused} refused; {uncovered} not covered by expected.toml; {} red as pending.toml \
@@ -809,8 +845,8 @@ fn front(shard: &[class_matrix::Family]) {
     for ((test, family), count) in &red_by_test {
         writeln!(report, "  red {test} {family}: {count}").expect("writing to a String");
     }
-    for (finding, count) in &tally.by_finding {
-        writeln!(report, "  red by finding {finding}: {count}").expect("writing to a String");
+    for (kind, finding, owner, count) in summary.rows() {
+        writeln!(report, "  red {kind} {finding} ({owner}): {count}").expect("writing to a String");
     }
     eprint!("{report}");
 

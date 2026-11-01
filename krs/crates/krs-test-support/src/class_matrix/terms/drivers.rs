@@ -27,7 +27,7 @@ use std::cell::Cell;
 use super::super::Command;
 use super::super::k7::{Ground, K7, Meaning, Run, SkipKind, Status};
 use super::super::positions::Construct;
-use super::{SIZE_HAS_NO_VALUE, Side, Slot, Spelling, go, hold, int, pair};
+use super::{Side, Slot, Spelling, go, hold, int, pair};
 
 /// The term a driver puts at its hole, and what it checks of it.
 struct Hole {
@@ -437,9 +437,8 @@ impl Driver<'_> {
     fn meaning(&self) -> Result<Meaning, K7> {
         let x_value = self.x.clone().map(Meaning::Value);
         let spelling = x_value.as_ref().unwrap_or(&self.spelling.value);
-        // `Size(HOLE)` reads the hole inside an application of `Size`, which no equation of the
-        // base evaluates, so it stays as written around the hole's value: `Size` is no value
-        // here, only a wrapper the run shows the hole's value in.
+        // `Wk(HOLE)` reads the hole inside an application of `Wk`, whose equation in the base
+        // makes it `Wrap::<KItem>` of the hole's value.
         let wrapped = |wrap: fn(Ground) -> Ground| match spelling {
             Meaning::Value(value) => Meaning::Value(wrap(value.clone())),
             Meaning::Unstated(_) => Meaning::Value(wrap(Ground::Any)),
@@ -458,7 +457,7 @@ impl Driver<'_> {
             }
             Some("let-pattern") => Meaning::Undefined("the let's pattern does not match x = 1"),
             Some("matches-pattern") => Meaning::Value(Ground::Bool(self.spelling.matches_x)),
-            Some("function-argument") => wrapped(|value| Ground::unevaluated("size", vec![value])),
+            Some("function-argument") => wrapped(|value| Ground::ctor("Wrap", vec![value])),
             // `Cmd::Pair { a: HOLE, ..p }` over the matched `p`, `pair(5, 6)`.
             Some("update-field") => wrapped(|value| pair(value, int(6))),
             Some("closure-body") => {
@@ -497,13 +496,9 @@ impl Driver<'_> {
     /// A map key in a pattern: computed and looked up, or matched (a selection). A depth-1 key
     /// reads as a set's element does ([`Self::element`]); a key an opener writes is a selection
     /// below `@`, `|` or a name nothing else binds, and computed below a `let`, a `k::matches!`,
-    /// a function and a record update.
-    ///
-    /// A looked-up key is evaluated (decision D2), so a key the `function-argument` opener writes,
-    /// `Size(HOLE)`, is an application of `Size`, which has no value: the base gives `Size` no
-    /// equation. What the lookup finds is then undefined whatever the hole holds, so no run can
-    /// state whether the sentence applies. A built `Size(HOLE)` is another matter: it is the
-    /// term as written ([`Self::meaning`]), which the run shows.
+    /// a function and a record update. A computed key is evaluated (decision D2), so the
+    /// `function-argument` opener's `Wk(HOLE)` is looked up at its value, `Wrap::<KItem>` of the
+    /// hole's ([`Self::meaning`]).
     fn key(&self) -> Read {
         // An x-counter is read where the hole is looked up: the key a reading that ignored the
         // hole's meaning would compute from `x`.
@@ -513,10 +508,6 @@ impl Driver<'_> {
         match self.slot.opener {
             None => self.element(),
             Some("as-body" | "or-branch" | "beside-fresh") => self.witness(),
-            // The hole's own reason, where it has no value either, comes first.
-            Some("function-argument") => self
-                .value()
-                .and_then(|_| Err(K7::skip(SkipKind::Value, SIZE_HAS_NO_VALUE))),
             Some(_) => self.value(),
         }
     }

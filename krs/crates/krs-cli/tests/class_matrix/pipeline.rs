@@ -109,8 +109,9 @@ pub struct Judged {
     /// ([`krs_test_support::class_matrix::twin_runs`]), for a case K6 accepted, when K7 runs.
     pub twin_ends: Vec<(&'static str, String)>,
     /// K7's batch interference ([`Worker::check_interference`]): the case's run deviated beside
-    /// the other cases of its check and conforms alone, and what the neighbours that change it
-    /// write. Its K7 verdict is then the run alone's, and the shard fails.
+    /// the other cases of its check and shows another verdict alone, and what the neighbours that
+    /// change it write, or that the batched verdict did not reproduce. Its K7 verdict is then the
+    /// run alone's, and the shard fails.
     pub interference: Option<String>,
 }
 
@@ -688,10 +689,14 @@ impl Worker<'_> {
     /// neighbour's sentence can change a symbol of the base (a function context on the base's
     /// `Probe` makes every application of it carry the configuration), and then the verdict
     /// does. So each case of `cases` whose run deviated beside other cases (the keyed cases run
-    /// together; an unkeyed one runs alone already) is run again on a definition of its own. Where
-    /// it conforms there, the deviation was the batch's: its verdict becomes the run alone's, and
-    /// the neighbours are bisected down to those beside which it still deviates, whose sentences
-    /// the failure names. A deviation the case also shows alone is its own, and stands.
+    /// together; an unkeyed one runs alone already) is run again on a definition of its own, and
+    /// judged by that run: the case's meaning is its run on its own definition, and batching is
+    /// only how the runs are shared ([`adopted`]). Where the two verdicts differ in any way (it
+    /// conforms alone, or deviates otherwise), the neighbours are bisected down to those beside
+    /// which its verdict still differs from its own ([`bisect`]), whose sentences the failure
+    /// names; where no half reproduces the difference and the whole neighbour set, run again,
+    /// does not either, the batched verdict did not reproduce, a distinct failure that names no
+    /// neighbour ([`interference`]). A deviation the case shows alone too is its own, and stands.
     fn check_interference<'a>(
         &self,
         collected: &CollectedDefinition,
@@ -709,10 +714,10 @@ impl Worker<'_> {
             return;
         }
         for placed in &keyed {
-            let Some(Ran::Deviates(batched)) = out.ran.get(&placed.case.id).cloned() else {
+            let Some(batched @ Ran::Deviates(_)) = out.ran.get(&placed.case.id).cloned() else {
                 continue;
             };
-            let Some(alone @ Ran::Conforms(_)) = self.ran_beside(collected, all, placed, &[])
+            let Some(alone) = adopted(&batched, self.ran_beside(collected, all, placed, &[]))
             else {
                 continue;
             };
@@ -721,60 +726,33 @@ impl Worker<'_> {
                 .filter(|other| other.case.id != placed.case.id)
                 .copied()
                 .collect::<Vec<_>>();
-            let culprits = self.interfering(collected, all, placed, &neighbours);
-            let named = culprits
-                .iter()
-                .map(|culprit| {
-                    let sentences = judged
-                        .iter()
-                        .find(|judged| judged.id == culprit.case.id)
-                        .and_then(|judged| judged.additions.as_ref())
-                        .map_or_else(
-                            || "no sentence known".to_owned(),
-                            |sentences| sentences.join(" | ").replace('\n', " "),
-                        );
-                    format!("`{}` (its sentences: {sentences})", culprit.case.id)
-                })
-                .collect::<Vec<_>>();
+            let culprits = bisect(&neighbours, |beside| {
+                self.ran_beside(collected, all, placed, beside)
+                    .is_some_and(|ran| ran != alone)
+            });
+            let named = |culprits: &[&Placed<'_>]| {
+                culprits
+                    .iter()
+                    .map(|culprit| {
+                        let sentences = judged
+                            .iter()
+                            .find(|judged| judged.id == culprit.case.id)
+                            .and_then(|judged| judged.additions.as_ref())
+                            .map_or_else(
+                                || "no sentence known".to_owned(),
+                                |sentences| sentences.join(" | ").replace('\n', " "),
+                            );
+                        format!("`{}` (its sentences: {sentences})", culprit.case.id)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             out.interference.insert(
                 placed.case.id.clone(),
-                format!(
-                    "batch interference: K7 deviates beside {} other cases ({batched}) and conforms alone; it still deviates beside {}",
-                    neighbours.len(),
-                    named.join(", ")
-                ),
+                interference(&culprits, neighbours.len(), &batched, &alone, named),
             );
             out.ran.insert(placed.case.id.clone(), alone);
         }
-    }
-
-    /// The neighbours of `placed` beside which its run still deviates: `neighbours` halved while
-    /// one half alone makes it deviate, down to one case, or to a set no half of which does.
-    fn interfering<'p, 'a>(
-        &self,
-        collected: &CollectedDefinition,
-        all: &[Placed<'a>],
-        placed: &Placed<'a>,
-        neighbours: &[&'p Placed<'a>],
-    ) -> Vec<&'p Placed<'a>> {
-        let mut set = neighbours.to_vec();
-        while set.len() > 1 {
-            let (left, right) = set.split_at(set.len() / 2);
-            let deviates = |half| {
-                matches!(
-                    self.ran_beside(collected, all, placed, half),
-                    Some(Ran::Deviates(_))
-                )
-            };
-            if deviates(left) {
-                set = left.to_vec();
-            } else if deviates(right) {
-                set = right.to_vec();
-            } else {
-                break;
-            }
-        }
-        set
     }
 
     /// K7's verdict on `placed`, run on the definition of the base, `placed` and `beside`.
@@ -955,6 +933,76 @@ impl Worker<'_> {
 }
 
 /// The message of a caught panic: its payload's text, without the location rustc's hook prints.
+/// The verdict of a case whose run deviated beside other cases, `batched`, given its run on a
+/// definition of its own, `alone`: the run alone's, where the two differ in any way, or `None`
+/// where the batched verdict stands (the same deviation alone, or no run alone).
+fn adopted(batched: &Ran, alone: Option<Ran>) -> Option<Ran> {
+    alone.filter(|alone| alone != batched)
+}
+
+/// The neighbours a case's verdict depends on, bisected ([`bisect`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Culprits<T> {
+    /// Beside these, a proper part of the neighbours, the verdict still differs from its own:
+    /// one case, or a set no half of which makes it differ.
+    Narrowed(Vec<T>),
+    /// No half makes it differ, and the whole neighbour set, run again, still does.
+    Whole(Vec<T>),
+    /// No half makes it differ, and neither does the whole neighbour set run again: the batched
+    /// verdict did not reproduce.
+    NotReproduced,
+}
+
+/// Bisect `neighbours` by `differs` (whether the case's verdict beside a set of them differs
+/// from its own): halved while one half makes it differ, down to one case, or to a set no half
+/// of which does. A set the halving reached was run beside the case and differs; the whole set
+/// was run only as the batch, so where the halving stops at it, it is run beside the case once
+/// more before it is named.
+fn bisect<T: Copy>(neighbours: &[T], mut differs: impl FnMut(&[T]) -> bool) -> Culprits<T> {
+    let mut set = neighbours.to_vec();
+    while set.len() > 1 {
+        let (left, right) = set.split_at(set.len() / 2);
+        if differs(left) {
+            set = left.to_vec();
+        } else if differs(right) {
+            set = right.to_vec();
+        } else {
+            break;
+        }
+    }
+    if set.len() < neighbours.len() {
+        Culprits::Narrowed(set)
+    } else if differs(&set) {
+        Culprits::Whole(set)
+    } else {
+        Culprits::NotReproduced
+    }
+}
+
+/// The failure of a case whose batched verdict `batched` differs from its verdict alone, `alone`,
+/// beside `count` neighbours that `culprits` bisected; `named` names a set of them.
+fn interference<T>(
+    culprits: &Culprits<T>,
+    count: usize,
+    batched: &Ran,
+    alone: &Ran,
+    named: impl Fn(&[T]) -> String,
+) -> String {
+    let (batched, alone) = (batched.signature(), alone.signature());
+    match culprits {
+        Culprits::Narrowed(set) | Culprits::Whole(set) => format!(
+            "batch interference: K7 deviates beside {count} other cases ({batched}), and alone \
+             it is {alone}; it still differs beside {}",
+            named(set)
+        ),
+        Culprits::NotReproduced => format!(
+            "K7's batched verdict did not reproduce (flaky?): it deviated beside {count} other \
+             cases ({batched}), and alone it is {alone}, from which its run beside the same cases \
+             again does not differ; it is judged by its run alone"
+        ),
+    }
+}
+
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
     panic
         .downcast_ref::<String>()
@@ -1620,5 +1668,77 @@ impl Worker<'_> {
             }
             text = without(&text, cut);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use krs_test_support::class_matrix::k7::Status;
+
+    use super::{Culprits, Ran, adopted, bisect, interference};
+
+    /// A batched K7 verdict stands only where the case's run alone is the same; where the run
+    /// alone differs in any way, conforming or deviating otherwise, the case is judged by it.
+    #[test]
+    fn a_batched_verdict_stands_only_where_the_run_alone_is_the_same() {
+        let batched = Ran::Deviates("no defined result: probe(..)".to_owned());
+        let conforms = Ran::Conforms(Status::Value);
+        let own = Ran::Deviates("not applied: 1 of 3 steps".to_owned());
+        assert_eq!(adopted(&batched, Some(conforms.clone())), Some(conforms));
+        assert_eq!(adopted(&batched, Some(own.clone())), Some(own));
+        assert_eq!(adopted(&batched, Some(batched.clone())), None);
+        assert_eq!(adopted(&batched, None), None);
+    }
+
+    /// The bisection names the one neighbour that changes the verdict; a pair across the halves,
+    /// the whole set where it still differs run again; and no neighbour where it does not, which
+    /// is a failure of its own.
+    #[test]
+    fn the_bisection_names_only_neighbours_it_reproduced_the_difference_beside() {
+        let neighbours = [1, 2, 3, 4, 5, 6, 7, 8];
+        let mut runs = Vec::new();
+        let one = bisect(&neighbours, |set| {
+            runs.push(set.to_vec());
+            set.contains(&6)
+        });
+        assert_eq!(one, Culprits::Narrowed(vec![6]));
+        // Each step ran a half beside the case, never the whole set again.
+        assert!(runs.iter().all(|set| set.len() < neighbours.len()));
+
+        // 2 and 7 only together: no half of the whole set holds both, so it is run once more.
+        let mut whole_runs = 0;
+        let pair = bisect(&neighbours, |set| {
+            whole_runs += usize::from(set.len() == neighbours.len());
+            set.contains(&2) && set.contains(&7)
+        });
+        assert_eq!(pair, Culprits::Whole(neighbours.to_vec()));
+        assert_eq!(whole_runs, 1);
+        // 5 and 7 together: the right half holds both, and no half of it does.
+        assert_eq!(
+            bisect(&neighbours, |set| set.contains(&5) && set.contains(&7)),
+            Culprits::Narrowed(vec![5, 6, 7, 8])
+        );
+        // A batched deviation that no set reproduces, the whole one run again included (a
+        // timeout under load), names no neighbour.
+        assert_eq!(bisect(&neighbours, |_| false), Culprits::NotReproduced);
+        // One neighbour: the set is the whole one, run again before it is named.
+        assert_eq!(bisect(&[3], |_| true), Culprits::Whole(vec![3]));
+        assert_eq!(bisect(&[3], |_| false), Culprits::NotReproduced);
+
+        let batched = Ran::Deviates("no defined result".to_owned());
+        let alone = Ran::Deviates("not applied: 1 of 3 steps".to_owned());
+        let named = |set: &[i32]| format!("{set:?}");
+        let interfered = interference(&Culprits::Narrowed(vec![6]), 8, &batched, &alone, named);
+        assert_eq!(
+            interfered,
+            "batch interference: K7 deviates beside 8 other cases (no defined result), and alone \
+             it is not applied: 1 of 3 steps; it still differs beside [6]"
+        );
+        let flaky = interference(&Culprits::NotReproduced, 8, &batched, &alone, named);
+        assert!(
+            flaky.starts_with("K7's batched verdict did not reproduce (flaky?)")
+                && !flaky.contains("batch interference"),
+            "{flaky}"
+        );
     }
 }

@@ -67,7 +67,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
-use krs_test_support::class_matrix::advice::{Corpus, Followed, Reading, judge, read};
+use krs_test_support::class_matrix::advice::{
+    Corpus, Followed, Reading, judge, read, unchecked_drift,
+};
 use krs_test_support::class_matrix::findings::{FINDINGS_FILE, Findings, Red, Summary, audit};
 use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
@@ -168,20 +170,18 @@ fn account(name: &str, shard: &mut Shard, red: &[String]) {
             continue;
         };
         let kind = red_kind(key, &entry.deviation);
-        let owner = spec
-            .findings
-            .owner(&entry.finding, key)
-            .map_or_else(|| "unregistered".to_owned(), ToString::to_string);
+        let owner = spec.findings.owner_name(&entry.finding, key);
         writeln!(
             shard.lines,
             "red\t{key}\t{kind}\t{}\t{owner}",
             entry.finding
         )
         .expect("writing to a String cannot fail");
-        summary.add(&spec.findings, key, entry, kind);
+        summary.add(kind, &entry.finding, &owner);
     }
-    for line in summary.lines().lines() {
-        writeln!(shard.lines, "summary\t{line}").expect("writing to a String cannot fail");
+    for (kind, finding, owner, count) in summary.rows() {
+        writeln!(shard.lines, "summary\t{kind}\t{finding}\t{owner}\t{count}")
+            .expect("writing to a String cannot fail");
     }
     eprintln!("[krs-class] {name}: red {}, {summary}", red.len());
 }
@@ -791,11 +791,10 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
 /// their advice. A case shard is pinned in [`UNCHECKED`] or here.
 const NO_UNCHECKED: &[&str] = &["attrs", "cells", "import", "readable", "runs"];
 
-/// Fail the shard `name` where its unchecked K8 refusals differ from [`UNCHECKED`]'s, or where it
-/// is pinned neither there nor in [`NO_UNCHECKED`]. A run that `KRS_CLASS_FILTER` narrows
-/// (`whole` false) sees a subset of the shard's cases, so it cannot tell a count that fell; it
-/// fails where a class turns unchecked that the shard's pin does not list, or where a class's
-/// count exceeds its pin, both of which no superset of the run can undo.
+/// Fail the shard `name` where its unchecked K8 refusals leave [`UNCHECKED`]'s pin
+/// ([`unchecked_drift`]: any difference in a whole run, a class beyond the pin in a run that
+/// `KRS_CLASS_FILTER` narrows, `whole` false), or where it is pinned neither there nor in
+/// [`NO_UNCHECKED`].
 fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
     if !NO_UNCHECKED.contains(&name) && !UNCHECKED.iter().any(|(pinned, ..)| *pinned == name) {
         shard.failures.push(format!(
@@ -807,25 +806,9 @@ fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
         .filter(|(pinned, ..)| *pinned == name)
         .map(|(_, class, count)| ((*class).to_owned(), *count))
         .collect::<BTreeMap<_, _>>();
-    if whole {
-        if shard.unchecked != pinned {
-            shard.failures.push(format!(
-                "K8's unchecked refusals by class are {:?}, where UNCHECKED pins {pinned:?}: review the advice no generated case writes, then pin it",
-                shard.unchecked
-            ));
-        }
-        return;
-    }
-    let beyond = shard
-        .unchecked
-        .iter()
-        .filter(|(class, count)| pinned.get(*class).is_none_or(|pin| *count > pin))
-        .collect::<BTreeMap<_, _>>();
-    if !beyond.is_empty() {
-        shard.failures.push(format!(
-            "K8's unchecked refusals by class include {beyond:?} in this filtered run, beyond what UNCHECKED pins for the shard {name} ({pinned:?}): review the advice no generated case writes, then pin it"
-        ));
-    }
+    shard
+        .failures
+        .extend(unchecked_drift(name, &shard.unchecked, &pinned, whole));
 }
 
 /// The own text of every generated case the table accepts, for the forms K8 reads.

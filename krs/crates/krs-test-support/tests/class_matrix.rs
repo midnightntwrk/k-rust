@@ -8,6 +8,7 @@ use std::path::Path;
 
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
+use krs_test_support::class_matrix::advice::unchecked_drift;
 use krs_test_support::class_matrix::attributes::Written;
 use krs_test_support::class_matrix::findings::{
     FINDINGS_FILE, FindingKind, Findings, Owner, Red, RedKind, Summary, audit,
@@ -704,13 +705,18 @@ fn the_shipped_table_and_red_list_parse() {
     );
     let mut summary = Summary::default();
     for (key, entry) in &pending.entries {
-        summary.add(&findings, key, entry, red(key, entry));
+        summary.add(
+            red(key, entry),
+            &entry.finding,
+            &findings.owner_name(&entry.finding, key),
+        );
     }
     eprintln!("pending.toml: {} reds, {summary}", pending.entries.len());
 }
 
 /// A red's kind is computed from its key, its deviation and the table's expectation of its case,
-/// and the internal flag from the codes its deviation names; a finding's kind admits it or not.
+/// the internal flag from the codes its deviation names (in any of its errors), and the panic flag
+/// from the panic it records (in any test); a finding's kind admits it or not.
 #[test]
 fn the_kind_of_a_red_is_computed_from_its_entry() {
     let (class, accepted) = expectations();
@@ -725,51 +731,63 @@ fn the_kind_of_a_red_is_computed_from_its_entry() {
     };
     // The kinds, computed from the key, the deviation and the table's expectation.
     let internal = INTERNAL;
-    for (key, deviation, expected, kind, is_internal) in [
-        ("terms/a", "accepted", &refuse, RedKind::UnderRefusal, false),
+    // The flags of a red: whether its deviation names an internal code, and whether it panicked.
+    let (none, coded) = ((false, false), (true, false));
+    for (key, deviation, expected, kind, (is_internal, is_panic)) in [
+        ("terms/a", "accepted", &refuse, RedKind::UnderRefusal, none),
         (
             "full/terms/a",
             "accepted",
             &refuse,
             RedKind::UnderRefusal,
-            false,
+            none,
         ),
         (
             "terms/a",
             "krs::analysis::invalid-term @ item",
             &refuse,
             RedKind::Diagnostic,
-            false,
+            none,
         ),
-        ("terms/a", internal, &accept, RedKind::OverRefusal, true),
-        ("terms/a", "accepted", &accept, RedKind::OtherK, false),
+        // An internal code only in a second error is the case's still.
+        (
+            "terms/a",
+            "krs::analysis::invalid-term @ spelling; krs::emit::unsupported-shape @ item",
+            &refuse,
+            RedKind::Diagnostic,
+            coded,
+        ),
+        ("terms/a", internal, &accept, RedKind::OverRefusal, coded),
+        ("terms/a", "accepted", &accept, RedKind::OtherK, none),
         (
             "k3/terms/a",
             "printed surface refused: krs::emit::unsupported-shape @ unlocated",
             &accept,
             RedKind::K3,
-            true,
+            coded,
         ),
-        ("k7/terms/a", "not applied", &accept, RedKind::K7, false),
-        ("k8/terms/a", "advises", &refuse, RedKind::K8, false),
+        ("k7/terms/a", "not applied", &accept, RedKind::K7, none),
+        ("k8/terms/a", "advises", &refuse, RedKind::K8, none),
         (
             "lattice/class-x/a~b/c",
             "1 pairs",
             &accept,
             RedKind::K4,
-            false,
+            none,
         ),
-        ("entry/k::rule", "2 errors", &accept, RedKind::K5, false),
+        ("entry/k::rule", "2 errors", &accept, RedKind::K5, none),
     ] {
         assert_eq!(
             red(key, deviation, expected),
             Red {
                 kind,
-                internal: is_internal
+                internal: is_internal,
+                panicked: is_panic,
             },
             "{key}: {deviation}"
         );
     }
+
     let under = red("terms/a", "accepted", &refuse);
     assert_eq!(under.to_string(), "under-refusal");
     assert_eq!(
@@ -781,6 +799,87 @@ fn the_kind_of_a_red_is_computed_from_its_entry() {
     assert!(!red("k7/terms/a", "d", &accept).admits(FindingKind::Diagnostic));
     assert!(red("k7/terms/a", "d", &accept).admits(FindingKind::Generator));
     assert!(red("k8/terms/a", "d", &refuse).admits(FindingKind::Diagnostic));
+}
+
+/// A red that records a panic is a bug in every test: K2's signature writes it as its part
+/// `panic`, after the errors or alone, and the other tests as `panic: MESSAGE` or `panicked`. A
+/// K2 red of a case the table does not decide is the generator's.
+#[test]
+fn a_panic_is_a_bug_and_an_undecided_case_the_generators() {
+    let (class, accepted) = expectations();
+    let refuse = Expected::Refuse {
+        name: "wrong-shape",
+        class: &class,
+        at: At::Spelling,
+    };
+    let accept = Expected::Accept(&accepted);
+    for (key, deviation, expected, kind) in [
+        (
+            "terms/a",
+            "krs::analysis::invalid-term @ spelling; panic",
+            &refuse,
+            RedKind::Diagnostic,
+        ),
+        ("terms/a", "panic", &accept, RedKind::OverRefusal),
+        (
+            "k3/terms/a",
+            "printed surface refused: krs expand panicked: `r#_` cannot be a raw identifier",
+            &accept,
+            RedKind::K3,
+        ),
+        (
+            "k6/terms/a",
+            "uncoded: a check worker panicked",
+            &accept,
+            RedKind::K6,
+        ),
+        (
+            "k7/terms/a",
+            "counter-witness `go`: panic: a message",
+            &accept,
+            RedKind::K7,
+        ),
+        ("k8/terms/a", "panic: a message", &refuse, RedKind::K8),
+    ] {
+        let red = Red::of(key, deviation, Some(expected), registry_kind);
+        assert_eq!(
+            red,
+            Red {
+                kind,
+                internal: false,
+                panicked: true,
+            },
+            "{key}: {deviation}"
+        );
+        assert!(
+            red.admits(FindingKind::Bug)
+                && [
+                    FindingKind::Feature,
+                    FindingKind::Diagnostic,
+                    FindingKind::Generator
+                ]
+                .into_iter()
+                .all(|kind| !red.admits(kind)),
+            "{key}: {deviation}"
+        );
+    }
+    assert_eq!(
+        Red::of(
+            "k8/terms/a",
+            "panic: a message",
+            Some(&refuse),
+            registry_kind
+        )
+        .to_string(),
+        "k8+panic"
+    );
+    let uncovered = Red::of("terms/a", "accepted", None, registry_kind);
+    assert_eq!(uncovered.kind, RedKind::Uncovered);
+    assert!(
+        uncovered.admits(FindingKind::Generator)
+            && !uncovered.admits(FindingKind::Bug)
+            && !uncovered.admits(FindingKind::Diagnostic)
+    );
 }
 
 /// An internal code, as a deviation names it.
@@ -823,12 +922,9 @@ kind = "feature"
 what = "a kept limit"
 "#;
 
-/// The registry's audit fails on each way a red loses its owner or hides its kind: an
-/// unregistered finding, a finding with no entry left (and a `by_test` owner with none), an
-/// under-refusal or an internal code under a finding that is not a bug, a red of what KRS ran
-/// under a diagnostic, and an under-refusal with no stated risk.
-#[test]
-fn the_findings_registry_owns_every_red_by_its_kind() {
+/// The audit of `pending` against [`REGISTRY`]: a key ending `refused` is a case the table
+/// refuses, one ending `uncovered` a case it does not decide, any other a case it accepts.
+fn audited(pending: &str) -> Vec<String> {
     let findings = Findings::parse(REGISTRY).unwrap_or_else(|errors| panic!("{errors:#?}"));
     let (class, accepted) = expectations();
     let refuse = Expected::Refuse {
@@ -837,74 +933,38 @@ fn the_findings_registry_owns_every_red_by_its_kind() {
         at: At::Spelling,
     };
     let accept = Expected::Accept(&accepted);
-    let red = |key: &str, deviation: &str, expected: &Expected<'_>| {
-        Red::of(key, deviation, Some(expected), registry_kind)
-    };
-    let internal = INTERNAL;
-    let entry = |finding: &str, deviation: &str| {
-        format!("finding = \"{finding}\"\ndeviation = \"{deviation}\"\n")
-    };
-    let audited = |pending: &str| {
-        let pending = Pending::parse(pending).unwrap_or_else(|errors| panic!("{errors:#?}"));
-        audit(&findings, &pending, |key, entry| {
-            let expected = if key.ends_with("refused") {
-                &refuse
-            } else {
-                &accept
-            };
-            red(key, &entry.deviation, expected)
-        })
-    };
-    // Every finding holds an entry of its kind: no failure.
-    let sound = format!(
+    let pending = Pending::parse(pending).unwrap_or_else(|errors| panic!("{errors:#?}"));
+    audit(&findings, &pending, |key, entry| {
+        let expected = if key.ends_with("uncovered") {
+            None
+        } else if key.ends_with("refused") {
+            Some(&refuse)
+        } else {
+            Some(&accept)
+        };
+        Red::of(key, &entry.deviation, expected, registry_kind)
+    })
+}
+
+/// A pending entry's body.
+fn entry(finding: &str, deviation: &str) -> String {
+    format!("finding = \"{finding}\"\ndeviation = \"{deviation}\"\n")
+}
+
+/// A red list on which [`REGISTRY`] holds every finding, each with an entry of its kind.
+fn sound() -> String {
+    format!(
         "[\"terms/refused\"]\n{}\n[\"k3/terms/a\"]\n{}\n[\"terms/b/refused\"]\n{}\n[\"terms/c\"]\n{}",
         entry("A", "accepted"),
         entry("A", "printed surface refused"),
         entry("B", "krs::analysis::invalid-term @ item"),
         entry("C", "krs::analysis::invalid-term @ spelling"),
-    );
-    assert_eq!(audited(&sound), Vec::<String>::new());
+    )
+}
 
-    // Each failure, forced: its message names the fix.
-    let unregistered = format!("{sound}\n[\"terms/d\"]\n{}", entry("D", "accepted"));
-    let stale = format!(
-        "[\"terms/refused\"]\n{}\n[\"terms/b/refused\"]\n{}",
-        entry("A", "accepted"),
-        entry("B", "krs::analysis::invalid-term @ item"),
-    );
-    let internal_diagnostic = format!("{sound}\n[\"terms/e/refused\"]\n{}", entry("B", internal));
-    let ran_diagnostic = format!("{sound}\n[\"k7/terms/e\"]\n{}", entry("B", "not applied"));
-    let under_feature = format!("{sound}\n[\"terms/f/refused\"]\n{}", entry("C", "accepted"));
-    for (pending, fragments) in [
-        (
-            unregistered.as_str(),
-            vec!["terms/d: its finding \"D\" is not in findings.toml"],
-        ),
-        (
-            stale.as_str(),
-            vec![
-                "C: no pending entry is left under it: it is done",
-                "A: by_test gives its k3 entries an owner, but none is left",
-            ],
-        ),
-        (
-            internal_diagnostic.as_str(),
-            vec![
-                "terms/e/refused: a red of kind diagnostic+internal under B, a diagnostic finding",
-            ],
-        ),
-        (
-            ran_diagnostic.as_str(),
-            vec!["k7/terms/e: a red of kind k7 under B, a diagnostic finding"],
-        ),
-        (
-            under_feature.as_str(),
-            vec![
-                "terms/f/refused: a red of kind under-refusal under C, a feature finding",
-                "C holds an under-refusal: state its risk",
-            ],
-        ),
-    ] {
+/// Each `(pending, fragments)`: the audit of `pending` fails with every fragment.
+fn assert_audit_fails(cases: &[(String, Vec<&str>)]) {
+    for (pending, fragments) in cases {
         let errors = audited(pending);
         for fragment in fragments {
             assert!(
@@ -913,6 +973,169 @@ fn the_findings_registry_owns_every_red_by_its_kind() {
             );
         }
     }
+}
+
+/// The registry's audit fails on each way a red loses its owner or hides its kind: an
+/// unregistered finding, a finding with no entry left (and a `by_test` owner with none), an
+/// under-refusal or an internal code under a finding that is not a bug, a red of what KRS ran
+/// under a diagnostic, and an under-refusal with no stated risk.
+#[test]
+fn the_findings_registry_owns_every_red_by_its_kind() {
+    let sound = sound();
+    // Every finding holds an entry of its kind: no failure.
+    assert_eq!(audited(&sound), Vec::<String>::new());
+    // Each failure, forced: its message names the fix.
+    let stale = format!(
+        "[\"terms/refused\"]\n{}\n[\"terms/b/refused\"]\n{}",
+        entry("A", "accepted"),
+        entry("B", "krs::analysis::invalid-term @ item"),
+    );
+    assert_audit_fails(&[
+        (
+            format!("{sound}\n[\"terms/d\"]\n{}", entry("D", "accepted")),
+            vec!["terms/d: its finding \"D\" is not in findings.toml"],
+        ),
+        (
+            stale,
+            vec![
+                "C: no pending entry is left under it: it is done",
+                "A: by_test gives its k3 entries an owner, but none is left",
+            ],
+        ),
+        (
+            format!("{sound}\n[\"terms/e/refused\"]\n{}", entry("B", INTERNAL)),
+            vec![
+                "terms/e/refused: a red of kind diagnostic+internal under B, a diagnostic finding",
+            ],
+        ),
+        (
+            format!("{sound}\n[\"k7/terms/e\"]\n{}", entry("B", "not applied")),
+            vec!["k7/terms/e: a red of kind k7 under B, a diagnostic finding"],
+        ),
+        (
+            format!("{sound}\n[\"terms/f/refused\"]\n{}", entry("C", "accepted")),
+            vec![
+                "terms/f/refused: a red of kind under-refusal under C, a feature finding",
+                "C holds an under-refusal: state its risk",
+            ],
+        ),
+    ]);
+}
+
+/// The audit also sees a bug where it hides: an internal code in the second error only, and a
+/// panic after an author code, under a diagnostic finding; an undecided case's red under any
+/// kind but `generator`; and an owner's statements that no entry bears out: a finding whose
+/// every entry `by_test` owns, and a risk on a finding that holds no under-refusal.
+#[test]
+fn the_findings_registry_sees_a_bug_where_it_hides() {
+    let sound = sound();
+    let through_by_test = format!(
+        "[\"k3/terms/a\"]\n{}\n[\"terms/b/refused\"]\n{}\n[\"terms/c\"]\n{}",
+        entry("A", "printed surface refused"),
+        entry("B", "krs::analysis::invalid-term @ item"),
+        entry("C", "krs::analysis::invalid-term @ spelling"),
+    );
+    assert_audit_fails(&[
+        (
+            format!(
+                "{sound}\n[\"terms/g/refused\"]\n{}",
+                entry(
+                    "B",
+                    "krs::analysis::invalid-term @ spelling; krs::emit::unsupported-shape @ item"
+                )
+            ),
+            vec![
+                "terms/g/refused: a red of kind diagnostic+internal under B, a diagnostic finding",
+            ],
+        ),
+        (
+            format!(
+                "{sound}\n[\"terms/h/refused\"]\n{}",
+                entry("B", "krs::analysis::invalid-term @ spelling; panic")
+            ),
+            vec!["terms/h/refused: a red of kind diagnostic+panic under B, a diagnostic finding"],
+        ),
+        (
+            format!(
+                "{sound}\n[\"k3/terms/h\"]\n{}",
+                entry(
+                    "B",
+                    "printed surface refused: krs expand panicked: a message"
+                )
+            ),
+            vec!["k3/terms/h: a red of kind k3+panic under B, a diagnostic finding"],
+        ),
+        (
+            through_by_test,
+            vec![
+                "A: every entry left is owned through by_test: make NT-30 the finding's owner",
+                "A states a risk but holds no under-refusal: remove the risk",
+            ],
+        ),
+        (
+            format!(
+                "{sound}\n[\"terms/i/uncovered\"]\n{}",
+                entry("C", "accepted")
+            ),
+            vec![
+                "terms/i/uncovered: a red of kind uncovered under C, a feature finding: the table \
+                 does not decide the case",
+            ],
+        ),
+    ]);
+}
+
+/// K8's unchecked refusals against the shard's pin: a whole run fails on any difference; a
+/// filtered run, which sees a subset, only on a class the pin does not list or a count above its
+/// pin, and never on a count below it.
+#[test]
+fn a_filtered_run_fails_on_unchecked_drift_no_superset_undoes() {
+    let counts = |pairs: &[(&str, usize)]| {
+        pairs
+            .iter()
+            .map(|(class, count)| ((*class).to_owned(), *count))
+            .collect::<BTreeMap<_, _>>()
+    };
+    let pinned = counts(&[("ml-in-condition", 41), ("notation-in-pattern", 264)]);
+    let drift = |observed: &[(&str, usize)], whole| {
+        unchecked_drift("terms", &counts(observed), &pinned, whole)
+    };
+    // A subset of the pin, or the pin itself, passes a filtered run.
+    assert_eq!(drift(&[], false), None);
+    assert_eq!(drift(&[("ml-in-condition", 3)], false), None);
+    assert_eq!(
+        drift(
+            &[("ml-in-condition", 41), ("notation-in-pattern", 264)],
+            false
+        ),
+        None
+    );
+    // A class the pin does not list, or a count above its pin, fails it.
+    let new_class = drift(&[("ml-in-condition", 3), ("content-sort", 1)], false)
+        .expect("a new unchecked class fails a filtered run");
+    assert!(
+        new_class.contains("include {\"content-sort\": 1} in this filtered run, beyond what UNCHECKED pins for the shard terms"),
+        "{new_class}"
+    );
+    let above = drift(&[("ml-in-condition", 42)], false).expect("a count above its pin fails");
+    assert!(above.contains("{\"ml-in-condition\": 42}"), "{above}");
+    // A whole run fails on any difference, a count that fell included.
+    assert_eq!(
+        drift(
+            &[("ml-in-condition", 41), ("notation-in-pattern", 264)],
+            true
+        ),
+        None
+    );
+    let fell = drift(
+        &[("ml-in-condition", 40), ("notation-in-pattern", 264)],
+        true,
+    )
+    .expect("a count that fell fails a whole run");
+    assert!(
+        fell.starts_with("K8's unchecked refusals by class are"),
+        "{fell}"
+    );
 }
 
 /// The registry's own schema: an entry's owner by its test, sorted names, a known owner, kind and

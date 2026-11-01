@@ -191,19 +191,25 @@ the descriptors of the base and its own. A case is judged by
 
   *Batch interference*: a case's sentence changes only what its own command runs, so its verdict
   must not depend on the cases it shares a definition with. A case whose run deviates beside others
-  is run again alone; where it conforms there, its verdict is the run alone's and the shard fails
-  with `batch interference`, naming the neighbours (bisected) beside which it still deviates and
-  their sentences: one that changes a symbol of the base, as an equation's function context on
-  `Probe` does, makes its slot `.alone()`.
+  is run again alone, and judged by that run, its meaning: where the two verdicts differ in any way
+  (it conforms alone, or deviates otherwise), the shard fails with `batch interference`, naming the
+  neighbours (bisected) beside which its verdict still differs from its own, and their sentences:
+  one that changes a symbol of the base, as an equation's function context on `Probe` does, makes
+  its slot `.alone()`. Where no half of the neighbours reproduces the difference and the whole set,
+  run beside the case once more, does not either, the shard fails with `K7's batched verdict did
+  not reproduce` instead (a flaky run, a timeout under load), naming no neighbour.
 
   *The printed state is the state* (NT-23): K7 reads values structurally, so it also reads a
   conforming run's state back as `krs run` prints it: the computation cell's first item and every
   other leaf cell, each printed, read back as a program reads it, with the program grammar at the
-  cell's sort (a `<k>` item's, the sort it is injected from) with its aliases expanded again, must
+  cell's sort (a `<k>` item's, the sort it is injected from, and where that does not read it the
+  sort of `$PGM`, at which an alias of a wider sort reads back as the item's value: `ak` for `1`)
+  with its aliases expanded again, must
   be the term the state holds, value for value, tokens by their text (`printed_reads_back`). The
   main module's grammar, which holds every token sort, reads `word` as an `Id` wherever it stands,
-  where the program grammar reads the `Word` the print means (NT-24-1); it reads only what the
-  program grammar has no syntax for (a builtin collection, a `K` sequence). The printer is the one the case has alone, the base's aliases and its
+  where the program grammar reads the `Word` the print means (NT-24-1); it reads only where the
+  program grammar has no sort to read at (a `K` sequence, a builtin collection's sort, which it
+  does not have), never text the program grammar fails to parse at a sort it has. The printer is the one the case has alone, the base's aliases and its
   own, so a verdict does not depend on the batch (`KRS_CLASS_NATIVE=alone` gives the same). A print
   with a KAST fallback is not read back, nor one that does not parse where the term printed without
   reversal does not parse either (the grammar has no syntax for part of it, `$x`). The terms base
@@ -218,9 +224,9 @@ the descriptors of the base and its own. A case is judged by
   `set![x, 1]` the set `{1}`, `k::matches!(x, Cmd::Hold(_))` false). A spelling with none says
   why (a computed term matches no evaluated term; a pattern builds nothing; `{ let y @
   Cmd::Hold(_) = x; y }` has no value at `x` = 1), and the openers compose them: the witness of
-  `y @ HOLE` is the hole's, of `set::item(HOLE)` the set of it, the value of `Size(HOLE)` the
-  unevaluated `Size` of the hole's (`Size` has no equation, so it serves as a wrapper the run
-  shows the hole's value in; `Size(x)` itself has no stated value). A spelling a pattern reads
+  `y @ HOLE` is the hole's, of `set::item(HOLE)` the set of it, the value of `Wk(HOLE)`
+  `Wrap::<KItem>` of the hole's (the base defines `Wk` by that equation, built or looked up as a
+  key; `Size` has no equation, so `Size(x)` has no stated value). A spelling a pattern reads
   also has *counter-witnesses* where they exist, ground terms it must not match (`Cmd::Hold(x)`
   must not match `Cmd::Pair(0, 0)`, `y @ Cmd::Hold(_)` neither): its case runs a program on each,
   which must stop before the case's sentence, so a pattern lowered too loosely is caught. A
@@ -545,7 +551,11 @@ keeps; `by_test` gives one test's entries another owner), its `kind` (`bug`, `fe
 Every shard, filtered or not, and `cargo test -p krs-test-support --test class_matrix` fail where
 an entry names an unregistered finding, a registered finding has no entry left (remove it: it is
 done), or a red's computed kind is not one its finding's kind admits: an under-refusal (accepted,
-where the table refuses) or a red whose deviation names an internal code only under a `bug`, an
-over-refusal, other K, or a K1, K3, K4, K6, K7 or twin red never under a `diagnostic`. Each shard
+where the table refuses), a red whose deviation names an internal code, and a red that records a
+panic (K2's `panic` part, another test's `panic: ..` or `panicked`) only under a `bug`, whatever
+its test; an over-refusal, other K, or a K1, K3, K4, K6, K7 or twin red never under a
+`diagnostic`; a K2 red of a case the table does not decide only under a `generator`. Each shard
 prints its reds by kind, by owner, and by kind and finding, and its TSV carries a `red` line per
-red (key, kind, finding, owner) and a `summary` line per kind and finding.
+red (key, kind, finding, owner) and a `summary` line per kind and finding. The fast tier
+(`krs-expand`'s `class_front`) runs the same audit for the entries of the reds it sees, and prints
+their summary.

@@ -25,6 +25,8 @@
 //!
 //! A clause ends at a `;`, a `.` that ends a sentence, or the text's end.
 
+use std::collections::BTreeMap;
+
 use super::invariants::ObservedDiagnostic;
 
 /// The verbs whose imperative proposes a form.
@@ -564,6 +566,38 @@ pub fn judge(reading: &Reading, sources: &[String], corpus: &Corpus) -> Followed
             })
         })
         .unwrap_or(Followed::Unchecked)
+}
+
+/// Where a shard's run, whose unchecked refusals by class are `observed` ([`Followed::Unchecked`]),
+/// leaves the shard's pin `pinned`: why it fails, or `None`. A whole run (`whole`) fails where
+/// the two differ at all. A run that a filter narrows sees a subset of the shard's cases, whose
+/// counts never exceed the whole run's, since whether a refusal is unchecked depends on the
+/// corpus of every accepted case, not on the filter: so it cannot tell a count that fell, and
+/// fails only where a class turns unchecked that the pin does not list, or where a class's count
+/// exceeds its pin, which no superset of the run can undo.
+#[must_use]
+pub fn unchecked_drift(
+    name: &str,
+    observed: &BTreeMap<String, usize>,
+    pinned: &BTreeMap<String, usize>,
+    whole: bool,
+) -> Option<String> {
+    if whole {
+        return (observed != pinned).then(|| {
+            format!(
+                "K8's unchecked refusals by class are {observed:?}, where UNCHECKED pins {pinned:?}: review the advice no generated case writes, then pin it"
+            )
+        });
+    }
+    let beyond = observed
+        .iter()
+        .filter(|(class, count)| pinned.get(*class).is_none_or(|pin| *count > pin))
+        .collect::<BTreeMap<_, _>>();
+    (!beyond.is_empty()).then(|| {
+        format!(
+            "K8's unchecked refusals by class include {beyond:?} in this filtered run, beyond what UNCHECKED pins for the shard {name} ({pinned:?}): review the advice no generated case writes, then pin it"
+        )
+    })
 }
 
 #[cfg(test)]

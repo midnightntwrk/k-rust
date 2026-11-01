@@ -14,15 +14,18 @@
 #   does not do yet), `diagnostic` (the refusal is right, its code, site or advice is not) or
 #   `generator` (the test's own data or harness is wrong).
 # - `by_test`: the owners of the finding's entries of one test (`k2`, `k3`, `k7`, `k8`, ..), where
-#   another than `owner` owns them.
+#   another than `owner` owns them, or where an owner of one test's entries is stated explicitly
+#   (S0-9's and S0-14's K8 entries, whose advice is on S5's cell-entry messages).
 # - `risk`: required on a finding that holds an under-refusal (the table refuses, KRS accepts), and
 #   only there: what the K KRS writes means, and how it differs from what the spelling says.
 #
 # It fails (`class_matrix::findings::audit`) where a pending entry names a finding this file does
 # not have, a finding (or a `by_test` owner) has no pending entry left (it is done: remove it), or
 # a red's kind (`class_matrix::findings::Red`) is not one the finding's kind may hold: an
-# under-refusal or a red with an internal code only under a `bug`, a red of what KRS wrote or ran
-# (an over-refusal, other K, K1, K3, K4, K6, K7, the twin check) never under a `diagnostic`.
+# under-refusal, a red with an internal code and a red that panicked only under a `bug`, whatever
+# its test; a red of what KRS wrote or ran (an over-refusal, other K, K1, K3, K4, K6, K7, the twin
+# check) never under a `diagnostic`; a K2 red of a case the table does not decide only under a
+# `generator`.
 
 ["B1"]
 owner = "S5"
@@ -242,6 +245,11 @@ owner = "NT-31"
 kind = "feature"
 what = "a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up"
 
+["NT-35-1"]
+owner = "NT-29"
+kind = "bug"
+what = "the run printer reverses an alias whose subject writes a builtin collection constructor (`SetItem`), so the printed `<k>` head is no program text"
+
 ["NT-5-1"]
 owner = "NT-28"
 kind = "diagnostic"
@@ -266,6 +274,7 @@ what = "a constant refuses the empty map and set, which are values"
 owner = "S5"
 kind = "bug"
 what = "a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys"
+by_test = { k8 = "S5" }
 
 ["S0-15"]
 owner = "S5"
@@ -291,3 +300,4 @@ what = "the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges th
 owner = "S5"
 kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first"
+by_test = { k8 = "S5" }

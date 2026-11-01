@@ -664,11 +664,6 @@ impl Spelling {
 /// holds an unevaluated application.
 const COMPUTED: &str = "a computed term, which no evaluated term is";
 
-/// Why an application of `Size`, the base's function that no equation defines, has no value: the
-/// reason the `Size(x)` spelling states too, written out there, where the spelling list's layout
-/// keeps it.
-const SIZE_HAS_NO_VALUE: &str = "Size is partial and the base gives it no equation, so the definition names no value of its application";
-
 /// Why a bare binder has no counter-witness: it matches every term where it is the only
 /// occurrence of its name.
 const BINDER: &str = "a binder matches every term where it is the only occurrence of its name";
@@ -3072,10 +3067,13 @@ fn openers() -> Vec<Slot> {
     };
     let as_body =
         |host: &Slot| host.open("as-body", "y @ HOLE", &[node(C::As, &[])], &[AsBody], &[]);
+    // The function is `Wk`, which the base defines by an equation (`wk(a)` is `Wrap::<KItem>(a)`),
+    // so that the hole's value flows through an evaluation, built or looked up; `Size` has no
+    // equation, and its application no value.
     let function_argument = |host: &Slot| {
         host.open(
             "function-argument",
-            "Size(HOLE)",
+            "Wk(HOLE)",
             &[node(C::FunctionApplication, &[])],
             &[FunctionArgument],
             &[],

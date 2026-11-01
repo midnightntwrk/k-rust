@@ -18,7 +18,8 @@
 //!   the two cannot disagree.
 //! - `kind` ([`FindingKind`]): what fixing it changes.
 //! - `what`: one line saying what is wrong.
-//! - `by_test`: where another owner owns the finding's entries of one test ([`test_of`]).
+//! - `by_test`: the owner of the finding's entries of one test ([`test_of`]), where another owner
+//!   owns them, or where one test's owner is stated explicitly.
 //! - `risk`: on a finding that holds an under-refusal, and only there, what the K KRS writes for
 //!   the spelling means and how that differs from what the spelling says.
 //!
@@ -29,15 +30,23 @@
 //! diagnostic (refused, where it refuses, but not as the class says); any other test's entry is
 //! of that test's kind. A red is also *internal* where its deviation names a code the registry
 //! files as [`CodeKind::Internal`]: an authored source that reaches one has found a KRS bug, by
-//! K2's own rule, whatever the table says.
+//! K2's own rule, whatever the table says. And it *panicked* where its deviation records a panic
+//! ([`panicked`]): K2's signature writes a stage's panic as its part `panic`, and the other tests
+//! write `panic: MESSAGE`, or `krs expand panicked: MESSAGE`. A panic is a KRS bug by the same
+//! rule. K2's other sign of a bug, "internal error" in a message's text, is not in the signature
+//! `pending.toml` records, so it cannot be computed from the entry; K2 fails on it as a violation.
 //!
 //! **What a finding's kind may hold** ([`Red::admits`]). An under-refusal is the red that matters
 //! most for soundness: KRS writes K for a spelling the language gives no meaning, and a user who
-//! writes it gets that K silently. A red with an internal code is a broken contract inside KRS.
-//! Both are bugs, and may sit only under a `bug` finding, so neither can be parked as a message to
-//! improve. A red of what KRS wrote or ran (an over-refusal, other K, K1, K3, K4, K6, K7, the twin
-//! check) is not fixed by changing a message, so it never sits under a `diagnostic` finding; a
-//! diagnostic red, a K5 red and a K8 red (what a refusal says) may sit under any.
+//! writes it gets that K silently. A red with an internal code, and a red that panicked, is a
+//! broken contract inside KRS. All three are bugs, and may sit only under a `bug` finding, whatever
+//! test met them, so none can be parked as a message to improve. A red of what KRS wrote or ran
+//! (an over-refusal, other K, K1, K3, K4, K6, K7, the twin check) is not fixed by changing a
+//! message, so it never sits under a `diagnostic` finding; a diagnostic red, a K5 red and a K8 red
+//! (what a refusal says) may sit under any. A K2 red of a case the table does not decide is the
+//! generator's to resolve (decide the case in `expected.toml`), so it sits only under a
+//! `generator` finding: under another kind, an `accepted` entry would hide what may be an
+//! under-refusal once the table decides the case.
 //!
 //! [`audit`] fails, with the fix in each message, where
 //! - a pending entry names a finding the registry does not have;
@@ -47,7 +56,7 @@
 //! - a finding holds an under-refusal and states no `risk`, or states one and holds none.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{self, Write as _};
+use std::fmt;
 
 use krs_diagnostic::codes::CodeKind;
 use toml_edit::DocumentMut;
@@ -215,6 +224,14 @@ impl Findings {
         let finding = self.findings.get(finding)?;
         Some(finding.by_test.get(test_of(key)).unwrap_or(&finding.owner))
     }
+
+    /// The owner of the pending entry `key` under `finding` as a summary names it:
+    /// [`Self::owner`], or `unregistered`.
+    #[must_use]
+    pub fn owner_name(&self, finding: &str, key: &str) -> String {
+        self.owner(finding, key)
+            .map_or_else(|| "unregistered".to_owned(), ToString::to_string)
+    }
 }
 
 fn parse_finding(name: &str, item: &toml_edit::Item) -> Result<Finding, Vec<String>> {
@@ -350,14 +367,16 @@ impl RedKind {
     }
 }
 
-/// The computed kind of one red: its [`RedKind`], and whether its deviation names an internal
-/// code.
+/// The computed kind of one red: its [`RedKind`], whether its deviation names an internal code,
+/// and whether it records a panic.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Red {
     /// What the red is.
     pub kind: RedKind,
     /// Whether its deviation names a code the registry files as internal.
     pub internal: bool,
+    /// Whether its deviation records a panic ([`panicked`]).
+    pub panicked: bool,
 }
 
 impl Red {
@@ -390,16 +409,26 @@ impl Red {
             },
         };
         let internal = codes(deviation).any(|code| code_kind(code) == Some(CodeKind::Internal));
-        Self { kind, internal }
+        Self {
+            kind,
+            internal,
+            panicked: panicked(deviation),
+        }
+    }
+
+    /// Whether the red is a KRS bug whatever its test: an under-refusal, an internal code or a
+    /// panic.
+    const fn is_bug(self) -> bool {
+        self.internal || self.panicked || matches!(self.kind, RedKind::UnderRefusal)
     }
 
     /// Whether a finding of `kind` may hold this red.
     #[must_use]
     pub fn admits(self, kind: FindingKind) -> bool {
         match self.kind {
-            _ if self.internal => kind == FindingKind::Bug,
-            RedKind::UnderRefusal => kind == FindingKind::Bug,
-            RedKind::Diagnostic | RedKind::K5 | RedKind::K8 | RedKind::Uncovered => true,
+            _ if self.is_bug() => kind == FindingKind::Bug,
+            RedKind::Uncovered => kind == FindingKind::Generator,
+            RedKind::Diagnostic | RedKind::K5 | RedKind::K8 => true,
             RedKind::OverRefusal
             | RedKind::OtherK
             | RedKind::K1
@@ -407,15 +436,20 @@ impl Red {
             | RedKind::K4
             | RedKind::K6
             | RedKind::K7
-            | RedKind::Twin => kind != FindingKind::Diagnostic,
+            | RedKind::Twin
+            | RedKind::UnderRefusal => kind != FindingKind::Diagnostic,
         }
     }
 
     /// Why a finding's kind does not admit this red.
     fn reason(self) -> &'static str {
-        if self.internal || self.kind == RedKind::UnderRefusal {
-            "an under-refusal (KRS writes K for a spelling with no meaning) and an internal code \
-             (a contract inside KRS broken) are KRS bugs: register the red under a `bug` finding"
+        if self.is_bug() {
+            "an under-refusal (KRS writes K for a spelling with no meaning), an internal code and \
+             a panic (a contract inside KRS broken) are KRS bugs: register the red under a `bug` \
+             finding"
+        } else if self.kind == RedKind::Uncovered {
+            "the table does not decide the case: decide it in expected.toml, or register the red \
+             under a `generator` finding until then"
         } else {
             "a red of what KRS wrote or ran is not fixed by a message: register it under a `bug`, \
              `feature` or `generator` finding"
@@ -429,8 +463,22 @@ impl fmt::Display for Red {
         if self.internal {
             formatter.write_str("+internal")?;
         }
+        if self.panicked {
+            formatter.write_str("+panic")?;
+        }
         Ok(())
     }
+}
+
+/// Whether a deviation records a panic: a part `panic` of K2's signature, or the word `panic` or
+/// `panicked` anywhere in another test's deviation (`panic: MESSAGE`, a counter-witness's
+/// `panic: MESSAGE` after its program, `krs expand panicked: MESSAGE`, K6's `a check worker
+/// panicked`). No code and no deviation the harness writes holds either word otherwise.
+#[must_use]
+pub fn panicked(deviation: &str) -> bool {
+    deviation
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .any(|word| matches!(word, "panic" | "panicked"))
 }
 
 /// The KRS codes (`krs::stage::name`) a deviation names.
@@ -497,9 +545,23 @@ pub fn audit(
             }
         }
         if held.iter().all(|test| finding.by_test.contains_key(*test)) {
-            errors.push(format!(
-                "{name}: every entry left is owned through by_test: make that its owner"
-            ));
+            let owners = held
+                .iter()
+                .filter_map(|test| finding.by_test.get(*test).map(ToString::to_string))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            errors.push(match owners.as_slice() {
+                [owner] => format!(
+                    "{name}: every entry left is owned through by_test: make {owner} the \
+                     finding's owner and drop by_test"
+                ),
+                owners => format!(
+                    "{name}: every entry left is owned through by_test, by {}: make one of them \
+                     the finding's owner and keep by_test for the others",
+                    owners.join(", ")
+                ),
+            });
         }
         match (finding.risk.is_some(), under.contains(name.as_str())) {
             (false, true) => errors.push(format!(
@@ -527,28 +589,24 @@ pub struct Summary {
 }
 
 impl Summary {
-    /// Count the red `key`, of the kind `red`, under its entry's finding.
-    pub fn add(&mut self, findings: &Findings, key: &str, entry: &PendingEntry, red: Red) {
-        let owner = findings
-            .owner(&entry.finding, key)
-            .map_or_else(|| "unregistered".to_owned(), ToString::to_string);
+    /// Count a red of the kind `red` under `finding`, whose owner for the red is `owner`
+    /// ([`Findings::owner_name`]).
+    pub fn add(&mut self, red: Red, finding: &str, owner: &str) {
         *self.by_kind.entry(red.to_string()).or_default() += 1;
-        *self.by_owner.entry(owner.clone()).or_default() += 1;
+        *self.by_owner.entry(owner.to_owned()).or_default() += 1;
         self.by_kind_and_finding
-            .entry((red.to_string(), entry.finding.clone()))
-            .or_insert((owner, 0))
+            .entry((red.to_string(), finding.to_owned()))
+            .or_insert_with(|| (owner.to_owned(), 0))
             .1 += 1;
     }
 
-    /// One line per kind and finding: `KIND\tFINDING\tOWNER\tCOUNT`.
-    #[must_use]
-    pub fn lines(&self) -> String {
-        let mut lines = String::new();
-        for ((kind, finding), (owner, count)) in &self.by_kind_and_finding {
-            writeln!(lines, "{kind}\t{finding}\t{owner}\t{count}")
-                .expect("writing to a String cannot fail");
-        }
-        lines
+    /// One row per kind and finding: the kind, the finding, its owner and the count.
+    pub fn rows(&self) -> impl Iterator<Item = (&str, &str, &str, usize)> {
+        self.by_kind_and_finding
+            .iter()
+            .map(|((kind, finding), (owner, count))| {
+                (kind.as_str(), finding.as_str(), owner.as_str(), *count)
+            })
     }
 }
 
