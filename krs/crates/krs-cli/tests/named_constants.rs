@@ -559,9 +559,11 @@ k::rules! {
 
 /// A dependency's declarations in a private module (`mod sorts; pub use sorts::{..};`) print by
 /// the paths the root's source writes to them, through the public re-export: their declaring
-/// path `::semantic_base::sorts::Unit` does not compile from another crate (E0603). Where the
-/// source writes no path to such an item from the crate's name, no printed path is known to
-/// compile, and `krs expand` refuses with `dependency-path` rather than print one.
+/// path `::semantic_base::sorts::Unit` does not compile from another crate (E0603). A path from a
+/// name the source's `use` gives the crate (`use semantic_base as sb;`) is the path from the
+/// crate's name, which the extern prelude names. Where the source writes no path to such an item,
+/// no printed path is known to compile, and `krs expand` refuses with `dependency-path` rather
+/// than print one.
 #[test]
 fn a_dependency_item_in_a_private_module_expands_by_the_path_the_source_writes() {
     let target = shared_fixture_target();
@@ -636,8 +638,7 @@ k::rules! {{
     fs::write(&source, &printed).unwrap();
     let (success, _, stderr) = krs(target.path(), &root, "root", "check", &dependency);
     assert!(success, "{printed}\n{stderr}");
-    // The same rule, where the source names the crate only through a `use` renaming it: the
-    // printer reads the paths the source writes from the crate's own name, so it knows of none.
+    // The same rule, where the source names the crate only through a `use` renaming it.
     let renamed = root_source("cross: sb::Unit => sb::Same;")
         .replace("for semantic_base::Common;", "for sb::Common;")
         .replace(
@@ -645,11 +646,128 @@ k::rules! {{
             "use k::builtin::KSequence;\nuse semantic_base as sb;",
         )
         .replace("k::k![semantic_base::Same]", "k::k![sb::Same]");
-    fs::write(&source, renamed).unwrap();
+    fs::write(&source, &renamed).unwrap();
+    let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
+    assert!(success, "{stderr}");
+    let collapsed = printed.replace(' ', "");
+    for path in ["::semantic_base::Unit", "::semantic_base::Same"] {
+        assert!(collapsed.contains(path), "{printed}");
+    }
+    fs::write(&source, &printed).unwrap();
+    let (success, _, stderr) = krs(target.path(), &root, "root", "check", &dependency);
+    assert!(success, "{printed}\n{stderr}");
+    // A source that reaches `Same` only through a glob writes no path to it.
+    let globbed = root_source("cross: semantic_base::Unit => Same;")
+        .replace(
+            "use k::builtin::KSequence;",
+            "use k::builtin::KSequence;\nuse semantic_base::*;",
+        )
+        .replace("k::k![semantic_base::Same]", "k::k![Same]");
+    fs::write(&source, globbed).unwrap();
     let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
     assert!(!success, "{printed}");
     assert!(
         stderr.contains("krs::reference::dependency-path"),
+        "{stderr}"
+    );
+}
+
+/// A package the root does not depend on directly (`base`, which `mid` depends on and
+/// re-exports) has no crate name in the root's source: its declarations print by the path the
+/// source writes to them through `mid`'s re-export, and the printed source checks. Where the
+/// source writes no path to one, `krs expand` refuses with `external-declaration`, saying so.
+#[test]
+fn a_transitive_dependency_item_expands_by_the_re_export_the_source_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    write_package(
+        temporary.path(),
+        "base",
+        r#"
+pub use sorts::{Common, CommonSort, Same, Unit};
+
+mod sorts {
+    use k::{KItem, KItemSort, Term};
+
+    #[k::sort(alias = Common, parents = [KItem])]
+    pub trait CommonSort: KItemSort {}
+    pub type Common = Term<dyn CommonSort>;
+
+    #[k::constructor(sort = Common, syntax = "same")]
+    pub struct Same;
+
+    #[k::constructor(sort = Common, syntax = "unit")]
+    pub struct Unit;
+}
+"#,
+        "",
+    );
+    write_package(
+        temporary.path(),
+        "mid",
+        "pub use semantic_base::{Common, CommonSort, Same, Unit};\n",
+        "semantic_base = { package = \"base\", path = \"../base\" }\n",
+    );
+    let root_source = |rule: &str| {
+        format!(
+            r"
+use k::builtin::KSequence;
+use mid::{{Common, Same}};
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init() -> Self {{
+        Self {{ k: k::k![Same] }}
+    }}
+}}
+
+k::rules! {{
+    for Common;
+    {rule}
+}}
+"
+        )
+    };
+    let root = write_package(
+        temporary.path(),
+        "root",
+        &root_source("cross: mid::Unit => Same;"),
+        "mid = { path = \"../mid\" }\n",
+    );
+    fs::write(
+        temporary.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"base\", \"mid\", \"root\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let dependency = ["--dependency", "base:main"];
+    let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
+    assert!(success, "{stderr}");
+    let collapsed = printed.replace(' ', "");
+    for path in ["::mid::Unit", "::mid::Same"] {
+        assert!(collapsed.contains(path), "{printed}");
+    }
+    let source = root.with_file_name("src").join("lib.rs");
+    fs::write(&source, &printed).unwrap();
+    let (success, _, stderr) = krs(target.path(), &root, "root", "check", &dependency);
+    assert!(success, "{printed}\n{stderr}");
+    // `Same` reached only through a glob: the source writes no path to it.
+    fs::write(
+        &source,
+        root_source("cross: mid::Unit => Same;")
+            .replace("use mid::{Common, Same};", "use mid::{Common, *};"),
+    )
+    .unwrap();
+    let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
+    assert!(!success, "{printed}");
+    assert!(
+        stderr.contains("krs::reference::external-declaration")
+            && stderr.contains("the source writes no path to an item of that name"),
         "{stderr}"
     );
 }

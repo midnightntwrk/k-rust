@@ -36,8 +36,8 @@ use syn::spanned::Spanned;
 /// and the file under the manifest directory must still have its collected
 /// content digest.
 /// `facade` is the package's facade scope before file and inline-module bindings, and
-/// `crates` the crate name its source gives each dependency package it names
-/// ([`expand_reference_source_naming`]).
+/// `crates` the crate names its source gives its dependencies ([`DependencyCrates`],
+/// [`expand_reference_source_naming`]).
 ///
 /// # Errors
 ///
@@ -48,7 +48,7 @@ pub fn expand_package_reference_source(
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
     package: &PackageId,
-    crates: &BTreeMap<PackageId, String>,
+    crates: &DependencyCrates,
     manifest_path: &Path,
     facade: &FacadeScope,
 ) -> Result<String, ReferenceExpansionError> {
@@ -205,17 +205,30 @@ pub fn expand_reference_source(
         source,
         facade,
         package,
-        &BTreeMap::new(),
+        &DependencyCrates::default(),
         module_path,
         bundle,
         semantic,
     )
 }
 
-/// [`expand_reference_source`], where the source names each package of `crates` (a dependency
-/// it declares) by its crate name there: a declaration of one of them prints as its path in
-/// that crate (`::semantic_base::Unit`). A declaration of any other package has no path the
-/// source can print.
+/// The crate names a package's source gives the packages it depends on directly (normal
+/// dependencies), by which it names their items and their re-exports.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DependencyCrates {
+    /// The crate name of each dependency of the composition (a KRS package whose declarations
+    /// the bundle holds).
+    pub packages: BTreeMap<PackageId, String>,
+    /// The crate names of the other dependencies, through whose re-exports the source may name
+    /// an item of a package it does not depend on directly.
+    pub others: BTreeSet<String>,
+}
+
+/// [`expand_reference_source`], where the source names each package of `crates.packages` (a
+/// dependency it declares) by its crate name there: a declaration of one of them prints as its
+/// path in that crate (`::semantic_base::Unit`). A declaration of a package the source does not
+/// depend on directly prints by the one path the source writes to it through a dependency's
+/// re-export, where one names it ([`transitive_path`]).
 ///
 /// # Errors
 ///
@@ -228,19 +241,19 @@ pub fn expand_reference_source_naming(
     source: &str,
     facade: &FacadeScope,
     package: &PackageId,
-    crates: &BTreeMap<PackageId, String>,
+    crates: &DependencyCrates,
     module_path: &[String],
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
-    let authored = authored_paths(&file, crates);
-    let repeated = repeated_names(bundle, crates);
+    let authored = authored_paths(&file, &crates.packages, &crates.others);
+    let declared = declared_names(bundle);
     let package = PathScope {
         package,
-        crates,
+        crates: &crates.packages,
         authored: &authored,
-        repeated: &repeated,
+        declared: &declared,
     };
     let descriptor_index = DescriptorIndex::new(bundle);
     let macro_entries = reference_macro_entries(&file, facade);
@@ -3228,16 +3241,16 @@ fn render_local_path(
 ///
 /// Elsewhere no path is known to compile, and printing is refused
 /// ([`ReferenceExpansionError::DependencyPath`]). A package the source does not depend on
-/// directly has no crate name there ([`ReferenceExpansionError::ExternalDeclaration`]).
+/// directly has no crate name there: its item is printed by the one path the source writes to
+/// it through a dependency's re-export ([`transitive_path`]).
 fn dependency_path(
     id: &StableItemId,
     scope: PathScope<'_>,
     head: Option<&Ident>,
 ) -> Result<Vec<String>, ReferenceExpansionError> {
-    let crate_name = scope
-        .crates
-        .get(id.package())
-        .ok_or_else(|| ReferenceExpansionError::ExternalDeclaration(Box::new(id.clone())))?;
+    let Some(crate_name) = scope.crates.get(id.package()) else {
+        return transitive_path(id, scope, head);
+    };
     let mut declared = vec![crate_name.clone()];
     declared.extend(id.module_path().iter().cloned());
     let Some(head) = head else {
@@ -3253,9 +3266,13 @@ fn dependency_path(
     if id.module_path().is_empty() || written.iter().any(|path| module(path) == declared) {
         return Ok(declared);
     }
-    let repeated = scope
-        .repeated
-        .contains(&(id.package().clone(), head.clone()));
+    let repeated = scope.declared.get(&head).is_some_and(|declarers| {
+        declarers
+            .iter()
+            .filter(|(package, _)| package == id.package())
+            .count()
+            > 1
+    });
     match written.iter().collect::<Vec<_>>().as_slice() {
         [path] if !repeated => Ok(module(path)),
         _ => Err(ReferenceExpansionError::DependencyPath {
@@ -3266,19 +3283,76 @@ fn dependency_path(
     }
 }
 
-/// The paths `file` writes to an item of a crate `crates` names, by crate name and item name:
+/// The path, from the extern prelude, to the module that holds `head`, an item of a package the
+/// printed package does not depend on directly (one a dependency depends on), declared in the
+/// module of `id`: the source has no crate name for that package, and reaches the item only
+/// through a dependency that re-exports it (`pub use base::Item;` in `mid`, written
+/// `mid::Item`).
+///
+/// A path the source writes through a dependency names that item where the composition
+/// declares no other item of that name: then the dependency's own items, and every other
+/// package's, have none, and the path, which compiles where the source writes it, can name only
+/// the re-export. The one such path the source writes is printed. Where the source writes none
+/// or several, or another declaration has the name, no path is known to name the item, and
+/// printing is refused ([`ReferenceExpansionError::ExternalDeclaration`]).
+fn transitive_path(
+    id: &StableItemId,
+    scope: PathScope<'_>,
+    head: Option<&Ident>,
+) -> Result<Vec<String>, ReferenceExpansionError> {
+    let head = head.map(|head| head.unraw().to_string());
+    let written = head
+        .as_ref()
+        .map(|head| {
+            scope
+                .authored
+                .iter()
+                .filter(|((_, name), _)| name == head)
+                .flat_map(|(_, paths)| paths.iter().cloned())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let unique = head.as_ref().is_some_and(|head| {
+        scope.declared.get(head).is_some_and(|declarers| {
+            declarers.len() == 1
+                && declarers.contains(&(id.package().clone(), id.module_path().to_vec()))
+        })
+    });
+    match written.iter().collect::<Vec<_>>().as_slice() {
+        [path] if unique => Ok(path[..path.len() - 1].to_vec()),
+        _ => Err(ReferenceExpansionError::ExternalDeclaration {
+            item: Box::new(id.clone()),
+            written: written.iter().map(|path| path.join("::")).collect(),
+            unique,
+        }),
+    }
+}
+
+/// The paths `file` writes to an item of a crate `crates` or `others` names, by crate name and
+/// item name:
 /// each path, from the crate name, that ends in that item, through a `use` (before its `as`) or
-/// in any tokens, a macro's included, since a readable clause is a macro's.
+/// in any tokens, a macro's included, since a readable clause is a macro's. A path from a name
+/// a `use` or an `extern crate` of the file gives a path from a crate name (`use dep as d;`,
+/// `use dep::m as mm;`) is that path: `d::Item` is `dep::Item`, which the extern prelude names
+/// wherever the source stands. A name given two paths, or that is a crate name itself, is no
+/// such name.
 fn authored_paths(
     file: &syn::File,
     crates: &BTreeMap<PackageId, String>,
+    others: &BTreeSet<String>,
 ) -> BTreeMap<(String, String), BTreeSet<Vec<String>>> {
-    fn record(
-        path: &[String],
-        names: &BTreeSet<&String>,
-        paths: &mut BTreeMap<(String, String), BTreeSet<Vec<String>>>,
-    ) {
-        let Some(first) = path.first().filter(|first| names.contains(first)) else {
+    type Paths = BTreeMap<(String, String), BTreeSet<Vec<String>>>;
+    /// The crate names, and the paths from them that a `use .. as` name stands for.
+    struct Names<'a> {
+        crates: BTreeSet<&'a String>,
+        renamed: BTreeMap<String, Vec<String>>,
+    }
+    fn record(path: &[String], names: &Names<'_>, paths: &mut Paths) {
+        let path = match path.first().and_then(|first| names.renamed.get(first)) {
+            Some(target) => target.iter().chain(&path[1..]).cloned().collect(),
+            None => path.to_vec(),
+        };
+        let Some(first) = path.first().filter(|first| names.crates.contains(first)) else {
             return;
         };
         for end in 2..=path.len() {
@@ -3288,12 +3362,7 @@ fn authored_paths(
                 .insert(path[..end].to_vec());
         }
     }
-    fn uses(
-        tree: &syn::UseTree,
-        prefix: &mut Vec<String>,
-        names: &BTreeSet<&String>,
-        paths: &mut BTreeMap<(String, String), BTreeSet<Vec<String>>>,
-    ) {
+    fn uses(tree: &syn::UseTree, prefix: &mut Vec<String>, names: &Names<'_>, paths: &mut Paths) {
         match tree {
             syn::UseTree::Path(path) => {
                 prefix.push(path.ident.unraw().to_string());
@@ -3319,11 +3388,7 @@ fn authored_paths(
         }
     }
     // Every maximal `ident (:: ident)*` run of `tokens`, groups searched too.
-    fn runs(
-        tokens: TokenStream,
-        names: &BTreeSet<&String>,
-        paths: &mut BTreeMap<(String, String), BTreeSet<Vec<String>>>,
-    ) {
+    fn runs(tokens: TokenStream, names: &Names<'_>, paths: &mut Paths) {
         let tokens = tokens.into_iter().collect::<Vec<_>>();
         let separator = |at: usize| {
             matches!((tokens.get(at), tokens.get(at + 1)),
@@ -3353,11 +3418,16 @@ fn authored_paths(
             }
         }
     }
-    let names = crates.values().collect::<BTreeSet<_>>();
+    let crate_names = crates.values().chain(others).collect::<BTreeSet<_>>();
     let mut paths = BTreeMap::new();
-    if names.is_empty() {
+    if crate_names.is_empty() {
         return paths;
     }
+    let renamed = renamed_crates(file, &crate_names);
+    let names = Names {
+        crates: crate_names,
+        renamed,
+    };
     for item in &file.items {
         if let syn::Item::Use(item) = item {
             uses(&item.tree, &mut Vec::new(), &names, &mut paths);
@@ -3367,26 +3437,100 @@ fn authored_paths(
     paths
 }
 
-/// The item names that a package `crates` names declares in more than one module, by package.
-fn repeated_names(
-    bundle: &DescriptorBundle,
-    crates: &BTreeMap<PackageId, String>,
-) -> BTreeSet<(PackageId, String)> {
-    let mut modules = BTreeMap::<(PackageId, String), BTreeSet<Vec<String>>>::new();
-    for descriptor in bundle.descriptors() {
-        let id = descriptor.id();
-        if crates.contains_key(id.package()) {
-            modules
-                .entry((id.package().clone(), id.item_name().to_owned()))
-                .or_default()
-                .insert(id.module_path().to_vec());
+/// The names a `use` or an `extern crate` of `file` (its inline modules included) gives a path
+/// from one of `crate_names` (`use dep as d;`, `use dep::m as mm;`), each beside that path; a
+/// name given two paths, or that is a crate name itself, is left out.
+fn renamed_crates(
+    file: &syn::File,
+    crate_names: &BTreeSet<&String>,
+) -> BTreeMap<String, Vec<String>> {
+    /// The `as` names of `tree`'s renames, each beside the path it renames.
+    fn renames(
+        tree: &syn::UseTree,
+        prefix: &mut Vec<String>,
+        found: &mut Vec<(String, Vec<String>)>,
+    ) {
+        match tree {
+            syn::UseTree::Path(path) => {
+                prefix.push(path.ident.unraw().to_string());
+                renames(&path.tree, prefix, found);
+                prefix.pop();
+            }
+            syn::UseTree::Rename(rename) => {
+                let mut path = prefix.clone();
+                path.push(rename.ident.unraw().to_string());
+                found.push((rename.rename.unraw().to_string(), path));
+            }
+            syn::UseTree::Group(group) => {
+                for tree in &group.items {
+                    renames(tree, prefix, found);
+                }
+            }
+            syn::UseTree::Name(_) | syn::UseTree::Glob(_) => {}
         }
     }
-    modules
+    /// The renames of `items` and of the modules they declare inline.
+    fn item_renames(items: &[syn::Item], found: &mut Vec<(String, Vec<String>)>) {
+        for item in items {
+            match item {
+                syn::Item::Use(item) => renames(&item.tree, &mut Vec::new(), found),
+                syn::Item::ExternCrate(item) => {
+                    if let Some((_, rename)) = &item.rename {
+                        found.push((
+                            rename.unraw().to_string(),
+                            vec![item.ident.unraw().to_string()],
+                        ));
+                    }
+                }
+                syn::Item::Mod(module) => {
+                    if let Some((_, items)) = &module.content {
+                        item_renames(items, found);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    item_renames(&file.items, &mut found);
+    let mut renamed = BTreeMap::<String, Option<Vec<String>>>::new();
+    for (name, path) in found {
+        if crate_names.contains(&name)
+            || !path
+                .first()
+                .is_some_and(|first| crate_names.contains(first))
+        {
+            continue;
+        }
+        renamed
+            .entry(name)
+            .and_modify(|target| {
+                if target.as_ref() != Some(&path) {
+                    *target = None;
+                }
+            })
+            .or_insert(Some(path));
+    }
+    renamed
         .into_iter()
-        .filter(|(_, modules)| modules.len() > 1)
-        .map(|(name, _)| name)
+        .filter_map(|(name, path)| Some((name, path?)))
         .collect()
+}
+
+/// The item names the composition's packages declare, each beside the package and the module
+/// of each declaration.
+fn declared_names(
+    bundle: &DescriptorBundle,
+) -> BTreeMap<String, BTreeSet<(PackageId, Vec<String>)>> {
+    let mut declared = BTreeMap::<String, BTreeSet<(PackageId, Vec<String>)>>::new();
+    for descriptor in bundle.descriptors() {
+        let id = descriptor.id();
+        declared
+            .entry(id.item_name().to_owned())
+            .or_default()
+            .insert((id.package().clone(), id.module_path().to_vec()));
+    }
+    declared
 }
 
 /// The sort marker of a turbofish argument: a builtin's marker type, or a
@@ -3868,6 +4012,33 @@ fn rust_ident(value: &str) -> Result<Ident, ReferenceExpansionError> {
 /// identifiers.
 const EDITION_RESERVED: &[&str] = &["gen"];
 
+/// The message of [`ReferenceExpansionError::ExternalDeclaration`].
+fn write_external_declaration(
+    formatter: &mut fmt::Formatter<'_>,
+    item: &StableItemId,
+    written: &[String],
+    unique: bool,
+) -> fmt::Result {
+    write!(
+        formatter,
+        "cannot print a path to {item}: its package is no direct dependency of the printed package, so the source names it only through a dependency's re-export, and "
+    )?;
+    match (written, unique) {
+        ([], _) => formatter.write_str("the source writes no path to an item of that name")?,
+        (_, false) => write!(
+            formatter,
+            "the composition declares other items of that name, which the paths the source writes ({}) may name",
+            written.join(", ")
+        )?,
+        (_, true) => write!(
+            formatter,
+            "the source writes several paths to it ({})",
+            written.join(", ")
+        )?,
+    }
+    formatter.write_str("; name it in the source by one path through a dependency that re-exports it, or depend on its package")
+}
+
 /// The message of [`ReferenceExpansionError::DependencyPath`].
 fn write_dependency_path(
     formatter: &mut fmt::Formatter<'_>,
@@ -3901,8 +4072,8 @@ struct PathScope<'a> {
     crates: &'a BTreeMap<PackageId, String>,
     /// The paths the source writes to dependencies' items ([`authored_paths`]).
     authored: &'a BTreeMap<(String, String), BTreeSet<Vec<String>>>,
-    /// The item names a dependency declares in more than one module ([`repeated_names`]).
-    repeated: &'a BTreeSet<(PackageId, String)>,
+    /// The item names the composition declares, by package and module ([`declared_names`]).
+    declared: &'a BTreeMap<String, BTreeSet<(PackageId, Vec<String>)>>,
 }
 
 /// Failure to select or reread the one authored source of a package.
@@ -4079,8 +4250,17 @@ pub enum ReferenceExpansionError {
         /// Binder whose inferred sort was absent.
         binding: String,
     },
-    /// A stable dependency alias cannot be reconstructed from protocol data.
-    ExternalDeclaration(Box<StableItemId>),
+    /// An item of a package the printed package does not depend on directly, to which the
+    /// source writes no one path through a dependency's re-export known to name it
+    /// ([`transitive_path`]).
+    ExternalDeclaration {
+        /// The item.
+        item: Box<StableItemId>,
+        /// The paths the source writes, through its dependencies, to an item of that name.
+        written: Vec<String>,
+        /// Whether the composition declares no other item of that name.
+        unique: bool,
+    },
     /// A dependency's item declared below its crate root, to which the source writes no path
     /// known to compile ([`dependency_path`]).
     DependencyPath {
@@ -4156,7 +4336,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::MissingConstructorField { .. } => codes::reference::MISSING_CONSTRUCTOR_FIELD,
             Self::MissingSemanticRule(_) => codes::reference::MISSING_SEMANTIC_RULE,
             Self::MissingBindingSort { .. } => codes::reference::MISSING_BINDING_SORT,
-            Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
+            Self::ExternalDeclaration { .. } => codes::reference::EXTERNAL_DECLARATION,
             Self::DependencyPath { .. } => codes::reference::DEPENDENCY_PATH,
             Self::ExternalReferenceSort(_) => codes::reference::EXTERNAL_REFERENCE_SORT,
             Self::MixedApplicationArguments => codes::reference::MIXED_APPLICATION_ARGUMENTS,
@@ -4225,10 +4405,11 @@ impl fmt::Display for ReferenceExpansionError {
                     "rule `{rule}` binding `{binding}` has no inferred sort"
                 )
             }
-            Self::ExternalDeclaration(id) => write!(
-                formatter,
-                "cannot render external declaration {id} without its authored Cargo alias"
-            ),
+            Self::ExternalDeclaration {
+                item,
+                written,
+                unique,
+            } => write_external_declaration(formatter, item, written, *unique),
             Self::DependencyPath {
                 item,
                 declared,
@@ -4294,7 +4475,7 @@ impl Error for ReferenceExpansionError {
             | Self::MissingConstructorField { .. }
             | Self::MissingSemanticRule(_)
             | Self::MissingBindingSort { .. }
-            | Self::ExternalDeclaration(_)
+            | Self::ExternalDeclaration { .. }
             | Self::DependencyPath { .. }
             | Self::ExternalReferenceSort(_)
             | Self::MixedApplicationArguments
@@ -4528,12 +4709,12 @@ mod tests {
     fn local(package: &PackageId) -> PathScope<'_> {
         static NONE: BTreeMap<PackageId, String> = BTreeMap::new();
         static AUTHORED: BTreeMap<(String, String), BTreeSet<Vec<String>>> = BTreeMap::new();
-        static REPEATED: BTreeSet<(PackageId, String)> = BTreeSet::new();
+        static DECLARED: BTreeMap<String, BTreeSet<(PackageId, Vec<String>)>> = BTreeMap::new();
         PathScope {
             package,
             crates: &NONE,
             authored: &AUTHORED,
-            repeated: &REPEATED,
+            declared: &DECLARED,
         }
     }
 
@@ -4576,7 +4757,7 @@ mod tests {
             package: &package,
             crates: &crates,
             authored: &BTreeMap::new(),
-            repeated: &BTreeSet::new(),
+            declared: &BTreeMap::new(),
         };
         assert_eq!(
             render_sort_marker(&sort(&dependency, "Exp"), scope)
@@ -4586,7 +4767,7 @@ mod tests {
         );
         assert!(matches!(
             render_sort_marker(&sort(&other, "Exp"), scope),
-            Err(ReferenceExpansionError::ExternalDeclaration(_))
+            Err(ReferenceExpansionError::ExternalDeclaration { .. })
         ));
     }
 
@@ -4611,16 +4792,25 @@ mod tests {
         };
         let printed = |source: &str, repeated: &[&str], id: &StableItemId| {
             let file = syn::parse_file(source).unwrap();
-            let authored = authored_paths(&file, &crates);
-            let repeated = repeated
+            let authored = authored_paths(&file, &crates, &BTreeSet::new());
+            // Each repeated name is declared in a second module of the dependency.
+            let declared = repeated
                 .iter()
-                .map(|name| (dependency.clone(), (*name).to_owned()))
+                .map(|name| {
+                    (
+                        (*name).to_owned(),
+                        BTreeSet::from([
+                            (dependency.clone(), vec!["sorts".to_owned()]),
+                            (dependency.clone(), vec!["other".to_owned()]),
+                        ]),
+                    )
+                })
                 .collect();
             let scope = PathScope {
                 package: &package,
                 crates: &crates,
                 authored: &authored,
-                repeated: &repeated,
+                declared: &declared,
             };
             render_declared_path(id, scope).map(|path| path.to_string().replace(' ', ""))
         };
@@ -4650,6 +4840,87 @@ mod tests {
             error.to_diagnostic().code,
             codes::reference::DEPENDENCY_PATH
         );
+        // A path from a name a `use` gives the crate, or a module of it, is the path from the
+        // crate name; a name given two paths is none.
+        for renamed in [
+            "use semantic_dep as sd; k::rules! { cross: sd::Unit => sd::Unit; }",
+            "use semantic_dep::sorts as s; k::rules! { cross: s::Unit => s::Unit; }",
+            "extern crate semantic_dep as sd; k::rules! { cross: sd::Unit => sd::Unit; }",
+            "mod m { use semantic_dep as sd; } k::rules! { cross: sd::Unit => sd::Unit; }",
+        ] {
+            let expected = if renamed.contains("sorts as s") {
+                "::semantic_dep::sorts::Unit"
+            } else {
+                "::semantic_dep::Unit"
+            };
+            assert_eq!(printed(renamed, &[], &unit).unwrap(), expected, "{renamed}");
+        }
+        assert!(matches!(
+            printed(
+                "use semantic_dep as sd; mod m { use semantic_dep::sorts as sd; } k::rules! { cross: sd::Unit => sd::Unit; }",
+                &[],
+                &unit,
+            ),
+            Err(ReferenceExpansionError::DependencyPath { .. })
+        ));
+    }
+
+    /// An item of a package the source has no crate name for (a dependency's dependency) prints
+    /// by the one path the source writes to it through a dependency's re-export, where the
+    /// composition declares no other item of that name; elsewhere the print is refused.
+    #[test]
+    fn a_transitive_dependency_item_prints_by_the_re_export_the_source_writes() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let middle = PackageId::new("MID", "mid", "0.1.0", "workspace").unwrap();
+        let base = PackageId::new("BASE", "base", "0.1.0", "workspace").unwrap();
+        // `mid` is no KRS package: the bundle holds no declaration of it.
+        let crates = BTreeMap::new();
+        let reexporting = BTreeSet::from(["mid".to_owned()]);
+        let unit = StableItemId::new(
+            base.clone(),
+            ["sorts".to_owned()],
+            "Unit",
+            ItemKind::Constructor,
+            "",
+        )
+        .unwrap();
+        let printed = |source: &str, others: &[PackageId]| {
+            let file = syn::parse_file(source).unwrap();
+            let authored = authored_paths(&file, &crates, &reexporting);
+            let mut declarers = BTreeSet::from([(base.clone(), vec!["sorts".to_owned()])]);
+            declarers.extend(others.iter().map(|other| (other.clone(), Vec::new())));
+            let declared = BTreeMap::from([("Unit".to_owned(), declarers)]);
+            let scope = PathScope {
+                package: &package,
+                crates: &crates,
+                authored: &authored,
+                declared: &declared,
+            };
+            render_declared_path(&unit, scope).map(|path| path.to_string().replace(' ', ""))
+        };
+        let source = "use mid::Unit; k::rules! { cross: Unit => Unit; }";
+        assert_eq!(printed(source, &[]).unwrap(), "::mid::Unit");
+        assert_eq!(
+            printed(
+                "k::rules! { cross: mid::base::Unit => mid::base::Unit; }",
+                &[]
+            )
+            .unwrap(),
+            "::mid::base::Unit"
+        );
+        for (source, others) in [
+            // The middle package declares an item of that name, which the path may name.
+            (source, std::slice::from_ref(&middle)),
+            ("fn f() {}", &[][..]),
+            ("use mid::{Unit, sorts::Unit as U};", &[][..]),
+        ] {
+            let error = printed(source, others).unwrap_err();
+            assert_eq!(
+                error.to_diagnostic().code,
+                codes::reference::EXTERNAL_DECLARATION,
+                "{source}"
+            );
+        }
     }
 
     #[test]
