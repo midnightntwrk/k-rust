@@ -985,7 +985,7 @@ fn min_and_max_bound_their_operands_in_the_right_direction() {
     );
 }
 
-/// Coordinator's decision on domains.md 1917: `replaceAll(S, T, R) = replace(S, T, R,
+/// Coordinator's decision on domains.md:1922: `replaceAll(S, T, R) = replace(S, T, R,
 /// countAllOccurrences(S, T))` is part of `replaceAll`'s written meaning only while `replace` is
 /// read by exactly domains.md's two equations. A higher-priority `replace` equation changes what
 /// `replace` means, so the lemma is absent, and domains.md's `replaceAll` equation, which now
