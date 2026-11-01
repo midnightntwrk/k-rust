@@ -1,0 +1,8 @@
+# Without the script's well-formedness, two tasks race for one creation or one segment of a process;
+# each race is refuted at a peak of a program that has it (tests/fixtures/handoff/witnesses), at the
+# instance `HandoffRaceConf.sum`.
+join.key.new.new | refuted two-news
+join.key.«resume-lit».«resume-lit» | refuted two-resumes
+join.key.«resume-lit».«resume-oid» | refuted lit-and-oid
+join.key.«resume-oid».«resume-lit» | refuted lit-and-oid
+join.key.«resume-oid».«resume-oid» | refuted two-reads

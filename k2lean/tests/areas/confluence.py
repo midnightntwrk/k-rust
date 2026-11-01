@@ -44,6 +44,12 @@ DEMOS = {
                                              "demos/DrfConf/DrfConf/Legal/Slots.lean",
                                              "demos/DrfConf/confluence.toml", "demos/DrfConf/legal.toml"],
                 "slots": {"prefixes": ["join.", "Legal.join."], "list": "demos/DrfConf/open-joins.txt"}},
+    # the same without the script's well-formedness: its races refuted at peaks of programs that have
+    # them, run at an instance of the parameters (`--witness-instance`)
+    "HandoffRaceConf": {"tier": "light", "sources": ["demos/HandoffRaceConf/HandoffRaceConf/Views.lean",
+                                                     "demos/HandoffRaceConf/HandoffRaceConf/Slots.lean",
+                                                     "demos/HandoffRaceConf/confluence.toml"],
+                        "slots": {"prefixes": ["join."], "list": "demos/HandoffRaceConf/open-joins.txt"}},
     # the two-layer prototype: a coordination script's tasks running a coroutine language's segments;
     # the races of two tasks refuted together by two runs, and every slot generic under `wf`
     "TwoConf": {"tier": "light", "sources": ["generated/twolayer",
@@ -66,6 +72,12 @@ DEMOS = {
                                                   "demos/TwoParamConf/TwoParamConf/Slots.lean",
                                                   "demos/TwoParamConf/confluence.toml"],
                      "slots": {"prefixes": ["join."]}},
+    # the same under `valsOk` alone: its races refuted from legal starts at an instance
+    "TwoParamOkConf": {"tier": "light", "sources": ["generated/twoparamok",
+                                                    "demos/TwoParamOkConf/TwoParamOkConf/Views.lean",
+                                                    "demos/TwoParamOkConf/TwoParamOkConf/Slots.lean",
+                                                    "demos/TwoParamOkConf/confluence.toml"],
+                       "slots": {"prefixes": ["join.", "witness."], "list": "demos/TwoParamOkConf/open-joins.txt"}},
     # the parameters from the coroutine language on its own, by hand over the translations of code;
     # built against TwoParamConf's phase
     "TwoParamInst": {"tier": "light", "sources": ["generated/corout",

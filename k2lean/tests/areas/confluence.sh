@@ -8,8 +8,11 @@
 # cell, the fixture drf, a slot refuted at a peak a program reaches, library drf; TwoConf: the
 # two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
 # coordination script, library twolayer; TwoOutConf: the same under a weaker legality, a race
-# refuted from a legal start, library twolayerout; TwoParamConf: its parameterized form, the fixture twoparam,
-# a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
+# refuted from a legal start, library twolayerout; HandoffRaceConf: handoff without its script's
+# well-formedness, its races refuted at an instance of its parameters, library handoff; TwoParamConf:
+# its parameterized form, the fixture twoparam, a segment's result a parameter of the definition,
+# library twoparam; TwoParamOkConf: the same under its outputs' invariant alone, its races refuted from
+# legal starts at an instance, library twoparamok; TwoParamInst: that parameter
 # from the coroutine language on its own, the fixture corout, library corout; TwoParamEnds and
 # TwoParamTx (B's): every segment ends, and every order of a script ends in its run's result;
 # TwoLayerTx (B's): the same statement for the combined form, the fixture twolayer (its measure);
@@ -24,7 +27,7 @@ name_confluence() {
     handoffseq) echo HandoffSeq ;;
     drf) echo Drf ;;
     twolayer | twolayerout) echo TwoLayer ;;
-    twoparam) echo TwoParam ;;
+    twoparam | twoparamok) echo TwoParam ;;
     corout) echo Corout ;;
     *) return 1 ;;
   esac
@@ -56,6 +59,8 @@ gen_confluence() {
     # output a resume spends from the one it writes, INV-16, CNF-33); its measure (the work left, a
     # weight per task summed over <tasks>) is lowered by every rule (`gen --measure`, INV-17)
     twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T --invariant valsOk@T --measure measure@T) ;;
+    # the same fixture under `valsOk` alone, for the demonstration TwoParamOkConf
+    twoparamok) libs_fixture_args twoparam; GEN_ARGS+=(--invariant valsOk@T) ;;
     # the coroutine language on its own (tests/fixtures/corout), deterministic; its measure (the
     # steps left, `measure` in K) is lowered by every rule (`gen --measure`, INV-15); where code is
     # on <k> (`kOk`), a configuration with no rule that applies is a segment end, a `yield` or the
@@ -151,11 +156,27 @@ libs_confluence() {
         --open-joins "$DEMOS/TwoOutConf/open-joins.txt" --witnesses "$W/two-out-witnesses" \
         --slots "$DEMOS/TwoOutConf/TwoOutConf/Slots.lean" \
         --out "$DEMOS/TwoOutConf/TwoOutConf/Views.lean" --report "$DEMOS/TwoOutConf/confluence.toml" ;;
+    # without the script's well-formedness the races of two creations and two resumes remain:
+    # each refuted at a peak of a program that has it, run at the instance `HandoffRaceConf.sum`
+    HandoffRaceConf) "$G" confluence --kore "$(libs_fixture handoff)/definition.kore" --name Handoff \
+        --ns HandoffRaceConf --threads tasks --obs vals --open-joins "$DEMOS/HandoffRaceConf/open-joins.txt" \
+        --witnesses "$(libs_fixture handoff)/witnesses" \
+        --witness-instance HandoffRaceConf.sum --witness-instance-module HandoffRaceConf.Inst \
+        --slots "$DEMOS/HandoffRaceConf/HandoffRaceConf/Slots.lean" \
+        --out "$DEMOS/HandoffRaceConf/HandoffRaceConf/Views.lean" --report "$DEMOS/HandoffRaceConf/confluence.toml" ;;
     # the parameterized form: every slot generic under `wf`, for every instance of the parameters
     TwoParamConf) "$G" confluence --kore "$(libs_fixture twoparam)/definition.kore" --name TwoParam --ns TwoParamConf \
         --threads tasks --obs vals --assume-invariant TwoParam.Invariant \
         --slots "$DEMOS/TwoParamConf/TwoParamConf/Slots.lean" \
         --out "$DEMOS/TwoParamConf/TwoParamConf/Views.lean" --report "$DEMOS/TwoParamConf/confluence.toml" ;;
+    # under `valsOk` alone the same races remain: refuted from programs `valsOk` admits
+    # (`witness.W.legal`, the hand module's) at the instance `TwoParamOkConf.seg` (the hand module's)
+    TwoParamOkConf) "$G" confluence --kore "$(libs_fixture twoparam)/definition.kore" --name TwoParam \
+        --ns TwoParamOkConf --threads tasks --obs vals --assume-invariant TwoParam.Invariant \
+        --hand-module TwoParamOkConf.Hand --open-joins "$DEMOS/TwoParamOkConf/open-joins.txt" \
+        --witnesses "$(libs_fixture twoparam)/witnesses" --witness-instance TwoParamOkConf.seg \
+        --slots "$DEMOS/TwoParamOkConf/TwoParamOkConf/Slots.lean" \
+        --out "$DEMOS/TwoParamOkConf/TwoParamOkConf/Views.lean" --report "$DEMOS/TwoParamOkConf/confluence.toml" ;;
     # the translations of code between twoparam and corout, both ways (`relate --roots SortStmts`, by
     # the fixtures' syntax definitions), for the instance `TwoParamInst/Inst.lean`
     TwoParamInst) local a b
@@ -229,6 +250,16 @@ gate_confluence() {
     scaffold confluence-HandoffConf libs_confluence HandoffConf
     dbuild_slots HandoffConf
   fi
+  # the same without the script's well-formedness: two tasks may create one process or take one
+  # segment of it, and each such race is refuted at a peak of a program that has it, the runs at the
+  # instance `HandoffRaceConf.sum` (a running sum, `HandoffRaceConf/Inst.lean`); every other slot
+  # generic for every instance. The library is HandoffConf's when its phase runs
+  if runs demo HandoffRaceConf; then
+    phase "scaffold HandoffRaceConf"
+    runs demo HandoffConf || partlib handoff Handoff.Adequacy
+    scaffold confluence-HandoffRaceConf libs_confluence HandoffRaceConf
+    dbuild_slots HandoffRaceConf
+  fi
   # the script run in its order (the fixture handoffseq) into handoff, the script's translation
   # generated (`relate --roots SortPgm`), the simulation by hand: a run
   # of handoffseq to the script's end is a run of handoff, so every terminal run of handoff ends where
@@ -281,6 +312,17 @@ gate_confluence() {
     partlib twoparam TwoParam
     scaffold confluence-TwoParamConf libs_confluence TwoParamConf
     dbuild_slots TwoParamConf
+  fi
+  # the same under the outputs' invariant `valsOk` alone (library twoparamok, started from twoparam's
+  # build): the races of two creations, resumes and spends remain, each refuted at a peak of a
+  # program `valsOk` admits (an initial configuration), the runs at the instance `TwoParamOkConf.seg`
+  # (a bounded run of the coroutine language's code, the hand module's); every other slot generic
+  if runs demo TwoParamOkConf; then
+    phase "scaffold TwoParamOkConf"
+    seed_lake twoparamok twoparam
+    partlib twoparamok TwoParam
+    scaffold confluence-TwoParamOkConf libs_confluence TwoParamOkConf
+    dbuild_slots TwoParamOkConf
   fi
   # the parameters from the coroutine language on its own (the fixture corout, deterministic): a
   # segment is corout's run to the first configuration that does not step, unique
