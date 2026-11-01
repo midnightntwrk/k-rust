@@ -7,7 +7,8 @@
 # order, the fixture handoffseq, into handoff, library handoffseq; DrfConf: workers writing one
 # cell, the fixture drf, a slot refuted at a peak a program reaches, library drf; TwoConf: the
 # two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
-# coordination script, library twolayer; TwoParamConf: its parameterized form, the fixture twoparam,
+# coordination script, library twolayer; TwoOutConf: the same under a weaker legality, a race
+# refuted from a legal start, library twolayerout; TwoParamConf: its parameterized form, the fixture twoparam,
 # a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
 # from the coroutine language on its own, the fixture corout, library corout; TwoParamEnds and
 # TwoParamTx (B's): every segment ends, and every order of a script ends in its run's result;
@@ -22,7 +23,7 @@ name_confluence() {
     handoff) echo Handoff ;;
     handoffseq) echo HandoffSeq ;;
     drf) echo Drf ;;
-    twolayer) echo TwoLayer ;;
+    twolayer | twolayerout) echo TwoLayer ;;
     twoparam) echo TwoParam ;;
     corout) echo Corout ;;
     *) return 1 ;;
@@ -46,6 +47,9 @@ gen_confluence() {
     # the two-layer prototype (tests/fixtures/twolayer, docs/direction.md §8 step 4): the script's
     # tasks run the segments of a coroutine language, with the script's well-formedness `wf`
     twolayer) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T --measure measure@T) ;;
+    # the same fixture under the weaker legality `wfOut` (`wf` without the spends' claims), for
+    # the demonstration TwoOutConf
+    twolayerout) libs_fixture_args twolayer; GEN_ARGS+=(--invariant wfOut@T) ;;
     # its parameterized form (tests/fixtures/twoparam): a resume is one step, the segment's register
     # and code functions with no equations (`class Hooks`), with the same well-formedness `wf` and
     # the outputs' invariant `valsOk` (every output below its process's count, which tells the
@@ -138,6 +142,15 @@ libs_confluence() {
         --threads tasks --obs vals --assume-invariant TwoLayer.Invariant --views-module TwoConf.Legal.Views \
         --slots "$DEMOS/TwoConf/TwoConf/Legal/Slots.lean" \
         --out "$DEMOS/TwoConf/TwoConf/Legal/Views.lean" --report "$DEMOS/TwoConf/legal.toml" ;;
+    # under the weaker `wfOut` the race of two spends remains: refuted by two runs of a program
+    # `wfOut` admits (`witness.«two-spends».legal`, the hand module's) and at a peak it reaches
+    TwoOutConf) rm -rf "${W:?}/two-out-witnesses" && mkdir -p "$W/two-out-witnesses" &&
+      cp "$(libs_fixture twolayer)"/witnesses/two-spends.* "$W/two-out-witnesses/" &&
+      "$G" confluence --kore "$(libs_fixture twolayer)/definition.kore" --name TwoLayer --ns TwoOutConf \
+        --threads tasks --obs vals --assume-invariant TwoLayer.Invariant --hand-module TwoOutConf.Hand \
+        --open-joins "$DEMOS/TwoOutConf/open-joins.txt" --witnesses "$W/two-out-witnesses" \
+        --slots "$DEMOS/TwoOutConf/TwoOutConf/Slots.lean" \
+        --out "$DEMOS/TwoOutConf/TwoOutConf/Views.lean" --report "$DEMOS/TwoOutConf/confluence.toml" ;;
     # the parameterized form: every slot generic under `wf`, for every instance of the parameters
     TwoParamConf) "$G" confluence --kore "$(libs_fixture twoparam)/definition.kore" --name TwoParam --ns TwoParamConf \
         --threads tasks --obs vals --assume-invariant TwoParam.Invariant \
@@ -249,6 +262,16 @@ gate_confluence() {
     partlib twolayer TwoLayer
     scaffold confluence-TwoConf libs_confluence TwoConf
     dbuild_slots TwoConf
+  fi
+  # the same under the weaker legality `wfOut` (library twolayerout, started from twolayer's build:
+  # they differ in the invariant's modules only): the slot of two resumes spending one output open,
+  # refuted from a program `wfOut` admits, by two runs and at a peak; every other slot generic
+  if runs demo TwoOutConf; then
+    phase "scaffold TwoOutConf"
+    seed_lake twolayerout twolayer
+    partlib twolayerout TwoLayer
+    scaffold confluence-TwoOutConf libs_confluence TwoOutConf
+    dbuild_slots TwoOutConf
   fi
   # its parameterized form: the fixture twoparam, a resume's whole segment one step whose register
   # and code are parameters (`TwoParam.Hooks`); under `wf` every slot generic for every instance,

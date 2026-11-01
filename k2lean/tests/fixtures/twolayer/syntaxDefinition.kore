@@ -2483,13 +2483,88 @@ module TWOLAYER
     terminals{}("1101"),
     total{}()
   ]
+  symbol LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(SortInstr{}) : SortList{}
+  [
+    format{}("%ciclaimsOut%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(119,19,119,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(SortPgm{}) : SortList{}
+  [
+    format{}("%cpclaimsOut%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(120,19,120,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(SortK{}) : SortList{}
+  [
+    format{}("%ckclaimsOut%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(121,19,121,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(SortTasksCell{}) : SortList{}
+  [
+    format{}("%cmclaimsOut%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(122,19,122,58)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol LblwfOut'LParUndsRParUnds'TWOLAYER'Unds'Bool'Unds'TCell{}(SortTCell{}) : SortBool{}
+  [
+    format{}("%cwfOut%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(123,19,123,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
   symbol Lblmeasure'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'TCell{}(SortTCell{}) : SortInt{}
   [
     format{}("%cmeasure%r %c(%r %1 %c)%r"),
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(120,18,120,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(141,18,141,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2504,7 +2579,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(121,18,121,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(142,18,142,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2519,7 +2594,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(122,18,122,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(143,18,143,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2534,7 +2609,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(123,18,123,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(144,18,144,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2549,7 +2624,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(124,18,124,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(145,18,145,41)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2564,7 +2639,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(125,18,125,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(146,18,146,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2579,7 +2654,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(126,18,126,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(147,18,147,43)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -2594,7 +2669,7 @@ module TWOLAYER
     function{}(),
     functional{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(127,18,127,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(148,18,148,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),

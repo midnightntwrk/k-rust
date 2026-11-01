@@ -27,7 +27,10 @@
 //! two of its runs end with different observations (`KPrelude.TwoRuns.UniqueFrom`), found by a
 //! search in the elaborator and checked by the kernel (`k2l_two_runs`). Then the open slots are
 //! not all true (`Open.refuted`, through `terminal_unique`), and a slot listed
-//! `NAME | refuted WITNESS` is refuted when it is the only one not proved.
+//! `NAME | refuted WITNESS` is refuted at a peak the witness reaches. Under a program hypothesis
+//! every witness satisfies it (`witness.NAME.legal`, the hand module's, listed
+//! `witness.NAME.legal | hand`), so the refutations are from starts the theorem is about; the
+//! witnesses are then defined in the views, where the hand module reads them.
 //!
 //! The report (`--report`) classifies the pairs without Lean: by the pair classifier of
 //! `pairs.rs` with two free-key matches taken as one binding (`clash`, `exclusive`, `joinable`,
@@ -948,10 +951,6 @@ fn with_hooks(o: &str, ns: &str, name: &str) -> String {
     )
 }
 
-/// The views' module under a program hypothesis `inv` (`--assume-invariant`): each premise holds
-/// at the configurations satisfying `inv`, `joins_of` and `join_static` take it, and
-/// `terminal_unique_of` (and `obs_confluent_of`) hold from a configuration satisfying it, by
-/// `terminal_unique_of_diamond` with `H := inv` and its preservation `pres`.
 /// How the open-joins list has a slot.
 #[derive(Clone, PartialEq, Eq)]
 enum Mark {
@@ -1054,7 +1053,12 @@ fn read_witnesses(dir: &str, lib: &Lib) -> Vec<Witness> {
     out
 }
 
-fn under_invariant(o: &str, name: &str, inv: &str, pres: &str, module: &str) -> String {
+/// The views' module under a program hypothesis `inv` (`--assume-invariant`): each premise holds
+/// at the configurations satisfying `inv`, `joins_of` and `join_static` take it, and
+/// `terminal_unique_of` (and `obs_confluent_of`) hold from a configuration satisfying it, by
+/// `terminal_unique_of_diamond` with `H := inv` and its preservation `pres`.
+fn under_invariant(o: &str, name: &str, i: &views::Inv) -> String {
+    let (inv, pres, module) = (i.name.as_str(), i.pres.as_str(), i.module.as_str());
     fn sub(o: &mut String, a: &str, b: &str, all: bool) {
         let n = o.matches(a).count();
         assert!(
@@ -1336,22 +1340,34 @@ pub fn main(args: &[String]) {
         .map(|o| o.split(',').map(|s| s.to_string()).collect());
     if opt.contains_key("witnesses") {
         // a library with parameters states its slots for every instance, so a refutation fixes
-        // one; under a program hypothesis, the witness must be shown to satisfy it
+        // one
         if lib.hooks {
             fail(
                 "--witnesses: the library has parameters (`class Hooks`): two runs need an instance, which is not supported yet",
             );
         }
-        if opt.contains_key("assume-invariant") {
-            fail(
-                "--witnesses with --assume-invariant: the witness would have to satisfy the invariant, which is not supported yet",
-            );
-        }
     } else if opt.contains_key("witness-fuel") {
         fail("--witness-fuel needs --witnesses");
     }
+    // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
+    let inv = opt.get("assume-invariant").map(|inv| views::Inv {
+        name: inv.clone(),
+        pres: opt
+            .get("invariant-preserved")
+            .cloned()
+            .unwrap_or(format!("{inv}.preserved")),
+        module: opt
+            .get("invariant-module")
+            .cloned()
+            .unwrap_or(format!("{name}.Invariants")),
+    });
+    if inv.is_none()
+        && (opt.contains_key("invariant-preserved") || opt.contains_key("invariant-module"))
+    {
+        fail("--invariant-preserved and --invariant-module need --assume-invariant");
+    }
     let slot_opts = opt.get("slots").map(|_| views::SlotOpts {
-        inv: opt.get("assume-invariant").cloned(),
+        inv: inv.clone(),
         witnesses: opt
             .get("witnesses")
             .map(|d| read_witnesses(d, &lib))
@@ -1420,19 +1436,10 @@ pub fn main(args: &[String]) {
         write_file(p, &text);
         status = Some(st);
     }
-    // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
-    if let Some(inv) = opt.get("assume-invariant") {
-        let pres = opt
-            .get("invariant-preserved")
-            .cloned()
-            .unwrap_or(format!("{inv}.preserved"));
-        let module = opt
-            .get("invariant-module")
-            .cloned()
-            .unwrap_or(format!("{name}.Invariants"));
-        out = under_invariant(&out, &name, inv, &pres, &module);
-    } else if opt.contains_key("invariant-preserved") || opt.contains_key("invariant-module") {
-        fail("--invariant-preserved and --invariant-module need --assume-invariant");
+    // with slots, the views are stated under the invariant before the slots' sections that are
+    // written under it already (the peaks, the witnesses)
+    if let (Some(inv), None) = (&inv, &slot_opts) {
+        out = under_invariant(&out, &name, inv);
     }
     write_file(&get("out"), &out);
     if let Some(p) = opt.get("report") {
@@ -1445,6 +1452,10 @@ pub fn main(args: &[String]) {
                 views::open_witness(so)
             )
             .unwrap();
+            // under the invariant, each witness satisfies it (`witness.NAME.legal`)
+            if so.inv.is_some() {
+                writeln!(prem, "legal_by = \"hand\"").unwrap();
+            }
         }
         write_file(p, &(head + &counts_report + &prem + &rep));
     }
@@ -1749,9 +1760,18 @@ mod views {
 
     /// `--slots`: the premises split into one obligation per pair of rules (a slot), each proved
     /// by the generic attempts, by the hand module, or left open (`terminal_unique`'s premise).
+    /// A program hypothesis (`--assume-invariant`): the invariant, its preservation
+    /// (`--invariant-preserved`) and the module stating them (`--invariant-module`).
+    #[derive(Clone)]
+    pub(super) struct Inv {
+        pub name: String,
+        pub pres: String,
+        pub module: String,
+    }
+
     pub(super) struct SlotOpts {
         /// the program hypothesis (`--assume-invariant`)
-        pub inv: Option<String>,
+        pub inv: Option<Inv>,
         /// the witness programs (`--witnesses`)
         pub witnesses: Vec<super::Witness>,
         /// the fuel of `successorsF` the witnesses' runs take (`--witness-fuel`), else `successors`
@@ -3886,8 +3906,17 @@ def SameThreadJoins : Prop :=
     /// matcher), each instance of a rule among them (`gives.r`, from the library's completeness of
     /// the matcher), so that a step that no other rule gives is a view of its rule (`viewOf_of`);
     /// `join_static` at one pair of rules (`join_static_pair`, the premises' slots at that pair);
-    /// and from a peak a witness reaches (`PeakApart`), the refutation of each kind of slot.
-    fn peak_views(o: &mut String, name: &str, topt: &str, rs: &[Rule], any_keyed: bool) {
+    /// and from a peak a witness reaches (`PeakApart`), the refutation of each kind of slot. Under
+    /// the invariant `inv` the views are stated under it already, and a peak satisfies it when the
+    /// witness does (`h₀`), by its preservation along the path to the peak.
+    fn peak_views(
+        o: &mut String,
+        name: &str,
+        topt: &str,
+        rs: &[Rule],
+        any_keyed: bool,
+        inv: Option<&Inv>,
+    ) {
         // the views' module reads the library's completeness, and the peaks
         let imp = format!("import {name}.Preserves\n");
         assert!(o.contains(&imp));
@@ -3945,17 +3974,35 @@ def SameThreadJoins : Prop :=
         writeln!(o, "\n/-- No rule other than `r` gives `c'` from `c`. -/\ndef onlyBy (r : Rule) (c c' : {topt}) : Bool :=\n  Rule.all.all fun r' => r' == r || !(succBy r' c).contains c'\n\n/-- A step that no other rule gives is a view of its rule. -/\ntheorem viewOf_of {{r : Rule}} {{c c' : {topt}}} (hs : {name}.Step c c') (hu : onlyBy r c c' = true) :\n    ViewOf r c c' := by\n  obtain ⟨r', v⟩ := view_of hs\n  have hg := stepBy_gives v.2.2.1\n  have := List.all_eq_true.1 hu r' (Rule.mem_all r')\n  simp only [Bool.or_eq_true, beq_iff_eq, Bool.not_eq_true', List.contains_eq_mem,\n    decide_eq_false_iff_not] at this\n  rcases this with rfl | h\n  · exact v\n  · exact absurd hg h").unwrap();
         o.push_str(&pair);
         o.push('\n');
-        let peak = format!("(p : KPrelude.TwoRuns.PeakApart {name}.Step onlyBy r₁ r₂ c₀)");
-        let open_p = "obtain ⟨c, c₁, c₂, -, s₁, u₁, s₂, u₂, nj⟩ := p";
-        writeln!(o, "\n/-- A peak refutes the open slot of its two rules. -/\ntheorem peak_open {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak} :\n    ¬ OpenSlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (h (viewOf_of s₁ u₁).2.2.1 (viewOf_of s₂ u₂).2.2.1)").unwrap();
+        let (peak, open_p, hi, of) = match inv {
+            Some(i) => (
+                format!(
+                    "(p : KPrelude.TwoRuns.PeakApart {name}.Step onlyBy r₁ r₂ c₀)\n    (h₀ : {} c₀)",
+                    i.name
+                ),
+                format!(
+                    "obtain ⟨c, c₁, c₂, hc, s₁, u₁, s₂, u₂, nj⟩ := p\n  have hinv := Preserved.star ({}) hc h₀",
+                    i.pres
+                ),
+                " hinv",
+                ", satisfying the invariant",
+            ),
+            None => (
+                format!("(p : KPrelude.TwoRuns.PeakApart {name}.Step onlyBy r₁ r₂ c₀)"),
+                "obtain ⟨c, c₁, c₂, -, s₁, u₁, s₂, u₂, nj⟩ := p".to_string(),
+                "",
+                "",
+            ),
+        };
+        writeln!(o, "\n/-- A peak{of} refutes the open slot of its two rules. -/\ntheorem peak_open {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak} :\n    ¬ OpenSlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (h{hi} (viewOf_of s₁ u₁).2.2.1 (viewOf_of s₂ u₂).2.2.1)").unwrap();
         let (kp, ka) = if any_keyed {
             (format!("\n    {pair_k}"), " K")
         } else {
             (String::new(), "")
         };
-        writeln!(o, "\n/-- A peak of two rules whose steps `staticOK` passes to the slots refutes their same-thread\nslot, given their keyed slot. -/\ntheorem peak_same {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak}\n    (hs : staticOK r₁ r₂ = true){kp} : ¬ SameSlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (join_static_pair (fun _ _ _ _ => h){ka} hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))").unwrap();
+        writeln!(o, "\n/-- A peak{of} of two rules whose steps `staticOK` passes to the slots refutes their same-thread\nslot, given their keyed slot. -/\ntheorem peak_same {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak}\n    (hs : staticOK r₁ r₂ = true){kp} : ¬ SameSlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (join_static_pair (fun _ _ _ _ => h){ka}{hi} hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))").unwrap();
         if any_keyed {
-            writeln!(o, "\n/-- A peak of two rules whose steps `staticOK` passes to the slots refutes their keyed slot,\ngiven their same-thread slot. -/\ntheorem peak_key {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak}\n    (hs : staticOK r₁ r₂ = true)\n    {pair_s} : ¬ KeySlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (join_static_pair S (fun _ _ => h) hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))").unwrap();
+            writeln!(o, "\n/-- A peak{of} of two rules whose steps `staticOK` passes to the slots refutes their keyed slot,\ngiven their same-thread slot. -/\ntheorem peak_key {{c₀ : {topt}}} {{r₁ r₂ : Rule}} {peak}\n    (hs : staticOK r₁ r₂ = true)\n    {pair_s} : ¬ KeySlot r₁ r₂ := by\n  {open_p}\n  exact fun h => nj (join_static_pair S (fun _ _ => h){hi} hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))").unwrap();
         }
     }
 
@@ -4070,8 +4117,32 @@ def SameThreadJoins : Prop :=
             format!("join.{}.{}.{}", kinds[k], rs[i].lean, rs[j].lean)
         };
         let names: BTreeSet<String> = slots.iter().map(|s| slot_name(*s)).collect();
-        for n in so.list.keys() {
-            if !names.contains(n) {
+        for (n, m) in &so.list {
+            // a witness's legality under the invariant, the hand module's (`witness.W.legal | hand`)
+            if let Some(w) = n
+                .strip_prefix("witness.")
+                .and_then(|w| w.strip_suffix(".legal"))
+            {
+                if so.inv.is_none() {
+                    super::fail(&format!(
+                        "--open-joins: {n}: a witness is shown legal only under --assume-invariant"
+                    ));
+                }
+                if *m != super::Mark::Hand {
+                    super::fail(&format!(
+                        "--open-joins: {n}: a witness's legality is listed `| hand` (`hand.{n}`)"
+                    ));
+                }
+                if !so
+                    .witnesses
+                    .iter()
+                    .any(|x| crate::names::ident(&x.name) == w)
+                {
+                    super::fail(&format!(
+                        "--open-joins: {n}: no witness `{w}` (--witnesses)"
+                    ));
+                }
+            } else if !names.contains(n) {
                 super::fail(&format!("--open-joins: {n} is not a slot of {name}"));
             }
         }
@@ -4162,6 +4233,11 @@ def SameThreadJoins : Prop :=
             )
             .unwrap();
         }
+        // under the invariant, the views so far are stated under it; the sections after (the peaks,
+        // the witnesses) are written under it
+        if let Some(inv) = &so.inv {
+            *o = super::under_invariant(o, name, inv);
+        }
         // a slot refuted at a peak a witness reaches (`| refuted W`): the views' section that reads
         // a step by one rule off the library's matchers
         let peaks = so
@@ -4174,7 +4250,7 @@ def SameThreadJoins : Prop :=
                     "--open-joins: `| refuted WITNESS` refutes a slot at a peak, which needs the views by thread (`--threads`)",
                 );
             }
-            peak_views(o, name, topt, rs, *any_keyed);
+            peak_views(o, name, topt, rs, *any_keyed, so.inv.as_ref());
         }
         let hinv = if so.inv.is_some() { "hinv " } else { "" };
         let hand_any = so
@@ -4481,7 +4557,7 @@ def SameThreadJoins : Prop :=
             guard.push(format!("{p}_of"));
         }
         let (hb, ha) = match &so.inv {
-            Some(inv) => (format!(" (hinv : {inv} c)"), " hinv"),
+            Some(inv) => (format!(" (hinv : {} c)", inv.name), " hinv"),
             None => (String::new(), ""),
         };
         let premise = if open_slots.is_empty() {
@@ -4508,6 +4584,7 @@ def SameThreadJoins : Prop :=
         }
         if !so.witnesses.is_empty() {
             emit_witnesses(
+                o,
                 &mut body,
                 &mut guard,
                 so,
@@ -4572,12 +4649,17 @@ def SameThreadJoins : Prop :=
                 ),
             )
         };
-        let refutes = if !refuted.is_empty() {
-            "\nA slot listed `| refuted` is refuted by the hand module (`hand.join.K.r₁.r₂.refuted`), and refutes its\npremise (`P_refuted`); `terminal_unique` is then not stated. The premises are sufficient, not\nnecessary: a refuted premise says nothing of whether the definition is confluent."
+        let refutes: std::borrow::Cow<str> = if !refuted.is_empty() {
+            "\nA slot listed `| refuted` is refuted by the hand module (`hand.join.K.r₁.r₂.refuted`), and refutes its\npremise (`P_refuted`); `terminal_unique` is then not stated. The premises are sufficient, not\nnecessary: a refuted premise says nothing of whether the definition is confluent.".into()
         } else if !so.witnesses.is_empty() {
-            "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted on its\nown (`NAME.refuted`): a configuration the witness reaches has steps by its two rules that do not\njoin within one step each (`witness.NAME.peaks`, `k2l_peaks`). That refutes the slot, not the definition: two steps may\njoin later."
+            let w = "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted on its\nown (`NAME.refuted`): a configuration the witness reaches has steps by its two rules that do not\njoin within one step each (`witness.NAME.peaks`, `k2l_peaks`). That refutes the slot, not the definition: two steps may\njoin later.";
+            if so.inv.is_some() {
+                format!("{w}\nEach witness satisfies the program hypothesis (`witness.NAME.legal`, the hand module's), so the\nruns start where `terminal_unique` speaks.").into()
+            } else {
+                w.into()
+            }
         } else {
-            ""
+            "".into()
         };
         writeln!(
             m,
@@ -4610,9 +4692,13 @@ def SameThreadJoins : Prop :=
     /// with different observations (`witness.NAME.refutes`), and from them `Open.refuted`, through
     /// `terminal_unique`, whose premise is `Open`; and each slot listed `| refuted NAME`, refuted at
     /// a peak `NAME` reaches (`witness.NAME.peaks` by `k2l_peaks`, the views' `peak_open`, `peak_same`,
-    /// `peak_key`).
+    /// `peak_key`). Under the invariant every witness satisfies it (`witness.NAME.legal`, the hand
+    /// module's, listed `witness.NAME.legal | hand`), which `terminal_unique` and the peaks take: a
+    /// refutation from a start outside it says nothing of the starts the theorem is about. The
+    /// witnesses are then defined in the views (`o`), which the hand module reads.
     #[allow(clippy::too_many_arguments)]
     fn emit_witnesses(
+        o: &mut String,
         body: &mut String,
         guard: &mut Vec<String>,
         so: &SlotOpts,
@@ -4649,6 +4735,13 @@ def SameThreadJoins : Prop :=
             ),
             None => format!("{name}.successors, {name}.successors_iff"),
         };
+        if so.inv.is_some() {
+            writeln!(
+                o,
+                "\n/-! ## The witness programs (`--witnesses`), whose legality the hand module proves -/\n"
+            )
+            .unwrap();
+        }
         for w in &so.witnesses {
             let id = crate::names::ident(&w.name);
             let program = match &w.program {
@@ -4658,11 +4751,27 @@ def SameThreadJoins : Prop :=
                 _ => String::new(),
             };
             writeln!(
-                body,
+                if so.inv.is_some() { &mut *o } else { &mut *body },
                 "open {name} in\n/-- The witness `{}`: the initial configuration of krust's `krun --depth 0`{program} -/\ndef witness.{id} : {topt} :=\n  {}\n",
                 w.name, w.value
             )
             .unwrap();
+            if let Some(inv) = &so.inv {
+                let n = format!("witness.{id}.legal");
+                if so.list.get(&n) != Some(&super::Mark::Hand) {
+                    super::fail(&format!(
+                        "--witnesses: `{}` must satisfy the invariant: list `{n} | hand` in --open-joins, proved by the hand module (`hand.{n}`); the invariant's evaluation at a configuration is not generated yet",
+                        w.name
+                    ));
+                }
+                writeln!(
+                    body,
+                    "/-- The witness `{}` satisfies the invariant (the hand module's). -/\ntheorem {n} : {} witness.{id} := hand.{n}\n",
+                    w.name, inv.name
+                )
+                .unwrap();
+                guard.push(n);
+            }
             writeln!(
                 body,
                 "set_option maxRecDepth 100000 in\n/-- Two runs of `{}` end in terminal configurations with different {seen}: the\ndefinition is not confluent from it. -/\ntheorem witness.{id}.refutes :\n    ¬ KPrelude.TwoRuns.UniqueFrom {name}.Step {obsf} witness.{id} := by\n  k2l_two_runs {runs}\n",
@@ -4672,14 +4781,23 @@ def SameThreadJoins : Prop :=
             guard.push(format!("witness.{id}.refutes"));
         }
         let w = crate::names::ident(open_witness(so));
+        // under the invariant, the witness's legality (`witness.W.legal`)
+        let (legal, from) = if so.inv.is_some() {
+            (
+                format!(" witness.{w}.legal"),
+                ", from a start satisfying the invariant",
+            )
+        } else {
+            (String::new(), "")
+        };
         writeln!(
             body,
-            "/-- The open slots are not all true: with them, the two runs of `witness.{w}` would end alike\n(`{}`). -/\ntheorem Open.refuted : ¬ Open := fun P =>\n  witness.{w}.refutes fun h₁ t₁ h₂ t₂ => {}\n",
+            "/-- The open slots are not all true: with them, the two runs of `witness.{w}` would end alike\n(`{}`{from}). -/\ntheorem Open.refuted : ¬ Open := fun P =>\n  witness.{w}.refutes fun h₁ t₁ h₂ t₂ => {}\n",
             if flushed { "obs_unique" } else { "terminal_unique" },
             if flushed {
                 "obs_unique P h₁ t₁ h₂ t₂".to_string()
             } else {
-                format!("congrArg {obsf} (terminal_unique P h₁ t₁ h₂ t₂)")
+                format!("congrArg {obsf} (terminal_unique P{legal} h₁ t₁ h₂ t₂)")
             }
         )
         .unwrap();
@@ -4756,7 +4874,10 @@ def SameThreadJoins : Prop :=
                             " (by decide)\n    {}",
                             partner(
                                 2,
-                                "(by\n      intro hr hs\n      first\n        | (exfalso; revert hr hs; decide)\n        | (intro _ _ _ _ _ _ _ o₁ o₂ hk; exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim))"
+                                &format!(
+                                    "(by\n      intro hr hs\n      first\n        | (exfalso; revert hr hs; decide)\n        | (intro _ _ _ _ _ _ _ {}o₁ o₂ hk; exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim))",
+                                    if so.inv.is_some() { "_ " } else { "" }
+                                )
                             )
                         )
                     } else {
@@ -4776,9 +4897,14 @@ def SameThreadJoins : Prop :=
             };
             writeln!(
                 body,
-                "set_option maxRecDepth 100000 in\n/-- `{sn}` is refuted: from `witness.{w}`, a configuration whose steps by its two rules have\nno common configuration within one step each (`witness.{w}.peaks`). -/\ntheorem {sn}.refuted : ¬ {sn}.statement :=\n  {lemma} (r₁ := .{ri}) (r₂ := .{rj}) (c₀ := witness.{w})\n    (witness.{w}.peaks.get {n} rfl){extra}\n\n#k2l_refuted {sn}\n",
+                "set_option maxRecDepth 100000 in\n/-- `{sn}` is refuted: from `witness.{w}`, a configuration whose steps by its two rules have\nno common configuration within one step each (`witness.{w}.peaks`). -/\ntheorem {sn}.refuted : ¬ {sn}.statement :=\n  {lemma} (r₁ := .{ri}) (r₂ := .{rj}) (c₀ := witness.{w})\n    (witness.{w}.peaks.get {n} rfl){legal}{extra}\n\n#k2l_refuted {sn}\n",
                 ri = rs[i].lean,
                 rj = rs[j].lean,
+                legal = if so.inv.is_some() {
+                    format!(" witness.{w}.legal")
+                } else {
+                    String::new()
+                },
             )
             .unwrap();
         }

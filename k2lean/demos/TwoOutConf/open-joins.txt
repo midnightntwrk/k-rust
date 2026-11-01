@@ -1,0 +1,7 @@
+# The slots of TwoOutConf that the generic attempts do not prove under `wfOut` (`k2lean confluence
+# --slots --assume-invariant TwoLayer.Invariant`, `--open-joins`): two resumes spending one output,
+# which `wfOut` admits. Two runs of the witness `two-spends` show the open slots false together
+# (`Open.refuted`), and a peak it reaches refutes the slot on its own; the witness satisfies `wfOut`
+# (`hand.witness.«two-spends».legal`, TwoOutConf/Hand.lean), so these are refutations from a legal start.
+join.key.«resume-oid».«resume-oid» | refuted two-spends
+witness.«two-spends».legal | hand

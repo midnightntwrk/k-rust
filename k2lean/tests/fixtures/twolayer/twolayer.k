@@ -17,7 +17,7 @@
 //   code left, which the author writes in K).
 // Ids are derived from content (the M-th segment of P writes `o(P, M)`), so no schedule changes
 // which id a step writes. Two tasks naming one creation, one resume or one spend race; the
-// script's well-formedness `wf` (below) excludes them.
+// script's well-formedness `wf` (below) excludes them, and the weaker `wfOut` all but the spends.
 requires "domains.md"
 
 module TWOLAYER-SYNTAX
@@ -112,6 +112,27 @@ module TWOLAYER
   rule noDup(.List) => true
   rule noDup(ListItem(X) L) => notBool (X in L) andBool noDup(L)
   rule wf(<T> TS:TasksCell <procs> _ </procs> <vals> _ </vals> </T>) => noDup(mclaims(TS))
+  // A weaker legality, `wfOut` (`gen --invariant wfOut@T`, the demonstration TwoOutConf): `wf`
+  // without the spends' claims, so that two resumes may spend one output. Under it the race of two
+  // spends remains, refuted by a program it admits (witnesses/two-spends.two); every other race is
+  // excluded, as under `wf`.
+  syntax List ::= iclaimsOut(Instr) [function, total]
+                | pclaimsOut(Pgm) [function, total]
+                | kclaimsOut(K) [function, total]
+                | mclaimsOut(TasksCell) [function, total]
+  syntax Bool ::= wfOut(TCell) [function, total]
+  rule iclaimsOut(new(Q, _)) => ListItem(Q)
+  rule iclaimsOut(resume(Q, N, _)) => ListItem(o(Q, N))
+  rule pclaimsOut(I & P) => iclaimsOut(I) pclaimsOut(P)
+  rule pclaimsOut(.Pgm) => .List
+  rule kclaimsOut(I:Instr) => iclaimsOut(I)
+  rule kclaimsOut(P:Pgm) => pclaimsOut(P)
+  rule kclaimsOut(seg(Q, N, _)) => ListItem(o(Q, N))
+  rule kclaimsOut(_) => .List [owise]
+  rule mclaimsOut(<tasks> .Bag </tasks>) => .List
+  rule mclaimsOut(<tasks> <task> <tid> _ </tid> <n> _ </n> <reg> _ </reg> <k> K </k> </task> Ts </tasks>)
+    => kclaimsOut(K) mclaimsOut(<tasks> Ts </tasks>)
+  rule wfOut(<T> TS:TasksCell <procs> _ </procs> <vals> _ </vals> </T>) => noDup(mclaimsOut(TS))
   // The work left, the measure of every run's length (`gen --measure measure@T`), in two maps: each
   // task weighs what its <k> still has to do, and each suspended process the steps its code left
   // takes when resumed (`mu`: one per statement, a loop's body as often as it runs, and one more for

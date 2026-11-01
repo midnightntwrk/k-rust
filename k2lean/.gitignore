@@ -87,6 +87,9 @@ lake-manifest.json
 /demos/TwoConf/TwoConf/Legal/
 /demos/TwoConf/confluence.toml
 /demos/TwoConf/legal.toml
+/demos/TwoOutConf/TwoOutConf/Views.lean
+/demos/TwoOutConf/TwoOutConf/Slots.lean
+/demos/TwoOutConf/confluence.toml
 /demos/TwoParamConf/TwoParamConf/Views.lean
 /demos/TwoParamConf/TwoParamConf/Slots.lean
 /demos/TwoParamConf/confluence.toml

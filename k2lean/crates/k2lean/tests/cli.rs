@@ -1566,6 +1566,118 @@ fn confluence_witnesses_refute_by_two_runs() {
 }
 
 #[test]
+fn confluence_witnesses_under_an_invariant_are_legal() {
+    let d = tmp("cli-confluence-witnesses-inv");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/twolayer");
+    // one witness, `two-spends` (the generated text only: whether the hand module's lemma holds is
+    // the build's, demos/TwoOutConf)
+    let w = d.join("witnesses");
+    std::fs::create_dir_all(&w).unwrap();
+    for e in ["two", "kore"] {
+        let f = format!("two-spends.{e}");
+        std::fs::copy(fx.join("witnesses").join(&f), w.join(&f)).unwrap();
+    }
+    let run = |list: &str, inv: bool| {
+        std::fs::write(d.join("open.txt"), list).unwrap();
+        let mut c = Command::new(env!("CARGO_BIN_EXE_k2lean"));
+        c.arg("confluence")
+            .arg("--kore")
+            .arg(fx.join("definition.kore"))
+            .args([
+                "--name",
+                "TwoLayer",
+                "--ns",
+                "TW",
+                "--threads",
+                "tasks",
+                "--obs",
+                "vals",
+            ])
+            .arg("--witnesses")
+            .arg(&w)
+            .arg("--slots")
+            .arg(d.join("Slots.lean"))
+            .arg("--open-joins")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"));
+        if inv {
+            c.args(["--assume-invariant", "TwoLayer.Invariant"]);
+        }
+        c.output().unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let slot = "join.key.«resume-oid».«resume-oid» | refuted two-spends\n";
+    let legal = "witness.«two-spends».legal | hand\n";
+    let o = run(&format!("{slot}{legal}"), true);
+    assert!(o.status.success(), "{}", err(&o));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let v = std::fs::read_to_string(d.join("Views.lean")).unwrap();
+    let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
+    // the witness defined in the views, after the peaks, for the hand module to read; the peaks
+    // carry the invariant from the witness to the peak
+    let (p, x) = (
+        v.find("## Peaks").unwrap(),
+        v.find("## The witness programs").unwrap(),
+    );
+    assert!(
+        p < x && v[x..].contains("def witness.«two-spends» : TwoLayer.SortGeneratedTopCell :="),
+        "{v}"
+    );
+    for x in [
+        "(p : KPrelude.TwoRuns.PeakApart TwoLayer.Step onlyBy r₁ r₂ c₀)\n    (h₀ : TwoLayer.Invariant c₀)",
+        "  have hinv := Preserved.star (TwoLayer.Invariant.preserved) hc h₀\n",
+        "(K : r₁.rank = r₂.rank → staticOK r₁ r₂ = true → KeySlot r₁ r₂) {c c₁ c₂ : TwoLayer.SortGeneratedTopCell} (hinv : TwoLayer.Invariant c) (hs : staticOK r₁ r₂ = true)",
+        "exact fun h => nj (join_static_pair S (fun _ _ => h) hinv hs (viewOf_of s₁ u₁) (viewOf_of s₂ u₂))",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    for x in [
+        "theorem witness.«two-spends».legal : TwoLayer.Invariant witness.«two-spends» := hand.witness.«two-spends».legal\n",
+        "(terminal_unique P witness.«two-spends».legal h₁ t₁ h₂ t₂)",
+        "    (witness.«two-spends».peaks.get 0 rfl) witness.«two-spends».legal (by decide)\n",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(!m.contains("def witness."), "{m}");
+    assert!(
+        r.contains("open_refuted_by = \"two-spends\"\nlegal_by = \"hand\"\n"),
+        "{r}"
+    );
+    // a witness not shown legal; a legality not the hand module's; one without the invariant; an
+    // unknown witness
+    let o = run(slot, true);
+    assert!(
+        !o.status.success() && err(&o).contains("must satisfy the invariant"),
+        "{}",
+        err(&o)
+    );
+    let o = run(
+        &format!("{slot}witness.«two-spends».legal | refuted\n"),
+        true,
+    );
+    assert!(
+        !o.status.success() && err(&o).contains("listed `| hand`"),
+        "{}",
+        err(&o)
+    );
+    let o = run(&format!("{slot}{legal}"), false);
+    assert!(
+        !o.status.success() && err(&o).contains("only under --assume-invariant"),
+        "{}",
+        err(&o)
+    );
+    let o = run(&format!("{slot}{legal}witness.nobody.legal | hand\n"), true);
+    assert!(
+        !o.status.success() && err(&o).contains("no witness `nobody`"),
+        "{}",
+        err(&o)
+    );
+}
+
+#[test]
 fn confluence_threads_views_a_thread_end_as_a_removal() {
     let d = tmp("cli-confluence-threads");
     let fx = Path::new(env!("CARGO_MANIFEST_DIR"))

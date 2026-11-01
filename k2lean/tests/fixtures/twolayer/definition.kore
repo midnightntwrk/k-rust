@@ -1493,11 +1493,61 @@ module TWOLAYER
     ),
     total{}()
   ]
+  symbol LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(SortInstr{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(119,19,119,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    total{}()
+  ]
+  symbol LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(SortPgm{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(120,19,120,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    total{}()
+  ]
+  symbol LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(SortK{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(121,19,121,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    total{}()
+  ]
+  symbol LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(SortTasksCell{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(122,19,122,58)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    total{}()
+  ]
+  symbol LblwfOut'LParUndsRParUnds'TWOLAYER'Unds'Bool'Unds'TCell{}(SortTCell{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(123,19,123,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    total{}()
+  ]
   symbol Lblmeasure'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'TCell{}(SortTCell{}) : SortInt{}
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(120,18,120,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(141,18,141,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1507,7 +1557,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(121,18,121,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(142,18,142,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1517,7 +1567,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(122,18,122,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(143,18,143,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1527,7 +1577,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(123,18,123,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(144,18,144,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1537,7 +1587,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(124,18,124,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(145,18,145,41)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1547,7 +1597,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(125,18,125,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(146,18,146,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1557,7 +1607,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(126,18,126,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(147,18,147,43)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -1567,7 +1617,7 @@ module TWOLAYER
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(127,18,127,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(148,18,148,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
     ),
@@ -3015,6 +3065,51 @@ module TWOLAYER
       \equals{SortBool{}, R}(
         Val:SortBool{},
         LblnoDup'LParUndsRParUnds'TWOLAYER'Unds'Bool'Unds'List{}(K0:SortList{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(K0:SortInstr{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(K0:SortPgm{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(K0:SortK{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(K0:SortTasksCell{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblwfOut'LParUndsRParUnds'TWOLAYER'Unds'Bool'Unds'TCell{}(K0:SortTCell{})
       )
     )
     [functional{}()]
@@ -9463,6 +9558,406 @@ module TWOLAYER
       \and{R}(
         \top{R}(),
         \and{R}(
+          \in{SortInstr{}, R}(
+            X0:SortInstr{},
+            Lblnew'LParUndsCommUndsRParUnds'TWOLAYER-SYNTAX'Unds'Instr'Unds'Int'Unds'Code{}(
+              VarQ:SortInt{},
+              Var'Unds'Gen0:SortCode{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(X0:SortInstr{}),
+        \and{SortList{}}(
+          LblListItem{}(inj{SortInt{}, SortKItem{}}(VarQ:SortInt{})),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2161785d9b3d2985d4c728ceb37e12dd0b0ef5498b5f4175d3d460126852e402"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(124,3,124,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInstr{}, R}(
+            X0:SortInstr{},
+            Lblresume'LParUndsCommUndsCommUndsRParUnds'TWOLAYER-SYNTAX'Unds'Instr'Unds'Int'Unds'Int'Unds'Inp{}(
+              VarQ:SortInt{},
+              VarN:SortInt{},
+              Var'Unds'Gen0:SortInp{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(X0:SortInstr{}),
+        \and{SortList{}}(
+          LblListItem{}(
+            inj{SortOid{}, SortKItem{}}(
+              Lblo'LParUndsCommUndsRParUnds'TWOLAYER-SYNTAX'Unds'Oid'Unds'Int'Unds'Int{}(
+                VarQ:SortInt{},
+                VarN:SortInt{}
+              )
+            )
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("879288e50acb08e53adc4505c11b680f58e4a5a837184a14059a4b2de4ecbfb6"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(125,3,125,56)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'UndsAnd-UndsUnds'TWOLAYER-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm{}(
+              VarI:SortInstr{},
+              VarP:SortPgm{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortList{}}(
+          Lbl'Unds'List'Unds'{}(
+            LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(VarI:SortInstr{}),
+            LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(VarP:SortPgm{})
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("85c85f6b1c1e52097bdb466f0966ae01703a11ff21863bca9364f62f24e0da1b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(126,3,126,56)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'Stop'List'LBraQuotUndsAnd-UndsUnds'TWOLAYER-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}()
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortList{}}(Lbl'Stop'List{}(), \top{SortList{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("9d5eb7d79be9d4fccb87d7972b209984b1a347959aba01eb7bc11e945bd6fdd9"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(127,3,127,33)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortInstr{}, SortKItem{}}(VarI:SortInstr{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(
+          LbliclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Instr{}(VarI:SortInstr{}),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("45d2b278421fa9ceb0c58f73486f94b48479efcf411e8cd10b68038ed429ce5d"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(128,3,128,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortPgm{}, SortKItem{}}(VarP:SortPgm{}), dotk{}())),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(
+          LblpclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'Pgm{}(VarP:SortPgm{}),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("ed25a98718f6672385fc51f047e59996c82958304b5983b95660d19f1a16dfbe"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(129,3,129,42)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(
+              Lblseg'LParUndsCommUndsCommUndsRParUnds'TWOLAYER'Unds'KItem'Unds'Int'Unds'Int'Unds'Stmts{}(
+                VarQ:SortInt{},
+                VarN:SortInt{},
+                Var'Unds'Gen0:SortStmts{}
+              ),
+              dotk{}()
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(
+          LblListItem{}(
+            inj{SortOid{}, SortKItem{}}(
+              Lblo'LParUndsCommUndsRParUnds'TWOLAYER-SYNTAX'Unds'Oid'Unds'Int'Unds'Int{}(
+                VarQ:SortInt{},
+                VarN:SortInt{}
+              )
+            )
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("6fb6f3c3c7efc78a45cec927390428dbf3dcf2ee4b82ca6b8b7c39c14409259a"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(130,3,130,53)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen1:SortInstr{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen1:SortInstr{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \or{R}(
+              \exists{R}(
+                Var'Unds'Gen2:SortPgm{},
+                \and{R}(
+                  \top{R}(),
+                  \and{R}(
+                    \in{SortK{}, R}(
+                      X0:SortK{},
+                      kseq{}(inj{SortPgm{}, SortKItem{}}(Var'Unds'Gen2:SortPgm{}), dotk{}())
+                    ),
+                    \top{R}()
+                  )
+                )
+              ),
+              \or{R}(
+                \exists{R}(
+                  Var'Unds'Gen3:SortInt{},
+                  \exists{R}(
+                    Var'Unds'Gen4:SortInt{},
+                    \exists{R}(
+                      Var'Unds'Gen5:SortStmts{},
+                      \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                          \in{SortK{}, R}(
+                            X0:SortK{},
+                            kseq{}(
+                              Lblseg'LParUndsCommUndsCommUndsRParUnds'TWOLAYER'Unds'KItem'Unds'Int'Unds'Int'Unds'Stmts{}(
+                                Var'Unds'Gen3:SortInt{},
+                                Var'Unds'Gen4:SortInt{},
+                                Var'Unds'Gen5:SortStmts{}
+                              ),
+                              dotk{}()
+                            )
+                          ),
+                          \top{R}()
+                        )
+                      )
+                    )
+                  )
+                ),
+                \bottom{R}()
+              )
+            )
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, Var'Unds'Gen0:SortK{}), \top{R}()))
+      ),
+      \equals{SortList{}, R}(
+        LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(Lbl'Stop'List{}(), \top{SortList{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("a2e281549c46d3895aa15c0651bbaa3d45a3aa662c550d352830a325c91c98cb"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(131,3,131,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTasksCell{}, R}(
+            X0:SortTasksCell{},
+            Lbl'-LT-'tasks'-GT-'{}(Lbl'Stop'TaskCellMap{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(X0:SortTasksCell{}),
+        \and{SortList{}}(Lbl'Stop'List{}(), \top{SortList{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("c98b331af4d78e1292a03e3c9c3e638eb1f78d3e88055ae664806c2b09499b79"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(132,3,132,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTasksCell{}, R}(
+            X0:SortTasksCell{},
+            Lbl'-LT-'tasks'-GT-'{}(
+              Lbl'Unds'TaskCellMap'Unds'{}(
+                LblTaskCellMapItem{}(
+                  Lbl'-LT-'tid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                  Lbl'-LT-'task'-GT-'{}(
+                    Lbl'-LT-'tid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'n'-GT-'{}(Var'Unds'Gen1:SortInt{}),
+                    Lbl'-LT-'reg'-GT-'{}(Var'Unds'Gen2:SortInt{}),
+                    Lbl'-LT-'k'-GT-'{}(VarK:SortK{})
+                  )
+                ),
+                VarTs:SortTaskCellMap{}
+              )
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(X0:SortTasksCell{}),
+        \and{SortList{}}(
+          Lbl'Unds'List'Unds'{}(
+            LblkclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'K{}(VarK:SortK{}),
+            LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(
+              Lbl'-LT-'tasks'-GT-'{}(VarTs:SortTaskCellMap{})
+            )
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("bbea917a85003e5bcdea7c458ccb266abd66172c4429b22d62d13db1b327270b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(133,3,134,53)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTCell{}, R}(
+            X0:SortTCell{},
+            Lbl'-LT-'T'-GT-'{}(
+              VarTS:SortTasksCell{},
+              Lbl'-LT-'procs'-GT-'{}(Var'Unds'Gen0:SortMap{}),
+              Lbl'-LT-'vals'-GT-'{}(Var'Unds'Gen1:SortMap{})
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblwfOut'LParUndsRParUnds'TWOLAYER'Unds'Bool'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortBool{}}(
+          LblnoDup'LParUndsRParUnds'TWOLAYER'Unds'Bool'Unds'List{}(
+            LblmclaimsOut'LParUndsRParUnds'TWOLAYER'Unds'List'Unds'TasksCell{}(
+              VarTS:SortTasksCell{}
+            )
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("1a1eedc084827016fb2e0c19681b944203d24a816c9bc3da8602d138e5a0f672"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(135,3,135,97)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
           \in{SortTCell{}, R}(
             X0:SortTCell{},
             Lbl'-LT-'T'-GT-'{}(
@@ -9487,7 +9982,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("741262e266edc3d9bb54ec6739012a7fd7027eeebc32c616a025104d3692b5b2"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(128,3,128,87)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(149,3,149,87)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9511,7 +10006,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("a6160e2a459a6c6170b8d9fc4ea142b63aea855a3336794be3f552a3f285afef"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(129,3,129,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(150,3,150,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9556,7 +10051,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("218cee7f2e7b4d5d9dcb479a11876ca4e446b7080ce964e9b29852132a8a1764"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(130,3,131,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(151,3,152,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9571,7 +10066,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("8b4b2f3b8a525d6bc702d184ce2c359197fcac830f6f92690200682b03c6457f"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(132,3,132,24)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(153,3,153,24)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9604,7 +10099,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("bc3f37dd8eb8a23520b91c07117ab2510d49b55d691e5301208ac53218c0f2a6"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(133,3,133,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(154,3,154,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9635,7 +10130,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("bcbfb9dd77f80bbc3dec6a9cca9817673017af6deb59a8919d0b217731c4cf5b"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(134,3,134,32)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(155,3,155,32)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9683,7 +10178,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("2a77d1a7f57d792cfb57fecb1412c35e931b4e74d2a95a6ce4e5a8c03b95fbd5"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(135,3,135,26)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(156,3,156,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       ),
@@ -9711,7 +10206,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("8f692fa3f0bc312f63f6a1e5a47dcdcc3cc10d67ad3a82b97b70fd6f69f668b0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(136,3,136,28)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(157,3,157,28)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9735,7 +10230,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("7c7645cfc7f1d6842f4891bdcfb3ad0cf29afcd2e25eca32a9751443e128d9f5"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(137,3,137,26)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(158,3,158,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9772,7 +10267,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("bac95ade348478436ccc9bb8668941cd289a44099a6b1e2ca41759721180e32e"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(138,3,138,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(159,3,159,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9850,7 +10345,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("66acd4243153cd1e6fb9b8d92b5ef888070fafc32504cac8dc0d9f7d144d54b0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(139,3,139,26)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(160,3,160,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       ),
@@ -9884,7 +10379,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("3ac828220eb73dfbf0308febd279df285beacf23083e567848f8886561dbf939"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(140,3,140,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(161,3,161,41)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9912,7 +10407,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("16b01cbe23f4f87d454cd4d0832a300d8d6ec5da51ad62ec79d05024a0615ef4"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(141,3,141,32)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(162,3,162,32)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9936,7 +10431,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("133aa028d53a056f7547c536c1352a25dd26a29a2d2f946ab561e589e0fb4154"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(142,3,142,21)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(163,3,163,21)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9972,7 +10467,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("7529fb2e61f2561e9ba2491fee5147b6a7386ffe60d3fb8037755290be22a524"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(143,3,143,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(164,3,164,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -9996,7 +10491,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("704eec6379b9a5dedb46c8a08dc129318bf193b9368f48879346312e7640b6b1"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(144,3,144,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(165,3,165,23)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -10029,7 +10524,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("d977d622b4afe3241ff49d39079340e9dea3d7c07e2c071df9437b2599105980"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(145,3,145,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(166,3,166,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -10062,7 +10557,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("16fd7511d51f1a7b9f05aab36d55bde88b27409fd5c16b183c6b2fbe166ac7e4"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(146,3,146,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(167,3,167,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -10095,7 +10590,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("479cd3bea26d08df90eb1252738266b8ab0e455aafedf8216a6c24fe04d6a7b5"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(147,3,147,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(168,3,168,37)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -10143,7 +10638,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("054e2ee4cbd6fdc4c97e81dcef093b1b881e480c41b50a1d24ab96af10a56e39"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(148,3,148,84)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(169,3,169,84)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       )
@@ -10169,7 +10664,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("6262d37f40a1702751b0229aacc09527ffab63eabdfafdc32dcc0fd939d8d925"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(149,3,149,58)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(170,3,170,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       ),
@@ -10188,7 +10683,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("474ab50115ca0b22c1a8c97a8a253cb1f4243da760dbd0e43be75bda3b5432dc"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(150,3,150,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(171,3,171,47)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       ),
@@ -10207,7 +10702,7 @@ module TWOLAYER
     )
     [
       UNIQUE'Unds'ID{}("d904b378633d6d152584fbae77932a4bf92944f1964161dd64a4c3fbb02ee02f"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(151,3,151,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(172,3,172,47)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
       ),
@@ -13215,7 +13710,7 @@ module TWOLAYER
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,1,152,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,1,173,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
   )

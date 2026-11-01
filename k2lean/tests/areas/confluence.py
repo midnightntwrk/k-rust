@@ -52,6 +52,13 @@ DEMOS = {
                                              "demos/TwoConf/TwoConf/Legal/Slots.lean",
                                              "demos/TwoConf/confluence.toml", "demos/TwoConf/legal.toml"],
                 "slots": {"prefixes": ["join.", "Legal.join."], "list": "demos/TwoConf/open-joins.txt"}},
+    # the same under the weaker legality `wfOut`: the race of two spends refuted by two runs of a
+    # program `wfOut` admits (its legality the hand module's) and at a peak, every other slot generic
+    "TwoOutConf": {"tier": "light", "sources": ["generated/twolayerout",
+                                                "demos/TwoOutConf/TwoOutConf/Views.lean",
+                                                "demos/TwoOutConf/TwoOutConf/Slots.lean",
+                                                "demos/TwoOutConf/confluence.toml"],
+                   "slots": {"prefixes": ["join.", "witness."], "list": "demos/TwoOutConf/open-joins.txt"}},
     # its parameterized form: a segment's register and code parameters of the definition, every slot
     # generic under `wf` for every instance
     "TwoParamConf": {"tier": "light", "sources": ["generated/twoparam",
