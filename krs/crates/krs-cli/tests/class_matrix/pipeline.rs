@@ -1622,7 +1622,9 @@ impl Worker<'_> {
                             (Ok(Err(error)), _) => {
                                 Closure::Refused(signature(&refused(observe_error(&error)), placed))
                             }
-                            (Err(_), _) => Closure::Refused("panic".to_owned()),
+                            (Err(panic), _) => {
+                                Closure::Refused(format!("panic: {}", panic_message(&*panic)))
+                            }
                         };
                         out.insert(placed.case.id.clone(), verdict);
                     }

@@ -229,11 +229,6 @@ owner = "NT-31"
 kind = "feature"
 what = "a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up"
 
-["NT-30-1"]
-owner = "NT-30"
-kind = "bug"
-what = "the readable route reads a map value `_` as a binder named `_`, so the printed `map![x -> _, ..]` emits other K, and two `_` values are refused as a duplicate binding"
-
 ["NT-30-2"]
 owner = "S6"
 kind = "bug"

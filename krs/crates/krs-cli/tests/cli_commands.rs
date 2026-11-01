@@ -884,6 +884,35 @@ fn expanded_map_reads_compile_back_to_the_same_rule() {
     }
 }
 
+/// Two blocks may each hold a clause `sum` under exclusive `cfg`s: Rust
+/// removes the one whose `cfg` does not hold, so the definition holds one
+/// rule `sum`, and `krs expand` prints the clause that rule originates in,
+/// in either order of the blocks, which emits the same rule.
+#[test]
+fn same_named_clauses_under_exclusive_cfgs_expand_to_the_one_that_holds() {
+    let target = shared_fixture_target();
+    let held = "krs::rules! { for Machine; #[cfg(all())] sum: { acc: s, mem: { 0 -> x, .. } } => { acc: int::add(s, x) }; }";
+    let removed = "krs::rules! { for Machine; #[cfg(any())] sum: { acc: s, mem: { 1 -> x, .. } } => { acc: int::add(x, s) }; }";
+    for blocks in [[held, removed], [removed, held]] {
+        let source = TWO_ENTRY_READ.replace("{rule}", &blocks.join("\n"));
+        let temporary = temp_dir();
+        let manifest = materialize_fixture(temporary.path(), &source);
+        let expanded = command(target.path(), &manifest, "expand", None, &[]);
+        assert_success(&expanded);
+        let expanded = format!(
+            "extern crate krs as k;\n{}",
+            String::from_utf8(expanded.stdout).unwrap()
+        );
+        assert_eq!(expanded.matches("pub fn sum(").count(), 1, "{expanded}");
+        assert!(expanded.contains("map![0 -> x, rest0 @ ..]"), "{expanded}");
+        assert_eq!(
+            emit_sum_rule(target.path(), &expanded).replace("Rest0:Map", "..."),
+            emit_sum_rule(target.path(), &source),
+            "{expanded}"
+        );
+    }
+}
+
 /// A language whose `sum` rule reads `step` and `scale` and writes `acc`;
 /// `{rule}` is the rule.
 const READ_ONLY_CELLS: &str = r#"

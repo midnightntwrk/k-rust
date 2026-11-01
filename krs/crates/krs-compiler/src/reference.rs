@@ -203,6 +203,7 @@ pub fn expand_reference_source(
         .flat_map(krs_ir_levels::SemanticModule::rules)
         .map(|rule| (rule.id(), rule))
         .collect::<BTreeMap<_, _>>();
+    let lines = krs_ir::LineIndex::new(source);
     let mut rendered_names = BTreeSet::new();
     let mut needs_map_macro = false;
     let mut items = Vec::new();
@@ -288,9 +289,7 @@ pub fn expand_reference_source(
                 .map_err(ReferenceExpansionError::KrsSyntax)?;
             for row in table.rows() {
                 let name = row.label().unraw().to_string();
-                if !rendered_names.insert(name.clone()) {
-                    return Err(ReferenceExpansionError::DuplicateRule(name));
-                }
+                let authored = authored_bytes(&lines, row.source_range());
                 let descriptors = descriptor_index
                     .values()
                     .filter_map(|descriptor| match descriptor.payload() {
@@ -298,7 +297,8 @@ pub fn expand_reference_source(
                             if descriptor.id().package() == package
                                 && descriptor.id().module_path() == module_path
                                 && descriptor.id().item_name() == name
-                                && descriptor.id().item_kind() == krs_ir::ItemKind::Equation =>
+                                && descriptor.id().item_kind() == krs_ir::ItemKind::Equation
+                                && originates_in(descriptor, authored.as_ref()) =>
                         {
                             Some((descriptor, rule.as_ref()))
                         }
@@ -328,6 +328,9 @@ pub fn expand_reference_source(
                 items.push(syn::Item::Fn(render_equation_row(
                     row, &rule, package, bundle,
                 )?));
+                if !rendered_names.insert(name.clone()) {
+                    return Err(ReferenceExpansionError::DuplicateRule(name));
+                }
             }
             continue;
         }
@@ -354,9 +357,7 @@ pub fn expand_reference_source(
         };
         for clause in block.clauses() {
             let name = clause.rule().item().sig.ident.unraw().to_string();
-            if !rendered_names.insert(name.clone()) {
-                return Err(ReferenceExpansionError::DuplicateRule(name));
-            }
+            let authored = authored_bytes(&lines, clause.source_range());
             let descriptors = descriptor_index
                 .head_rules()
                 .filter(|(descriptor, _)| {
@@ -364,6 +365,7 @@ pub fn expand_reference_source(
                         && descriptor.id().module_path() == module_path
                         && descriptor.id().item_name() == name
                         && descriptor.id().item_kind() == kind
+                        && originates_in(descriptor, authored.as_ref())
                 })
                 .collect::<Vec<_>>();
             if descriptors.is_empty() && configured_out(&clause.rule().item().attrs) {
@@ -394,6 +396,9 @@ pub fn expand_reference_source(
                 package,
                 bundle,
             )?));
+            if !rendered_names.insert(name.clone()) {
+                return Err(ReferenceExpansionError::DuplicateRule(name));
+            }
         }
     }
     if needs_map_macro {
@@ -423,10 +428,36 @@ pub fn expand_reference_source(
     Ok(output)
 }
 
-/// Whether a readable clause or table row whose collection holds no sentence
-/// was configured out: it carries a `#[cfg(..)]`, which the macro writes on
-/// what it generates for the clause, so the clause's sentence was collected
-/// exactly when its condition held.
+/// The byte range of the source that `range` spans, measured as the
+/// collector measures a descriptor's origin: through the line and column of
+/// each end.
+fn authored_bytes(
+    lines: &krs_ir::LineIndex,
+    range: krs_syntax::TokenRange,
+) -> Option<std::ops::Range<usize>> {
+    let start = lines.line_column_to_byte(range.start()).ok()?;
+    let end = lines.line_column_to_byte(range.end()).ok()?;
+    Some(start..end)
+}
+
+/// Whether `descriptor`'s authored origin lies in `authored`, the bytes of a
+/// readable clause or table row.
+///
+/// A clause's descriptor is the one that originates in the clause, not one of
+/// its name: two blocks may each hold a clause of one name under exclusive
+/// `cfg`s, and only the clause whose `cfg` holds has a descriptor.
+fn originates_in(descriptor: &Descriptor, authored: Option<&std::ops::Range<usize>>) -> bool {
+    let (Some(authored), Some(origin)) = (authored, descriptor.origin().exact_authored_range())
+    else {
+        return false;
+    };
+    authored.start <= origin.start_byte as usize && origin.end_byte as usize <= authored.end
+}
+
+/// Whether a readable clause or table row in which no collected sentence
+/// originates was configured out: it carries a `#[cfg(..)]`, which the macro
+/// writes on what it generates for the clause, so the clause's sentence was
+/// collected exactly when its condition held.
 /// A clause whose condition does not hold denotes nothing, as an item Rust
 /// removes before any macro sees it, so its expanded surface is its absence.
 fn configured_out(attributes: &[syn::Attribute]) -> bool {
@@ -1942,14 +1973,23 @@ fn render_rule(
         .map(|_| fresh_ident("tail", &mut reserved))
         .transpose()?;
     let state = fresh_ident("state", &mut reserved)?;
+    // A map entry's `x -> _` value is recorded as a binding named `_`, used
+    // once and at the sort a narrowing `_: S` gives it, so it denotes what
+    // a fresh binder of that sort used once does; it prints as one, since
+    // `_` is no Rust binder a typed parameter can name.
+    let wildcard = rule
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "_")
+        .then(|| fresh_ident("value", &mut reserved))
+        .transpose()?;
+    let binder = |name: &str| match &wildcard {
+        Some(fresh) if name == "_" => Ok(fresh.clone()),
+        _ => rust_ident(name),
+    };
     let mut parameters = Vec::new();
     for binding in &rule.bindings {
-        // A map entry's `x -> _` value is recorded as a binding, but `_`
-        // binds nothing, so it declares no typed binder.
-        if binding.name == "_" {
-            continue;
-        }
-        let name = rust_ident(&binding.name)?;
+        let name = binder(&binding.name)?;
         let sort = variable_sorts.get(binding.name.as_str()).ok_or_else(|| {
             ReferenceExpansionError::MissingBindingSort {
                 rule: clause.rule().item().sig.ident.unraw().to_string(),
@@ -1957,7 +1997,7 @@ fn render_rule(
             }
         })?;
         let ty = render_sort_type(sort, package)?;
-        parameters.push((binding.name.clone(), quote!(#name: #ty)));
+        parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
     }
 
     let mut left_cells = Vec::new();
@@ -2032,7 +2072,7 @@ fn render_rule(
                     .iter()
                     .map(|entry| {
                         let key = render_term(&entry.key, true, package, bundle)?;
-                        let value = render_binder(&entry.value_binding)?;
+                        let value = binder(&entry.value_binding)?;
                         Ok(quote!(#key -> #value))
                     })
                     .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
@@ -3428,16 +3468,19 @@ fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionE
     Ok(())
 }
 
-/// `tokens` with each hidden template binder renamed as
-/// [`rename_hidden_binders`] does, and the renaming.
+/// Tokens with their hidden binders renamed, and the renaming.
 type Renamed = (TokenStream, BTreeMap<String, Ident>);
 
+/// `tokens` with each hidden template binder renamed as
+/// [`rename_hidden_binders`] does, and the renaming.
 fn rename_hidden_tokens(tokens: TokenStream) -> Result<Renamed, ReferenceExpansionError> {
     fn identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
         for token in tokens {
             match token {
+                // `r#bits` and `bits` are one identifier, so a fresh name
+                // skips the identifier, not its spelling.
                 proc_macro2::TokenTree::Ident(ident) => {
-                    names.insert(ident.to_string());
+                    names.insert(ident.unraw().to_string());
                 }
                 proc_macro2::TokenTree::Group(group) => identifiers(group.stream(), names),
                 _ => {}
@@ -3521,16 +3564,19 @@ fn fresh_ident(
 }
 
 /// The Rust identifier that names `value`: the identifier itself, or the raw
-/// identifier of a keyword (`r#type`).
+/// identifier of a name that is reserved in the edition KRS packages use
+/// (`r#type`, `r#gen`).
 ///
 /// Every name a descriptor holds was a Rust identifier where it was written,
 /// so no authored name fails here; a name that is neither an identifier nor a
 /// keyword a raw identifier can spell (`_`, `self`, `crate`, a name with a
 /// character no identifier holds) is a failure of whatever produced it, typed
-/// rather than a panic. `_` binds nothing and is no name: a binder prints
-/// through [`render_binder`].
+/// rather than a panic. `_` binds nothing and is no name: a readable `_`
+/// binding prints as a fresh binder (see [`render_rule`]).
 fn rust_ident(value: &str) -> Result<Ident, ReferenceExpansionError> {
-    if let Ok(ident) = syn::parse_str::<Ident>(value) {
+    if !EDITION_RESERVED.contains(&value)
+        && let Ok(ident) = syn::parse_str::<Ident>(value)
+    {
         return Ok(ident);
     }
     // `Ident::new_raw` panics on what no raw identifier spells, so the raw
@@ -3543,14 +3589,11 @@ fn rust_ident(value: &str) -> Result<Ident, ReferenceExpansionError> {
     })
 }
 
-/// A binder of a pattern: `_`, which matches and binds nothing, or the
-/// identifier it names.
-fn render_binder(value: &str) -> Result<TokenStream, ReferenceExpansionError> {
-    if value == "_" {
-        return Ok(quote!(_));
-    }
-    rust_ident(value).map(ToTokens::into_token_stream)
-}
+/// The names reserved in the 2024 edition, which KRS packages use, that
+/// `syn` parses as identifiers because no edition `syn` targets reserves
+/// them. A raw identifier names them in every edition that has raw
+/// identifiers.
+const EDITION_RESERVED: &[&str] = &["gen"];
 
 /// Failure to select or reread the one authored source of a package.
 #[derive(Debug)]
@@ -3948,7 +3991,7 @@ impl Error for ReferenceExpansionError {
 mod tests {
     use super::{
         ReferenceExpansionError, configured_out, contains_use_tree, fresh_ident,
-        read_package_source, rename_hidden_tokens, render_binder, render_reference_token_term_type,
+        read_package_source, rename_hidden_tokens, render_reference_token_term_type,
         render_sort_marker, render_term, rust_ident,
     };
     use krs_ir::{
@@ -4086,7 +4129,19 @@ mod tests {
 
     #[test]
     fn a_name_prints_as_its_identifier_or_raw_keyword_and_no_name_panics() {
-        for (name, printed) in [("x", "x"), ("type", "r#type"), ("r#type", "r#type")] {
+        for (name, printed) in [
+            ("x", "x"),
+            ("type", "r#type"),
+            ("r#type", "r#type"),
+            // Reserved in the 2024 edition, which `syn` does not reserve.
+            ("gen", "r#gen"),
+            ("r#gen", "r#gen"),
+            ("try", "r#try"),
+            ("async", "r#async"),
+            ("await", "r#await"),
+            ("dyn", "r#dyn"),
+            ("union", "union"),
+        ] {
             assert_eq!(rust_ident(name).unwrap().to_string(), printed);
         }
         // `Ident::new_raw` panics on each of these; the printer fails typed instead.
@@ -4113,10 +4168,12 @@ mod tests {
     }
 
     #[test]
-    fn the_anonymous_binder_prints_as_itself() {
-        assert_eq!(render_binder("_").unwrap().to_string(), "_");
-        assert_eq!(render_binder("value").unwrap().to_string(), "value");
-        assert_eq!(render_binder("type").unwrap().to_string(), "r#type");
+    fn an_authored_raw_identifier_reserves_its_name_for_a_fresh_binder() {
+        // `r#bits` is the identifier `bits`, so the hidden binder takes `bits1`.
+        let (tokens, renamed) =
+            rename_hidden_tokens(quote::quote!(f(r#bits, __krs_bits_0))).unwrap();
+        assert_eq!(renamed["__krs_bits_0"].to_string(), "bits1");
+        assert_eq!(tokens.to_string(), "f (r#bits , bits1)");
     }
 
     #[test]
@@ -4162,6 +4219,7 @@ mod tests {
         };
         let marker = |sort| render_sort_marker(&sort, &package).unwrap().to_string();
         assert_eq!(marker(sort(&framework, "KItem")), "dyn k :: KItemSort");
+        assert_eq!(marker(sort(&framework, "KResult")), "dyn k :: KResultSort");
         assert_eq!(marker(sort(&package, "Exp")), "dyn crate :: ExpSort");
     }
 

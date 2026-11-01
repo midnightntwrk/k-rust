@@ -1447,6 +1447,89 @@ impl BracketAlternative {
     }
 }
 
+/// The binders of a clause's map values `_`.
+///
+/// A map value `_` binds nothing: it matches whatever the entry maps to, at
+/// the sort a narrowing `_: S` writes, or the cell's value sort. A fresh
+/// binder used once at that sort denotes the same, so each `_` is read as a
+/// binder of its own: the first keeps the spelling `_`, which no other
+/// binder has, and each later one takes `_1`, `_2`, .. , skipping every
+/// identifier the clause spells. A narrowing `_: S` narrows each of them.
+struct MapValueWildcards {
+    spelled: std::collections::BTreeSet<String>,
+    fresh: Vec<Ident>,
+    first: bool,
+}
+
+impl MapValueWildcards {
+    fn new(
+        pattern_record: &TokenTree,
+        result_record: &TokenTree,
+        narrowings: &[RuleNarrowing],
+    ) -> Self {
+        fn identifiers(tokens: TokenStream, spelled: &mut std::collections::BTreeSet<String>) {
+            for token in tokens {
+                match token {
+                    TokenTree::Ident(ident) => {
+                        spelled.insert(ident.unraw().to_string());
+                    }
+                    TokenTree::Group(group) => identifiers(group.stream(), spelled),
+                    TokenTree::Punct(_) | TokenTree::Literal(_) => {}
+                }
+            }
+        }
+        let mut spelled = std::collections::BTreeSet::new();
+        identifiers(pattern_record.to_token_stream(), &mut spelled);
+        identifiers(result_record.to_token_stream(), &mut spelled);
+        spelled.extend(
+            narrowings
+                .iter()
+                .map(|narrowing| narrowing.binding.unraw().to_string()),
+        );
+        Self {
+            spelled,
+            fresh: Vec::new(),
+            first: false,
+        }
+    }
+
+    /// The binder of a map value: `value` itself unless it is a `_` after
+    /// the first.
+    fn binder(&mut self, value: &Ident) -> Ident {
+        if value != "_" {
+            return value.clone();
+        }
+        if !self.first {
+            self.first = true;
+            return value.clone();
+        }
+        let mut ordinal = self.fresh.len() + 1;
+        let name = loop {
+            let candidate = format!("_{ordinal}");
+            if self.spelled.insert(candidate.clone()) {
+                break candidate;
+            }
+            ordinal += 1;
+        };
+        let fresh = Ident::new(&name, value.span());
+        self.fresh.push(fresh.clone());
+        fresh
+    }
+
+    /// `narrowings` with a narrowing `_: S` repeated for each later `_`.
+    fn narrowings(&self, narrowings: &[RuleNarrowing]) -> Vec<RuleNarrowing> {
+        let mut all = narrowings.to_vec();
+        if let Some(wildcard) = narrowings.iter().find(|narrowing| narrowing.binding == "_") {
+            all.extend(
+                self.fresh
+                    .iter()
+                    .map(|fresh| RuleNarrowing::new(fresh.clone(), wildcard.sort.clone())),
+            );
+        }
+        all
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "One linear pass retains clause layout and diagnostics at authored tokens."
@@ -1492,6 +1575,7 @@ fn assemble_machine_clause(
     let mut extra_bindings = Vec::new();
     let mut state_bindings: Vec<Ident> = Vec::new();
     let mut map_values = Vec::new();
+    let mut wildcards = MapValueWildcards::new(pattern_record, result_record, narrowings);
     for (cell, pattern) in subject_cells {
         match pattern {
             MachinePatternCell::KItems(pattern) => {
@@ -1507,6 +1591,10 @@ fn assemble_machine_clause(
                 }
             }
             MachinePatternCell::MapItems(entries) => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| (key, wildcards.binder(value)))
+                    .collect::<Vec<_>>();
                 if result_cells
                     .iter()
                     .any(|(result_cell, _)| result_cell.unraw() == cell.unraw())
@@ -1814,7 +1902,7 @@ fn assemble_machine_clause(
     let clause = RuleClause {
         rule,
         attribute,
-        narrowings: narrowings.to_vec(),
+        narrowings: wildcards.narrowings(narrowings),
         head,
         head_result,
         extras,

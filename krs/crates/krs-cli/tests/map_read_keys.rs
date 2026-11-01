@@ -1,6 +1,7 @@
 //! Readable map reads whose key is a pattern, end to end: a key name the
 //! subject binds nowhere else matches the key of any entry, so the rule
-//! applies once per entry; `_` reads any entry; the `have` clause, whose
+//! applies once per entry; `_` reads any entry, and a value `_` any value;
+//! the `have` clause, whose
 //! `let` marks what it introduces, rejects a key bound nowhere.
 
 use std::fs;
@@ -72,6 +73,8 @@ k::rules! {
     untyped: { k: [Seq(Skip()), ..], raw: { rk -> rv, .. }, acc: _ } => { k: [..], acc: rv } where rk: Id, rv: Value;
     compound: { k: [Seq(Pick()), ..], raw: { Seq(s) -> rv, .. } } => { k: [s, ..] } where rv: Value;
     same: { k: [Seq(Seq(Skip())), ..], raw: { kv -> kv, .. } } => { k: [..] } where kv: Int;
+    wild: { k: [Seq(Seq(Pick())), ..], env: { a -> _, b -> _, .. }, acc: _ } => { k: [..], acc: 1 };
+    typed_wild: { k: [Seq(Seq(Two())), ..], raw: { rk -> _, rj -> _, .. }, acc: _ } => { k: [..], acc: 1 } where rk: Id, rj: Id, _: Value;
 }
 
 k::claims! {
@@ -167,8 +170,11 @@ fn emit(target: &Path, manifest: &Path, output: &Path) -> (String, String) {
 /// A key name bound nowhere else is a variable of the map pattern, typed by
 /// the map's key type; `_` is an anonymous key; two of either are two
 /// distinct entries; a call's arguments bind and its head does not; a key
-/// equal to its value keeps that meaning. `krs expand` writes the same
-/// rules as `cells!` maps, which emit the same K with named frames.
+/// equal to its value keeps that meaning. A value `_` binds a value of its
+/// own, at the cell's value sort or the sort `_: S` writes, so two of them
+/// read two entries whatever their values. `krs expand` writes the same
+/// rules as `cells!` maps, which emit the same K with named frames, a value
+/// `_` as a fresh binder.
 #[test]
 fn a_free_map_read_key_matches_any_entry() {
     let target = shared_fixture_target();
@@ -176,7 +182,15 @@ fn a_free_map_read_key_matches_any_entry() {
     let manifest = package(temporary.path(), "map-read", &format!("{PREAMBLE}{RULES}"));
     let (definition, spec) = emit(target.path(), &manifest, &temporary.path().join("emitted"));
     let rules = [
-        "pick", "pick-any", "two", "two-any", "untyped", "compound", "same",
+        "pick",
+        "pick-any",
+        "two",
+        "two-any",
+        "untyped",
+        "compound",
+        "same",
+        "wild",
+        "typed-wild",
     ]
     .map(|label| (label, sentence(&definition, label)));
     expect_test::expect![[r#"
@@ -209,6 +223,14 @@ fn a_free_map_read_key_matches_any_entry() {
                 "same",
                 "<k> seq (seq (skip)) => .K ... </k> <raw> Kv:Int |-> Kv:Int ... </raw>",
             ),
+            (
+                "wild",
+                "<k> seq (seq (pick)) => .K ... </k> <env> A:Id |-> V5F:Value B:Id |-> V5F31:Value ... </env> <acc> _ => 1 </acc>",
+            ),
+            (
+                "typed-wild",
+                "<k> seq (seq (two)) => .K ... </k> <raw> Rk:Id |-> V5F:Value Rj:Id |-> V5F31:Value ... </raw> <acc> _ => 1 </acc>",
+            ),
         ]
     "#]]
     .assert_debug_eq(&rules);
@@ -220,19 +242,54 @@ fn a_free_map_read_key_matches_any_entry() {
     // The expansion, pasted back, emits the same rules with named frames.
     let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
     assert!(success, "{stderr}");
+    let printed = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        expanded.contains("map![kk -> vv, rest0 @ ..]")
-            && expanded.contains("map![_ -> x, _ -> y, rest0 @ ..]"),
+        printed.contains("map![kk -> vv, rest0 @ ..]")
+            && printed.contains("map![_ -> x, _ -> y, rest0 @ ..]")
+            && printed.contains("map![a -> value, b -> _1, rest0 @ ..]")
+            && printed.contains("map![rk -> value, rj -> _1, rest0 @ ..]"),
         "{expanded}"
     );
     let pasted = package(temporary.path(), "map-read-expanded", &expanded);
     let (pasted, _) = emit(target.path(), &pasted, &temporary.path().join("pasted"));
     for (label, body) in &rules {
+        // The first value `_` is printed as the binder `value`.
         let framed = sentence(&pasted, label)
             .replace(" ~> Tail:K", "")
-            .replace(" Rest0:Map", " ...");
+            .replace(" Rest0:Map", " ...")
+            .replace("|-> Value:", "|-> V5F:");
         assert_eq!(&framed.replace(" </k>", " ... </k>"), body, "{label}");
     }
+}
+
+/// Two value `_`s are two binders: the rule reads two entries whatever
+/// values they hold, where one binder read twice would need equal values.
+#[test]
+fn two_value_wildcards_read_entries_of_different_values() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "map-read", &format!("{PREAMBLE}{RULES}"));
+    let path = temporary.path().join("wild.pgm");
+    fs::write(&path, "seq seq pick").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[
+            path.to_str().unwrap(),
+            "-c",
+            "ENV=x |-> 1 y |-> 2",
+            "-c",
+            "ACC=0",
+            "--output",
+            "kast",
+        ],
+    );
+    assert!(success, "{stderr}");
+    assert!(
+        stdout.contains("`<k>`(.K)") && stdout.contains("`<acc>`(#token(\"1\",\"Int\"))"),
+        "{stdout}"
+    );
 }
 
 /// The rule applies once for each entry: `krs search` finds one final state

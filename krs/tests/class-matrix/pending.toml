@@ -6504,10 +6504,6 @@ deviation = "record-update-in-pattern advises none, and its refusal advises `{ l
 ["terms/context-alias/map-key/k::project!(Int, x)"]
 finding = "NT-18-1"
 deviation = "krs::expand::missing-provenance-key @ spelling"
-["k3/terms/readable/map-value/_"]
-finding = "NT-30-1"
-deviation = "different"
-
 ["k3/terms/claim/item-root/Wrap::<KItem>(x)"]
 finding = "NT-30-2"
 deviation = "different"
