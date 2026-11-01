@@ -1307,6 +1307,54 @@ fn a_claim_s_local_functions_leave_the_executable_build_as_it_is() {
     }
 }
 
+/// A claim that no run satisfies: `load` leaves `pc` at the length of the empty program, 0.
+const ROGUE_CLAIM: &str = r"k::claims! {
+    for Machine;
+    use Op::*;
+
+    #[k::claim(all_paths)]
+    rogue: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: 7 };
+}
+";
+
+/// A claim is a statement to prove, not a rule, so no claim changes what a run computes
+/// (NT-15-3): `krs run`, `krs search` and `krs prove` share one compile that keeps the claims and
+/// the functions lifted out of them, and a run of that compile applies only the definition's rules
+/// and equations. The lifted functions are fresh symbols only the claims apply. So the package
+/// with the claims of [`LOCAL_CLAIMS`] (eleven lifted functions among them) and [`ROGUE_CLAIM`],
+/// which a run that applied it would reach in one step, prints the same final state for `load`
+/// as the package without them, and `krs search` finds the same final states, `pc` at 0.
+#[test]
+fn a_run_computes_the_same_with_or_without_the_claims() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let program = temporary.path().join("program.txt");
+    fs::write(&program, "load\n").unwrap();
+    let runs = |root: &str, claims: &str| {
+        let manifest = package(
+            &temporary.path().join(root),
+            "claim-runs",
+            "ORG-KRS-CLAIM-RUNS",
+            &format!("{}{claims}", local_machine()),
+        );
+        ["run", "search"].map(|command| {
+            let (success, stdout, stderr) = krs(
+                target.path(),
+                &manifest,
+                command,
+                &[program.to_str().unwrap()],
+            );
+            assert!(success, "{root} {command}: {stderr}");
+            stdout
+        })
+    };
+    let without = runs("without", "");
+    let with = runs("with", &format!("{LOCAL_CLAIMS}{ROGUE_CLAIM}"));
+    assert_eq!(with, without);
+    let state = without[0].split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(state.contains("<pc> 0 </pc>"), "{state}");
+}
+
 /// A claim written in an author spec module holds no `let` block or `k::matches!` for now
 /// (finding NT-15-1): the function KRS lifts one into is a syntax declaration, which a proof module
 /// may not hold, and no module the spec module imports is chosen to hold it yet. The refusal is
