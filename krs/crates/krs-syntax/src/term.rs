@@ -710,6 +710,12 @@ pub enum TermTree {
         range: TokenRange,
         /// The alternatives, in source order.
         alternatives: AtLeastTwo<TermTree>,
+        /// A name some alternative binds and another does not, at the first
+        /// alternative that does not (rustc's E0408). Every alternative binds
+        /// the same names where alternatives may stand, so whether they do is
+        /// judged after where the alternatives, and the constructs in them,
+        /// stand: by the term walker, once it has admitted them.
+        unbound: Option<Box<SyntaxError>>,
     },
     /// `k::matches!(subject, pattern)`: K's `( PATTERN :=K SUBJECT )`, a Bool
     /// test, only in results and conditions.
@@ -869,6 +875,24 @@ impl TermTree {
             | Self::Closure { .. }
             | Self::Rewrite { .. } => None,
         }
+    }
+
+    /// The first `A | B` in the tree, in preorder, with a name some
+    /// alternative binds and another does not: the error the term walker
+    /// reports there once the alternatives may stand where they do
+    /// ([`TermTree::Or`]).
+    #[must_use]
+    pub fn unbound_alternative(&self) -> Option<&SyntaxError> {
+        if let Self::Or {
+            unbound: Some(unbound),
+            ..
+        } = self
+        {
+            return Some(unbound);
+        }
+        subterms(self)
+            .into_iter()
+            .find_map(Self::unbound_alternative)
     }
 
     /// Appends the record field names of the tree to `output`, in the
@@ -1449,23 +1473,40 @@ impl TermExpression {
         root: PatternRoot,
     ) -> Result<Self, SyntaxError> {
         let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
-        match Pat::parse_multi.parse2(tokens.clone()) {
-            Ok(pattern) => Self::from_pattern_at(pattern, tokens, signs, root),
-            // Tokens that are no Rust pattern but a term expression are the
-            // term they denote, a `let` block or an `ml::exists` closure
-            // among them, and the position table judges it where it stands.
-            // `&&`, `||` and a method call, which no pattern holds, denote a
-            // builtin call, and a pattern names its head instead.
-            Err(error) => match syn::parse2::<Expr>(tokens) {
-                Ok(expression) => {
-                    if let Some(error) = crate::notation::notation_in_pattern(&expression) {
-                        return Err(error);
-                    }
-                    Self::from_pattern_expression(expression)
-                }
-                Err(_) => Err(error.into()),
-            },
+        let error = match Pat::parse_multi.parse2(tokens.clone()) {
+            Ok(pattern) => return Self::from_pattern_at(pattern, tokens, signs, root),
+            Err(error) => error,
+        };
+        // Tokens that are no Rust pattern but a term expression are the
+        // term they denote, a `let` block or an `ml::exists` closure among
+        // them, and the position table judges it where it stands. `&&`, `||`
+        // and a method call, which no pattern holds, denote a builtin call,
+        // and a pattern names its head instead. A `|` where a pattern's
+        // alternatives stand joins them, so the tokens are read as the
+        // pattern they are around the expressions they hold.
+        let expression = syn::parse2::<Expr>(tokens.clone()).ok();
+        if let Some(expression) = expression
+            .as_ref()
+            .filter(|expression| !crate::recover::holds_alternatives(expression))
+        {
+            return Self::from_pattern_expression_checked(expression.clone());
         }
+        if let Some(pattern) = crate::recover::pattern(&tokens) {
+            return Self::from_pattern_at(pattern, tokens, signs, root);
+        }
+        match expression.or_else(|| crate::recover::expression(&tokens)) {
+            Some(expression) => Self::from_pattern_expression_checked(expression),
+            None => Err(error.into()),
+        }
+    }
+
+    /// Reads an expression where a pattern stands, refusing the notation no
+    /// pattern holds.
+    fn from_pattern_expression_checked(expression: Expr) -> Result<Self, SyntaxError> {
+        if let Some(error) = crate::notation::notation_in_pattern(&expression) {
+            return Err(error);
+        }
+        Self::from_pattern_expression(expression)
     }
 
     /// Parses and validates the key of a map a pattern reads: a pattern, or
@@ -1483,9 +1524,17 @@ impl TermExpression {
         let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
         match Pat::parse_multi.parse2(tokens.clone()) {
             Ok(pattern) => Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value),
-            Err(error) => match syn::parse2::<Expr>(tokens) {
+            Err(error) => match syn::parse2::<Expr>(tokens.clone()) {
                 Ok(expression) => Self::from_pattern_expression(expression),
-                Err(_) => Err(error.into()),
+                Err(_) => match crate::recover::pattern(&tokens) {
+                    Some(pattern) => {
+                        Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value)
+                    }
+                    None => match crate::recover::expression(&tokens) {
+                        Some(expression) => Self::from_pattern_expression(expression),
+                        None => Err(error.into()),
+                    },
+                },
             },
         }
     }
@@ -1495,9 +1544,7 @@ impl TermExpression {
     /// the pattern they are, and the position table refuses the alias at its
     /// own tokens, as it refuses every construct its position cannot hold.
     fn from_aliased_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
-        let pattern = Pat::parse_multi.parse2(tokens.clone())?;
-        Self::from_pattern(pattern, tokens, signs)
+        Self::parse_pattern_tokens(tokens)
     }
 
     /// Validates a previously parsed Rust pattern as a term pattern; `signs`
@@ -1828,11 +1875,21 @@ impl KrsSyntax for TermExpression {
 pub(crate) fn parse_term_expression(input: syn::parse::ParseStream<'_>) -> syn::Result<Expr> {
     use syn::parse::discouraged::Speculative as _;
     let expression = input.fork();
+    let start = expression.cursor();
     let error = match expression.parse::<Expr>() {
-        // An expression stops before the `@` of an alias at its root.
+        // An expression stops before the `@` of an alias at its root. syn
+        // reports the tokens an expression leaves inside a group (a record
+        // pattern's `..base` in a `let`) only when the whole parse ends: the
+        // expression's own tokens, read alone, report them here, where the
+        // other readings are still open.
         Ok(parsed) if !expression.peek(syn::Token![@]) => {
-            input.advance_to(&expression);
-            return Ok(parsed);
+            match syn::parse2::<Expr>(tokens_between(start, expression.cursor())) {
+                Ok(_) => {
+                    input.advance_to(&expression);
+                    return Ok(parsed);
+                }
+                Err(error) => error,
+            }
         }
         Ok(_) => expression.error("unexpected token"),
         Err(error) => error,
@@ -1841,10 +1898,18 @@ pub(crate) fn parse_term_expression(input: syn::parse::ParseStream<'_>) -> syn::
     let start = pattern.cursor();
     if pattern.call(Pat::parse_multi).is_ok() {
         let tokens = tokens_between(start, pattern.cursor());
-        if find_pattern_alias(&tokens).is_some() {
+        if find_pattern_alias(&tokens).is_some() && Pat::parse_multi.parse2(tokens.clone()).is_ok()
+        {
             input.advance_to(&pattern);
             return Ok(Expr::Verbatim(tokens));
         }
+    }
+    // An alias below the root, which neither grammar reads whole, is the
+    // pattern it is, where it stands ([`crate::recover`]).
+    let (tokens, length) = crate::recover::next_term(input);
+    if let Some(expression) = crate::recover::expression(&tokens) {
+        crate::recover::skip(input, length)?;
+        return Ok(expression);
     }
     Err(error)
 }
@@ -1864,13 +1929,15 @@ pub(crate) fn parse_term_pattern(input: syn::parse::ParseStream<'_>) -> syn::Res
     let start = pattern.cursor();
     let error = match pattern.call(Pat::parse_multi) {
         // A pattern followed by `[` or `.` (but `..`) is the receiver of an
-        // index or a method call, a term no pattern spells: the tokens are
-        // read as the expression they continue into.
+        // index or a method call, and one followed by an operator is its
+        // operand: a term no pattern spells, so the tokens are read as the
+        // expression they continue into.
         Ok(_)
             if pattern.peek(syn::token::Bracket)
-                || (pattern.peek(syn::Token![.]) && !pattern.peek(syn::Token![..])) =>
+                || (pattern.peek(syn::Token![.]) && !pattern.peek(syn::Token![..]))
+                || continues_into_operator(&pattern) =>
         {
-            pattern.error("a pattern continues into an index or a method call")
+            pattern.error("a pattern continues into an index, a method call or an operator")
         }
         // syn reports the tokens a pattern leaves inside a group (`..base` in
         // a record) only when the whole parse ends: the pattern's own tokens,
@@ -1891,7 +1958,34 @@ pub(crate) fn parse_term_pattern(input: syn::parse::ParseStream<'_>) -> syn::Res
         input.advance_to(&expression);
         return Ok(Pat::Verbatim(tokens));
     }
+    // An expression below the root, which neither grammar reads whole, is
+    // the term it is, where it stands ([`crate::recover`]).
+    let (tokens, length) = crate::recover::next_term(input);
+    if let Some(pattern) = crate::recover::pattern(&tokens) {
+        crate::recover::skip(input, length)?;
+        return Ok(pattern);
+    }
     Err(error)
+}
+
+/// Whether the tokens after a pattern continue it into a binary operator's
+/// expression: an operator no pattern is followed by wherever one stands.
+/// `|` joins alternatives, `..` ends a remainder, `=`, `=>` and `->` follow a
+/// pattern, and `-` begins `->`.
+fn continues_into_operator(after: syn::parse::ParseStream<'_>) -> bool {
+    use syn::Token;
+    after.peek(Token![+])
+        || (after.peek(Token![-]) && !after.peek(Token![->]))
+        || after.peek(Token![*])
+        || after.peek(Token![/])
+        || after.peek(Token![%])
+        || after.peek(Token![^])
+        || after.peek(Token![&])
+        || after.peek(Token![||])
+        || after.peek(Token![<])
+        || after.peek(Token![>])
+        || after.peek(Token![==])
+        || after.peek(Token![!=])
 }
 
 /// The tokens from `start` up to `end`.
@@ -2082,15 +2176,10 @@ pub(crate) fn validate_pattern_as(
     {
         *range = TokenRange::new(range.first(), last);
     }
-    for node in &nodes[index + 1..] {
-        let inner = match node {
-            TermNode::Reference(path) => path.get_ident(),
-            TermNode::As { binding, .. } => Some(binding),
-            _ => None,
-        };
-        if let Some(inner) = inner
-            && inner == name
-        {
+    // The names the subpattern binds: a `let`'s, a closure's or a
+    // `k::matches!` pattern's are that construct's own.
+    for inner in pattern_tree_binders(&pattern, false) {
+        if inner == *name {
             return Err(pattern_as_error(
                 format!(
                     "identifier `{name}` is bound more than once in the same pattern: an alias cannot occur inside its own subpattern (E0416)"
@@ -2138,17 +2227,17 @@ fn pattern_or_error(reason: String, span: Span) -> SyntaxError {
 pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not remainders";
 
 /// Validates `A | B | ..` (K's `#Or`, KF-030): every alternative is a term,
-/// not a `..` remainder, and every alternative binds the same names (rustc's
-/// E0408). The shell node precedes the alternatives' nodes. `validate`
-/// checks one alternative and returns its tree and the names it binds; the
-/// result carries the names the whole pattern binds, in first-appearance
-/// order.
+/// not a `..` remainder. The shell node precedes the alternatives' nodes.
+/// `validate` checks one alternative and returns its tree and the names it
+/// binds; the result carries the names the whole pattern binds, in
+/// first-appearance order, and the tree a name not bound in every
+/// alternative (rustc's E0408), which the term walker reports once it has
+/// judged where the alternatives stand ([`TermTree::Or`]).
 ///
 /// # Errors
 ///
-/// Returns [`SyntaxErrorKind::InvalidPatternOr`] for a remainder alternative
-/// or a name not bound in every alternative, or the first error of an
-/// alternative.
+/// Returns [`SyntaxErrorKind::InvalidPatternOr`] for a remainder alternative,
+/// or the first error of an alternative.
 pub(crate) fn validate_pattern_or(
     or: &PatOr,
     nodes: &mut Vec<TermNode>,
@@ -2201,20 +2290,18 @@ pub(crate) fn validate_pattern_or(
     {
         nodes[index] = TermNode::Or(TokenRange::new(range.first(), last));
     }
-    for name in &names {
+    let unbound = names.iter().find_map(|name| {
         let spelling = syn::ext::IdentExt::unraw(name).to_string();
-        if let Some((case, _)) = or
+        let (case, _) = or
             .cases
             .iter()
             .zip(&bound)
-            .find(|(_, spellings)| !spellings.contains(&spelling))
-        {
-            return Err(pattern_or_error(
-                format!("variable `{spelling}` is not bound in all alternatives"),
-                case.span(),
-            ));
-        }
-    }
+            .find(|(_, spellings)| !spellings.contains(&spelling))?;
+        Some(Box::new(pattern_or_error(
+            format!("variable `{spelling}` is not bound in all alternatives"),
+            case.span(),
+        )))
+    });
     let alternatives = AtLeastTwo::try_from(trees).map_err(|_| {
         pattern_or_error(
             "an or-pattern needs at least two alternatives".to_owned(),
@@ -2225,6 +2312,7 @@ pub(crate) fn validate_pattern_or(
         TermTree::Or {
             range,
             alternatives,
+            unbound,
         },
         names,
     ))
@@ -2594,6 +2682,14 @@ fn validate_expression(
             Ok(TermTree::Wildcard(TokenRange::for_tokens(infer)?))
         }
         Expr::Macro(value) => validate_special_macro(value, context, symbols, nodes),
+        // Tokens no expression holds below the root hold `name @ pattern`
+        // ([`crate::recover`]): they build the tree of the pattern they are.
+        Expr::Verbatim(tokens) => {
+            let term = TermExpression::from_aliased_tokens(tokens.clone())?;
+            symbols.extend(term.symbols);
+            nodes.extend(term.nodes);
+            Ok(term.tree)
+        }
         Expr::Block(block) => validate_let_block(block, symbols, nodes),
         // A closure is only the one argument of `ml::exists` (KF-039),
         // which `validate_call` admits.
@@ -2989,7 +3085,7 @@ fn validate_matches(
     nodes.push(TermNode::Matches(range));
     let subject = validate_expression(&subject, TermExpressionContext::Expression, symbols, nodes)?;
     let mut signs = crate::rule::NegativeLiteralSpans::scan(pattern_tokens.clone());
-    let pattern = Pat::parse_multi.parse2(pattern_tokens)?;
+    let pattern = parse_term_pattern.parse2(pattern_tokens)?;
     if let Pat::Rest(_) = pattern {
         return Err(unsupported_pattern_form(&pattern));
     }
@@ -3061,7 +3157,7 @@ fn validate_rewrite(
         to_nodes: 0,
     });
     let mut signs = crate::rule::NegativeLiteralSpans::scan(from_tokens.clone());
-    let pattern = Pat::parse_multi.parse2(from_tokens)?;
+    let pattern = parse_term_pattern.parse2(from_tokens)?;
     if let Pat::Rest(_) = pattern {
         return Err(unsupported_pattern_form(&pattern));
     }
@@ -3071,7 +3167,7 @@ fn validate_rewrite(
     let to = if is_unit_tokens(&to_tokens) {
         None
     } else {
-        let expression = syn::parse2::<Expr>(to_tokens)?;
+        let expression = parse_term_expression.parse2(to_tokens)?;
         Some(Box::new(validate_expression(
             &expression,
             TermExpressionContext::Expression,

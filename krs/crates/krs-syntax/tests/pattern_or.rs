@@ -144,14 +144,21 @@ fn state_island_items_take_alternatives() {
     assert_eq!(alternatives(env.tree()).len(), 2);
 }
 
+/// Alternatives that bind different names carry the error the term walker
+/// reports once it has judged where they, and what they hold, stand: a
+/// construct's placement is judged before the names it binds.
 #[test]
 fn malformed_or_patterns_are_rejected() {
-    let error = krs_syntax::RuleItem::parse_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn r(k::term![First(Pair(x, _) | Pair(_, y))]: Term<Exp>) -> Term<Exp> { x }",
     )
-    .unwrap_err();
+    .unwrap();
+    let error = rule
+        .subject_tree()
+        .unbound_alternative()
+        .expect("alternatives that bind different names");
     assert!(
-        reason(&error).contains("variable `x` is not bound in all alternatives"),
+        reason(error).contains("variable `x` is not bound in all alternatives"),
         "{error}"
     );
     let error =
@@ -168,10 +175,15 @@ fn malformed_or_patterns_are_rejected() {
     let readable = krs_syntax::RuleBlock::parse_source(
         "for Exp; use ExpSyntax::*; bad: Pair(x, _) | Pair(_, y) => 1;",
     )
-    .unwrap_err();
+    .unwrap();
+    let error = readable.clauses()[0]
+        .rule()
+        .subject_tree()
+        .unbound_alternative()
+        .expect("alternatives that bind different names");
     assert!(
-        reason(&readable).contains("variable `x` is not bound in all alternatives"),
-        "{readable}"
+        reason(error).contains("variable `x` is not bound in all alternatives"),
+        "{error}"
     );
     let records = krs_syntax::RuleBlock::parse_source(
         "for Machine; bad: { fuel: f } | { acc: f } => { fuel: f };",
@@ -222,18 +234,20 @@ fn a_readable_values_alternatives_read_as_below_a_constructor() {
     ] {
         assert_eq!(record_bindings(source), expected, "{source}");
     }
-    for (source, expected) in [
+    // Below a constructor a bare name binds, so these alternatives bind
+    // different names, which the term walker reports (krs-cli
+    // `readable_alternatives`); the parse reads them.
+    for (source, bound) in [
         (
             "for Machine; a: { k: [Go(), ..], pc: (0 | p) } => { k: [..] };",
-            "variable `p` is not bound in all alternatives",
+            &["p"][..],
         ),
         (
             "for Machine; a: { k: [(Pick2 | Pick3), ..] } => { k: [..] };",
-            "variable `Pick2` is not bound in all alternatives",
+            &["Pick2", "Pick3"][..],
         ),
     ] {
-        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
-        assert!(reason(&error).contains(expected), "{source}: {error}");
+        assert_eq!(record_bindings(source), bound, "{source}");
     }
     // A `for Sort` clause's subject keeps its reading: its root is the
     // matched constructor, so a bare name inside `|` there is a unit

@@ -660,7 +660,16 @@ pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> syn::Resu
         return Err(fork.error("a map item requires a key before `->`"));
     }
     input.advance_to(&fork);
-    syn::parse2(tokens)
+    // A pattern's construct below the key's root, where the key computes, is
+    // the construct it is ([`crate::recover`]). A key rooted at `name @ ..`
+    // or at alternatives selects entries by matching them, which this reader
+    // does not read (finding S0-14).
+    syn::parse2::<Expr>(tokens.clone()).or_else(|error| {
+        if crate::recover::rooted_in_pattern_syntax(&tokens) {
+            return Err(error);
+        }
+        crate::recover::expression(&tokens).ok_or(error)
+    })
 }
 
 fn parse_machine_result_record(

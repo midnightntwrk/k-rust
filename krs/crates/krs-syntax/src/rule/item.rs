@@ -366,7 +366,9 @@ impl RuleItem {
         attribute: &crate::DesugarAttribute,
     ) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
-        Self::desugar_with_signs(syn::parse2::<ItemFn>(tokens)?, attribute, signs)
+        // A result that holds `name @ pattern` is read as the term it is, as
+        // a rule's is ([`crate::term::parse_fn_item`]).
+        Self::desugar_with_signs(crate::term::parse_fn_item(tokens)?, attribute, signs)
     }
 
     fn desugar_with_signs(

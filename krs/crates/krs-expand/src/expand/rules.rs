@@ -269,7 +269,9 @@ pub(crate) fn alias(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     krs_syntax::AliasAttribute::parse_tokens(attributes)?;
-    if let Ok(function) = syn::parse2::<ItemFn>(item.clone()) {
+    // A fn whose body holds `name @ pattern`, which no Rust expression holds,
+    // is still a clause fn ([`krs_syntax::parse_fn_item`]).
+    if let Ok(function) = krs_syntax::parse_fn_item(item.clone()) {
         if let Some(requires) = requires_helper(&function) {
             return Err(requires_on_static_clause(
                 krs_syntax::REQUIRES_ON_ALIAS_CLAUSE,
@@ -293,7 +295,9 @@ pub(crate) fn desugar(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let desugar = krs_syntax::DesugarAttribute::parse_tokens(attributes)?;
-    if let Ok(function) = syn::parse2::<ItemFn>(item.clone()) {
+    // A fn whose body holds `name @ pattern` is still a clause fn, as for
+    // `#[k::alias]`.
+    if let Ok(function) = krs_syntax::parse_fn_item(item.clone()) {
         if let Some(requires) = requires_helper(&function) {
             return Err(requires_on_static_clause(
                 krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,

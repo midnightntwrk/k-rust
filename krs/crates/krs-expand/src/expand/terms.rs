@@ -1332,18 +1332,21 @@ impl<'a> TermBuilder<'a> {
             TermTree::Or {
                 range,
                 alternatives,
+                unbound,
             } => {
                 self.admit(side, Construct::Or, *range)?;
                 let node = keys.node(NodeKind::Or, *range)?;
                 let key = Self::take_pattern_or(node)?;
-                Ok(WireTerm::Or {
-                    key,
-                    alternatives: self.below_selection(|this| {
-                        alternatives.try_map_ref(|alternative| {
-                            this.expand_node(alternative, keys, side, slots)
-                        })
-                    })?,
-                })
+                let alternatives = self.below_selection(|this| {
+                    alternatives
+                        .try_map_ref(|alternative| this.expand_node(alternative, keys, side, slots))
+                })?;
+                // The names the alternatives bind are judged once they, and
+                // what they hold, may stand where they do.
+                if let Some(unbound) = unbound {
+                    return Err(unbound.as_ref().clone().into());
+                }
+                Ok(WireTerm::Or { key, alternatives })
             }
             TermTree::Matches {
                 range,

@@ -1277,7 +1277,9 @@ impl RuleBlock {
                 .into());
             }
             input.parse::<Token![:]>()?;
-            let machine_clause = input.peek(syn::token::Brace);
+            // Braces hold a cell record, or a `let` block: no cell is named
+            // `let`, a keyword, so a block is the term it is.
+            let machine_clause = input.peek(syn::token::Brace) && !starts_let_block(input);
             // A claim states whole configurations (F7).
             if sentence == ReadableSentence::Claim && !machine_clause {
                 return Err(syn::Error::new(
@@ -1872,6 +1874,16 @@ fn keyed_extra_nodes(
         }
     }
     Ok(())
+}
+
+/// Whether `input` starts with a braced `let` block, `{ let pattern = value; body }`.
+fn starts_let_block(input: syn::parse::ParseStream<'_>) -> bool {
+    let braced = |input: syn::parse::ParseStream<'_>| {
+        let content;
+        syn::braced!(content in input);
+        Ok(content.peek(Token![let]))
+    };
+    input.fork().call(braced).unwrap_or(false)
 }
 
 #[cfg(test)]
