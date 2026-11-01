@@ -153,7 +153,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.search.output — O(q + sum e h + D log D c) — at k-rust/backend/search.rs `MatchOutput::with_source`
 - backend.search.paths — exponential in b and d, plus O(1) visited-set… — in: [rewrite result] — at backend/search.rs `search_paths_using`
 - backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result] — at backend/search.rs `search_pattern_using`
-- backend.simplify.condition_memo — one copy of the q predicate handles, the rule id… +1 mode — at backend/simplify.rs `ConditionMemo::served`
+- backend.simplify.condition_memo — no allocation: the key's own part (the rule id… +1 mode — at backend/simplify.rs `ConditionMemo::served`
 - backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… +6 modes — in: [match result] — at backend/simplify.rs `simplify_predicates_with_solver`
 - backend.simplify.term — O(r x |t| x c), with the rounds that are not… +6 modes — in: [match result] — at backend/simplify.rs `simplify_with_optional_execution`
 - backend.smt.cache — O(L x log E) for the key comparison, after an… +3 modes — at backend/smt/z3.rs `Z3Solver::solve`
