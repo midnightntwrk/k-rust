@@ -507,7 +507,7 @@ Each entry has these fields:
 - Reason: a ceil equation is an equality of the definition, so it holds only if it states the application's actual domain.
   `^Int` is the exponentiation of two integers, of sort `Int`, and is not declared `total`: its value is the power `A^B`, which is an integer for every nonnegative `B` (`A ^Int 0` is the empty product 1, `0 ^Int 0` included); for a negative `B = -n` the power is `1 / A^n`, an integer exactly when `|A| = 1` (1 for the base 1, and 1 or -1 by the parity of `n` for the base -1), and no number at all for the base 0, so no element of `Int` is the power there and the application is undefined.
   The application is defined exactly where its operands are and `B` is not negative or `A` is 1 or -1.
-  `^%Int` is "equal in value to `(A ^Int B) %Int C`": it is defined exactly where that remainder is, where `A ^Int B` is defined and the divisor `C` is not zero ("Division by zero is `#False`"); read as the Euclidean remainder, whose division by zero is `#False` as well, the domain is the same.
+  `^%Int` is "equal in value to `(A ^Int B) %Int C`": it is defined exactly where that remainder is, where `A ^Int B` is defined and the divisor `C` is not zero ("Division by zero is `#False`"); read as the Euclidean remainder (AM-13), whose division by zero is `#False` as well, the domain is the same.
   `log2Int` of zero or a negative number is `#False`, and of a positive integer is the index of its highest set bit, an integer: the application is defined exactly where its operand is and is positive.
   A power the backend does not compute for its size (a result above its bound, [compatibility.md, Resource bounds](compatibility.md#resource-bounds)) is defined: the bound is the evaluator's, and the equation, like the text, gives every such application a value.
   The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (upstream :1392-1396) and, with AM-10, of `divInt` and `bitRangeInt`, and not these, so a claim whose right-hand side holds `V ^Int 3` cannot show that it is defined, and one holding `V ^Int -1` with `V` above 1 that it is not, though the text says both.
@@ -527,3 +527,42 @@ Each entry has these fields:
   in module `INT-SYMBOLIC-KORE` (:1396-1397).
 - Status: local
 - Replaces: K text, marked lines `domains.md`:1399-1401, added (they replace no upstream line).
+
+### AM-13: `^%Int` is the Euclidean remainder of the power
+
+- Upstream: `domains.md` at K v7.1.337, :1229-1231, :1233-1237, :1251
+- Passage:
+
+  > * Compute the exponentiation of two integers modulo another integer (`^%Int`).
+  >   `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better
+  >   asymptotic complexity.
+
+  > * Compute the quotient `/Int` or modulus `%Int` of two integers using
+  >   t-division, which rounds towards zero. Division by zero is `#False`.
+  > * Compute the quotient `divInt` or modulus `modInt` of two integers using
+  >   Euclidean division, in which the remainder is always non-negative. Division
+  >   by zero is `#False`.
+
+  ```k
+                 | Int "^%Int" Int Int            [function, symbol(_^%Int__), left, smt-hook((mod (^ #1 #2) #3)), hook(INT.powmod)]
+  ```
+
+- k-rust reads: `A ^%Int B C` is the Euclidean remainder (`modInt`) of `A ^Int B` by `C`, in `[0, |C|)`; where `A ^Int B` is negative this is not the t-division remainder `(A ^Int B) %Int C`, which takes the sign of the dividend.
+- Ground: evident intent
+- Reason: the operation is "the exponentiation of two integers modulo another integer", modular exponentiation, whose value is a residue modulo `C`; the sentence after it states its value through a remainder to say that the operation computes that power reduced by `C` at a better complexity.
+  The production states the value as well: its `smt-hook` is `(mod (^ #1 #2) #3)`, SMT-LIB's `mod` of the power, the Euclidean remainder, in `[0, |C|)` whatever the signs of the power and of `C`.
+  The two statements agree wherever the power is not negative, where the t-division and the Euclidean remainder are one number, and differ only for a negative power (a negative base at an odd exponent), where `%Int`'s remainder is negative or zero; there the text gives one application two values, and the residue the operation names and its own production states is the Euclidean one, the remainder `modInt` computes, which the section calls "always non-negative".
+  So `%Int` in the prose is an omission of the wording, not a second value the text grants, and the reading changes no domain: both remainders are defined exactly where the power is and `C` is not zero (AM-12).
+  The backend states every `^%Int` term to the SMT solver through that `smt-hook` (with the power read as compatibility.md's `^Int` paragraph says), so an evaluator that gave the t-division remainder would let a proof derive two values for one term.
+- Evidence: `powmod_is_the_euclidean_remainder_of_the_power` in `k-rust-backend`'s [builtin.rs](../crates/k-rust-backend/src/builtin.rs) (`-2 ^%Int 3 5` is 2 and `-1 ^%Int -1 5` is 4, where `%Int` would give -3 and -1; the modulus' sign changes nothing); `kprove_proves_nothing_from_a_power_where_no_integer_is_its_value` in [cli.rs](../crates/k-rust/tests/cli.rs) states such terms to the solver; no reference differential of k-rust's runs `^%Int` at a negative power on the Java or Haskell backend.
+- Upstream proposal:
+
+  ```diff
+   * Compute the exponentiation of two integers modulo another integer (`^%Int`).
+  -  `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better
+  +  `A ^%Int B C` is equal in value to `(A ^Int B) modInt C`, but has a better
+     asymptotic complexity.
+  ```
+
+- Status: local
+- Replaces: no class: k-rust's value is unchanged, and `^%Int`'s value was already determined by the production's `smt-hook` in compatibility.md; the amendment records the reading of the prose's `%Int` as the Euclidean remainder.
