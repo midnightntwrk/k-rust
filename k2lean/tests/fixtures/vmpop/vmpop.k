@@ -1,9 +1,9 @@
 // `vmpri` with `pop` in two steps: `pop` becomes `#pop` where the stack is not empty
-// (`pop-start`), and `#pop` pops (`pop-done`); every other rule is `vmpri`'s. Against `vmpop1`
-// (`pop` in one step), `k2lean refine` relates them by a stuttering bisimulation with the ranks of
-// `vmpri` (`demos/VmPopRefine`, `docs/design.md` section 3.5): `pop-underflow`, the `owise` rule,
-// overlaps `pop` at a rank after it, so its steps correspond only where the split's first step
-// does not apply in either definition.
+// (`pop-start`), and `#pop` pops (`pop-done`); `itemOk` holds of `#pop`; every other rule is
+// `vmpri`'s. Against `vmpop1` (`pop` in one step), `k2lean refine` relates them by a stuttering
+// bisimulation with the ranks of `vmpri` (`demos/VmPopRefine`, `docs/design.md` section 3.5):
+// `pop-underflow`, the `owise` rule, overlaps `pop` at a rank after it, so its steps correspond
+// only where the split's first step does not apply in either definition.
 requires "domains.md"
 
 module VMPOP-SYNTAX
@@ -44,6 +44,7 @@ module VMPOP
   rule itemOk(_:Instr) => true
   rule itemOk(_:Pgm) => true
   rule itemOk(#halt(_)) => true
+  rule itemOk(#pop) => true
   rule itemOk(_) => false [owise]
   rule halted(.K) => true
   rule halted(#halt(_) ~> _) => true

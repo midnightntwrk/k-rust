@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # The relational area: `relate` (ImpRel, ImpMut with the mutant library kmut, the fixture
 # self-relations PeanoRel, CellMapRel and PickRel, SimpleRel outside the gate) and `refine` (ImpUnroll, with
-# the library kunroll; VmPopRefine, with priority ranks, libraries vmpop and vmpop1). Registry: relational.py.
+# the library kunroll; with priority ranks, VmPopRefine, libraries vmpop and vmpop1, and ImpPrintRefine,
+# libraries kprint and kprintu). Registry: relational.py.
 
 kore_relational() {
   case $1 in
@@ -11,6 +12,15 @@ kore_relational() {
     kimp-unroll) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/kimp-unroll.py" "$KIMP/imp.k" "$2.src/imp.k" || return 2
       f=$2.src/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
+    # kimp with `print` to K's stdout stream (tests/kimp-print.py: the stream's rules at priorities
+    # 25 and 30), and the same with tests/kimp-unroll.py's `while`: the sides of demos/ImpPrintRefine
+    kimp-print) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/kimp-print.py" "$KIMP" "$2.src" || return 2
+      f=$2.src/imp.k m=IMP s=IMP-SYNTAX inc=$2.src ;;
+    kimp-print-unroll) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/kimp-print.py" "$KIMP" "$2.src" &&
+      python3 -I "$LIBS_DIR/kimp-unroll.py" "$2.src/imp.k" "$2.src/imp.k" || return 2
+      f=$2.src/imp.k m=IMP s=IMP-SYNTAX inc=$2.src ;;
     # SIMPLE written differently (tests/simple-variant.py: constructors with other symbols, rules
     # in another order), the other side of the relation demos/SimpleRel
     simple-variant) mkdir -p "$2.src" &&
@@ -23,6 +33,7 @@ kore_relational() {
 name_relational() {
   case $1 in
     kmut) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
+    kprint) echo KImpPrint ;; kprintu) echo KImpPrintU ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;;
     pick) echo Pick ;; pickb) echo PickB ;; vmpop) echo KVmPop ;; vmpop1) echo KVmPop1 ;;
     *) return 1 ;;
@@ -35,6 +46,9 @@ gen_relational() {
             --out "$o" --name KMut --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     kunroll) GEN_ARGS=(--kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json"
             --out "$o" --name KUnroll --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    kprint|kprintu) local k=kimp-print; [ "$1" = kprintu ] && k=kimp-print-unroll
+      GEN_ARGS=(--kore "$(kore_dir $k)/definition.kore" --runtime "$(kore_dir $k)/runtime.json"
+            --out "$o" --name "$(libs_name "$1")" --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
     simplev) GEN_ARGS=(--kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json"
             --out "$o" --name KSimpleV --prelude ../../lean
@@ -59,6 +73,7 @@ relate_relational() {
     ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
+    ImpPrintRefine) na=KImpPrint ka=$(kore_dir kimp-print) nb=KImpPrintU kd=$(kore_dir kimp-print-unroll) extra=(--per-rule true) ;;
     VmPopRefine) na=KVmPop ka=$(libs_fixture vmpop) nb=KVmPop1 kd=$(libs_fixture vmpop1) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
@@ -71,7 +86,8 @@ relate_relational() {
 # libs_refine NS: the generated module of the stuttering-bisimulation demo NS and its report
 # `NS/refine.toml` (ImpUnroll: kimp against tests/kimp-unroll.py's variant, with no hand module, `X`
 # generated from the split of `while`; VmPopRefine: the fixture vmpop against vmpop1, `X` from the
-# split of `pop`, with priority ranks; needs libs_relate NS first, whose `--per-rule` lemmas and
+# split of `pop`, with priority ranks; ImpPrintRefine: ImpUnroll's split with K's stdout stream
+# rules before it; needs libs_relate NS first, whose `--per-rule` lemmas and
 # report it reads).
 libs_refine() {
   case $1 in
@@ -79,6 +95,10 @@ libs_refine() {
         --kore-b "$(kore_dir kimp-unroll)/definition.kore" --name-b KUnroll --ns ImpUnroll \
         --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --hand-module none \
         --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
+    ImpPrintRefine) "$G" refine --kore-a "$(kore_dir kimp-print)/definition.kore" --name-a KImpPrint \
+        --kore-b "$(kore_dir kimp-print-unroll)/definition.kore" --name-b KImpPrintU --ns ImpPrintRefine \
+        --correspondence "$DEMOS/ImpPrintRefine/correspondence.toml" --hand-module none \
+        --out "$DEMOS/ImpPrintRefine/ImpPrintRefine/Refine.lean" --report "$DEMOS/ImpPrintRefine/refine.toml" ;;
     VmPopRefine) "$G" refine --kore-a "$(libs_fixture vmpop)/definition.kore" --name-a KVmPop \
         --kore-b "$(libs_fixture vmpop1)/definition.kore" --name-b KVmPop1 --ns VmPopRefine \
         --correspondence "$DEMOS/VmPopRefine/correspondence.toml" --hand-module none \
@@ -129,6 +149,15 @@ gate_relational() {
     rel VmPopRefine
     scaffold refine-VmPopRefine libs_refine VmPopRefine
     dbuild VmPopRefine
+  fi
+  # ImpUnroll's split under K's stdout stream rules (ranks 0 and 1, before kimp's rules): kimp with
+  # `print` (tests/kimp-print.py) against the same with tests/kimp-unroll.py's `while`
+  if runs demo ImpPrintRefine; then
+    phase "scaffold ImpPrintRefine"
+    kc kimp-print && kc kimp-print-unroll && for d in kprint kprintu; do partlib "$d" "$(libs_name "$d").Preserves"; done
+    rel ImpPrintRefine
+    scaffold refine-ImpPrintRefine libs_refine ImpPrintRefine
+    dbuild ImpPrintRefine
   fi
   phase "diff relational"
   diffs kmut

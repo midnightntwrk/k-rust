@@ -3,6 +3,7 @@
 // `pop` takes two steps through `#pop` (`demos/VmPopRefine`, `docs/design.md` section 3.5). The
 // translation between the two needs every construct of `vmpop` here, and a state of `vmpop` at
 // `#pop` is related to its translation, whose `pop-done` step is the counterpart of `vmpop`'s.
+// `itemOk` holds of `#pop`, as in `vmpop`.
 requires "domains.md"
 
 module VMPOP1-SYNTAX
@@ -43,6 +44,7 @@ module VMPOP1
   rule itemOk(_:Instr) => true
   rule itemOk(_:Pgm) => true
   rule itemOk(#halt(_)) => true
+  rule itemOk(#pop) => true
   rule itemOk(_) => false [owise]
   rule halted(.K) => true
   rule halted(#halt(_) ~> _) => true

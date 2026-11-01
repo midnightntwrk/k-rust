@@ -6,15 +6,15 @@
   "syntax_module": "VMPOP-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "b16324503f88766c704e0f69d68f6b913fde354946b8538e50a063d17a3e77a6"
+    "sha256": "84cce11d41b2ce0c44f56103cdea2dfdf86a0407cecbcf840e9b17e4f71a3f4c"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "84b70029586651eb8dd486480a2de5902b1214163fde9debf2a54b0931bf7304"
+    "sha256": "e60699e1272ddf8dd34c1ed3bb967f0f94d33b47c702c98117b19f4d5a743583"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "bfae702149ef385dcdb0370f78b0c6b0fd3ab7381dd23f5e46fbe7cc5f54c44d"
+    "sha256": "814c24fa9e8b13fc851556612295add56a5cfb71b7d4b9bfdd3ff0b4f043772d"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -158,6 +158,7 @@
     "6fa810cf17b78be7d4a5943e363b1772eeb32da89ddfdfdf55ae5c38daa313d3",
     "19e0ecfc5419a923dfadd0ebbb72317e08aed4c6963c63449025bafa6aeba97a",
     "e503f566638783cf8a4c05893621b1b2465412139fa9735754a53eb1e4f57476",
+    "c873de95a4e1ac430de8d3d3f18d55bf4fe66c5c40e87ad646c0913d6bd72d03",
     "d3573de57cd3ad64e0f65e8bc9336034aea03ce903d9594ed3aa20805e14723d",
     "2f3f338f3c102fb23facb00c703b7b2b3ec86901190d169c75b5ebc50f821edc",
     "3d01c44af2ce8f52cfe4b2b226f3da95a3cb7d9346a1b98a3440cdbfef5f7d48",

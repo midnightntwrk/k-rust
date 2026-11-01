@@ -1202,7 +1202,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,20,10,38)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,20,11,38)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1212,7 +1212,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,41,10,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,41,11,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1222,7 +1222,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,49,10,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,49,11,54)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1232,7 +1232,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,57,10,62)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,57,11,62)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1242,7 +1242,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,18,11,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1252,7 +1252,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,18,11,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     ),
@@ -1267,7 +1267,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,20,18,28)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,20,19,28)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1277,7 +1277,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,31,18,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,31,19,44)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1287,7 +1287,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,21,19,25)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,21,20,25)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1297,7 +1297,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,28,19,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,28,20,39)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1307,7 +1307,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,42,19,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,42,20,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1317,7 +1317,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,20,20,42)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,20,21,42)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1327,7 +1327,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,20,21,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,20,22,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1336,7 +1336,7 @@ module VMPOP1
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,19,38,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,19,39,43)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     ),
@@ -1346,7 +1346,7 @@ module VMPOP1
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,19,39,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     ),
@@ -1356,7 +1356,7 @@ module VMPOP1
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,19,41,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     ),
@@ -1368,7 +1368,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1380,7 +1380,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -1392,7 +1392,7 @@ module VMPOP1
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
     )
@@ -5828,7 +5828,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("7795bc8dce962d1d2f4c27a783a9f0d78562877058274638e54809fc12864685"),
       label{}("seq"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,59)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -5873,7 +5873,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("8b897eac3a468ca832b85d8eaffdc9e44c36347bf9693d6fd6be2b280524c284"),
       label{}("end"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -5916,7 +5916,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("4def29267207f51e650c2ce80887f6e0c7d939f190a89dbebe12fcc775a5faab"),
       label{}("push"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,76)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,76)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -5962,7 +5962,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("1e0bf787badab2f223da0f7b0c5632c363c006473a24347456e7e8446e27dda3"),
       label{}("add-underflow0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,106)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,106)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       ),
@@ -6014,7 +6014,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("49f333e17f1bb4922845a0df2bc770b9b04fc07bd3b98c4db7bacda9f26f6dda"),
       label{}("add-underflow1"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,110)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,110)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       ),
@@ -6064,7 +6064,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("bcfaa433dbd60d074367eae642a1608fa2820ad67013f14a5637e5197ba23dc1"),
       label{}("add"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,86)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,86)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6116,7 +6116,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("a59afac8583c58b1e9a9b5f4f7a67eed2a94235e128c4a51d2f1370f71a2c384"),
       label{}("div"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,106)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,106)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6173,7 +6173,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("fd312311e4cd77cc8ac3de92a7d1aa939ca1d266e73c2845f51cdc5f9a9001c5"),
       label{}("div-zero"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,106)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,106)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6219,7 +6219,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("45fb2231ef6869cbed25ce54a0e7dddb759687aab84d3ddeaf0f249794865548"),
       label{}("div-underflow0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,92)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,3,33,92)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6270,7 +6270,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("594c65578c4d7d6e204c29a0577cfe300ecfa1c2500e0105eb62a5c8625c04cb"),
       label{}("div-underflow1"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,3,33,96)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,3,34,96)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6311,7 +6311,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("1d533b0a7da9cf08af579e3f3f5afce1571a0185eccac4e62a5bbdb94821da14"),
       label{}("pop"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,3,34,71)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,3,35,71)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6349,7 +6349,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("6dc391b312876a69c8559c268d56728b388db1ec1896dbb1774572b982cb836e"),
       label{}("pop-done"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,3,35,77)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,77)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6392,7 +6392,7 @@ module VMPOP1
     [
       UNIQUE'Unds'ID{}("e613cd9e1640dc1d8da045503a82a11f20de8bc35f5886c88b779f599b5d3282"),
       label{}("pop-underflow"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,74)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,3,37,74)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       ),
@@ -6408,7 +6408,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("78760cc39419ed9085236975b33a21376e626869742d9d45abaeef3627a02495"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,23)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6432,7 +6432,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("0e65d46995c644e21435694be36147556fb3695b7abcc5fadb5a7c7af9cffe1a"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,47)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6456,7 +6456,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("5ae16a769dd176a8694802526a2f64f22ba90d374f9fac787b9f9936d12fa348"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,31)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,31)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6477,7 +6477,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("8435f20d46f137eca03fb30f30168511d658b87e5a507441807e9ed494972f05"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,29)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,29)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6503,7 +6503,28 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("b44f0e46cf80ebed576b19c9567e9864f49b742f895db2ef63ee02b10ea3f2f7"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,32)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,32)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(X0:SortKItem{}, Lbl'Hash'pop'Unds'VMPOP1'Unds'KItem{}()),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblitemOk'LParUndsRParUnds'VMPOP1'Unds'Bool'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("ed0ca729edf555dcd5bb0a327f3c3833cb231bf9f56d19d9508429549b4b8724"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,28)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6556,7 +6577,16 @@ module VMPOP1
                     )
                   )
                 ),
-                \bottom{R}()
+                \or{R}(
+                  \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                      \in{SortKItem{}, R}(X0:SortKItem{}, Lbl'Hash'pop'Unds'VMPOP1'Unds'KItem{}()),
+                      \top{R}()
+                    )
+                  ),
+                  \bottom{R}()
+                )
               )
             )
           )
@@ -6573,7 +6603,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("16f5aa4dc748f69210a0a3898cd77c1460ad0c39d12ec977ac52c609b70705e1"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       ),
@@ -6589,7 +6619,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("1f8970ec69594f968e88f8343848a425504c046da1cb88b184c874d57030673a"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,26)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6618,7 +6648,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("f3af5459c2c66bba2a9d7194c6dd8ad2c05dc31a51617efc569a7930f6f52ee6"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,37)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       )
@@ -6664,7 +6694,7 @@ module VMPOP1
     )
     [
       UNIQUE'Unds'ID{}("4d162f081c17fe140f6a974bdbac2bc7ffa8b9fb69304ce12623b1f85a55282f"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
       ),
@@ -8255,7 +8285,7 @@ module VMPOP1
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,1,50,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,1,52,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/vmpop1/vmpop1.k)"
   )
