@@ -389,19 +389,6 @@ theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : S
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
-/-- app(_,_)_INDLEMMA_Stmts_Stmts_Stmts is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts» (X0 : SortStmts) (X1 : SortStmts) :
-    (Option.bind (K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts» X0 X1) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a []
-  | (k2l_eqn_b []; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
-  | (k2l_eqn_c [])
-  | k2l_eqn_ind X0 []
-  | k2l_eqn_ind X1 []
-
 /-- simplification 72139ee1f2b9 (domains.md) -/
 theorem Simp.s_72139ee1f2b9 (B : SortBool) :
     KPrelude.BoolHook.and B true = B := by

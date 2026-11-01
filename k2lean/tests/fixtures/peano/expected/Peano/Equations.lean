@@ -124,67 +124,6 @@ theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
-/-- odd(_)_PEANO_B_Nat is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«odd(_)_PEANO_B_Nat» (X0 : SortNat) :
-    (Option.bind (K.«odd(_)_PEANO_B_Nat» X0) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a []
-  | (k2l_eqn_b []; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
-  | (k2l_eqn_c [])
-  | k2l_eqn_ind X0 []
-
-/-- even(_)_PEANO_B_Nat is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«even(_)_PEANO_B_Nat» (X0 : SortNat) :
-    (Option.bind (K.«even(_)_PEANO_B_Nat» X0) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a []
-  | (k2l_eqn_b []; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
-  | (k2l_eqn_c [])
-  | k2l_eqn_ind X0 []
-
-/-- plus(_,_)_PEANO_Nat_Nat_Nat is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«plus(_,_)_PEANO_Nat_Nat_Nat» (X0 : SortNat) (X1 : SortNat) :
-    (Option.bind (K.«plus(_,_)_PEANO_Nat_Nat_Nat» X0 X1) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a []
-  | (k2l_eqn_b []; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
-  | (k2l_eqn_c [])
-  | k2l_eqn_ind X0 []
-  | k2l_eqn_ind X1 []
-
-/-- double(_)_PEANO_Nat_Nat is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«double(_)_PEANO_Nat_Nat» (X0 : SortNat) :
-    (Option.bind (K.«double(_)_PEANO_Nat_Nat» X0) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]
-  | (k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
-  | (k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
-  | (simp only [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
-
-/-- pick(_,_)_PEANO_Nat_B_Nat is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«pick(_,_)_PEANO_Nat_B_Nat» (X0 : SortB) (X1 : SortNat) :
-    (Option.bind (K.«pick(_,_)_PEANO_Nat_B_Nat» X0 X1) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
-  | (k2l_eqn_b [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
-  | (k2l_eqn_c [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
-  | (simp only [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; k2l_eqn_c [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
-
 /-- simplification c3ef047673d1 () -/
 theorem Simp.s_c3ef047673d1 (K0 : Option SortKItem) (K1 : Option SortKItem) (Rest : Option SortMap)
     (hwf0 : ∀ m ∈ Rest, KPrelude.MapHook.WF m) :

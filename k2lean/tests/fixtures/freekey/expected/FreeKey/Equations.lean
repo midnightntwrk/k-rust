@@ -373,17 +373,6 @@ theorem Eqn.«twoPos(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
     | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_c [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])
     | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_o [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]))
 
-/-- total(_)_FREEKEY_Int_WorkerCellMap is total (K's `total`) -/
-@[k2l_value]
-theorem Total.«total(_)_FREEKEY_Int_WorkerCellMap» (X0 : SortWorkerCellMap) :
-    (Option.bind (K.«total(_)_FREEKEY_Int_WorkerCellMap» X0) fun _ => some true) = some true := by
-  intros
-  first
-  | k2l_eqn_a []
-  | (k2l_eqn_b []; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
-  | (k2l_eqn_c [])
-
 /-- simplification 72139ee1f2b9 (domains.md) -/
 theorem Simp.s_72139ee1f2b9 (B : SortBool) :
     KPrelude.BoolHook.and B true = B := by

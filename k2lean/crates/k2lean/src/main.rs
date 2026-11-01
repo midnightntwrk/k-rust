@@ -713,8 +713,11 @@ fn main() {
                 &funcs::equations_modulo_overloads(&def, &m),
             );
             // K's `total` of the functions the rules' right-hand sides reach (EQ-24), before the
-            // simplifications, which may read it
-            stated.extend(eqns::total_theorems(&def, &m, &stmt_fns, &fgen.lean));
+            // simplifications, which may read it: where progress is stated, whose step needs a
+            // rule's right-hand side defined (SND-20); elsewhere no statement needs it
+            if a.rest.iter().any(|x| x == "--progress") {
+                stated.extend(eqns::total_theorems(&def, &m, &stmt_fns, &fgen.lean));
+            }
             stated.extend(eqns::simplification_theorems(&def, &m, &stmt_fns));
             if let Some(lp) = &a.lemmas {
                 let ldef = ir::load(&std::fs::read_to_string(lp).unwrap()).unwrap();
