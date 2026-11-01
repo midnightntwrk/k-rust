@@ -4016,7 +4016,27 @@ symbol = "ConditionMemo::intern_active"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemo::intern_rule_id"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "ConditionMemoProbe::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "ConditionMemoProbe::into_pending"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "InternTable::find"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "InternTable::insert"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4038,13 +4058,18 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "Interned"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "KeyView"
+
 [[node.cost]]
 mode = "lookup (every nested equation-condition decision outside an execution and outside any run with a console)"
-bound = "one copy of the q predicate handles, the rule id and the anchor handle into the key's own part; two hash lookups by content, O(k) predicates and O(a) keys hashed (term hashes are cached) and compared on a hit down to the first difference, find the memo's copies of the known list and the active set; then one map lookup, whose shared parts compare by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss pays the decision (backend.simplify.term, rule condition)."
+bound = "no allocation: the key's own part (the rule id, the anchor, the q predicates) is hashed where it is (term hashes are cached), and one set lookup of that hash ends the lookup where no kept key has the part; otherwise the memo's copies of the known list and the active set are found, each by one comparison with the copy last found at the caller's place, O(k) predicates and O(a) keys compared down to the first difference, and where that fails one hash lookup by content that hashes them; then one map lookup, whose own part compares by content and whose shared parts by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss copies the q predicate handles, for a verdict kept after the decision, which it pays (backend.simplify.term, rule condition)."
 
 [[node.cost]]
 mode = "retention"
-bound = "per kept verdict: its key's own part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list and active set, one copy (k predicate handles, a keys) shared by every key that names it. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
+bound = "per kept verdict: its key's own part (q predicate handles, the anchor handle, a shared rule id), the hash of that part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list, active set and rule id, one copy (k predicate handles, a keys) shared by every key that names it, and at most 4,096 noted places of a caller's copy per kind. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
 
 [[node]]
 kind = "algorithm"

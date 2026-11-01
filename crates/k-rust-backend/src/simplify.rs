@@ -77,7 +77,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.condition_memo"
 //! name = "equation-condition verdict memoization within a proof or an outermost condition"
-//! sites = ["ConditionMemo::served", "ConditionMemo", "ConditionMemo::record", "ConditionMemo::intern_known", "ConditionMemo::intern_active", "ConditionMemoProbe::new", "ConditionMemoScope", "condition_memo_scope", "condition_memo_aside", "Interned"]
+//! sites = ["ConditionMemo::served", "ConditionMemo", "ConditionMemo::record", "ConditionMemo::intern_known", "ConditionMemo::intern_active", "ConditionMemo::intern_rule_id", "ConditionMemoProbe::new", "ConditionMemoProbe::into_pending", "InternTable::find", "InternTable::insert", "ConditionMemoScope", "condition_memo_scope", "condition_memo_aside", "Interned", "KeyView"]
 //! variable = "q = predicates of the instantiated requires and of the binding obligations; k = known predicates; a = active rule-condition keys; f = path facts and e = diagnostics a decision noted and emitted"
 //! counters = []
 //! no_counter = "This procedure has no dedicated counter; a served verdict skips the decision, whose callees keep their own measurements."
@@ -87,11 +87,11 @@
 //!
 //! [[cost]]
 //! mode = "lookup (every nested equation-condition decision outside an execution and outside any run with a console)"
-//! bound = "one copy of the q predicate handles, the rule id and the anchor handle into the key's own part; two hash lookups by content, O(k) predicates and O(a) keys hashed (term hashes are cached) and compared on a hit down to the first difference, find the memo's copies of the known list and the active set; then one map lookup, whose shared parts compare by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss pays the decision (backend.simplify.term, rule condition)."
+//! bound = "no allocation: the key's own part (the rule id, the anchor, the q predicates) is hashed where it is (term hashes are cached), and one set lookup of that hash ends the lookup where no kept key has the part; otherwise the memo's copies of the known list and the active set are found, each by one comparison with the copy last found at the caller's place, O(k) predicates and O(a) keys compared down to the first difference, and where that fails one hash lookup by content that hashes them; then one map lookup, whose own part compares by content and whose shared parts by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss copies the q predicate handles, for a verdict kept after the decision, which it pays (backend.simplify.term, rule condition)."
 //!
 //! [[cost]]
 //! mode = "retention"
-//! bound = "per kept verdict: its key's own part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list and active set, one copy (k predicate handles, a keys) shared by every key that names it. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
+//! bound = "per kept verdict: its key's own part (q predicate handles, the anchor handle, a shared rule id), the hash of that part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list, active set and rule id, one copy (k predicate handles, a keys) shared by every key that names it, and at most 4,096 noted places of a caller's copy per kind. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
@@ -1895,12 +1895,13 @@ fn evaluate_equation_condition(
             solver,
         )
     });
-    let mut probe = probe.flatten();
-    if let Some(probe) = &mut probe
+    let probe = probe.flatten();
+    if let Some(probe) = &probe
         && let Some(outcome) = ConditionMemo::served(probe)
     {
         return Ok(outcome);
     }
+    let pending = probe.map(ConditionMemoProbe::into_pending);
     let collected = diagnostic::collecting();
     let facts_from = crate::path_facts::marker();
     let undecided_from = crate::smt::undecided_on_thread();
@@ -1928,12 +1929,12 @@ fn evaluate_equation_condition(
     // kept, unless the solver's undecided answers are a function of the query.
     let undecided = crate::smt::undecided_on_thread() != undecided_from
         && !solver.undecided_answers_reproducible();
-    if let Some(probe) = probe
+    if let Some(pending) = pending
         && stack_stops == 0
         && !undecided
         && let Ok(verdict) = &verdict
     {
-        ConditionMemo::record(probe, verdict, facts_from, emissions, collected);
+        ConditionMemo::record(pending, verdict, facts_from, emissions, collected);
     }
     verdict
 }
@@ -1989,24 +1990,39 @@ fn evaluate_equation_condition(
 /// `UnspecifiedValues`): what such a decision reads of the open attempts is not in the key. Work isolated from the run (`coverage::isolated`) sets
 /// the memo aside ([`condition_memo_aside`]). The verdicts go when the outermost scope closes.
 ///
-/// The memo holds each distinct known-predicate list and active-key set once
-/// ([`ConditionMemo::knowns`], [`ConditionMemo::actives`]), shared by every key that names it; a
-/// kept verdict's diagnostics share their content with every other copy of them, those its
-/// nested decisions' verdicts hold included (`diagnostic::Emission`). It is bounded by an
-/// estimate of the bytes it holds in place ([`CONDITION_MEMO_BYTES`]) and by its number of
-/// verdicts ([`CONDITION_MEMO_CAPACITY`]); reaching either clears it, and a cleared memo decides
-/// again what it no longer holds. The estimate counts the memo's own allocations, not the term
-/// nodes its keys share with the run, which a key keeps alive after the run drops them. A bound
-/// below the verdicts one proof meets again brings back the decisions the memo saves (KEVM's
-/// `keccak00` meets about 40,000).
+/// A lookup reads the decision's inputs where they are and allocates nothing
+/// ([`ConditionMemoProbe`], [`KeyView`]). Every nested decision meets it, so it first asks
+/// whether any key has the probe's own part, by that part's hash ([`ConditionMemo::heads`]):
+/// where none has, nothing is kept under it whatever the known predicates, and those are not
+/// read. Only then are the memo's copies of the known list and the active set found
+/// ([`InternTable::find`]), and the key looked up and compared by content. A lookup that finds
+/// no verdict copies the instance's predicates, which the decision consumes, for the key a kept
+/// verdict will have ([`ConditionMemoProbe::into_pending`], [`ConditionMemo::record`]).
+///
+/// The memo holds each distinct known-predicate list, active-key set and rule id once
+/// ([`ConditionMemo::knowns`], [`ConditionMemo::actives`], [`ConditionMemo::rule_ids`]), shared by
+/// every key that names it; a kept verdict's diagnostics share their content with every other
+/// copy of them, those its nested decisions' verdicts hold included (`diagnostic::Emission`). It
+/// is bounded by an estimate of the bytes it holds in place ([`CONDITION_MEMO_BYTES`]) and by its
+/// number of verdicts ([`CONDITION_MEMO_CAPACITY`]); reaching either clears it, and a cleared
+/// memo decides again what it no longer holds. The estimate counts the memo's own allocations,
+/// not the term nodes its keys share with the run, which a key keeps alive after the run drops
+/// them, nor the index of where a list or set was last found, bounded by its number of entries
+/// ([`INTERN_SEEN_CAPACITY`]). A bound below the verdicts one proof meets again brings back the
+/// decisions the memo saves (KEVM's `keccak00` meets about 40,000).
 #[derive(Default)]
 struct ConditionMemo {
     depth: usize,
     verdicts: FxHashMap<ConditionMemoKey, MemoVerdict>,
+    /// The [`ConditionMemoKey::head_hash`] of every key in `verdicts`: a probe whose head hash is
+    /// not here has no verdict. Distinct heads may share a hash, so one that is here may have none.
+    heads: FxHashSet<u64>,
     /// Every known-predicate list a key names, once.
-    knowns: FxHashSet<Arc<[Predicate]>>,
+    knowns: InternTable<[Predicate]>,
     /// Every set of active rule-condition keys a key names, once.
-    actives: FxHashSet<Arc<BTreeSet<ConditionKey>>>,
+    actives: InternTable<BTreeSet<ConditionKey>>,
+    /// Every rule id a key names, once.
+    rule_ids: FxHashSet<Arc<str>>,
     /// The estimate of the bytes held ([`CONDITION_MEMO_BYTES`]).
     retained: usize,
 }
@@ -2139,26 +2155,37 @@ impl ConditionMemo {
 
     fn clear(&mut self) {
         self.verdicts.clear();
+        self.heads.clear();
         self.knowns.clear();
         self.actives.clear();
+        self.rule_ids.clear();
         self.retained = 0;
     }
 
     /// The verdict kept under `probe`'s key, with its facts noted and its diagnostics emitted
     /// again; `None` when there is none, or none [`MemoVerdict::replays_in_full`].
-    fn served(probe: &mut ConditionMemoProbe<'_>) -> Option<EquationCondition> {
+    fn served(probe: &ConditionMemoProbe<'_, '_>) -> Option<EquationCondition> {
+        let (known, active) = CONDITION_MEMO.with_borrow_mut(|memo| {
+            // A head no key has is in no key, nor is a list or set no key names.
+            if !memo.heads.contains(&probe.head_hash) {
+                return None;
+            }
+            let known = held_address(memo.knowns.find(probe.known, slice_place(probe.known))?);
+            let active = held_address(memo.actives.find(probe.active, set_place(probe.active))?);
+            Some((known, active))
+        })?;
         CONDITION_MEMO.with_borrow(|memo| {
-            // A list or set no key names is in no key.
-            let known = memo.knowns.get(probe.known)?;
-            let active = memo.actives.get(probe.active)?;
-            let key = ConditionMemoKey {
-                head: std::mem::take(&mut probe.head),
-                known: Interned(Arc::clone(known)),
-                active: Interned(Arc::clone(active)),
+            // `known` and `active` are the addresses of copies the memo still holds.
+            let view = KeyView {
+                head_hash: probe.head_hash,
+                head: probe.head(),
+                known,
+                active,
             };
-            let verdict = memo.verdicts.get(&key);
-            probe.head = key.head;
-            let verdict = verdict.filter(|verdict| verdict.replays_in_full())?;
+            let verdict = memo.verdicts.get(&view as &dyn ViewedKey)?;
+            if !verdict.replays_in_full() {
+                return None;
+            }
             crate::path_facts::replay(&verdict.facts);
             verdict.emissions.replay();
             #[cfg(test)]
@@ -2171,7 +2198,7 @@ impl ConditionMemo {
     }
 
     fn record(
-        probe: ConditionMemoProbe<'_>,
+        pending: PendingKey<'_>,
         verdict: &EquationCondition,
         facts_from: crate::path_facts::Marker,
         emissions: diagnostic::Buffered,
@@ -2188,9 +2215,8 @@ impl ConditionMemo {
             crate::path_facts::FactSet::new()
         };
         let bytes = std::mem::size_of::<(ConditionMemoKey, MemoVerdict)>()
-            + probe.head.rule_id.capacity()
-            + (probe.head.requires.capacity() + probe.head.bindings.capacity())
-                * std::mem::size_of::<Predicate>()
+            + 2 * std::mem::size_of::<u64>()
+            + (pending.requires.len() + pending.bindings.len()) * std::mem::size_of::<Predicate>()
             + facts.len() * 2 * std::mem::size_of::<crate::path_facts::PathFact>()
             + emissions.retained_bytes();
         let verdict = MemoVerdict {
@@ -2209,18 +2235,23 @@ impl ConditionMemo {
             {
                 memo.clear();
             }
-            let known = memo.intern_known(probe.known);
-            let active = memo.intern_active(probe.active);
-            memo.retained += bytes;
-            // A verdict decided again where the one kept did not replay in full replaces it.
-            if let Some(replaced) = memo.verdicts.insert(
-                ConditionMemoKey {
-                    head: probe.head,
-                    known,
-                    active,
+            let key = ConditionMemoKey {
+                head_hash: pending.head_hash,
+                head: ConditionMemoHead {
+                    scalars: pending.scalars,
+                    rule_id: memo.intern_rule_id(pending.rule_id),
+                    anchor: pending.anchor.cloned(),
+                    requires: pending.requires,
+                    bindings: pending.bindings,
                 },
-                verdict,
-            ) {
+                known: memo.intern_known(pending.known),
+                active: memo.intern_active(pending.active),
+            };
+            debug_assert_eq!(key.head.view().hash_value(), key.head_hash);
+            memo.retained += bytes;
+            memo.heads.insert(key.head_hash);
+            // A verdict decided again where the one kept did not replay in full replaces it.
+            if let Some(replaced) = memo.verdicts.insert(key, verdict) {
                 memo.retained -= replaced.bytes;
             }
         });
@@ -2228,13 +2259,12 @@ impl ConditionMemo {
 
     /// The one copy of `known` the memo holds, made now if there is none.
     fn intern_known(&mut self, known: &[Predicate]) -> Interned<[Predicate]> {
-        if let Some(held) = self.knowns.get(known) {
+        let place = slice_place(known);
+        if let Some(held) = self.knowns.find(known, place) {
             return Interned(Arc::clone(held));
         }
-        let held: Arc<[Predicate]> = Arc::from(known);
         self.retained += std::mem::size_of_val(known) + 2 * std::mem::size_of::<Arc<[Predicate]>>();
-        self.knowns.insert(Arc::clone(&held));
-        Interned(held)
+        Interned(self.knowns.insert(place, Arc::from(known)))
     }
 
     /// The one copy of `active` the memo holds, made now if there is none.
@@ -2242,55 +2272,151 @@ impl ConditionMemo {
         &mut self,
         active: &BTreeSet<ConditionKey>,
     ) -> Interned<BTreeSet<ConditionKey>> {
-        if let Some(held) = self.actives.get(active) {
+        let place = set_place(active);
+        if let Some(held) = self.actives.find(active, place) {
             return Interned(Arc::clone(held));
         }
-        let held = Arc::new(active.clone());
         self.retained += active
             .iter()
             .map(|(rule_id, _)| 2 * std::mem::size_of::<ConditionKey>() + rule_id.capacity())
             .sum::<usize>()
             + 2 * std::mem::size_of::<Arc<BTreeSet<ConditionKey>>>();
-        self.actives.insert(Arc::clone(&held));
-        Interned(held)
+        Interned(self.actives.insert(place, Arc::new(active.clone())))
+    }
+
+    /// The one copy of `rule_id` the memo holds, made now if there is none.
+    fn intern_rule_id(&mut self, rule_id: &str) -> Arc<str> {
+        if let Some(held) = self.rule_ids.get(rule_id) {
+            return Arc::clone(held);
+        }
+        let held: Arc<str> = Arc::from(rule_id);
+        self.retained += rule_id.len() + 2 * std::mem::size_of::<Arc<str>>();
+        self.rule_ids.insert(Arc::clone(&held));
+        held
     }
 }
 
-/// A list or set [`ConditionMemo`] holds once, compared and hashed by its allocation: every key
-/// that names a content holds the memo's one copy of it, so two keys name the same content
-/// exactly when they hold the same allocation.
+/// The most places an [`InternTable`] notes at once; reaching it forgets them all.
+const INTERN_SEEN_CAPACITY: usize = 1 << 12;
+
+/// The lists or sets [`ConditionMemo`] holds, each once, found by content.
+///
+/// Finding a value by content hashes all of it. A caller passes the same list or set, where it
+/// is, to many decisions in a row, so the table also notes the place (address and length) of the
+/// caller's copy it last found each held value by, and a lookup at a noted place first compares
+/// the value with the held one noted there. Equal content is that held value whatever the place
+/// holds now, a freed and reused allocation included; unequal content falls back to the lookup
+/// by content. The place only chooses which held value is compared, and the comparison decides.
+struct InternTable<T: ?Sized> {
+    held: FxHashSet<Arc<T>>,
+    /// By the place of a caller's copy, the held value it was last found equal to; at most
+    /// [`INTERN_SEEN_CAPACITY`] entries.
+    seen: FxHashMap<(usize, usize), Arc<T>>,
+}
+
+impl<T: ?Sized> Default for InternTable<T> {
+    fn default() -> Self {
+        Self {
+            held: FxHashSet::default(),
+            seen: FxHashMap::default(),
+        }
+    }
+}
+
+impl<T: ?Sized + Eq + std::hash::Hash> InternTable<T> {
+    /// The held value equal to `value`, whose copy is at `place`; `None` when none is held.
+    fn find(&mut self, value: &T, place: (usize, usize)) -> Option<&Arc<T>> {
+        if self.seen.get(&place).is_some_and(|held| **held == *value) {
+            return self.seen.get(&place);
+        }
+        let held = self.held.get(value)?;
+        Self::note(&mut self.seen, place, held);
+        Some(held)
+    }
+
+    /// Hold `value`, whose copy is at `place` and which no held value equals.
+    fn insert(&mut self, place: (usize, usize), value: Arc<T>) -> Arc<T> {
+        self.held.insert(Arc::clone(&value));
+        Self::note(&mut self.seen, place, &value);
+        value
+    }
+
+    fn note(seen: &mut FxHashMap<(usize, usize), Arc<T>>, place: (usize, usize), held: &Arc<T>) {
+        if seen.len() >= INTERN_SEEN_CAPACITY {
+            seen.clear();
+        }
+        seen.insert(place, Arc::clone(held));
+    }
+
+    fn clear(&mut self) {
+        self.held.clear();
+        self.seen.clear();
+    }
+}
+
+/// The place of a known-predicate list, for [`InternTable::find`].
+fn slice_place(known: &[Predicate]) -> (usize, usize) {
+    (known.as_ptr().addr(), known.len())
+}
+
+/// The place of an active-key set, for [`InternTable::find`].
+fn set_place(active: &BTreeSet<ConditionKey>) -> (usize, usize) {
+    (std::ptr::from_ref(active).addr(), active.len())
+}
+
+/// The address of a value the memo holds ([`Interned`]).
+fn held_address<T: ?Sized>(held: &Arc<T>) -> usize {
+    Arc::as_ptr(held).cast::<()>().addr()
+}
+
+/// A list or set [`ConditionMemo`] holds once, named by its allocation: every key that names a
+/// content holds the memo's one copy of it, so two keys, or a key and a lookup that found the
+/// memo's copy, name the same content exactly when they name the same allocation. The key holds
+/// that allocation, so no other value takes its address while the key exists.
 struct Interned<T: ?Sized>(Arc<T>);
 
-impl<T: ?Sized> PartialEq for Interned<T> {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+impl<T: ?Sized> Interned<T> {
+    fn address(&self) -> usize {
+        held_address(&self.0)
     }
 }
 
-impl<T: ?Sized> Eq for Interned<T> {}
-
-impl<T: ?Sized> std::hash::Hash for Interned<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_usize(Arc::as_ptr(&self.0).cast::<()>().addr());
-    }
-}
-
-/// Everything a nested equation-condition decision reads ([`ConditionMemo`]).
-#[derive(Eq, Hash, PartialEq)]
+/// Everything a nested equation-condition decision reads ([`ConditionMemo`]). It is hashed and
+/// compared through its [`KeyView`].
 struct ConditionMemoKey {
+    /// The hash of `head` ([`HeadView::hash_value`]).
+    head_hash: u64,
     head: ConditionMemoHead,
     known: Interned<[Predicate]>,
     active: Interned<BTreeSet<ConditionKey>>,
 }
 
 /// What a [`ConditionMemoKey`] holds of its own.
-#[derive(Default, Eq, Hash, PartialEq)]
 struct ConditionMemoHead {
-    definition: usize,
-    rule_id: String,
+    scalars: HeadScalars,
+    /// The memo's copy ([`ConditionMemo::rule_ids`]).
+    rule_id: Arc<str>,
     anchor: Option<Term>,
-    requires: Vec<Predicate>,
-    bindings: Vec<Predicate>,
+    requires: Box<[Predicate]>,
+    bindings: Box<[Predicate]>,
+}
+
+impl ConditionMemoHead {
+    fn view(&self) -> HeadView<'_> {
+        HeadView {
+            scalars: self.scalars,
+            rule_id: &self.rule_id,
+            anchor: self.anchor.as_ref(),
+            requires: &self.requires,
+            bindings: &self.bindings,
+        }
+    }
+}
+
+/// The parts of a head that are plain values.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct HeadScalars {
+    definition: usize,
     max_iterations: usize,
     keep_partial: bool,
     solver: usize,
@@ -2298,23 +2424,123 @@ struct ConditionMemoHead {
     stated_ceil_conditions: bool,
 }
 
-/// A [`ConditionMemoKey`] before it is looked up or kept: the known predicates and the active
-/// keys are the caller's, and only a kept verdict's key holds the memo's copy of them.
-struct ConditionMemoProbe<'a> {
-    head: ConditionMemoHead,
+/// A head's content, borrowed from a kept key ([`ConditionMemoHead::view`]) or from a decision's
+/// inputs ([`ConditionMemoProbe::head`]); equal content hashes equally whichever it is borrowed
+/// from.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct HeadView<'a> {
+    scalars: HeadScalars,
+    rule_id: &'a str,
+    anchor: Option<&'a Term>,
+    requires: &'a [Predicate],
+    bindings: &'a [Predicate],
+}
+
+impl HeadView<'_> {
+    fn hash_value(&self) -> u64 {
+        std::hash::BuildHasher::hash_one(&rustc_hash::FxBuildHasher, self)
+    }
+}
+
+/// A key's content as [`ConditionMemo::verdicts`] hashes and compares it: its head, by content,
+/// and the addresses of the memo's copies of its known list and active set ([`Interned`]).
+#[derive(Clone, Copy)]
+struct KeyView<'a> {
+    head_hash: u64,
+    head: HeadView<'a>,
+    known: usize,
+    active: usize,
+}
+
+/// What [`ConditionMemo::verdicts`] is looked up by, a kept key or a lookup's [`KeyView`]: the
+/// map finds a key through a borrowed form, and this trait object is that form, with the hash and
+/// equality of the key it views.
+trait ViewedKey {
+    fn key_view(&self) -> KeyView<'_>;
+}
+
+impl ViewedKey for KeyView<'_> {
+    fn key_view(&self) -> KeyView<'_> {
+        *self
+    }
+}
+
+impl ViewedKey for ConditionMemoKey {
+    fn key_view(&self) -> KeyView<'_> {
+        KeyView {
+            head_hash: self.head_hash,
+            head: self.head.view(),
+            known: self.known.address(),
+            active: self.active.address(),
+        }
+    }
+}
+
+impl PartialEq for dyn ViewedKey + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        let (left, right) = (self.key_view(), other.key_view());
+        left.head_hash == right.head_hash
+            && left.known == right.known
+            && left.active == right.active
+            && left.head == right.head
+    }
+}
+
+impl Eq for dyn ViewedKey + '_ {}
+
+impl std::hash::Hash for dyn ViewedKey + '_ {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let view = self.key_view();
+        state.write_u64(view.head_hash);
+        state.write_usize(view.known);
+        state.write_usize(view.active);
+    }
+}
+
+impl<'a> std::borrow::Borrow<dyn ViewedKey + 'a> for ConditionMemoKey {
+    fn borrow(&self) -> &(dyn ViewedKey + 'a) {
+        self
+    }
+}
+
+impl PartialEq for ConditionMemoKey {
+    fn eq(&self, other: &Self) -> bool {
+        (self as &dyn ViewedKey) == (other as &dyn ViewedKey)
+    }
+}
+
+impl Eq for ConditionMemoKey {}
+
+impl std::hash::Hash for ConditionMemoKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (self as &dyn ViewedKey).hash(state);
+    }
+}
+
+/// A decision's inputs as its [`ConditionMemoKey`] would hold them, borrowed where they are, for
+/// a lookup ([`ConditionMemo::served`]): the known predicates and the active keys are the
+/// caller's, and the instantiated `requires` and binding obligations (`'i`) the instance's.
+struct ConditionMemoProbe<'a, 'i> {
+    /// The hash of [`Self::head`].
+    head_hash: u64,
+    scalars: HeadScalars,
+    rule_id: &'a str,
+    anchor: Option<&'a Term>,
+    requires: &'i [Predicate],
+    bindings: &'i [Predicate],
     known: &'a [Predicate],
     active: &'a BTreeSet<ConditionKey>,
 }
 
-impl<'a> ConditionMemoProbe<'a> {
+impl<'a, 'i> ConditionMemoProbe<'a, 'i> {
     /// The probe of a decision now, or `None` where nothing is kept ([`ConditionMemo`]).
     #[allow(clippy::too_many_arguments)]
     fn new(
         definition: &BackendDefinition,
-        rule_id: &str,
-        anchor: Option<&Term>,
-        requires: &[Predicate],
-        bindings: &[Predicate],
+        rule_id: &'a str,
+        anchor: Option<&'a Term>,
+        requires: &'i [Predicate],
+        bindings: &'i [Predicate],
         known: &'a [Predicate],
         options: SimplificationOptions,
         active: &'a BTreeSet<ConditionKey>,
@@ -2331,23 +2557,64 @@ impl<'a> ConditionMemoProbe<'a> {
         {
             return None;
         }
-        Some(Self {
-            head: ConditionMemoHead {
+        let mut probe = Self {
+            head_hash: 0,
+            scalars: HeadScalars {
                 definition: std::ptr::from_ref(definition).addr(),
-                rule_id: rule_id.to_owned(),
-                anchor: anchor.cloned(),
-                requires: requires.to_vec(),
-                bindings: bindings.to_vec(),
                 max_iterations: options.max_iterations,
                 keep_partial: options.budget == BudgetPolicy::KeepPartial,
                 solver: solver_address(solver),
                 general_path: crate::condition::on_general_condition_path(),
                 stated_ceil_conditions: crate::definedness::ceil_conditions_stated(),
             },
+            rule_id,
+            anchor,
+            requires,
+            bindings,
             known,
             active,
-        })
+        };
+        probe.head_hash = probe.head().hash_value();
+        Some(probe)
     }
+
+    fn head(&self) -> HeadView<'_> {
+        HeadView {
+            scalars: self.scalars,
+            rule_id: self.rule_id,
+            anchor: self.anchor,
+            requires: self.requires,
+            bindings: self.bindings,
+        }
+    }
+
+    /// The probe with its own copy of the instance's predicates, which the decision consumes, so
+    /// that its verdict can be kept after it: a lookup that finds a verdict copies nothing.
+    fn into_pending(self) -> PendingKey<'a> {
+        PendingKey {
+            head_hash: self.head_hash,
+            scalars: self.scalars,
+            rule_id: self.rule_id,
+            anchor: self.anchor,
+            requires: self.requires.into(),
+            bindings: self.bindings.into(),
+            known: self.known,
+            active: self.active,
+        }
+    }
+}
+
+/// A [`ConditionMemoProbe`] that found no verdict, while its decision runs: what a kept verdict's
+/// key will hold ([`ConditionMemo::record`]).
+struct PendingKey<'a> {
+    head_hash: u64,
+    scalars: HeadScalars,
+    rule_id: &'a str,
+    anchor: Option<&'a Term>,
+    requires: Box<[Predicate]>,
+    bindings: Box<[Predicate]>,
+    known: &'a [Predicate],
+    active: &'a BTreeSet<ConditionKey>,
 }
 
 /// [`evaluate_equation_condition`]'s decision itself.
@@ -11621,6 +11888,31 @@ mod condition_memo_tests {
 
     fn kept_verdicts() -> usize {
         CONDITION_MEMO.with_borrow(|memo| memo.verdicts.len())
+    }
+
+    /// A place noted for one list does not serve another list found at it later, as a freed and
+    /// reused allocation would be: the held value noted there is compared with the list, and the
+    /// list is then found by its content, or not at all.
+    #[test]
+    fn a_noted_place_finds_only_an_equal_list() {
+        let first = [Predicate::Term(Term::int(1)), Predicate::True];
+        let second = [Predicate::Term(Term::int(2)), Predicate::True];
+        let place = slice_place(&first);
+        let mut table = InternTable::<[Predicate]>::default();
+        let held = table.insert(place, Arc::from(&first[..]));
+        assert!(Arc::ptr_eq(table.find(&first, place).unwrap(), &held));
+        // An equal list elsewhere is the same held value; a different list at the noted place is
+        // none until it is held, and then its own.
+        let copy = first.clone();
+        assert!(Arc::ptr_eq(
+            table.find(&copy, slice_place(&copy)).unwrap(),
+            &held
+        ));
+        assert!(table.find(&second, place).is_none());
+        let other = table.insert(slice_place(&second), Arc::from(&second[..]));
+        let found = table.find(&second, place).unwrap();
+        assert!(Arc::ptr_eq(found, &other) && **found == second[..]);
+        assert!(Arc::ptr_eq(table.find(&first, place).unwrap(), &held));
     }
 
     const F: &str = "f{}(X:SortInt{})";
