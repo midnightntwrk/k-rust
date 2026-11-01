@@ -1041,8 +1041,16 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
                     .map(|(_, t)| t.clone())
             });
         part(&mut o, "fwd_tr", (&name, &c.lean), args, tr_auto);
-        let x_auto = match &split_fwd_x {
-            Some((i, t)) if *i == idx => t.clone(),
+        // a rule of a rank before `a2`'s may match `A`'s side of `X` (one that does not read what
+        // `a1` changed: K's stream rules), where `X`'s `hp` says no such rule applies
+        let x_auto = match (&split_fwd_x, &split) {
+            (Some((i, t)), _) if *i == idx => t.clone(),
+            (_, Some(sp)) if pri.mid && rank(r) < rank(&ra[sp.a2]) => format!(
+                "intro d hX; first | (cases hX <;> first | done | contradiction | (simp_all; done)) | (cases hX with | split {} hp => exact (hp {} (by decide) (by apply {na}.App.{} <;> assumption)).elim)",
+                vec!["_"; 3 * ra[sp.a1].step.binders.len()].join(" "),
+                rank(r),
+                c.lean
+            ),
             _ => refute.to_string(),
         };
         part(&mut o, "fwd_x", (&name, &c.lean), args, Some(x_auto));

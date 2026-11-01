@@ -969,6 +969,8 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         "theorem split_bwd : B.Step.Rel.pop ",
         "noncomputable def μ (c : A.SortGeneratedTopCell) : Nat :=",
         "theorem run_terminal ",
+        // a rule of a rank before `pop-done`'s at a state `X` relates: refuted by `X`'s `hp`
+        "(cases hX with | split _ _ _ _ _ _ _ _ _ _ _ _ hp => exact (hp 0 (by decide) (by apply A.App.«add-underflow0» <;> assumption)).elim)",
     ] {
         assert!(r.contains(want), "missing `{want}`");
     }
