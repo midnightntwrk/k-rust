@@ -260,7 +260,7 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
         let time = Duration::from_nanos(cost.run_nanos.load(Ordering::Relaxed));
         let apart = Duration::from_nanos(cost.apart_nanos.load(Ordering::Relaxed));
         eprintln!(
-            "[krs-class] K7 ran {runs} programs ({} s each at most) in {:.1} s of worker time, and made {} checks apart for cases beside a subject root's sentence, {:.1} s",
+            "[krs-class] K7 ran {runs} programs ({} s each at most) in {:.1} s of worker time, and made {} checks apart, for cases beside a subject root's sentence and for deviations run again alone, {:.1} s",
             limit.as_secs(),
             time.as_secs_f64(),
             cost.apart_checks.load(Ordering::Relaxed),
