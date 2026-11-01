@@ -320,8 +320,10 @@ fn a_reversal_fires_only_where_the_clause_matches_with_its_literals() {
 
 /// A domain value is its value, not its text (NT-24-2): an alias whose result holds the float
 /// `1.5` reverses on a state that spells the same binary64 in k-rust's canonical form or the
-/// LLVM runtime's, and on no other value; an integer result likewise matches `01` as `1`. A token
-/// sort's values are their texts, so `07` there is not `7`.
+/// LLVM runtime's, and on no other value: not the binary32 `1.5f`, and `-0.0` is not `0.0`. An
+/// integer result likewise matches `01` as `1`, and a machine integer is its residue at its width
+/// (`-1p8` is `255p8`, `-1p16` is not `255p16`). A token sort's values are their texts, so `07`
+/// there is not `7`.
 #[test]
 fn a_reversal_matches_a_domain_value_by_its_value_whatever_its_spelling() {
     const FLOATS: &str = r#"[]
@@ -330,7 +332,13 @@ module FLOATS
   sort SortFloat{} [hasDomainValues{}(), hook{}("FLOAT.Float")]
   sort SortInt{} [hasDomainValues{}(), hook{}("INT.Int")]
   sort SortTok{} [hasDomainValues{}(), token{}()]
+  sort SortMInt{W} [hasDomainValues{}(), hook{}("MINT.MInt")]
   symbol Lblhalf{}() : SortExp{} [format{}("half"), terminals{}("1")]
+  symbol Lblnil{}() : SortExp{} [format{}("nil"), terminals{}("1")]
+  symbol Lblff{}() : SortExp{} [format{}("ff"), terminals{}("1")]
+  symbol Lblwide{}() : SortExp{} [format{}("wide"), terminals{}("1")]
+  symbol Lblbyte{}(SortMInt{Sort8{}}) : SortExp{} [format{}("byte ( %1 )"), terminals{}("1101")]
+  symbol Lblhalfword{}(SortMInt{Sort16{}}) : SortExp{} [format{}("halfword ( %1 )"), terminals{}("1101")]
   symbol Lblseven{}() : SortExp{} [format{}("seven"), terminals{}("1")]
   symbol Lbltok{}() : SortExp{} [format{}("tok"), terminals{}("1")]
   symbol Lblnum{}(SortFloat{}) : SortExp{} [format{}("num ( %1 )"), terminals{}("1101")]
@@ -342,6 +350,9 @@ endmodule []
         r#"axiom{R} \equals{SortExp{}, R}(Lblhalf{}(), Lblnum{}(\dv{SortFloat{}}("1.5"))) [alias'Kywd'{}()]"#,
         r#"axiom{R} \equals{SortExp{}, R}(Lblseven{}(), Lblint{}(\dv{SortInt{}}("7"))) [alias'Kywd'{}()]"#,
         r#"axiom{R} \equals{SortExp{}, R}(Lbltok{}(), Lblword{}(\dv{SortTok{}}("7"))) [alias'Kywd'{}()]"#,
+        r#"axiom{R} \equals{SortExp{}, R}(Lblnil{}(), Lblnum{}(\dv{SortFloat{}}("0.0"))) [alias'Kywd'{}()]"#,
+        r#"axiom{R} \equals{SortExp{}, R}(Lblff{}(), Lblbyte{}(\dv{SortMInt{Sort8{}}}("255p8"))) [alias'Kywd'{}()]"#,
+        r#"axiom{R} \equals{SortExp{}, R}(Lblwide{}(), Lblhalfword{}(\dv{SortMInt{Sort16{}}}("255p16"))) [alias'Kywd'{}()]"#,
     ]
     .join("\n");
     let unparser = Unparser::from_kore(FLOATS, &macros).expect("synthetic KORE");
@@ -355,6 +366,18 @@ endmodule []
     assert_eq!(print(&float("1.5000000000000000e+00p53x11")), "half");
     assert_eq!(print(&float("0.15000000000000000e1")), "half");
     assert_ne!(print(&float("2.5")), "half");
+    // A binary32 `1.5` is another value than the binary64 `1.5`, and `-0.0` another than `0.0`.
+    assert_ne!(print(&float("1.5f")), "half");
+    assert_eq!(print(&float("0.0")), "nil");
+    assert_ne!(print(&float("-0.0")), "nil");
+    // A machine integer is its residue at its width: `-1p8` is `255p8`, `-1p16` is not `255p16`.
+    let mint = |symbol: &str, width: &str, text: &str| {
+        format!("{symbol}{{}}(\\dv{{SortMInt{{Sort{width}{{}}}}}}(\"{text}\"))")
+    };
+    assert_eq!(print(&mint("Lblbyte", "8", "-1p8")), "ff");
+    assert_ne!(print(&mint("Lblbyte", "8", "254p8")), "ff");
+    assert_eq!(print(&mint("Lblhalfword", "16", "255p16")), "wide");
+    assert_ne!(print(&mint("Lblhalfword", "16", "-1p16")), "wide");
     assert_eq!(print("Lblint{}(\\dv{SortInt{}}(\"07\"))"), "seven");
     assert_ne!(print("Lblint{}(\\dv{SortInt{}}(\"8\"))"), "seven");
     assert_ne!(print("Lblword{}(\\dv{SortTok{}}(\"07\"))"), "tok");

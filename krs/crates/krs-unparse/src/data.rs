@@ -389,7 +389,6 @@ impl PrintData {
         }
     }
 
-    /// `less_than_eq`: `left` is `right` or one of its subsorts.
     /// Whether the domain values `left` and `right` of `sort` are one value: equal texts, or,
     /// for a sort whose values have several spellings (an integer, a machine integer, a float:
     /// `1.5`, `0.15000000000000000e1` and `1.5000000000000000e+00p53x11` are one binary64), the
@@ -424,6 +423,7 @@ impl PrintData {
         matches!((value(left), value(right)), (Some(left), Some(right)) if left == right)
     }
 
+    /// `less_than_eq`: `left` is `right` or one of its subsorts.
     pub fn less_than_eq(&self, left: &Sort, right: &Sort) -> bool {
         left == right
             || self
