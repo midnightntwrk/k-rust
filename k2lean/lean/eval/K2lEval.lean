@@ -529,6 +529,8 @@ def kindOf (ns n : Name) : String :=
   if ns.isPrefixOf n && ["Eqn", "Simp", "Lemma"].contains first then "equation"
   else if n.isStr && n.getString! == "diverges" then "divergence"
   else if n.isStr && n.getString! == "total" then "total"
+  -- K's `total` of a function a rule reaches (`Total.f`, EQ-24), as a group's `F.total` (TERM-1h)
+  else if ns.isPrefixOf n && first == "Total" then "total"
   else "other"
 
 structure Entry where
