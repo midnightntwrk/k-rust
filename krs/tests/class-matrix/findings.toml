@@ -149,11 +149,6 @@ owner = "S6"
 kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
-["NT-35-1"]
-owner = "NT-36"
-kind = "bug"
-what = "the run printer reverses an alias whose subject writes a builtin collection constructor (`SetItem`), so the printed `<k>` head is no program text"
-
 ["S0-14"]
 owner = "S5"
 kind = "bug"
