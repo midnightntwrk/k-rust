@@ -682,32 +682,42 @@ fn a_root_pair_that_joins_taints_nothing_and_one_that_does_not_is_named() {
 }
 
 /// GAP K3 fix round 1: an equation holding a literal whose element the definition leaves open
-/// (`q(nilE, 1.0e400) = 1`) whose left-hand side mentions an overloaded symbol seeds the equations
+/// (`q(nilE, 256p8) = 1`) whose left-hand side mentions an overloaded symbol seeds the equations
 /// rooted at every overloaded symbol (`consE`'s overload axiom among them), whose overlaps with it
-/// through the overload axioms its own seed need not reach; with a determined literal (`1.0`)
-/// nothing is seeded so, and `consE` keeps its claims.
+/// through the overload axioms its own seed need not reach; with a determined literal (`1p8`)
+/// nothing is seeded so, and `consE` keeps its claims. GAP A2: a Float literal is determined
+/// (AM-8), `1.0e400` the infinity, so it seeds nothing either.
 #[test]
 fn an_open_literal_beside_an_overloaded_symbol_seeds_the_overloaded_equations() {
-    let with_literal = |literal: &str| {
+    let with_literal = |sort: &str, literal: &str| {
         definition(&format!(
             r#"hooked-sort SortFloat{{}} [hook{{}}("FLOAT.Float"), hasDomainValues{{}}()]
-            symbol q{{}}(SortEs{{}}, SortFloat{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+            hooked-sort SortMInt{{S}} [hook{{}}("MINT.MInt"), hasDomainValues{{}}()]
+            sort Sort8{{}} []
+            symbol q{{}}(SortEs{{}}, {sort}) : SortInt{{}} [function{{}}(), total{{}}()]
             axiom{{R}} \implies{{R}}(
                 \and{{R}}(\top{{R}}(), \and{{R}}(
                     \in{{SortEs{{}}, R}}(X0:SortEs{{}}, nilE{{}}()),
-                    \and{{R}}(\in{{SortFloat{{}}, R}}(X1:SortFloat{{}}, \dv{{SortFloat{{}}}}("{literal}")), \top{{R}}())
+                    \and{{R}}(\in{{{sort}, R}}(X1:{sort}, \dv{{{sort}}}("{literal}")), \top{{R}}())
                 )),
-                \equals{{SortInt{{}}, R}}(q{{}}(X0:SortEs{{}}, X1:SortFloat{{}}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))
+                \equals{{SortInt{{}}, R}}(q{{}}(X0:SortEs{{}}, X1:{sort}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))
             ) [UNIQUE'Unds'ID{{}}("q")]"#
         ))
         .value_claims()
         .tainted_symbols()
     };
     let cons_e = crate::term::Name::from("consE");
-    let open = with_literal("1.0e400");
+    let mint = "SortMInt{Sort8{}}";
+    let open = with_literal(mint, "256p8");
     assert!(open.contains(&cons_e), "{open:?}");
-    let determined = with_literal("1.0");
-    assert!(!determined.contains(&cons_e), "{determined:?}");
+    for (sort, literal) in [
+        (mint, "1p8"),
+        ("SortFloat{}", "1.0e400"),
+        ("SortFloat{}", "1.0"),
+    ] {
+        let determined = with_literal(sort, literal);
+        assert!(!determined.contains(&cons_e), "{literal}: {determined:?}");
+    }
 }
 
 #[test]

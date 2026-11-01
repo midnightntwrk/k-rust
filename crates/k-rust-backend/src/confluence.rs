@@ -2852,7 +2852,7 @@ fn check_pass(
                 //
                 // Seeding it alone taints every equation it could overlap in some model, so the
                 // pairs whose overlap the literal's element hides (a unifier that fails only on
-                // k-rust's element, `f(h(1.0e400))` against `h(MAX)`) need no seed of their own:
+                // k-rust's element, `f(h(256p8))` against `h(255p8)`) need no seed of their own:
                 // an overlap of two equations puts the head of one at a non-variable position of
                 // the other's left-hand side (the root included), and the closure's T-sym taints
                 // every symbol this equation mentions, its own head and its left-hand side's

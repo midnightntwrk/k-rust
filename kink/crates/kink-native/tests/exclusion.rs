@@ -224,6 +224,17 @@ fn k_rust_backend() -> PathBuf {
 /// outcomes, and no other arm changed: the classifier narrows nothing. None of the three is a
 /// census hook (asserted below), so no definition-level status moves; a run that reads one of
 /// these values is marked and excluded by its list.
+///
+/// GAP A2 (ticket A2, `docs/amendments.md` AM-4 to AM-6): `Int2Float`, `roundFloat`, an inexact
+/// root and `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's under roundTiesToEven, so
+/// `chosen_value` loses the arm of `FLOAT.int2float` and `FLOAT.round`, and of `FLOAT.floor`,
+/// `FLOAT.ceil` and `FLOAT.trunc` (`float::integral_open`); `FLOAT.float2int` keeps its tie
+/// (`float::float2int_tie`, the `rounds` condition of its arm), and `FLOAT.root` its
+/// `outside-domain` arguments (`float::root_outside_domain`, `root_open` without its
+/// `float-rounding` answer). Each change only narrows the outcomes the classifier names: no hook
+/// gains an outcome, and the five that leave were never census hooks (`FLOAT.`, asserted below),
+/// so no definition-level status moves; a run that read one of their values was marked and
+/// excluded by its list, and now is not, its value being determined.
 #[test]
 fn implementation_chosen_hooks_are_k_rusts() {
     let backend = k_rust_backend();
@@ -239,7 +250,8 @@ fn implementation_chosen_hooks_are_k_rusts() {
     );
     let nan = function(&float, "nan_sign");
     let zeros = function(&float, "signed_zeros");
-    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K2 fix round 2,
+    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP A2 (e3a79aae -> 111edafc,
+    // the Float arms narrowed as the doc above says),
     // `float::nan_sign`'s at GAP K6 (c17041cf -> f7e3a96f: only its reason string changed,
     // "k-rust's reading, false" to "k-rust's pick, false", so it classifies the same hook on the
     // same arguments and the list derived from it is unchanged); a changed text needs the hook
@@ -257,7 +269,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         [
             (
                 "chosen_value",
-                "e3a79aaee5be35cd6bb9ab96fd52ed468614ed33ae78dc1c62a336747fcca26b".to_owned()
+                "111edafc9bee78b54e27b249525469e271301c0ca2963cf5cd53169d4bcc99cc".to_owned()
             ),
             (
                 "float::mixed_destination",
@@ -355,7 +367,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
 
 /// The hooks GAP K1 added to k-rust's `chosen_value`, whose classes kink's census has not
 /// adopted yet (`implementation_chosen_hooks_are_k_rusts`).
-const K_RUST_GAP_K1_HOOKS: [&str; 25] = [
+const K_RUST_GAP_K1_HOOKS: [&str; 20] = [
     "KRYPTO.bn128add",
     "KRYPTO.bn128mul",
     "KRYPTO.bn128ate",
@@ -374,13 +386,8 @@ const K_RUST_GAP_K1_HOOKS: [&str; 25] = [
     "KRYPTO.ecdsaPubKey",
     "KRYPTO.ecdsaRecover",
     "SECP256K1.ecdsaRecover",
-    "FLOAT.int2float",
-    "FLOAT.round",
     "FLOAT.float2int",
     "FLOAT.root",
-    "FLOAT.floor",
-    "FLOAT.ceil",
-    "FLOAT.trunc",
 ];
 
 /// The hooks GAP K2 added to k-rust's `chosen_value` (its `outside-domain` `\bottom`s, and the
@@ -1256,6 +1263,12 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
 /// rests on is unchanged: outside `Execution` every class but `read-count` is withheld, so no class
 /// value enters the fold, the load, a proof route or kink's feasibility checks; a withheld
 /// application of unknown definedness is not even taken as defined, which only takes less.
+///
+/// GAP A2 re-pin of the second passage (fd18c558 -> 80fa610a): `float-rounding` is now only a
+/// `Float2Int` tie, the other conversions and the roots being IEEE 754's
+/// (`docs/amendments.md` AM-4, AM-5), so the passage lists "a `Float2Int` tie (class
+/// `float-rounding`)" where it listed "a conversion or root of class `float-rounding`". Every class
+/// but `read-count` is still withheld outside `Execution`, so the census reads the same.
 #[test]
 fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
     let passage = |anchor, opening, lines, digest| passage::Passage {
@@ -1278,7 +1291,7 @@ fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
                 "## Implementation-chosen hook values",
                 "Every class that is a value is withheld there except",
                 1,
-                "fd18c558bd8bfe0e7260e26ba112ebf59450137b8752b98b4f0f12e188f81be0",
+                "80fa610acca4d37c96cb974bd3743b084f6ad959402ced3f2a0f179f59a2d03e",
             ),
             passage(
                 "## Implementation-chosen hook values",

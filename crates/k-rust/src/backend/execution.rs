@@ -2472,28 +2472,30 @@ mod value_claim_finding_tests {
         );
     }
 
-    /// GAP K3: `f(c(1.0e400)) = 1` (`open`), an equation holding a literal whose element the
-    /// definition leaves open, beside the equation head `c` (`c(MAX) = m(MAX)`, `anywhere`), and
-    /// `big() = 1.0e400`, which no claim rests on.
+    /// GAP K3: `f(c(256p8)) = 1` (`open`), an equation holding a literal whose element the
+    /// definition leaves open, beside the equation head `c` (`c(255p8) = m(255p8)`, `anywhere`),
+    /// and `big() = 256p8`, which no claim rests on. GAP A2: the literal is a machine integer's
+    /// (K3 wrote `1.0e400`, which names the infinity in every model by AM-8).
     const OPEN_LITERAL_EQUATIONS: &str = r#"[] module MAIN
-        hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
         hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        sort Sort8{} []
         sort SortS{} []
-        symbol c{}(SortFloat{}) : SortS{} [anywhere{}()]
-        symbol m{}(SortFloat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol c{}(SortMInt{Sort8{}}) : SortS{} [anywhere{}()]
+        symbol m{}(SortMInt{Sort8{}}) : SortS{} [constructor{}(), functional{}(), injective{}()]
         symbol f{}(SortS{}) : SortInt{} [function{}(), total{}()]
-        symbol big{}() : SortFloat{} [function{}()]
+        symbol big{}() : SortMInt{Sort8{}} [function{}()]
         axiom{R} \implies{R}(
-            \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, c{}(\dv{SortFloat{}}("1.0e400"))), \top{R}())),
+            \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, c{}(\dv{SortMInt{Sort8{}}}("256p8"))), \top{R}())),
             \equals{SortInt{}, R}(f{}(X0:SortS{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
         ) [UNIQUE'Unds'ID{}("open")]
         axiom{R} \implies{R}(
-            \and{R}(\top{R}(), \and{R}(\in{SortFloat{}, R}(X0:SortFloat{}, \dv{SortFloat{}}("1.7976931348623157e308")), \top{R}())),
-            \equals{SortS{}, R}(c{}(X0:SortFloat{}), \and{SortS{}}(m{}(X0:SortFloat{}), \top{SortS{}}()))
+            \and{R}(\top{R}(), \and{R}(\in{SortMInt{Sort8{}}, R}(X0:SortMInt{Sort8{}}, \dv{SortMInt{Sort8{}}}("255p8")), \top{R}())),
+            \equals{SortS{}, R}(c{}(X0:SortMInt{Sort8{}}), \and{SortS{}}(m{}(X0:SortMInt{Sort8{}}), \top{SortS{}}()))
         ) [anywhere{}(), UNIQUE'Unds'ID{}("b")]
         axiom{R} \implies{R}(
             \and{R}(\top{R}(), \top{R}()),
-            \equals{SortFloat{}, R}(big{}(), \and{SortFloat{}}(\dv{SortFloat{}}("1.0e400"), \top{SortFloat{}}()))
+            \equals{SortMInt{Sort8{}}, R}(big{}(), \and{SortMInt{Sort8{}}}(\dv{SortMInt{Sort8{}}}("256p8"), \top{SortMInt{Sort8{}}}()))
         ) [UNIQUE'Unds'ID{}("big")]
     endmodule []"#;
 
@@ -2515,38 +2517,39 @@ mod value_claim_finding_tests {
         assert!(finding.withdrawn.contains(&"c".to_owned()), "{finding:?}");
         assert!(
             finding.message.starts_with(
-                "the equation open holds the literal `1.0e400`, whose element the definition leaves open: an execution applies it with k-rust's element and marks the run (class literal), no other evaluation applies it"
+                "the equation open holds the literal `256p8`, whose element the definition leaves open: an execution applies it with k-rust's element and marks the run (class literal), no other evaluation applies it"
             ),
             "{finding:?}"
         );
         assert!(!finding.message.contains("never applied"), "{finding:?}");
     }
 
-    /// GAP K3 fix round 2: `f(g(1.0e400)) = 1` (`open`) holds an open literal and an application
-    /// of the function `g` below its root, beside the control `f2(g(2.0)) = 1` (`control`); no
+    /// GAP K3 fix round 2: `f(g(256p8)) = 1` (`open`) holds an open literal and an application
+    /// of the function `g` below its root, beside the control `f2(g(2p8)) = 1` (`control`); no
     /// equation head, so neither withdraws a claim.
     const OPEN_LITERAL_BELOW_ROOT: &str = r#"[] module MAIN
-        hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+        hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
         hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-        symbol g{}(SortFloat{}) : SortInt{} [function{}(), total{}()]
+        sort Sort8{} []
+        symbol g{}(SortMInt{Sort8{}}) : SortInt{} [function{}(), total{}()]
         symbol f{}(SortInt{}) : SortInt{} [function{}()]
         symbol f2{}(SortInt{}) : SortInt{} [function{}()]
         axiom{R} \implies{R}(
-            \and{R}(\top{R}(), \and{R}(\in{SortFloat{}, R}(X0:SortFloat{}, X:SortFloat{}), \top{R}())),
-            \equals{SortInt{}, R}(g{}(X0:SortFloat{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+            \and{R}(\top{R}(), \and{R}(\in{SortMInt{Sort8{}}, R}(X0:SortMInt{Sort8{}}, X:SortMInt{Sort8{}}), \top{R}())),
+            \equals{SortInt{}, R}(g{}(X0:SortMInt{Sort8{}}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
         ) [UNIQUE'Unds'ID{}("g-id")]
         axiom{R} \implies{R}(
-            \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, g{}(\dv{SortFloat{}}("1.0e400"))), \top{R}())),
+            \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, g{}(\dv{SortMInt{Sort8{}}}("256p8"))), \top{R}())),
             \equals{SortInt{}, R}(f{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
         ) [UNIQUE'Unds'ID{}("open")]
         axiom{R} \implies{R}(
-            \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, g{}(\dv{SortFloat{}}("2.0"))), \top{R}())),
+            \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, g{}(\dv{SortMInt{Sort8{}}}("2p8"))), \top{R}())),
             \equals{SortInt{}, R}(f2{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
         ) [UNIQUE'Unds'ID{}("control")]
     endmodule []"#;
 
     /// GAP K3 fix round 2: an equation that holds an open literal and that no execution applies
-    /// (its argument pattern `g(1.0e400)` never matches the value `g` computes) is named as never
+    /// (its argument pattern `g(256p8)` never matches the value `g` computes) is named as never
     /// applied to that value, like its control without the literal, and not as one an execution
     /// applies and marks.
     #[test]

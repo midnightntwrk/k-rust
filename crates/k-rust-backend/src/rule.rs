@@ -455,8 +455,8 @@ pub struct ComputedRuleAttributes {
     /// of the sentence; empty for every other rule.
     pub open_literals: Arc<[Arc<str>]>,
     /// Whether the left-hand side may hold one of [`Self::open_literals`]: the sentence holds one
-    /// and the left-hand side holds a domain value of a sort whose literals can be open (`Float`,
-    /// a machine integer; `crate::literal::may_hold_open_literal`). When false, whether the
+    /// and the left-hand side holds a domain value of a sort whose literals can be open (a machine
+    /// integer, or a sort whose kind is unknown; `crate::literal::may_hold_open_literal`). When false, whether the
     /// left-hand side matches a subject does not depend on any literal's element, so a proof
     /// route decides a failed match before it stops the attempt. Set with `open_literals`.
     pub open_literal_in_lhs: bool,

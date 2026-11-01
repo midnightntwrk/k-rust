@@ -3960,12 +3960,6 @@ fn t12_definition_spelling_routes_are_not_killed(schedules: &'static [ScheduleMo
         }
         for (id, fixture, mode, result, exclusion) in rows {
             assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
-            // GAP K3 (decided by Sebastien, 2026-11-01): F9's baseline run attempts `f9p`, which
-            // holds the open `Infinity` lexeme (class `literal`), so the run is marked and F9 is
-            // implementation-chosen on that ground too; the census excludes every run of this
-            // definition for its `String2Bytes` first, so the pinned exclusion stays
-            // `implementation-chosen-hook`. That `Infinity` and `Infinityp53x11` name one element
-            // whatever it is (so not killed holds in every model) is the kink session's GK-2.
             if fixture == "t12probe.k" {
                 assert_eq!(
                     (result, exclusion),
@@ -9703,13 +9697,15 @@ mod kink_tier {
     /// `nans(1)` and F9 the infinity as `1.0 /Float (1.0 -Float 1.0)` from `infs(1)`: `Int2Float`
     /// of 1 is the one binary64 element of value 1, and the `smt-hook`s of `-Float` and `/Float`
     /// fix the rest (domains.md 1572, 1568), where the routes went through `rootFloat` of a
-    /// negative value and an overflowing `Int2Float`, which no text fixes. The F8 control's kill
+    /// negative value, which no text fixes, and an overflowing `Int2Float`, which no text fixed
+    /// before `docs/amendments.md` AM-4. The F8 control's kill
     /// rests on one NaN per format (P-F3, which domains.md fixes: the quotient is the NaN `NaN`
-    /// names); the F9 control's on the `Infinity` lexeme naming the positive infinity, a reading of
-    /// an open literal (kink27 GAP class `literal`), not premise P-F1's rounding. GAP K1: F6 reaches
-    /// its zero as `1.0 -Float 1.0` from `start(1)` (`fp.sub`, +0.0 in every model), where it went
-    /// through `Int2Float(0, 53, 11)`, whose sign no text fixes (k-rust marks it `float-rounding`);
-    /// +0.0 is the element that conversion picked, so the row keeps its verdict. Every row is
+    /// names); the F9 control's on the `Infinity` lexeme naming the positive infinity, which
+    /// `docs/amendments.md` AM-8 determines (from GAP K3 to A2 it was an open literal, class
+    /// `literal`), not premise P-F1's rounding. GAP K1: F6 reaches its zero as `1.0 -Float 1.0`
+    /// from `start(1)` (`fp.sub`, +0.0 in every model), where it went through
+    /// `Int2Float(0, 53, 11)`, whose sign k-rust marked `float-rounding` until AM-5 fixed it as
+    /// +0.0; +0.0 is the element that conversion picked, so the row keeps its verdict. Every row is
     /// measured before the first assertion.
     #[test]
     #[ignore = "kink"]
@@ -9780,40 +9776,21 @@ mod kink_tier {
                 for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                     let outcome = run_campaign(&campaign, &generation, mode);
                     let result = ViResult::of_outcome(&outcome);
-                    let exclusion = outcome
-                        .as_ref()
-                        .err()
-                        .and_then(|failure| failure.exclusion());
                     let detail = outcome.as_ref().err().map(ToString::to_string);
                     eprintln!("R3-FLOAT census-free {id} {mode:?}: {result:?} {detail:?}");
-                    rows.push((id, same, mode, result, exclusion));
+                    rows.push((id, same, mode, result));
                 }
             }
-            // GAP K3 (re-pin decided by Sebastien, 2026-11-01): the `Infinity` lexeme's element is
-            // open (domains.md names no value for it), so `infp` holds an open literal (class
-            // `literal`), and k-rust marks every attempt of a rule holding one in an execution.
-            // The baseline's run reaches `infc` and attempts `infp` (holding `Infinity`; the
-            // mutants' `Infinityp53x11` and `-Infinity` are open too), so the run is marked and
-            // kink's per-run exclusion refuses the baseline's run before any mutant runs: F9 and
-            // its control move from not killed and killed to implementation-chosen. That is
-            // conservative and sound under today's exclusion. F9's finer verdict, not killed, holds in every model:
-            // `Infinity` and `Infinityp53x11` name one element whatever it is (one lexeme, two
-            // spellings of one format); an exclusion that sees that is the kink session's GK-2.
-            // The control's kill compares two open elements, so implementation-chosen is its
-            // correct status.
-            const OPEN_LITERAL_ROWS: [&str; 2] = ["F9", "F9-control"];
-            for (id, same, mode, result, exclusion) in rows {
-                if OPEN_LITERAL_ROWS.contains(&id) {
-                    assert_eq!(
-                        (result, exclusion),
-                        (
-                            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
-                            Some(Exclusion::ImplementationChosenValue)
-                        ),
-                        "{id} {mode:?}"
-                    );
-                    continue;
-                }
+            // GAP A2 (`docs/amendments.md` AM-8) restores the pins of F9 and F9-control from
+            // before GAP K3, which had pinned both at `Refused(BaselineOracleFailed)`,
+            // implementation-chosen-value: an `Infinity` lexeme names the infinity of its sign, so
+            // `infp`, `Infinityp53x11` and `-Infinity` hold no open literal, and the class
+            // `literal` was the only mark of the baseline's run on this route (K3 fix round 2
+            // confirmed the refusal came from the literal mark alone, the route taking no K1
+            // class; A2 only removes marks). Without a mark the run is compared again: F9 (one
+            // element, the positive infinity, in two spellings) is not killed and survives, and
+            // F9-control (the two infinities, which `==Float` tells apart) is killed, as each was.
+            for (id, same, mode, result) in rows {
                 if !same {
                     assert!(result.killed(), "{id} {mode:?}: {result:?}");
                     result.assert_justified(&format!("{id} {mode:?}"));

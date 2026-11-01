@@ -587,7 +587,11 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// its pre-K3 value: such an equation with an unbound right-hand side variable is a decided
 /// finding again (`data_term::Finding::is_decided`), since read as written it equates its
 /// left-hand side with every value of that variable's sort whatever the literal's element is.
-const CONFLUENCE_RS: &str = "de1ac0deac996515212a1fc033c2aff2f0590f6bd91a71ec720db3f076719016";
+/// GAP A2: de1ac0de -> fb873f52, one comment: the example of a unifier that fails only on
+/// k-rust's element of an open literal is `f(h(256p8))` against `h(255p8)`, where it was
+/// `f(h(1.0e400))` against `h(MAX)` (every Float literal names one element, `docs/amendments.md`
+/// AM-8). No code changed, so the seeds, the closure and the counts kink reads are unchanged.
+const CONFLUENCE_RS: &str = "fb873f52dac2e51c3f75b9eee66a82cdd9838044211f66b76673febf8a6ed87f";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

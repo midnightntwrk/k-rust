@@ -763,6 +763,26 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// (3) The machine-integer literal paragraph (d083c9e9 -> ed76b97a) states the residue reading
 /// as k-rust's element, determined in `[-2^(W-1), 2^W)`, the range the paragraph already gave and
 /// outside which the literal was already class `literal`. Admission reads the same.
+///
+/// GAP A2 re-pin (ticket A2, `docs/amendments.md` AM-4, AM-5, AM-6, AM-8): five passages
+/// changed, and each now states as determined, by an amendment k-rust records, the reading the
+/// kink README's premises P-F1 and P-F2 and census-free F9's `Infinity` reading already take on.
+/// (1) The conversion line of Backend scope (67a5a972 -> a0a71ffd, the opening with it):
+/// `Int2Float`, `roundFloat` and an inexact `rootFloat` are IEEE 754's under roundTiesToEven,
+/// overflow to the infinity of the sign included, and `Int2Float` of 0 is `+0`, where they were
+/// class `float-rounding`; a `Float2Int` tie stays that class. (2) The literal line
+/// (838f6d89 -> 03ad7981) and (3) the Float literal paragraph of Domain values
+/// (56151f56 -> cce5e00f): a literal is IEEE 754's correctly rounded conversion from decimal
+/// under roundTiesToEven (ties to even, the infinity of the sign past the threshold, the zero of
+/// its sign on underflow) and `Infinity` the infinity of its sign, where those were class
+/// `literal`. (4) The fold paragraph (099e0422 -> 2f3e04d1) no longer leaves those applications,
+/// infinite results and `floorFloat`, `ceilFloat` and `truncFloat` (AM-6) unfolded. (5) The
+/// `rootFloat` bullet (7eeea18c -> 3263c247) says an inexact root of a positive finite value is
+/// correctly rounded, ties to even. In every case the element k-rust builds and the value it
+/// computes are the ones it computed before GAP K1 and K3, which only marked them: runs that read
+/// them are unmarked again and compared, with the elements P-F1 and P-F2 state, so admission takes
+/// on what it took on before K1 and K3, now on a determined reading rather than a premise (the
+/// README's P-F1 and P-F2 wording is the kink session's, GK-2).
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -797,14 +817,14 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             ),
             passage(
                 "## Backend scope",
-                "Where the `FLOAT` text says \"nearest\" without a rule for ties",
-                "67a5a97207ccc9ff6af3e305465008bb1b16eb78bba22e42478b646050238f67",
+                "Where the `FLOAT` text names a conversion into a format, or a root, without",
+                "a0a71ffd941a9c78ab8a02106e46e5e0f41af024abc45a62f2485541f73e1b21",
             ),
             // GAP K1: the literal reading moved to its own line after the conversions' classes.
             passage(
                 "## Backend scope",
                 "The arithmetic hooks are not affected: their `smt-hook`s name",
-                "838f6d89768caf91439605d208bec3e5507500b49d25cead15813d32db52f932",
+                "03ad798127f4b225cc8790a1340b9427b3883578b919967086bc2286b12f3979",
             ),
             passage(
                 "## Backend scope",
@@ -830,17 +850,17 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Domain values",
                 "A `Float` literal names a rational number",
-                "56151f566a48df0f947fef7382ee52386f03519614e4e9073ab936fecda1c7ab",
+                "cce5e00fd0581406e514b100f792d06ae9d089088b55cfcf540cfd150058c31f",
             ),
             passage(
                 "## Constant folding",
                 "The `FLOAT` hooks are folded exactly where the backend computes them",
-                "099e0422e034b24c857051e1f2d94bef215124ca866bc9c230e995c010a240a2",
+                "2f3e04d1f80f32cf6da768dce1a9c5c59b3af507d52a0bb1db233267f749e196",
             ),
             passage(
                 "## Hook values at the edges of their domains",
                 "- `rootFloat(F, N)` is \"the Nth integer root\" of `F`",
-                "7eeea18cde5a4cc3707deaa5e978dfbf36b922eaa0d6555c333718041e480130",
+                "3263c2477ea4c667e12ea6de8e99e66d1ef3f40d04d0a6d82f7d39c19552152a",
             ),
         ],
     );

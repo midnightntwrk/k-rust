@@ -99,11 +99,11 @@ fn the_sign_of_a_nan_is_false_inside_an_execution() {
 
 /// The sign of every other value is its sign bit, in every mode.
 ///
-/// GAP K3 re-pin: the infinities are reached by the product's overflow, which `fp.mul` with
-/// `roundNearestTiesToEven` fixes, no longer written `-Infinity`: no value rule names the element
-/// of an `Infinity` lexeme, so a request holding one is refused outside an execution
-/// (`definition::DefinitionError::OpenLiteral`). `Infinityp113x15`, of a format whose arithmetic
-/// k-rust does not compute, gives way to a positive finite value of that format.
+/// GAP K3 re-pin: the infinities are also reached by the product's overflow, which `fp.mul` with
+/// `roundNearestTiesToEven` fixes. GAP A2: the `Infinity` lexemes K3 removed are back beside them,
+/// an `Infinity` lexeme naming the infinity of its sign (`docs/amendments.md`, AM-8), so a request
+/// holding one is evaluated in every mode; `Infinityp113x15` is of a format whose arithmetic
+/// k-rust does not compute, its sign read from the token.
 #[test]
 fn every_other_sign_is_evaluated_in_every_mode() {
     let definition = definition();
@@ -116,7 +116,10 @@ fn every_other_sign_is_evaluated_in_every_mode() {
             (product("-1.0e308", "10.0"), true),
             (product("-3.0e38f", "10.0f"), true),
             (float("-1e0p113x15"), true),
+            (float("-Infinity"), true),
+            (float("-Infinityf"), true),
             (float("0.0"), false),
+            (float("Infinityp113x15"), false),
             (product("1.0e308", "10.0"), false),
             (float("1e0p113x15"), false),
             (float("1.5f"), false),

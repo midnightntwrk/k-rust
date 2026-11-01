@@ -12,7 +12,7 @@
 //! letter case, one NaN sign, one zero, one destination format for operands of two formats, one
 //! renaming of the binders of each substitution, one association of each rule's fresh names,
 //! one case per letter digit of a hex output, one byte encoding (k-rust's, or UTF-8), one
-//! rounding neighbour per inexact conversion or root, one value per hook application outside
+//! integer per `Float2Int` tie, one value per hook application outside
 //! its described domain, and a value of the sort for each `\bottom` k-rust takes there where the
 //! hook's arguments give one. The exception is `#read`, an effect, whose count another
 //! implementation may choose per call.

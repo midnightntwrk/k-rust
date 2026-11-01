@@ -165,21 +165,26 @@ endmodule
 
 /// The classes and sites the chooser leaves at k-rust's value, each with its reason
 /// (`k_rust_backend::choice_sampling`): every BN128 outcome (`curve`: no other curve is
-/// implemented), a literal's element (`literal`: fixed when the definition is loaded), and
+/// implemented), a literal's element (`literal`, a machine integer its width cannot hold: fixed
+/// when the definition is loaded), and
 /// `String2Token` of a text naming no element of its sort (`outside-domain`: a value of the
 /// declared sort is a token its lexical syntax admits, which the arguments do not give).
 const EXEMPT: &str = r#"
 module MAIN
   imports INT
   imports FLOAT
+  imports MINT
   imports STRING
   syntax G1Point ::= g1(Int, Int)
   syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
   syntax Int ::= String2PInt(String) [function, hook(STRING.string2token)]
-  syntax Pgm ::= add(Int, Int) | inf(Int) | tok(String) | done(KItem)
+  syntax MInt{8} ::= m8() [function]
+  syntax Pgm ::= add(Int, Int) | inf(Int) | wide(Int) | tok(String) | done(KItem)
   configuration <k> $PGM:Pgm </k>
   rule add(X, Y) => done(BN128Add(g1(0, 0), g1(X, Y)))
   rule [inf]: inf(_) => done(Infinity)
+  rule [wide]: wide(_) => done(256p8)
+  rule [m8]: m8() => 1p8
   rule tok(S) => done(String2PInt(S))
 endmodule
 "#;
@@ -219,15 +224,10 @@ const POWER: &[Program] = &[
     program("hex-case", GAP, r#"kec(b"")"#),
     program("byte-encoding", GAP, r#"s2b("\xe9")"#),
     program("byte-encoding", GAP, r#"b2s(b"\xc3\xa9")"#),
-    program("float-rounding", GAP, "i2f(16777217)"),
-    program("float-rounding", GAP, "rnd(0.1)"),
     program("float-rounding", GAP, "f2i(2.5)"),
-    program("float-rounding", GAP, "rt(2.0, 3)"),
     program("outside-domain", GAP, "rec(29)"),
     program("outside-domain", GAP, r#"pub(b"")"#),
     program("outside-domain", GAP, "rt(-4.0, 2)"),
-    program("outside-domain", GAP, "fl(0.5)"),
-    program("outside-domain", GAP, "flinf(1.0)"),
     program("outside-domain", GAP, "sub(1)"),
     program("outside-domain", GAP, "fnd(-1)"),
     program("outside-domain", GAP, "rpl(1)"),
@@ -238,7 +238,10 @@ const POWER: &[Program] = &[
     program("outside-domain", GAP, "skip(5)"),
 ];
 
-/// Programs beside each probe whose value of the class is determined.
+/// Programs beside each probe whose value of the class is determined. GAP A2: among them the
+/// conversions, the inexact root and the roundings to an integer the amendments determine
+/// (`docs/amendments.md`, AM-4 to AM-6; K5's probes of `float-rounding` and `outside-domain`),
+/// and the `Infinity` lexeme (AM-8; K5's exempted `literal` probe).
 const CONTROLS: &[Program] = &[
     program("order", PROBES, "keysOne(1)"),
     program("item", PROBES, "choiceOne(1)"),
@@ -254,7 +257,14 @@ const CONTROLS: &[Program] = &[
     program("float-rounding", GAP, "i2f(3)"),
     program("float-rounding", GAP, "f2i(2.4)"),
     program("float-rounding", GAP, "rt(4.0, 2)"),
+    program("float-rounding", GAP, "i2f(16777217)"),
+    program("float-rounding", GAP, "i2f(0)"),
+    program("float-rounding", GAP, "rnd(0.1)"),
+    program("float-rounding", GAP, "rt(2.0, 3)"),
     program("outside-domain", GAP, "fl(1.5)"),
+    program("outside-domain", GAP, "fl(0.5)"),
+    program("outside-domain", GAP, "flinf(1.0)"),
+    program("literal", EXEMPT, "inf(0)"),
     program("outside-domain", GAP, "sub(0)"),
     program("outside-domain", GAP, "fnd(0)"),
     program("outside-domain", GAP, "rpl(0)"),
@@ -267,7 +277,7 @@ const CONTROLS: &[Program] = &[
 /// Programs whose run reads a value of a class, or a site, the chooser exempts ([`EXEMPT`]).
 const EXEMPTED: &[Program] = &[
     program("curve", EXEMPT, "add(1, 2)"),
-    program("literal", EXEMPT, "inf(0)"),
+    program("literal", EXEMPT, "wide(0)"),
     program("outside-domain", EXEMPT, r#"tok("x")"#),
 ];
 

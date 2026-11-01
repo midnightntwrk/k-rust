@@ -13,8 +13,7 @@ mod canonical;
 pub mod rounding_model;
 
 pub use canonical::{
-    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text,
-    float_canonical_bits_estimate, literal_open,
+    FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, canonical_float_text, float_canonical_bits_estimate,
 };
 
 /// A Float format `pNxM`: `N` bits of precision and `M` exponent bits, both positive integers

@@ -438,10 +438,9 @@ pub enum ChosenClass {
     /// The bytes `String2Bytes` gives a string, and the string `Bytes2String` gives bytes: the
     /// text names no encoding (`domains.md`, "String and Bytes conversion").
     ByteEncoding,
-    /// The value of a Float conversion or root the text names no rounding for: `Int2Float` of an
-    /// integer the format does not hold (or of 0, which both zeros hold), `roundFloat` of a value
-    /// the destination does not hold, `Float2Int` at a tie, and `rootFloat` of a positive finite
-    /// value whose root no float is.
+    /// The value of `Float2Int` at a tie: "rounds to the nearest integer" names two there and no
+    /// tie rule. The other Float conversions and the roots round as IEEE 754's roundTiesToEven
+    /// (`docs/amendments.md`, AM-4 and AM-5), which determines them.
     FloatRounding,
     /// Every outcome of the BN128 hooks, a value or `\bottom`: "The BN128 elliptic curve"
     /// (`krypto.md`:95) names no curve parameters, so which pairs are points, and every sum,
@@ -449,17 +448,17 @@ pub enum ChosenClass {
     Curve,
     /// An outcome of a hook where its description gives none and does not exclude every value
     /// (`\bottom` and every value are models): the values of `ecdsaRecover` and `ecdsaPubKey`
-    /// outside their documented inputs, of `rootFloat` outside a positive finite value and a
-    /// positive degree, and of `floorFloat`, `ceilFloat` and `truncFloat` of a NaN or an
-    /// infinity, or of a non-integer whose rounding is a zero (which zero is not said); and the
-    /// evaluators' `\bottom` at their scoped sites ([`Undefinedness::Undescribed`]).
+    /// outside their documented inputs and of `rootFloat` outside a positive finite value and a
+    /// positive degree; and the evaluators' `\bottom` at their scoped sites
+    /// ([`Undefinedness::Undescribed`]).
     OutsideDomain,
-    /// The element of a literal the literal rules leave open (`crate::literal`): a Float literal
-    /// at a tie of "nearest", at or beyond half an ulp past the largest finite value, a nonzero
-    /// one rounding to a zero, an `Infinity` lexeme, and a machine-integer literal its width
-    /// cannot hold. Not a hook value: [`chosen_value`] never returns it, and the mark's `hook` is
-    /// the `UNIQUE_ID` of the rule or equation holding the literal, which an execution marks on
-    /// every attempt, or a request's own literal as written.
+    /// The element of a literal the literal rules leave open (`crate::literal`): a machine-integer
+    /// literal its width cannot hold. Every Float literal names one element, its rational rounded
+    /// as IEEE 754's correctly rounded decimal-to-binary conversion under roundTiesToEven, and
+    /// `Infinity` the infinity of its sign (`docs/amendments.md`, AM-8). Not a hook value:
+    /// [`chosen_value`] never returns it, and the mark's `hook` is the `UNIQUE_ID` of the rule or
+    /// equation holding the literal, which an execution marks on every attempt, or a request's
+    /// own literal as written.
     Literal,
 }
 
@@ -490,8 +489,8 @@ impl ChosenClass {
     /// so that its definedness is open too unless the symbol is declared `total`: `curve` (a
     /// pair of integers is a point on some curves and not on others) and `outside-domain` (the
     /// description gives no value there, so `\bottom` is a model), and `literal`, whose element
-    /// can decide whether what a sentence holding it computes is defined (`Float2Int` of the
-    /// largest finite value or of infinity). Every other class is a choice among values the
+    /// can decide whether what a sentence holding it computes is defined (a machine-integer
+    /// division by `256p8`, which is zero in k-rust's model). Every other class is a choice among values the
     /// description gives.
     pub fn may_be_undefined(self) -> bool {
         matches!(self, Self::Curve | Self::OutsideDomain | Self::Literal)
@@ -647,9 +646,8 @@ impl<'a> HookOutcome<'a> {
 ///   that holds a letter digit (`krypto::writes_a_hex_letter`). Their digits are determined.
 /// - `OutsideDomain`: the failure value of `ecdsaRecover` and `ecdsaPubKey`, which the evaluator
 ///   gives exactly outside the documented inputs (`krypto::is_failure_value`); `rootFloat`
-///   outside a positive finite value and a positive degree (`float::root_open`); `floorFloat`,
-///   `ceilFloat` and `truncFloat` of a NaN, an infinity or a non-integer rounding to a zero
-///   (`float::integral_open`); and the evaluator's `\bottom` at a site where the description
+///   outside a positive finite value and a positive degree (`float::root_outside_domain`); and
+///   the evaluator's `\bottom` at a site where the description
 ///   covers only some arguments ([`Undefinedness::Undescribed`]): `decodeBytes` of a sequence
 ///   the encoding does not decode, `ordChar` of a string that is not one code point,
 ///   `String2Int` and `String2Base` of a text off the radix's syntax, `String2Base` and
@@ -664,9 +662,9 @@ impl<'a> HookOutcome<'a> {
 ///   `domains.md` rule (`string::takes_an_empty_range`); and `findString` and
 ///   `rfindString` from a start that is no position of the haystack
 ///   (`string::starts_outside_the_haystack`).
-/// - `FloatRounding`: `Int2Float` of an integer the format does not hold or of 0, `roundFloat`
-///   of a value the destination does not hold, `Float2Int` at a tie (`float::rounds`), and
-///   `rootFloat` of a positive finite value whose root is no float (`float::root_open`).
+/// - `FloatRounding`: `Float2Int` at a tie (`float::float2int_tie`). `Int2Float`, `roundFloat`,
+///   an inexact root and `floorFloat`, `ceilFloat` and `truncFloat` are determined
+///   (`docs/amendments.md`, AM-4 to AM-6).
 ///
 /// The application is defined in every class but `Curve` and `OutsideDomain` whatever its
 /// symbol's declaration says: a defined collection has a listing and, when non-empty, an item; a
@@ -759,13 +757,10 @@ pub fn chosen_value(
             ChosenClass::OutsideDomain,
             krypto::is_failure_value(hook, value()?),
         ),
-        "FLOAT.int2float" | "FLOAT.round" | "FLOAT.float2int" => {
-            fires(ChosenClass::FloatRounding, float::rounds(hook, arguments))
-        }
-        "FLOAT.root" => float::root_open(arguments, value()?),
-        "FLOAT.floor" | "FLOAT.ceil" | "FLOAT.trunc" => fires(
+        "FLOAT.float2int" => fires(ChosenClass::FloatRounding, float::float2int_tie(arguments)),
+        "FLOAT.root" => fires(
             ChosenClass::OutsideDomain,
-            float::integral_open(hook, arguments),
+            float::root_outside_domain(arguments),
         ),
         _ if float::mixed_destination(hook, arguments).is_some() => {
             Some(ChosenClass::FloatDestination)
@@ -1234,7 +1229,7 @@ fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 pub use k_rust_domain::{
     FloatTextRefusal, MAX_FLOAT_CANONICAL_BITS, MAX_INT_RESULT_BITS, canonical_float_text,
-    float::literal_open as float_literal_open, float_canonical_bits_estimate, is_float_syntax,
+    float_canonical_bits_estimate, is_float_syntax,
 };
 
 /// Evaluate `hook` on `arguments` without an applied symbol, so without a declared result sort:
@@ -5051,15 +5046,27 @@ mod tests {
         );
     }
 
-    /// GAP K1: a Float conversion or root that `domains.md` names no rounding for is
-    /// `float-rounding` where the destination does not hold the exact value (an overflow
-    /// included), at a `Float2Int` tie, and for `Int2Float` of 0, which both zeros hold; where the
-    /// exact value is a float of the destination (a zero or NaN argument of `roundFloat` keeps its
-    /// element) every model agrees and nothing is classified.
+    /// GAP K1, narrowed by GAP A2: a `Float2Int` tie is `float-rounding` ("nearest" names two
+    /// integers and no tie rule). The conversions and roots K1 classified there, where the
+    /// destination does not hold the exact value (an overflow included) and `Int2Float` of 0, are
+    /// determined by IEEE 754's roundTiesToEven (`docs/amendments.md`, AM-4 and AM-5), as is every
+    /// conversion of a value the destination holds.
     #[test]
-    fn conversions_and_roots_without_an_exact_value_are_float_rounding() {
+    fn only_a_float2int_tie_is_float_rounding() {
         let int = |value: &str| Term::int(value.parse::<BigInt>().unwrap());
         let open = [
+            ("FLOAT.float2int", vec![float_term("2.5")]),
+            ("FLOAT.float2int", vec![float_term("-0.5")]),
+            ("FLOAT.float2int", vec![float_term("2.5f")]),
+        ];
+        for (hook, arguments) in &open {
+            assert_eq!(
+                chosen_class(hook, arguments),
+                Some(ChosenClass::FloatRounding),
+                "{hook}{arguments:?}"
+            );
+        }
+        let determined = [
             (
                 "FLOAT.int2float",
                 vec![int("16777217"), Term::int(24), Term::int(8)],
@@ -5084,20 +5091,8 @@ mod tests {
                 "FLOAT.round",
                 vec![float_term("1.0e300"), Term::int(24), Term::int(8)],
             ),
-            ("FLOAT.float2int", vec![float_term("2.5")]),
-            ("FLOAT.float2int", vec![float_term("-0.5")]),
-            ("FLOAT.float2int", vec![float_term("2.5f")]),
             ("FLOAT.root", vec![float_term("2.0"), Term::int(2)]),
             ("FLOAT.root", vec![float_term("4.0"), Term::int(4)]),
-        ];
-        for (hook, arguments) in &open {
-            assert_eq!(
-                chosen_class(hook, arguments),
-                Some(ChosenClass::FloatRounding),
-                "{hook}{arguments:?}"
-            );
-        }
-        let determined = [
             (
                 "FLOAT.int2float",
                 vec![int("3"), Term::int(24), Term::int(8)],
@@ -5151,11 +5146,11 @@ mod tests {
 
     /// GAP K1: where a description gives no value and does not exclude every value, k-rust's
     /// value is `outside-domain`, of unknown definedness at a partial symbol: `rootFloat` outside
-    /// a positive finite value and a positive degree, `floorFloat`, `ceilFloat` and `truncFloat`
-    /// of a NaN, an infinity or a non-integer rounding to a zero, and the ECDSA failure values.
-    /// An integer argument, a zero included, and a non-integer rounding to a nonzero integer are
-    /// determined, and so is a recovered key or a public key (a hex `String`, `hex-case` when it
-    /// holds a letter digit).
+    /// a positive finite value and a positive degree, and the ECDSA failure values. A recovered
+    /// key or a public key is determined (a hex `String`, `hex-case` when it holds a letter
+    /// digit). GAP A2: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's roundToIntegral
+    /// (`docs/amendments.md`, AM-6), so every argument is determined, a NaN, an infinity and a
+    /// non-integer rounding to a zero among them.
     #[test]
     fn values_outside_a_described_domain_are_outside_domain() {
         let open = [
@@ -5166,11 +5161,6 @@ mod tests {
             ("FLOAT.root", vec![float_term("NaN"), Term::int(2)]),
             ("FLOAT.root", vec![float_term("4.0"), Term::int(0)]),
             ("FLOAT.root", vec![float_term("4.0"), Term::int(-2)]),
-            ("FLOAT.floor", vec![float_term("0.5")]),
-            ("FLOAT.ceil", vec![float_term("-0.5")]),
-            ("FLOAT.trunc", vec![float_term("-0.7f")]),
-            ("FLOAT.floor", vec![float_term("NaN")]),
-            ("FLOAT.ceil", vec![float_term("-Infinity")]),
             (
                 "KRYPTO.ecdsaRecover",
                 vec![
@@ -5202,6 +5192,11 @@ mod tests {
             ("FLOAT.ceil", vec![float_term("-0.0")]),
             ("FLOAT.trunc", vec![float_term("0.0")]),
             ("FLOAT.trunc", vec![float_term("-2.7")]),
+            ("FLOAT.floor", vec![float_term("0.5")]),
+            ("FLOAT.ceil", vec![float_term("-0.5")]),
+            ("FLOAT.trunc", vec![float_term("-0.7f")]),
+            ("FLOAT.floor", vec![float_term("NaN")]),
+            ("FLOAT.ceil", vec![float_term("-Infinity")]),
         ];
         for (hook, arguments) in &determined {
             assert_eq!(chosen_class(hook, arguments), None, "{hook}{arguments:?}");

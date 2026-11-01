@@ -98,26 +98,6 @@ pub(super) fn positive_root_bits(format: Format, x: u64, degree: &BigInt) -> u64
     low
 }
 
-/// Whether the real `x^(1/n)` exceeds the positive finite float of bit pattern `candidate`, for
-/// a finite positive `x` (as its bit pattern) and a positive degree `n`, where `candidate` is not
-/// that root: which side of a rounded root the root lies on, for the test-only chooser's other
-/// rounding neighbour (`crate::choice_sampling`).
-pub(super) fn root_exceeds(format: Format, x: u64, degree: &BigInt, candidate: u64) -> bool {
-    // Past these degrees every root lies within a quarter ulp of 1, so it is above 1 exactly
-    // when `x` is, and every candidate other than 1 is far from it.
-    if degree.magnitude().bits() > DEGREE_ROUNDING_TO_ONE_BITS {
-        let one = one_bits(format);
-        return if candidate == one {
-            x > one
-        } else {
-            candidate < one
-        };
-    }
-    let (x_significand, x_exponent) = decode(format, x);
-    let (significand, exponent) = decode(format, candidate);
-    Comparison::new(x_significand, x_exponent, degree).root_exceeds(&significand, exponent)
-}
-
 fn one_bits(format: Format) -> u64 {
     (format.bias as u64) << format.fraction_bits
 }

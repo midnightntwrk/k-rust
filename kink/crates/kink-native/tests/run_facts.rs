@@ -686,6 +686,10 @@ mod kink_tier {
     /// of 2 (not exact, `float-rounding`) and of -4 (no described value, `outside-domain`), against
     /// the exact root of 4. Its other classes have no probe here, since their hooks are still on
     /// the census (until GK-1), which would exclude `classes.k` as a whole.
+    /// GAP A2 (`docs/amendments.md` AM-4, AM-5): `Int2Float` is IEEE 754's conversion under
+    /// roundTiesToEven, 2^24 + 1 a tie to the even 2^24 and 0 the positive zero, and the square
+    /// root of 2 is correctly rounded, so `i2f(16777217)`, `i2f(0)` and `rt(2)` read determined
+    /// values and list nothing, as their controls do; `rt(-4)` keeps its `outside-domain` mark.
     #[test]
     #[ignore = "kink"]
     fn every_k_rust_class_is_judged_per_run() {
@@ -699,7 +703,6 @@ mod kink_tier {
             );
             assert_eq!(exclusions.definition_exclusion(), None);
             let base2string = ("STRING.base2string", "letter-case");
-            let rounding = ("FLOAT.int2float", "float-rounding");
             let probes = [
                 ("keys", 1, Some(("MAP.keys_list", "order"))),
                 ("vals", 1, Some(("MAP.values", "order"))),
@@ -716,9 +719,6 @@ mod kink_tier {
                 ("cond", 255, Some(base2string)),
                 ("eqn", 255, Some(base2string)),
                 ("req", 255, Some(base2string)),
-                ("i2f", 16_777_217, Some(rounding)),
-                ("i2f", 0, Some(rounding)),
-                ("rt", 2, Some(("FLOAT.root", "float-rounding"))),
                 ("rt", -4, Some(("FLOAT.root", "outside-domain"))),
                 ("keysOne", 1, None),
                 ("choiceOne", 1, None),
@@ -731,7 +731,10 @@ mod kink_tier {
                 ("eqn", 9, None),
                 ("req", 9, None),
                 ("i2f", 16_777_216, None),
+                ("i2f", 16_777_217, None),
+                ("i2f", 0, None),
                 ("rt", 4, None),
+                ("rt", 2, None),
             ];
             let mut failures = Vec::new();
             let mut judge =

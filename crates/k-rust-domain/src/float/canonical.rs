@@ -24,11 +24,11 @@
 //! The canonical text of a `Float` domain value: one text per value, in every format.
 //!
 //! A Float literal's mantissa and exponent name a rational number, rounded to nearest
-//! (`domains.md`, "Floating-point numbers"), ties to even and past the overflow threshold to the
-//! infinity of the sign, the element k-rust builds where "nearest" leaves it open (class
-//! `literal`, [`literal::literal_open`]; `docs/compatibility.md`, "Backend scope"), in the format
-//! its suffix names: no suffix, `d`
-//! or `D` is binary64 (`p53x11`), `f` or `F` is binary32 (`p24x8`), and `pNxM` has `N` bits of
+//! (`domains.md`, "Floating-point numbers") as IEEE 754's correctly rounded decimal-to-binary
+//! conversion under roundTiesToEven: ties to even, past the overflow threshold to the infinity of
+//! the sign, a nonzero value rounding to a zero to the zero of its sign, and an `Infinity`
+//! lexeme the infinity of its sign (`docs/amendments.md`, AM-8), in the format its suffix names:
+//! no suffix, `d` or `D` is binary64 (`p53x11`), `f` or `F` is binary32 (`p24x8`), and `pNxM` has `N` bits of
 //! precision (the implicit bit included) and `M` exponent bits, represented like an IEEE 754
 //! format: `emax = 2^(M-1) - 1`, `emin = 1 - emax`, with subnormals and overflow to the infinity
 //! of the sign. The format is part of the value (`0.5f` and `0.5` are two values), the zeros of
@@ -559,20 +559,6 @@ enum Rounded {
 /// `digits * 10^exponent` rounded to nearest, ties to even, with `precision` significant bits in
 /// `range`, with subnormals and overflow to infinity.
 fn round(digits: BigUint, exponent: &BigInt, precision: u64, range: &Range) -> Rounded {
-    round_classified(digits, exponent, precision, range, false).0
-}
-
-/// [`round`] of a value `v` that is `digits * 10^exponent` when `sticky` is false, and when
-/// `sticky` is true lies strictly above it and below every value of the format and every
-/// midpoint of two values above it (`literal::literal_open` truncates a literal so), with whether
-/// `v` is a midpoint: a tie, which "nearest" does not decide.
-fn round_classified(
-    digits: BigUint,
-    exponent: &BigInt,
-    precision: u64,
-    range: &Range,
-    sticky: bool,
-) -> (Rounded, bool) {
     let power = exponent.magnitude().to_u32().expect("within the bound");
     let tens = BigUint::from(10_u8).pow(power);
     let (mut numerator, mut denominator) = if exponent.is_negative() {
@@ -604,14 +590,8 @@ fn round_classified(
         denominator <<= quantum;
     }
     let mut significand = &numerator / &denominator;
-    let twice_remainder: BigUint = (&numerator % &denominator) << 1;
-    let half = twice_remainder.cmp(&denominator);
-    // With `sticky`, `v` is above `digits * 10^exponent` and below the next midpoint, so a
-    // midpoint `digits * 10^exponent` rounds up and no tie is left.
-    let tie = half == std::cmp::Ordering::Equal && !sticky;
-    if half == std::cmp::Ordering::Greater
-        || (half == std::cmp::Ordering::Equal && (sticky || significand.bit(0)))
-    {
+    let twice_remainder = (&numerator % &denominator) << 1;
+    if twice_remainder > denominator || (twice_remainder == denominator && significand.bit(0)) {
         significand += 1_u8;
     }
     if significand.bits() as i64 > precision {
@@ -619,14 +599,14 @@ fn round_classified(
         quantum += 1;
     }
     if significand.is_zero() {
-        return (Rounded::Zero, tie);
+        return Rounded::Zero;
     }
     if let Range::Bounded { emax, .. } = range
         && BigInt::from(quantum + significand.bits() as i64 - 1) > *emax
     {
-        return (Rounded::Infinity, tie);
+        return Rounded::Infinity;
     }
-    (Rounded::Finite(significand, BigInt::from(quantum)), tie)
+    Rounded::Finite(significand, BigInt::from(quantum))
 }
 
 /// The exact decimal `D e Q` of `significand * 2^quantum`, `D` without trailing zeros.
@@ -667,10 +647,6 @@ fn floor_div(x: &BigInt, divisor: u64) -> BigInt {
         quotient
     }
 }
-
-mod literal;
-
-pub use literal::literal_open;
 
 #[cfg(test)]
 mod tests;

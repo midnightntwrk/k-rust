@@ -4491,18 +4491,15 @@ module MAIN
 /// of a negative value, a floor, ceiling or truncation of a non-integer to a zero or of an
 /// infinity) and `byte-encoding` (every `String2Bytes` and `Bytes2String`), while the determined
 /// neighbours fold. Before K1 every one of these folded to k-rust's pick.
+///
+/// GAP A2: `Int2Float`, `roundFloat`, an inexact root and `floorFloat`, `ceilFloat` and
+/// `truncFloat` are IEEE 754's (`docs/amendments.md`, AM-4 to AM-6), so they fold again; the
+/// `Float2Int` tie (`float-rounding`) and the root of a negative value (`outside-domain`) stay.
 #[test]
 fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() {
     let open = [
-        "Int2Float(16777217, 24, 8)",
-        "Int2Float(0, 53, 11)",
-        "roundFloat(0.1, 24, 8)",
         "Float2Int(2.5)",
-        "rootFloat(2.0, 2)",
         "rootFloat(-4.0, 2)",
-        "floorFloat(0.5)",
-        "ceilFloat(-0.5)",
-        "truncFloat(Infinity)",
         r#"String2Bytes("a")"#,
         r#"Bytes2String(b"a")"#,
     ];
@@ -4515,6 +4512,13 @@ fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() 
         "floorFloat(-0.5)",
         "ceilFloat(-0.0)",
         "truncFloat(2.7)",
+        "Int2Float(16777217, 24, 8)",
+        "Int2Float(0, 53, 11)",
+        "roundFloat(0.1, 24, 8)",
+        "rootFloat(2.0, 2)",
+        "floorFloat(0.5)",
+        "ceilFloat(-0.5)",
+        "truncFloat(Infinity)",
     ];
     let rules = open
         .iter()
@@ -4556,22 +4560,30 @@ module MAIN
     assert!(unfolded.is_empty(), "{unfolded:#?}");
 }
 
-/// GAP K3: the fold writes no literal whose element the literal rule leaves open, and reads none.
-/// An infinite result would be written `Infinity`, whose element no rule of the text fixes; an
-/// argument written `1.0e400` (the largest finite value by "nearest", infinity by k-rust's
-/// overflow), `Infinity`, or `-1.0e-400` (which zero is not said) is one of several, so the
-/// application stays as written. A finite result of determined arguments still folds, a written zero's sign included.
+/// GAP K3: the fold reads no literal whose element the literal rule leaves open: an argument
+/// written `256p8`, which `MInt{8}` cannot hold, is one of several elements, so `m2s(256p8)`
+/// (`STRING.token2string`, which reads any token's text) stays as written, while `m2s(255p8)`
+/// folds.
+///
+/// GAP A2: every Float literal names one element (`docs/amendments.md`, AM-8): IEEE 754's
+/// correctly rounded decimal-to-binary conversion, `1.0e400` the infinity, `-1.0e-400` the
+/// negative zero, `Infinity` the infinity. So applications K3 left unfolded, an infinite result
+/// (written `Infinityp53x11`) or an argument of those spellings, fold again, beside the finite
+/// results that always did.
 #[test]
-fn the_fold_writes_and_reads_no_open_literal() {
-    let open = [
+fn the_fold_reads_no_open_literal_and_folds_every_float_literal() {
+    let open = ["m2s(256p8)"];
+    let determined = [
+        "m2s(255p8)",
         "1.0e308 *Float 10.0",
         "--Float (1.0e308 *Float 10.0)",
         "1.0e400 *Float 0.5",
         "absFloat(-1.0e400)",
         "Infinity <Float 1.0",
         "signFloat(-1.0e-400)",
+        "1.0e308 *Float 1.5",
+        "--Float 0.0",
     ];
-    let determined = ["1.0e308 *Float 1.5", "--Float 0.0"];
     let rules = open
         .iter()
         .chain(&determined)
@@ -4588,7 +4600,11 @@ module MAIN
   imports MAIN-SYNTAX
   imports DOMAINS
   imports FLOAT
+  imports MINT
   configuration <k> $PGM:Op </k>
+  syntax MInt{{8}} ::= m8() [function, symbol(m8)]
+  syntax String ::= m2s(MInt{{8}}) [function, hook(STRING.token2string), symbol(m2s)]
+  rule m8() => 1p8
   syntax KItem ::= res(K) [symbol(res)]
 {rules}endmodule
 "#

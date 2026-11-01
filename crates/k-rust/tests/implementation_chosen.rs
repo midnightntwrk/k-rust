@@ -290,6 +290,10 @@ fn float_letter_case_and_substitution_values_computed_at_run_time_are_marked() {
 /// (`outside-domain`: a root of a negative value, `floorFloat` of a non-integer rounding to a
 /// zero, the ECDSA failure values), a byte encoding (`byte-encoding`, every application), a hex
 /// output's letter case (`hex-case`) and every BN128 outcome (`curve`).
+///
+/// GAP A2: the inexact and zero `Int2Float`, the inexact `roundFloat` and root and `floorFloat`
+/// to a zero are IEEE 754's (`docs/amendments.md`, AM-4 to AM-6), so they are unmarked; the
+/// `Float2Int` tie and the root of a negative value stay marked.
 const GAP_VALUES: &str = r#"
 module MAIN
   imports INT
@@ -327,17 +331,17 @@ endmodule
 fn conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are_marked() {
     let rounding = |hook: &str| [mark(hook, "float-rounding")];
     let outside = |hook: &str| [mark(hook, "outside-domain")];
-    assert_marked(GAP_VALUES, "i2f(16777217)", &rounding("FLOAT.int2float"));
-    assert_marked(GAP_VALUES, "i2f(0)", &rounding("FLOAT.int2float"));
+    assert_marked(GAP_VALUES, "i2f(16777217)", &[]);
+    assert_marked(GAP_VALUES, "i2f(0)", &[]);
     assert_marked(GAP_VALUES, "i2f(3)", &[]);
-    assert_marked(GAP_VALUES, "rnd(0.1)", &rounding("FLOAT.round"));
+    assert_marked(GAP_VALUES, "rnd(0.1)", &[]);
     assert_marked(GAP_VALUES, "rnd(0.5)", &[]);
     assert_marked(GAP_VALUES, "f2i(2.5)", &rounding("FLOAT.float2int"));
     assert_marked(GAP_VALUES, "f2i(2.4)", &[]);
-    assert_marked(GAP_VALUES, "rt(2.0, 2)", &rounding("FLOAT.root"));
+    assert_marked(GAP_VALUES, "rt(2.0, 2)", &[]);
     assert_marked(GAP_VALUES, "rt(4.0, 2)", &[]);
     assert_marked(GAP_VALUES, "rt(-4.0, 2)", &outside("FLOAT.root"));
-    assert_marked(GAP_VALUES, "fl(0.5)", &outside("FLOAT.floor"));
+    assert_marked(GAP_VALUES, "fl(0.5)", &[]);
     assert_marked(GAP_VALUES, "fl(-0.5)", &[]);
     assert_marked(GAP_VALUES, "fl(1.5)", &[]);
     assert_marked(
@@ -1562,23 +1566,27 @@ fn a_two_name_rule_compiles_without_an_attribute_for_its_association() {
     );
 }
 
-/// GAP K3: literals whose element the literal rule leaves open (class `literal`): a Float literal
-/// at or beyond half an ulp past the largest finite value (`big`), at a tie of "nearest"
-/// (`tie`, 2^53 + 1), a nonzero literal rounding to a zero (`tiny`) and an `Infinity` lexeme (`inf`),
-/// in a rewrite rule, in a function
-/// equation (`lim`), and in a left-hand side whose match fails (`miss` on 2.0). Beside them the
-/// determined literals: a unique nearest value (`plain`), a zero's written sign (`negzero`), the
+/// GAP K3: literals whose element the literal rule leaves open (class `literal`): a
+/// machine-integer literal its width cannot hold (`wide`, `256p8`), in a rewrite rule, in a
+/// function equation (`lim`), and in a left-hand side whose match fails (`miss` on `2p8`).
+///
+/// GAP A2: every Float literal names one element (`docs/amendments.md`, AM-8), so the Float
+/// literals K3 marked are determined beside the others: past half an ulp beyond the largest
+/// finite value (`big`, the infinity), at a tie of "nearest" (`tie`, 2^53 + 1, to the even
+/// 2^53), a nonzero literal rounding to a zero (`tiny`, the zero of its sign) and an `Infinity`
+/// lexeme (`inf`), beside a unique nearest value (`plain`), a zero's written sign (`negzero`), the
 /// one NaN (`nan`), a value between the largest finite one and the overflow threshold (`near`,
-/// which rounds to the largest finite value). Machine-integer literals are tested on KORE
-/// definitions (`k-rust-backend`, `tests/backend`), as the frontend's parse of a literal of a
-/// parametric sort needs the solver's inference.
+/// the largest finite value), and an in-range machine integer (`narrow`, `255p8`).
 const LITERALS: &str = r#"
 module MAIN
   imports INT
   imports FLOAT
-  syntax Float ::= lim() [function]
+  imports MINT
+  syntax Float ::= flim() [function]
+  syntax MInt{8} ::= lim() [function]
   syntax Pgm ::= big(Int) | tie(Int) | tiny(Int) | inf(Int) | plain(Int) | negzero(Int)
-               | nan(Int) | near(Int) | miss(Float) | eq(Int) | id(Float) | done(KItem)
+               | nan(Int) | near(Int) | fmiss(Float) | feq(Int) | wide(Int) | narrow(Int)
+               | miss(MInt{8}) | eq(Int) | id(Float) | mid(MInt{8}) | done(KItem)
   configuration <k> $PGM:Pgm </k>
   rule [big]: big(_) => done(1.0e400)
   rule [tie]: tie(_) => done(9007199254740993.0)
@@ -1588,11 +1596,18 @@ module MAIN
   rule [negzero]: negzero(_) => done(-0.0)
   rule [nan]: nan(_) => done(NaN)
   rule [near]: near(_) => done(1.7976931348623158e308)
-  rule [miss]: miss(1.0e400) => done(0)
+  rule [fmiss]: fmiss(1.0e400) => done(0)
+  rule [fmiss-owise]: fmiss(_) => done(1) [owise]
+  rule [flim]: flim() => 1.0e400
+  rule [feq]: feq(_) => done(flim())
+  rule [wide]: wide(_) => done(256p8)
+  rule [narrow]: narrow(_) => done(255p8)
+  rule [miss]: miss(256p8) => done(0)
   rule [miss-owise]: miss(_) => done(1) [owise]
-  rule [lim]: lim() => 1.0e400
+  rule [lim]: lim() => 256p8
   rule [eq]: eq(_) => done(lim())
   rule [id]: id(F) => done(F)
+  rule [mid]: mid(M) => done(M)
 endmodule
 "#;
 
@@ -1603,24 +1618,30 @@ endmodule
 fn every_attempt_of_a_sentence_holding_an_open_literal_is_marked() {
     let (kore, _) = compile(LITERALS, "plain(1)");
     let literal = |label: &str| [mark(&unique_id(&kore, &format!("MAIN.{label}")), "literal")];
-    for label in ["big", "tie", "tiny", "inf"] {
-        assert_marked(LITERALS, &format!("{label}(1)"), &literal(label));
-    }
-    for label in ["plain", "negzero", "nan", "near"] {
+    assert_marked(LITERALS, "wide(1)", &literal("wide"));
+    for label in [
+        "big", "tie", "tiny", "inf", "plain", "negzero", "nan", "near", "narrow",
+    ] {
         assert_marked(LITERALS, &format!("{label}(1)"), &[]);
     }
     assert_marked(LITERALS, "eq(1)", &literal("lim"));
-    assert_marked(LITERALS, "miss(2.0)", &literal("miss"));
+    assert_marked(LITERALS, "miss(2p8)", &literal("miss"));
+    assert_marked(LITERALS, "feq(1)", &[]);
+    assert_marked(LITERALS, "fmiss(2.0)", &[]);
 }
 
 /// GAP K3: a request's own literal (here the program's) is marked with its text as written, on
-/// every leaf of an execution and every state of a search.
+/// every leaf of an execution and every state of a search. GAP A2: a Float request literal is
+/// determined (AM-8), `1.0e400` and `Infinity` among them.
 #[test]
 fn an_open_literal_of_the_request_is_marked_with_its_text() {
-    let literal = [mark("1.0e400", "literal")];
-    assert_marked(LITERALS, "id(1.0e400)", &literal);
+    let literal = [mark("256p8", "literal")];
+    assert_marked(LITERALS, "mid(256p8)", &literal);
+    assert_marked(LITERALS, "mid(255p8)", &[]);
+    assert_marked(LITERALS, "id(1.0e400)", &[]);
+    assert_marked(LITERALS, "id(Infinity)", &[]);
     assert_marked(LITERALS, "id(0.5)", &[]);
-    let (kore, initial) = compile(LITERALS, "id(1.0e400)");
+    let (kore, initial) = compile(LITERALS, "mid(256p8)");
     let search = SearchRequest {
         search_type: SearchTypeArg::All,
         ..SearchRequest::new(initial)
@@ -1641,9 +1662,25 @@ fn an_open_literal_of_the_request_is_marked_with_its_text() {
 }
 
 /// GAP K3: the `<k>` cell key of a rule holding an open literal does not read the literal's
-/// value, so the rule is attempted on a configuration whose head is the largest finite value,
-/// which the literal names in another model, and the stuck leaf is marked.
+/// value, so the rule is attempted on a configuration whose head is `255p8`, which the literal
+/// `256p8` names in another model, and the stuck leaf is marked. GAP A2: `1.0e400` names the
+/// infinity in every model (AM-8), so a rule holding it (`KEYED_FLOAT`, the definition K3 wrote
+/// here) is keyed by that value, never attempted on the largest finite value, and the leaf is
+/// unmarked.
 const KEYED_LITERAL: &str = r#"
+module MAIN
+  imports INT
+  imports MINT
+  syntax MInt{8} ::= m8() [function]
+  syntax Pgm ::= go(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule [m8]: m8() => 1p8
+  rule [top]: <k> 256p8 => 0 ... </k>
+  rule [go]: <k> go(_) => 255p8 ... </k>
+endmodule
+"#;
+
+const KEYED_FLOAT: &str = r#"
 module MAIN
   imports INT
   imports FLOAT
@@ -1659,6 +1696,7 @@ fn a_rule_keyed_by_an_open_literal_is_attempted_whatever_the_head() {
     let (kore, _) = compile(KEYED_LITERAL, "go(1)");
     let top = unique_id(&kore, "MAIN.top");
     assert_marked(KEYED_LITERAL, "go(1)", &[mark(&top, "literal")]);
+    assert_marked(KEYED_FLOAT, "go(1)", &[]);
 }
 
 /// The backend's own executions, for what the facade does not reach: several initial patterns

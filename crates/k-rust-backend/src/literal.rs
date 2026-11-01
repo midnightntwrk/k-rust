@@ -1,11 +1,11 @@
 //! Literals whose element the definition leaves open (`builtin::ChosenClass::Literal`).
 //!
 //! A literal gets its element when its text is internalized (`Term::domain_value_of`), so no
-//! evaluation can leave it open or mark it. The literal rules leave open the element of a Float
-//! literal at a tie of "nearest", at or beyond half an ulp past the largest finite value, of a
-//! nonzero value that rounds to a zero and of an `Infinity` lexeme
-//! ([`crate::builtin::float_literal_open`]), and of a machine-integer literal its width cannot
-//! hold (`term::mint_literal_open`); k-rust builds its own element of each.
+//! evaluation can leave it open or mark it. The literal rules leave open the element of a
+//! machine-integer literal its width cannot hold (`term::mint_literal_open`), and k-rust builds
+//! its own element of each, the residue. Every Float literal names one element: its rational
+//! rounded as IEEE 754's correctly rounded decimal-to-binary conversion under roundTiesToEven, an
+//! `Infinity` lexeme the infinity of its sign (`docs/amendments.md`, AM-8).
 //!
 //! So the text is classified where it is read: every internalization of a sentence or a request
 //! runs [`recording`], and [`observe`], called on every domain value read from text, adds the
@@ -18,10 +18,9 @@
 //!
 //! No hook builds a `Float` from text: `STRING.string2float` and `STRING.float2string` have no
 //! evaluator (their applications are the unsupported-hook outcome). An evaluator added for them
-//! must classify `String2Float`'s argument by [`crate::builtin::float_literal_open`] (class
-//! `literal` or a hook class, marked in an execution and withheld elsewhere), and treat
-//! `Float2String`'s spelling of every value as open: the round trip `domains.md` states fixes
-//! the value a text reads back as, not the text.
+//! must read `String2Float`'s argument as a literal is read (AM-8), and treat `Float2String`'s
+//! spelling of every value as open: the round trip `domains.md` states fixes the value a text
+//! reads back as, not the text.
 
 use std::{cell::RefCell, sync::Arc};
 
@@ -36,9 +35,9 @@ use crate::{
 /// Whether the domain value text `text` of `kind` names an element the literal rules leave open.
 pub fn open(kind: DomainKind, text: &str) -> bool {
     match kind {
-        DomainKind::Float => crate::builtin::float_literal_open(text),
         DomainKind::MInt(width) => crate::term::mint_literal_open(text, width),
-        DomainKind::Int
+        DomainKind::Float
+        | DomainKind::Int
         | DomainKind::Bool
         | DomainKind::String
         | DomainKind::Bytes
@@ -74,9 +73,7 @@ pub(crate) fn recording<T>(action: impl FnOnce() -> T) -> (T, Vec<Arc<str>>) {
 
 /// Note that the text `text` of a domain value of `kind` was read, for the innermost recording.
 pub(crate) fn observe(kind: DomainKind, text: &[u8]) {
-    if !matches!(kind, DomainKind::Float | DomainKind::MInt(_))
-        || RECORDINGS.with_borrow(Vec::is_empty)
-    {
+    if !matches!(kind, DomainKind::MInt(_)) || RECORDINGS.with_borrow(Vec::is_empty) {
         return;
     }
     let Ok(text) = std::str::from_utf8(text) else {
@@ -93,15 +90,15 @@ pub(crate) fn observe(kind: DomainKind, text: &[u8]) {
     });
 }
 
-/// Whether the domain value `term` may be an open literal's element: one of `Float` or
-/// machine-integer sort, or of a sort whose kind the definition does not name (a sort-parametric
-/// value, say).
+/// Whether the domain value `term` may be an open literal's element: one of machine-integer
+/// sort, or of a sort whose kind the definition does not name (a sort-parametric value, say).
 fn may_be_open(definition: &BackendDefinition, term: &Term) -> bool {
     matches!(term.kind(), TermKind::DomainValue { sort, .. }
     if !matches!(
         definition.domain_kind(sort),
         Some(
-            DomainKind::Int
+            DomainKind::Float
+                | DomainKind::Int
                 | DomainKind::Bool
                 | DomainKind::String
                 | DomainKind::Bytes
@@ -148,8 +145,8 @@ pub(crate) fn generalized(definition: &BackendDefinition, term: &Term, subject: 
     walk(definition, term, &mut fresh)
 }
 
-/// Whether `term` holds a domain value of a sort whose literals can be open (`Float`, a machine
-/// integer, or a sort whose kind the definition does not name): the only terms an open literal
+/// Whether `term` holds a domain value of a sort whose literals can be open (a machine integer,
+/// or a sort whose kind the definition does not name): the only terms an open literal
 /// can have put in a sentence's internalized term. A term holding none matches a subject, and is
 /// indexed, the same whatever element a literal of its sentence names. Evaluated once per
 /// left-hand side at load (`rule::internalize_axiom`).
@@ -215,9 +212,10 @@ mod tests {
         )
     }
 
-    /// Equations whose literal's element the literal rules leave open (`big`, `wide`) beside
-    /// determined ones (`near`, between the largest finite value and the overflow threshold;
-    /// `narrow`, the least 8-bit integer).
+    /// An equation whose literal's element the literal rules leave open (`wide`) beside
+    /// determined ones: `narrow`, the least 8-bit integer; `big`, past the overflow threshold,
+    /// and `near`, between the largest finite value and that threshold (GAP A2: every Float
+    /// literal is determined, `big` the infinity and `near` the largest finite value, AM-8).
     fn definition() -> BackendDefinition {
         let source = format!(
             r#"[]
@@ -264,7 +262,7 @@ mod tests {
         assert_eq!(
             recorded,
             BTreeMap::from([
-                ("big".to_owned(), literal("1.0e400")),
+                ("big".to_owned(), Vec::new()),
                 ("near".to_owned(), Vec::new()),
                 ("wide".to_owned(), literal("256p8")),
                 ("narrow".to_owned(), Vec::new()),
@@ -303,7 +301,8 @@ mod tests {
                 .map(|chosen| (chosen.hook.to_string(), chosen.class))
                 .collect::<Vec<_>>()
         };
-        for name in ["big", "wide"] {
+        {
+            let name = "wide";
             let (proof, facts) = simplified(EvaluationMode::Proof, name);
             assert!(
                 matches!(proof.kind(), TermKind::Application { .. }),
@@ -317,7 +316,7 @@ mod tests {
             );
             assert_eq!(marks(&facts), [(name.to_owned(), ChosenClass::Literal)]);
         }
-        for name in ["near", "narrow"] {
+        for name in ["big", "near", "narrow"] {
             for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
                 let (value, facts) = simplified(mode, name);
                 assert!(
@@ -342,16 +341,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             reported,
-            [
-                (
-                    "big".to_owned(),
-                    UnjoinedReason::OpenLiteral("1.0e400".to_owned())
-                ),
-                (
-                    "wide".to_owned(),
-                    UnjoinedReason::OpenLiteral("256p8".to_owned())
-                ),
-            ]
+            [(
+                "wide".to_owned(),
+                UnjoinedReason::OpenLiteral("256p8".to_owned())
+            )]
         );
         assert!(
             claims
@@ -361,67 +354,74 @@ mod tests {
         );
     }
 
-    /// `f(c(literal)) = 1` (`a`) beside the `anywhere` equation `c(MAX) = m(MAX)` (`b`), where
-    /// `c` is an `anywhere` head, `m` a constructor and `f` a total function.
-    fn overlapping(literal: &str) -> BackendDefinition {
+    /// `f(c(literal)) = 1` (`a`) beside the `anywhere` equation `c(near) = m(near)` (`b`), over
+    /// the hooked sort `sort`, where `c` is an `anywhere` head, `m` a constructor and `f`
+    /// a total function.
+    fn overlapping(sort: &str, literal: &str, near: &str) -> BackendDefinition {
         let source = format!(
             r#"[]
             module MAIN
                 hooked-sort SortFloat{{}} [hook{{}}("FLOAT.Float"), hasDomainValues{{}}()]
+                hooked-sort SortMInt{{S}} [hook{{}}("MINT.MInt"), hasDomainValues{{}}()]
                 hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                sort Sort8{{}} []
                 sort SortS{{}} []
-                symbol c{{}}(SortFloat{{}}) : SortS{{}} [anywhere{{}}()]
-                symbol m{{}}(SortFloat{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol c{{}}({sort}) : SortS{{}} [anywhere{{}}()]
+                symbol m{{}}({sort}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
                 symbol f{{}}(SortS{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
                 axiom{{R}} \implies{{R}}(
-                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortS{{}}, R}}(X0:SortS{{}}, c{{}}(\dv{{SortFloat{{}}}}("{literal}"))), \top{{R}}())),
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortS{{}}, R}}(X0:SortS{{}}, c{{}}(\dv{{{sort}}}("{literal}"))), \top{{R}}())),
                     \equals{{SortInt{{}}, R}}(f{{}}(X0:SortS{{}}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))
                 ) [UNIQUE'Unds'ID{{}}("a")]
                 axiom{{R}} \implies{{R}}(
-                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortFloat{{}}, R}}(X0:SortFloat{{}}, \dv{{SortFloat{{}}}}("1.7976931348623157e308")), \top{{R}}())),
-                    \equals{{SortS{{}}, R}}(c{{}}(X0:SortFloat{{}}), \and{{SortS{{}}}}(m{{}}(X0:SortFloat{{}}), \top{{SortS{{}}}}()))
+                    \and{{R}}(\top{{R}}(), \and{{R}}(\in{{{sort}, R}}(X0:{sort}, \dv{{{sort}}}("{near}")), \top{{R}}())),
+                    \equals{{SortS{{}}, R}}(c{{}}(X0:{sort}), \and{{SortS{{}}}}(m{{}}(X0:{sort}), \top{{SortS{{}}}}()))
                 ) [anywhere{{}}(), UNIQUE'Unds'ID{{}}("b")]
             endmodule []"#
         );
         BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap()
     }
 
-    /// The critical-pair check computes no overlap of `a` and `b` where `a`'s literal is
-    /// `1.0e400`: k-rust's element, infinity, is apart from MAX, while in the model where the
-    /// literal is MAX the two overlap at `f(c(MAX))` (`1` against `f(m(MAX))`). Seeding `a` alone
-    /// taints `c`, which `a` mentions, and so `b`, whose left-hand side is rooted at `c`, as
-    /// seeding that pair would (`confluence.rs`, the `OpenLiteral` report). With `1.0`, apart
-    /// from MAX in every model, `c` keeps its claims.
+    /// The critical-pair check computes no overlap of `a` and `b` where `a`'s literal is `256p8`:
+    /// k-rust's element, the residue 0, is apart from `255p8`, while in a model where the literal
+    /// names `255p8` the two overlap at `f(c(255p8))` (`1` against `f(m(255p8))`). Seeding `a`
+    /// alone taints `c`, which `a` mentions, and so `b`, whose left-hand side is rooted at `c`, as
+    /// seeding that pair would (`confluence.rs`, the `OpenLiteral` report). With `1p8`, apart
+    /// from `255p8` in every model, `c` keeps its claims; and so with `1.0e400` beside the
+    /// largest finite binary64 value (GAP A2: the literal is the infinity in every model, AM-8).
     #[test]
     fn an_open_literal_taints_the_equations_its_element_may_overlap() {
         let name = |text: &str| crate::term::Name::from(text);
-        let open = overlapping("1.0e400").value_claims_in_scope(CheckScope::All);
+        let mint = "SortMInt{Sort8{}}";
+        let open = overlapping(mint, "256p8", "255p8").value_claims_in_scope(CheckScope::All);
         assert!(open.tainted_symbols().contains(&name("c")), "{open:?}");
         let report = open
             .unjoined()
             .iter()
-            .find(|pair| pair.reason == UnjoinedReason::OpenLiteral("1.0e400".to_owned()))
+            .find(|pair| pair.reason == UnjoinedReason::OpenLiteral("256p8".to_owned()))
             .expect("the open equation is reported");
         assert!(report.withdrawn.contains(&name("c")), "{report:?}");
-        let determined = overlapping("1.0").value_claims_in_scope(CheckScope::All);
-        assert!(
-            !determined.tainted_symbols().contains(&name("c")),
-            "{determined:?}"
-        );
+        for determined in [
+            overlapping(mint, "1p8", "255p8"),
+            overlapping("SortFloat{}", "1.0e400", "1.7976931348623157e308"),
+        ] {
+            let determined = determined.value_claims_in_scope(CheckScope::All);
+            assert!(
+                !determined.tainted_symbols().contains(&name("c")),
+                "{determined:?}"
+            );
+        }
     }
 
     /// A request's open literal is refused unless the request is an execution's, which collects
-    /// it as written.
+    /// it as written. GAP A2: a Float request literal is admitted on every route, an `Infinity`,
+    /// a tie, an overflow and a nonzero value rounding to a zero among them (AM-8).
     #[test]
     fn a_request_holding_an_open_literal_is_refused_outside_an_execution() {
         let definition = definition();
         for (source, literal) in [
-            (r#"\dv{SortFloat{}}("Infinity")"#, "Infinity"),
-            (
-                r#"\dv{SortFloat{}}("9007199254740993")"#,
-                "9007199254740993",
-            ),
             (r#"\dv{SortMInt{Sort8{}}}("0377p8")"#, "0377p8"),
+            (r#"\dv{SortMInt{Sort8{}}}("256p8")"#, "256p8"),
         ] {
             let syntax = parse_pattern(source).unwrap();
             assert_eq!(
@@ -436,12 +436,29 @@ mod tests {
                 .unwrap();
             assert_eq!(literals.to_vec(), [Arc::<str>::from(literal)]);
         }
-        let syntax = parse_pattern(r#"\dv{SortMInt{Sort8{}}}("255p8")"#).unwrap();
-        assert!(
+        for source in [
+            r#"\dv{SortMInt{Sort8{}}}("255p8")"#,
+            r#"\dv{SortFloat{}}("Infinity")"#,
+            r#"\dv{SortFloat{}}("-Infinity")"#,
+            r#"\dv{SortFloat{}}("9007199254740993")"#,
+            r#"\dv{SortFloat{}}("1.0e400")"#,
+            r#"\dv{SortFloat{}}("-1.0e-400")"#,
+        ] {
+            let syntax = parse_pattern(source).unwrap();
+            let literals = RequestLiterals::new();
+            assert!(
+                definition
+                    .admit_unverified(&syntax, &[])
+                    .internalize_term()
+                    .is_ok(),
+                "{source}"
+            );
             definition
                 .admit_unverified(&syntax, &[])
+                .for_execution(&literals)
                 .internalize_term()
-                .is_ok()
-        );
+                .unwrap();
+            assert!(literals.to_vec().is_empty(), "{source}");
+        }
     }
 }

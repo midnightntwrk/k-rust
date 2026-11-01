@@ -89,9 +89,9 @@ operation, and a corpus of programs that apply them to concrete values:
   `krs::semantic::raw-k` warning that names it.
 
 The `strings` cases `from-string*` and `to-string` and the `floats` cases
-`to-int-tie-*`, `from-int-binary32` and `round-binary32` pin values
-`domains.md` leaves open: they are k-rust's choices, which k-rust marks on the
-run.
+`to-int-tie-*` pin values `domains.md` leaves open: they are k-rust's choices,
+which k-rust marks on the run. The `floats` cases `from-int-binary32` and
+`round-binary32` pin values k-rust's `docs/amendments.md` AM-4 determines.
 
 `known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a

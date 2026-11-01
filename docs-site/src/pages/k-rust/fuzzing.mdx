@@ -427,10 +427,10 @@ The exit status is 0 when the job reached a verdict (a witness, none within the 
   - `effect-order`: whether the console effects of an operand that a decided `andBool`, `orBool`, `impliesBool` or `#if` made irrelevant are performed; the hook is the connective's.
   - `hex-case`: the letter case of a hex digest (`Keccak256`, `Sha256`, `RipEmd160` and their `HASH` spellings, `KRYPTO.sha3256` and `HASH.sha3_256`) or of `ECDSAPubKey`.
   - `byte-encoding`: every evaluated `String2Bytes` and `Bytes2String`, whose encoding no text names; raw KEVM reaches it hashing a function signature.
-  - `float-rounding`: an `Int2Float`, `roundFloat` or `rootFloat` whose result the format does not hold, `Int2Float` of 0, and `Float2Int` at a tie.
+  - `float-rounding`: `Float2Int` at a tie (the other conversions and the roots are IEEE 754's, [AM-4](/k-rust/amendments#am-4-float-conversions-and-roots-round-to-nearest-ties-to-even)).
   - `curve`: every outcome of the BN128 hooks, whose curve no text names; KEVM's BN128 precompiles reach it.
   - `outside-domain`: a partial hook's value, or its `\bottom`, outside the inputs its description covers: a failed ECDSA recovery, `replaceAtBytes` ending at the length (raw KEVM's memory growth), a search from outside the string, an out-of-range list update, and the other sites of [Hook values at the edges of their domains](/k-rust/compatibility#hook-values-at-the-edges-of-their-domains).
-  - `literal`: a rule or equation applied or attempted that holds a literal whose element the literal rules leave open (a `Float` tie, overflow or rounded zero, an `Infinity` lexeme, a machine integer its width cannot hold); the hook is the sentence's `UNIQUE_ID`, or the literal itself for one in the input.
+  - `literal`: a rule or equation applied or attempted that holds a literal whose element the literal rules leave open (a machine integer its width cannot hold; every `Float` literal names one element, [AM-8](/k-rust/amendments#am-8-a-float-literal-is-its-rational-correctly-rounded)); the hook is the sentence's `UNIQUE_ID`, or the literal itself for one in the input.
   - `fresh-association`: the run applied a rule with two or more `!` variables, and which of them gets which fresh value is the compiler's choice (or a rule that sets `<generatedCounter>` in a form k-rust cannot read as an advance by zero or one, which it marks too); the hook is the rule's `UNIQUE_ID` (64 hex digits). Choose values or a program whose run does not apply that rule.
 - `client-refused`: kink's rules refused the hit; see `client-refusals`.
 

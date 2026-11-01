@@ -40,6 +40,142 @@ Each entry has these fields:
 - Status: `local` while the proposal has not been sent upstream; `proposed` once it has; `upstream` once the pinned release holds it, when the entry is removed with the next pin.
 - Replaces: what the amendment determines (a class of [implementation-chosen hook values](compatibility.md#implementation-chosen-hook-values) and its construct), or, for K text, `K text` with the marked lines of the embedded file and the upstream lines they replace.
 
+### AM-4: Float conversions and roots round to nearest, ties to even
+
+- Upstream: `domains.md` at K v7.1.337, :1464-1467, :1653-1654, :1579-1580, :1577
+- Passage:
+
+  > Provided here is the syntax of an implementation of arbitrary-precision
+  > floating-point arithmetic in K based on a generalization of the IEEE 754
+  > standard. This type is hooked to an implementation of floats provided by the
+  > backend.
+
+  > You can convert an integer to a floating-point number with the specified
+  > precision and exponent range. You can also convert a floating-point number
+
+  > * Round a floating-point number to a specified precision and exponent
+  >   range (`roundFloat`). The resulting `Float` will yield the specified values
+
+  > * Compute the Nth integer root `rootFloat` of a float.
+
+- k-rust reads: `Int2Float(I, P, E)` is IEEE 754's conversion of the integer `I` into the format `pPxE`, and `roundFloat(F, P, E)` its conversion of `F` into that format, each under the rounding-direction attribute roundTiesToEven: the value is correctly rounded, a value halfway between two neighbours goes to the one whose significand is even, a magnitude at or beyond `2^emax * (2 - 2^-P)` (half an ulp past the largest finite value) goes to the infinity of its sign, and a nonzero value that rounds to zero to the zero of its sign.
+  `rootFloat(F, N)`, for a positive finite `F` and a positive degree `N`, is the positive real `N`th root of `F` correctly rounded to `F`'s format under roundTiesToEven (IEEE 754's `rootn`), and `sqrtFloat` follows by its rule `rootFloat(F, 2)`.
+- Reason: the section gives `Float` as "an implementation of arbitrary-precision floating-point arithmetic in K based on a generalization of the IEEE 754 standard", and its arithmetic hooks name `roundNearestTiesToEven` in their `smt-hook`s.
+  IEEE 754 defines a conversion between formats and from integers, and its root `rootn`, as the exact result rounded once according to the applicable rounding-direction attribute, and makes roundTiesToEven the default attribute for binary formats; the text gives these three operations a destination format and no attribute, and its model has no other attribute in force, so each is the IEEE operation under the default one.
+  "This type is hooked to an implementation of floats provided by the backend" says where the implementation is, not that its values are the backend's choice, unlike `Base2String`'s case, which the text says the backend determines.
+  `Float2Int` "rounds to the nearest integer" and is not amended: IEEE 754 itself defines conversion to an integer with ties to even and with ties away from zero as two operations, and object languages differ there (Wasm's `nearest` rounds ties to even, Rust's `round` away from zero), so its tie stays open.
+- Evidence: `the_amended_conversions_roots_and_integral_roundings_are_ieee_754s` (k-rust-backend `builtin/float.rs`: ties to even at 2^24 + 1 and 2^53 + 1, the overflow threshold of binary32 in both signs, `roundFloat` of 0.1, 1.0e300 and -1.0e-50 to binary32, correctly rounded square and cube roots of 2) and `only_a_float2int_tie_is_float_rounding` (`builtin.rs`); [implementation_chosen.rs](../crates/k-rust/tests/implementation_chosen.rs) `conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are_marked`; [cli.rs](../crates/k-rust/tests/cli.rs) `kprove_proves_no_claim_that_depends_on_an_open_value` (`i2f-inexact`, `rtf-inexact` proven).
+  The evaluator computes `Int2Float` with `num-bigint`'s round-to-odd conversion followed by Rust's round-to-nearest-even cast, `roundFloat` with the binary64-to-binary32 cast, and the roots exactly ([k-rust-backend `builtin/float/root.rs`](../crates/k-rust-backend/src/builtin/float/root.rs)).
+  The KRS `builtin-domains` gate's `floats` cases `from-int-binary32` (2^24 + 1 to `16777216.0f`) and `round-binary32` (0.1 to `0.1f`) expect these values; no reference differential of k-rust's runs an inexact conversion or root on the Java or Haskell backend.
+- Upstream proposal:
+
+  ```diff
+   You can convert an integer to a floating-point number with the specified
+  -precision and exponent range. You can also convert a floating-point number
+  +precision and exponent range, rounded as IEEE 754 rounds to nearest with ties
+  +to even (an overflow gives the infinity of the sign). You can also convert a floating-point number
+  ```
+
+  and, in "Floating-point mathematics", "Compute the Nth integer root `rootFloat` of a float, correctly rounded to nearest with ties to even" and "Round a floating-point number to a specified precision and exponent range (`roundFloat`), to nearest with ties to even."
+- Status: local
+- Replaces: class `float-rounding` at `Int2Float` of an integer the format does not hold (an overflow included), `roundFloat` of a value the destination does not hold, and `rootFloat` of a positive finite value in a positive degree whose root no float is; the class keeps `Float2Int` at a tie.
+
+### AM-5: Int2Float of 0 is the positive zero
+
+- Upstream: `domains.md` at K v7.1.337, :1653-1654
+- Passage:
+
+  > You can convert an integer to a floating-point number with the specified
+  > precision and exponent range. You can also convert a floating-point number
+
+- k-rust reads: `Int2Float(0, P, E)` is the positive zero of the format `pPxE`.
+- Reason: both zeros of a format have the value 0, so "convert an integer to a floating-point number" alone names two elements for the integer 0.
+  The conversion is IEEE 754's from an integer ([AM-4](#am-4-float-conversions-and-roots-round-to-nearest-ties-to-even)), whose result takes the sign of its operand, and the integer 0 is not negative: the result is `+0`.
+  It is the zero every object language's integer-to-float conversion gives (C's cast, Rust's `as`, Java's widening, Wasm's `f64.convert_i64_s`).
+- Evidence: `the_amended_conversions_roots_and_integral_roundings_are_ieee_754s` (`+0` in binary32 and binary64) and `only_a_float2int_tie_is_float_rounding` in k-rust-backend; [cli.rs](../crates/k-rust/tests/cli.rs) `kprove_proves_no_claim_that_depends_on_an_open_value` (`i2f-zero` proven); [choice_sampling.rs](../crates/k-rust/tests/choice_sampling.rs) (`i2f(0)` a control).
+  The evaluator's conversion of the integer 0 is `0 * 2^0`, the positive zero.
+- Upstream proposal:
+
+  ```diff
+   You can convert an integer to a floating-point number with the specified
+  -precision and exponent range. You can also convert a floating-point number
+  +precision and exponent range (0 converts to positive zero). You can also convert a floating-point number
+  ```
+
+- Status: local
+- Replaces: class `float-rounding` at `Int2Float(0, P, E)`.
+
+### AM-6: floorFloat, ceilFloat and truncFloat are IEEE 754's roundToIntegral
+
+- Upstream: `domains.md` at K v7.1.337, :1583-1588
+- Passage:
+
+  > * Round a float to the next lowest floating-point value which is an integer
+  >   (`floorFloat`).
+  > * Round a float to the next highest floating-point value which is an integer
+  >   (`ceilFloat`).
+  > * Round a float to the next closest floating-point value which is an integer, in
+  >   the direction of zero (`truncFloat`).
+
+- k-rust reads: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's roundToIntegralTowardNegative, roundToIntegralTowardPositive and roundToIntegralTowardZero: a NaN gives the format's NaN, an infinity gives itself, and a zero result has the argument's sign (`floorFloat(0.5)` is `0.0`, `ceilFloat(-0.5)` and `truncFloat(-0.5)` are `-0.0`).
+- Reason: each sentence describes, for a finite argument, the IEEE 754 operation that rounds to an integral value in one direction, and the three directions are the passage's own (lowest, highest, toward zero).
+  The hooks are declared `total`, so a NaN and the infinities have values, which "the next lowest floating-point value which is an integer" does not name: no float is next to a NaN, and taken literally `ceilFloat` of the positive infinity would have none.
+  IEEE 754's operations give them: a NaN operand gives a NaN, an infinity is its own integral value, and the result's sign is the operand's, which also picks between the two zeros a non-integer rounding to 0 is equally near.
+  The format's one NaN is determined ([compatibility.md, Backend scope](compatibility.md#backend-scope)).
+- Evidence: `the_amended_conversions_roots_and_integral_roundings_are_ieee_754s` (NaN, both infinities and `-0.0` for each hook; `floorFloat(0.5)`, `ceilFloat(-0.5)`, `truncFloat(-0.7)` and `truncFloat(0.7f)`) and `values_outside_a_described_domain_are_outside_domain` in k-rust-backend; [cli.rs](../crates/k-rust/tests/cli.rs) `kprove_proves_no_claim_that_depends_on_an_open_value` (`fl-half` proven); [kompile_passes.rs](../crates/k-rust/tests/kompile_passes.rs) `leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded` (the three fold).
+  The evaluator applies Rust's `floor`, `ceil` and `trunc`, which are these operations.
+- Upstream proposal:
+
+  ```diff
+   * Round a float to the next lowest floating-point value which is an integer
+  -  (`floorFloat`).
+  +  (`floorFloat`). This and the next two operations are IEEE 754's roundToIntegral
+  +  in their directions: a NaN gives NaN, an infinity itself, and a zero result has
+  +  the sign of the argument.
+  ```
+
+- Status: local
+- Replaces: class `outside-domain` at `floorFloat`, `ceilFloat` and `truncFloat` of a NaN, an infinity, or a non-integer whose rounding is a zero.
+
+### AM-8: A Float literal is its rational correctly rounded
+
+- Upstream: `domains.md` at K v7.1.337, :1478-1483; `domains.md` at K v7.1.337, :1496
+- Passage:
+
+  > The value of a floating-point literal is computed as follows: First the
+  > mantissa is read as a rational number. Then it is multiplied by 10 to the
+  > power of the exponent, which is interpreted as an integer, and defaults to
+  > zero if it is not present. Finally, it is rounded to the nearest possible
+  > value in a floating-point type represented like an IEEE754 floating-point type,
+  > with the number of bits of precision and exponent specified by the suffix.
+
+  ```k
+    syntax Float ::= r"[\\+\\-]?Infinity([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(3)]
+  ```
+
+- k-rust reads: the rounding is IEEE 754's correctly rounded conversion from decimal under roundTiesToEven: a rational halfway between two values of the format goes to the one whose significand is even, a magnitude at or beyond `2^emax * (2 - 2^-N)` (half an ulp past the largest finite value) to the infinity of the literal's sign, and a nonzero rational that rounds to zero to the zero of its sign; and an `Infinity` lexeme, with its sign and suffix, is the infinity of that sign in that format.
+- Reason: "rounded to the nearest possible value in a floating-point type represented like an IEEE754 floating-point type" is IEEE 754's round to nearest, roundTiesToEven, the default attribute for binary formats and the one the section's arithmetic hooks name, under which a conversion from a decimal character sequence is correctly rounded.
+  That attribute's definition decides each case "nearest" alone leaves: a tie goes to the even significand, and an exact value of magnitude at least `b^emax * (b - 1/2 * b^(1-p))` rounds to the infinity of its sign, so the reading that takes the largest finite value as the nearest at a finite distance is not IEEE's nearest; a rounded zero has the sign of the exact value.
+  A type represented like an IEEE 754 format has one infinity of each sign, and the token syntax admits `Infinity` with a sign and the format suffix, which can name no other value of the format.
+  No sentence says that the backend chooses any of these elements.
+- Evidence: the canonicalizer `k_rust_domain::float::canonical` (exact rounding in every format, with its tests and the `mpfr-oracle` comparison), `a_request_holding_an_open_literal_is_refused_outside_an_execution` and `the_load_records_the_open_literals_of_each_sentence_as_written` (k-rust-backend `literal.rs`: every Float literal admitted and unrecorded); [cli.rs](../crates/k-rust/tests/cli.rs) `kprove_proves_claims_through_every_float_literal_on_its_one_element`; [implementation_chosen.rs](../crates/k-rust/tests/implementation_chosen.rs) `every_attempt_of_a_sentence_holding_an_open_literal_is_marked` (the Float literals unmarked); [kompile_passes.rs](../crates/k-rust/tests/kompile_passes.rs) `the_fold_reads_no_open_literal_and_folds_every_float_literal`.
+  The KRS `builtin-domains` gate's `floats` cases `infinite`, `match-infinity` and `negate-infinity` read the `Infinity` lexeme as the infinity, which their re-record with this change checks.
+- Upstream proposal:
+
+  ```diff
+   zero if it is not present. Finally, it is rounded to the nearest possible
+   value in a floating-point type represented like an IEEE754 floating-point type,
+  -with the number of bits of precision and exponent specified by the suffix.
+  +with the number of bits of precision and exponent specified by the suffix, as
+  +IEEE 754's roundTiesToEven rounds it: ties to the even value, a value past the
+  +largest finite one by half an ulp or more to the infinity of its sign, and a
+  +nonzero value rounding to zero to the zero of its sign. `Infinity` and
+  +`-Infinity`, with an optional suffix, are the infinities of that format.
+  ```
+
+- Status: local
+- Replaces: class `literal` at `Float` literals (a tie, a magnitude at or beyond the overflow threshold, a nonzero value rounding to a zero, an `Infinity` lexeme), and with it the refusal, on every route but an execution, of a request or a claim holding one; the class keeps the machine-integer literals a width cannot hold.
+
 ### AM-9: The default layout ends a line comment at every line end
 
 - Upstream: `kast.md` at K v7.1.337, :512-513
