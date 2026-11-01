@@ -478,7 +478,16 @@ module MAIN
   hooked-symbol prip{}(SortBytes{}) : SortString{} [function{}(), hook{}("KRYPTO.ripemd160")]
   hooked-symbol phkec{}(SortBytes{}) : SortString{} [function{}(), hook{}("HASH.keccak256")]
   hooked-symbol psha3{}(SortBytes{}) : SortString{} [function{}(), hook{}("KRYPTO.sha3256")]
+  hooked-symbol phsha{}(SortBytes{}) : SortString{} [function{}(), hook{}("HASH.sha256")]
+  hooked-symbol phsha3{}(SortBytes{}) : SortString{} [function{}(), hook{}("HASH.sha3_256")]
+  hooked-symbol phrip{}(SortBytes{}) : SortString{} [function{}(), hook{}("HASH.ripemd160")]
   hooked-symbol pkraw{}(SortBytes{}) : SortBytes{} [function{}(), hook{}("KRYPTO.keccak256raw")]
+  hooked-symbol pshraw{}(SortBytes{}) : SortBytes{} [function{}(), hook{}("KRYPTO.sha256raw")]
+  hooked-symbol psh512raw{}(SortBytes{}) : SortBytes{}
+    [function{}(), hook{}("KRYPTO.sha512_256raw")]
+  hooked-symbol pripraw{}(SortBytes{}) : SortBytes{} [function{}(), hook{}("KRYPTO.ripemd160raw")]
+  hooked-symbol find{}(SortString{}, SortString{}, SortInt{}) : SortInt{}
+    [function{}(), hook{}("STRING.find")]
   hooked-symbol pvalid{}(SortG1Point{}) : SortBool{} [function{}(), hook{}("KRYPTO.bn128valid")]
   hooked-symbol pvalid2{}(SortG2Point{}) : SortBool{} [function{}(), hook{}("KRYPTO.bn128g2valid")]
   hooked-symbol pb2s{}(SortBytes{}) : SortString{} [function{}(), hook{}("BYTES.bytes2string")]
@@ -492,17 +501,17 @@ module MAIN
     [function{}(), hook{}("KRYPTO.bn128add")]
 endmodule []"#;
 
-/// GAP A1 fix round 1: outside an execution, the `\ceil` of a hook whose text gives it a value
-/// on every argument of its sorts is true on symbolic arguments, at a partial symbol too:
-/// `isValidPoint` of every point term (`krypto.md`:100 with AM-3). `String2Bytes` at a partial
-/// symbol stays undecided: AM-1 gives it a value only on code points up to 255. A `total` symbol
-/// is defined by its declaration. Undecided too: a digest declared over a `String`, which no text
-/// describes, the BN128 sum, described on points only, and, not stated until GAP ticket K9
-/// though their text gives every byte string a value, the digests and `Bytes2String` (AM-1) at a
-/// partial symbol (`builtin::defined_on_every_argument`; the GAP Phase 2 fix round took
-/// `Bytes2String` off that list, where it sent KEVM's hex parse into the K9 recursion). Before
-/// the A1 fix round `isValidPoint` and the byte conversions had lost the `defined` flag of their
-/// former classes: each was undecided.
+/// GAP A1 fix round 1 and K9: outside an execution, the `\ceil` of a hook whose text gives it a
+/// value on every argument of its sorts is true on symbolic arguments, at a partial symbol too:
+/// `isValidPoint` of every point term (`krypto.md`:100 with AM-3), the eight hex digest hooks and
+/// the four raw ones of every byte string (:26-30, :47, AM-2), and `Bytes2String` of every byte
+/// sequence (AM-1). `String2Bytes` at a partial symbol stays undecided: AM-1 gives it a value only
+/// on code points up to 255. A `total` symbol is defined by its declaration. Undecided too: a
+/// digest declared over a `String`, which no text describes, and the BN128 sum, described on
+/// points only (`builtin::defined_on_every_argument`). Before the A1 fix round `isValidPoint` and
+/// the byte conversions had lost the `defined` flag of their former classes, and before K9 the
+/// digests and a partial `Bytes2String` were undecided: listing them made the predicate
+/// simplifier recur without end (`a_defined_argument_ends_the_definedness_of_its_partial_parent`).
 #[test]
 fn a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_arguments() {
     let syntax = parse_definition(SYMBOLIC_DEFINEDNESS).expect("the fixture parses");
@@ -513,6 +522,20 @@ fn a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_argumen
         "pvalid2{}(Q:SortG2Point{})",
         "ts2b{}(S:SortString{})",
         "tb2s{}(B:SortBytes{})",
+        "pb2s{}(B:SortBytes{})",
+        "pkec{}(B:SortBytes{})",
+        "psha{}(B:SortBytes{})",
+        "prip{}(B:SortBytes{})",
+        "phkec{}(B:SortBytes{})",
+        "psha3{}(B:SortBytes{})",
+        "phsha{}(B:SortBytes{})",
+        "phsha3{}(B:SortBytes{})",
+        "phrip{}(B:SortBytes{})",
+        "pkraw{}(B:SortBytes{})",
+        "pshraw{}(B:SortBytes{})",
+        "psh512raw{}(B:SortBytes{})",
+        "pripraw{}(B:SortBytes{})",
+        "pkec{}(pkraw{}(B:SortBytes{}))",
     ];
     for source in defined {
         assert_eq!(
@@ -523,20 +546,40 @@ fn a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_argumen
     }
     for source in [
         "ps2b{}(S:SortString{})",
-        "pb2s{}(B:SortBytes{})",
         "skec{}(S:SortString{})",
         "padd{}(P:SortG1Point{}, P:SortG1Point{})",
-        "pkec{}(B:SortBytes{})",
-        "psha{}(B:SortBytes{})",
-        "prip{}(B:SortBytes{})",
-        "phkec{}(B:SortBytes{})",
-        "psha3{}(B:SortBytes{})",
-        "pkraw{}(B:SortBytes{})",
+        "pkec{}(ps2b{}(S:SortString{}))",
     ] {
         let proof = definedness(&definition, source, EvaluationMode::Proof);
         assert!(
             !matches!(proof, Predicate::True | Predicate::False),
             "{source}: {proof:?}"
+        );
+    }
+}
+
+/// GAP K9: the `\ceil` of a partial `findString` of a digest or of a partial `Bytes2String` of a
+/// symbolic `B`, KEVM's hex parse's shape, simplifies to itself alone: the definedness of the
+/// argument, which its text states wherever `B` is defined, is no obligation left beside it.
+/// Before K9 the expansion of the `\ceil` stated `\ceil(Keccak256(B))` beside it again, the pass
+/// over that conjunction discharged it and was left with the `\ceil` alone, which is the same
+/// simplification, and the two recurred until the iteration limit.
+#[test]
+fn a_defined_argument_ends_the_definedness_of_its_partial_parent() {
+    let syntax = parse_definition(SYMBOLIC_DEFINEDNESS).expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    for argument in [
+        "pkec{}(B:SortBytes{})",
+        "pb2s{}(B:SortBytes{})",
+        "pkec{}(pkraw{}(B:SortBytes{}))",
+    ] {
+        let source = format!(
+            r#"find{{}}({argument}, \dv{{SortString{{}}}}("0x"), \dv{{SortInt{{}}}}("0"))"#
+        );
+        assert_eq!(
+            definedness(&definition, &source, EvaluationMode::Proof),
+            Predicate::Ceil(internal_term(&definition, &source)),
+            "{source}"
         );
     }
 }

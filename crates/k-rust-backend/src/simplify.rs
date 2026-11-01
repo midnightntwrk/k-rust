@@ -711,17 +711,26 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
 /// `Keccak256(B)` reaches `\ceil(findString(Keccak256(B), "0x", 0))` under a known
 /// `lengthString(replace(Keccak256(B), ..)) <Int 2`: `\ceil(Keccak256(B))` is such a member.
 ///
-/// The known-defined terms are read only when a member besides `atom` remains after the
-/// contained ones are dropped, the case that would take the further pass.
+/// For the same reason a member `\ceil(s)` is dropped when the definedness of `s` is that of
+/// its arguments ([`defined_where_its_arguments_are`]) and every other obligation of `s`
+/// (`ceil_term`) is a member too or holds: the members then state everything `\ceil(s)`
+/// states, and the further pass would discharge it by that same judgement and be left with
+/// `atom` alone, under the same assumptions. With a digest stated defined on every byte string
+/// (`builtin::defined_on_every_argument`), `\ceil(Keccak256(B))` of the same expansion is such
+/// a member under no assumption at all, and before it was dropped here the pass and this
+/// simplification recurred until the native stack ran out.
+///
+/// The known-defined terms and the judgements are read only when a member besides `atom`
+/// remains after the contained ones are dropped, the case that would take the further pass.
 fn expansion_obligations(
     definition: &BackendDefinition,
     expanded: &mut Vec<Predicate>,
     atom: &Predicate,
     assumptions: &PredicateAssumptions<'_>,
-) -> bool {
+) -> SimplifyResult<bool> {
     expanded.retain(|predicate| !assumptions.contains(predicate));
     if expanded.iter().all(|predicate| predicate == atom) {
-        return false;
+        return Ok(false);
     }
     let known = known_defined_subterms(definition, assumptions.terms.predicates);
     let holds = |predicate: &Predicate| match predicate {
@@ -735,10 +744,52 @@ fn expansion_obligations(
         _ => false,
     };
     if holds(atom) {
-        return true;
+        return Ok(true);
     }
     expanded.retain(|predicate| !holds(predicate));
-    false
+    // Each member is judged against the expansion as it stands here, dropped members included:
+    // the other obligations of `s` are those of its proper subterms, so a member dropped on the
+    // strength of another dropped one rests, through a chain of ever smaller subterms, on members
+    // that are kept or hold.
+    let members = expanded.clone();
+    let mut kept = Vec::with_capacity(members.len());
+    for predicate in members.iter() {
+        let stated = match predicate {
+            Predicate::Ceil(subject) if predicate != atom => {
+                defined_where_its_arguments_are(definition, subject)?
+                    && ceil_term(definition, subject)
+                        .map_err(SimplificationError::from)?
+                        .iter()
+                        .all(|obligation| {
+                            obligation == predicate
+                                || members.contains(obligation)
+                                || assumptions.contains(obligation)
+                                || holds(obligation)
+                        })
+            }
+            _ => false,
+        };
+        if !stated {
+            kept.push(predicate.clone());
+        }
+    }
+    *expanded = kept;
+    Ok(false)
+}
+
+/// Whether the application `term`, a partial one whose `\ceil` no ceil theory states, is defined
+/// wherever its arguments are, by k-rust's reading of its hook: a listing only an execution
+/// evaluates is defined exactly when its collection is (`defined_uncomputed`); an application
+/// whose value the definition leaves to the implementation is when its class says the
+/// description gives it one (`ChosenValue::defined`); and a hook whose text gives every argument
+/// of its sorts a value is (`builtin::defined_on_every_argument`).
+fn defined_where_its_arguments_are(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> SimplifyResult<bool> {
+    Ok(defined_uncomputed(definition, term)?
+        || crate::builtin::implementation_chosen(term).is_some_and(|chosen| chosen.defined)
+        || crate::builtin::defined_on_every_argument(definition, term))
 }
 
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
@@ -2945,7 +2996,7 @@ fn simplify_predicate_on_stack(
             // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
             // add child ceils already supplied by the surrounding conjunction, nor those the
             // assumptions already state ([`expansion_obligations`]).
-            if expansion_obligations(definition, &mut expanded, &unchanged, assumptions) {
+            if expansion_obligations(definition, &mut expanded, &unchanged, assumptions)? {
                 return Ok(with_simplification_constraints(
                     simplified.conditions.into_predicates(),
                     Predicate::True,
@@ -2960,10 +3011,7 @@ fn simplify_predicate_on_stack(
                 // defined (`ChosenValue::defined`). A hook whose text gives every argument of
                 // its sorts a value is defined wherever its arguments are, at a partial symbol
                 // too (`builtin::defined_on_every_argument`).
-                let defined = defined_uncomputed(definition, &simplified.term)?
-                    || crate::builtin::implementation_chosen(&simplified.term)
-                        .is_some_and(|chosen| chosen.defined)
-                    || crate::builtin::defined_on_every_argument(definition, &simplified.term);
+                let defined = defined_where_its_arguments_are(definition, &simplified.term)?;
                 with_simplification_constraints(
                     simplified.conditions.into_predicates(),
                     if defined { Predicate::True } else { unchanged },
@@ -3067,7 +3115,7 @@ fn simplify_predicate_on_stack(
             // absence is no `\ceil` or definedness atom, so it never holds as a known-defined
             // term does, unless it became the `\ceil` of its joined collection, which holds
             // where the assumptions state that collection defined.
-            if expansion_obligations(definition, &mut expanded, &simplified, assumptions) {
+            if expansion_obligations(definition, &mut expanded, &simplified, assumptions)? {
                 return Ok(with_simplification_constraints(
                     constraints,
                     Predicate::True,

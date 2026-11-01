@@ -2870,6 +2870,14 @@ fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {
 /// (`#alignHexString`'s `modInt` lemma, `replace`, `countAllOccurrences`) was decided again at
 /// every meeting with the same inputs, about ten times per level: 283,584 discharges for the
 /// withheld digest with the first fault fixed. With both fixed the counts are 10,824 and 22,185.
+/// GAP K9 states the digest defined on every byte string (`builtin::defined_on_every_argument`),
+/// and the same expansion met `\ceil(Keccak256(B))` under no assumption: the pass discharged it
+/// by that statement and was again left with the `\ceil` alone, until the native stack ran out.
+/// Such a member is no obligation (`simplify::expansion_obligations`). The simplified patterns are
+/// those of the digest left undecided, the parse beside `\ceil(replace(Keccak256(B), ..))`, which
+/// the definedness of `replace` keeps: 19,863 discharges for the symbolic digest (10,824 when it
+/// was undecided: the conditions that met `\ceil(Keccak256(B))` now go on to their other
+/// conjuncts) and 8 for the literal one.
 #[test]
 fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
     let (root, compiled) = hex_parse_definition();
@@ -2906,11 +2914,11 @@ fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
 /// The same parse of a partial `Bytes2String` of a symbolic `B` (`B2S` of
 /// `fixtures/hex-parse-unread.k`, hooked `BYTES.bytes2string` and not declared `total`) ends with
 /// a bounded amount of work and keeps the parse unevaluated. AM-1 gives the conversion a value on
-/// every byte sequence, but `builtin::defined_on_every_argument` does not state it until GAP
-/// ticket K9 fixes the predicate simplifier's recursion on `\ceil(findString(B2S(B), "0x", 0))`,
-/// which the digests meet too: listing it made this simplification exhaust its native stack.
-/// So the conversion's definedness on a symbolic argument at a partial symbol is undecided, as
-/// `String2Bytes`'s is; `domains.md` declares both `total`, which needs no listing.
+/// every byte sequence, which `builtin::defined_on_every_argument` states since GAP ticket K9;
+/// before K9 fixed the predicate simplifier's recursion on `\ceil(findString(B2S(B), "0x", 0))`,
+/// which the digests met too, stating it made this simplification exhaust its native stack.
+/// `String2Bytes` at a partial symbol stays undecided on a symbolic string (nothing is stated
+/// above U+00FF); `domains.md` declares both `total`, which needs no listing.
 #[test]
 fn kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_work() {
     let (root, compiled) = hex_parse_definition();

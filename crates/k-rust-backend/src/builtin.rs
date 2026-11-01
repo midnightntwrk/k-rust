@@ -789,22 +789,27 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<ChosenValue> {
 /// - `isValidPoint` of G1 and of G2 "validates that it actually falls on the respective elliptic
 ///   curve" (:100), a `Bool` for every point term, false off the curve AM-3 names. A `Bool`
 ///   result; any argument sort, every term of which is a point or not.
+/// - The hex digests `Keccak256`, `Sha256`, `Sha3_256` and `RipEmd160`, in their `KRYPTO` and
+///   `HASH` spellings, each "takes a byte string and returns" the hex encoding of its digest
+///   (`krypto.md`:26-30), whose spelling AM-2 fixes: one `Bytes` argument, a `String` result.
+/// - The raw digests `Keccak256raw`, `Sha256raw`, `Sha512_256raw` and `RipEmd160raw` return the
+///   digest of their byte string as bytes (:47): one `Bytes` argument, a `Bytes` result.
+/// - `Bytes2String` gives the string of the same length whose code points are the bytes (AM-1
+///   of `docs/amendments.md`), for every byte sequence: one `Bytes` argument, a `String`
+///   result. `domains.md` declares it `total`; this states it at a symbol that is not.
 ///
-/// The digests, hex and raw, are given a value on every byte string by their text too
-/// (`krypto.md`:26-30, :47), and so is `Bytes2String` (AM-1 of `docs/amendments.md`), but none
-/// is listed until GAP ticket K9: stating it makes the predicate simplifier recurse without end
-/// on KEVM's hex parse of a symbolic argument (`\ceil(findString(Keccak256(B), "0x", 0))`, and
-/// with `Bytes2String` at a partial symbol `\ceil(findString(B2S(B), "0x", 0))`, which exhausted
-/// the native stack while it was listed), so their definedness on a symbolic argument at a
-/// partial symbol stays undecided (`kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work`
+/// A digest declared over a `String`, which no text describes, is not listed. `String2Bytes` is
+/// not either: AM-1 gives it a value only on the code points up to 255, so at a partial symbol
+/// its definedness on a symbolic string is unknown. Neither are the BN128 sum, product and
+/// pairing, described on points only, nor the ECDSA hooks, described on their documented inputs
+/// only. The simplifier reads this where an application's `\ceil` is left opaque by its ceil
+/// theory, and where a parent's expansion would state that `\ceil` beside the parent's again
+/// (`simplify`'s `defined_where_its_arguments_are`), as it reads [`ChosenValue::defined`]. Before
+/// GAP ticket K9 the digests and `Bytes2String` were not listed: the second reading was missing,
+/// and KEVM's hex parse of a symbolic argument (`\ceil(findString(Keccak256(B), "0x", 0))`)
+/// recurred without end (`kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work`
 /// and `kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_work` in
-/// k-rust's `cli.rs`). `domains.md` declares `Bytes2String` `total`, which needs no listing.
-///
-/// `String2Bytes` is not among them either: AM-1 gives it a value only on the code points up to 255, so
-/// at a partial symbol its definedness on a symbolic string is unknown. Neither are the BN128
-/// sum, product and pairing, described on points only, nor the ECDSA hooks, described on their
-/// documented inputs only. The simplifier reads this where an application's `\ceil` is left
-/// opaque by its ceil theory (`simplify`), as it reads [`ChosenValue::defined`].
+/// k-rust's `cli.rs`).
 pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &Term) -> bool {
     let TermKind::Application { symbol, .. } = term.kind() else {
         return false;
@@ -813,7 +818,18 @@ pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &T
         return false;
     };
     let kind = |sort: &Sort| definition.domain_kind(sort);
+    let from_bytes = |result: DomainKind| {
+        matches!(symbol.argument_sorts.as_slice(), [argument] if kind(argument) == Some(DomainKind::Bytes))
+            && kind(&symbol.result_sort) == Some(result)
+    };
     match hook {
+        "KRYPTO.keccak256" | "HASH.keccak256" | "KRYPTO.sha256" | "HASH.sha256"
+        | "KRYPTO.sha3256" | "HASH.sha3_256" | "KRYPTO.ripemd160" | "HASH.ripemd160"
+        | "BYTES.bytes2string" => from_bytes(DomainKind::String),
+        "KRYPTO.keccak256raw"
+        | "KRYPTO.sha256raw"
+        | "KRYPTO.sha512_256raw"
+        | "KRYPTO.ripemd160raw" => from_bytes(DomainKind::Bytes),
         "KRYPTO.bn128valid" | "KRYPTO.bn128g2valid" => {
             symbol.argument_sorts.len() == 1 && kind(&symbol.result_sort) == Some(DomainKind::Bool)
         }
