@@ -2411,8 +2411,8 @@ const LOG2_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil
 /// AM-12 state the domains of hooked partial operations that no equation of the library defines:
 /// the power `I1 ^Int I2` is an integer for every `I2 >=Int 0`, and for `I2 = -n` it is
 /// `1 / I1^n`, an integer exactly when `I1` is 1 or -1 and no number for `I1 = 0`;
-/// `I1 ^%Int I2 I3` equals `(I1 ^Int I2) %Int I3` in value, so it is defined where the power is
-/// and `I3` is nonzero; `log2Int` of zero or a negative number is `#False`. An axiom is dropped
+/// `I1 ^%Int I2 I3` is defined exactly where the power is and `I3` is nonzero, the domain of a
+/// remainder of the power by `I3`, t-division's or the Euclidean one (AM-13); `log2Int` of zero or a negative number is `#False`. An axiom is dropped
 /// only when its sort parameters and pattern are exactly one of the five rules, its source is
 /// `krust-builtin://domains.md`, it carries `simplification` without a priority, and its only
 /// other attributes are its identifier and location. Returns the number of axioms dropped.
