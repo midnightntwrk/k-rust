@@ -2410,6 +2410,17 @@ impl MapOperation {
     }
 }
 
+impl MapOperation {
+    /// Whether the operation builds a map rather than computing from one: the unit and the
+    /// items, the constructors of the map's algebra. A term they make is a value, which
+    /// evaluation leaves as written, so no simplification is rooted at one; every other
+    /// operation is a function of the map.
+    #[must_use]
+    pub const fn builds_collection(self) -> bool {
+        matches!(self, Self::Empty | Self::Item)
+    }
+}
+
 impl ListOperation {
     /// Whether the operation has a value on every operand of its sorts.
     ///
@@ -2421,6 +2432,17 @@ impl ListOperation {
             self,
             Self::Empty | Self::Item | Self::Concat | Self::Size | Self::Contains
         )
+    }
+}
+
+impl ListOperation {
+    /// Whether the operation builds a list rather than computing from one: the unit, the
+    /// element and the concatenation, the constructors of the list's algebra. A term they make
+    /// is a value, which evaluation leaves as written, so no simplification is rooted at one;
+    /// every other operation is a function of the list.
+    #[must_use]
+    pub const fn builds_collection(self) -> bool {
+        matches!(self, Self::Empty | Self::Item | Self::Concat)
     }
 }
 
@@ -2443,6 +2465,17 @@ impl SetOperation {
                 | Self::IsSubset
                 | Self::FromList
         )
+    }
+}
+
+impl SetOperation {
+    /// Whether the operation builds a set rather than computing from one: the unit, the element
+    /// and the concatenation of disjoint sets, the constructors of the set's algebra. A term
+    /// they make is a value, which evaluation leaves as written, so no simplification is rooted
+    /// at one; every other operation, the union included, is a function of the set.
+    #[must_use]
+    pub const fn builds_collection(self) -> bool {
+        matches!(self, Self::Empty | Self::Item | Self::Concat)
     }
 }
 

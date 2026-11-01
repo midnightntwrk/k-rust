@@ -71,8 +71,8 @@ advice = "terms/rule/guard/let-pattern/Cmd::Hold(x)"
 
 [class.alias-outside-pattern]
 code = "krs::syntax::invalid-pattern-as"
-doc = "`name @ pattern` (K's `#as`) outside a left-hand side, or in a subject the sentence keeps as it is: a single-body rule's outside its rewrites, and a context's or a context alias's around its hole, which heating matches and cooling writes back (NT-28)"
-advice = "none"
+doc = "`name @ pattern` (K's `#as`) outside a left-hand side, or in a subject the sentence keeps as it is: a single-body rule's outside its rewrites, and a context's or a context alias's around its hole, which heating matches and cooling puts back, a built term where `#as` cannot stand; a context names the term bare and tests its shape in its guard, and a context alias, which states no guard, writes the pattern alone (NT-28)"
+advice = ["terms/context/guard/k::matches!(x, Cmd::Hold(_))"]
 
 # A compiler class no generated case makes: the term families place their constructs below a
 # subject's root, never as alternatives of a whole equation subject.
@@ -514,8 +514,8 @@ advice = "none"
 
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
-doc = "a constructor or a literal at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify"
-advice = "terms/rule/subject-root/Cmd::Go()"
+doc = "a constructor, a literal, a collection's unit, element or concatenation, or a collection literal that writes entries (`map![k -> v]`, `set![a, b]`, the collection it builds, whatever calls KRS builds it with; NT-28) at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify; the update or the union is written as its call"
+advice = ["terms/rule/subject-root/Cmd::Go()", "notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)", "notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 
 [class.single-body-without-rewrite]
 code = "krs::syntax::invalid-local-rewrite"

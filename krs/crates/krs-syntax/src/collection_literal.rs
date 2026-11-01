@@ -96,6 +96,18 @@ pub(crate) fn is_value_head(head: &Path) -> bool {
     )
 }
 
+/// The module of the collection whose literal writes entries, when `head`, the head of a
+/// notation application, is the outermost level of one: `map::update`, each entry of
+/// `map![k -> v, ..]` written over the map before it, or `set::union`, an element of
+/// `set![a, b, ..]` joined to the set before it. Only a literal generates them as notation.
+pub(crate) fn entry_head_collection(head: &Path) -> Option<&'static str> {
+    match crate::path::path_text(head).as_str() {
+        "map::update" => Some(Collection::Map.module()),
+        "set::union" => Some(Collection::Set.module()),
+        _ => None,
+    }
+}
+
 fn literal_error(reason: impl Into<String>, span: Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::InvalidExpressionNotation {

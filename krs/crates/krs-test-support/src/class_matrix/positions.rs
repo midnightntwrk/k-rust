@@ -768,8 +768,10 @@ pub enum Construct {
     MlPredicate,
     /// `k::rewrite!(from => to)`.
     Rewrite,
-    /// `k::is!` or `k::project!`.
+    /// `k::is!`, a sort test: a total Bool.
     SortTest,
+    /// `k::project!`, a sort projection: defined only where its operand has the sort.
+    Projection,
     /// `k::anonymous!`.
     Anonymous,
     /// `k::or_bool!`.
@@ -794,7 +796,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 46] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
@@ -830,6 +832,7 @@ impl Construct {
         Self::MlPredicate,
         Self::Rewrite,
         Self::SortTest,
+        Self::Projection,
         Self::Anonymous,
         Self::OrBool,
         Self::Fragment,
@@ -851,6 +854,7 @@ impl Construct {
             Self::Matches
                 | Self::Rewrite
                 | Self::SortTest
+                | Self::Projection
                 | Self::Anonymous
                 | Self::OrBool
                 | Self::Fragment

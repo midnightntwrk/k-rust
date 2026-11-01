@@ -247,7 +247,7 @@ const fn in_selection(construct: Construct) -> Option<Refusal> {
             | Notation::MapLiteral
             | Notation::SetLiteral,
         ) => Some(resolution(Class::FunctionInPattern)),
-        Construct::SortTest => Some(resolution(Class::SortTestInPattern)),
+        Construct::SortTest | Construct::Projection => Some(resolution(Class::SortTestInPattern)),
         Construct::Let => Some(placement(Class::LetOutsideTerm)),
         Construct::Matches => Some(placement(Class::MatchesOutsideCondition)),
         _ => None,
@@ -485,6 +485,15 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         // collection's function it denotes, decided as that application is wherever it stands: a
         // pattern holds it as it holds the call (`m[k]` is `map::get(m, k)`, `map![k -> v]` is
         // `map::update(map::empty(), k, v)`), and a function there never matches.
+        // A collection literal that writes entries is the collection it builds, a value,
+        // whatever calls KRS builds it with: a simplification, which rewrites a function's
+        // unevaluated application, is not rooted at one, as it is not at `set::item(x)`; its
+        // subject spells the update or the union as the call. The spelling tells it.
+        Construct::Notation(Notation::MapLiteral | Notation::SetLiteral)
+            if at_subject_root(position) && matches!(position.form, Form::Simplification) =>
+        {
+            Some(placement(Class::SimplificationRootNotFunction))
+        }
         Construct::Notation(notation) if notation.is_collection() => {
             application(Construct::BuiltinApplication, position)
         }
@@ -516,7 +525,7 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         Construct::Matches | Construct::Let => local_term(construct, position),
         Construct::MlPredicate => predicate(position),
         Construct::Rewrite => rewrite(position),
-        Construct::SortTest => sort_test(position),
+        Construct::SortTest | Construct::Projection => sort_test(construct, position),
         Construct::Anonymous | Construct::OrBool | Construct::Fragment => {
             island(construct, position)
         }
@@ -762,8 +771,9 @@ const fn rewrite(position: Position) -> Option<Refusal> {
 /// or a claim's subject may hold one, as a built term, an initializer's included, does. A key a
 /// pattern looks up computes its value, but a projection's value is defined only where its
 /// operand has the sort, which the sentence's condition must then require: a context alias
-/// states no condition, so a key it looks up holds no projection.
-const fn sort_test(position: Position) -> Option<Refusal> {
+/// states no condition, so a key it looks up holds no projection. A sort test is total, a Bool
+/// for every operand, and needs no guard.
+const fn sort_test(construct: Construct, position: Position) -> Option<Refusal> {
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
     } else if in_map_instance(position) {
@@ -772,11 +782,12 @@ const fn sort_test(position: Position) -> Option<Refusal> {
         || (matches!(position.kind, Kind::Matched) && meets_evaluated_terms(position))
     {
         Some(placement(Class::SortTestInPattern))
-    } else if matches!(position.slot, Slot::Subject)
+    } else if matches!(construct, Construct::Projection)
+        && matches!(position.slot, Slot::Subject)
         && position.form.matches_evaluated_terms()
         && !position.form.states_condition()
     {
-        // Whether the key needs a guard is told by what its sort test applies to.
+        // Whether the key needs a guard is told by what its projection applies to.
         Some(resolution(Class::SortTestInPattern))
     } else {
         None

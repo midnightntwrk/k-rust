@@ -1344,7 +1344,9 @@ impl RuleBlock {
                     conditions.extend([fork.parse::<proc_macro2::TokenTree>()?]);
                 }
                 loop {
-                    let first = input.call(Ident::parse_any)?;
+                    // `have`, `update` or a narrowed binder, each an identifier: a keyword
+                    // (`true`) names no binder.
+                    let first = input.parse::<Ident>()?;
                     match first.unraw().to_string().as_str() {
                         "have" => extras.push(TermTableExtra::Have(parse_have_extra(input)?)),
                         "update" => extras.push(TermTableExtra::Update(parse_update_extra(input)?)),

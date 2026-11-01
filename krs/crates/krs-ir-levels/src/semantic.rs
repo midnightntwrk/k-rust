@@ -2407,6 +2407,7 @@ fn insert_semantic_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SetOperands;
     use crate::ir_validation::{validate_claim, validate_existentials, variable_scope};
     use krs_ir::ClaimModality;
     use krs_ir::{CellContentFrame, CellPost, FixedCellClause};
@@ -2783,6 +2784,62 @@ mod tests {
                 &mut BTreeSet::new(),
             ),
             Err(SemanticValidationError::InvalidClaimMetadata(_))
+        ));
+    }
+
+    /// A simplification is rooted at a collection's function, which stands unevaluated as a
+    /// declared function's application does, and never at the unit, element or concatenation
+    /// that build the collection, a value.
+    #[test]
+    fn a_simplification_is_rooted_at_a_collection_function_and_not_at_its_constructors() {
+        let int = || SemanticSortRef::Builtin(BuiltinSort::Int);
+        let item = |key: &str| {
+            SemanticTerm::set(
+                node(key),
+                SemanticSortRef::set(),
+                SetOperands::Item {
+                    element: int_token(&format!("{key}-element")),
+                },
+            )
+        };
+        let simplification = |from: SemanticTerm, to: SemanticTerm| {
+            let sort = from.sort().clone();
+            let mut rule = claim_rule(int_token("before"), int_token("after"));
+            rule.claim = None;
+            rule.label = None;
+            rule.existentials = Vec::new();
+            rule.variables = Vec::new();
+            rule.simplification = Some(SemanticSimplification::new(node("simplification"), None));
+            rule.content = crate::ir_level::RuleContent::Term {
+                kind: SentenceKind::Simplification,
+                body: SemanticTerm::rewrite(node("simplify"), sort, from, to)
+                    .expect("valid rewrite")
+                    .try_into()
+                    .unwrap(),
+            };
+            validate_rule::<SemanticLevel>(
+                &rule,
+                None,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &BTreeSet::new(),
+                &BTreeSet::new(),
+                &BTreeSet::new(),
+                &BTreeMap::new(),
+                &BTreeSet::new(),
+                &mut BTreeSet::new(),
+            )
+        };
+        let size = SemanticTerm::set(
+            node("size"),
+            int(),
+            SetOperands::Size { set: item("sized") },
+        );
+        assert_eq!(simplification(size, int_token("one")), Ok(()));
+        let empty = SemanticTerm::set(node("empty"), SemanticSortRef::set(), SetOperands::Empty);
+        assert!(matches!(
+            simplification(item("singleton"), empty),
+            Err(SemanticValidationError::InvalidSimplificationRoot(_))
         ));
     }
 }

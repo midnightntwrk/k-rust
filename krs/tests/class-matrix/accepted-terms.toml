@@ -5581,7 +5581,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/claim/item-root/_"]
 k = """
 claim [case-TAG]:
-<k> _ ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> _:KItem ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -7865,6 +7865,15 @@ k = """
 rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
 <env> V0:KItem |-> V1:KItem ... </env>
 requires isInt(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/context-map-key/k::is!(Int, x)"]
+k = """
+rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
+<env> V1:Bool |-> V2:KItem ... </env>
+requires V1:Bool ==K isInt(V0:KItem) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -10471,7 +10480,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/readable/item-root/_"]
 k = """
 rule [case-TAG]:
-<k> _ ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> _:KItem ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18918,7 +18927,7 @@ same_k_as = ["terms/equation/subject/y @ Cmd::Hold(_)"]
 [accept."terms/cells-claim/item-root/_"]
 k = """
 claim [case-TAG]:
-<k> _ ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> _:KItem ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18974,7 +18983,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/cells/item-root/_"]
 k = """
 rule [case-TAG]:
-<k> _ ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+<k> _:KItem ~> cTAG ( V0:KItem , _ ) => .K ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -19076,7 +19085,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/context-alias/item-root/_"]
 k = """
 context alias [caseTAG]:
-<k> HERE ~> _ ~> cTAG ( V0:KItem , _ ) ... </k>
+<k> HERE ~> _:KItem ~> cTAG ( V0:KItem , _ ) ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -19154,6 +19163,15 @@ k = """
 context alias [caseTAG]:
 <k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
 <env> 1 +Int 2 |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/context-alias/map-key/k::is!(Int, x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , _ ) ... </k>
+<env> isInt(V0:KItem) |-> V1:KItem ... </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -29084,38 +29102,6 @@ rule SetItem(V0:KItem) |Set SetItem(1) => 0 [simplification, label(krsRule_DIGES
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."notation/simplification/subject-root/map![x -> 1, ..k::builtin::map::empty()]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-k = """
-rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
-[accept."notation/simplification/subject-root/map![x -> 1, 2 -> 3]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
-k = """
-rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0 [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
-[accept."notation/simplification/subject-root/set![x, ..k::builtin::set::empty()]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
-k = """
-rule .Set |Set SetItem(V0:KItem) => 0 [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
-[accept."notation/simplification/subject-root/set![x, 1]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
-k = """
-rule SetItem(V0:KItem) |Set SetItem(1) => 0 [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
 [accept."notation/simplification/subject/k::builtin::map::empty()"]
 k = """
 rule probe ( cTAG , .Map ) => 0 [simplification, label(krsRule_DIGEST)]
@@ -30584,22 +30570,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["notation/simplification/result/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
 rule probe ( cTAG , V0:KItem ) => size ( .Map [ V0:KItem <- 1 ] ) [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
-[accept."terms/simplification/subject-root/k::map![x -> 1]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-k = """
-rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
-[accept."terms/simplification/subject-root/map![x -> 1]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-k = """
-rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -32557,14 +32527,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
-k = """
-rule .Map [ 0 <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
-[accept."notation/simplification/subject-root/map![0 -> 1]"]
-same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """
 rule .Map [ 0 <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
 

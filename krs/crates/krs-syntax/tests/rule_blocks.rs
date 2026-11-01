@@ -962,3 +962,37 @@ fn shorthand_follows_the_entry_it_stands_for() {
         );
     }
 }
+
+/// A binder is an identifier, never a keyword: `true` is the Bool literal, so a narrowing, a
+/// map read's value, a `have` read's value, an update's cell and a rest's name refuse it rather
+/// than bind a name spelled like a literal, which would match every term.
+#[test]
+fn a_keyword_names_no_binder() {
+    for source in [
+        "for Expr; eq: Eq { lhs, rhs } => int::eq(lhs, rhs) where true: Int;",
+        "for Machine; step: { k: [Run(n), ..], acc: a } => { k: [..], acc: n } where true: Int;",
+        "for Machine; pick: { computation: [Pick(), ..], env: { kk -> true, .. } } => { computation: [kk, ..] };",
+        "for Expr; var: name => value where name: Id, have env[name -> let true];",
+        "for Expr; var: name => value where name: Id, update true = map::update(true, name, 1);",
+        "for Machine; drop: { computation: [Go(), true @ ..] } => { computation: [] };",
+    ] {
+        assert!(
+            krs_syntax::RuleBlock::parse_source(source).is_err(),
+            "{source} parses"
+        );
+    }
+    // The same sentences with identifiers parse.
+    for source in [
+        "for Expr; eq: Eq { lhs, rhs } => int::eq(lhs, rhs) where lhs: Int, rhs: Int;",
+        "for Machine; step: { k: [Run(n), ..], acc: a } => { k: [..], acc: n } where n: Int;",
+        "for Machine; pick: { computation: [Pick(), ..], env: { kk -> vv, .. } } => { computation: [kk, ..] };",
+        "for Expr; var: name => value where name: Id, have env[name -> let value];",
+        "for Expr; var: name => value where name: Id, have env[name -> let _];",
+        "for Expr; var: name => value where name: Id, update env = map::update(env, name, 1);",
+        "for Machine; drop: { computation: [Go(), rest @ ..] } => { computation: [] };",
+    ] {
+        if let Err(error) = krs_syntax::RuleBlock::parse_source(source) {
+            panic!("{source}: {error:?}");
+        }
+    }
+}

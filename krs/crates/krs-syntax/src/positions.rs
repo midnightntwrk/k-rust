@@ -182,6 +182,15 @@ impl Form {
         )
     }
 
+    /// Whether a collection literal that writes entries (`map![k -> v]`, `set![a, b]`, either
+    /// with a rest) may stand for the form's whole subject. A simplification rewrites a
+    /// function's unevaluated application, and the literal writes the collection it builds, a
+    /// value, however KRS builds it: its subject spells the update or the union as a call.
+    #[must_use]
+    pub const fn admits_collection_literal_root(self) -> bool {
+        !matches!(self, Self::Simplification)
+    }
+
     /// Whether the form's subject marks what changes with `k::rewrite!`: a single-body rule's,
     /// and a context's, which rewrites its hole.
     const fn rewrites_inside_subject(self) -> bool {
@@ -789,7 +798,7 @@ impl Class {
                 "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the fields `..` leaves open have no value from that match: they print as variables (`_Krs_Wildcard0`); name every field and use it in the result, or write `#[k::desugar]` for an expansion that runs one way"
             }
             Self::OpenRecordOutsidePattern => {
-                "`..` leaves a record's other fields open, which only a pattern can: a built term has no value for them, so name every field"
+                "`..` stands only in a pattern, where it leaves the fields the record does not name unconstrained; a built term names every field of the record it builds, so it holds no `..`, even with every field named"
             }
             Self::RecordRemainderInCellsTerm => {
                 "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation"
@@ -824,7 +833,18 @@ impl Class {
     /// The message of a refusal of this class at `position`.
     #[must_use]
     pub fn message(self, position: Position) -> String {
-        format!("{}; here it stands in {position}", self.summary())
+        let summary = match (self, position.form, position.slot) {
+            // A context's subject is matched by heating, and so `y` would name a term its guard
+            // can read; what refuses `#as` is the way back, the frame cooling builds.
+            (Self::AliasOutsidePattern, Form::Context, Slot::Subject) => {
+                "`name @ pattern` (K's #as) names the term a pattern matched, but a context's subject is the frame that heating matches and cooling puts back around the hole, and `#as` cannot stand in the term cooling builds, so the name has no term to stand for there; write the term as a bare name and its shape as a test in the context's guard: `#[k::requires(k::matches!(y, P))]`"
+            }
+            (Self::AliasOutsidePattern, Form::ContextAlias, Slot::Subject) => {
+                "`name @ pattern` (K's #as) names the term a pattern matched, but a context alias's pattern is the frame of every context it makes, which heating matches and cooling puts back around `here`, and `#as` cannot stand in the term cooling builds, so the name has no term to stand for there; an alias states no guard, and its pattern alone matches the same terms"
+            }
+            _ => self.summary(),
+        };
+        format!("{summary}; here it stands in {position}")
     }
 }
 

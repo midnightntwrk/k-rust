@@ -541,11 +541,39 @@ fn check_constructors(
         DescriptorApplicationRef::Declared(id) => {
             Some(format!("the function `{}`", id.item_name()))
         }
-        // A collection's unit is its algebra's constant: a ground term that a pattern matches
-        // as the empty collection and a built term writes as one.
-        DescriptorApplicationRef::Map(krs_ir::TermMapOperation::Empty)
-        | DescriptorApplicationRef::List(krs_ir::ListOperation::Empty)
-        | DescriptorApplicationRef::Set(krs_ir::SetOperation::Empty) => None,
+        // A set's concatenation is a set only where its parts are disjoint, so its value is
+        // ground only where its elements are provably different values.
+        DescriptorApplicationRef::Set(krs_ir::SetOperation::Concat)
+            if !provably_disjoint(term, catalog) =>
+        {
+            return Err(DescriptorLoweringError::InvalidConstant {
+                reason: format!(
+                    "the value of constant `{}` concatenates sets whose elements are not provably different values, and a concatenation is a set only where its parts are disjoint; a constant names a ground constructor term, a value every use can match",
+                    descriptor.id().item_name()
+                ),
+                range: descriptor
+                    .provenance()
+                    .origin_for(&reference.key)
+                    .and_then(OriginStack::exact_authored_range)
+                    .map(Box::new),
+                item: Some(Box::new(descriptor.id().clone())),
+            });
+        }
+        // A collection's unit, element and concatenation build it, the constructors of its
+        // algebra (the predicate a simplification's root shares): over ground operands a ground
+        // term, which a pattern matches as the collection and a built term writes as one.
+        DescriptorApplicationRef::Map(operation)
+            if krs_ir::MapOperation::from(*operation).builds_collection() =>
+        {
+            None
+        }
+        DescriptorApplicationRef::List(operation) if operation.builds_collection() => None,
+        DescriptorApplicationRef::Set(operation) if operation.builds_collection() => None,
+        // A map literal with entries denotes the updates that build its map, each written over
+        // the map before it: a function's application, whatever keys it writes.
+        DescriptorApplicationRef::Map(krs_ir::TermMapOperation::Update) => Some(
+            "the map update `k::builtin::map::update(..)`, which a map literal with entries (`map![k -> v]`) denotes".to_owned(),
+        ),
         _ => Some("a builtin operation".to_owned()),
     };
     if let Some(applied) = applied {
@@ -568,6 +596,110 @@ fn check_constructors(
         check_constructors(descriptor, value, catalog)?;
     }
     Ok(())
+}
+
+/// Whether the elements of the set concatenation `term` are pairwise provably different values,
+/// so that its parts are disjoint.
+fn provably_disjoint(
+    term: &DescriptorTerm,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> bool {
+    let mut elements = Vec::new();
+    set_elements(term, &mut elements);
+    elements.iter().enumerate().all(|(index, left)| {
+        elements[index + 1..]
+            .iter()
+            .all(|right| provably_different(left, right, catalog))
+    })
+}
+
+/// The elements of the items a set concatenation `term` joins, its units holding none.
+fn set_elements<'t>(term: &'t DescriptorTerm, elements: &mut Vec<&'t DescriptorTerm>) {
+    let DescriptorTerm::Application {
+        reference,
+        arguments,
+        ..
+    } = term
+    else {
+        elements.push(term);
+        return;
+    };
+    let operands = argument_values(arguments);
+    match &reference.application {
+        DescriptorApplicationRef::Set(krs_ir::SetOperation::Concat) => {
+            for operand in operands {
+                set_elements(operand, elements);
+            }
+        }
+        DescriptorApplicationRef::Set(krs_ir::SetOperation::Item) => elements.extend(operands),
+        DescriptorApplicationRef::Set(krs_ir::SetOperation::Empty) => {}
+        _ => elements.push(term),
+    }
+}
+
+/// Whether two ground terms are provably different values: literals with different values
+/// (a `Float` excepted, whose tokens do not tell its values apart), applications of different
+/// constructors, which are injective and pairwise distinct, or of one constructor with an
+/// argument provably different.
+fn provably_different(
+    left: &DescriptorTerm,
+    right: &DescriptorTerm,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> bool {
+    use krs_ir::DescriptorLiteral::{Bool, Int, String};
+    let constructor =
+        |reference: &krs_ir::DescriptorApplicationReference| match &reference.application {
+            DescriptorApplicationRef::Declared(id)
+                if catalog
+                    .get(id)
+                    .is_some_and(|production| !production.function) =>
+            {
+                Some(id.clone())
+            }
+            _ => None,
+        };
+    match (left, right) {
+        (
+            DescriptorTerm::Literal { literal: left, .. },
+            DescriptorTerm::Literal { literal: right, .. },
+        ) => match (left, right) {
+            (Int(left), Int(right)) | (String(left), String(right)) => left != right,
+            (Bool(left), Bool(right)) => left != right,
+            _ => false,
+        },
+        (
+            DescriptorTerm::Application {
+                reference: left_head,
+                arguments: left_arguments,
+                ..
+            },
+            DescriptorTerm::Application {
+                reference: right_head,
+                arguments: right_arguments,
+                ..
+            },
+        ) => match (constructor(left_head), constructor(right_head)) {
+            (Some(left), Some(right)) if left != right => true,
+            (Some(_), Some(_)) => argument_values(left_arguments)
+                .into_iter()
+                .zip(argument_values(right_arguments))
+                .any(|(left, right)| provably_different(left, right, catalog)),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// An application's argument terms, in order.
+fn argument_values(arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>) -> Vec<&DescriptorTerm> {
+    arguments
+        .iter()
+        .map(|argument| {
+            let (krs_ir::TermArgumentRef::Positional { value }
+            | krs_ir::TermArgumentRef::Named { value, .. }) = argument;
+            value
+        })
+        .collect()
 }
 
 fn primary_range(descriptor: &Descriptor) -> Option<Box<krs_ir::SourceRange>> {

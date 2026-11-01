@@ -351,7 +351,7 @@ const fn product_construct(construct: model::Construct) -> Option<Construct> {
         M::Let => Construct::Let,
         M::MlPredicate => Construct::MlPredicate,
         M::Rewrite => Construct::Rewrite,
-        M::SortTest => Construct::SortTest,
+        M::SortTest | M::Projection => Construct::SortTest,
         M::Anonymous => Construct::Anonymous,
         M::OrBool => Construct::OrBool,
         M::Fragment => Construct::Fragment,
@@ -424,9 +424,20 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
 /// The pattern reader's rule for a construct standing for a subject's whole root: an alias, `_`
 /// and a compiler-owned island stand below the root of a fn's, a table row's, a context's or a
 /// static clause's subject, and a `for Sort` clause's root reads a bare name, `_`, an alias or
-/// an island as a readable record's value does.
+/// an island as a readable record's value does. The term walker's: a collection literal that
+/// writes entries stands for no simplification's whole subject
+/// (`Form::admits_collection_literal_root`).
 fn root_rule(construct: model::Construct, position: model::Position) -> Option<&'static str> {
     use model::Construct as M;
+    if position.root == Some(PatternRoot::Subject)
+        && matches!(
+            construct,
+            M::Notation(Notation::MapLiteral | Notation::SetLiteral)
+        )
+        && !product_form(position.form).admits_collection_literal_root()
+    {
+        return Some("simplification-root-not-function");
+    }
     let root = match position.root? {
         PatternRoot::Subject => product_table::PatternRoot::Subject,
         PatternRoot::Clause => product_table::PatternRoot::Clause,

@@ -320,7 +320,13 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, P
     let key = parse_expression_before_arrow(&content)?;
     content.parse::<Token![->]>()?;
     content.parse::<Token![let]>()?;
-    let value = content.call(Ident::parse_any)?;
+    // The value is a binder or `_`: an identifier, never another keyword (`true` is a
+    // literal), as a readable map read's value is.
+    let value = if content.peek(Token![_]) {
+        content.call(Ident::parse_any)?
+    } else {
+        content.parse::<Ident>()?
+    };
     validate_authored_binder(&value.to_string(), value.span())?;
     if !content.is_empty() {
         return Err(content
@@ -335,7 +341,8 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, P
 }
 
 pub(super) fn parse_update_extra(input: ParseStream<'_>) -> Result<MapUpdateExtra, ParseError> {
-    let cell = input.call(Ident::parse_any)?;
+    // A binder, so an identifier: a keyword is no name.
+    let cell = input.parse::<Ident>()?;
     validate_authored_binder(&cell.to_string(), cell.span())?;
     input.parse::<Token![=]>()?;
     let expression: Expr = input.parse()?;

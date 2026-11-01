@@ -654,6 +654,25 @@ impl<'a> TermBuilder<'a> {
         }
     }
 
+    /// The refusal of a collection literal that writes entries for a simplification's whole
+    /// subject, at the literal's outermost level, `head`: the literal is the collection it
+    /// builds, a value, and the update or the union it stands for is written as its call.
+    fn collection_literal_root(&self, collection: &str, head: TokenRange) -> ExpandError {
+        self.refused_by_position.set(true);
+        let (operation, call) = if collection == "map" {
+            ("update", "k::builtin::map::update(m, k, v)")
+        } else {
+            ("union", "k::builtin::set::union(a, b)")
+        };
+        ExpandError::at_range(
+            krs_diagnostic::codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
+            head,
+            format!(
+                "a simplification rewrites a function's unevaluated application to an equal, simpler term, and the literal `{collection}![..]` is the {collection} it builds, a value, which evaluation leaves as written, so the simplification would simplify nothing; to state a fact about the {operation} the literal stands for, write the call `{call}`"
+            ),
+        )
+    }
+
     /// Whether the position table refused a construct where it stands.
     pub(super) const fn refused_by_position(&self) -> bool {
         self.refused_by_position.get()
@@ -1015,6 +1034,13 @@ impl<'a> TermBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 let head_range = TokenRange::for_tokens(application.head())?;
+                if matches!(side, TermSide::Left)
+                    && self.depth == 1
+                    && !self.form.admits_collection_literal_root()
+                    && let Some(collection) = application.entry_literal_collection()
+                {
+                    return Err(self.collection_literal_root(collection, head_range));
+                }
                 self.admit_record(
                     side,
                     application.update(),

@@ -278,6 +278,8 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
             expr,
             ..
         }) if matches!(**expr, Expr::Lit(_)) => Ok(()),
+        // A bare path holds no turbofish in any term (the term reader refuses one): a parametric
+        // unit constructor's instance is written on its call, `Ctor::<S>()`.
         Expr::Path(path) if path.qself.is_none() && plain(&path.path) => Ok(()),
         Expr::Call(call) => {
             let Expr::Path(head) = &*call.func else {

@@ -30,13 +30,17 @@ pub(super) fn render_context_term(
             if index != 0 {
                 output.push(" ~> ");
             }
-            output.append(render_context_term(
-                item,
-                here,
-                here_origin,
-                context,
-                names,
-            )?);
+            if is_wildcard(item) {
+                output.append(render_sequence_wildcard(item, context)?);
+            } else {
+                output.append(render_context_term(
+                    item,
+                    here,
+                    here_origin,
+                    context,
+                    names,
+                )?);
+            }
         }
         if items.is_empty() {
             output.push(".K");
@@ -44,6 +48,20 @@ pub(super) fn render_context_term(
         return Ok(output.finish(term.origin().key(), 0));
     }
     render_term(term, context, names, false)
+}
+
+/// `_` as an item of a K sequence, with its sort: `_:KItem`, one item, or the narrower sort it
+/// stands for (`_:Stmt` at a `for Stmt` clause's root, as a bare name there is `S:Stmt`). K's
+/// `~>` joins terms of sort `K`, a sequence of any length, so a bare `_` there could be read at
+/// `K`, matching no item or several; the sort says it is the one item written.
+fn render_sequence_wildcard(
+    item: &DefinitionTerm,
+    context: &EmitContext<'_>,
+) -> Result<Rendered, EmitError> {
+    let mut wildcard = Rendered::default();
+    wildcard.push("_:");
+    wildcard.push(&context.sort_name_ref(item.sort())?);
+    Ok(wildcard.finish(item.origin().key(), 0))
 }
 
 #[derive(Default)]
@@ -238,16 +256,10 @@ fn render_term_with_binders(
                     if index != 0 {
                         output.push(" ~> ");
                     }
-                    output.append(render_term_with_binders(item, context, false, names)?);
-                    // A sequence's item is any `KItem`, so `_` there is any item unless it
-                    // names a narrower sort it stands for: at a `for Stmt` clause's root,
-                    // `_:Stmt`, as a bare name there is `S:Stmt`.
                     if is_wildcard(item) {
-                        let sort = context.sort_name_ref(item.sort())?;
-                        if !matches!(sort.as_ref(), "K" | "KItem") {
-                            output.push(":");
-                            output.push(&sort);
-                        }
+                        output.append(render_sequence_wildcard(item, context)?);
+                    } else {
+                        output.append(render_term_with_binders(item, context, false, names)?);
                     }
                 }
             }

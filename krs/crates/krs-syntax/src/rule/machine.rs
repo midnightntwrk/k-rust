@@ -794,7 +794,8 @@ pub(super) fn parse_machine_clause(
         input.parse::<Token![where]>()?;
         layout.conditions = Some(condition_token_range(input)?);
         loop {
-            let binding = input.call(Ident::parse_any)?;
+            // The narrowed binder: an identifier, never a keyword (`true` is a literal).
+            let binding = input.parse::<Ident>()?;
             input.parse::<Token![:]>()?;
             let sort: Path = input.parse()?;
             if let Some(error) = parametric_collection_error(&sort, true) {
@@ -1231,13 +1232,14 @@ fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
         let mut entries = Vec::new();
         while !sequence.is_empty() {
             let named = sequence.fork();
-            let named = named.call(Ident::parse_any).is_ok()
+            // A rest's name is a binder: an identifier, never a keyword.
+            let named = named.parse::<Ident>().is_ok()
                 && named.parse::<Token![@]>().is_ok()
                 && named.peek(Token![..]);
             if sequence.peek(Token![..]) || named {
                 let start = sequence.span();
                 let name = if named {
-                    let name = sequence.call(Ident::parse_any)?;
+                    let name = sequence.parse::<Ident>()?;
                     sequence.parse::<Token![@]>()?;
                     Some(name)
                 } else {

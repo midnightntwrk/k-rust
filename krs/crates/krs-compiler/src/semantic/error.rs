@@ -85,9 +85,8 @@ impl KeyPattern {
             Self::Alternatives => {
                 "alternatives match one of several terms, and a built term is one term"
             }
-            Self::OpenRecord => {
-                "`..` leaves the record's other fields open, which only a pattern can; name every field"
-            }
+            // The walker's reason, which the compiler gives for a constructor's record too.
+            Self::OpenRecord => krs_syntax::positions::Class::OpenRecordOutsidePattern.summary(),
         }
     }
 }

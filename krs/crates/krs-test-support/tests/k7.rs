@@ -181,7 +181,7 @@ const UNREAD: &[&str] = &[
 const STATUSES: &[&str] = &[
     "828 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
     "180 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
-    "193 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
+    "194 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
     "26 no driver: a malformed attribute is refused",
     "413 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "76 no driver: the base applies no function but Probe and Size from a rule",
@@ -234,7 +234,7 @@ const STATUSES: &[&str] = &[
     "6 no witness: the program would hold a value the generator does not state",
     "1197 runs a counter-witness",
     "1654 runs, liveness",
-    "2507 runs, value",
+    "2508 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern

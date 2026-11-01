@@ -113,7 +113,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // alias's, the 17 spellings that stand there only, the 20 witnesses a rule of the
             // case's own writes, the 2 a typed parameter binds (the desugar's), the 8 spellings
             // at a constructor's argument and at an alias's pattern, and 5 at an alternative;
-            // and the 7 keys an equation's function context and a context alias look up each, the
+            // and the 8 keys an equation's function context and a context alias look up each, the
             // 2 conditions of a `cells!` rule that restates its cells, and the list brackets at a
             // fn's `List` subject (NT-18); and the 4 spellings a desugar's subject holds beside a
             // second clause of its production (NT-22: two names that overlap it, two terms that do
@@ -129,7 +129,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 2
                     + 2 * (17 + 20 + 2 * 8 + 5)
                     + 2
-                    + 7 * 2
+                    + 8 * 2
                     + 2
                     + 1
                     + 4,

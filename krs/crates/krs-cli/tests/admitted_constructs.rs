@@ -5,7 +5,10 @@
 //! `provenance-mismatch`), and constants whose value is a turbofish application or a collection's
 //! unit, each used in a pattern and in a result (refused as not ground). The class tiers accept
 //! the generated cases; K7 has no driver for a context alias, and the generated constants are
-//! used nowhere, so the runs that show what each construct means are here.
+//! used nowhere, so the runs that show what each construct means are here. So are the runs of
+//! constants whose value is a ground collection built by its constructors, a set's element, a
+//! concatenation of disjoint sets, a list's concatenation of items (no generated case writes one
+//! ground), and the empty map as a map cell's whole value.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,13 +16,21 @@ use std::path::{Path, PathBuf};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 const SOURCE: &str = r#"
-use k::builtin::{Int, KSequence, Map, int};
+use k::builtin::{Int, KSequence, List, Map, Set, int, list, map, set};
 use k::{KItem, KResult, Term};
 
 k::sorts! {
     Exp;
     Value: Exp + KResult;
+    Tag;
     impl Value for Int;
+}
+
+/// A sort beside `Exp`, whose term a `wrap` at another instance holds.
+#[k::constructors(sort = Tag, result = KResult)]
+#[rustfmt::skip]
+pub enum Tags {
+    #[k::syntax("tag")] Tag(),
 }
 
 /// A parametric constructor, whose turbofish names its instance.
@@ -43,18 +54,32 @@ pub enum Op {
     #[k::syntax("pair({a}, {b})")] Pair { a: KItem, b: KItem },
     #[k::syntax("pr({a}, {b})")] Pr { a: KItem, b: KItem },
     #[k::syntax("check({a})")] Check { a: KItem },
+    #[k::syntax("has({a})")] Has { a: KItem },
+    #[k::syntax("mkone")] MkOne(),
+    #[k::syntax("mkpair")] MkPair(),
+    #[k::syntax("mklist")] MkList(),
+    #[k::syntax("mkother")] MkOther(),
+    #[k::syntax("fill")] Fill(),
+    #[k::syntax("refill")] Refill(),
+    #[k::syntax("clear")] Clear(),
+    #[k::syntax("cleared")] Cleared(),
 }
 
 #[k::configuration]
 pub struct Machine {
     #[k::cell]
     pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
 }
 
 impl Machine {
     #[k::init]
     pub fn init(#[k::config_var(name = "PGM", main)] pgm: Exp) -> Self {
-        Self { k: k::k![pgm] }
+        Self {
+            k: k::k![pgm],
+            env: k::map![],
+        }
     }
 }
 
@@ -81,6 +106,15 @@ const WRAPPED: Exp = Op::Mark(Wrap::<dyn ExpSort>(Op::Go()));
 #[k::constant]
 const EMPTY: Map = map![];
 
+#[k::constant]
+const ONE: Set = set::item(1);
+
+#[k::constant]
+const PAIR: Set = set::concat(set::item(1), set::item(2));
+
+#[k::constant]
+const LIST: List = list::concat(list::item(1), list::item(2));
+
 k::rules! {
     for Exp;
     use Op::*;
@@ -90,6 +124,23 @@ k::rules! {
     add  : Add(l, r) => int::add(l, r) where l: Int, r: Int;
     check: Check(WRAPPED) => Pair(WRAPPED, EMPTY);
     empty: Pair(_, EMPTY) => Done();
+    mkone: MkOne() => Has(ONE);
+    mkpair: MkPair() => Has(PAIR);
+    mklist: MkList() => Has(LIST);
+    mkother: MkOther() => Has(set::item(2));
+    has_one: Has(ONE) => Done();
+    has_pair: Has(PAIR) => Go();
+    has_list: Has(LIST) => Pr(LIST, ONE);
+}
+
+k::rules! {
+    for Machine;
+    use Op::*;
+
+    fill: { k: [Fill(), ..], env: _ } => { k: [Clear(), ..], env: map::update(EMPTY, 1, 2) };
+    refill: { k: [Refill(), ..], env: _ } => { k: [Cleared(), ..], env: map::update(EMPTY, 1, 2) };
+    clear: { k: [Clear(), ..], env: _ } => { k: [Cleared(), ..], env: EMPTY };
+    cleared: { k: [Cleared(), ..], env: EMPTY } => { k: [Done(), ..] };
 }
 
 /// Split a `seq` into its two items.
@@ -156,10 +207,13 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 }
 
 /// The definition passes `krs check`, and each program runs as written: `twice` heats its
-/// operand only where a mark of a wrapped term follows (its alias's frame), and `once` only where
-/// some item follows (`_`); the rewrite's record update writes `a` and keeps `b`; and `check`
-/// matches exactly the constant's term, builds the pair holding it and the empty map, which the
-/// `empty` clause then matches through the other constant.
+/// operand only where a mark of an `Exp` instance's wrap follows (its alias's frame, which a wrap
+/// of a `Tag` is not), and `once` only where some item follows (`_`); the rewrite's record update
+/// writes `a` and keeps `b`; `check` matches exactly the constant's term, builds the pair holding
+/// it and the empty map, which the `empty` clause then matches through the other constant; each
+/// collection constant matches the collection it builds and no other (`mkother`'s `{2}` is not
+/// `ONE`); and the empty map constant written as the map cell's value is matched there, while a
+/// map with an entry is not.
 #[test]
 fn admitted_constructs_check_and_run_as_written() {
     let target = shared_fixture_target();
@@ -171,11 +225,18 @@ fn admitted_constructs_check_and_run_as_written() {
     for program in [
         "seq(twice(add(1, 2)), mark(wrap(done)))",
         "seq(twice(add(1, 2)), mark(7))",
+        "seq(twice(add(1, 2)), mark(wrap(tag)))",
         "seq(once(add(1, 2)), go)",
         "once(add(1, 2))",
         "pr(go, pair(2, 3))",
         "check(mark(wrap(go)))",
         "check(mark(wrap(done)))",
+        "mkone",
+        "mkpair",
+        "mklist",
+        "mkother",
+        "fill",
+        "refill",
     ] {
         let file = manifest.with_file_name("program.txt");
         fs::write(&file, program).unwrap();
@@ -202,10 +263,17 @@ fn admitted_constructs_check_and_run_as_written() {
     expect_test::expect![[r"
         seq(twice(add(1, 2)), mark(wrap(done))) => 6 ~> mark(wrap ( done )) ~> .K
         seq(twice(add(1, 2)), mark(7)) => twice(add(1, 2)) ~> mark(7) ~> .K
+        seq(twice(add(1, 2)), mark(wrap(tag))) => twice(add(1, 2)) ~> mark(wrap ( tag )) ~> .K
         seq(once(add(1, 2)), go) => 3 ~> go ~> .K
         once(add(1, 2)) => once(add(1, 2)) ~> .K
         pr(go, pair(2, 3)) => pr(done, pair(1, 3)) ~> .K
         check(mark(wrap(go))) => done ~> .K
-        check(mark(wrap(done))) => check(mark(wrap ( done ))) ~> .K"]]
+        check(mark(wrap(done))) => check(mark(wrap ( done ))) ~> .K
+        mkone => done ~> .K
+        mkpair => go ~> .K
+        mklist => pr(ListItem ( 1 ) ListItem ( 2 ), SetItem ( 1 )) ~> .K
+        mkother => has(SetItem ( 2 )) ~> .K
+        fill => done ~> .K
+        refill => cleared ~> .K"]]
     .assert_eq(&printed.join("\n"));
 }

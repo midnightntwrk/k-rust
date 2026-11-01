@@ -495,6 +495,14 @@ fn a_constant_names_a_ground_constructor_term_of_its_sort() {
         ),
         ("sort", "#[k::constant]\npub const BAD: Instr = 5;\n"),
         (
+            "overlapping",
+            "#[k::constant]\npub const BAD: k::builtin::Set = k::builtin::set::concat(k::builtin::set::item(1), k::builtin::set::item(1));\n",
+        ),
+        (
+            "map",
+            "#[k::constant]\npub const BAD: k::builtin::Map = map![1 -> 2];\n",
+        ),
+        (
             "cycle",
             "#[k::constant]\npub const AA: Int = BB;\n\n#[k::constant]\npub const BB: Int = AA;\n",
         ),
@@ -533,6 +541,20 @@ fn a_constant_names_a_ground_constructor_term_of_its_sort() {
                 [
                     "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-CONSTANTS-CONSTANTS::BAD (constant): literal `5` of sort Int is not admissible at sort ORG-KRS-CONSTANTS-CONSTANTS::Instr (sort)",
                     "--> src/lib.rs:42:24",
+                ],
+            ),
+            (
+                "overlapping",
+                [
+                    "error[krs::analysis::invalid-constant]: the value of constant `BAD` concatenates sets whose elements are not provably different values, and a concatenation is a set only where its parts are disjoint; a constant names a ground constructor term, a value every use can match",
+                    "--> src/lib.rs:42:34",
+                ],
+            ),
+            (
+                "map",
+                [
+                    "error[krs::analysis::invalid-constant]: the value of constant `BAD` applies the map update `k::builtin::map::update(..)`, which a map literal with entries (`map![k -> v]`) denotes; a constant names a ground constructor term, which every use can match, and a function application is evaluated, not matched",
+                    "--> src/lib.rs:42:34",
                 ],
             ),
             (

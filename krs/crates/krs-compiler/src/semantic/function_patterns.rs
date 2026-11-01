@@ -66,9 +66,9 @@ use std::collections::BTreeMap;
 use krs_ir::{
     BuiltinOperation, CellCollectionType, Descriptor, DescriptorApplicationRef,
     DescriptorCellIdentity, DescriptorHeadRuleExtra, DescriptorIndex, DescriptorPayload,
-    DescriptorTerm, ListOperation, ProtocolCellContent, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleListRest, ProtocolRuleInstances, ProtocolRuleMapBody, ProtocolRuleStateTerm,
-    ProvenanceKey, SentenceKind, SetOperation, StableItemId, TermArgumentRef, TermMapOperation,
+    DescriptorTerm, ProtocolCellContent, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest,
+    ProtocolRuleInstances, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind,
+    SetOperation, StableItemId, TermArgumentRef, TermMapOperation,
 };
 
 use super::catalog::ProductionSignature;
@@ -739,18 +739,29 @@ pub(super) fn applied_function(
             "the operator `{}`, a builtin function,",
             operator.symbol()
         )),
-        DescriptorApplicationRef::Map(operation) => match operation {
-            TermMapOperation::Empty => Applied::Collection,
-            other => collection_function(other.facade_marker()),
-        },
-        DescriptorApplicationRef::List(operation) => match operation {
-            ListOperation::Empty | ListOperation::Item | ListOperation::Concat => Applied::Elements,
-            other => collection_function(other.facade_marker()),
-        },
-        DescriptorApplicationRef::Set(operation) => match operation {
-            SetOperation::Empty | SetOperation::Item | SetOperation::Concat => Applied::Collection,
-            other => collection_function(other.facade_marker()),
-        },
+        // The constructors of a collection's algebra build it; each other operation is one of
+        // its functions (the predicate the IR's validation shares).
+        DescriptorApplicationRef::Map(operation) => {
+            if krs_ir::MapOperation::from(*operation).builds_collection() {
+                Applied::Collection
+            } else {
+                collection_function(operation.facade_marker())
+            }
+        }
+        DescriptorApplicationRef::List(operation) => {
+            if operation.builds_collection() {
+                Applied::Elements
+            } else {
+                collection_function(operation.facade_marker())
+            }
+        }
+        DescriptorApplicationRef::Set(operation) => {
+            if operation.builds_collection() {
+                Applied::Collection
+            } else {
+                collection_function(operation.facade_marker())
+            }
+        }
         DescriptorApplicationRef::ListNotation(_) => Applied::Elements,
         // Every reading of an index or a collection method is a collection's
         // function: a lookup, a size, an update.

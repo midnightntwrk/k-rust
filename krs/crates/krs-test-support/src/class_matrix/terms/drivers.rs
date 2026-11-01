@@ -1204,6 +1204,7 @@ const fn computes(construct: Construct) -> bool {
         | Construct::Let
         | Construct::Matches
         | Construct::SortTest
+        | Construct::Projection
         | Construct::OrBool
         | Construct::RecordUpdate => true,
         Construct::Notation(notation) => notation.applies_operation(),

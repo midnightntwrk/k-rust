@@ -809,7 +809,7 @@ fn spellings() -> Vec<Spelling> {
         spelling(
             "k::project!(Int, x)",
             &[
-                node(C::SortTest, &[]),
+                node(C::Projection, &[]),
                 node(C::Reference, &[SortTestOperand]),
             ],
         )
@@ -1853,12 +1853,14 @@ fn cells_rule(subject: &str, result: &str) -> String {
 const CELLS_COMMAND: &str = "k: k::configuration::KCell(Cmd::NAME(x, _), tail @ ..)";
 
 /// The keys the function-context and context-alias map-key slots hold: a binder, values, the
-/// projection whose key is guarded, and applications, which compute the key.
+/// sort test, total, which needs no guard, the projection whose key is guarded, and
+/// applications, which compute the key.
 const LOOKED_UP_KEYS: &[&str] = &[
     "x",
     "1",
     "Cmd::Go()",
     "Cmd::Hold(x)",
+    "k::is!(Int, x)",
     "k::project!(Int, x)",
     "Size(x)",
     "k::builtin::int::add(1, 2)",

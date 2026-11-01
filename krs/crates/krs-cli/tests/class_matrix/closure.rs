@@ -188,7 +188,9 @@ fn tokens(text: &str) -> Vec<&str> {
 }
 
 /// The variables of a sentence: every name written `Name:Sort`, capitalized or starting with `_`.
-/// A configuration variable, `$PGM:Stmt`, is named by the program's input and keeps its name.
+/// A configuration variable, `$PGM:Stmt`, is named by the program's input and keeps its name, and
+/// the anonymous variable `_`, written with its sort or without, names none: each occurrence is
+/// a variable of its own, which one name for all of them would equate.
 fn variables<'a>(tokens: &[&'a str]) -> Vec<&'a str> {
     let mut found = Vec::new();
     for (index, window) in tokens.windows(2).enumerate() {
@@ -200,7 +202,7 @@ fn variables<'a>(tokens: &[&'a str]) -> Vec<&'a str> {
             .chars()
             .next()
             .is_some_and(|first| first.is_uppercase() || first == '_');
-        if colon == ":" && starts && !found.contains(&name) {
+        if colon == ":" && starts && name != "_" && !found.contains(&name) {
             found.push(name);
         }
     }
@@ -287,6 +289,14 @@ fn digests(text: &str, prefix: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_anonymous_variable_keeps_its_name_at_every_occurrence() {
+        assert_eq!(
+            normalize("<k> _:KItem ~> c ( X:KItem , _ ) => .K ... </k>"),
+            "<k> _:KItem ~> c ( V0:KItem , _ ) => .K ... </k>"
+        );
+    }
 
     #[test]
     fn the_computation_rest_and_alpha_renaming_are_normalized() {

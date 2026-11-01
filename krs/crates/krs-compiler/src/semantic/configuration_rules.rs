@@ -355,13 +355,19 @@ impl<'a> StateRuleTerms<'a> {
                 }
                 // `_` is any one item, a `KItem`, as in a readable record; every other item
                 // has the sort it states or infers.
-                let k_item = framework_k_item_sort(self.declarations)?;
+                let k_item = sequence
+                    .items
+                    .iter()
+                    .any(|item| matches!(item.value, DescriptorTerm::Wildcard { .. }))
+                    .then(|| framework_k_item_sort(self.declarations))
+                    .transpose()?;
                 let items = sequence
                     .items
                     .iter()
                     .map(|item| {
-                        let expected = matches!(item.value, DescriptorTerm::Wildcard { .. })
-                            .then_some(&k_item);
+                        let expected = k_item
+                            .as_ref()
+                            .filter(|_| matches!(item.value, DescriptorTerm::Wildcard { .. }));
                         self.term(&item.value, expected, binding_sorts, subject)
                     })
                     .collect::<Result<Vec<_>, _>>()?;

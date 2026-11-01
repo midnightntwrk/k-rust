@@ -2311,6 +2311,16 @@ impl StructuredTermBuilder<'_> {
                 sort,
                 operand,
             } if self.in_guarded_key() => self.lower_key_projection(key, sort, operand),
+            // A sort test computes its Bool, as a function's application does: at a matched
+            // position of a key an equation's function context looks up, whose cells the
+            // equation matches as written, it is a fresh name the condition equates with the
+            // test's value ([`Self::key_matched_as_written`]).
+            DescriptorTerm::SortTest {
+                kind: SortTestKind::Predicate,
+                ..
+            } if self.in_guarded_key() && self.key_matched() && self.key_matched_as_written() => {
+                self.guarded(term, expected_sort, subject)
+            }
             DescriptorTerm::SortTest {
                 key,
                 kind,

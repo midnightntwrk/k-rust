@@ -535,6 +535,17 @@ impl TermApplication {
             && !crate::collection_literal::is_value_head(&self.head)
     }
 
+    /// The module of the collection (`map`, `set`) when the application is the outermost level
+    /// of a collection literal that writes entries, `map![k -> v, ..]` or `set![a, b, ..]`.
+    #[must_use]
+    pub fn entry_literal_collection(&self) -> Option<&'static str> {
+        if self.notation {
+            crate::collection_literal::entry_head_collection(&self.head)
+        } else {
+            None
+        }
+    }
+
     /// Returns the base `t` of a record update `Ctor { f: e, ..t }`: the
     /// record is the matched record `t` with the listed fields replaced.
     #[must_use]
