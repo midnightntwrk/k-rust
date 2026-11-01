@@ -666,7 +666,7 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
 /// readings, kink README P-F1 to P-F3). At `SortMInt{}`, a sort hooked `MINT.MInt` with no width
 /// argument, load refuses every literal (NoWidth), so those rows show only that the gate does not
 /// decide it; at the parametric `SortMInt{Sort8{}}`, `1p8`, `01p8` and `257p8` name one element,
-/// and `-1p8` and `255p8` another (in range by domains.md 2880-2882 and 2889; `257p8` by premise
+/// and `-1p8` and `255p8` another (in range by domains.md 2883-2885 and 2892; `257p8` by premise
 /// P-M1).
 #[test]
 fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
@@ -795,6 +795,14 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
 /// unchanged. The element of every literal is unchanged, and every value the fold now writes is
 /// one this admission took on before K1 (k-rust's IEEE arithmetic, `rootFloat`'s NaN among it),
 /// so admission reads the same.
+///
+/// GAP AM-12 re-pin (text only: `docs/amendments.md` AM-12 adds three definedness rules to
+/// `domains.md`'s `INT-SYMBOLIC-KORE`, so every line of the embedded file after 1398 is three
+/// lower): four passages changed only in their `domains.md` line citations, each moved by three
+/// to the same text: the conversion line (a0a71ffd -> 5023b5e1) and the literal line
+/// (03ad7981 -> f968e83f) of Backend scope, and the machine-integer (ed76b97a -> 9fe522b3) and
+/// `Float` literal (cce5e00f -> bc95b385) paragraphs of Domain values. No word, class, mark or
+/// element moved, so admission reads the same.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -830,13 +838,13 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Backend scope",
                 "Where the `FLOAT` text names a conversion into a format, or a root, without",
-                "a0a71ffd941a9c78ab8a02106e46e5e0f41af024abc45a62f2485541f73e1b21",
+                "5023b5e15b48b7fdba4ed319e084318097e919ddfae448d8a5f492455db9d20e",
             ),
             // GAP K1: the literal reading moved to its own line after the conversions' classes.
             passage(
                 "## Backend scope",
                 "The arithmetic hooks are not affected: their `smt-hook`s name",
-                "03ad798127f4b225cc8790a1340b9427b3883578b919967086bc2286b12f3979",
+                "f968e83f9770a6cbefce51d415de5b4156313ffa6cfef420342d2453a016d2ff",
             ),
             passage(
                 "## Backend scope",
@@ -857,12 +865,12 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
             passage(
                 "## Domain values",
                 "A machine-integer literal of `MInt{W}`",
-                "ed76b97a5d453164e49d703946cdaf75980fea3eef02bd6e6962205d3f57bb81",
+                "9fe522b30b732821494eb725aa37c67ed6a6bc6f9914054c5494b0fcaa0c31b9",
             ),
             passage(
                 "## Domain values",
                 "A `Float` literal names a rational number",
-                "cce5e00fd0581406e514b100f792d06ae9d089088b55cfcf540cfd150058c31f",
+                "bc95b3854d8d2239a7352d2d42644ccd946d42edcd8b6ae7d5275417fdb5057a",
             ),
             passage(
                 "## Constant folding",

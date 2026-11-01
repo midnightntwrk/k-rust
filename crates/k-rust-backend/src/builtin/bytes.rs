@@ -202,7 +202,7 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// `dest` except the `N` elements starting at `index` are replaced with the contents of `src`",
 /// and "`#False` if `index` + `N` is not a valid index".
 ///
-/// "Valid index" is defined two sections above, for `B[I <- V]` (`domains.md`:2106-2107): an
+/// "Valid index" is defined two sections above, for `B[I <- V]` (`domains.md`:2109-2110): an
 /// index that is not "less than zero or greater than or equal to the length", `0 <= i < K`. The
 /// sentence applies it to `index + N`, the end of the replaced range, one past its last element,
 /// which amendment AM-7 of `docs/amendments.md` reads as the end bound of the range,

@@ -27,18 +27,24 @@ use kink_patch::{SemanticInput, SemanticInputError, structure_sha256};
 /// offsets and the kast.md ones after the paragraph five lines earlier; no sentence changed. With
 /// the two builtin files as before every old digest here comes back, and the compiled KORE below
 /// is unchanged.
+///
+/// Re-pin GAP AM-12 (k-rust docs/amendments.md): both digests moved again. Three definedness
+/// rules (of `^Int`, `^%Int` and `log2Int`, marked `// k-rust: AM-12`) follow AM-10's in the
+/// prelude's `INT-SYMBOLIC-KORE`: the semantic input and the KAST definition carry the three
+/// sentences, and every prelude sentence after them is three lines and their bytes later. No
+/// other sentence changed, and the user modules are equal.
 #[test]
 fn literal_digests() {
     for (name, artifact, structure) in [
         (
             "counter.k",
-            "55f906dd94458dcdcf44610dde95dc7231657116810426d75d0e5b836b510d66",
-            "fa525805732ff346a18fbf8976bc1e733d2af0df8ede02b59daa03bda7fe55f3",
+            "f410acd404327763cc0a7f681d9a61df96169c0e56e6d7e857f94aedc4d6b026",
+            "a3de13e7c4c3b3c9e3c0286153695acab8b5dad18623d1a49f57a03f0031bfa1",
         ),
         (
             "symmem.k",
-            "c122679cdf01c88c227418881fa057473722c31460d1abccffea5289af9bad80",
-            "c4c189aebd90a5f34703aeffe2c754ea971fba8d7d7b9cbef87090827661b6af",
+            "c7b6b36fc01615720b336633255706076e78b2a48ac073482eb0a51999033a83",
+            "39590ac3bbd42e40aa858f33922d76f9a5a57004aa03052d63669f5a9d5a293a",
         ),
     ] {
         let baseline = support::load(name);
@@ -66,20 +72,24 @@ fn literal_digests() {
 /// equation now comes with its exact domain and its conditional inverse, `<id>.selector-domain`
 /// and `<id>.selector-inverse`). With domains.md as before 0da031036 and the selector contracts
 /// not emitted, every old digest here comes back, so no other change reaches them.
+///
+/// Re-pin GAP AM-12: the compiled KORE moved with the three `#Ceil` rules AM-12 adds to
+/// `INT-SYMBOLIC-KORE` (three more axioms) and the source locations of the prelude sentences after
+/// them; the read-back still compiles to equal artifacts.
 #[test]
 fn compiled_kore_is_unchanged_by_the_provenance_move_and_by_a_read_back() {
     for (name, kore) in [
         (
             "counter.k",
-            "6e47a5d098ce9b14065010722cdc40d6d031a021142070bd3c7228e718f73f16",
+            "fa13c240f3daa1a27c3113c6aa85f39f7e94fb8f9ecf3501fe438b27a541c109",
         ),
         (
             "symmem.k",
-            "ca2066a0b01fde0634ca211822ad850185f2f483f8890512158425758ca012c1",
+            "e531c6e99046173f92ae74e7505ea06ddb9cb0a79b0e317d01863b22346a4ba1",
         ),
         (
             "guardedmem.k",
-            "1f1b3a5b479abc3fa1136edbcc835ec4770ab0746db510246b27286734e19a52",
+            "e2ea50d262b99182114dc396093a85cdc20de5f98b0a9187270e379061f7ba99",
         ),
     ] {
         let baseline = support::load(name);

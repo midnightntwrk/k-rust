@@ -838,9 +838,11 @@ fn run_driver(
 /// `krun`'s run driver on results above the size bound. `2 ^Int 2^24` is defined (its exponent is
 /// not negative) but not computed, so a step whose result discards it by the short-circuit of
 /// `false andBool` (`unused`) ends in the one result that does not hold it, with no definedness
-/// condition over it. The branch of a decided `#if` (`branch`) is never evaluated, so its
-/// definedness stays the open obligation `\ceil(2 ^Int i(2^24))` (showing it defined needs `i`'s
-/// value), still one result. A step whose result holds such a value (`used`), or whose rules
+/// condition over it. The branch of a decided `#if` (`branch`) is never evaluated, and its
+/// definedness `\ceil(2 ^Int i(2^24))` is discharged by `INT-SYMBOLIC-KORE`'s ceil equation of
+/// `^Int` (AM-12: defined at a nonnegative exponent, here `i(2^24)`, whose value is 2^24), so the
+/// one result carries no condition (GAP AM-12 re-pin: before AM-12 the module stated no domain of
+/// `^Int` and the obligation stayed open, one `\ceil`). A step whose result holds such a value (`used`), or whose rules
 /// branch on a condition over a `<<Int` one the solver cannot decide (`shl`), halts the run at
 /// that step with the unsupported-hook reason naming the bound.
 #[cfg(feature = "z3-inference")]
@@ -855,7 +857,7 @@ fn the_run_driver_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
         (
             "branch",
             r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("7"))"#,
-            1,
+            0,
         ),
     ] {
         let compiled = compile(SIZE_BOUND, "BOUND", "BOUND", "Pgm", program);

@@ -569,13 +569,22 @@ const CENSUS_AT_501F18B9: [&str; 88] = [
 /// Re-pin GAP A0 (k-rust docs/amendments.md): the two rules' lines end with the comment
 /// `// k-rust: AM-10` naming their amendment. A comment is no K text, so no hook, no declaration
 /// and no line moved: the open hooks and every citation here are as before.
+///
+/// Re-pin GAP AM-12 (k-rust docs/amendments.md): three definedness rules follow AM-10's in
+/// `INT-SYMBOLIC-KORE` (lines 1399-1401, marked `// k-rust: AM-12`): `^Int` is defined where its
+/// exponent is nonnegative or its base is 1 or -1, `^%Int` where moreover its modulus is nonzero,
+/// and `log2Int` where its argument is positive, each together with its operands. Each states a
+/// domain the file already gives (the power of two integers, an integer exactly there; "equal in
+/// value to `(A ^Int B) %Int C`", with `%Int` by zero `#False`; "Log base 2 of zero or a negative
+/// number is `#False`"), declares no hook and changes no hook's text, so no value becomes open or
+/// fixed: the open hooks are the same, and each citation after line 1398 moved by three lines.
 #[test]
 fn domains_md_leaves_these_hook_values_open() {
     let path = k_rust_backend().join("../k-rust/builtin/domains.md");
     let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(
         kink_patch::sha256(text.as_bytes()).to_string(),
-        "baa106389490f3a30c8f27d95fd43ce8fbc0e452bb5e427842527633b42f9af1",
+        "9b48f693cb235e0c221e3e2c38517de1b034ff80f8ccb11eaeafef3b5794cb18",
         "domains.md changed: sweep it again for hook values it leaves open"
     );
     let lines = text.lines().collect::<Vec<_>>();
@@ -606,8 +615,8 @@ fn domains_md_leaves_these_hook_values_open() {
             .all(|hook| !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(hook))
     );
     // Deliverable 8 rests on `encodeBytes` with a named encoding: domains.md names its
-    // encodings (line 2014), so it is not on the list.
-    assert!(lines[2013].contains("using `UTF-8`"), "{}", lines[2013]);
+    // encodings (line 2017), so it is not on the list.
+    assert!(lines[2016].contains("using `UTF-8`"), "{}", lines[2016]);
     assert!(!IMPLEMENTATION_CHOSEN_HOOKS.contains(&"BYTES.encodeBytes"));
 }
 
@@ -617,10 +626,12 @@ fn domains_md_leaves_these_hook_values_open() {
 /// Re-pin GAP A0 (k-rust docs/amendments.md): `domains.md` as above; in `kast.md` the prose
 /// paragraph before module `DEFAULT-LAYOUT` moved into amendment AM-9, and the module's two
 /// regex lines end with the comment `// k-rust: AM-9`. Neither declares or changes a hook.
+///
+/// Re-pin GAP AM-12: `domains.md` as above (three added definedness rules, no hook changed).
 const BUILTIN_FILES: [(&str, &str); 9] = [
     (
         "domains.md",
-        "baa106389490f3a30c8f27d95fd43ce8fbc0e452bb5e427842527633b42f9af1",
+        "9b48f693cb235e0c221e3e2c38517de1b034ff80f8ccb11eaeafef3b5794cb18",
     ),
     (
         "ffi.md",
@@ -727,14 +738,14 @@ fn builtin_files_leave_these_hook_values_open() {
             "BUFFER.empty",
             "domains.md: the empty StringBuffer (impure for mutability)",
         ),
-        ("IO.log", "domains.md:2662-2692: returns `.K` (returnsUnit)"),
+        ("IO.log", "domains.md:2665-2695: returns `.K` (returnsUnit)"),
         (
             "IO.logString",
-            "domains.md:2662-2692: returns `.K` (returnsUnit)",
+            "domains.md:2665-2695: returns `.K` (returnsUnit)",
         ),
         (
             "IO.traceTerm",
-            "domains.md:2662-2692: returns `.K` (returnsUnit)",
+            "domains.md:2665-2695: returns `.K` (returnsUnit)",
         ),
         ("K.K", "kast.md: a sort hook, no value"),
         ("K.KItem", "kast.md: a sort hook, no value"),
