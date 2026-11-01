@@ -24448,7 +24448,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."notation/rule/subject/set-element/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
-rule cTAG ( V0:KItem , SetItem((ListItem(V0:KItem) [ 0 ])) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , SetItem(V1:KItem) ) => hold ( V0:KItem )
+requires (0 <Int size(ListItem(V0:KItem))) andThenBool (V1:KItem ==K (ListItem(V0:KItem) [ 0 ])) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -24464,7 +24465,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."notation/rule/subject/set-element/k::builtin::list::item(x)[0]"]
 same_k_as = ["notation/rule/subject/set-element/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
-rule cTAG ( V0:KItem , SetItem((ListItem(V0:KItem) [ 0 ])) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , SetItem(V1:KItem) ) => hold ( V0:KItem )
+requires (0 <Int size(ListItem(V0:KItem))) andThenBool (V1:KItem ==K (ListItem(V0:KItem) [ 0 ])) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -24495,14 +24497,16 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."notation/rule/subject/set-element/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/rule/subject/set-element/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule cTAG ( V0:KItem , SetItem((.Map [ V0:KItem ])) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , SetItem(V1:KItem) ) => hold ( V0:KItem )
+requires V0:KItem in_keys(.Map) andThenBool (V1:KItem ==K (.Map [ V0:KItem ])) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
 [accept."notation/rule/subject/set-element/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule cTAG ( V0:KItem , SetItem((.Map [ V0:KItem ])) ) => hold ( V0:KItem ) [label(case-TAG)]
+rule cTAG ( V0:KItem , SetItem(V1:KItem) ) => hold ( V0:KItem )
+requires V0:KItem in_keys(.Map) andThenBool (V1:KItem ==K (.Map [ V0:KItem ])) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
