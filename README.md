@@ -120,7 +120,8 @@ Implemented end to end:
   `krust kore-get-model`, `krust kore-implies`, `krust kore-match-disjunction`, and experimental
   `krust krun` and `krust kprove` commands.
 - Bundled builtin sources pinned to K v7.1.337, so an installed CLI does not require a separate K
-  source checkout. Explicit sources always take precedence.
+  source checkout; the lines k-rust changes in them are marked and stated in
+  [docs/amendments.md](docs/amendments.md). Explicit sources always take precedence.
 - Native, portable, and `wasm32-unknown-unknown` build gates.
 
 The frontend implementation lives in the `k-rust` crate, with shared KORE syntax and serialization

@@ -3,6 +3,6 @@ source: crates/k-rust/tests/inner_rules.rs
 description: "definition::json::to_string_pretty of `module MAIN endmodule` loaded with the embedded prelude, symbolic excluded"
 ---
 ArtifactDigest {
-    bytes: 1535124,
-    sha256: "c22fd24f0e4224fd5d306477db02b22a9b834d70720613923b23c679c142c703",
+    bytes: 1535125,
+    sha256: "acd6c16b346d035d4f74a8562274275394434543ea4b2d4dff6ef3307a50bdce",
 }

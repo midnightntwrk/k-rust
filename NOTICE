@@ -7,7 +7,9 @@ Runtime Verification's pyk test data, crates/k-rust/tests/fixtures/kore/LICENSE.
 - `crates/k-rust/builtin/` (the K builtin sources) and `crates/k-rust/cparser/`
   (the standalone parser runtime) were copied from runtimeverification/k commit
   4a46d1231473b599c699160132fd6e76a5c46406. The builtin sources are compiled
-  into k-rust, so binary distributions of k-rust reproduce this notice.
+  into k-rust, so binary distributions of k-rust reproduce this notice. The
+  lines k-rust changed in them end with `// k-rust: AM-<n>`, naming the entry
+  of docs/amendments.md that states the change.
 - Test fixtures under `crates/k-rust/tests/fixtures/` that say so in their
   README, and the tests `crates/k-rust/tests/lexer.rs` ports from pyk, come
   from the same commit.

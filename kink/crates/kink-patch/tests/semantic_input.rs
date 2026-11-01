@@ -19,18 +19,26 @@ use kink_patch::{SemanticInput, SemanticInputError, structure_sha256};
 /// carry the prelude's sentences and their positions. With domains.md as before 0da031036 (and
 /// nothing else reverted) every old digest here comes back, so no other change reaches them; the
 /// compiler change 68e362935 cannot, since both are read before compilation.
+///
+/// Re-pin GAP A0 (k-rust docs/amendments.md): both digests moved again. In the prelude, the two
+/// rules of domains.md's `INT-SYMBOLIC-KORE` and the two regex lines of kast.md's
+/// `DEFAULT-LAYOUT` end with a `// k-rust: AM-<n>` comment, and kast.md's paragraph before
+/// that module moved into amendment AM-9, so the prelude sentences after them start at other
+/// offsets and the kast.md ones after the paragraph five lines earlier; no sentence changed. With
+/// the two builtin files as before every old digest here comes back, and the compiled KORE below
+/// is unchanged.
 #[test]
 fn literal_digests() {
     for (name, artifact, structure) in [
         (
             "counter.k",
-            "62a4040f3541ac0103c4ecf81f6a5236d9af8308aabd4a098ac5465fa2d13076",
-            "5f79568049266724077205cf15b6b072fdc77df041b3bc55fb82f5b495a29c96",
+            "55f906dd94458dcdcf44610dde95dc7231657116810426d75d0e5b836b510d66",
+            "fa525805732ff346a18fbf8976bc1e733d2af0df8ede02b59daa03bda7fe55f3",
         ),
         (
             "symmem.k",
-            "67492253f7d2e31d8a5c4b887460b640767c3574afad5f719d0b570bedd7871e",
-            "3e0f4593cdab0530587e9832ec5adc1b7d7d556d44124cc7e7602149a54e906a",
+            "c122679cdf01c88c227418881fa057473722c31460d1abccffea5289af9bad80",
+            "c4c189aebd90a5f34703aeffe2c754ea971fba8d7d7b9cbef87090827661b6af",
         ),
     ] {
         let baseline = support::load(name);

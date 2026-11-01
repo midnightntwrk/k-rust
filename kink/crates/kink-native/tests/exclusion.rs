@@ -509,13 +509,17 @@ const CENSUS_AT_501F18B9: [&str; 88] = [
 /// `>>Int` and `<<Int`, whose negative amounts are `#False`), declare no hook and change no hook's
 /// text, so no value becomes open or fixed: the open hooks are the same, and each citation after
 /// line 1394 moved by two lines.
+///
+/// Re-pin GAP A0 (k-rust docs/amendments.md): the two rules' lines end with the comment
+/// `// k-rust: AM-10` naming their amendment. A comment is no K text, so no hook, no declaration
+/// and no line moved: the open hooks and every citation here are as before.
 #[test]
 fn domains_md_leaves_these_hook_values_open() {
     let path = k_rust_backend().join("../k-rust/builtin/domains.md");
     let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(
         kink_patch::sha256(text.as_bytes()).to_string(),
-        "574450e9c15431156336b7851f0e5b8b0944dc49db2b8425cbb919bb141d337b",
+        "baa106389490f3a30c8f27d95fd43ce8fbc0e452bb5e427842527633b42f9af1",
         "domains.md changed: sweep it again for hook values it leaves open"
     );
     let lines = text.lines().collect::<Vec<_>>();
@@ -553,10 +557,14 @@ fn domains_md_leaves_these_hook_values_open() {
 
 /// The builtin files k-rust 501f18b9 ships (`k-rust/builtin`), each with its digest: a re-pin
 /// that adds, removes or changes one sweeps it again for hook values it leaves open.
+///
+/// Re-pin GAP A0 (k-rust docs/amendments.md): `domains.md` as above; in `kast.md` the prose
+/// paragraph before module `DEFAULT-LAYOUT` moved into amendment AM-9, and the module's two
+/// regex lines end with the comment `// k-rust: AM-9`. Neither declares or changes a hook.
 const BUILTIN_FILES: [(&str, &str); 9] = [
     (
         "domains.md",
-        "574450e9c15431156336b7851f0e5b8b0944dc49db2b8425cbb919bb141d337b",
+        "baa106389490f3a30c8f27d95fd43ce8fbc0e452bb5e427842527633b42f9af1",
     ),
     (
         "ffi.md",
@@ -568,7 +576,7 @@ const BUILTIN_FILES: [(&str, &str); 9] = [
     ),
     (
         "kast.md",
-        "6e62ad3f96785ed24b6db2ce34ff201367493f01c285a34eec98da1f3cbd6b6f",
+        "e65a09f95173bc32fcd433d7d732d67a3d4b51bbc797665f5315921a7cdf9b86",
     ),
     (
         "prelude.md",
