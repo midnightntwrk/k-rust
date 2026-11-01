@@ -385,7 +385,7 @@ fn result_use(form: Form, attribute: Attribute) -> Option<String> {
         ),
         (_, "equation" | "simplification") => ("    0\n}", "    NAMEUSE\n}"),
         (_, "table") => ("=> 0;", "=> NAMEUSE;"),
-        (_, "shorthand") => ("Size(x)", "Size(NAMEUSE)"),
+        (_, "shorthand") => ("Wk(x)", "Wk(NAMEUSE)"),
         _ => return None,
     };
     assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);

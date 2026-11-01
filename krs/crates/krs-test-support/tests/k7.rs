@@ -115,7 +115,7 @@ const UNDRIVEN: &[&str] = &[
     "a constant has no program syntax, and no base sentence can name the case's constant: constant/value-root | constant/value",
     "a context alias acts only through a production strict in it, and neither the base nor the case declares one: context-alias/item-root | context-alias/map-key | context-alias/subject",
     "a simplification only rewrites what a prover simplifies, and needs a prover: simplification/guard | simplification/result-root | simplification/result | simplification/subject-root | simplification/subject",
-    "the base applies no function but Probe and Size from a rule: equation/subject-root",
+    "the base applies no function but Probe, ProbeK and Size from a rule: equation/subject-root",
     "the function is internal: it has no program syntax, and no base sentence can name the case's function: shorthand/result-root | shorthand/result",
 ];
 
@@ -184,7 +184,7 @@ const STATUSES: &[&str] = &[
     "194 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
     "26 no driver: a malformed attribute is refused",
     "413 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
-    "76 no driver: the base applies no function but Probe and Size from a rule",
+    "76 no driver: the base applies no function but Probe, ProbeK and Size from a rule",
     "180 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "674 no driver: the readable, claim and `cells!` families read cells the machine and typed bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
@@ -415,9 +415,9 @@ fn the_drivers_write_their_programs_and_cells() {
     assert_eq!(
         plan("terms/equation/result/x + 1"),
         (
-            "call(NAME, 1)".to_owned(),
+            "callk(NAME, 1)".to_owned(),
             1,
-            k("Cmd::Hold(size(2))"),
+            k("Cmd::Hold(Wrap(2))"),
             Status::Value
         )
     );

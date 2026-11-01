@@ -998,12 +998,16 @@ impl Driver<'_> {
                     witness.status,
                 )
             }
+            // `ProbeK(Cmd::NAME(), x) => Wk(HOLE)`, applied by the base's rule
+            // `callk(a, b) => hold(probek(a, b))`: `Wk`'s equation makes the result
+            // `Wrap::<KItem>` of the hole's value, which the run shows.
             ("equation" | "table", "result") => {
                 let value = self.value()?;
+                let callk = Ground::ctor("Cmd::CallK", vec![self.command(Vec::new()), one()]);
                 Self::applied(
-                    &call(one()),
+                    &callk,
                     1,
-                    vec![k(vec![hold(Ground::unevaluated("size", vec![value.term]))])],
+                    vec![k(vec![hold(Ground::ctor("Wrap", vec![value.term]))])],
                     value.status,
                 )
             }
@@ -1042,7 +1046,7 @@ impl Driver<'_> {
             ),
             ("equation", "subject-root") => Err(K7::skip(
                 SkipKind::Form,
-                "the base applies no function but Probe and Size from a rule",
+                "the base applies no function but Probe, ProbeK and Size from a rule",
             )),
             // The case's rule writes the clause's production applied to the witness, which
             // kompile expanded: `drive(N)` takes one step to the clause's result.

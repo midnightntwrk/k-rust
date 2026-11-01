@@ -2,7 +2,8 @@
 //! roots included, and inside the positions the constructs open (depth 2).
 //!
 //! Each hole is a position whose sort is `KItem` (a field of `Hold`, `Pair`, a command, the
-//! functions `Probe` and `Size`, or a root declared `Term<KItem>`), which every sort but `K` lies
+//! functions `Probe`, `ProbeK`, `Zero`, `Size`, `Wk` and `Kz`, or a root declared `Term<KItem>`),
+//! which every sort but `K` lies
 //! below, so a construct is judged by whether its shape may stand there, not by its sort. A guard
 //! is the exception: the hole is the whole condition, a `Bool`.
 //!
@@ -93,6 +94,7 @@ pub enum Cmd {
     #[k::syntax("drive({a})")] Drive { a: Int },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
+    #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
     #[k::syntax("sizeof({a})")] SizeOf { a: KItem },
     #[k::syntax("setenv({a})")] SetEnv { a: KItem },
     #[k::syntax("setstack({a})")] SetStack { a: KItem },
@@ -156,6 +158,7 @@ pub enum Cmd {
     #[k::syntax("drive({a})")] Drive { a: Int },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
+    #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
     #[k::syntax("sizeof({a})")] SizeOf { a: KItem },
     #[k::syntax("setenv({a})")] SetEnv { a: KItem },
     #[k::syntax("setstack({a})")] SetStack { a: KItem },
@@ -184,6 +187,29 @@ pub struct Probe {
 #[k::function(partial, sort = Int, syntax = "size({a})")]
 pub struct Size {
     pub a: Term<KItem>,
+}
+
+/// A function of two items with an item result, which the equation forms define where the hole
+/// is an argument in the result: there the hole is `Wk`'s argument, whose equation makes the
+/// result `Wrap::<KItem>` of the hole's value, so a run shows that value.
+#[k::function(partial, sort = KItem, syntax = "probek({a}, {b})")]
+pub struct ProbeK {
+    pub a: Term<KItem>,
+    pub b: Term<KItem>,
+}
+
+/// A function of two items whose equation makes it 0, which the simplifications rewrite: each
+/// simplification states an equation `Zero`'s own makes true.
+#[k::function(partial, syntax = "zero({a}, {b})")]
+pub fn Zero(a: Term<KItem>, b: Term<KItem>) -> Term<Int> {
+    0
+}
+
+/// A function of one item whose equation makes it 0: a simplification's result writes the hole as
+/// its argument, which `Zero`'s 0 equals.
+#[k::function(partial, syntax = "kz({a})")]
+pub fn Kz(a: Term<KItem>) -> Term<Int> {
+    0
 }
 
 /// A cons list of items, whose elements bracket notation reads.
@@ -299,8 +325,8 @@ const INITIALIZER: &str = r#"impl Machine {
 /// - commands that set the run's other cells up, one rewrite step each: `then(a, b)` puts `a`
 ///   before `b` in the computation cell, `setenv(m)`, `setstack(l)` and `setseq(s)` replace a
 ///   cell's content, `addmember`, `addtoken` and `addrow` add a collection's instance;
-/// - `call(a, b)` and `sizeof(a)`, which apply `Probe` and `Size` from a rule's result, as a
-///   rule applies a function the equation forms define;
+/// - `call(a, b)`, `callk(a, b)` and `sizeof(a)`, which apply `Probe`, `ProbeK` and `Size` from a
+///   rule's result, as a rule applies a function the equation forms define;
 /// - `lits(..)`, whose fields put the `String`, `Bool`, `Float` and `Bytes` literals in the
 ///   program grammar;
 /// - makers for the values the grammar has no syntax for, each of which builds exactly the value
@@ -447,6 +473,8 @@ k::rules! {
 
     #[k::rule(priority = 10)]
     call: Cmd::Call(a, b) => Cmd::Hold(Probe(a, b));
+    #[k::rule(priority = 10)]
+    call_k: Cmd::CallK(a, b) => Cmd::Hold(ProbeK(a, b));
     #[k::rule(priority = 10)]
     size_of: Cmd::SizeOf(a) => Cmd::Hold(Size(a));
 }
@@ -2264,9 +2292,9 @@ fn slots() -> Vec<Slot> {
             Side::Result,
             (EquationFn, Part::Result, &[FunctionArgument]),
             concat!(
-                "#[k::equation]\nfn case_TAG(k::term![Probe(Cmd::NAME(), x)",
-                "]: Term<Int>) -> Term<Int> {\n",
-                "    Size(HOLE)\n}\n"
+                "#[k::equation]\nfn case_TAG(k::term![ProbeK(Cmd::NAME(), x)",
+                "]: Term<KItem>) -> Term<KItem> {\n",
+                "    Wk(HOLE)\n}\n"
             ),
         )
         .parsed_by_rustc()
@@ -2334,7 +2362,7 @@ fn slots() -> Vec<Slot> {
             "result",
             Side::Result,
             (EquationTable, Part::Result, &[FunctionArgument]),
-            "k::equations! {\n    for Probe;\n\n    case_TAG: (Cmd::NAME(), x) => Size(HOLE);\n}\n",
+            "k::equations! {\n    for ProbeK;\n\n    case_TAG: (Cmd::NAME(), x) => Wk(HOLE);\n}\n",
         )
         .arity(0),
         slot(
@@ -2350,7 +2378,7 @@ fn slots() -> Vec<Slot> {
             "result",
             Side::Result,
             (EquationFn, Part::Result, &[FunctionArgument]),
-            "#[k::function(partial, internal)]\npub fn FTAG(x: Term<KItem>) -> Term<Int> {\n    Size(HOLE)\n}\n",
+            "#[k::function(partial, internal)]\npub fn FTAG(x: Term<KItem>) -> Term<KItem> {\n    Wk(HOLE)\n}\n",
         )
         .parsed_by_rustc(),
         slot(
@@ -2367,7 +2395,7 @@ fn slots() -> Vec<Slot> {
             Side::Subject,
             (Simplification, Part::Subject, &[FunctionArgument]),
             concat!(
-                "#[k::simplification]\nfn case_TAG(k::term![Probe(Cmd::NAME(), HOLE)",
+                "#[k::simplification]\nfn case_TAG(k::term![Zero(Cmd::NAME(), HOLE)",
                 "]: Term<Int>) -> Term<Int> {\n",
                 "    0\n}\n"
             ),
@@ -2387,7 +2415,7 @@ fn slots() -> Vec<Slot> {
             Side::Guard,
             (Simplification, Part::Requires, &[]),
             concat!(
-                "#[k::simplification]\n#[k::requires(HOLE)]\nfn case_TAG(k::term![Probe(Cmd::NAME(), x)",
+                "#[k::simplification]\n#[k::requires(HOLE)]\nfn case_TAG(k::term![Zero(Cmd::NAME(), x)",
                 "]: Term<Int>) -> Term<Int> {\n",
                 "    0\n}\n"
             ),
@@ -2399,9 +2427,9 @@ fn slots() -> Vec<Slot> {
             Side::Result,
             (Simplification, Part::Result, &[FunctionArgument]),
             concat!(
-                "#[k::simplification]\nfn case_TAG(k::term![Probe(Cmd::NAME(), x)",
+                "#[k::simplification]\nfn case_TAG(k::term![Zero(Cmd::NAME(), x)",
                 "]: Term<Int>) -> Term<Int> {\n",
-                "    Size(HOLE)\n}\n"
+                "    Kz(HOLE)\n}\n"
             ),
         )
         .parsed_by_rustc()
