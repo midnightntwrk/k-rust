@@ -3081,6 +3081,120 @@ fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
     );
 }
 
+/// GAP K11: the partial symbols of the sibling-equality tests below. `p`, `half`, `gg` and `ff`
+/// have no equations but `gg(0) = 0` and a ceil equation stating `ff(0)` defined. `half`'s
+/// `smt-hook` is SMT-LIB's `div`, which has a value at 1 where the definition leaves `half(1)`
+/// open, and `gg`'s is `(* 0 #1)`, which is 0 wherever SMT-LIB gives its argument a value.
+fn sibling_equality_definition() -> BackendDefinition {
+    definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           symbol p{}(SortInt{}) : SortInt{} [function{}()]
+           symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+           symbol gg{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(* 0 #1)")]
+           symbol ff{}(SortInt{}) : SortInt{} [function{}()]
+           axiom{R} \implies{R}(
+             \and{R}(\top{R}(), \and{R}(
+               \in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())),
+             \equals{SortInt{}, R}(
+               gg{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
+             [label{}("gg-zero")]
+           axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+             \ceil{SortInt{}, Q}(ff{}(\dv{SortInt{}}("0"))), \and{Q}(\top{Q}(), \top{Q}())))
+             [simplification{}()]"#,
+    )
+}
+
+/// GAP K11: the rule of `a_ceil_conjunct_is_not_discharged_through_a_sibling_equality` holds
+/// for a `\ceil` whose expansion has members besides it, at each of its two places. The
+/// expansion of `\ceil(ff(gg(p(X))))` beside `p(X) = 0` keeps `\ceil(gg(p(X)))` (the sibling
+/// states `p(X)` defined, so `\ceil(p(X))` is dropped: the atom still states it), and the
+/// atom's arm takes a further pass over the two. That pass received every assumption of the
+/// arm as known predicates, the sibling `p(X) = 0` among them, rewrote both `\ceil`s through
+/// it (to `\ceil(ff(0))` and `\ceil(0)` by `gg-zero`, which then hold), and left the
+/// definedness of `p(X)` to the equality alone. And the arm itself held `\ceil(gg(p(X)))`
+/// beside `gg(p(X)) = 0` because the sibling states `gg(p(X))` defined, with the same effect,
+/// where `\ceil(p(X))` beside `p(X) = 0` (no further member) was kept. Siblings may still
+/// discharge the members: the atom stays and states them.
+#[test]
+fn a_ceil_atom_is_not_discharged_through_a_sibling_equality_by_its_expansion() {
+    let definition = sibling_equality_definition();
+    let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+    let simplified = |predicates: &[Predicate], known: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+    let applied = term(&definition, "p{}(X:SortInt{})");
+    let mut discharged = Vec::new();
+    for (subject, left) in [
+        ("ff{}(gg{}(p{}(X:SortInt{})))", applied.clone()),
+        (
+            "gg{}(p{}(X:SortInt{}))",
+            term(&definition, "gg{}(p{}(X:SortInt{}))"),
+        ),
+    ] {
+        let defined = Predicate::Ceil(term(&definition, subject));
+        let equality = Predicate::Equals(left, zero.clone());
+        let siblings = simplified(&[defined.clone(), equality.clone()], &[]);
+        if !(siblings.contains(&defined) && siblings.contains(&equality)) {
+            discharged.push(subject);
+        }
+        assert!(
+            simplified(&[defined], &[equality]).is_empty(),
+            "{subject}: a known equality discharges the ceil"
+        );
+    }
+    assert!(
+        discharged.is_empty(),
+        "discharged through the sibling: {discharged:?}"
+    );
+}
+
+/// GAP K11: what the two rewrites above lost, decided by the solver. `half(1)` is open, so
+/// `\ceil(ff(gg(half(1)))) ∧ half(1) = 0` is not valid: where `half(1)` is undefined it is
+/// `\bottom`. Rewritten through the sibling inside the atom's further pass, it became
+/// `\ceil(ff(gg(0))) ∧ \ceil(gg(0)) ∧ half(1) = 0`, `gg-zero` and `ff`'s ceil equation made it
+/// `half(1) = 0`, and Z3, reading `half` as `div`, decided that valid. The same for
+/// `\ceil(gg(half(1))) ∧ gg(half(1)) = 0`, held by the arm and left to `(* 0 ..)`.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_atom_beside_a_sibling_equality_is_not_decided_valid_through_its_smt_reading() {
+    let definition = sibling_equality_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+    let half = r#"half{}(\dv{SortInt{}}("1"))"#;
+    let mut valid = Vec::new();
+    for (subject, left) in [
+        (format!("ff{{}}(gg{{}}({half}))"), half.to_owned()),
+        (format!("gg{{}}({half})"), format!("gg{{}}({half})")),
+    ] {
+        let conjunction = Predicate::And(
+            vec![
+                Predicate::Ceil(term(&definition, &subject)),
+                Predicate::Equals(term(&definition, &left), zero.clone()),
+            ]
+            .into(),
+        );
+        let decided = simplify_and_decide_predicate_with_solver(
+            &definition,
+            &conjunction,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .unwrap();
+        if decided == Predicate::True {
+            valid.push(subject);
+        }
+    }
+    assert!(valid.is_empty(), "decided valid: {valid:?}");
+}
+
 /// Every application is strict, so a known predicate that states a term defined (a Boolean term
 /// read as `true = P`, an equality with a defined side, a `\ceil`) states every subterm of it
 /// defined, under partial symbols too, and a `\ceil` conjunct over one holds. A negated known

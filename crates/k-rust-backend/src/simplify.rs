@@ -655,7 +655,20 @@ fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
 /// provably defined (both sides then are), or `\ceil` of the term. A negation or a disjunction
 /// states no term defined (`\not(t = 0)` holds where `t` is undefined), nor does a predicate
 /// under a binder, whose variable it does not fix.
-fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -> FxHashSet<Term> {
+///
+/// Only the first `kept` predicates of `known` are kept by the caller; the rest are conjuncts of
+/// an enclosing conjunction ([`PredicateAssumptions::kept`]), and of those only the definedness
+/// atoms (`\ceil`, deferred atoms) are read. A `\ceil` discharged by a term stated defined is
+/// left to that statement, so the statement must stay. A definedness atom does: it goes only when
+/// something else states its term defined. An enclosing equality or Boolean predicate over the
+/// term may not: it is a conjunct the solver may decide valid with the term's SMT reading, which
+/// is exact only where the term is defined, and drop (`simplify_conjunction_with_budget`, at
+/// `known_path_condition`).
+fn known_defined_subterms(
+    definition: &BackendDefinition,
+    known: &[Predicate],
+    kept: usize,
+) -> FxHashSet<Term> {
     /// The children that are `ceil_free` are skipped as their parent is: a collection's are
     /// passed over through its trees' summaries (`children_lacking`).
     fn collect(term: &Term, subterms: &mut FxHashSet<Term>) {
@@ -671,6 +684,7 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
         definition: &BackendDefinition,
         known: &[Predicate],
         predicate: &Predicate,
+        atoms_only: bool,
         subterms: &mut FxHashSet<Term>,
     ) {
         let defined = |term: &Term| {
@@ -679,13 +693,12 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
         match predicate {
             Predicate::And(conjuncts) => {
                 for conjunct in conjuncts.iter() {
-                    visit(definition, known, conjunct, subterms);
+                    visit(definition, known, conjunct, atoms_only, subterms);
                 }
             }
-            Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Defined(term) => {
-                collect(term, subterms);
-            }
-            Predicate::Equals(left, right) if defined(left) || defined(right) => {
+            Predicate::Ceil(term) | Predicate::Defined(term) => collect(term, subterms),
+            Predicate::Term(term) if !atoms_only => collect(term, subterms),
+            Predicate::Equals(left, right) if !atoms_only && (defined(left) || defined(right)) => {
                 collect(left, subterms);
                 collect(right, subterms);
             }
@@ -694,8 +707,14 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
     }
 
     let mut subterms = FxHashSet::default();
-    for predicate in known {
-        visit(definition, known, predicate, &mut subterms);
+    for (position, predicate) in known.iter().enumerate() {
+        visit(
+            definition,
+            known,
+            predicate,
+            position >= kept,
+            &mut subterms,
+        );
     }
     subterms
 }
@@ -706,11 +725,14 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
 ///
 /// A member the assumptions contain holds. So does a `\ceil` (or definedness atom) of a term
 /// the assumptions state defined (`known_defined_subterms`: every application is strict, so a
-/// defined term has defined subterms), and `atom` itself when it is such a `\ceil`. The further
-/// pass over the expansion's conjunction (`simplify_predicate_on_stack`) receives these same
-/// assumptions as its known predicates and drops those members for that reason, so they are
-/// dropped here too: an expansion that adds only such members beside the opaque `atom` leaves
-/// that pass with `atom` alone under the same assumptions, which is this simplification again.
+/// defined term has defined subterms), and `atom` itself when it is such a `\ceil` of a term that
+/// what stays stated beside it states defined: the kept predicates and the enclosing definedness
+/// atoms, not an enclosing equality or Boolean predicate (K11, `known_defined_subterms`). A
+/// member may go by any assumption, since `atom` stays and states it. The further pass over the
+/// expansion's conjunction (`simplify_predicate_on_stack`) receives these same assumptions as its
+/// known predicates and drops those members for that reason, so they are dropped here too: an
+/// expansion that adds only such members beside the opaque `atom` leaves that pass with `atom`
+/// alone under the same assumptions, which is this simplification again.
 /// The pass keeps `atom` as it is there (`simplify_conjunction_with_budget`), so dropping them
 /// here spares it a round; before that stop (K10) the two recurred without end. KEVM's
 /// `#parseByteStack` of an unevaluated `Keccak256(B)` reaches
@@ -738,8 +760,8 @@ fn expansion_obligations(
     if expanded.iter().all(|predicate| predicate == atom) {
         return Ok(false);
     }
-    let known = known_defined_subterms(definition, assumptions.terms.predicates);
-    let holds = |predicate: &Predicate| match predicate {
+    let predicates = assumptions.terms.predicates;
+    let held_by = |known: &FxHashSet<Term>, predicate: &Predicate| match predicate {
         Predicate::Ceil(subject) => known.contains(subject),
         // As in `simplify_predicates_with_budget`: a deferred atom over an impure application
         // goes to its own arm, which raises the unsupported-hook outcome.
@@ -749,10 +771,19 @@ fn expansion_obligations(
         }
         _ => false,
     };
-    if holds(atom) {
+    // `atom` is discharged only by what stays stated beside it (`known_defined_subterms`): an
+    // enclosing equality `t = c` that states its subject defined would be left the only
+    // statement of `t`'s definedness. A member is discharged by anything the assumptions state,
+    // since `atom`, which states it too, stays.
+    if held_by(
+        &known_defined_subterms(definition, predicates, assumptions.kept),
+        atom,
+    ) {
         return Ok(true);
     }
-    expanded.retain(|predicate| !holds(predicate));
+    let known = known_defined_subterms(definition, predicates, predicates.len());
+    let holds = |predicate: &Predicate| held_by(&known, predicate);
+    expanded.retain(|predicate| predicate == atom || !holds(predicate));
     // A member `\ceil(s)` is dropped only when the judgement holds of `s` and every other
     // obligation of `ceil_term(s)` is a member, assumed or held. `ceil_term` emits the
     // obligations of every node below `s`, whether or not a ceil equation applies at a node, so
@@ -1021,6 +1052,14 @@ struct PredicateAssumptions<'a> {
     /// `terms.predicates`, with the slot of the conjunct being simplified: it is not an
     /// assumption of its own simplification.
     level: Option<(&'a LevelConjuncts, Option<usize>)>,
+    /// How many of the first `terms.predicates` the caller keeps: the known predicates of the
+    /// outermost simplification, which its caller keeps, and none of the conjuncts of a
+    /// conjunction being simplified, which that simplification may still rewrite or drop. The
+    /// further pass of a definedness atom's arm takes all of these assumptions as its known
+    /// predicates and this count with them, so the conjuncts beside the atom stay unkept there.
+    /// A `\ceil` is discharged or rewritten only through kept predicates and definedness atoms
+    /// (`known_defined_subterms`).
+    kept: usize,
     /// For the further pass of a definedness atom's arm over the atom's expansion, the atom: a
     /// conjunction simplification under these assumptions keeps it as it is once it is alone
     /// beside the known predicates ([`simplify_conjunction_with_budget`]). Read by the `And` arm
@@ -1033,11 +1072,13 @@ impl<'a> PredicateAssumptions<'a> {
         terms: TermAssumptions<'a>,
         known: &'a KnownConjuncts<'a>,
         level: Option<(&'a LevelConjuncts, Option<usize>)>,
+        kept: usize,
     ) -> Self {
         Self {
             terms,
             known,
             level,
+            kept,
             settled: None,
         }
     }
@@ -1052,6 +1093,7 @@ impl<'a> PredicateAssumptions<'a> {
             },
             known: self.known,
             level: self.level,
+            kept: self.kept,
             settled: Some(atom),
         }
     }
@@ -1473,6 +1515,8 @@ fn collect_conjunct_parts(predicate: &Predicate, parts: &mut Vec<Predicate>) {
 /// another variable.
 struct UnshadowedAssumptions<'a> {
     predicates: Vec<Predicate>,
+    /// [`PredicateAssumptions::kept`], of `predicates`.
+    kept: usize,
     path_condition: PathConditionReplacements,
     conjuncts: KnownConjuncts<'a>,
 }
@@ -1496,11 +1540,16 @@ impl<'a> UnshadowedAssumptions<'a> {
             .filter(|predicate| holds(predicate))
             .cloned()
             .collect::<Vec<_>>();
+        let kept = assumptions.terms.predicates[..assumptions.kept]
+            .iter()
+            .filter(|predicate| holds(predicate))
+            .count();
         let path_condition = PathConditionReplacements::new(&predicates);
         let conjuncts =
             KnownConjuncts::of(assumptions.conjuncts().filter(|predicate| holds(predicate)));
         Some(Self {
             predicates,
+            kept,
             path_condition,
             conjuncts,
         })
@@ -1514,6 +1563,7 @@ impl<'a> UnshadowedAssumptions<'a> {
             },
             &self.conjuncts,
             None,
+            self.kept,
         )
     }
 }
@@ -1531,6 +1581,7 @@ fn simplify_predicates_with_budget(
         definition,
         predicates,
         known_predicates,
+        known_predicates.len(),
         limit,
         remaining,
         active_conditions,
@@ -1539,14 +1590,16 @@ fn simplify_predicates_with_budget(
     )
 }
 
-/// [`simplify_predicates_with_budget`]; when `settled` is a definedness atom whose arm takes
-/// this pass over the atom's expansion, the atom is kept as it is once it is alone beside the
-/// known predicates.
+/// [`simplify_predicates_with_budget`]; the caller keeps only the first `kept` known predicates
+/// ([`PredicateAssumptions::kept`]); when `settled` is a definedness atom whose arm takes this
+/// pass over the atom's expansion, the atom is kept as it is once it is alone beside the known
+/// predicates.
 #[allow(clippy::too_many_arguments)]
 fn simplify_conjunction_with_budget(
     definition: &BackendDefinition,
     predicates: &[Predicate],
     known_predicates: &[Predicate],
+    kept: usize,
     limit: usize,
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -1574,6 +1627,10 @@ fn simplify_conjunction_with_budget(
         .filter(|predicate| **predicate != Predicate::True)
         .cloned()
         .collect::<Vec<_>>();
+    let kept_assumptions = known_predicates[..kept]
+        .iter()
+        .filter(|predicate| **predicate != Predicate::True)
+        .count();
     count_conjunction_inputs(&conjuncts, assumptions.len());
     let mut level = LevelConjuncts::new(assumptions.len());
     let slots = conjuncts
@@ -1589,7 +1646,9 @@ fn simplify_conjunction_with_budget(
         .collect::<Vec<_>>();
     let offset = level.offset;
     let mut known_equalities = Vec::new();
-    collect_conjunctive_equalities(known_predicates, &mut known_equalities);
+    collect_conjunctive_equalities(&known_predicates[..kept], &mut known_equalities);
+    let kept_equalities = known_equalities.len();
+    collect_conjunctive_equalities(&known_predicates[kept..], &mut known_equalities);
     let known_equalities = owned_equalities(known_equalities);
     // The equalities of each additional conjunct as it currently stands.
     let mut conjunct_equalities = conjuncts
@@ -1626,12 +1685,14 @@ fn simplify_conjunction_with_budget(
     // holds, and leave the definedness of `t` stated only by that equality. The equality is a
     // conjunct the solver may later decide valid with `t`'s SMT reading and drop; that reading
     // is exact only where `t` is defined, so the decision is a K one only while `\ceil(t)` is
-    // stated beside it. The known predicates are kept by the caller, so their equalities may
-    // rewrite it.
+    // stated beside it. The known predicates the caller keeps may rewrite it through their
+    // equalities; the others are the conjuncts of an enclosing conjunction, which this one is
+    // part of (the further pass of a definedness atom's arm), siblings in the same sense.
     let mut known_path_condition = None;
     // The terms the known predicates state defined, with their subterms, built at the first
-    // `\ceil` conjunct: such a conjunct over one of them holds (`known_defined_subterms`). The
-    // known predicates are kept by the caller, so the definedness stays stated by them.
+    // `\ceil` conjunct: such a conjunct over one of them holds (`known_defined_subterms`). Of
+    // the known predicates, those the caller keeps are read whole and the others for their
+    // definedness atoms alone, so the definedness stays stated.
     let mut known_defined = None;
     let mut simplified = Vec::with_capacity(conjuncts.len());
     for (index, &predicate) in conjuncts.iter().enumerate() {
@@ -1644,7 +1705,7 @@ fn simplify_conjunction_with_budget(
         // raises the unsupported-hook outcome.
         let result = if let Predicate::Ceil(subject) | Predicate::Defined(subject) = predicate
             && known_defined
-                .get_or_insert_with(|| known_defined_subterms(definition, known_predicates))
+                .get_or_insert_with(|| known_defined_subterms(definition, known_predicates, kept))
                 .contains(subject)
             && !(matches!(predicate, Predicate::Defined(_))
                 && crate::deferred::impure_outcome(definition, subject).is_some())
@@ -1674,7 +1735,9 @@ fn simplify_conjunction_with_budget(
             let path_condition = if matches!(predicate, Predicate::Ceil(_)) {
                 &*known_path_condition.get_or_insert_with(|| {
                     PathConditionReplacements::from_equalities(
-                        known_equalities.iter().map(|(left, right)| (left, right)),
+                        known_equalities[..kept_equalities]
+                            .iter()
+                            .map(|(left, right)| (left, right)),
                     )
                 })
             } else {
@@ -1692,6 +1755,7 @@ fn simplify_conjunction_with_budget(
                 },
                 &known_index,
                 Some((&level, slots[index])),
+                kept_assumptions,
             );
             let mut predicate_remaining = *remaining;
             simplify_predicate_with_budget(
@@ -1752,6 +1816,7 @@ fn simplify_conjunction_with_budget(
         definition,
         &simplified,
         known_predicates,
+        kept,
         limit,
         remaining,
         active_conditions,
@@ -2993,6 +3058,7 @@ fn simplify_predicate(
         },
         &known_index,
         None,
+        known_predicates.len(),
     );
     simplify_predicate_with_budget(
         definition,
@@ -3513,6 +3579,7 @@ fn simplify_predicate_on_stack(
                 definition,
                 inner,
                 assumptions.terms.predicates,
+                assumptions.kept,
                 limit,
                 &mut inner_remaining,
                 active_conditions,
@@ -11520,6 +11587,7 @@ mod tests {
                 },
                 &empty,
                 Some((&level, excluded)),
+                0,
             );
             let others = assumed
                 .iter()
