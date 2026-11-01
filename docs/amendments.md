@@ -62,8 +62,8 @@ Each entry has these fields:
   ```diff
   -                     | r"(\\/\\/[^\\n\\r]*)"                         // C-style single-line comments
   -                     | r"([\\ \\n\\r\\t])"                           // Whitespace
-  +                     | r"(\\/\\/[^\\n-\\r\u0085  ]*)"      // C-style single-line comments
-  +                     | r"([\\ \\t\\n-\\r\u0085  ])"        // Whitespace
+  +                     | r"(\\/\\/[^\\n-\\r\u0085\u2028\u2029]*)"      // C-style single-line comments
+  +                     | r"([\\ \\t\\n-\\r\u0085\u2028\u2029])"        // Whitespace
   ```
 
   with the paragraph of k-rust's reading above added before the module.
