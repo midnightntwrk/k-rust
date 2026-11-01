@@ -39,13 +39,16 @@ impl Term {
         &self.kast
     }
 
-    /// The first item of the `<k>` cell as textual KAST: `Some(None)` when `<k>` is empty, `None` without a `<k>` cell.
+    /// The first item of the computation cell `<cell>` (the definition's main cell,
+    /// [`crate::Semantics::main_cell`]) as textual KAST: `Some(None)` when the cell is empty,
+    /// `None` without such a cell.
     #[must_use]
-    pub fn k_head(&self) -> Option<Option<String>> {
+    pub fn computation_head(&self, cell: &str) -> Option<Option<String>> {
+        let label_name = format!("<{cell}>");
         let mut stack = vec![&self.kast];
         while let Some(term) = stack.pop() {
             match term {
-                KastTerm::Apply { label, arguments } if label.name == "<k>" => {
+                KastTerm::Apply { label, arguments } if label.name == label_name => {
                     let [content] = arguments.as_slice() else {
                         return None;
                     };
@@ -64,20 +67,22 @@ impl Term {
         None
     }
 
-    /// The first item of the `<k>` cell as a KORE pattern, the subterm [`Term::k_head`] prints:
-    /// `Some(None)` when `<k>` is empty, `None` without a `<k>` cell.
+    /// The first item of the computation cell `<cell>` as a KORE pattern, the subterm
+    /// [`Term::computation_head`] prints: `Some(None)` when the cell is empty, `None` without
+    /// such a cell.
     ///
     /// Nested `kseq` and `append` applications are one flat sequence, as in KAST, so the first
     /// item is the leftmost pattern that is neither of them nor `dotk`.
     #[must_use]
-    pub fn k_head_kore(&self) -> Option<Option<&Pattern>> {
+    pub fn computation_head_kore(&self, cell: &str) -> Option<Option<&Pattern>> {
+        let label_name = format!("<{cell}>");
         let mut stack = vec![&self.kore];
         while let Some(pattern) = stack.pop() {
             if let Pattern::Application { symbol, arguments }
             | Pattern::AssociativeApplication {
                 symbol, arguments, ..
             } = pattern
-                && krs_unparse::label_name(&symbol.name) == "<k>"
+                && krs_unparse::label_name(&symbol.name) == label_name
             {
                 let [content] = arguments.as_slice() else {
                     return None;

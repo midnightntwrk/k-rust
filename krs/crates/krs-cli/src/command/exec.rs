@@ -464,7 +464,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             print(semantics, &report.state, output, color, &mut stderr)?
         ),
     };
-    let head = k_head(semantics, &report.state, request.output, &mut stderr);
+    let head = main_cell_head(semantics, &report.state, request.output, &mut stderr);
     let _ = write!(
         stderr,
         "krs run: {} after {} step{}{head}",
@@ -646,18 +646,27 @@ fn status_word(word: &str, smt: bool) -> String {
     }
 }
 
-/// The status line's description of the result's `<k>` cell: `; <k> starts with ` and its first
-/// item in backquotes, `; <k> is empty`, or nothing without a `<k>` cell.
+/// The status line's description of the result's main cell, the computation
+/// ([`Semantics::main_cell`], `<k>` or another name): `; <prog> starts with ` and its first item
+/// in backquotes, `; <prog> is empty`, or nothing without a main cell.
 ///
 /// The item is printed in the notation the result itself is printed in, so the line names the same term
 /// the reader sees above it: grammar-directed text for `pretty` and for `none` (which prints no
 /// result, and whose reader gets the default notation), KAST for `kast` and `json`, KORE for
 /// `kore`. Under `none` the grammar-directed print's warnings go to `stderr`; otherwise the print
 /// of the whole result has reported them.
-fn k_head(semantics: &Semantics, state: &Term, output: TermOutput, stderr: &mut String) -> String {
+fn main_cell_head(
+    semantics: &Semantics,
+    state: &Term,
+    output: TermOutput,
+    stderr: &mut String,
+) -> String {
+    let Some(cell) = semantics.main_cell() else {
+        return String::new();
+    };
     let head = match output {
         TermOutput::Pretty | TermOutput::Program | TermOutput::None => {
-            semantics.unparse_k_head(state).map(|head| {
+            semantics.unparse_computation_head(state).map(|head| {
                 head.map(|printed| {
                     if output == TermOutput::None {
                         write_warnings(stderr, &printed);
@@ -666,14 +675,14 @@ fn k_head(semantics: &Semantics, state: &Term, output: TermOutput, stderr: &mut 
                 })
             })
         }
-        TermOutput::Kast | TermOutput::Json => state.k_head(),
+        TermOutput::Kast | TermOutput::Json => state.computation_head(cell),
         TermOutput::Kore => state
-            .k_head_kore()
+            .computation_head_kore(cell)
             .map(|head| head.map(ToString::to_string)),
     };
     match head {
-        Some(Some(item)) => format!("; <k> starts with `{item}`"),
-        Some(None) => "; <k> is empty".to_owned(),
+        Some(Some(item)) => format!("; <{cell}> starts with `{item}`"),
+        Some(None) => format!("; <{cell}> is empty"),
         None => String::new(),
     }
 }

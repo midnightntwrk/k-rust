@@ -140,12 +140,16 @@ fn printed_reads_back(
         ..options
     };
     let mut cells = Vec::new();
-    if let Some(Some(item)) = state.k_head_kore() {
-        cells.push(("<k>".to_owned(), None, item));
+    // The main cell, the computation, is read back by its first item, whatever its name.
+    let main = semantics.main_cell().map(|cell| format!("<{cell}>"));
+    if let Some(cell) = semantics.main_cell()
+        && let Some(Some(item)) = state.computation_head_kore(cell)
+    {
+        cells.push((format!("<{cell}>"), None, item));
     }
     for (symbol, content) in state.leaf_cells() {
         let label = unparse::label_name(symbol);
-        if label == "<k>" {
+        if main.as_deref() == Some(label.as_str()) {
             continue;
         }
         let Some(sort) = case
@@ -159,10 +163,11 @@ fn printed_reads_back(
     }
     for (cell, sort, content) in cells {
         let printed = case.print_kore(content, &options);
+        // The main cell is named by its first item, `<k> head`.
         let place = if sort.is_none() {
-            "<k> head"
+            format!("{cell} head")
         } else {
-            cell.as_str()
+            cell.clone()
         };
         let expected = stated.print_kore(content, &options);
         if expected.text != printed.text {
@@ -222,7 +227,7 @@ fn printed_reads_back(
 /// that `Word` reads back as another term. Only where the program grammar has no syntax for the
 /// sort (no sort to read at, as for a `K` sequence, or a sort it does not have,
 /// [`ExecError::UnknownSort`], as for a builtin collection), the main module's grammar, which has
-/// it, reads it ([`Semantics::parse_k_head`], [`Semantics::parse_cell`]). Text the program grammar
+/// it, reads it ([`Semantics::parse_computation_head`], [`Semantics::parse_cell`]). Text the program grammar
 /// fails to parse at the sorts it has is the print's failure, which the main grammar must not
 /// answer for.
 fn read_back(
@@ -251,7 +256,7 @@ fn read_back(
         }
     }
     match sort {
-        None => semantics.parse_k_head(text),
+        None => semantics.parse_computation_head(text),
         Some(sort) => semantics.parse_cell(cell, sort, text),
     }
 }

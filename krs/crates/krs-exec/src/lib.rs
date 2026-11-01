@@ -525,6 +525,8 @@ pub struct Semantics {
     spec_definition: Option<Box<DefinitionIr>>,
     /// Compiled spec-module proof definitions, by spec module.
     spec_provers: BTreeMap<String, SpecProver>,
+    /// The main cell's K name ([`Self::main_cell`]).
+    main_cell: Option<String>,
 }
 
 /// One author spec module's compiled proof definition (KF-041).
@@ -631,6 +633,7 @@ impl Semantics {
             .map(|module| module.id().as_str().to_owned())
             .collect::<Vec<_>>();
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
+        let main_cell = main_cell_name(definition);
         Ok(Self {
             backend,
             sort_hooks,
@@ -650,6 +653,7 @@ impl Semantics {
             spec_modules,
             spec_definition,
             spec_provers: BTreeMap::new(),
+            main_cell,
         })
     }
 
@@ -1227,14 +1231,24 @@ impl Semantics {
         )
     }
 
-    /// Print the first item of a term's `<k>` cell through the definition's grammar, as
-    /// [`Semantics::unparse`] prints it inside the whole term: `Some(None)` when `<k>` is empty,
-    /// `None` without a `<k>` cell (see [`Term::k_head_kore`]).
+    /// The definition's main cell, by its K name: the computation cell the program starts in
+    /// (`krs_ir_levels::k_surface::main_cell`), whatever its name; `None` in a configuration
+    /// without one.
+    #[must_use]
+    pub fn main_cell(&self) -> Option<&str> {
+        self.main_cell.as_deref()
+    }
+
+    /// Print the first item of a term's main cell ([`Self::main_cell`]) through the
+    /// definition's grammar, as [`Semantics::unparse`] prints it inside the whole term:
+    /// `Some(None)` when the cell is empty, `None` without a main cell (see
+    /// [`Term::computation_head_kore`]).
     ///
     /// A symbol without a printable production is printed as KAST and reported in [`Printed::warnings`].
     #[must_use]
-    pub fn unparse_k_head(&self, term: &Term) -> Option<Option<Printed>> {
-        term.k_head_kore().map(|head| {
+    pub fn unparse_computation_head(&self, term: &Term) -> Option<Option<Printed>> {
+        let cell = self.main_cell()?;
+        term.computation_head_kore(cell).map(|head| {
             head.map(|item| {
                 self.unparser
                     .print_kore(item, &krs_unparse::Options::new(krs_unparse::Mode::Pretty))
@@ -1248,18 +1262,20 @@ impl Semantics {
         &self.unparser
     }
 
-    /// Read a `<k>` cell's first item back from the text [`Semantics::unparse_k_head`] prints:
-    /// parsed with the main module's grammar, which has the builtin collections' syntax too, at
-    /// `KItem`, with its aliases and desugars expanded as a program's are.
+    /// Read the main cell's first item back from the text
+    /// [`Semantics::unparse_computation_head`] prints: parsed with the main module's grammar,
+    /// which has the builtin collections' syntax too, at `KItem`, with its aliases and desugars
+    /// expanded as a program's are.
     ///
     /// # Errors
     ///
     /// Returns [`ExecError::Parse`] when the text does not parse.
-    pub fn parse_k_head(&mut self, text: &str) -> Result<Pattern, ExecError> {
+    pub fn parse_computation_head(&mut self, text: &str) -> Result<Pattern, ExecError> {
+        let cell = self.main_cell.clone().unwrap_or_else(|| "k".to_owned());
         self.configuration
-            .parse_head("k", text)
+            .parse_head(&cell, text)
             .map_err(|error| ExecError::Parse {
-                input: "the printed <k> head".to_owned(),
+                input: format!("the printed <{cell}> head"),
                 sort: "KItem".to_owned(),
                 message: error.to_string(),
             })
@@ -1296,6 +1312,29 @@ impl Semantics {
                     .step_origin(self.provenance.get(&entry.unique_id)),
             })
             .collect()
+    }
+}
+
+/// The K name of the main cell of the definition's configuration, the cell both backends mark
+/// (`krs_ir_levels::k_surface::main_cell`); `None` where the configuration has none. A
+/// definition without a configuration has K's, whose computation cell is `k`.
+fn main_cell_name(definition: &DefinitionIr) -> Option<String> {
+    let configuration = definition.modules().iter().find_map(|module| {
+        module
+            .sentences()
+            .iter()
+            .find_map(|sentence| match sentence {
+                krs_ir_levels::DefinitionSentence::Configuration(configuration) => {
+                    Some(configuration)
+                }
+                _ => None,
+            })
+    });
+    match configuration {
+        Some(configuration) => krs_ir_levels::k_surface::main_cell(configuration)
+            .cell()
+            .map(|cell| cell.name().to_owned()),
+        None => Some("k".to_owned()),
     }
 }
 

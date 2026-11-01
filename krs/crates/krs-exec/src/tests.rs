@@ -254,7 +254,7 @@ fn terms_serialize_as_the_kast_json_envelope() {
 }
 
 #[test]
-fn k_head_prints_the_first_item_or_reports_an_empty_cell() {
+fn the_computation_head_prints_the_first_item_or_reports_an_empty_cell() {
     use k_rust::kast::Term as KastTerm;
     let configuration = |content| {
         super::Term::new(
@@ -265,13 +265,14 @@ fn k_head_prints_the_first_item_or_reports_an_empty_cell() {
             ),
         )
     };
-    let head = configuration(KastTerm::Sequence(vec![KastTerm::apply("bar", vec![])])).k_head();
+    let head = configuration(KastTerm::Sequence(vec![KastTerm::apply("bar", vec![])]))
+        .computation_head("k");
     assert!(
         matches!(&head, Some(Some(text)) if text.starts_with("bar")),
         "{head:?}"
     );
     assert_eq!(
-        configuration(KastTerm::Sequence(Vec::new())).k_head(),
+        configuration(KastTerm::Sequence(Vec::new())).computation_head("k"),
         Some(None)
     );
     assert_eq!(
@@ -279,13 +280,13 @@ fn k_head_prints_the_first_item_or_reports_an_empty_cell() {
             parse_pattern("dotk{}()").unwrap(),
             KastTerm::apply("other", vec![])
         )
-        .k_head(),
+        .computation_head("k"),
         None
     );
 }
 
 #[test]
-fn k_head_kore_is_the_first_item_of_the_flattened_sequence() {
+fn the_computation_head_kore_is_the_first_item_of_the_flattened_sequence() {
     use k_rust::kast::Term as KastTerm;
     let head = |content: &str| {
         let state = super::Term::new(
@@ -296,7 +297,7 @@ fn k_head_kore_is_the_first_item_of_the_flattened_sequence() {
             KastTerm::Sequence(Vec::new()),
         );
         state
-            .k_head_kore()
+            .computation_head_kore("k")
             .map(|item| item.map(ToString::to_string))
     };
     let wrap = r#"inj{SortObject{}, SortKItem{}}(Lblwrap{}(Lblbar{}(), \dv{SortInt{}}("3")))"#;
@@ -320,9 +321,24 @@ fn k_head_kore_is_the_first_item_of_the_flattened_sequence() {
             parse_pattern("dotk{}()").unwrap(),
             KastTerm::Sequence(Vec::new())
         )
-        .k_head_kore(),
+        .computation_head_kore("k"),
         None
     );
+    // The main cell is read by its name, whatever it is: `<prog>` holds the computation and no
+    // `<k>` exists.
+    let prog = super::Term::new(
+        parse_pattern(&format!(
+            "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'prog'-GT-'{{}}(kseq{{}}({wrap}, dotk{{}}())))"
+        ))
+        .unwrap(),
+        KastTerm::Sequence(Vec::new()),
+    );
+    assert_eq!(
+        prog.computation_head_kore("prog")
+            .map(|item| item.map(ToString::to_string)),
+        Some(Some(parse_pattern(wrap).unwrap().to_string()))
+    );
+    assert_eq!(prog.computation_head_kore("k"), None);
 }
 
 #[test]
