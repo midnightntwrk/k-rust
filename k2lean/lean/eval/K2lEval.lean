@@ -106,7 +106,8 @@ module (the user's own Lean specification, `contract.md` §2) is a root of the c
 prelude and Lean are pinned by the lake manifest and the toolchain, whose files are hashed.
 
 `--freeze-record` writes `OUTDIR/k2lean.freeze` (the fingerprints: a 128-bit structural hash of
-each statement, and of each closure constant's type and value, binder names aside) and
+each statement, and of each closure constant's type and value, binder names aside, an auxiliary
+declaration by its content: `auxConst`) and
 `OUTDIR/k2lean.frozen.md`, the frozen statements as Lean prints them, for people to read.
 `--freeze-check` recomputes both from the names `k2lean.freeze` lists and reports each change:
 `moved` (a frozen theorem's statement), `open` (no theorem), `axioms` (a disallowed axiom),
@@ -116,8 +117,20 @@ statements differ from `k2lean.frozen.md`), `lint` (`debug.skipKernelTC`, `imple
 against accidents, not against a determined agent (`contract.md` §3.6); `--replay` is the kernel's
 own check. -/
 
-/-- A 128-bit structural hash of an expression: binder names and metadata aside, binder info kept. -/
-partial def fpExpr (e : Expr) : StateM (Std.HashMap Expr (UInt64 × UInt64)) (UInt64 × UInt64) := do
+/-- Whether a constant is an auxiliary declaration that Lean names after the first declaration
+needing it (a matcher `match_N`, `_sparseCasesOn_N`, an abstracted proof `proof_N`): Lean reuses a
+structurally identical one across the declarations of a module, so adding an earlier declaration
+renames what a later one refers to, with nothing either means changed (CT-5). -/
+def auxConst (env : Environment) (n : Name) : Bool :=
+  Meta.isMatcherCore env n ||
+  match n with
+  | .str _ s => s.startsWith "match_" || s.startsWith "_sparseCasesOn" || s.startsWith "proof_"
+  | _ => false
+
+/-- A 128-bit structural hash of an expression: binder names and metadata aside, binder info kept;
+an auxiliary constant (`auxConst`) by its content, its type and value, not its name. -/
+partial def fpExpr (env : Environment) (e : Expr) :
+    StateM (Std.HashMap Expr (UInt64 × UInt64)) (UInt64 × UInt64) := do
   if let some h := (← get)[e]? then return h
   let mix (a b : UInt64 × UInt64) : UInt64 × UInt64 :=
     (mixHash a.1 b.1, mixHash (a.2 * 0x9E3779B97F4A7C15) (b.2 ^^^ 0xC2B2AE3D27D4EB4F))
@@ -129,15 +142,25 @@ partial def fpExpr (e : Expr) : StateM (Std.HashMap Expr (UInt64 × UInt64)) (UI
     | .fvar f => pure (mix (tag 2) (nm f.name))
     | .mvar m => pure (mix (tag 3) (nm m.name))
     | .sort l => pure (mix (tag 4) (lv l))
-    | .const n ls => pure (ls.foldl (fun a l => mix a (lv l)) (mix (tag 5) (nm n)))
-    | .app f a => return mix (mix (tag 6) (← fpExpr f)) (← fpExpr a)
-    | .lam _ t b bi => return mix (mix (mix (tag 7) (tag (hash bi))) (← fpExpr t)) (← fpExpr b)
-    | .forallE _ t b bi => return mix (mix (mix (tag 8) (tag (hash bi))) (← fpExpr t)) (← fpExpr b)
-    | .letE _ t v b _ => return mix (mix (mix (tag 9) (← fpExpr t)) (← fpExpr v)) (← fpExpr b)
+    | .const n ls =>
+      match env.find? n with
+      | some c =>
+        if auxConst env n then
+          let ht ← fpExpr env c.type
+          let hv ← match c.value? with
+            | some v => fpExpr env v
+            | none => pure (tag 0)
+          pure (ls.foldl (fun a l => mix a (lv l)) (mix (mix (tag 13) ht) hv))
+        else pure (ls.foldl (fun a l => mix a (lv l)) (mix (tag 5) (nm n)))
+      | none => pure (ls.foldl (fun a l => mix a (lv l)) (mix (tag 5) (nm n)))
+    | .app f a => return mix (mix (tag 6) (← fpExpr env f)) (← fpExpr env a)
+    | .lam _ t b bi => return mix (mix (mix (tag 7) (tag (hash bi))) (← fpExpr env t)) (← fpExpr env b)
+    | .forallE _ t b bi => return mix (mix (mix (tag 8) (tag (hash bi))) (← fpExpr env t)) (← fpExpr env b)
+    | .letE _ t v b _ => return mix (mix (mix (tag 9) (← fpExpr env t)) (← fpExpr env v)) (← fpExpr env b)
     | .lit (.natVal n) => pure (mix (tag 10) (tag (hash n)))
     | .lit (.strVal s) => pure (mix (tag 11) (tag (hash s)))
-    | .mdata _ x => fpExpr x
-    | .proj s i x => return mix (mix (mix (tag 12) (nm s)) (tag i.toUInt64)) (← fpExpr x)
+    | .mdata _ x => fpExpr env x
+    | .proj s i x => return mix (mix (mix (tag 12) (nm s)) (tag i.toUInt64)) (← fpExpr env x)
   modify (·.insert e r)
   return r
 
@@ -261,7 +284,7 @@ def closure (env : Environment) (own : Name → Bool) (roots : Array Name)
     unless own env.header.moduleNames[i.toNat]! do continue
     seen := seen.insert k
     let some c := env.find? k | continue
-    let (ht, c1) := (fpExpr c.type).run cache
+    let (ht, c1) := (fpExpr env c.type).run cache
     cache := c1
     let mut deps := c.type.getUsedConstants
     let mut vs := "-"
@@ -270,11 +293,12 @@ def closure (env : Environment) (own : Name → Bool) (roots : Array Name)
     | .inductInfo ii => deps := deps ++ ii.ctors.toArray
     | _ =>
       if let some v := c.value? then
-        let (hv, c2) := (fpExpr v).run cache
+        let (hv, c2) := (fpExpr env v).run cache
         cache := c2
         vs := hex128 hv
         deps := deps ++ v.getUsedConstants
-    out := out.push (k, hex128 ht, vs)
+    -- an auxiliary is in its users' fingerprints by content (`fpExpr`), not listed by its name
+    unless auxConst env k do out := out.push (k, hex128 ht, vs)
     work := work ++ deps
   return (out.qsort (fun a b => a.1.toString < b.1.toString), cache)
 
@@ -335,7 +359,7 @@ def computeFrozen (env : Environment) (ns : Name) (specs : Array Name)
     for n in ns' do
       match env.find? n with
       | some c =>
-        let (h, c1) := (fpExpr c.type).run cache
+        let (h, c1) := (fpExpr env c.type).run cache
         cache := c1
         row := row.push (n, hex128 h)
         roots := roots ++ c.type.getUsedConstants
@@ -587,7 +611,7 @@ def withFingerprints (env : Environment) (es : Array Entry) : Array Entry := Id.
       out := out.push e
       continue
     let st := st?.get!
-    let (hs, c0) := (fpExpr st).run cache
+    let (hs, c0) := (fpExpr env st).run cache
     cache := c0
     let mut seen : Std.HashSet Name := {}
     let mut work := st.getUsedConstants
@@ -605,7 +629,7 @@ def withFingerprints (env : Environment) (es : Array Entry) : Array Entry := Id.
         let mut deps : Array Name := #[]
         if keep then
           if let some c := env.find? k then
-            let (ht, c1) := (fpExpr c.type).run cache
+            let (ht, c1) := (fpExpr env c.type).run cache
             cache := c1
             fp := ht
             deps := c.type.getUsedConstants
@@ -614,14 +638,14 @@ def withFingerprints (env : Environment) (es : Array Entry) : Array Entry := Id.
             | .inductInfo ii => deps := deps ++ ii.ctors.toArray
             | _ =>
               if let some v := c.value? then
-                let (hv, c2) := (fpExpr v).run cache
+                let (hv, c2) := (fpExpr env v).run cache
                 cache := c2
                 fp := mix128 fp hv
                 deps := deps ++ v.getUsedConstants
         info := info.insert k (keep, fp, deps)
       let (keep, fp, deps) := info[k]!
       if keep then
-        reached := reached.push (k, fp)
+        unless auxConst env k do reached := reached.push (k, fp)
         work := work ++ deps
     let sorted := reached.qsort (fun a b => a.1.toString < b.1.toString)
     let hc := sorted.foldl (fun a (k, fp) => mix128 a (mix128 (k.hash, hash k.toString) fp))

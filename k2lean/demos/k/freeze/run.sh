@@ -75,6 +75,10 @@ fingerprints "$rec/k2lean-result.json" Frz.g_id stmt same Frz.g_id spec same Frz
 # another measure: the definition is frozen
 edit measure 1 '"kind":"spec-moved","name":"Frz.g' Frz/Spec.lean 's/^termination_by n$/termination_by n + 1/'
 fingerprints "$rec/k2lean-result.json" Frz.g_id stmt same Frz.g_id spec moved Frz.bound spec moved Frz.f_double spec same
+# an earlier function with the same match shape: Lean's matcher of `f` is now that function's
+# (`e.match_1`), which renames nothing `f` means (CT-5)
+edit samematch 0 '' Frz/Spec.lean 's/^def f : Nat → Nat$/def e : Nat → Nat\n  | 0 => 1\n  | n + 1 => n\n\ndef f : Nat → Nat/'
+fingerprints "$rec/k2lean-result.json" Frz.f_double spec same Frz.two spec same Frz.f_double stmt same
 # a frozen theorem deleted: open
 edit deleted 0 '"kind":"open","name":"Frz.g_id"' Frz/Proofs.lean '/^theorem g_id/,/^  | succ/d'
 statuses "$rec/k2lean-result.json" Frz.g_id open
