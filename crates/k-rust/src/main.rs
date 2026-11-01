@@ -2053,9 +2053,14 @@ fn finish_with_timings<T>(
     }
 }
 
+/// The phase of `kcompile --timings` that records [`value_claim_diagnostics`]: the load of the
+/// emitted `definition.kore` and the checks on it, which a Rust compilation that is not for
+/// proving runs after the library's last emission phase, as the compile group's last phase.
+const LOAD_TIME_CHECKS_PHASE: &str = "load-time checks";
+
 /// The body of `kcompile` from the compile on: compile the loaded definition, check it, and write
-/// its artifacts, recording the compile phases in `compile_timings` and the Bison and write
-/// phases in `write_timings` whatever the outcome.
+/// its artifacts, recording the compile phases and the load-time checks in `compile_timings` and
+/// the Bison and write phases in `write_timings` whatever the outcome.
 fn kcompile_after_load(
     options: &KcompileOptions,
     loaded: &k_rust::outer::LoadedDefinition,
@@ -2064,21 +2069,31 @@ fn kcompile_after_load(
     compile_timings: &mut PhaseTimings,
     write_timings: &mut PhaseTimings,
 ) -> Result<(), Box<dyn Error>> {
-    let artifacts = match compile_timings
-        .span(|timings| compile_loaded_definition_with_timings(loaded, compile_options, timings))
-    {
-        Ok(artifacts) => artifacts,
+    // The load-time checks read the compiled definition only, so they are part of the compile
+    // group: its span covers them, and `--timings` shows their cost.
+    let checked = compile_timings.span(|timings| {
+        compile_loaded_definition_with_timings(loaded, compile_options, timings).map(|artifacts| {
+            let findings = (options.backend == CompilationBackend::Rust && !options.for_proving)
+                .then(|| {
+                    timings.time(LOAD_TIME_CHECKS_PHASE, || {
+                        options
+                            .common
+                            .diagnostics
+                            .apply(value_claim_diagnostics(&artifacts, &options.common.module))
+                    })
+                });
+            (artifacts, findings)
+        })
+    });
+    let (artifacts, findings) = match checked {
+        Ok(checked) => checked,
         Err(error) => {
             emit_diagnostics(&error.diagnostics);
             return Err(error.into());
         }
     };
     emit_diagnostics(&artifacts.diagnostics);
-    if options.backend == CompilationBackend::Rust && !options.for_proving {
-        let findings = options
-            .common
-            .diagnostics
-            .apply(value_claim_diagnostics(&artifacts, &options.common.module));
+    if let Some(findings) = findings {
         emit_diagnostics(&findings);
         if findings
             .iter()
