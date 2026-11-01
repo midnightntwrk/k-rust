@@ -557,6 +557,103 @@ k::rules! {
     );
 }
 
+/// A dependency's declarations in a private module (`mod sorts; pub use sorts::{..};`) print by
+/// the paths the root's source writes to them, through the public re-export: their declaring
+/// path `::semantic_base::sorts::Unit` does not compile from another crate (E0603). Where the
+/// source writes no path to such an item from the crate's name, no printed path is known to
+/// compile, and `krs expand` refuses with `dependency-path` rather than print one.
+#[test]
+fn a_dependency_item_in_a_private_module_expands_by_the_path_the_source_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    write_package(
+        temporary.path(),
+        "base",
+        r#"
+pub use sorts::{Common, CommonSort, Same, Unit};
+
+mod sorts {
+    use k::{KItem, KItemSort, Term};
+
+    #[k::sort(alias = Common, parents = [KItem])]
+    pub trait CommonSort: KItemSort {}
+    pub type Common = Term<dyn CommonSort>;
+
+    #[k::constructor(sort = Common, syntax = "same")]
+    pub struct Same;
+
+    #[k::constructor(sort = Common, syntax = "unit")]
+    pub struct Unit;
+}
+"#,
+        "",
+    );
+    let root_source = |rule: &str| {
+        format!(
+            r"
+use k::builtin::KSequence;
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init() -> Self {{
+        Self {{ k: k::k![semantic_base::Same] }}
+    }}
+}}
+
+k::rules! {{
+    for semantic_base::Common;
+    {rule}
+}}
+"
+        )
+    };
+    let root = write_package(
+        temporary.path(),
+        "root",
+        &root_source("cross: semantic_base::Unit => semantic_base::Same;"),
+        "semantic_base = { package = \"base\", path = \"../base\" }\n",
+    );
+    fs::write(
+        temporary.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"base\", \"root\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let dependency = ["--dependency", "base:main"];
+    let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
+    assert!(success, "{stderr}");
+    let collapsed = printed.replace(' ', "");
+    for path in ["::semantic_base::Unit", "::semantic_base::Same"] {
+        assert!(collapsed.contains(path), "{printed}");
+    }
+    assert!(!collapsed.contains("::semantic_base::sorts::"), "{printed}");
+    let source = root.with_file_name("src").join("lib.rs");
+    fs::write(&source, &printed).unwrap();
+    let (success, _, stderr) = krs(target.path(), &root, "root", "check", &dependency);
+    assert!(success, "{printed}\n{stderr}");
+    // The same rule, where the source names the crate only through a `use` renaming it: the
+    // printer reads the paths the source writes from the crate's own name, so it knows of none.
+    let renamed = root_source("cross: sb::Unit => sb::Same;")
+        .replace("for semantic_base::Common;", "for sb::Common;")
+        .replace(
+            "use k::builtin::KSequence;",
+            "use k::builtin::KSequence;\nuse semantic_base as sb;",
+        )
+        .replace("k::k![semantic_base::Same]", "k::k![sb::Same]");
+    fs::write(&source, renamed).unwrap();
+    let (success, printed, stderr) = krs(target.path(), &root, "root", "expand", &dependency);
+    assert!(!success, "{printed}");
+    assert!(
+        stderr.contains("krs::reference::dependency-path"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn a_constant_names_a_ground_constructor_term_of_its_sort() {
     let target = shared_fixture_target();

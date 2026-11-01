@@ -318,6 +318,7 @@ def main() -> int:
         harness = FixtureGate(
             "sorts-algebra", pins, workspace, krs, gate, environment,
             refresh=arguments.refresh_reference,
+            check_prints=True,
         )
 
         verify_functions(harness)

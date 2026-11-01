@@ -48,6 +48,11 @@ Every `krs` command the harness runs sets `KRS_CHECK_AGREEMENT=1`, so every
 process, `krs` runs `emit-k`, `build` on each backend the check judged, and the
 run commands' definition load, and fails unless the check passed exactly when
 all of them accepted the fixture (`krs/crates/krs-cli/src/command/agreement.rs`).
+
+A gate constructed with `check_prints=True` also sets `KRS_CHECK_PRINTS=1` for its `krs`
+commands and `krs-gate` sessions: every state printed through the definition's grammar is read
+back, cell by cell, and a print that does not read back as the state fails the command
+(`Semantics::check_prints`, `krs/crates/krs-exec/src/read_back.rs`).
 """
 
 from __future__ import annotations
@@ -158,6 +163,14 @@ class FixtureGate:
     divergences: dict[str, Any] = field(default_factory=dict)
     kore_attributes: dict[str, str] = field(default_factory=dict)
     """The agreed KORE attribute lines of each package compared with `attributes`."""
+    check_prints: bool = False
+    """Whether every state `krs run`, `search` and `prove` and the gate's `exec.run` print through
+    the definition's grammar is read back as the state (`KRS_CHECK_PRINTS=1`): a print that does
+    not read back fails the command. A gate whose printed outputs are pinned opts in."""
+
+    def __post_init__(self) -> None:
+        if self.check_prints:
+            self.environment = {**self.environment, "KRS_CHECK_PRINTS": "1"}
 
     def _krs(self, fixture: Fixture, command: str, *extra: os.PathLike[str] | str, check: bool = True) -> subprocess.CompletedProcess[str]:
         argv = fixture.invocation(self.krs).argv(command, *fixture.argv_extra(), *extra)

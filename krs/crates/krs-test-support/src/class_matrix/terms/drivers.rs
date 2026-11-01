@@ -1161,16 +1161,18 @@ impl Driver<'_> {
     }
 
     /// `plan`, with the case's own command among the aliases no print writes where its alias
-    /// clause's subject is no program text ([`no_program_text`]): it holds a term a program
-    /// writes only through a maker, so printed it reads back as nothing.
+    /// clause's subject is no program text: it holds a term a program writes only through a
+    /// maker ([`no_program_text`]), or its head, the command's own production, is placed in the
+    /// semantics module ([`head_in_semantics`]); printed, it reads back as nothing.
     fn forward_only_if_unread(&self, mut plan: Result<K7, K7>) -> Result<K7, K7> {
         if let Ok(K7::Run(run)) = &mut plan
             && self.slot.form == "alias"
-            && self
-                .spelling
-                .nodes
-                .iter()
-                .any(|node| no_program_text(node.construct))
+            && (head_in_semantics(self.command)
+                || self
+                    .spelling
+                    .nodes
+                    .iter()
+                    .any(|node| no_program_text(node.construct)))
         {
             run.forward_only.push(self.command.name.clone());
         }
@@ -1267,6 +1269,13 @@ const fn no_program_text(construct: Construct) -> bool {
             | Construct::Notation(Notation::CollectionValue)
             | Construct::ListBrackets
     )
+}
+
+/// Whether `command`'s production is placed in the semantics module, where no program grammar
+/// has it: a field of a builtin collection's sort (`List`, `Set`, `Map`) puts it there, since K
+/// supplies those sorts only with a full module.
+fn head_in_semantics(command: &Command) -> bool {
+    command.arity > 0 && matches!(command.field_sort, "List" | "Set" | "Map")
 }
 
 /// Whether `term` holds [`Ground::Any`].

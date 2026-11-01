@@ -431,6 +431,7 @@ impl Session {
     }
 
     /// `krs run` through `krs-exec`: configure from `program` and `variables`, then run with `depth` and `trace`.
+    /// With `print` `"pretty"` and `KRS_CHECK_PRINTS=1`, the printed state is read back as `krs run` reads it back.
     fn exec_run(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let inputs = config_inputs(request)?;
         let options = RunOptions {
@@ -455,6 +456,25 @@ impl Session {
         let mut value = serde_json::to_value(&report)?;
         if pretty {
             value["printed"] = printed_value(&semantics.unparse(&report.state, false));
+            // As `krs run` does under the variable: a print that does not read back as the state
+            // fails the request.
+            if std::env::var_os("KRS_CHECK_PRINTS").as_deref() == Some(std::ffi::OsStr::new("1")) {
+                let failures = semantics
+                    .check_prints(&report.state)?
+                    .into_iter()
+                    .filter_map(|(_, read)| match read {
+                        krs_exec::ReadBack::Fails(failure) => Some(failure),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                if !failures.is_empty() {
+                    return Err(format!(
+                        "KRS_CHECK_PRINTS: a printed state does not read back as the state:\n  {}",
+                        failures.join("\n  ")
+                    )
+                    .into());
+                }
+            }
         }
         Ok(value)
     }

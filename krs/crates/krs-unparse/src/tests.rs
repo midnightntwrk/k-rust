@@ -714,44 +714,121 @@ module PARAMETRIC
   sort SortInt{} []
   sort SortKItem{} []
   sort SortExp{} []
+  sort SortString{} []
+  sort SortWidth8{} []
   sort SortBox{S} []
+  sort SortMInt{W} []
   symbol Lblwrap{S}(S) : S [format{}("wrap ( %1 )"), terminals{}("1101")]
   symbol Lblbox{S}(S) : SortBox{S} [format{}("box ( %1 )"), terminals{}("1101")]
+  symbol Lblunbox{S}(SortBox{S}) : S [format{}("unbox ( %1 )"), terminals{}("1101")]
   symbol Lblholder{}(SortBox{SortKItem{}}) : SortExp{} [format{}("holder ( %1 )"), terminals{}("1101")]
+  symbol Lblitem{}(SortKItem{}) : SortExp{} [format{}("item ( %1 )"), terminals{}("1101")]
+  symbol Lblf{S}(S) : SortExp{} [format{}("f ( %1 )"), terminals{}("1101")]
+  symbol Lblholder2{}(SortExp{}) : SortExp{} [format{}("holder2 ( %1 )"), terminals{}("1101")]
+  symbol LblunparseKORE{S}(S) : SortString{} [format{}("unparseKORE ( %1 )"), terminals{}("1101")]
+  symbol Lblbitwidth{W}(SortMInt{W}) : SortInt{} [format{}("bitwidth ( %1 )"), terminals{}("1101")]
+  symbol Lblmint{W}(SortInt{}) : SortMInt{W} [format{}("mint ( %1 )"), terminals{}("1101")]
+  symbol Lblh{}(SortKItem{}) : SortExp{} [format{}("h ( %1 )"), terminals{}("1101")]
 endmodule []
 "#;
 
 /// A parametric application prints as its production's text only where that text fixes its
-/// instance, by an argument read at its own sort or by a position of exactly its parametric
-/// result sort; elsewhere, where the text would read back at another instance, it prints as its
-/// KORE pattern, with a warning.
+/// instance, by an argument read at exactly its declared sort's instance or by a position of
+/// exactly its parametric result sort; elsewhere, where the text would read back at another
+/// instance, it prints as its KORE pattern, with a warning.
 #[test]
 fn an_instance_no_text_fixes_prints_as_kore() {
     let unparser = Unparser::from_kore(PARAMETRIC, "").expect("parametric KORE");
-    let one_as_item = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#;
+    let one = r#"\dv{SortInt{}}("1")"#;
+    let one_as_item = format!("inj{{SortInt{{}}, SortKItem{{}}}}({one})");
     let print = |term: &str| unparser.print_kore(&pattern(term), &Options::default());
-    let own = print(r#"Lblwrap{SortInt{}}(\dv{SortInt{}}("1"))"#);
+    let readable = |term: &str, text: &str| {
+        let printed = print(term);
+        assert_eq!(
+            (printed.text.as_str(), printed.warnings),
+            (text, Vec::new()),
+            "{term}"
+        );
+    };
+    readable(&format!("Lblwrap{{SortInt{{}}}}({one})"), "wrap ( 1 )");
+    let raised = format!("Lblwrap{{SortKItem{{}}}}({one_as_item})");
+    let printed = print(&raised);
+    assert_eq!(printed.text, pattern(&raised).to_string());
     assert_eq!(
-        (own.text.as_str(), own.warnings),
-        ("wrap ( 1 )", Vec::new())
-    );
-    let wrapped = format!("Lblwrap{{SortKItem{{}}}}({one_as_item})");
-    let raised = print(&wrapped);
-    assert_eq!(raised.text, pattern(&wrapped).to_string());
-    assert_eq!(
-        raised.warnings,
+        printed.warnings,
         vec![Warning::Instance(vec!["Lblwrap".to_owned()])]
     );
     assert_eq!(
-        raised.warnings[0].to_string(),
+        printed.warnings[0].to_string(),
         "no program text fixes the instance of `wrap`, which would read back at another; printed as KORE"
     );
-    let boxed = format!("Lblbox{{SortKItem{{}}}}({one_as_item})");
-    let held = print(&format!("Lblholder{{}}({boxed})"));
+    // Below the root, at a position of exactly `KItem` (a `<k>` item's): the bare parameter `S`
+    // is below `KItem` at every instance, so the position fixes nothing.
+    let item = print(&format!("Lblitem{{}}({raised})"));
     assert_eq!(
-        (held.text.as_str(), held.warnings),
-        ("holder ( box ( 1 ) )", Vec::new())
+        (item.text.clone(), item.warnings),
+        (
+            format!("item ( {} )", pattern(&raised)),
+            vec![Warning::Instance(vec!["Lblwrap".to_owned()])]
+        )
     );
+    // A result sort that does not mention the parameter fixes nothing at any position: `f(1)`
+    // reads back as `f{Int}(1)`.
+    let f = format!("Lblf{{SortKItem{{}}}}({one_as_item})");
+    let held = print(&format!("Lblholder2{{}}({f})"));
+    assert_eq!(
+        (held.text.clone(), held.warnings),
+        (
+            format!("holder2 ( {} )", pattern(&f)),
+            vec![Warning::Instance(vec!["Lblf".to_owned()])]
+        )
+    );
+    readable(
+        &format!("Lblholder2{{}}(Lblf{{SortInt{{}}}}({one}))"),
+        "holder2 ( f ( 1 ) )",
+    );
+    // The prelude's shapes: `{S} String ::= #unparseKORE(S)` is fixed only by its argument;
+    // `{W} Int ::= bitwidthMInt(MInt{W})` by an argument of exactly `MInt{W}`'s instance.
+    let unparsed = format!("LblunparseKORE{{SortKItem{{}}}}({one_as_item})");
+    assert_eq!(print(&unparsed).text, pattern(&unparsed).to_string());
+    readable(
+        &format!("LblunparseKORE{{SortInt{{}}}}({one})"),
+        "unparseKORE ( 1 )",
+    );
+    readable(
+        &format!("Lblbitwidth{{SortWidth8{{}}}}(Lblmint{{SortWidth8{{}}}}({one}))"),
+        "bitwidth ( mint ( 1 ) )",
+    );
+    // An argument of a parametric sort met exactly fixes the parameter it mentions: `Box{Int}`
+    // is below `Box{S}` only at `S = Int`.
+    readable(
+        &format!("Lblunbox{{SortInt{{}}}}(Lblbox{{SortInt{{}}}}({one}))"),
+        "unbox ( box ( 1 ) )",
+    );
+    let boxed = format!("Lblbox{{SortKItem{{}}}}({one_as_item})");
+    readable(&format!("Lblholder{{}}({boxed})"), "holder ( box ( 1 ) )");
     let injected = format!("inj{{SortBox{{SortKItem{{}}}}, SortKItem{{}}}}({boxed})");
     assert_eq!(print(&injected).text, pattern(&boxed).to_string());
+}
+
+/// An instance is judged where the application stands in the printed tree, after alias
+/// reversal: the alias `h(X:KItem) => holder(X)` moves `box{KItem}(1)` from `holder`'s exact
+/// `Box{KItem}` argument to `h`'s `KItem` one, under an injection, where `h(box(1))` would read
+/// back at `box{Int}`.
+#[test]
+fn an_instance_is_judged_where_reversal_prints_it() {
+    let macros = r"axiom{R} \equals{SortExp{}, R}(Lblh{}(inj{SortBox{SortKItem{}}, SortKItem{}}(VarX:SortBox{SortKItem{}})), Lblholder{}(VarX:SortBox{SortKItem{}})) [alias'Kywd'{}()]";
+    let unparser = Unparser::from_kore(PARAMETRIC, macros).expect("parametric KORE");
+    let boxed = r#"Lblbox{SortKItem{}}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))"#;
+    let printed = unparser.print_kore(
+        &pattern(&format!("Lblholder{{}}({boxed})")),
+        &Options::default(),
+    );
+    assert_eq!(
+        (printed.text.as_str(), printed.warnings.as_slice()),
+        (
+            format!("h ( {} )", pattern(boxed)).as_str(),
+            [Warning::Instance(vec!["Lblbox".to_owned()])].as_slice()
+        )
+    );
 }

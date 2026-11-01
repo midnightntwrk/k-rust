@@ -152,9 +152,24 @@ pub struct Configuration {
     grammar: &'static Grammar,
     assembler: ConfigurationAssembler<'static>,
     parser_modules: BTreeMap<String, String>,
+    /// The module tried before the main module for each variable no `parser` attribute names
+    /// ([`variable_modules`]).
+    variable_modules: BTreeMap<String, String>,
     parsers: BTreeMap<String, ProgramParser>,
     ground_value_parser: Option<ProgramParser>,
     macro_definition: MacroExpansionDefinition,
+    /// What [`Self::read_token_in`] read, by grammar, KORE sort name and text.
+    token_reads: BTreeMap<(Reader, String, String), Option<Pattern>>,
+}
+
+/// One of the two grammars a printed term is read back with.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Reader {
+    /// The syntax module's, the one a program is read with.
+    Program,
+    /// The main module's, which also has the builtin collections' syntax and the productions
+    /// the partition placed in the semantics module.
+    Main,
 }
 
 impl Configuration {
@@ -178,7 +193,7 @@ impl Configuration {
         }));
         let resolved = grammar.program.resolved();
         let syntax_module = k_rust::outer::resolve_syntax_module(resolved, None)?.name;
-        let mut parser_modules = parser_modules(resolved, &main_module)?;
+        let parser_modules = parser_modules(resolved, &main_module)?;
         let variable_modules = variable_modules(grammar, &syntax_module, &parser_modules);
         let macro_definition = MacroExpansionDefinition::prepare(grammar.program.definition())?;
         let assembler = ConfigurationAssembler::new(
@@ -188,16 +203,17 @@ impl Configuration {
             &grammar.variables,
         )
         .reading_variables_with(variable_modules.clone());
-        parser_modules.extend(variable_modules);
         Ok(Self {
             main_module,
             syntax_module,
             grammar,
             assembler,
             parser_modules,
+            variable_modules,
             parsers: BTreeMap::new(),
             ground_value_parser: None,
             macro_definition,
+            token_reads: BTreeMap::new(),
         })
     }
 
@@ -255,17 +271,33 @@ impl Configuration {
             .variables
             .get(name)
             .ok_or_else(|| format!("definition has no configuration variable `${name}`"))?;
-        let parser_module = if name == "PGM" {
-            &self.syntax_module
+        // As the assembler reads it: a variable without a `parser` attribute is read with the
+        // syntax module's grammar where it has the variable's sort, and with the main module's
+        // where that one does not parse the text.
+        let modules = if name == "PGM" {
+            vec![self.syntax_module.clone()]
+        } else if let Some(module) = self.parser_modules.get(name) {
+            vec![module.clone()]
         } else {
-            self.parser_modules.get(name).unwrap_or(&self.main_module)
+            self.variable_modules
+                .get(name)
+                .cloned()
+                .into_iter()
+                .chain([self.main_module.clone()])
+                .collect()
+        };
+        let mut read: Result<(Pattern, Sort), Box<dyn Error>> =
+            Err("no module reads the variable".into());
+        for module in modules {
+            read = self.parse_surface(&module, sort, source, true);
+            if read.is_ok() {
+                break;
+            }
         }
-        .clone();
-        self.parse_surface(&parser_module, sort, source, true)
-            .map_err(|error| {
-                format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
-                    .into()
-            })
+        read.map_err(|error| {
+            format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
+                .into()
+        })
     }
 
     /// Parse surface text at a cell's declared sort through the configuration frontend.
@@ -442,16 +474,27 @@ impl Configuration {
     }
 
     /// The term `printed`, a token's printed text, reads as at a position of sort `position`:
-    /// parsed there alone with the syntax module's grammar, the one a program is read with, its
-    /// aliases expanded, and without the injection the position puts around it. The scanner
-    /// reads a token whatever the parse expects there, so the text alone reads as it does inside
-    /// a printed term, unless the token sort's regex can take in what is printed after it
-    /// ([`crate::reversal`]).
+    /// parsed there alone with the syntax module's grammar, the one a program is read with
+    /// ([`Self::read_token_in`]).
+    pub(crate) fn read_token(&mut self, position: &Sort, printed: &str) -> Option<Pattern> {
+        self.read_token_in(Reader::Program, position, printed)
+    }
+
+    /// The term `printed`, a token's printed text, reads as at a position of sort `position`:
+    /// parsed there alone with `grammar`, its aliases expanded, and without the injection the
+    /// position puts around it. The scanner reads a token whatever the parse expects there, so
+    /// the text alone reads as it does inside a printed term, unless the token sort's regex can
+    /// take in what is printed after it ([`crate::reversal`]).
     ///
     /// `None` where the text does not parse there, and where the position cannot be judged: a
     /// sort with parameters, which no `--sort` names, or a KORE name that is not the encoding of a
     /// K sort's name.
-    pub(crate) fn read_token(&mut self, position: &Sort, printed: &str) -> Option<Pattern> {
+    pub(crate) fn read_token_in(
+        &mut self,
+        grammar: Reader,
+        position: &Sort,
+        printed: &str,
+    ) -> Option<Pattern> {
         let Sort::Application { name, arguments } = position else {
             return None;
         };
@@ -460,24 +503,52 @@ impl Configuration {
             .filter(|_| arguments.is_empty())
             .map(|name| KastSort::new(krs_unparse::decode_kore(name)))
             .filter(|kast| encode_kore_sort(kast) == *position)?;
-        let module = self.syntax_module.clone();
-        self.parse_surface(&module, &kast, printed, false)
+        let key = (grammar, name.clone(), printed.to_owned());
+        if let Some(read) = self.token_reads.get(&key) {
+            return read.clone();
+        }
+        let module = self.module(grammar).to_owned();
+        let read = self
+            .parse_surface(&module, &kast, printed, false)
             .ok()
-            .map(|(value, _)| without_injection(&value).clone())
+            .map(|(value, _)| without_injection(&value).clone());
+        self.token_reads.insert(key, read.clone());
+        read
     }
 
     /// Whether the syntax module's grammar, the one a program is read with, has a production
-    /// that applies `symbol`, a KORE symbol name (`LblSetItem`): whether a program's text can
-    /// write an application of it. A builtin collection's constructors are no program syntax
-    /// (K supplies them only with a full module), nor is a production the partition placed in
-    /// the semantics module. `false` where the grammar cannot be built.
-    pub(crate) fn writes_symbol(&mut self, symbol: &str) -> bool {
+    /// that applies `symbol` ([`Self::writes_symbol_in`]).
+    pub(crate) fn writes_symbol(&mut self, symbol: &str) -> Result<bool, Box<dyn Error>> {
+        self.writes_symbol_in(Reader::Program, symbol)
+    }
+
+    /// Whether `grammar` has a production that applies `symbol`, a KORE symbol name
+    /// (`LblSetItem`): whether its text can write an application of it. The syntax module's
+    /// grammar has no builtin collection's constructors (K supplies them only with a full
+    /// module), nor a production the partition placed in the semantics module; the main
+    /// module's has both. A name that encodes no K label is written by neither.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error that building the grammar's parser met.
+    pub(crate) fn writes_symbol_in(
+        &mut self,
+        grammar: Reader,
+        symbol: &str,
+    ) -> Result<bool, Box<dyn Error>> {
         let Ok(label) = k_rust::kast::identifier::decode_label(symbol) else {
-            return false;
+            return Ok(false);
         };
-        let module = self.syntax_module.clone();
-        self.parser(&module)
-            .is_ok_and(|parser| parser.has_label(&label))
+        let module = self.module(grammar).to_owned();
+        Ok(self.parser(&module)?.has_label(&label))
+    }
+
+    /// The module whose grammar `grammar` is.
+    fn module(&self, grammar: Reader) -> &str {
+        match grammar {
+            Reader::Program => &self.syntax_module,
+            Reader::Main => &self.main_module,
+        }
     }
 
     /// Parse program text at `sort` with the syntax module's grammar, as `kast --sort` does.
@@ -571,27 +642,32 @@ impl Configuration {
     }
 }
 
-/// The module whose grammar reads each configuration variable but `$PGM` that no `parser`
-/// attribute (`declared`) assigns one: the syntax module, a program's grammar, wherever it has
+/// The module whose grammar reads first each configuration variable but `$PGM` that no `parser`
+/// attribute (`declared`) assigns one and that is no stream variable (`$IO`, `$STDIN` at
+/// `String`, read with `STRING-SYNTAX`): the syntax module, a program's grammar, wherever it has
 /// the variable's sort. A variable's text is input, as a program is, and the main module's
 /// grammar holds more than a program can write: every token sort of the definition, so its
 /// scanner reads `word` as an `Id` wherever it stands, also where a variable of a token sort
-/// `Word` means that `Word`, and the productions only rules may use. A `K` or `KItem` variable
-/// takes any item, which the syntax module reads as it reads `$PGM`. A sort the syntax module
-/// does not have (a builtin collection's, which K supplies only with a full module) is read
-/// with the main module's grammar, the only one that has it.
+/// `Word` means that `Word`. A `K` or `KItem` variable takes any item, which the syntax module
+/// reads as it reads `$PGM`. Where the syntax module's grammar does not parse the text, the main
+/// module's reads it: it also has the productions only rules may use (a builtin collection's
+/// constructors, a production the partition placed in the semantics module), with which a value
+/// can be written. A sort the syntax module does not have (a builtin collection's, which K
+/// supplies only with a full module) is read with the main module's grammar alone.
 fn variable_modules(
     grammar: &Grammar,
     syntax_module: &str,
     declared: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    let program_sorts = program_sorts(&grammar.parsing, syntax_module);
+    let program_sorts = program_sorts(&grammar.program, syntax_module);
     grammar
         .variables
         .iter()
         .filter(|(name, sort)| {
             name.as_str() != "PGM"
                 && !declared.contains_key(name.as_str())
+                && !(matches!(name.as_str(), "IO" | "STDIN")
+                    && sort.is_builtin(BuiltinSort::String))
                 && (sort.is_builtin(BuiltinSort::K)
                     || sort.is_builtin(BuiltinSort::KItem)
                     || program_sorts.contains(&sort.name))
@@ -813,22 +889,32 @@ endmodule
     /// A configuration variable is input, read as a program is, with the syntax module's grammar
     /// wherever it has the variable's sort: `word` given for a `Word` variable is that `Word`,
     /// although the main module's grammar, whose token sort `Name` the scanner prefers, reads it
-    /// as a `Name`. A sort only the main module has (here `Name`) is read with its grammar.
+    /// as a `Name`. A sort only the main module has (here `Name`) is read with its grammar, and so
+    /// is a value the syntax module's grammar does not parse: one written with a production of
+    /// the semantics module (`two`) or a builtin collection's constructor (`SetItem`, `.Map`).
     #[test]
     fn a_configuration_variable_is_read_with_the_grammar_a_program_is_read_with() {
         let parsed = k_rust::outer::parse(
             "variables.k",
             r#"
 module MAIN-SYNTAX
+  imports INT-SYNTAX
   syntax Word ::= r"w[a-z]*" [token]
   syntax Pgm ::= "run" [symbol(run)]
+  syntax Data ::= one(Int) [symbol(one)]
 endmodule
 
 module MAIN
   imports MAIN-SYNTAX
   imports BASIC-K
+  imports INT
+  imports LIST
+  imports SET
+  imports MAP
   syntax Name ::= r"wor[a-z]*" [token, prec(2)]
-  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <n> $N:Name </n>
+  syntax Data ::= two(Int, List) [symbol(two)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <n> $N:Name </n> <d> $D:Data </d>
+                <e> $E:Data </e> <s> $S:KItem </s> <m> $M:KItem </m>
 endmodule
 "#,
         )
@@ -842,16 +928,37 @@ endmodule
                 ("PGM".to_owned(), Sort::new("Pgm")),
                 ("W".to_owned(), Sort::new("Word")),
                 ("N".to_owned(), Sort::new("Name")),
+                ("D".to_owned(), Sort::new("Data")),
+                ("E".to_owned(), Sort::new("Data")),
+                ("S".to_owned(), Sort::builtin(BuiltinSort::KItem)),
+                ("M".to_owned(), Sort::builtin(BuiltinSort::KItem)),
             ]),
         )
         .unwrap();
         let configured = configuration
             .configure(
-                json!({"PGM": "run", "W": "word", "N": "word"})
-                    .as_object()
-                    .unwrap(),
+                json!({
+                    "PGM": "run",
+                    "W": "word",
+                    "N": "word",
+                    "D": "two(1, .List)",
+                    "E": "one(2)",
+                    "S": "SetItem(1)",
+                    "M": ".Map",
+                })
+                .as_object()
+                .unwrap(),
             )
             .unwrap();
+        let variable = |name: &str| configured["variables"][name]["kore"].as_str().unwrap();
+        assert!(variable("D").starts_with("Lbltwo{}("), "{}", variable("D"));
+        assert!(variable("E").starts_with("Lblone{}("), "{}", variable("E"));
+        assert!(variable("S").contains("LblSetItem{}("), "{}", variable("S"));
+        assert!(
+            variable("M").contains("Lbl'Stop'Map{}()"),
+            "{}",
+            variable("M")
+        );
         assert_eq!(
             configured["variables"]["W"]["kore"],
             "\\dv{SortWord{}}(\"word\")"

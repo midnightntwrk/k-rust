@@ -20,6 +20,7 @@ mod claims;
 mod configuration;
 mod console;
 mod origin;
+mod read_back;
 mod report;
 mod reversal;
 mod stage;
@@ -59,6 +60,7 @@ pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
+pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Halt, Modality, ProofLeaf, ProofReport, REPORT_SCHEMA,
     RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Term, Verdict,
@@ -527,6 +529,8 @@ pub struct Semantics {
     spec_provers: BTreeMap<String, SpecProver>,
     /// The main cell's K name ([`Self::main_cell`]).
     main_cell: Option<String>,
+    /// The printed texts [`Self::read_back`] read, by grammar, cell, sort and text.
+    print_reads: BTreeMap<read_back::ReadKey, read_back::Read>,
 }
 
 /// One author spec module's compiled proof definition (KF-041).
@@ -608,14 +612,16 @@ impl Semantics {
         // The printer reverses the alias clauses `reversal` judges by the definition's reading
         // of their tokens' values, so it is built after the values.
         let unparser = timings.try_span("exec.unparser", |_| {
-            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
-                .map(|unparser| unparser.with_program_grammar(&frontend_definition))
-                .map(|unparser| {
-                    let reversed =
-                        reversal::reversed(definition, &unparser, &mut configuration, &values);
-                    unparser.reversing_only(|label| reversed.contains(label))
-                })
-                .map_err(|error| ExecError::Backend(error.to_string()))
+            let unparser = krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
+                .map_err(|error| ExecError::Backend(error.to_string()))?
+                .with_program_grammar(&frontend_definition);
+            let reversed = reversal::reversed(definition, &unparser, &mut configuration, &values)
+                .map_err(|error| {
+                    ExecError::Backend(format!(
+                        "the program grammar, which judges the aliases printing reverses, cannot be built: {error}"
+                    ))
+                })?;
+            Ok::<_, ExecError>(unparser.reversing_only(|label| reversed.contains(label)))
         })?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
@@ -654,6 +660,7 @@ impl Semantics {
             spec_definition,
             spec_provers: BTreeMap::new(),
             main_cell,
+            print_reads: BTreeMap::new(),
         })
     }
 
@@ -805,55 +812,6 @@ impl Semantics {
                 message: error.to_string(),
             })?;
         Ok(Term::new(kore, kast))
-    }
-
-    /// The first part of `term`, a state's term, that no program text writes, named: an
-    /// application of a symbol the program grammar has no production for (a builtin
-    /// collection's constructor such as `SetItem` or `_|->_`, a cell, a production the partition
-    /// placed in the semantics module), or a token whose printed text the program grammar does
-    /// not read back as the token where it stands (the `Id` `$x`), each judged as alias reversal
-    /// judges a clause's subject. `None` where `term` is program text throughout:
-    /// then a faithful print of it reads back with the program grammar.
-    pub fn unwritten(&mut self, term: &Pattern) -> Option<String> {
-        self.unwritten_at(term, None)
-    }
-
-    fn unwritten_at(
-        &mut self,
-        term: &Pattern,
-        position: Option<&k_rust::kore::ast::Sort>,
-    ) -> Option<String> {
-        match term {
-            Pattern::DomainValue { sort, .. } => {
-                let printed = self
-                    .unparser
-                    .print_kore(
-                        term,
-                        &unparse::Options {
-                            reverse_aliases: false,
-                            ..unparse::Options::new(unparse::Mode::Program)
-                        },
-                    )
-                    .text;
-                let reads = self
-                    .configuration
-                    .read_token(position.unwrap_or(sort), &printed)
-                    .is_some_and(|read| reversal::same_token(&self.values, &read, term));
-                (!reads).then(|| format!("the token `{printed}`"))
-            }
-            Pattern::Application { symbol, arguments } if symbol.name == "inj" => arguments
-                .first()
-                .and_then(|argument| self.unwritten_at(argument, symbol.sort_parameters.get(1))),
-            Pattern::Application { symbol, arguments } => {
-                if !self.configuration.writes_symbol(&symbol.name) {
-                    return Some(format!("`{}`", unparse::label_name(&symbol.name)));
-                }
-                arguments
-                    .iter()
-                    .find_map(|argument| self.unwritten_at(argument, None))
-            }
-            other => Some(format!("`{other}`")),
-        }
     }
 
     /// Parse program text as [`Self::parse`] does and print it through the program grammar, as `kast --output program` does.

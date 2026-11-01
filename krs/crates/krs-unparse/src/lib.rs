@@ -441,8 +441,6 @@ impl Unparser {
         let pattern = floats.as_ref().unwrap_or(pattern);
         let mut node = unflatten_and_or(&from_pattern(pattern));
         instantiate(&mut node, &self.data.declarations);
-        let mut unfixed = BTreeSet::new();
-        node = instance::fix_instances(&self.data, &node, None, &mut unfixed);
         let mut exceeded = None;
         if options.reverse_aliases {
             let mut reverser = Reverser::new(&self.data, &self.macros);
@@ -467,6 +465,11 @@ impl Unparser {
             }
             Mode::Program => Fallback::Nothing,
         };
+        // An instance is judged on the tree as it prints, after reversal has moved or built
+        // applications, and after the collections are sorted by their elements' terms.
+        instantiate(&mut node, &self.data.declarations);
+        let mut unfixed = BTreeSet::new();
+        instance::fix_instances(&self.data, &mut node, &mut unfixed);
         node = Brackets::new(&self.data, fallback).add(&node, None, None);
         // Keys printed while sorting are not output: only the final pass reports.
         let mut problems = Problems::default();

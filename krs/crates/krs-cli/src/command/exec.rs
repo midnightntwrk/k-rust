@@ -3,6 +3,8 @@
 //! Each command compiles the Definition IR in-process through `krs-exec` and the k-rust symbolic backend, on a 64 MiB-stack worker.
 //! The compiled stage is kept in the per-user stage cache (`stage_cache`), keyed by the Definition IR digest, so an unchanged definition is compiled once; so is the proof definition `krs prove --spec-module NAME` compiles, keyed also by NAME.
 //! Results are never cached: a run depends on its inputs, and the collector and lowering stages it shares with the other commands are already incremental.
+//!
+//! With `KRS_CHECK_PRINTS=1`, every state `run`, `search` and `prove` print through the definition's grammar is read back, cell by cell ([`Semantics::check_prints`]); a print that does not read back as the state fails the command ([`CommandError::PrintCheck`]), and output that reads back is printed as without the variable.
 
 use std::fmt::Write as _;
 use std::io::{IsTerminal as _, Read};
@@ -11,8 +13,8 @@ use std::path::PathBuf;
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     CompiledStage, ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions,
-    REPORT_SCHEMA, RunOptions, SearchMode, SearchOptions, Semantics, SourceText, SpecStage, Step,
-    StepOrigin, Term, Verdict,
+    REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText,
+    SpecStage, Step, StepOrigin, Term, Verdict,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -300,6 +302,7 @@ enum Failure {
     Usage(String),
     Serialization(serde_json::Error),
     Read(String),
+    PrintCheck(String),
 }
 
 impl Failure {
@@ -312,6 +315,7 @@ impl Failure {
             Self::Usage(message) => CommandError::Usage(message),
             Self::Serialization(error) => CommandError::Serialization(error),
             Self::Read(message) => CommandError::InvalidRequest(message),
+            Self::PrintCheck(message) => CommandError::PrintCheck(message),
         }
     }
 }
@@ -464,6 +468,9 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             print(semantics, &report.state, output, color, &mut stderr)?
         ),
     };
+    let mut prints = PrintCheck::new(request.output);
+    prints.check(semantics, &report.state)?;
+    prints.verdict()?;
     let head = main_cell_head(semantics, &report.state, request.output, &mut stderr);
     let _ = write!(
         stderr,
@@ -506,10 +513,12 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
     let mut stderr = log_text(&report.log);
     let mut stdout = String::new();
     let color = request.color.enabled();
+    let mut prints = PrintCheck::new(request.output);
     if request.output == TermOutput::Json {
         stdout = json_line(&json!({"schema": REPORT_SCHEMA, "search": report}))?;
     } else {
         for (index, solution) in report.solutions.iter().enumerate() {
+            prints.check(semantics, &solution.state)?;
             let _ = writeln!(stderr, "solution {}: depth {}", index + 1, solution.depth);
             write_trace(&mut stderr, &solution.trace);
             let text = print(
@@ -522,6 +531,7 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
             let _ = writeln!(stdout, "{text}");
         }
     }
+    prints.verdict()?;
     let count = report.solutions.len();
     let _ = writeln!(
         stderr,
@@ -561,6 +571,7 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
     let mut stdout = String::new();
     let mut warnings = String::new();
     let color = request.color.enabled();
+    let mut prints = PrintCheck::new(request.output);
     if request.output == TermOutput::Json {
         stdout = json_line(&json!({"schema": REPORT_SCHEMA, "prove": reports}))?;
     } else {
@@ -600,6 +611,7 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
                 continue;
             }
             for (index, leaf) in report.leaves.iter().enumerate() {
+                prints.check(semantics, &leaf.state)?;
                 let text = print(semantics, &leaf.state, request.output, color, &mut warnings)?;
                 let _ = writeln!(
                     stdout,
@@ -611,6 +623,7 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
             }
         }
     }
+    prints.verdict()?;
     let stderr = format!(
         "{warnings}krs prove: {proven} of {} claim{} proven{}\n",
         reports.len(),
@@ -626,6 +639,55 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
         stderr,
         i32::from(proven + trusted != reports.len()),
     ))
+}
+
+/// The read-back of the states a command prints through the definition's grammar, which
+/// `KRS_CHECK_PRINTS=1` asks for: the prints that do not read back as their states.
+struct PrintCheck {
+    /// Whether the prints are checked: the variable is set and the output is the grammar's.
+    enabled: bool,
+    failures: Vec<String>,
+}
+
+impl PrintCheck {
+    fn new(output: TermOutput) -> Self {
+        let requested =
+            std::env::var_os("KRS_CHECK_PRINTS").as_deref() == Some(std::ffi::OsStr::new("1"));
+        Self {
+            enabled: requested
+                && matches!(
+                    output,
+                    TermOutput::Pretty | TermOutput::Program | TermOutput::None
+                ),
+            failures: Vec::new(),
+        }
+    }
+
+    /// Read every cell of `state`, a state the command prints, back ([`Semantics::check_prints`]).
+    fn check(&mut self, semantics: &mut Semantics, state: &Term) -> Result<(), Failure> {
+        if self.enabled {
+            for (_, read) in semantics.check_prints(state)? {
+                if let ReadBack::Fails(failure) = read {
+                    self.failures.push(failure);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The command's failure where a print did not read back.
+    fn verdict(&mut self) -> Result<(), Failure> {
+        if self.failures.is_empty() {
+            return Ok(());
+        }
+        let mut message =
+            "KRS_CHECK_PRINTS: a printed state does not read back as the state:".to_owned();
+        for failure in self.failures.drain(..) {
+            message.push_str("\n  ");
+            message.push_str(&failure);
+        }
+        Err(Failure::PrintCheck(message))
+    }
 }
 
 /// A status word, marked when it is `indeterminate` in a build without an SMT solver.

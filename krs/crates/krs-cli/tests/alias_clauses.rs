@@ -585,10 +585,21 @@ fn rules(k: &str, needle: &str) -> String {
         .join("\n")
 }
 
-const TWO_WAY: &str = r"
+const TWO_WAY: &str = r#"
 #[k::alias]
 fn items(k::term![Al::Items([x])]: Term<Value>) -> Term<Value> {
     Data::Two(x, [])
+}
+
+#[k::constructors(sort = Value, result = KResult)]
+#[rustfmt::skip]
+pub enum One {
+    #[k::syntax("single({a})")] #[k::alias] Single { a: Int },
+}
+
+#[k::alias]
+fn single(k::term![One::Single(x)]: Term<Value>) -> Term<Value> {
+    Data::Two(x, [x])
 }
 
 #[k::alias]
@@ -626,16 +637,18 @@ fn probe(k::term![Data::Probe(a)]: Term<Value>) -> Term<Value> {
 fn calc(k::term![Data::Calc(a, b)]: Term<Value>) -> Term<Value> {
     Al::Pairs(a, b)
 }
-";
+"#;
 
 /// An alias whose subject every result match builds is accepted, a list of one element among
 /// them, and the result may compute (`k::matches!`, a `let`, an operator). A printed value the
-/// result matches prints as the alias only where the alias is program text: `items([1])` is not
+/// result matches prints as the alias where the alias is program text: `single(7)`, whose result
+/// writes the one-element list `[7]`, prints backwards. `items([1])` is not program text
 /// (`ListItem` is no program syntax, and `items`, with a `List` field, is placed in the semantics
 /// module), so `two(1, [])` prints as it is, `two(1, .List)` (NT-36). A list of an element and a
 /// named rest is refused, as a list of several parts in any static subject is: static expansion
-/// matches it as written, one of its spellings (`static_subjects.rs`). A computed result's printed value is evaluated, which holds no application
-/// of the clause's generated function, so it prints expanded: `flag(true)`, `pair(5, 5)`. A
+/// matches it as written, one of its spellings (`static_subjects.rs`). A computed result's
+/// printed value is evaluated, which holds no application of the clause's generated function, so
+/// it prints expanded: `flag(true)`, `pair(5, 5)`. A
 /// result's `k::matches!` and `let` are lifted into functions of their own, `krsLocal_<digest>`,
 /// whose one equation's result is the construct (NT-15), so a program that writes the alias runs
 /// as a rule writing it does: a program's expansion writes the function's application, which
@@ -657,6 +670,7 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
     let mut printed = Vec::new();
     for program in [
         "mk(1, 2)",
+        "single(7)",
         "probe(box(3))",
         "calc(4, 5)",
         "whole(box(3))",
@@ -681,6 +695,7 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
         rule whole ( A:Value ) => flag ( krsLocal_9e1eea9cace393af4676ba13 ( A:Value ) ) [label(krsRule_DIGEST)]
         rule pairs ( X:Int , Y:Int ) => pair ( krsLocal_5242f5c7fc0f7997f00d61a0 ( Y:Int ) , X:Int +Int 1 ) [label(krsRule_DIGEST)]
         mk(1, 2) => two(1, .List) ~> .K
+        single(7) => single(7) ~> .K
         probe(box(3)) => flag(true) ~> .K
         calc(4, 5) => pair(5, 5) ~> .K
         whole(box(3)) => flag(true) ~> .K
@@ -961,8 +976,8 @@ fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
 /// program writes is not (NT-36): `lr`, `elems` and `items` have a `List` or `Set` field, so their
 /// productions are placed in the semantics module, and `elems` and `items` write `SetItem` and
 /// `ListItem`; their prints would read back as nothing, so `two(2, ..)` prints as it is. A
-/// concatenation of two named
-/// lists (`lc`) computes: `[5, 6, 7]` is the concatenation of four splits, and the one printed
+/// concatenation of two named lists (`lc`) computes: `[5, 6, 7]` is the concatenation of four
+/// splits, and the one printed
 /// would come from how the list nests, not from a term the author wrote. So do a set union
 /// (`su`), a map update (`mu`), a projection (`prj`), `k::matches!` (`mt`) and `let` (`lt`):
 /// where the program writes the alias, the state holds the result's own application, stuck on an

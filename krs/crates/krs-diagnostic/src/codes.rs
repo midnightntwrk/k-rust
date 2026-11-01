@@ -138,6 +138,7 @@ register_codes! {
         MISSING_SEMANTIC_RULE: "krs::reference::missing-semantic-rule" [Internal] => "Semantic lowering omitted a collected rule.",
         MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" [Internal] => "Inference produced no sort for a readable binder.",
         EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "A dependency alias cannot be reconstructed.",
+        DEPENDENCY_PATH: "krs::reference::dependency-path" => "No path the source writes to a dependency's declaration is known to compile.",
         EXTERNAL_REFERENCE_SORT: "krs::reference::external-reference-sort" => "A constructor field marker path is external.",
         MIXED_APPLICATION_ARGUMENTS: "krs::reference::mixed-application-arguments" => "An application mixes positional and named arguments.",
         NAMED_BUILTIN_APPLICATION: "krs::reference::named-builtin-application" => "A builtin operation uses named arguments.",

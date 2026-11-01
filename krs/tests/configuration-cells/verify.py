@@ -555,6 +555,7 @@ def main() -> int:
             "configuration-cells", pins, workspace, krs, gate, environment,
             refresh=arguments.refresh_reference,
             divergences=pins.get("known_divergences", {}),
+            check_prints=True,
         )
 
         verify_framing(harness)

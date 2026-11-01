@@ -202,26 +202,27 @@ the descriptors of the base and its own. A case is judged by
   run beside the case once more, does not either, the shard fails with `K7's batched verdict did
   not reproduce` instead (a flaky run, a timeout under load), naming no neighbour.
 
-  *The printed state is the state* (NT-23): K7 reads values structurally, so it also reads a
-  conforming run's state back as `krs run` prints it: the computation cell's first item and every
-  other leaf cell, each printed, read back as a program reads it, with the program grammar at the
-  cell's sort (a `<k>` item's, the sort it is injected from, and where that does not read it the
-  sort of `$PGM`, at which an alias of a wider sort reads back as the item's value: `ak` for `1`)
-  with its aliases expanded again, must
-  be the term the state holds, value for value, tokens by their text (`printed_reads_back`). The
-  main module's grammar, which holds every token sort, reads `word` as an `Id` wherever it stands,
-  where the program grammar reads the `Word` the print means (NT-24-1); it reads only where the
-  program grammar has no sort to read at (a `K` sequence, a builtin collection's sort, which it
-  does not have), never text the program grammar fails to parse at a sort it has. The printer is the one the case has alone, the base's aliases and its
-  own, so a verdict does not depend on the batch (`KRS_CLASS_NATIVE=alone` gives the same). A print
-  with a warning is not read back, since it says it is no program text: a KAST fallback, or a
-  parametric application whose instance no text fixes, printed as KORE (NT-36: `Wrap::<KItem>(1)`
-  printed `wrap(1)` read back at `Int`). Nor is one that does not parse where the state holds a
-  part no program text writes (`Semantics::unwritten`: a builtin collection's constructor, a cell,
-  the `Id` `$x`) and the term printed without reversal does not parse either; a state that is
-  program text throughout must read back. An alias whose subject applies a symbol no program
-  writes (`SetItem`) is not reversed (NT-36, NT-35-1). The terms base
-  holds aliases for printing of each shape of clause (`ah`, `am`, `av`, `ac`, `bp`, `bq`, `ak`; see
+  *The printed state is the state* (NT-23, NT-36): K7 reads values structurally, so it also reads
+  a conforming run's state back as `krs run` prints it, by the rule `KRS_CHECK_PRINTS=1` checks
+  `krs run`'s prints with (`Semantics::read_back`, `krs/crates/krs-exec/src/read_back.rs`, one
+  source for both): the computation cell's first item and every other leaf cell, each printed and
+  read back with its aliases expanded again, must be the term the state holds, value for value,
+  instance for instance. A cell whose content is program text throughout (every symbol a
+  production of the program grammar, every token's print read back as the token where it stands)
+  is read with the program grammar at the cell's sort (a `<k>` item's, the sort it is injected
+  from, and where that does not read it the sort of `$PGM`, at which an alias of a wider sort reads
+  back as the item's value: `ak` for `1`), tokens with their sorts. Every other cell (one holding
+  `SetItem`, `_|->_` or a semantics-module production, or of a sort the program grammar does not
+  have, such as a `Map` cell) is read with the main module's grammar, which writes them; that
+  grammar holds every token sort and reads `word` as an `Id` wherever it stands (NT-24-1), so its
+  tokens compare by text. A cell is skipped, for a stated reason, where its print has a warning
+  (a KAST fallback, or a parametric application whose instance no text fixes, printed as KORE:
+  `Wrap::<KItem>(1)` printed `wrap(1)` read back at `Int`), where its sort has parameters, and
+  where it holds a part no grammar of the definition writes (a variable, a cell, the `Id` `$x`).
+  The printer is the one the case has alone, the base's aliases and its own, so a verdict does not
+  depend on the batch (`KRS_CLASS_NATIVE=alone` gives the same). An alias whose subject applies a
+  symbol no program writes (`SetItem`) is not reversed (NT-36, NT-35-1). The terms base holds
+  aliases for printing of each shape of clause (`ah`, `am`, `av`, `ac`, `bp`, `bq`, `ak`; see
   `DRIVER_BASE` in `class_matrix/terms.rs`).
 
   *Witnesses and values* (`class_matrix::k7`, the spellings in `class_matrix/terms.rs`) are

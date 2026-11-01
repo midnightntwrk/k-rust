@@ -70,12 +70,17 @@ use crate::values::{Value, ValueIndex};
 /// The labels of the alias clauses printing reverses: those whose written result constructs and
 /// whose subject applies only symbols `configuration`'s program grammar writes and writes only
 /// tokens it reads back as themselves where they stand.
+///
+/// # Errors
+///
+/// Returns the error building the program grammar's parser met: without the grammar no clause
+/// can be judged, and printing reversing none would hide it.
 pub(crate) fn reversed(
     definition: &DefinitionIr,
     unparser: &krs_unparse::Unparser,
     configuration: &mut Configuration,
     values: &ValueIndex,
-) -> BTreeSet<String> {
+) -> Result<BTreeSet<String>, Box<dyn std::error::Error>> {
     let (constructing, computing) = alias_clauses(definition);
     debug_assert!(
         {
@@ -86,24 +91,26 @@ pub(crate) fn reversed(
         },
         "an alias clause whose result computes has no axiom in macros.kore: {computing:?}"
     );
-    unparser
-        .reversed_clauses()
-        .into_iter()
-        .filter_map(|clause| {
-            let label = clause.label.filter(|label| constructing.contains(label))?;
-            let written = clause
-                .symbols
-                .iter()
-                .all(|symbol| configuration.writes_symbol(symbol));
-            (written
-                && clause.tokens.iter().all(|token| {
-                    configuration
-                        .read_token(&token.position, &token.printed)
-                        .is_some_and(|read| same_token(values, &read, &token.token))
-                }))
-            .then_some(label)
-        })
-        .collect()
+    let mut reversed = BTreeSet::new();
+    for clause in unparser.reversed_clauses() {
+        let Some(label) = clause.label.filter(|label| constructing.contains(label)) else {
+            continue;
+        };
+        let mut written = true;
+        for symbol in &clause.symbols {
+            written = written && configuration.writes_symbol(symbol)?;
+        }
+        if written
+            && clause.tokens.iter().all(|token| {
+                configuration
+                    .read_token(&token.position, &token.printed)
+                    .is_some_and(|read| same_token(values, &read, &token.token))
+            })
+        {
+            reversed.insert(label);
+        }
+    }
+    Ok(reversed)
 }
 
 /// Whether `read` and `token`, two tokens, are one term: of one sort and denoting one value as

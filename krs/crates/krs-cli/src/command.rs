@@ -1422,6 +1422,9 @@ pub enum CommandError {
     /// `KRS_CHECK_AGREEMENT=1`: the verdict of `krs check` differs from the
     /// verdicts of the commands it judges.
     CheckDisagreement(String),
+    /// `KRS_CHECK_PRINTS=1`: a state `run`, `search` or `prove` printed does not read back as
+    /// the state.
+    PrintCheck(String),
     /// A failure after stages that completed and reported warnings about the
     /// definition; the warnings are reported before the failure.
     Warned {
@@ -1436,9 +1439,11 @@ pub enum CommandError {
 impl fmt::Display for CommandError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidRequest(message) | Self::InvalidMetadata(message) => {
-                formatter.write_str(message)
-            }
+            Self::InvalidRequest(message)
+            | Self::InvalidMetadata(message)
+            | Self::Usage(message)
+            | Self::CheckDisagreement(message)
+            | Self::PrintCheck(message) => formatter.write_str(message),
             Self::Metadata(error) => error.fmt(formatter),
             Self::Planning(error) => write!(formatter, "could not plan collector: {error}"),
             Self::Generation(error) => error.fmt(formatter),
@@ -1508,7 +1513,6 @@ impl fmt::Display for CommandError {
                 path.display()
             ),
             Self::Exec(error) => error.fmt(formatter),
-            Self::Usage(message) | Self::CheckDisagreement(message) => formatter.write_str(message),
             Self::Attributed { note, source } => write!(formatter, "{source} ({note})"),
             Self::Warned { source, .. } => source.fmt(formatter),
         }
@@ -1535,6 +1539,7 @@ impl Error for CommandError {
             Self::Attributed { source, .. } | Self::Warned { source, .. } => Some(source.as_ref()),
             Self::Usage(_)
             | Self::CheckDisagreement(_)
+            | Self::PrintCheck(_)
             | Self::InvalidRequest(_)
             | Self::InvalidMetadata(_)
             | Self::ProcessFailed { .. }
