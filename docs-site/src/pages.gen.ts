@@ -14,6 +14,7 @@ type Page =
   | { path: '/imp/machine-rules'; render: 'static' }
   | { path: '/imp/sorts-and-values'; render: 'static' }
   | { path: '/'; render: 'static' }
+  | { path: '/k-rust/amendments'; render: 'static' }
   | { path: '/k-rust/compatibility'; render: 'static' }
   | { path: '/k-rust/fuzzing'; render: 'static' }
   | { path: '/k-rust'; render: 'static' }
