@@ -307,7 +307,7 @@ advice = "attrs/rule/heat, hole = x"
 
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
-doc = "a `let` block (K's `#let`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
+doc = "a `let` block (K's `#let`) in a pattern outside a key or a set's element that a pattern over evaluated terms computes and looks up (in a key that selects by matching, a Map collection's instance, a simplification's or a static clause's subject), or in a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
 advice = "none"
 
 [class.let-sort]
@@ -347,7 +347,7 @@ advice = "none"
 
 [class.matches-outside-condition]
 code = "krs::expand::matches-outside-condition"
-doc = "`k::matches!` (K's `:=K`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
+doc = "`k::matches!` (K's `:=K`) in a pattern outside a key or a set's element that a pattern over evaluated terms computes and looks up (in a key that selects by matching, a Map collection's instance, a simplification's or a static clause's subject), or in a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
 advice = "none"
 
 [class.matches-pattern-binder]
@@ -1261,7 +1261,7 @@ at = "spelling"
 # here in the collection notation or the call it denotes (the empty map and set, the spellings
 # without an `x`, bind none)
 [[refuse]]
-match = 'notation/{rule/guard,sort-rule/result}/matches-pattern/*x*'
+match = 'notation/{readable/map-key,rule/guard,sort-rule/result}/matches-pattern/*x*'
 class = "matches-pattern-binder"
 at = "spelling"
 
@@ -1325,9 +1325,9 @@ match = 'terms/{readable/map-key/beside-fresh,readable/map-key,readable/map-key/
 class = "list-notation-sort"
 at = "spelling"
 
-# matches-pattern-binder (NT-2 review): a `k::matches!` pattern that rebinds the sentence's `x` or binds a name nothing reads, at a sibling whose product refuses it for another reason first
+# matches-pattern-binder (NT-2 review, NT-31): a `k::matches!` pattern that rebinds the sentence's `x` or binds a name nothing reads, in a key the pattern computes, as in a condition
 [[refuse]]
-match = 'terms/readable/map-key/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Wrap::<KItem>(x),[x\, ..],k::builtin::set::item(x),x}'
+match = 'terms/readable/map-key/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x}'
 class = "matches-pattern-binder"
 at = "spelling"
 

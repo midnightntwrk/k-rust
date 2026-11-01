@@ -331,10 +331,14 @@ fn a_computation_subject_case_is_never_batched() {
 /// notation and the calls it denotes) that reads `x` and applies a function
 /// ([`reads_x_and_applies`]), as `k::builtin::int::add(x, 1)` does at the term family's same
 /// positions ([`OVERRIDDEN`]).
-const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
+const OVERRIDDEN_POSITIONS: [(&str, &str); 7] = [
     ("notation/constant/value", "constant-applies-function"),
     ("notation/constant/value-root", "constant-applies-function"),
     ("notation/local-rule/subject-root", "function-in-pattern"),
+    (
+        "notation/readable/map-key/matches-pattern",
+        "function-in-pattern",
+    ),
     ("notation/rule/guard/matches-pattern", "function-in-pattern"),
     ("notation/rule/subject/or-branch", "function-in-pattern"),
     (
@@ -368,7 +372,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 69] = [
+const OVERRIDDEN: [(&str, &str); 73] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -561,6 +565,22 @@ const OVERRIDDEN: [(&str, &str); 69] = [
     (
         "terms/readable/map-value-child/Cmd::Pair { a: x, ..x }",
         "record-update-in-pattern",
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/Size(x)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/map![x -> 1]",
+        "function-in-pattern",
     ),
     (
         "terms/rule/guard/closure-body/Cmd::Pair { a: x, ..x }",
@@ -1766,51 +1786,26 @@ const NAME_AND_SORT_CLASSES: [&str; 12] = [
     "unbound-name",
 ];
 
-/// Why a readable key's alternative or `k::matches!` pattern that reads `x` binds no name.
-const KEY_READS_ITS_NAMES: &str = "in a readable map key a name the pattern binds elsewhere is looked up (D2), so an alternative or a `k::matches!` pattern that reads it binds nothing; in a subject's it binds";
+/// Why a readable key's alternative that reads `x` binds no name. A `k::matches!` pattern's names
+/// are its own wherever the test stands, a key's too, so the test there rebinds `x` as in a
+/// condition.
+const KEY_READS_ITS_NAMES: &str = "in a readable map key a name the pattern binds elsewhere is looked up (D2), so an alternative that reads it binds nothing; in a subject's it binds";
 
 /// The notation family's positions whose every case is a sibling exception, and why: each of the
 /// family's spellings reads `x` as `k::builtin::int::add(x, 1)` does ([`SIBLING_EXCEPTIONS`]).
-const SIBLING_EXCEPTION_POSITIONS: [(&str, &str, &str); 2] = [
-    (
-        "notation/readable/map-key/matches-pattern",
-        "matches-pattern-binder",
-        KEY_READS_ITS_NAMES,
-    ),
-    (
-        "notation/readable/map-key/or-branch",
-        "alternatives-bind-unequally",
-        KEY_READS_ITS_NAMES,
-    ),
-];
+const SIBLING_EXCEPTION_POSITIONS: [(&str, &str, &str); 1] = [(
+    "notation/readable/map-key/or-branch",
+    "alternatives-bind-unequally",
+    KEY_READS_ITS_NAMES,
+)];
 
 /// Sibling cases a name or sort rule does not decide though it decides the spelling at another
 /// sibling, and why.
-const SIBLING_EXCEPTIONS: [(&str, &str, &str); 14] = [
+const SIBLING_EXCEPTIONS: [(&str, &str, &str); 10] = [
     (
         "terms/rule/subject-root-list/[x, ..]",
         "list-notation-sort",
         "the fn's whole subject is a `Term<List>`, a position of the sort list brackets denote, unlike its siblings' `KItem` (NT-18)",
-    ),
-    (
-        "terms/readable/map-key/matches-pattern/Size(x)",
-        "matches-pattern-binder",
-        KEY_READS_ITS_NAMES,
-    ),
-    (
-        "terms/readable/map-key/matches-pattern/k::builtin::int::add(x, 1)",
-        "matches-pattern-binder",
-        KEY_READS_ITS_NAMES,
-    ),
-    (
-        "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
-        "matches-pattern-binder",
-        KEY_READS_ITS_NAMES,
-    ),
-    (
-        "terms/readable/map-key/matches-pattern/map![x -> 1]",
-        "matches-pattern-binder",
-        KEY_READS_ITS_NAMES,
     ),
     (
         "terms/readable/map-key/or-branch/Size(x)",

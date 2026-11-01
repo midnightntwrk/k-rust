@@ -11403,6 +11403,21 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/k::project!(Int, x)"]
 k = """
@@ -11518,8 +11533,30 @@ same_k_as = ["terms/readable/map-key/k::builtin::int::add(x, 1)"]
 [accept."terms/readable/map-key/y @ Cmd::Hold(_)"]
 
 [accept."terms/readable/map-key/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept.'terms/readable/map-value-child/"s"']
 k = '''
@@ -19271,6 +19308,21 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/map-key/function-argument/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> wk ( krsLocal_DIGEST ( V0:KItem ) ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/function-argument/k::project!(Int, x)"]
 k = """
@@ -19283,134 +19335,883 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/map-key/function-argument/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> wk ( krsLocal_DIGEST ( V0:KItem ) ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> wk ( krsLocal_DIGEST ( V0:KItem ) ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/let-body/!(x < 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in notBool (V0:Int <Int 1) ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in #token("\"s\"","String") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax String ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+'''
 
 [accept."terms/readable/map-key/let-body/-(x + 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in 0 -Int (V0:Int +Int 1) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in -1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in 1.5 ) [label(krsRule_DIGEST)]
+
+syntax Float ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/let-body/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/let-body/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/let-body/Size(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in size ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/Wrap::<KItem>(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in wrap ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::builtin::int::add(1, 2)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in 1 +Int 2 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::builtin::int::add(x, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int +Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in #token("b\"ab\"","Bytes") ) [label(krsRule_DIGEST)]
+
+syntax Bytes ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/readable/map-key/let-body/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in <frame> <ret> 1 </ret> </frame> ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in #token("$x","Id") ) [label(krsRule_DIGEST)]
+
+syntax Id ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::is!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in isInt(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in #token("word","Word") ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Word ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/let-body/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in krsLocal_DIGEST ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/k::project!(Int, x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in {V0:KItem}:>Int ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in true ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x & 1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int &Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x && true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Bool , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Bool ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Bool ) => ( #let V1:Bool = V0:Bool #in V0:Bool andThenBool true ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" Bool ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x + 1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int +Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x < 1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int <Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x << 1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int <<Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x == 1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int ==Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x || true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Bool , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Bool ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Bool ) => ( #let V1:Bool = V0:Bool #in V0:Bool orElseBool true ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" Bool ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/x.add::<Int>(1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int +Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in ( #let V2:KItem = V0:KItem #in V2:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/let-pattern/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let #token("\"s\"","String") = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/readable/map-key/let-pattern/-1"]
 
 [accept."terms/readable/map-key/let-pattern/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let 1 = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let 1.5 = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let go = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let go = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/Cmd::Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let hold ( V1:KItem ) = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/Cmd::Pair { a: x, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( V1:KItem , _ ) = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/Wrap::<KItem>(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let wrap ( V1:KItem ) = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let _ = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let SetItem(V1:KItem) = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let #token("b\"ab\"","Bytes") = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/readable/map-key/let-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let <frame> <ret> 1 </ret> </frame> = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let #token("$x","Id") = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let #token("word","Word") = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let true = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/\"s\""]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( #token("\"s\"","String") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( #token("\"s\"","String") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/readable/map-key/matches-pattern/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( -1 :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( -1 :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( 1 :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( 1 :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/1.5"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( 1.5 :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( 1.5 :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/Cmd::Go"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( go :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( go :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/Cmd::Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( go :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( go :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/Cmd::Go() | Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( ( go #Or hold ( _ ) ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( ( go #Or hold ( _ ) ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/_"]
 
 [accept."terms/readable/map-key/matches-pattern/k::bytes!(b\"ab\")"]
+k = '''
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( #token("b\"ab\"","Bytes") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( #token("b\"ab\"","Bytes") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+'''
 
 [accept."terms/readable/map-key/matches-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( <frame> <ret> 1 </ret> </frame> :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( <frame> <ret> 1 </ret> </frame> :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/k::id!(\"$x\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( #token("$x","Id") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( #token("$x","Id") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/k::lexeme!(Word, \"word\")"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( #token("word","Word") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( #token("word","Word") :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/matches-pattern/true"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( true :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( true :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/or-branch/\"s\""]
 
@@ -19612,6 +20413,21 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/map-key/update-field/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( krsLocal_DIGEST ( V0:KItem ) , V1:KItem ) |-> V2:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/update-field/k::project!(Int, x)"]
 k = """
@@ -19716,8 +20532,30 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 same_k_as = ["terms/readable/map-key/update-field/k::builtin::int::add(x, 1)"]
 
 [accept."terms/readable/map-key/update-field/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( krsLocal_DIGEST ( V0:KItem ) , V1:KItem ) |-> V2:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( krsLocal_DIGEST ( V0:KItem ) , V1:KItem ) |-> V2:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/rule/guard/let-pattern/-1"]
 
@@ -19953,6 +20791,17 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/map-key/let-body/x | 1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:Int ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:Int ) => ( #let V1:Int = V0:Int #in V0:Int |Int 1 ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" Int ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/or-branch/x | 1"]
 
@@ -19966,34 +20815,126 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/rule/subject/set-element/!(x < 1)"]
+k = """
+rule cTAG ( V0:Int , SetItem(notBool (V0:Int <Int 1)) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/-(x + 1)"]
+k = """
+rule cTAG ( V0:Int , SetItem(0 -Int (V0:Int +Int 1)) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/k::is!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(isInt(V0:KItem)) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule cTAG ( V0:KItem , SetItem(krsLocal_DIGEST ( V0:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( hold ( _ ) :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/k::project!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem )
+requires isInt(V0:KItem) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x & 1"]
+k = """
+rule cTAG ( V0:Int , SetItem(V0:Int &Int 1) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x && true"]
+k = """
+rule cTAG ( V0:Bool , SetItem(V0:Bool andThenBool true) ) => hold ( V0:Bool ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x + 1"]
+k = """
+rule cTAG ( V0:Int , SetItem(V0:Int +Int 1) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x < 1"]
+k = """
+rule cTAG ( V0:Int , SetItem(V0:Int <Int 1) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x << 1"]
+k = """
+rule cTAG ( V0:Int , SetItem(V0:Int <<Int 1) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x == 1"]
+k = """
+rule cTAG ( V0:Int , SetItem(V0:Int ==Int 1) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x || true"]
+k = """
+rule cTAG ( V0:Bool , SetItem(V0:Bool orElseBool true) ) => hold ( V0:Bool ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/x.add::<Int>(1)"]
+k = """
+rule cTAG ( V0:Int , SetItem(V0:Int +Int 1) ) => hold ( V0:Int ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/{ let y = x; y }"]
+k = """
+rule cTAG ( V0:KItem , SetItem(krsLocal_DIGEST ( V0:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/set-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule cTAG ( V0:KItem , SetItem(krsLocal_DIGEST ( V0:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+
+syntax Stmt ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+"""
 
 [accept."terms/readable/map-key/or-branch/Cmd::Hold(x)"]
 
@@ -20093,6 +21034,16 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V1:Bool ) </mark>
+</token>
+requires V1:Bool ==K ( hold ( _ ) :=K V0:KItem )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/set-instance-child/k::project!(Int, x)"]
 k = """
@@ -20203,8 +21154,28 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/set-instance-child/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V1:KItem ) </mark>
+</token>
+requires V1:KItem ==K ( #let V2:KItem = V0:KItem #in V2:KItem )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( V1:Stmt ) </mark>
+</token>
+requires V1:Stmt ==K ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/alias/result-root/k::builtin::list::item(x).len()"]
 same_k_as = ["notation/alias/result-root/k::builtin::list::size(k::builtin::list::item(x))"]
@@ -22403,34 +23374,166 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."notation/readable/map-key/let-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in (ListItem(V0:KItem) [ 0 ]) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::list::item(x).len()"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::list::size(k::builtin::list::item(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in size(ListItem(V0:KItem)) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::list::item(x)[0]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in (ListItem(V0:KItem) [ 0 ]) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::list::size(k::builtin::list::item(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in size(ListItem(V0:KItem)) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::empty().contains_key(x)"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V0:KItem in_keys(.Map) ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::empty().update(x, 1)"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in (.Map [ V0:KItem ]) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in (.Map [ V0:KItem ]) ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in V0:KItem in_keys(.Map) ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::set::item(x).to_list()"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in Set2List(SetItem(V0:KItem)) ) [label(krsRule_DIGEST)]
+
+syntax List ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in Set2List(SetItem(V0:KItem)) ) [label(krsRule_DIGEST)]
+
+syntax List ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/update-field/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
@@ -27471,42 +28574,207 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Set ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Set |Set SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) |Set SetItem(1) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/map![]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/map![x -> 1, ..k::builtin::map::empty()]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/map![x -> 1, 2 -> 3]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/set![]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Set ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/set![x, ..k::builtin::set::empty()]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Set |Set SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/set![x, 1]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) |Set SetItem(1) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-pattern/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let .Map = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-pattern/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let .Set = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-pattern/map![]"]
 same_k_as = ["notation/readable/map-key/let-pattern/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let .Map = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-pattern/set![]"]
 same_k_as = ["notation/readable/map-key/let-pattern/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let .Set = V0:KItem #in V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/map![]"]
 same_k_as = ["notation/readable/map-key/k::builtin::map::empty()"]
@@ -27539,14 +28807,74 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."notation/readable/map-key/matches-pattern/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( .Map :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( .Map :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/matches-pattern/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( .Set :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( .Set :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/matches-pattern/map![]"]
 same_k_as = ["notation/readable/map-key/matches-pattern/k::builtin::map::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( .Map :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( .Map :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/matches-pattern/set![]"]
 same_k_as = ["notation/readable/map-key/matches-pattern/k::builtin::set::empty()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( .Set :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( .Set :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/or-branch/k::builtin::map::empty()"]
 
@@ -30338,9 +31666,31 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."terms/readable/map-key/let-body/k::map![x -> 1]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-body/map![x -> 1]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ V0:KItem <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/map![x -> 1]"]
 same_k_as = ["notation/readable/map-key/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
@@ -31877,19 +33227,85 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/map![0 -> 1]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Map ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-body/set![x]"]
 same_k_as = ["notation/readable/map-key/let-body/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Set ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let SetItem(V1:KItem) = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/let-pattern/set![x]"]
 same_k_as = ["notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> krsLocal_DIGEST ( V0:KItem ) |-> V1:KItem ... </env>
+
+rule krsLocal_DIGEST ( V0:KItem ) => ( #let SetItem(V1:KItem) = V0:KItem #in V1:KItem ) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."notation/readable/map-key/map![0 -> 1]"]
 same_k_as = ["notation/readable/map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
@@ -31900,11 +33316,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
-
-[accept."notation/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
-
-[accept."notation/readable/map-key/matches-pattern/set![x]"]
-same_k_as = ["notation/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
 
 [accept."notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
 

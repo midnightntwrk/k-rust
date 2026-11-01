@@ -3342,6 +3342,10 @@ deviation = "krs::collect::stale-anchor @ spelling"
 finding = "NT-2-18"
 deviation = "krs::collect::stale-anchor @ spelling"
 
+["terms/readable/map-key/let-pattern/-1"]
+finding = "NT-2-18"
+deviation = "krs::collect::stale-anchor @ spelling"
+
 # NT-2-19: a turbofish in a constant is refused, though it applies a constructor to ground terms
 # `#[k::constant] const K: KItem = Wrap::<dyn KItemSort>(1);` is `invalid-constant` ("a parametric
 # production's turbofish is not one"), while `Wrap(1)` is accepted and the table admits a turbofish
@@ -3488,118 +3492,6 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling"
 # is, would move every pattern's sort test and record update refusal from placement to resolution,
 # which their classes do not have: kept as is.
 
-["terms/rule/subject/set-element/Cmd::Pair { a: x, ..x }"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-record-update @ spelling"
-
-["terms/rule/subject/set-element/k::is!(Int, x)"]
-finding = "NT-3-1"
-deviation = "krs::analysis::invalid-sort-test @ spelling"
-
-["terms/rule/subject/set-element/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/rule/subject/set-element/k::project!(Int, x)"]
-finding = "NT-3-1"
-deviation = "krs::analysis::invalid-sort-test @ spelling"
-
-["terms/rule/subject/set-element/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-3-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/rule/subject/set-element/{ let y = x; y }"]
-finding = "NT-3-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/rule/subject/set-element/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-3-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/rule/subject/set-element/!(x < 1)"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/-(x + 1)"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x & 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x && true"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x + 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x < 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x << 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x == 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x || true"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element/x.add::<Int>(1)"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/!(x < 1)"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/-(x + 1)"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/Cmd::Pair { a: x, ..x }"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-record-update @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x & 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x && true"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x + 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x < 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x << 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x == 1"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x || true"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
-["terms/rule/subject/set-element-beside-fresh/x.add::<Int>(1)"]
-finding = "NT-3-1"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 # NT-3-2: a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up
 # A key that computes denotes the value it computes, so the oracle accepts a `let` block and a
 # `k::matches!` there, at the key's root as below a construct that computes, and in a Set
@@ -3616,769 +3508,9 @@ deviation = "krs::syntax::invalid-expression-notation @ spelling"
 # NT-5: its six `notation/readable/map-key/let-body/..` notation cases and their calls are the
 # accepted pairs `accepted-terms.toml` relates by `same_k_as`, which K3 compares once both are accepted.
 
-["terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/readable/map-key/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/{ let y = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/function-argument/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/readable/map-key/function-argument/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/function-argument/{ let y = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/function-argument/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/let-body/!(x < 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/\"s\""]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/-(x + 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/-1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/1.5"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Cmd::Go"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Cmd::Go()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Cmd::Hold(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Cmd::Pair { a: x, .. }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Cmd::Pair { a: x, ..x }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Size(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/Wrap::<KItem>(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::anonymous!(Int, \"_V\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::builtin::int::add(1, 2)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::builtin::int::add(x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::builtin::set::item(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::bytes!(b\"ab\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::fragment![crate::Frame { ret: 1 }]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::id!(\"$x\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::is!(Int, x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::lexeme!(Word, \"word\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::or_bool!(true, false)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::project!(Int, x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/k::rewrite!(_ => 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/true"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x & 1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x && true"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x + 1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x < 1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x << 1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x == 1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x || true"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/x.add::<Int>(1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/{ let y = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/\"s\""]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/-1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/1.5"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/Cmd::Go"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/Cmd::Go()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/Cmd::Hold(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/Cmd::Pair { a: x, .. }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/Size(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/Wrap::<KItem>(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/[x, ..]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/_"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::anonymous!(Int, \"_V\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::builtin::int::add(1, 2)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::builtin::int::add(x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::builtin::set::item(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::bytes!(b\"ab\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::fragment![crate::Frame { ret: 1 }]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::id!(\"$x\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::is!(Int, x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::lexeme!(Word, \"word\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::or_bool!(true, false)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::project!(Int, x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::rewrite!(_ => 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/true"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/x"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/y @ Cmd::Hold(_)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/matches-pattern/\"s\""]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/-1"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/1"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/1.5"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Cmd::Go"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Cmd::Go()"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Cmd::Hold(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Cmd::Pair { a: x, .. }"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Size(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/Wrap::<KItem>(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/[x, ..]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/_"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::anonymous!(Int, \"_V\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::builtin::int::add(1, 2)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::builtin::int::add(x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::bytes!(b\"ab\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::fragment![crate::Frame { ret: 1 }]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::id!(\"$x\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::is!(Int, x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::lexeme!(Word, \"word\")"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::or_bool!(true, false)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::project!(Int, x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/k::rewrite!(_ => 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/true"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/x"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/y @ Cmd::Hold(_)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/update-field/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/readable/map-key/update-field/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/update-field/{ let y = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/update-field/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/let-body/x | 1"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/readable/set-instance-child/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/set-instance-child/{ let y = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/set-instance-child/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::list::item(x).len()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::list::item(x)[0]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::list::size(k::builtin::list::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::empty().contains_key(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::empty().update(x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::empty()[x]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::set::item(x).to_list()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::list::size(k::builtin::list::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::set::to_list(k::builtin::set::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::list::get(k::builtin::list::item(x), 0)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::list::size(k::builtin::list::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::get(k::builtin::map::empty(), x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::set::to_list(k::builtin::set::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
 # NT-6: the collection literals and the calls they denote in a key's `let` block or local pattern;
 # its `let-body` literals and their calls are accepted pairs `same_k_as` relates, compared once
 # both are accepted.
-
-["notation/readable/map-key/let-body/k::builtin::map::empty()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::set::empty()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::set::item(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/map![0 -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/map![]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/map![x -> 1, ..k::builtin::map::empty()]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/map![x -> 1, 2 -> 3]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/set![]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/set![x, ..k::builtin::set::empty()]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/set![x, 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-body/set![x]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::empty()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::set::empty()"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/map![0 -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/map![]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/map![x -> 1, ..k::builtin::map::empty()]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/map![x -> 1, 2 -> 3]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/set![]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/set![x, ..k::builtin::set::empty()]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/set![x, 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/let-pattern/set![x]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::empty()"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::set::empty()"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/map![0 -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/map![]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/map![x -> 1, ..k::builtin::map::empty()]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/map![x -> 1, 2 -> 3]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/set![]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/set![x, ..k::builtin::set::empty()]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/set![x, 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["notation/readable/map-key/matches-pattern/set![x]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/let-body/k::map![x -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-body/map![x -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/k::map![x -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/let-pattern/map![x -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
-["terms/readable/map-key/matches-pattern/k::map![x -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
-
-["terms/readable/map-key/matches-pattern/map![x -> 1]"]
-finding = "NT-3-2"
-deviation = "krs::expand::matches-outside-condition @ entry"
 
 # NT-5-1: alternatives one of which is an index or a collection method are read as the operator `|`
 # `k::builtin::map::empty()[x] | Cmd::Go()` in a subject is no Rust pattern, so the subject's reader
@@ -4453,54 +3585,6 @@ deviation = "krs::analysis::ambiguous-operator @ entry"
 # NT-2-4 (K8): the advice check on cases pending above under NT-2-4, whose refusal it reads.
 
 # NT-3-1 (K8): the advice check on cases pending above under NT-3-1, whose refusal it reads.
-
-["k8/terms/rule/subject/set-element/!(x < 1)"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::bit_not(..)`"
-
-["k8/terms/rule/subject/set-element/-(x + 1)"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::sub(0, ..)`"
-
-["k8/terms/rule/subject/set-element/k::is!(Int, x)"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `where x: Sort`"
-
-["k8/terms/rule/subject/set-element/k::project!(Int, x)"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `where x: Sort`"
-
-["k8/terms/rule/subject/set-element/x & 1"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::bit_and(..)`"
-
-["k8/terms/rule/subject/set-element/x && true"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `bool::and_then(..)`"
-
-["k8/terms/rule/subject/set-element/x + 1"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::add(..)`"
-
-["k8/terms/rule/subject/set-element/x < 1"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::lt(..)`"
-
-["k8/terms/rule/subject/set-element/x << 1"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::shift_left(..)`"
-
-["k8/terms/rule/subject/set-element/x == 1"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::eq(..)`"
-
-["k8/terms/rule/subject/set-element/x || true"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `bool::or_else(..)`"
-
-["k8/terms/rule/subject/set-element/x.add::<Int>(1)"]
-finding = "NT-3-1"
-deviation = "refused where the table accepts, advising `int::add(..)`"
 
 # NT-5-1 (K8): the advice check on cases pending above under NT-5-1, whose refusal it reads.
 
@@ -5938,14 +5022,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
 
-["terms/readable/map-key/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ entry"
-
 ["terms/readable/map-key/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -5953,18 +5029,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["terms/readable/map-key/matches-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/readable/map-key/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/map-key/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-3-2"
-deviation = "krs::expand::let-outside-term @ spelling"
 
 ["terms/rule/guard/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
@@ -5977,10 +5041,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["terms/rule/subject/as-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/subject/set-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-3-1"
-deviation = "krs::expand::let-outside-term @ spelling"
 
 ["terms/sort-rule/result/let-pattern/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
@@ -6038,9 +5098,489 @@ deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
 
+["k3/terms/readable/map-key/function-argument/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/function-argument/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/let-body/!(x < 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/\"s\""]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/-(x + 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/-1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/1.5"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/Cmd::Go"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/Cmd::Go()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/Cmd::Hold(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/Size(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::builtin::int::add(1, 2)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::builtin::int::add(x, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::bytes!(b\"ab\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::id!(\"$x\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::is!(Int, x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::lexeme!(Word, \"word\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::map![x -> 1]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/k::project!(Int, x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/map![x -> 1]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x & 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x && true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x + 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x < 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x << 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x == 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x | 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x || true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/x.add::<Int>(1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-body/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/\"s\""]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/1.5"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/Cmd::Go"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/Cmd::Go()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/Cmd::Hold(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/Cmd::Pair { a: x, .. }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/_"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/k::bytes!(b\"ab\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/k::id!(\"$x\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/k::lexeme!(Word, \"word\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/let-pattern/x"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/matches-pattern/\"s\""]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/-1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/1.5"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/Cmd::Go"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/Cmd::Go()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/k::bytes!(b\"ab\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/k::id!(\"$x\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/k::lexeme!(Word, \"word\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/matches-pattern/true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/update-field/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/map-key/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/update-field/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/map-key/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/terms/readable/set-instance-child/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/readable/set-instance-child/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::list::item(x).len()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::list::item(x)[0]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::empty()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::empty().contains_key(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::empty().update(x, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::empty()[x]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::set::empty()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::set::item(x).to_list()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/map![0 -> 1]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/map![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/map![x -> 1, 2 -> 3]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/set![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/set![x, ..k::builtin::set::empty()]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/set![x, 1]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-body/set![x]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-pattern/k::builtin::map::empty()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-pattern/k::builtin::set::empty()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-pattern/map![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-pattern/set![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/let-pattern/set![x]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/notation/readable/map-key/matches-pattern/k::builtin::map::empty()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/notation/readable/map-key/matches-pattern/k::builtin::set::empty()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/notation/readable/map-key/matches-pattern/map![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
+["k3/notation/readable/map-key/matches-pattern/set![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+
 ["k8/terms/readable/map-key/or-branch/Cmd::Pair { a: x, ..x }"]
 finding = "S0-14"
 deviation = "record-update-in-pattern advises none, and its refusal advises `{ let Cmd::Pair { a: _, b } = e; Cmd::Pair { a: .., b } }`"
+
+["k8/terms/readable/map-key/or-branch/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-14"
+deviation = "matches-outside-condition advises none, and its refusal advises `a || b`"
+
+["k8/terms/readable/map-key/or-branch/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-14"
+deviation = "let-outside-term advises none, and its refusal advises `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/{ let y = x; y }"]
+finding = "S0-14"
+deviation = "let-outside-term advises none, and its refusal advises `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "S0-14"
+deviation = "let-outside-term advises none, and its refusal advises `let p = e; let P = p;`"
+
+["terms/readable/map-key/or-branch/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+
+["terms/readable/map-key/or-branch/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-let @ spelling"
+
+["terms/readable/map-key/or-branch/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+
+["terms/readable/map-key/or-branch/{ let y = x; y }"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+
+["terms/readable/map-key/or-branch/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-let @ spelling"
 
 # NT-18-1: a sort projection in a context alias's map key reaches expansion's internal
 # `krs::expand::missing-provenance-key` ("this node holds no provenance key from its sentence's
@@ -6067,4 +5607,16 @@ deviation = "different"
 ["k3/terms/sort-rule/subject-root/Wrap::<KItem>(x)"]
 finding = "NT-30-2"
 deviation = "different"
+
+["terms/readable/map-key/matches-pattern/_"]
+finding = "NT-2-7"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["k3/terms/readable/map-key/let-body/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/map-key/let-pattern/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
 

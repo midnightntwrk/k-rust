@@ -224,9 +224,10 @@ const fn selects(construct: Construct) -> bool {
 }
 
 /// What a construct that computes means in a key that is a selection: the key is matched against
-/// the collection's evaluated keys, which no application, operator or sort test is, so it never
-/// matches (told once the key's names are known); a `let` block and `k::matches!` are refused as in
-/// any pattern.
+/// the collection's evaluated keys, which no application, operator, sort test, `let` block or
+/// `k::matches!` is, so it never matches. Whether a name in the key is bound elsewhere is a fact of
+/// the whole pattern, so the selection is told once the key's names are known, after the mistakes
+/// placement tells inside the construct; a `let` block and `k::matches!` keep their own classes.
 const fn in_selection(construct: Construct) -> Option<Refusal> {
     match construct {
         Construct::FunctionApplication
@@ -248,8 +249,8 @@ const fn in_selection(construct: Construct) -> Option<Refusal> {
             | Notation::SetLiteral,
         ) => Some(resolution(Class::FunctionInPattern)),
         Construct::SortTest | Construct::Projection => Some(resolution(Class::SortTestInPattern)),
-        Construct::Let => Some(placement(Class::LetOutsideTerm)),
-        Construct::Matches => Some(placement(Class::MatchesOutsideCondition)),
+        Construct::Let => Some(resolution(Class::LetOutsideTerm)),
+        Construct::Matches => Some(resolution(Class::MatchesOutsideCondition)),
         _ => None,
     }
 }
@@ -290,13 +291,26 @@ pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
                     .or(Some(resolution(Class::CollectionInStaticSubject)));
             }
             match in_selection(node.construct) {
-                // Below `@` or `|` the key is matched already, by the construct's own entry.
+                // Below `@` or `|` the key is matched already, by the construct's own entry. A
+                // `let` block or `k::matches!` its entry refuses by placement (a `cells!` cell
+                // value) is refused there, before its key's names are known.
                 Some(refusal)
                     if selection
                         && in_key_reading(position)
                         && position.kind == Kind::Evaluated =>
                 {
-                    Some(refusal)
+                    match admits(node.construct, position) {
+                        Some(own)
+                            if own.stage == Stage::Placement
+                                && matches!(
+                                    node.construct,
+                                    Construct::Let | Construct::Matches
+                                ) =>
+                        {
+                            Some(own)
+                        }
+                        _ => Some(refusal),
+                    }
                 }
                 _ => admits(node.construct, position),
             }
@@ -703,8 +717,12 @@ const fn alternatives(position: Position) -> Option<Refusal> {
 /// they mean their value: a result, a condition, an initializer (from its configuration
 /// variables and constants, evaluated when the configuration is built), and a claim's states
 /// and conditions, which are terms over the claim's variables as a rule's are; a claim's start
-/// state holds applications, which denote their values there. A `cells!` cell value's boundary
-/// is S0-17's (S6).
+/// state holds applications, which denote their values there. A key or a set's element a pattern
+/// over evaluated terms looks up is computed from names bound elsewhere, so it holds either, as it
+/// holds a function's application (a selection is told by [`in_selection`]); a pattern that meets
+/// unevaluated terms (a simplification's, a static clause's) would match a key that is the
+/// generated function's application, which no term holds. A `cells!` cell value's boundary is
+/// S0-17's (S6).
 const fn local_term(construct: Construct, position: Position) -> Option<Refusal> {
     let class = if matches!(construct, Construct::Matches) {
         Class::MatchesOutsideCondition
@@ -712,9 +730,20 @@ const fn local_term(construct: Construct, position: Position) -> Option<Refusal>
         Class::LetOutsideTerm
     };
     let claim_state = position.form.is_claim() && position.nesting.local.is_none();
+    let in_pattern_key = matches!(position.slot, Slot::Subject)
+        && (position.nesting.entries.contains(Entry::MapKey)
+            || position.nesting.entries.contains(Entry::SetElement))
+        && position.nesting.local.is_none();
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
-    } else if (matches!(position.kind, Kind::Matched) && !claim_state) || in_cells_value(position) {
+    } else if in_map_instance(position) {
+        // Only the cell's declared type tells a Map collection's instance, which the pattern
+        // matches, from a Set collection's, which it looks up as a key.
+        Some(resolution(class))
+    } else if (matches!(position.kind, Kind::Matched) && !claim_state)
+        || in_cells_value(position)
+        || (in_pattern_key && !claim_state && !position.form.matches_evaluated_terms())
+    {
         Some(placement(class))
     } else {
         None

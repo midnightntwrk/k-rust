@@ -139,6 +139,11 @@ owner = "NT-28"
 kind = "diagnostic"
 what = "a static clause whose body rustc cannot parse leaves its production's marker orphaned"
 
+["NT-2-16"]
+owner = "NT-30"
+kind = "bug"
+what = "`krs expand` prints a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block so that the re-check refuses it"
+
 ["NT-2-18"]
 owner = "NT-28"
 kind = "bug"
@@ -158,16 +163,6 @@ what = "a constant's whole value that rustc cannot parse gets no KRS answer"
 owner = "NT-32"
 kind = "diagnostic"
 what = "a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class"
-
-["NT-3-1"]
-owner = "NT-31"
-kind = "feature"
-what = "a set's element in a pattern refuses what a key admits: computed constructs and notation"
-
-["NT-3-2"]
-owner = "NT-31"
-kind = "feature"
-what = "a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up"
 
 ["NT-30-2"]
 owner = "S6"

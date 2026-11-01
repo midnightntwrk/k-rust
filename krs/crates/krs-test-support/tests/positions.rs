@@ -29,86 +29,10 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 19] = [
-    // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), so a construct in
-    // one's body, pattern or matched pattern there is refused with it; the collection notation and
-    // its calls are such constructs. Where a `let` or `k::matches!` pattern holds the notation, no
-    // Rust parser reads the pattern first (NT-2-6).
-    ("notation/readable/map-key/let-body/*", "NT-3-2"),
-    (
-        r"notation/readable/map-key/{let-pattern,matches-pattern}/k::builtin::{list::get,list::size,map::get,map::in_keys,map::update,set::to_list}(*",
-        "NT-3-2",
-    ),
-    (
-        r"notation/readable/map-key/{let-pattern,matches-pattern}/k::builtin::{list::item(x)[0],list::item(x).len(),map::empty()[x],map::empty().contains_key(x),map::empty().update(x\, 1),set::item(x).to_list()}",
-        "NT-2-6",
-    ),
-    // The collection literals and the calls they denote are such constructs too; a literal is a
-    // macro, which a Rust pattern reads, so the boundary is met first.
-    (
-        r"notation/readable/map-key/{let-pattern,matches-pattern}/{map![*,set![*,k::builtin::map::empty(),k::builtin::set::empty(),k::builtin::set::item(x),k::builtin::set::union(*}",
-        "NT-3-2",
-    ),
-    (
-        r"terms/readable/set-instance-child/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
-        "NT-3-2",
-    ),
-    (
-        r"terms/rule/subject/set-element-beside-fresh/Cmd::Pair \{ a: x\, ..x \}",
-        "NT-3-1",
-    ),
-    (
-        r"terms/rule/subject/set-element-beside-fresh/{k::is!(Int\, x),k::project!(Int\, x)}",
-        "NT-3-1",
-    ),
+const KNOWN: [(&str, &str); 1] = [
     (
         r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
         "NT-2-6",
-    ),
-    (
-        r"terms/readable/map-key/let-body/y @ Cmd::Hold(_)",
-        "NT-2-6",
-    ),
-    (
-        r"terms/readable/map-key/let-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}",
-        "NT-2-6",
-    ),
-    (
-        r"terms/readable/map-key/matches-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
-        "NT-2-6",
-    ),
-    (r"terms/readable/map-key/let-pattern/x | 1", "NT-2-25"),
-    // A set's element reads as a constructor's argument to the product, which cannot tell
-    // `set::item` before resolution (NT-3-1).
-    (
-        r"terms/rule/subject/set-element/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
-        "NT-3-1",
-    ),
-    // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), which the oracle
-    // admits as a computed key.
-    (
-        r"terms/readable/map-key/function-argument/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
-        "NT-3-2",
-    ),
-    (
-        r"terms/readable/map-key/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
-        "NT-3-2",
-    ),
-    (
-        r#"terms/readable/map-key/let-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}"#,
-        "NT-3-2",
-    ),
-    (
-        r#"terms/readable/map-key/let-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
-        "NT-3-2",
-    ),
-    (
-        r#"terms/readable/map-key/matches-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x | 1,y @ Cmd::Hold(_)}"#,
-        "NT-3-2",
-    ),
-    (
-        r"terms/readable/map-key/update-field/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \}}",
-        "NT-3-2",
     ),
 ];
 
@@ -130,32 +54,20 @@ const NOT_RED: [(&str, &str); 3] = [
 ];
 
 /// The disagreements the product decides before or outside the table's row, which are not red:
-/// the table refuses a `let` block and `k::matches!` in a readable key (NT-3-2), and the term
-/// reader refuses the construct inside first, with the class the oracle gives it (`_`, a rest
-/// outside a pattern), or a name rule of the class table does (`x | 1`'s
-/// alternatives binding other names in a `k::matches!` pattern); the readable key's reader, which
-/// reads an expression, refuses `_`, alternatives and a closure below a function's application;
-/// and the compiler refuses an open record there (`key_names`), which the table cannot tell from a
-/// constructor's argument before resolution, as it cannot tell a readable result's open
-/// constructor record from a cell instance's; a sort test in a set's element beside a name bound
-/// nowhere else is refused with its class at placement, as in a constructor's field (NT-3-1), where
-/// the oracle tells it once the element's names are known.
-const DECIDED_BEFORE_THE_TABLE: [&str; 15] = [
+/// the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure
+/// below a function's application; and the compiler refuses an open record there (`key_names`),
+/// which the table cannot tell from a constructor's argument before resolution, as it cannot
+/// tell a readable result's open constructor record from a cell instance's.
+const DECIDED_BEFORE_THE_TABLE: [&str; 9] = [
     "terms/claim/result-item-root/Cmd::Pair { a: x, .. }",
     "terms/claim/result/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/_",
     "terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
-    "terms/readable/map-key/let-body/Cmd::Go() | Cmd::Hold(_)",
-    "terms/readable/map-key/let-body/[x, ..]",
-    "terms/readable/map-key/let-body/_",
-    "terms/readable/map-key/matches-pattern/x | 1",
     "terms/readable/result-item-root/Cmd::Pair { a: x, .. }",
     "terms/readable/result-list-element/Cmd::Pair { a: x, .. }",
     "terms/readable/result/Cmd::Pair { a: x, .. }",
-    "terms/rule/subject/set-element-beside-fresh/k::is!(Int, x)",
-    "terms/rule/subject/set-element-beside-fresh/k::project!(Int, x)",
 ];
 
 fn read_class_matrix(file: &str) -> String {
@@ -245,9 +157,14 @@ fn product_position(position: model::Position, reading: KeyReading) -> Position 
         model::Slot::Value => Slot::InitializerValue,
     };
     let nesting = position.nesting;
-    // A set's element is an application's argument to the table, which resolution alone tells
-    // from a constructor's.
-    let in_map_key = nesting.entries.contains(Entry::MapKey) && slot == Slot::Subject;
+    // A set's element in a pattern is a key to the walker, which reads `set::item`'s argument as
+    // one; resolution tells whether the head is the builtin's singleton.
+    let in_set_element = nesting.entries.contains(Entry::SetElement)
+        && !nesting.entries.contains(Entry::Instance)
+        && slot == Slot::Subject
+        && nesting.local.is_none();
+    let in_map_key =
+        (nesting.entries.contains(Entry::MapKey) || in_set_element) && slot == Slot::Subject;
     let product = Position {
         form,
         slot,
@@ -256,6 +173,7 @@ fn product_position(position: model::Position, reading: KeyReading) -> Position 
             in_let_pattern: nesting.local == Some(LocalPattern::Let),
             in_rewrite: nesting.rewrite.is_some(),
             in_map_key,
+            in_set_element: in_set_element && !nesting.entries.contains(Entry::MapKey),
             in_computed_key: in_map_key && reading.computed,
             in_selected_key: in_map_key && reading.selected && nesting.local.is_none(),
             // The walker knows an instance's braces, but not whose collection they write.
@@ -291,7 +209,7 @@ fn key_reading(path: &[Opening], node: &model::Node, nodes: &[model::Node]) -> K
         })
     };
     for (index, opening) in path.iter().chain(&node.path).enumerate() {
-        if *opening == Opening::MapKey {
+        if matches!(opening, Opening::MapKey | Opening::SetElement) {
             in_key = true;
             continue;
         }

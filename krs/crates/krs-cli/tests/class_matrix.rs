@@ -780,14 +780,13 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     // `#[k::constructor(...)]` no case writes; the class's own message comes back with NT-2-14.
     ("terms", "alias-outside-pattern", 4),
     ("terms", "alias-at-subject-root", 2),
-    ("terms", "alias-in-let-pattern", 40),
+    ("terms", "alias-in-let-pattern", 51),
     ("terms", "configuration-variable-sort", 2),
-    ("terms", "function-in-pattern", 8),
     ("terms", "island-at-subject-root", 18),
     ("terms", "ml-in-condition", 41),
     ("terms", "notation-in-pattern", 264),
     ("terms", "record-remainder-in-initializer", 4),
-    ("terms", "sort-test-in-pattern", 70),
+    ("terms", "sort-test-in-pattern", 72),
     ("terms", "wildcard-at-subject-root", 2),
 ];
 
