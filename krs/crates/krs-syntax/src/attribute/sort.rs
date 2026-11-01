@@ -8,11 +8,10 @@ use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::rule::{
-    OWISE_PRIORITY, OWISE_WITH_PRIORITY, PRIORITY_ON_STATIC_RULE, PriorityValue,
-    parse_priority_value, rule_key_error,
+    OWISE_PRIORITY, OWISE_WITH_PRIORITY, PriorityValue, parse_priority_value, rule_key_error,
 };
 
-use super::placement::{Marker, misplaced_key};
+use super::placement::{Marker, taken, untaken};
 use super::value::{
     parse_empty_tokens, parse_parent_paths_value, parse_sort_value,
     parse_unqualified_identifier_value,
@@ -886,61 +885,56 @@ impl StaticProductionAttribute {
     ///
     /// # Errors
     ///
-    /// Rejects `priority`/`owise` (static rules have no priority) and every
-    /// payload other than one `recursive`.
+    /// Rejects every other key at the key, for what it is on a static production
+    /// ([`misplaced_key`](super::placement::misplaced_key)): an order (`priority`, `owise`,
+    /// `nondet`), `unbound_variables` (a desugar clause's); a repeated `recursive`, and a payload
+    /// that is no key at its first token.
     pub fn parse_marker(mode: StaticMode, tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let mut iter = crate::parse::strip_trailing_comma(tokens).into_iter();
-        let Some(first) = iter.next() else {
-            return Self {
-                mode,
-                recursive: None,
-                recursive_key: None,
-                anchors: Vec::new(),
-            }
-            .keyed();
-        };
-        if let proc_macro2::TokenTree::Ident(ident) = &first {
-            if ident == "priority" || ident == "owise" {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::InvalidRuleKey {
-                        reason: PRIORITY_ON_STATIC_RULE,
-                    },
-                    ident.span(),
-                ));
-            }
-            if ident == "unbound_variables" {
-                return Err(unbound_variables_outside_desugar(ident.span()));
-            }
-            if ident == "recursive" {
-                if let Some(extra) = iter.next() {
+        let mut recursive: Option<Ident> = None;
+        let mut expect_key = true;
+        for token in crate::parse::strip_trailing_comma(tokens) {
+            match token {
+                proc_macro2::TokenTree::Ident(key) if expect_key => {
+                    match taken(Marker::StaticProduction, &key)?.as_str() {
+                        "recursive" if recursive.is_some() => {
+                            return Err(SyntaxError::new(
+                                SyntaxErrorKind::DuplicateArgument { name: "recursive" },
+                                key.span(),
+                            ));
+                        }
+                        "recursive" => recursive = Some(key),
+                        other => untaken(Marker::StaticProduction, other),
+                    }
+                    expect_key = false;
+                }
+                proc_macro2::TokenTree::Punct(comma)
+                    if !expect_key && recursive.is_some() && comma.as_char() == ',' =>
+                {
+                    expect_key = true;
+                }
+                other => {
                     return Err(SyntaxError::new(
                         SyntaxErrorKind::UnexpectedAttributePayload {
-                            attribute: "recursive",
+                            attribute: if recursive.is_some() {
+                                "recursive"
+                            } else {
+                                mode.name()
+                            },
                         },
-                        extra.span(),
+                        other.span(),
                     ));
                 }
-                return Self {
-                    mode,
-                    recursive: Some(TokenRange::for_tokens(ident)?),
-                    recursive_key: None,
-                    anchors: Vec::new(),
-                }
-                .keyed();
             }
-            return Err(SyntaxError::new(
-                SyntaxErrorKind::UnknownArgument {
-                    name: ident.to_string(),
-                },
-                ident.span(),
-            ));
         }
-        Err(SyntaxError::new(
-            SyntaxErrorKind::UnexpectedAttributePayload {
-                attribute: mode.name(),
-            },
-            first.span(),
-        ))
+        Self {
+            mode,
+            recursive: recursive
+                .map(|ident| TokenRange::for_tokens(&ident))
+                .transpose()?,
+            recursive_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// The marker's mode.
@@ -1171,7 +1165,7 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
     let mut restriction = MatchRestriction::default();
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
+        let key_name = taken(Marker::Equation, &key)?;
         if restriction.parse_key(&key, input)? {
             if input.is_empty() {
                 break;
@@ -1216,7 +1210,7 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
                 input.parse::<Token![=]>()?;
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
-            _ => return Err(misplaced_key(Marker::Equation, &key).into()),
+            other => untaken(Marker::Equation, other),
         }
         if input.is_empty() {
             break;
@@ -1257,10 +1251,11 @@ fn parse_simplification_stream(
     let mut restriction = MatchRestriction::default();
     while !input.is_empty() {
         let key: Ident = input.parse()?;
+        let key_name = taken(Marker::Simplification, &key)?;
         let consumed = restriction.parse_key(&key, input)?;
         if consumed {
             // A `concrete`, `symbolic`, or `smt_lemma` key.
-        } else if key == "label" {
+        } else if key_name == "label" {
             if label.is_some() {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "label" },
@@ -1270,7 +1265,7 @@ fn parse_simplification_stream(
             }
             input.parse::<Token![=]>()?;
             label = Some(super::value::parse_rule_label_value(input.parse()?)?);
-        } else if key == "priority" {
+        } else if key_name == "priority" {
             if priority.is_some() {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "priority" },
@@ -1283,7 +1278,7 @@ fn parse_simplification_stream(
             let value = literal.base10_parse::<u32>()?;
             priority = Some((literal, value));
         } else {
-            return Err(misplaced_key(Marker::Simplification, &key).into());
+            untaken(Marker::Simplification, &key_name);
         }
         if input.is_empty() {
             break;
@@ -1301,17 +1296,15 @@ fn parse_simplification_stream(
     .keyed()?)
 }
 
-/// Rejects the payload of a static clause marker at its first token: a key, for what it is on a
-/// clause ([`misplaced_key`]), and anything else as a payload the marker does not
-/// take.
-fn parse_static_clause_tokens(
-    tokens: TokenStream,
-    attribute: &'static str,
-) -> Result<(), SyntaxError> {
+/// Rejects the payload of an alias clause's marker at its first token: a key, for what it is on
+/// the clause ([`misplaced_key`](super::placement::misplaced_key)), since the clause takes none, and anything else as a payload
+/// the marker does not take.
+fn parse_alias_clause_tokens(tokens: TokenStream) -> Result<(), SyntaxError> {
     if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
-        return Err(misplaced_key(Marker::StaticClause, &first));
+        let name = taken(Marker::AliasClause, &first)?;
+        untaken(Marker::AliasClause, &name);
     }
-    parse_empty_tokens(tokens, attribute)
+    parse_empty_tokens(tokens, "alias")
 }
 
 impl KrsSyntax for AliasAttribute {
@@ -1319,11 +1312,11 @@ impl KrsSyntax for AliasAttribute {
     ///
     /// # Errors
     ///
-    /// Rejects `priority` and `owise` (static rules have no priority),
-    /// `nondet`, `recursive` (a property of the production), and every other
-    /// payload at its first token.
+    /// Rejects every key at the key, for what it is on a clause ([`misplaced_key`](super::placement::misplaced_key)): an order
+    /// (`priority`, `owise`, `nondet`), `recursive` (a property of the production), and every
+    /// other payload at its first token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        parse_static_clause_tokens(tokens, "alias").map(|()| AliasAttribute)
+        parse_alias_clause_tokens(tokens).map(|()| AliasAttribute)
     }
 }
 
@@ -1333,34 +1326,53 @@ impl KrsSyntax for DesugarAttribute {
     ///
     /// # Errors
     ///
-    /// Rejects `priority` and `owise` (static rules have no priority),
-    /// `nondet`, `recursive` (a property of the production), a malformed
-    /// `unbound_variables` list, and every other payload at its first token.
+    /// Rejects every other key at the key, for what it is on a clause ([`misplaced_key`](super::placement::misplaced_key)): an
+    /// order (`priority`, `owise`, `nondet`), `recursive` (a property of the production); a
+    /// repeated or malformed `unbound_variables` list, and a payload that is no key at its first
+    /// token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let tokens = crate::parse::strip_trailing_comma(tokens);
-        let first = tokens.clone().into_iter().next();
-        let Some(proc_macro2::TokenTree::Ident(first)) = first else {
-            return parse_static_clause_tokens(tokens, "desugar")
-                .map(|()| DesugarAttribute::default());
-        };
-        if first != "unbound_variables" {
-            return parse_static_clause_tokens(tokens, "desugar")
-                .map(|()| DesugarAttribute::default());
+        if !matches!(
+            tokens.clone().into_iter().next(),
+            Some(proc_macro2::TokenTree::Ident(_))
+        ) {
+            return parse_empty_tokens(tokens, "desugar").map(|()| DesugarAttribute::default());
         }
         structured(
             tokens,
             |input: ParseStream<'_>| -> Result<Self, ParseError> {
-                let key = input.parse::<Ident>()?;
-                let unbound = parse_unbound_variables(key, input)?;
-                if !input.is_empty() {
-                    let next: proc_macro2::TokenTree = input.parse()?;
-                    return Err(unbound_variables_error(
-                        "a desugar clause takes only `unbound_variables = [..]`".into(),
-                        next.span(),
-                    ));
+                let mut unbound = None;
+                loop {
+                    let key = input.call(Ident::parse_any)?;
+                    match taken(Marker::DesugarClause, &key)?.as_str() {
+                        "unbound_variables" if unbound.is_some() => {
+                            return Err(SyntaxError::new(
+                                SyntaxErrorKind::DuplicateArgument {
+                                    name: "unbound_variables",
+                                },
+                                key.span(),
+                            )
+                            .into());
+                        }
+                        "unbound_variables" => {
+                            unbound = Some(parse_unbound_variables(key, input)?);
+                        }
+                        other => untaken(Marker::DesugarClause, other),
+                    }
+                    if input.is_empty() {
+                        break;
+                    }
+                    if !input.peek(Token![,]) || !input.peek2(Ident::peek_any) {
+                        let next: proc_macro2::TokenTree = input.parse()?;
+                        return Err(unbound_variables_error(
+                            "a desugar clause takes only `unbound_variables = [..]`".into(),
+                            next.span(),
+                        ));
+                    }
+                    input.parse::<Token![,]>()?;
                 }
                 Ok(DesugarAttribute {
-                    unbound_variables: Some(unbound),
+                    unbound_variables: unbound,
                     anchors: Vec::new(),
                 }
                 .keyed()?)
@@ -1419,7 +1431,18 @@ impl PriorityAttribute {
             Some(Marker::Rule) => Some("rule"),
             Some(Marker::Equation) | None => Some("equation"),
             Some(Marker::Simplification) => Some("simplification"),
-            _ => None,
+            // Chosen against no other sentence: a claim is proved, a context is ordered by its
+            // hole, a static production's clauses never overlap, and a declaration states none.
+            Some(
+                Marker::Claim
+                | Marker::Context
+                | Marker::ContextAlias
+                | Marker::AliasClause
+                | Marker::DesugarClause
+                | Marker::StaticProduction
+                | Marker::Initializer
+                | Marker::Constant,
+            ) => None,
         };
         Err(SyntaxError::new(
             SyntaxErrorKind::RetiredAttribute {
@@ -1557,7 +1580,7 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
     let mut result = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
+        let key_name = taken(Marker::ContextAlias, &key)?;
         let argument = match key_name.as_str() {
             "result" if result.is_some() => {
                 return Err(SyntaxError::new(
@@ -1591,7 +1614,7 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
                 .into());
             }
             "here" => "here",
-            _ => return Err(misplaced_key(Marker::ContextAlias, &key).into()),
+            other => untaken(Marker::ContextAlias, other),
         };
         input.parse::<Token![=]>()?;
         let value: Expr = input.parse()?;

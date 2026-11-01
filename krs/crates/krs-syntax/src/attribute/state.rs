@@ -371,7 +371,8 @@ fn parse_declaration_marker(
     attribute: &'static str,
 ) -> Result<(), SyntaxError> {
     if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
-        return Err(super::placement::misplaced_key(marker, &first));
+        let name = super::placement::taken(marker, &first)?;
+        super::placement::untaken(marker, &name);
     }
     parse_empty_tokens(tokens, attribute)
 }

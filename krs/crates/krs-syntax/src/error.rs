@@ -414,13 +414,16 @@ pub enum SyntaxErrorKind {
         reason: &'static str,
     },
     /// A `#[k::fresh]` helper on a sentence that is no transition step: a
-    /// claim, a context.
+    /// claim, a context. Its code is the expand route's `fresh-placement`, not
+    /// a syntax code: the class is the mistake, so the same mistake has the
+    /// same code whether the macro or the shared parser finds it.
     MisplacedFresh {
         /// What the sentence is, and why it draws no value.
         reason: &'static str,
     },
     /// A `#[k::ensures]` or `#[k::exists]` helper on a sentence that reaches
-    /// no result state: a context.
+    /// no result state: a context. Its code is the expand route's
+    /// `existential-placement`, for the reason [`Self::MisplacedFresh`] gives.
     MisplacedExistential {
         /// What the sentence is, and why it has no result state.
         reason: &'static str,

@@ -290,6 +290,17 @@ fn every_key_the_attribute_parsers_recognize_is_an_attribute_of_the_axis() {
         stale.is_empty(),
         "keys the axis writes that no parser recognizes: {stale:?}"
     );
+    // The placement table's keys are the keys the sentence parsers read, so a key a parser and
+    // the axis gain is run through every marker by `krs-syntax`'s structural test.
+    let scanned = recognized.keys().copied().collect::<BTreeSet<_>>();
+    let table = krs_syntax::SENTENCE_KEYS
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        scanned, table,
+        "the keys the sentence parsers compare, and `krs_syntax::SENTENCE_KEYS`"
+    );
 }
 
 /// The keys of a static production's own marker the axis writes ([`EXTRAS`]).
@@ -766,7 +777,9 @@ fn print_the_attribute_table() {
     }
 }
 
-/// The marker a form's keys are written on, where `krs-syntax` parses it.
+/// The marker a form's keys are written on, where `krs-syntax` parses it; `None` for a function
+/// shorthand, whose keys are its declaration's, `#[k::function(..)]`. A form the axis gains fails
+/// here until it is given its marker.
 fn form_marker(form: &str) -> Option<krs_syntax::Marker> {
     use krs_syntax::Marker;
     Some(match form {
@@ -776,19 +789,24 @@ fn form_marker(form: &str) -> Option<krs_syntax::Marker> {
         "simplification" => Marker::Simplification,
         "context" => Marker::Context,
         "context-alias" => Marker::ContextAlias,
-        "desugar" | "alias" => Marker::StaticClause,
+        "alias" => Marker::AliasClause,
+        "desugar" => Marker::DesugarClause,
         "init" => Marker::Initializer,
         "constant" => Marker::Constant,
-        // A function shorthand's keys are its declaration's, `#[k::function(..)]`.
-        _ => return None,
+        "shorthand" => return None,
+        other => {
+            panic!("the form `{other}` has no marker here: name the marker its keys are written on")
+        }
     })
 }
 
-/// One mistake, one class (NT-33): every key the oracle refuses on a marker that does not take
-/// it is answered, by `krs_syntax::misplaced_key`, with the code of the class the oracle names
-/// for that (attribute, form) pair. The oracle states what a key means on each form from the
-/// key, and the parser's table answers it; a key or a form added to one and not the other, or a
-/// class moved in either, fails here without a class-matrix run.
+/// One mistake, one class (NT-33), in both directions: every key the oracle refuses on a marker
+/// that does not take it is answered, by `krs_syntax::misplaced_key`, with the code of the class
+/// the oracle names for that (attribute, form) pair, and every key the oracle accepts on a form
+/// is one its marker takes (else the parser refuses what the table admits). The oracle states
+/// what a key means on each form from the key, and the parser's table answers it; a key or a form
+/// added to one and not the other, or a class moved in either, fails here without a class-matrix
+/// run.
 #[test]
 fn the_parsers_misplaced_key_table_answers_with_the_oracles_class() {
     use krs_test_support::class_matrix::attributes::{Attribute, FORMS, Written, expected};
@@ -810,8 +828,17 @@ fn the_parsers_misplaced_key_table_answers_with_the_oracles_class() {
                 .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                 .next()
                 .expect("a key");
-            let Outcome::Refuse(refusal) = expected(form.sentence, attribute) else {
-                continue;
+            let refusal = match expected(form.sentence, attribute) {
+                Outcome::Accept => {
+                    if !marker.takes(key) {
+                        disagreements.push(format!(
+                            "{}/{text}: the oracle accepts it, and {marker:?} does not take `{key}`",
+                            form.name
+                        ));
+                    }
+                    continue;
+                }
+                Outcome::Refuse(refusal) => refusal,
             };
             if marker.takes(key) {
                 continue;

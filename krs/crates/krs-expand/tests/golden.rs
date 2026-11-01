@@ -1093,9 +1093,22 @@ pub fn init(ready: Bool, cap: Int) -> Self {
 ",
     ),
     (
-        "requires_orphan",
+        "requires_before_marker",
         r"
 #[k::requires(int::le(0, value))]
+#[k::rule]
+fn positive(k::term![Positive(value)]: Term<Int>) -> Term<Int> {
+    value
+}
+",
+    ),
+    // Two helpers before the marker keep their written order: the division is tested only
+    // where the first condition holds.
+    (
+        "requires_twice_before_marker",
+        r"
+#[k::requires(int::ne(value, 0))]
+#[k::requires(int::gt(int::div(10, value), 1))]
 #[k::rule]
 fn positive(k::term![Positive(value)]: Term<Int>) -> Term<Int> {
     value
@@ -1234,6 +1247,19 @@ fn reaches(
     k::cells! { k: k::configuration::KCell(Done(n), ..tail), ..state }
 }
 "#,
+    ),
+    // A claim has no label of its own outside a `k::claims!` block.
+    (
+        "exists_claim_without_label",
+        r"
+#[k::exists(n: Int)]
+#[k::claim(one_path)]
+fn reaches(
+    k::cells! { k: k::configuration::KCell(Start(), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(Done(n), ..tail), ..state }
+}
+",
     ),
     (
         "ensures_orphan",

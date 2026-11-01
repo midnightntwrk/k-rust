@@ -348,22 +348,31 @@ fn requires_on_static_clause(reason: &'static str, span: Option<Span>) -> Expand
     }
 }
 
-/// The retired `#[k::priority(N)]`, refused naming the order key of the item's own sentence
-/// marker, or none where the sentence is chosen against no other.
+/// The retired `#[k::priority(N)]`. Written before the item's marker, it is handed to the marker
+/// ([`hand_to_marker`]), whose expansion refuses it as after the marker: naming the order key of
+/// the sentence's own marker, or none where the sentence is chosen against no other, or with the
+/// marker's own class (a function shorthand, an initializer). On an item with no marker it is
+/// named the equation's.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Attribute macro entry points own their input token streams."
 )]
 pub(crate) fn priority(
-    _env: &dyn MacroEnvironment,
+    env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    krs_syntax::PriorityAttribute::parse_on(&attributes, item_marker(&item))?;
+    if let Some(expanded) = hand_to_marker(env, AttributeMacro::Priority, &attributes, &item) {
+        return expanded;
+    }
+    krs_syntax::PriorityAttribute::parse_on(&attributes, None)?;
     unreachable!("the retired priority attribute never parses")
 }
 
-/// The marker of the sentence an attribute entry point expands, as `krs-syntax` names it.
+/// The marker of the sentence an attribute entry point expands on a fn or a const, as
+/// `krs-syntax` names it, for the markers whose expansion refuses the retired
+/// `#[k::priority(N)]` itself; `None` for every other entry point, a function shorthand and an
+/// initializer included, which refuse it with their own class.
 pub(crate) const fn sentence_marker(entry: AttributeMacro) -> Option<krs_syntax::Marker> {
     use krs_syntax::Marker;
     Some(match entry {
@@ -373,9 +382,29 @@ pub(crate) const fn sentence_marker(entry: AttributeMacro) -> Option<krs_syntax:
         AttributeMacro::Claim => Marker::Claim,
         AttributeMacro::Context => Marker::Context,
         AttributeMacro::ContextAlias => Marker::ContextAlias,
-        AttributeMacro::Alias | AttributeMacro::Desugar => Marker::StaticClause,
+        AttributeMacro::Alias => Marker::AliasClause,
+        AttributeMacro::Desugar => Marker::DesugarClause,
         AttributeMacro::Constant => Marker::Constant,
-        _ => return None,
+        AttributeMacro::Sort
+        | AttributeMacro::Symbol
+        | AttributeMacro::Constructor
+        | AttributeMacro::Function
+        | AttributeMacro::Constructors
+        | AttributeMacro::Token
+        | AttributeMacro::Bracket
+        | AttributeMacro::Subsort
+        | AttributeMacro::Strict
+        | AttributeMacro::Seqstrict
+        | AttributeMacro::Configuration
+        | AttributeMacro::Cell
+        | AttributeMacro::Init
+        | AttributeMacro::Priority
+        | AttributeMacro::Requires
+        | AttributeMacro::Exists
+        | AttributeMacro::Ensures
+        | AttributeMacro::SyntaxList
+        | AttributeMacro::Fresh
+        | AttributeMacro::SpecModule => return None,
     })
 }
 
@@ -403,39 +432,33 @@ pub(crate) fn reject_retired_priority_on(
     marker: krs_syntax::Marker,
     item: &TokenStream,
 ) -> crate::Result<()> {
-    let attributes = match syn::parse2::<syn::Item>(item.clone()) {
-        Ok(syn::Item::Fn(function)) => function.attrs,
-        Ok(syn::Item::Const(constant)) => constant.attrs,
-        // A fn whose body holds `name @ pattern` is no Rust item.
-        _ => match krs_syntax::parse_fn_item(item.clone()) {
-            Ok(function) => function.attrs,
-            Err(_) => return Ok(()),
-        },
-    };
-    reject_retired_priority(marker, &attributes)
+    match outer_attributes(item) {
+        Some((attributes, _)) => reject_retired_priority(marker, &attributes),
+        None => Ok(()),
+    }
 }
 
-/// The sentence marker of `item`, a fn or a const, if it has one.
-fn item_marker(item: &TokenStream) -> Option<krs_syntax::Marker> {
-    use krs_syntax::Marker;
-    let attrs = match syn::parse2::<syn::Item>(item.clone()).ok()? {
-        syn::Item::Fn(function) => function.attrs,
-        syn::Item::Const(constant) => constant.attrs,
-        _ => return None,
-    };
-    attrs.iter().find_map(|attribute| {
-        Some(match helper_entry(attribute.path())? {
-            AttributeMacro::Rule => Marker::Rule,
-            AttributeMacro::Equation => Marker::Equation,
-            AttributeMacro::Simplification => Marker::Simplification,
-            AttributeMacro::Claim => Marker::Claim,
-            AttributeMacro::Context => Marker::Context,
-            AttributeMacro::ContextAlias => Marker::ContextAlias,
-            AttributeMacro::Alias | AttributeMacro::Desugar => Marker::StaticClause,
-            AttributeMacro::Constant => Marker::Constant,
+/// The outer attributes of `item`, and the tokens after them, read from the item's tokens: the
+/// leading `#[..]` groups, each parsed as an attribute, and the rest kept as written. Every item
+/// a marker expands is read so, a `fn` whose body holds `name @ pattern` (no Rust item) and a
+/// function shorthand that ends with `;` included; `None` when an attribute does not parse.
+fn outer_attributes(item: &TokenStream) -> Option<(Vec<Attribute>, TokenStream)> {
+    use proc_macro2::{Delimiter, TokenTree};
+    use syn::parse::Parser as _;
+    let mut tokens = item.clone().into_iter().peekable();
+    let mut written = TokenStream::new();
+    while let Some(TokenTree::Punct(pound)) = tokens.peek()
+        && pound.as_char() == '#'
+    {
+        let pound = tokens.next()?;
+        let group = match tokens.next()? {
+            TokenTree::Group(group) if group.delimiter() == Delimiter::Bracket => group,
             _ => return None,
-        })
-    })
+        };
+        written.extend([pound, TokenTree::Group(group)]);
+    }
+    let attributes = Attribute::parse_outer.parse2(written).ok()?;
+    Some((attributes, tokens.collect()))
 }
 
 fn ordinary_rule(
@@ -683,8 +706,8 @@ fn expand_ordinary_rule(
     {
         // The mistake is the key, on a form that states no anywhere rule.
         return Err(krs_syntax::SyntaxError::new(
-            krs_syntax::SyntaxErrorKind::InvalidLocalRewrite {
-                reason: "a single-body rule (one that returns `()`) marks its changes with `k::rewrite!` where its subject heads the computation cell; the form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn with a result states".to_owned(),
+            krs_syntax::SyntaxErrorKind::InvalidRuleKey {
+                reason: krs_syntax::ANYWHERE_ON_SINGLE_BODY_RULE,
             },
             anywhere.span(),
         )
@@ -1436,23 +1459,6 @@ pub(crate) fn orphan_rule_helper(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let name = entry.name();
-    if entry == AttributeMacro::Requires
-        && let Ok(mut shorthand) = syn::parse2::<krs_syntax::ShorthandItem>(item.clone())
-        && let Some(index) = shorthand
-            .attrs
-            .iter()
-            .position(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Function))
-    {
-        // `#[k::requires]` above a function shorthand guards its equation.
-        let function = shorthand.attrs.remove(index);
-        let payload = match &function.meta {
-            syn::Meta::List(list) => list.tokens.clone(),
-            _ => TokenStream::new(),
-        };
-        let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
-        shorthand.attrs.insert(0, helper);
-        return super::constructors::function(env, payload, shorthand.to_token_stream());
-    }
     if let Some(expanded) = hand_to_marker(env, entry, &attributes, &item) {
         return expanded;
     }
@@ -1465,8 +1471,10 @@ pub(crate) fn orphan_rule_helper(
     ))
 }
 
-/// The sentence markers a helper written before them is handed to.
-const HELPED_MARKERS: [AttributeMacro; 9] = [
+/// The markers a helper written before them is handed to: every sentence marker, and the
+/// function shorthand's and the initializer's, which refuse a helper they do not take with their
+/// own class, so a helper's class never depends on where it stands beside the marker.
+const HELPED_MARKERS: [AttributeMacro; 11] = [
     AttributeMacro::Rule,
     AttributeMacro::Equation,
     AttributeMacro::Simplification,
@@ -1476,22 +1484,25 @@ const HELPED_MARKERS: [AttributeMacro; 9] = [
     AttributeMacro::Alias,
     AttributeMacro::Desugar,
     AttributeMacro::Constant,
+    AttributeMacro::Function,
+    AttributeMacro::Init,
 ];
 
-/// Expands `item` as its first sentence marker would with the helper `entry(attributes)` written
-/// first among the attributes after the marker, or `None` when the item has no sentence marker.
+/// Expands `item` as its first marker ([`HELPED_MARKERS`]) would with the helper
+/// `entry(attributes)` written where it stands, or `None` when the item has no marker.
+///
+/// rustc expands an item's first attribute macro, the helper here, and passes it the item with
+/// the attributes after it (and the inert ones before it). So the helper precedes every helper it
+/// is passed, and goes first among the attributes the marker reads: helpers written before the
+/// marker keep their written order whatever their number, and with them the order of a
+/// conjunction of `#[k::requires]` or of `#[k::exists]` binders.
 fn hand_to_marker(
     env: &dyn MacroEnvironment,
     entry: AttributeMacro,
     attributes: &TokenStream,
     item: &TokenStream,
 ) -> Option<crate::Result<TokenStream>> {
-    let mut parsed: syn::Item = syn::parse2(item.clone()).ok()?;
-    let attrs = match &mut parsed {
-        syn::Item::Fn(function) => &mut function.attrs,
-        syn::Item::Const(constant) => &mut constant.attrs,
-        _ => return None,
-    };
+    let (mut attrs, rest) = outer_attributes(item)?;
     let (index, marker) = attrs.iter().enumerate().find_map(|(index, attribute)| {
         let marker = helper_entry(attribute.path())?;
         HELPED_MARKERS.contains(&marker).then_some((index, marker))
@@ -1504,12 +1515,12 @@ fn hand_to_marker(
     };
     let helper_name = format_ident!("{}", entry.name());
     let helper: Attribute = syn::parse_quote!(#[k::#helper_name(#attributes)]);
-    attrs.insert(index, helper);
+    attrs.insert(0, helper);
     Some(crate::expand_attribute(
         marker,
         env,
         payload,
-        parsed.to_token_stream(),
+        quote!(#(#attrs)* #rest),
     ))
 }
 

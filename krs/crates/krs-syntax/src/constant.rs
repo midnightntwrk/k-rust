@@ -22,6 +22,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, ItemConst};
 
 use crate::parse::KeyAllocator;
+use crate::surface::{AttributeMacro, helper_entry};
 use crate::term::TermExpression;
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermSort, TokenRange};
 
@@ -49,10 +50,15 @@ impl ConstantItem {
         // A sentence's helper states a condition, a postcondition, an existential or a fresh
         // value of a sentence; a constant declares a value and applies to nothing.
         if let Some((helper, name)) = item.attrs.iter().find_map(|attribute| {
-            use crate::surface::AttributeMacro as M;
-            let entry = crate::surface::helper_entry(attribute.path())?;
-            matches!(entry, M::Requires | M::Ensures | M::Exists | M::Fresh)
-                .then(|| (attribute, entry.name()))
+            let entry = helper_entry(attribute.path())?;
+            matches!(
+                entry,
+                AttributeMacro::Requires
+                    | AttributeMacro::Ensures
+                    | AttributeMacro::Exists
+                    | AttributeMacro::Fresh
+            )
+            .then(|| (attribute, entry.name()))
         }) {
             return Err(invalid(
                 &format!(

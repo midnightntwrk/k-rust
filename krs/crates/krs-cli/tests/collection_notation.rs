@@ -1012,7 +1012,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 93, width 1",
             ),
             (
-                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry",
+                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` pattern's entry",
                 "column 93, width 1",
             ),
             (
@@ -1044,7 +1044,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 34, width 10",
             ),
             (
-                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry",
+                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` pattern's entry",
                 "column 46, width 1",
             ),
             (

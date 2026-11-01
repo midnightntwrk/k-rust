@@ -8,7 +8,7 @@ use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 use krs_ir::ProvenanceKey;
 
-use super::placement::{Marker, misplaced_key};
+use super::placement::{Marker, taken, untaken};
 use super::value::parse_rule_label_value;
 
 /// Typed metadata of `#[k::rule(owise | priority = N, heat | cool, hole = x,
@@ -74,10 +74,8 @@ pub(crate) const TRUSTED_CIRCULARITY: &str =
     "a trusted claim is assumed, not proved; circularity has no effect";
 pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
     "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there";
-pub(crate) const PRIORITY_ON_STATIC_RULE: &str = "static rules have no priority";
 pub(crate) const RESTRICTION_ON_RULE: &str = "restrictions apply to equations and simplifications: `concrete`, `symbolic`, and `smt_lemma` are keys of #[k::equation] and #[k::simplification]";
-pub(crate) const NONDET_ON_FUNCTION: &str =
-    "functions are deterministic in K; overlapping equations make the function ill-defined";
+pub(crate) const NONDET_ON_FUNCTION: &str = "a function's equations define one value per argument; a nondeterministic group would give it several";
 pub(crate) const ANYWHERE_WITH_ORDER: &str = "an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`";
 pub(crate) const HEAT_WITH_COOL: &str =
     "a rule is a heating step or a cooling step, not both; write `heat` or `cool`";
@@ -85,6 +83,8 @@ pub(crate) const EVALUATION_WITHOUT_HOLE: &str = "a heat or cool rule names the 
 pub(crate) const HOLE_WITHOUT_EVALUATION: &str =
     "`hole` and `result` are keys of a heat or cool rule; add `heat` or `cool`";
 pub(crate) const EVALUATION_WITH_ORDER: &str = "a heat or cool rule is ordered by its hole: K adds `requires notBool isKResult(HOLE)` to heating and `requires isKResult(HOLE)` to cooling; it takes no `owise`, `priority`, `nondet`, or `anywhere`";
+/// The diagnostic for `anywhere` on a single-body rule (one that returns `()`), at the key.
+pub const ANYWHERE_ON_SINGLE_BODY_RULE: &str = "a single-body rule (one that returns `()`) marks its changes with `k::rewrite!` where its subject heads the computation cell; the form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn with a result states";
 /// The diagnostic for `anywhere` on a readable clause or a `cells!` rule.
 pub const ANYWHERE_NOT_TERM_SHAPED: &str =
     "an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn";
@@ -657,7 +657,7 @@ impl ClaimAttribute {
             let mut trusted = None;
             while !input.is_empty() {
                 let key: Ident = input.parse()?;
-                match key.to_string().as_str() {
+                match taken(Marker::Claim, &key)?.as_str() {
                     "all_paths" | "one_path" => {
                         if let Some((_, written)) = &modality {
                             return Err(if *written == key {
@@ -713,7 +713,7 @@ impl ClaimAttribute {
                         }
                         trusted = Some(key);
                     }
-                    _ => return Err(misplaced_key(Marker::Claim, &key).into()),
+                    other => untaken(Marker::Claim, other),
                 }
                 if input.is_empty() {
                     break;
@@ -855,7 +855,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
     let mut result: Option<Path> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
+        let key_name = taken(Marker::Rule, &key)?;
         match key_name.as_str() {
             "label" if label.is_some() => {
                 return Err(SyntaxError::new(
@@ -946,7 +946,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                     "nondet", value,
                 )?);
             }
-            _ => return Err(misplaced_key(Marker::Rule, &key).into()),
+            other => untaken(Marker::Rule, other),
         }
         if input.is_empty() {
             break;
@@ -1083,12 +1083,12 @@ fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, Pars
     let mut label: Option<LitStr> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
+        let key_name = taken(Marker::Context, &key)?;
         let duplicate = match key_name.as_str() {
             "hole" => hole.is_some().then_some("hole"),
             "result" => result.is_some().then_some("result"),
             "label" => label.is_some().then_some("label"),
-            _ => return Err(misplaced_key(Marker::Context, &key).into()),
+            other => untaken(Marker::Context, other),
         };
         if let Some(name) = duplicate {
             return Err(
@@ -1104,7 +1104,8 @@ fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, Pars
                 )?);
             }
             "result" => result = Some(parse_result_sort(value)?),
-            _ => label = Some(parse_rule_label_value(value)?),
+            "label" => label = Some(parse_rule_label_value(value)?),
+            other => untaken(Marker::Context, other),
         }
         if input.is_empty() {
             break;

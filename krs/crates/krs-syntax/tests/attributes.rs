@@ -657,8 +657,7 @@ fn rule_accepts_a_nondet_group_and_functions_reject_it() {
         attribute.provenance().unwrap()[0].role(),
         ProvenanceRole::RuleNondetGroup
     );
-    let reason =
-        "functions are deterministic in K; overlapping equations make the function ill-defined";
+    let reason = "a function's equations define one value per argument; a nondeterministic group would give it several";
     let equation = krs_syntax::EquationAttribute::parse_source("nondet = g").unwrap_err();
     let simplification =
         krs_syntax::SimplificationAttribute::parse_source("nondet = g").unwrap_err();
@@ -892,7 +891,7 @@ fn desugar_clause_rejects_malformed_unbound_variables() {
             "`_` is listed twice in `unbound_variables`",
         ),
         (
-            "unbound_variables = [x], recursive",
+            "unbound_variables = [x] y",
             "a desugar clause takes only `unbound_variables = [..]`",
         ),
     ] {
@@ -958,6 +957,25 @@ fn desugar_clause_rejects_recursive_and_other_payloads() {
                 reason: STATIC_CLAUSE_ORDER,
             },
         ),
+        // A key after `unbound_variables` is answered as the first would be.
+        (
+            "unbound_variables = [x], recursive",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: krs_syntax::RECURSIVE_ON_CLAUSE,
+            },
+        ),
+        (
+            "unbound_variables = [x], owise",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: STATIC_CLAUSE_ORDER,
+            },
+        ),
+        (
+            "unbound_variables = [x], unbound_variables = [y]",
+            SyntaxErrorKind::DuplicateArgument {
+                name: "unbound_variables",
+            },
+        ),
         (
             "true",
             SyntaxErrorKind::UnknownArgument {
@@ -997,15 +1015,33 @@ fn static_production_markers_accept_only_recursive() {
             ),
             (
                 "recursive, recursive",
+                SyntaxErrorKind::DuplicateArgument { name: "recursive" },
+            ),
+            (
+                "recursive recursive",
                 SyntaxErrorKind::UnexpectedAttributePayload {
                     attribute: "recursive",
                 },
             ),
             (
                 "priority = 40",
-                SyntaxErrorKind::InvalidRuleKey {
-                    reason: "static rules have no priority",
-                },
+                krs_syntax::misplaced_key_named(
+                    krs_syntax::Marker::StaticProduction,
+                    "priority",
+                    proc_macro2::Span::call_site(),
+                )
+                .kind()
+                .clone(),
+            ),
+            (
+                "recursive, owise",
+                krs_syntax::misplaced_key_named(
+                    krs_syntax::Marker::StaticProduction,
+                    "owise",
+                    proc_macro2::Span::call_site(),
+                )
+                .kind()
+                .clone(),
             ),
             (
                 "\"recursive\"",
@@ -1030,6 +1066,13 @@ fn marker_parser(marker: krs_syntax::Marker) -> (&'static str, MarkerParser) {
     fn parse<T: KrsSyntax>(source: &str) -> Result<(), krs_syntax::SyntaxError> {
         T::parse_source(source).map(|_| ())
     }
+    fn production(source: &str) -> Result<(), krs_syntax::SyntaxError> {
+        krs_syntax::StaticProductionAttribute::parse_marker(
+            krs_syntax::StaticMode::Alias,
+            krs_syntax::parse::tokens_from_source(source)?,
+        )
+        .map(|_| ())
+    }
     match marker {
         Marker::Rule => ("", parse::<krs_syntax::RuleAttribute>),
         Marker::Equation => ("", parse::<krs_syntax::EquationAttribute>),
@@ -1043,7 +1086,9 @@ fn marker_parser(marker: krs_syntax::Marker) -> (&'static str, MarkerParser) {
             "name = n, here = h, ",
             parse::<krs_syntax::ContextAliasAttribute>,
         ),
-        Marker::StaticClause => ("", parse::<krs_syntax::AliasAttribute>),
+        Marker::AliasClause => ("", parse::<krs_syntax::AliasAttribute>),
+        Marker::DesugarClause => ("", parse::<krs_syntax::DesugarAttribute>),
+        Marker::StaticProduction => ("", production),
         Marker::Initializer => ("", parse::<krs_syntax::InitAttribute>),
         Marker::Constant => ("", parse::<krs_syntax::ConstantAttribute>),
     }
@@ -1062,31 +1107,34 @@ fn key_source(key: &str) -> String {
     }
 }
 
-/// One mistake, one class, at the key (NT-33): every sentence key a marker does not take is
-/// refused by `misplaced_key`, never by the parser's generic code or as a payload, so a key or a
-/// marker added without its place in the table cannot fall through to a parse error.
+/// One mistake, one class, at the key (NT-33), in both directions, the table being the parsers'
+/// one description of what each marker takes: every sentence key a marker does not take is
+/// refused by `misplaced_key`, never by the parser's generic code or as a payload, and every key
+/// it takes is read by its parser (refused, if at all, by the marker's own rule, never as
+/// misplaced or as a parse error). A key or a marker added without its place in the table, or a
+/// parser that loses a key the table gives it, fails here.
 #[test]
-fn every_sentence_key_a_marker_does_not_take_is_refused_for_what_it_is_there() {
+fn every_sentence_key_is_taken_by_the_markers_the_table_gives_it_and_refused_elsewhere() {
     for marker in krs_syntax::Marker::ALL {
         let (base, parse) = marker_parser(marker);
         for key in krs_syntax::SENTENCE_KEYS {
             let source = format!("{base}{}", key_source(key));
-            let result = parse(&source);
+            let result = std::panic::catch_unwind(|| parse(&source))
+                .unwrap_or_else(|_| panic!("{marker:?}'s parser reads no `{key}`: {source}"));
+            let misplaced =
+                krs_syntax::misplaced_key_named(marker, key, proc_macro2::Span::call_site());
             if marker.takes(key) {
                 if let Err(error) = result {
                     // A key the marker takes may still need another (`heat` needs `hole`): its
-                    // refusal is then the marker's own, never a parse error.
+                    // refusal is then the marker's own, never a parse error nor the table's.
                     let code = error.kind().code();
-                    assert_ne!(
-                        code.as_str(),
+                    for refused in [
                         "krs::syntax::rust-syntax",
-                        "{marker:?} {source}"
-                    );
-                    assert_ne!(
-                        code.as_str(),
                         "krs::syntax::unexpected-attribute-payload",
-                        "{marker:?} {source}"
-                    );
+                    ] {
+                        assert_ne!(code.as_str(), refused, "{marker:?} {source}");
+                    }
+                    assert_ne!(error.kind(), misplaced.kind(), "{marker:?} {source}");
                 }
                 continue;
             }
@@ -1100,6 +1148,62 @@ fn every_sentence_key_a_marker_does_not_take_is_refused_for_what_it_is_there() {
             );
         }
     }
+}
+
+/// The keys some marker takes are [`krs_syntax::SENTENCE_KEYS`], each once: a key a marker's
+/// table entry gains is run through every marker above.
+#[test]
+fn the_sentence_keys_are_the_keys_the_markers_take() {
+    let taken = krs_syntax::Marker::ALL
+        .iter()
+        .flat_map(|marker| marker.keys().iter().copied())
+        .collect::<std::collections::BTreeSet<_>>();
+    let listed = krs_syntax::SENTENCE_KEYS
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        listed.len(),
+        krs_syntax::SENTENCE_KEYS.len(),
+        "a key listed twice"
+    );
+    assert_eq!(taken, listed);
+}
+
+/// The retired `#[k::priority(N)]` names the order key of the sentence's own marker, with the
+/// written value, or none where the sentence is chosen against no other; an item with no marker
+/// is named the equation's.
+#[test]
+fn the_retired_priority_names_the_order_key_of_its_marker() {
+    use krs_syntax::Marker;
+    let tokens = krs_syntax::parse::tokens_from_source("20").unwrap();
+    let replacement = |marker| match krs_syntax::PriorityAttribute::parse_on(&tokens, marker)
+        .unwrap_err()
+        .kind()
+    {
+        SyntaxErrorKind::RetiredAttribute { replacement, .. } => replacement.clone(),
+        other => panic!("{marker:?}: {other:?}"),
+    };
+    for marker in Marker::ALL {
+        let expected = match marker {
+            Marker::Rule => Some("#[k::rule(priority = 20)]"),
+            Marker::Equation => Some("#[k::equation(priority = 20)]"),
+            Marker::Simplification => Some("#[k::simplification(priority = 20)]"),
+            Marker::Claim
+            | Marker::Context
+            | Marker::ContextAlias
+            | Marker::AliasClause
+            | Marker::DesugarClause
+            | Marker::StaticProduction
+            | Marker::Initializer
+            | Marker::Constant => None,
+        };
+        assert_eq!(replacement(Some(marker)).as_deref(), expected, "{marker:?}");
+    }
+    assert_eq!(
+        replacement(None).as_deref(),
+        Some("#[k::equation(priority = 20)]")
+    );
 }
 
 /// The table answers each key for what it means: an order where nothing is ordered, a
@@ -1119,9 +1223,29 @@ fn the_misplaced_key_table_names_the_mistake_by_its_code() {
         (Marker::Claim, "owise", "krs::syntax::invalid-rule-key"),
         (Marker::Context, "priority", "krs::syntax::invalid-rule-key"),
         (
-            Marker::StaticClause,
+            Marker::AliasClause,
             "nondet",
             "krs::syntax::invalid-rule-key",
+        ),
+        (
+            Marker::StaticProduction,
+            "priority",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            Marker::StaticProduction,
+            "anywhere",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            Marker::DesugarClause,
+            "recursive",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            Marker::StaticProduction,
+            "label",
+            "krs::syntax::unknown-argument",
         ),
         (Marker::Equation, "nondet", "krs::syntax::invalid-rule-key"),
         (
@@ -1134,9 +1258,14 @@ fn the_misplaced_key_table_names_the_mistake_by_its_code() {
         (Marker::Rule, "recursive", "krs::syntax::invalid-rule-key"),
         (Marker::Claim, "heat", "krs::syntax::unknown-argument"),
         (
-            Marker::StaticClause,
+            Marker::AliasClause,
             "label",
             "krs::syntax::unknown-argument",
+        ),
+        (
+            Marker::AliasClause,
+            "unbound_variables",
+            "krs::syntax::invalid-unbound-variables",
         ),
         (
             Marker::Initializer,

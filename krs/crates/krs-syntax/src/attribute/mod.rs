@@ -14,8 +14,8 @@ pub use constructor::{
 };
 pub use placement::{Marker, SENTENCE_KEYS, misplaced_key, misplaced_key_named};
 pub use rule::{
-    ANYWHERE_NOT_TERM_SHAPED, ClaimAttribute, ClaimBinder, ClaimModality, ContextAttribute,
-    ExistsAttribute, RuleAttribute,
+    ANYWHERE_NOT_TERM_SHAPED, ANYWHERE_ON_SINGLE_BODY_RULE, ClaimAttribute, ClaimBinder,
+    ClaimModality, ContextAttribute, ExistsAttribute, RuleAttribute,
 };
 pub use sort::{
     AliasAttribute, ContextAliasAttribute, DesugarAttribute, EquationAttribute, MatchRestriction,
