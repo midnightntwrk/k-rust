@@ -527,8 +527,9 @@ def prog_measure(tree, logs, status, d, e):
         # `| unproved`: neither proved nor refuted, an outcome of `progress_step` (`Unproved`)
         dun = {n for n, rest in dlisted if re.match(r"\s*\|\s*unproved\s*(#.*)?$", rest)}
         r["defined"] = {
-            "rules": len(re.findall(r"^def Defined\.\S+\.statement : Prop :=$", ddefs, re.M)),
-            "auto": len(re.findall(r"^theorem Defined\.\S+ : \S+ := by$", dsrc, re.M)),
+            "rules": len(re.findall(r"^def Defined\.(?:«[^»]*»|\S+)\.statement : Prop :=$", ddefs, re.M)),
+            "auto": len(re.findall(r"^theorem Defined\.(?:«[^»]*»|\S+) : Defined\.(?:«[^»]*»|\S+)\.statement := by$",
+                                   dsrc, re.M)),
             "open": sorted(n for n in dnames if n not in dmarked and n not in dun),
             "unproved": sorted(dun),
             "refuted": sorted(n for n in dnames if n in dmarked)}
