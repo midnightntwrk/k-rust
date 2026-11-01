@@ -5,6 +5,9 @@ use krs_syntax::{ProvenanceRole, SyntaxErrorKind};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 
+/// The refusal of an order on a static clause, whose clauses never overlap.
+const STATIC_CLAUSE_ORDER: &str = "a static production's clauses rewrite each of its applications into one term as it is read, so they never overlap and none is chosen against another: an order (`owise`, `priority`, `nondet`) means nothing on a clause";
+
 #[test]
 fn empty_marker_attributes_are_accepted() {
     let sort = krs_syntax::SortAttribute::parse_source("").unwrap();
@@ -259,10 +262,18 @@ fn alias_clause_rejects_recursive_and_other_payloads() {
         ),
         (
             "true",
-            SyntaxErrorKind::UnexpectedAttributePayload { attribute: "alias" },
+            SyntaxErrorKind::UnknownArgument {
+                name: "true".into(),
+            },
         ),
         (
             "mode = recursive",
+            SyntaxErrorKind::UnknownArgument {
+                name: "mode".into(),
+            },
+        ),
+        (
+            "\"recursive\"",
             SyntaxErrorKind::UnexpectedAttributePayload { attribute: "alias" },
         ),
     ] {
@@ -337,14 +348,26 @@ fn context_alias_rejects_missing_duplicate_unknown_and_qualified_values() {
     }
 }
 
+/// A label names the one sentence an equation or a simplification marker states, in place of
+/// its fn's or row's name, as a rule's does.
 #[test]
-fn equation_does_not_invent_an_explicit_label_surface() {
+fn equation_and_simplification_take_a_label_and_anchor_it() {
+    let equation = krs_syntax::EquationAttribute::parse_source(r#"label = "named""#).unwrap();
+    assert_eq!(equation.label().unwrap().value(), "named");
+    assert_eq!(
+        equation.provenance().unwrap()[0].role(),
+        ProvenanceRole::RuleLabel
+    );
+    let simplification =
+        krs_syntax::SimplificationAttribute::parse_source(r#"label = "named", priority = 20"#)
+            .unwrap();
+    assert_eq!(simplification.label().unwrap().value(), "named");
     let error =
-        krs_syntax::EquationAttribute::parse_source(r#"label = "not-settled""#).unwrap_err();
-    assert!(matches!(
+        krs_syntax::EquationAttribute::parse_source(r#"label = "a", label = "b""#).unwrap_err();
+    assert_eq!(
         error.kind(),
-        SyntaxErrorKind::UnknownArgument { name } if name == "label"
-    ));
+        &SyntaxErrorKind::DuplicateArgument { name: "label" }
+    );
 }
 
 #[test]
@@ -423,7 +446,7 @@ fn standalone_priority_is_retired_with_its_replacement() {
         error.kind(),
         &SyntaxErrorKind::RetiredAttribute {
             attribute: "#[k::priority(..)]",
-            replacement: "#[k::equation(priority = 40)]".into(),
+            replacement: Some("#[k::equation(priority = 40)]".into()),
         }
     );
     assert_eq!(
@@ -446,7 +469,7 @@ fn owise_on_a_simplification_and_priority_on_an_alias_are_rejected() {
         assert_eq!(
             error.kind(),
             &SyntaxErrorKind::InvalidRuleKey {
-                reason: "static rules have no priority",
+                reason: STATIC_CLAUSE_ORDER,
             },
             "{source}"
         );
@@ -487,8 +510,9 @@ fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
         ),
         (
             "label = 1",
-            SyntaxErrorKind::UnknownArgument {
-                name: "label".into(),
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "label",
+                expected: "a Rust string literal",
             },
         ),
     ] {
@@ -638,10 +662,17 @@ fn rule_accepts_a_nondet_group_and_functions_reject_it() {
     let equation = krs_syntax::EquationAttribute::parse_source("nondet = g").unwrap_err();
     let simplification =
         krs_syntax::SimplificationAttribute::parse_source("nondet = g").unwrap_err();
-    let alias = krs_syntax::AliasAttribute::parse_source("nondet = g").unwrap_err();
-    for error in [equation, simplification, alias] {
+    for error in [equation, simplification] {
         assert_eq!(error.kind(), &SyntaxErrorKind::InvalidRuleKey { reason });
     }
+    // A static clause is no function: its clauses never overlap, so no order means anything there.
+    let alias = krs_syntax::AliasAttribute::parse_source("nondet = g").unwrap_err();
+    assert_eq!(
+        alias.kind(),
+        &SyntaxErrorKind::InvalidRuleKey {
+            reason: STATIC_CLAUSE_ORDER
+        }
+    );
 }
 
 #[test]
@@ -918,17 +949,23 @@ fn desugar_clause_rejects_recursive_and_other_payloads() {
         (
             "priority = 40",
             SyntaxErrorKind::InvalidRuleKey {
-                reason: "static rules have no priority",
+                reason: STATIC_CLAUSE_ORDER,
             },
         ),
         (
             "owise",
             SyntaxErrorKind::InvalidRuleKey {
-                reason: "static rules have no priority",
+                reason: STATIC_CLAUSE_ORDER,
             },
         ),
         (
             "true",
+            SyntaxErrorKind::UnknownArgument {
+                name: "true".into(),
+            },
+        ),
+        (
+            "1",
             SyntaxErrorKind::UnexpectedAttributePayload {
                 attribute: "desugar",
             },
@@ -981,5 +1018,142 @@ fn static_production_markers_accept_only_recursive() {
                 StaticProductionAttribute::parse_marker(mode, source.parse().unwrap()).unwrap_err();
             assert_eq!(error.kind(), &expected_kind, "{source}");
         }
+    }
+}
+
+/// A parser of one marker's payload.
+type MarkerParser = fn(&str) -> Result<(), krs_syntax::SyntaxError>;
+
+/// A marker's parser, with the keys it needs written before the case's key.
+fn marker_parser(marker: krs_syntax::Marker) -> (&'static str, MarkerParser) {
+    use krs_syntax::Marker;
+    fn parse<T: KrsSyntax>(source: &str) -> Result<(), krs_syntax::SyntaxError> {
+        T::parse_source(source).map(|_| ())
+    }
+    match marker {
+        Marker::Rule => ("", parse::<krs_syntax::RuleAttribute>),
+        Marker::Equation => ("", parse::<krs_syntax::EquationAttribute>),
+        Marker::Simplification => ("", parse::<krs_syntax::SimplificationAttribute>),
+        Marker::Claim => (
+            "all_paths, label = \"c\", ",
+            parse::<krs_syntax::ClaimAttribute>,
+        ),
+        Marker::Context => ("hole = h, ", parse::<krs_syntax::ContextAttribute>),
+        Marker::ContextAlias => (
+            "name = n, here = h, ",
+            parse::<krs_syntax::ContextAliasAttribute>,
+        ),
+        Marker::StaticClause => ("", parse::<krs_syntax::AliasAttribute>),
+        Marker::Initializer => ("", parse::<krs_syntax::InitAttribute>),
+        Marker::Constant => ("", parse::<krs_syntax::ConstantAttribute>),
+    }
+}
+
+/// A well-formed value of every sentence key.
+fn key_source(key: &str) -> String {
+    match key {
+        "label" => "label = \"named\"".to_owned(),
+        "priority" => "priority = 20".to_owned(),
+        "nondet" => "nondet = g".to_owned(),
+        "hole" | "name" | "here" => format!("{key} = x"),
+        "result" => "result = KResult".to_owned(),
+        "unbound_variables" => "unbound_variables = [y]".to_owned(),
+        key => key.to_owned(),
+    }
+}
+
+/// One mistake, one class, at the key (NT-33): every sentence key a marker does not take is
+/// refused by `misplaced_key`, never by the parser's generic code or as a payload, so a key or a
+/// marker added without its place in the table cannot fall through to a parse error.
+#[test]
+fn every_sentence_key_a_marker_does_not_take_is_refused_for_what_it_is_there() {
+    for marker in krs_syntax::Marker::ALL {
+        let (base, parse) = marker_parser(marker);
+        for key in krs_syntax::SENTENCE_KEYS {
+            let source = format!("{base}{}", key_source(key));
+            let result = parse(&source);
+            if marker.takes(key) {
+                if let Err(error) = result {
+                    // A key the marker takes may still need another (`heat` needs `hole`): its
+                    // refusal is then the marker's own, never a parse error.
+                    let code = error.kind().code();
+                    assert_ne!(
+                        code.as_str(),
+                        "krs::syntax::rust-syntax",
+                        "{marker:?} {source}"
+                    );
+                    assert_ne!(
+                        code.as_str(),
+                        "krs::syntax::unexpected-attribute-payload",
+                        "{marker:?} {source}"
+                    );
+                }
+                continue;
+            }
+            let error = result.expect_err(&format!("{marker:?} takes no {key}"));
+            let expected = krs_syntax::misplaced_key_named(marker, key, error.span());
+            assert_eq!(error.kind(), expected.kind(), "{marker:?} {source}");
+            assert_eq!(
+                error.span().start(),
+                expected.span().start(),
+                "{marker:?} {source}"
+            );
+        }
+    }
+}
+
+/// The table answers each key for what it means: an order where nothing is ordered, a
+/// restriction outside a function and `anywhere` outside a transition are the rule key's
+/// mistake; any key on a declaration's marker is one it does not take.
+#[test]
+fn the_misplaced_key_table_names_the_mistake_by_its_code() {
+    use krs_syntax::Marker;
+    let code = |marker, key| {
+        krs_syntax::misplaced_key_named(marker, key, proc_macro2::Span::call_site())
+            .kind()
+            .code()
+            .as_str()
+            .to_owned()
+    };
+    for (marker, key, expected) in [
+        (Marker::Claim, "owise", "krs::syntax::invalid-rule-key"),
+        (Marker::Context, "priority", "krs::syntax::invalid-rule-key"),
+        (
+            Marker::StaticClause,
+            "nondet",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (Marker::Equation, "nondet", "krs::syntax::invalid-rule-key"),
+        (
+            Marker::Equation,
+            "anywhere",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (Marker::Equation, "result", "krs::syntax::invalid-rule-key"),
+        (Marker::Rule, "concrete", "krs::syntax::invalid-rule-key"),
+        (Marker::Rule, "recursive", "krs::syntax::invalid-rule-key"),
+        (Marker::Claim, "heat", "krs::syntax::unknown-argument"),
+        (
+            Marker::StaticClause,
+            "label",
+            "krs::syntax::unknown-argument",
+        ),
+        (
+            Marker::Initializer,
+            "owise",
+            "krs::syntax::unknown-argument",
+        ),
+        (
+            Marker::Constant,
+            "unbound_variables",
+            "krs::syntax::unknown-argument",
+        ),
+        (
+            Marker::Rule,
+            "unbound_variables",
+            "krs::syntax::invalid-unbound-variables",
+        ),
+    ] {
+        assert_eq!(code(marker, key), expected, "{marker:?} {key}");
     }
 }

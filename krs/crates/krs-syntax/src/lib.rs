@@ -41,15 +41,17 @@ pub mod trivia;
 
 pub use attribute::{
     ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributeKeys, CellAttributePayload,
-    ClaimAttribute, ClaimBinder, ClaimModality, ConfigurationAttribute, ConstructorAttribute,
-    ConstructorsAttribute, ContextAliasAttribute, ContextAttribute, DesugarAttribute,
-    EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook, FunctionSmt,
-    FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag, PriorityAttribute,
-    ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_ALIAS_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE,
-    RestrictionKey, RuleAttribute, SimplificationAttribute, SortAttribute, SpecModuleAttribute,
-    SpecModuleItem, StaticMode, StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
+    ClaimAttribute, ClaimBinder, ClaimModality, ConfigurationAttribute, ConstantAttribute,
+    ConstructorAttribute, ConstructorsAttribute, ContextAliasAttribute, ContextAttribute,
+    DesugarAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook,
+    FunctionSmt, FunctionTotality, InitAttribute, Marker, MatchRestriction, PlacementFlag,
+    PriorityAttribute, ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_ALIAS_CLAUSE,
+    REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute, SENTENCE_KEYS,
+    SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode,
+    StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
     UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
-    VariantSyntaxAttribute, default_function_syntax, validate_spec_module_name,
+    VariantSyntaxAttribute, default_function_syntax, misplaced_key, misplaced_key_named,
+    validate_spec_module_name,
 };
 pub use collection_literal::is_collection_literal;
 pub use configuration::{
@@ -66,7 +68,10 @@ pub use enum_constructor::{
     EnumPrecedenceGroup,
 };
 pub use error::{SyntaxError, SyntaxErrorKind};
-pub use function_shorthand::{FunctionShorthand, ShorthandEquation, ShorthandItem, equation_name};
+pub use function_shorthand::{
+    FunctionShorthand, ShorthandEquation, ShorthandItem, equation_name,
+    take_label as take_shorthand_label,
+};
 pub use grammar::{
     AssociativityDeclaration, AssociativitySentence, BracketAttribute, GroupAssociativity,
     PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, SmtTemplate, SmtTemplateFragment,

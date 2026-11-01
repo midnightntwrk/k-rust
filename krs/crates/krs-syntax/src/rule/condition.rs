@@ -7,7 +7,7 @@ use syn::{Attribute, Expr, ExprCall, Ident, Meta, Token, bracketed};
 use super::machine::parse_expression_before_arrow;
 use super::pattern::{RulePattern, allocate_term_node_keys, push_term_reference_candidates};
 use crate::parse::{
-    KeyAllocator, KrsSyntax, ParseError, unsupported_rule_signature as unsupported_signature,
+    KeyAllocator, ParseError, unsupported_rule_signature as unsupported_signature,
     validate_authored_binder,
 };
 use crate::path::is_plain_path;
@@ -424,10 +424,14 @@ pub(super) fn parse_map_update(
     })
 }
 
+/// Takes the item's `#[k::requires(..)]` helpers. Several state their conjunction in written
+/// order, `c1 && c2`, K's `andThenBool`: a later condition is tested only where the earlier ones
+/// hold, so it may rely on their definedness. The conjunction's operator is spanned at the later
+/// helper's name.
 pub(crate) fn take_requires_helper(
     attributes: &mut Vec<Attribute>,
 ) -> Result<Option<RuleCondition>, SyntaxError> {
-    let mut condition = None;
+    let mut condition: Option<Expr> = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         let is_requires = attribute.path().segments.len() >= 2
@@ -440,21 +444,44 @@ pub(crate) fn take_requires_helper(
             retained.push(attribute);
             continue;
         }
-        if condition.is_some() {
-            return Err(unsupported_signature(
-                "a rule may declare only one `#[k::requires(...)]` condition",
-                attribute.span(),
-            ));
-        }
+        let name = attribute
+            .path()
+            .segments
+            .last()
+            .map_or_else(proc_macro2::Span::call_site, |segment| segment.ident.span());
         let Meta::List(list) = attribute.meta else {
             return Err(unsupported_signature(
                 "`#[k::requires]` requires one parenthesized object-Bool term",
                 attribute.span(),
             ));
         };
-        let term = TermExpression::parse_tokens(crate::parse::strip_trailing_comma(list.tokens))?;
-        condition = Some(RuleCondition::keyed(term)?);
+        let tokens = crate::parse::strip_trailing_comma(list.tokens);
+        let term = syn::parse::Parser::parse2(crate::term::parse_term_expression, tokens)?;
+        condition = Some(match condition {
+            None => term,
+            Some(earlier) => Expr::Binary(syn::ExprBinary {
+                attrs: Vec::new(),
+                left: Box::new(parenthesized(earlier)),
+                op: syn::BinOp::And(Token![&&](name)),
+                right: Box::new(parenthesized(term)),
+            }),
+        });
     }
     *attributes = retained;
-    Ok(condition)
+    condition
+        .map(|condition| RuleCondition::keyed(TermExpression::from_expression(condition)?))
+        .transpose()
+}
+
+/// `expression` in parentheses spanned at its own first token, as an operand of a conjunction.
+fn parenthesized(expression: Expr) -> Expr {
+    let span = quote::ToTokens::to_token_stream(&expression)
+        .into_iter()
+        .next()
+        .map_or_else(proc_macro2::Span::call_site, |token| token.span());
+    Expr::Paren(syn::ExprParen {
+        attrs: Vec::new(),
+        paren_token: syn::token::Paren(span),
+        expr: Box::new(expression),
+    })
 }

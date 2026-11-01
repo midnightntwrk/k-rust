@@ -68,6 +68,15 @@ fn expand_block(
     );
     let mut clauses = Vec::with_capacity(block.clauses().len());
     for clause in block.clauses() {
+        // The retired `#[k::priority(N)]` on a clause names the clause's own order key.
+        super::reject_retired_priority(
+            if clause.claim().is_some() {
+                krs_syntax::Marker::Claim
+            } else {
+                krs_syntax::Marker::Rule
+            },
+            &clause.rule().item().attrs,
+        )?;
         clauses.push(expand_head_rule(
             env,
             clause,

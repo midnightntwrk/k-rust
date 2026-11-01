@@ -18,11 +18,11 @@ fn claim_metadata_rejects_missing_duplicate_and_incompatible_modalities() {
     for (source, expected) in [
         (
             r#"label = "missing-modality""#,
-            "claim requires `all_paths` or `one_path`",
+            "a claim states its modality, `all_paths` or `one_path`, and the marker has neither",
         ),
         (
             r#"all_paths, one_path, label = "two-modalities""#,
-            "a claim requires exactly one modality",
+            "`all_paths` and `one_path` cannot stand together",
         ),
         (
             r#"one_path, label = "circular", circularity"#,
@@ -30,19 +30,19 @@ fn claim_metadata_rejects_missing_duplicate_and_incompatible_modalities() {
         ),
         (
             r#"all_paths, label = "duplicate", label = "again""#,
-            "duplicate claim label",
+            "duplicate argument `label`",
         ),
         (
             r#"all_paths, label = "valid", circularity, circularity"#,
-            "duplicate circularity modifier",
+            "duplicate argument `circularity`",
         ),
         (
             r#"all_paths, label = "valid", priority = 40"#,
-            "unknown claim argument",
+            "a claim is proved, not chosen among other sentences",
         ),
         (
             r#"all_paths, label = "valid", trusted, trusted"#,
-            "duplicate trusted modifier",
+            "duplicate argument `trusted`",
         ),
         (
             r#"all_paths, label = "valid", circularity, trusted"#,
@@ -54,7 +54,7 @@ fn claim_metadata_rejects_missing_duplicate_and_incompatible_modalities() {
         ),
         (
             r#"all_paths, label = "valid", trusted = true"#,
-            "`trusted` is a bare flag",
+            "`trusted` must be a bare flag",
         ),
     ] {
         assert_error_contains(krs_syntax::ClaimAttribute::parse_source(source), expected);
@@ -64,23 +64,23 @@ fn claim_metadata_rejects_missing_duplicate_and_incompatible_modalities() {
 #[test]
 fn claim_metadata_rejects_missing_and_nonportable_labels() {
     for (source, expected) in [
-        ("all_paths", "claim requires an explicit `label = \"...\"`"),
-        (r#"all_paths, label = """#, "invalid portable K claim label"),
+        ("all_paths", "missing required argument `label = ...`"),
+        (r#"all_paths, label = """#, "a portable K claim label"),
         (
             r#"all_paths, label = "contains space""#,
-            "invalid portable K claim label",
+            "a portable K claim label",
         ),
         (
             r#"all_paths, label = "contains:colon""#,
-            "invalid portable K claim label",
+            "a portable K claim label",
         ),
         (
             r#"all_paths, label = "contains_underscore""#,
-            "invalid portable K claim label",
+            "a portable K claim label",
         ),
         (
             r#"all_paths, label = "contains[bracket]""#,
-            "invalid portable K claim label",
+            "a portable K claim label",
         ),
     ] {
         assert_error_contains(krs_syntax::ClaimAttribute::parse_source(source), expected);
@@ -313,11 +313,7 @@ fn a_readable_claim_clause_rejects_rule_only_forms() {
         ),
         (
             "#[k::claim(all_paths)] #[k::fresh(n: Int)] x: { k: [Go()] } => { k: [] };",
-            "a claim has no fresh binders",
-        ),
-        (
-            "#[k::claim(all_paths, label = \"y\")] x: { k: [Go()] } => { k: [] };",
-            "labelled by its name",
+            "a claim is proved, not taken as a step",
         ),
         (
             "#[k::claim(all_paths)] x: Go() => 1;",
@@ -331,5 +327,67 @@ fn a_readable_claim_clause_rejects_rule_only_forms() {
         let error =
             krs_syntax::ClaimBlock::parse_source(&format!("for Machine; {clause}")).unwrap_err();
         assert!(error.to_string().contains(expected), "{clause}: {error}");
+    }
+}
+
+#[test]
+fn a_readable_claim_clause_label_names_it_in_place_of_its_name() {
+    let block = krs_syntax::ClaimBlock::parse_source(
+        "for Machine; #[k::claim(all_paths, label = \"named\")] x: { k: [Go()] } => { k: [] };",
+    )
+    .unwrap();
+    let [clause] = block.clauses() else {
+        panic!("one clause");
+    };
+    let claim = clause.claim().expect("a claims! clause is a claim");
+    assert_eq!(claim.label().value(), "named");
+}
+
+#[test]
+fn a_claim_key_another_sentence_takes_is_refused_for_what_it_is_on_a_claim() {
+    for (source, code) in [
+        (
+            "all_paths, label = \"c\", owise",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            "all_paths, label = \"c\", anywhere",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            "all_paths, label = \"c\", concrete(x)",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            "all_paths, label = \"c\", result = KResult",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            "all_paths, label = \"c\", recursive",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            "all_paths, label = \"c\", heat, hole = x",
+            "krs::syntax::unknown-argument",
+        ),
+        (
+            "all_paths, label = \"c\", bogus",
+            "krs::syntax::unknown-argument",
+        ),
+        (
+            "one_path, label = \"c\", circularity",
+            "krs::syntax::invalid-rule-key",
+        ),
+        (
+            "all_paths, label = \"c\", trusted = true",
+            "krs::syntax::invalid-argument-value",
+        ),
+        (
+            "all_paths, label = \"c\", unbound_variables = [y]",
+            "krs::syntax::invalid-unbound-variables",
+        ),
+    ] {
+        let error = krs_syntax::ClaimAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind().code().as_str(), code, "{source}: {error}");
     }
 }

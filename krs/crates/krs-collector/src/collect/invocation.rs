@@ -905,8 +905,11 @@ fn collect_fn_rules(
             .iter()
             .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Priority))
         {
-            krs_syntax::PriorityAttribute::parse_tokens(attribute_tokens(priority)?)
-                .map_err(source_syntax)?;
+            krs_syntax::PriorityAttribute::parse_on(
+                &attribute_tokens(priority)?,
+                Some(krs_syntax::Marker::Equation),
+            )
+            .map_err(source_syntax)?;
         }
         push_equation_invocation(item_fn, &equation, output)?;
     }

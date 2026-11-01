@@ -1,4 +1,5 @@
 mod constructor;
+mod placement;
 mod rule;
 mod sort;
 mod spec_module;
@@ -11,6 +12,7 @@ pub use constructor::{
     FunctionTotality, PlacementFlag, ProductionKeys, VariantSyntaxAttribute,
     default_function_syntax,
 };
+pub use placement::{Marker, SENTENCE_KEYS, misplaced_key, misplaced_key_named};
 pub use rule::{
     ANYWHERE_NOT_TERM_SHAPED, ClaimAttribute, ClaimBinder, ClaimModality, ContextAttribute,
     ExistsAttribute, RuleAttribute,
@@ -23,4 +25,8 @@ pub use sort::{
     UnboundVariables,
 };
 pub use spec_module::{SpecModuleAttribute, SpecModuleItem, validate_spec_module_name};
-pub use state::{CellAttributeKeys, CellAttributePayload, ConfigurationAttribute, InitAttribute};
+pub use state::{
+    CellAttributeKeys, CellAttributePayload, ConfigurationAttribute, ConstantAttribute,
+    InitAttribute,
+};
+pub(crate) use value::parse_rule_label_value;

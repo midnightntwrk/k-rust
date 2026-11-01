@@ -539,10 +539,12 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
         krs_syntax::parse_map_expression(
             krs_syntax::parse::tokens_from_source("X -> V, ..").unwrap()
         ),
-        error if error.kind() == &SyntaxErrorKind::InvalidStateMacro {
-            macro_name: "map",
-            reason: "expression remainders must reuse a named binding as `..name`",
-        }
+        // A built map is a literal written over the map its rest names, as `map![..]` is.
+        error if matches!(
+            error.kind(),
+            SyntaxErrorKind::InvalidExpressionNotation { reason }
+                if reason.contains("an anonymous `..` names no map")
+        )
     );
 }
 

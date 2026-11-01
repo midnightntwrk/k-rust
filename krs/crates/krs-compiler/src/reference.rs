@@ -897,8 +897,13 @@ fn materialize_function_shorthand(
         .map_err(ReferenceExpansionError::KrsSyntax)?;
     let production = lowered.attribute().production();
     let sort = lowered.sort_type();
-    let mut keys = tokens;
-    keys.extend(quote!(, sort = #sort));
+    // A label names the equation the body defines, which the long form writes on that equation.
+    let (mut keys, _) =
+        krs_syntax::take_shorthand_label(tokens).map_err(ReferenceExpansionError::KrsSyntax)?;
+    if !keys.is_empty() {
+        keys.extend(quote!(,));
+    }
+    keys.extend(quote!(sort = #sort));
     if !lowered.attribute().has_authored_syntax() {
         let syntax = &production.syntax;
         keys.extend(quote!(, syntax = #syntax));
@@ -2423,19 +2428,28 @@ fn restate_requires(
             semantic_rules,
         ))?;
     let term = render_term(&condition, false, package, bundle)?;
-    for attribute in &mut item.attrs {
-        if attribute.path().segments.len() > 1
+    // Several `#[k::requires]` state one condition, their conjunction: the first is restated as
+    // the whole condition and the others are dropped.
+    let mut restated = false;
+    item.attrs.retain_mut(|attribute| {
+        let requires = attribute.path().segments.len() > 1
             && attribute
                 .path()
                 .segments
                 .last()
-                .is_some_and(|segment| segment.ident == "requires")
-            && let syn::Meta::List(list) = &mut attribute.meta
-        {
-            list.tokens = term;
-            break;
+                .is_some_and(|segment| segment.ident == "requires");
+        if !requires {
+            return true;
         }
-    }
+        if restated {
+            return false;
+        }
+        if let syn::Meta::List(list) = &mut attribute.meta {
+            list.tokens = term.clone();
+            restated = true;
+        }
+        true
+    });
     Ok(())
 }
 

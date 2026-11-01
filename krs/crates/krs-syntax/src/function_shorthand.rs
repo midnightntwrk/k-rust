@@ -127,6 +127,9 @@ impl ShorthandItem {
 #[derive(Clone, Debug)]
 pub struct ShorthandEquation {
     item: ItemFn,
+    /// The `label = ".."` written on the function's `#[k::function(..)]`, which names the one
+    /// equation its body defines.
+    label: Option<syn::LitStr>,
     /// The `owise` key of a catch-all arm, spanned at the arm.
     owise: Option<Ident>,
     /// The negative literals of the patterns the head takes from arms.
@@ -140,13 +143,17 @@ impl ShorthandEquation {
         &self.item
     }
 
-    /// The equation's `#[k::equation(..)]` keys: `owise` for the catch-all
-    /// arm of the body's `match`, otherwise none.
+    /// The equation's `#[k::equation(..)]` keys: the function's label, which names the one
+    /// equation, and `owise` for the catch-all arm of the body's `match`.
     #[must_use]
     pub fn equation_keys(&self) -> TokenStream {
-        self.owise
-            .as_ref()
-            .map_or_else(TokenStream::new, ToTokens::to_token_stream)
+        let label = self.label.as_ref().map(|label| quote!(label = #label));
+        let owise = self.owise.as_ref();
+        match (label, owise) {
+            (Some(label), Some(owise)) => quote!(#label, #owise),
+            (Some(label), None) => label,
+            (None, owise) => owise.map_or_else(TokenStream::new, ToTokens::to_token_stream),
+        }
     }
 
     /// Validates the equation fn as a rule item.
@@ -201,6 +208,7 @@ impl FunctionShorthand {
                 result_type.span(),
             ));
         }
+        let (attribute, label) = take_label(attribute)?;
         let mut attribute = FunctionAttribute::parse_shorthand_tokens(
             attribute,
             result_sort.sort(),
@@ -249,7 +257,7 @@ impl FunctionShorthand {
         attribute.complete_default_syntax(&declaration)?;
         attribute.production().validate_declaration(&declaration)?;
 
-        let equations = match body {
+        let mut equations = match body {
             None => Vec::new(),
             Some(body) => {
                 let lowering = branches::Lowering {
@@ -273,6 +281,9 @@ impl FunctionShorthand {
                 }
             }
         };
+        if let Some(label) = label {
+            label_equation(&mut equations, label)?;
+        }
         Ok(Self {
             attribute,
             structure,
@@ -346,10 +357,7 @@ fn item_attributes(attrs: Vec<Attribute>, has_body: bool) -> Result<ItemAttribut
             }
             Some(entry) => {
                 return Err(shorthand_error(
-                    &format!(
-                        "`#[k::{}]` does not apply to a function declared by a `fn`; write the struct and `#[k::equation]` fns instead",
-                        entry.name()
-                    ),
+                    &shorthand_helper_reason(entry),
                     attribute.span(),
                 ));
             }
@@ -386,9 +394,90 @@ fn single_equation(
     })?;
     Ok(ShorthandEquation {
         item,
+        label: None,
         owise: None,
         signs: NegativeLiteralSpans::default(),
     })
+}
+
+/// Gives `label` to the one equation of `equations`: a label names one sentence, so a body that
+/// defines several equations (one per branch) or none is refused at the label.
+fn label_equation(
+    equations: &mut [ShorthandEquation],
+    label: syn::LitStr,
+) -> Result<(), SyntaxError> {
+    let [equation] = equations else {
+        return Err(shorthand_error(
+            &format!(
+                "a label names one sentence, and this function's body defines {}: one equation per branch of its `if` chain or `match`, or none for a declaration ending with `;`",
+                match equations.len() {
+                    0 => "no equation".to_owned(),
+                    count => format!("{count} equations"),
+                }
+            ),
+            label.span(),
+        ));
+    };
+    equation.label = Some(label);
+    Ok(())
+}
+
+/// Takes `label = ".."` out of a function shorthand's `#[k::function(..)]` payload: it names the
+/// equation the body defines, not the function's production. Returns the payload without it, and
+/// the label.
+///
+/// # Errors
+///
+/// A repeated label, and a label value that is no portable K rule label.
+pub fn take_label(
+    attribute: TokenStream,
+) -> Result<(TokenStream, Option<syn::LitStr>), SyntaxError> {
+    let mut entries: Vec<Vec<TokenTree>> = Vec::new();
+    let mut entry = Vec::new();
+    for token in attribute {
+        match &token {
+            TokenTree::Punct(punct) if punct.as_char() == ',' => {
+                entries.push(std::mem::take(&mut entry));
+            }
+            _ => entry.push(token),
+        }
+    }
+    entries.push(entry);
+    let mut label = None;
+    let mut kept = Vec::new();
+    for entry in entries {
+        match entry.as_slice() {
+            [TokenTree::Ident(key), TokenTree::Punct(equals), value]
+                if key == "label" && equals.as_char() == '=' =>
+            {
+                if label.is_some() {
+                    return Err(SyntaxError::new(
+                        SyntaxErrorKind::DuplicateArgument { name: "label" },
+                        key.span(),
+                    ));
+                }
+                let value: syn::Expr = syn::parse2(value.to_token_stream())?;
+                label = Some(
+                    crate::attribute::parse_rule_label_value(value).map_err(
+                        |error| match error {
+                            crate::parse::ParseError::Structured(error) => error,
+                            crate::parse::ParseError::Syn(error) => SyntaxError::from(error),
+                        },
+                    )?,
+                );
+            }
+            [] => {}
+            _ => kept.push(entry.into_iter().collect::<TokenStream>()),
+        }
+    }
+    let mut payload = TokenStream::new();
+    for (index, entry) in kept.into_iter().enumerate() {
+        if index > 0 {
+            payload.extend(quote!(,));
+        }
+        payload.extend(entry);
+    }
+    Ok((payload, label))
 }
 
 /// The name of a shorthand function's equation: the upper camel case function
@@ -543,6 +632,26 @@ fn shorthand_error(reason: &str, span: proc_macro2::Span) -> SyntaxError {
         },
         span,
     )
+}
+
+/// Why a helper or a sentence marker other than `#[k::requires]` means nothing on a function
+/// shorthand, whose body states its function's one equation.
+fn shorthand_helper_reason(entry: AttributeMacro) -> String {
+    let name = entry.name();
+    match entry {
+        AttributeMacro::Ensures | AttributeMacro::Exists => format!(
+            "`#[k::{name}]` states what a step's result satisfies; a function shorthand's body states an equation, which reaches no result state"
+        ),
+        AttributeMacro::Fresh => format!(
+            "`#[k::{name}]` draws a value in a transition step; a function shorthand's body states an equation, which takes no step"
+        ),
+        AttributeMacro::Priority => format!(
+            "`#[k::{name}]` is retired, and a function shorthand's body states its function's one equation, which no order ranks against another"
+        ),
+        _ => format!(
+            "`#[k::{name}]` does not apply to a function declared by a `fn`: its body states the function's one equation, under the function's own declaration"
+        ),
+    }
 }
 
 #[cfg(test)]

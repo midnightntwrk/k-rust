@@ -812,8 +812,8 @@ fn check_errors(target: &Path, manifest: &Path) -> Vec<String> {
         .collect()
 }
 
-/// A claim clause states its modality, takes no rule-only attribute and no
-/// `label`, and is a pair of records; a block names its configuration.
+/// A claim clause states its modality, takes no rule-only attribute and only a
+/// portable `label`, and is a pair of records; a block names its configuration.
 #[test]
 fn a_claim_clause_rejects_rule_only_forms() {
     let target = shared_fixture_target();
@@ -830,7 +830,7 @@ fn a_claim_clause_rejects_rule_only_forms() {
         ),
         (
             "label",
-            "#[k::claim(all_paths, label = \"x\")]\n    x: { k: [Stop()] } => { k: [] };",
+            "#[k::claim(all_paths, label = \"x_y\")]\n    x: { k: [Stop()] } => { k: [] };",
         ),
         ("term", "#[k::claim(all_paths)]\n    x: Stop() => Stop();"),
         (

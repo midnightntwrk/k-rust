@@ -42,6 +42,10 @@ pub fn expand_attribute(
     attributes: TokenStream,
     item: TokenStream,
 ) -> Result<TokenStream> {
+    // The retired `#[k::priority(N)]` on a sentence is refused naming its own marker's key.
+    if let Some(marker) = expand::sentence_marker(entry) {
+        expand::reject_retired_priority_on(marker, &item)?;
+    }
     match entry {
         AttributeMacro::Sort => expand::sort(env, attributes, item),
         AttributeMacro::Symbol => expand::symbol(attributes, item),

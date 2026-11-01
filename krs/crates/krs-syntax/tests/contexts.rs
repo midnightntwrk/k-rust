@@ -97,7 +97,7 @@ fn a_term_context_returns_unit_and_rewrites_at_most_its_hole_once() {
             #[k::exists(n: Int)]
             fn existential(k::term![Op::Wrap(h)]: Term<Exp>) {}
         })
-        .contains("a context takes no `#[k::exists]`")
+        .contains("a context says where evaluation may happen and reaches no result state")
     );
 }
 

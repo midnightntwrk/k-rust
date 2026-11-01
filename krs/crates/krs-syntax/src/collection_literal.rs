@@ -108,6 +108,16 @@ pub(crate) fn entry_head_collection(head: &Path) -> Option<&'static str> {
     }
 }
 
+/// Why a built map's rest is no anonymous `..`.
+const ANONYMOUS_MAP_REST: &str = "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry";
+
+/// The refusal of an anonymous `..` that ends a map built in a term, wherever the map is
+/// written (a `map![..]` term, a `cells!` result's `k::map![..]`): the rest is the map the
+/// entries are written over, and `..` names none.
+pub(crate) fn anonymous_map_rest(span: Span) -> SyntaxError {
+    literal_error(ANONYMOUS_MAP_REST, span)
+}
+
 fn literal_error(reason: impl Into<String>, span: Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::InvalidExpressionNotation {
@@ -409,9 +419,7 @@ fn parse_rest(collection: Collection, input: ParseStream<'_>) -> Result<Rest, Sy
     let dots = input.parse::<Token![..]>().map_err(SyntaxError::from)?;
     if input.is_empty() || input.peek(Token![,]) {
         let reason = match collection {
-            Collection::Map => {
-                "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry"
-            }
+            Collection::Map => ANONYMOUS_MAP_REST,
             Collection::Set => {
                 "in a term, `set![..]` is a literal, and its rest is the set its elements join, `set![x, ..s]`; an anonymous `..` names no set. A pattern matches a set's elements with `set::concat(set::item(x), rest)`"
             }

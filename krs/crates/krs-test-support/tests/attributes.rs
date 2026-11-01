@@ -765,3 +765,75 @@ fn print_the_attribute_table() {
         println!("{line}");
     }
 }
+
+/// The marker a form's keys are written on, where `krs-syntax` parses it.
+fn form_marker(form: &str) -> Option<krs_syntax::Marker> {
+    use krs_syntax::Marker;
+    Some(match form {
+        "rule" | "local-rule" | "sort-rule" | "readable" | "cells" | "cells-local" => Marker::Rule,
+        "claim" | "cells-claim" => Marker::Claim,
+        "equation" | "table" => Marker::Equation,
+        "simplification" => Marker::Simplification,
+        "context" => Marker::Context,
+        "context-alias" => Marker::ContextAlias,
+        "desugar" | "alias" => Marker::StaticClause,
+        "init" => Marker::Initializer,
+        "constant" => Marker::Constant,
+        // A function shorthand's keys are its declaration's, `#[k::function(..)]`.
+        _ => return None,
+    })
+}
+
+/// One mistake, one class (NT-33): every key the oracle refuses on a marker that does not take
+/// it is answered, by `krs_syntax::misplaced_key`, with the code of the class the oracle names
+/// for that (attribute, form) pair. The oracle states what a key means on each form from the
+/// key, and the parser's table answers it; a key or a form added to one and not the other, or a
+/// class moved in either, fails here without a class-matrix run.
+#[test]
+fn the_parsers_misplaced_key_table_answers_with_the_oracles_class() {
+    use krs_test_support::class_matrix::attributes::{Attribute, FORMS, Written, expected};
+    use krs_test_support::class_matrix::table::Table;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/class-matrix/expected.toml");
+    let text = std::fs::read_to_string(&path).expect("expected.toml");
+    let table = Table::parse(&text).unwrap_or_else(|errors| panic!("{errors:#?}"));
+    let mut checked = 0;
+    let mut disagreements = Vec::new();
+    for form in FORMS {
+        let Some(marker) = form_marker(form.name) else {
+            continue;
+        };
+        for attribute in Attribute::ALL {
+            let (Written::Key(text) | Written::Modality(text)) = attribute.written() else {
+                continue;
+            };
+            let key = text
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .next()
+                .expect("a key");
+            let Outcome::Refuse(refusal) = expected(form.sentence, attribute) else {
+                continue;
+            };
+            if marker.takes(key) {
+                continue;
+            }
+            let class = &table.classes[refusal.class.name()];
+            let key_ident = syn::parse_str::<syn::Ident>(key).expect("a key is an identifier");
+            let answered = krs_syntax::misplaced_key(marker, &key_ident);
+            checked += 1;
+            if answered.kind().code().as_str() != class.code {
+                disagreements.push(format!(
+                    "{}/{text}: the oracle's {} is {}, the parser answers {}",
+                    form.name,
+                    refusal.class.name(),
+                    class.code,
+                    answered.kind().code().as_str()
+                ));
+            }
+        }
+    }
+    assert!(
+        checked > 100,
+        "the cross-check reads the axis: {checked} pairs"
+    );
+    assert!(disagreements.is_empty(), "{disagreements:#?}");
+}

@@ -26,15 +26,7 @@ pub(crate) fn constant(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    if let Some(first) = attributes.into_iter().next() {
-        return Err(krs_syntax::SyntaxError::new(
-            krs_syntax::SyntaxErrorKind::UnexpectedAttributePayload {
-                attribute: "constant",
-            },
-            first.span(),
-        )
-        .into());
-    }
+    krs_syntax::ConstantAttribute::parse_tokens(attributes)?;
     let constant = krs_syntax::ConstantItem::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let item = constant.item();

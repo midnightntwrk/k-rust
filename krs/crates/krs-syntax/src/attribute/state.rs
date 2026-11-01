@@ -6,6 +6,7 @@ use syn::{Expr, Ident, LitStr, Token};
 use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
+use super::placement::Marker;
 use super::value::{parse_empty_attribute, parse_empty_tokens, parse_string_value};
 
 /// Generated-top or explicit named-root configuration metadata.
@@ -340,10 +341,39 @@ impl KrsSyntax for InitAttribute {
     ///
     /// # Errors
     ///
-    /// Rejects any payload at its first token.
+    /// Rejects any payload at its first token: a key as one the marker does not take
+    /// ([`super::placement::misplaced_key`]).
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        parse_empty_tokens(tokens, "init").map(|()| InitAttribute)
+        parse_declaration_marker(tokens, Marker::Initializer, "init").map(|()| InitAttribute)
     }
+}
+
+/// Validated empty payload of `#[k::constant]`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ConstantAttribute;
+
+impl KrsSyntax for ConstantAttribute {
+    /// Parses the empty constant attribute payload.
+    ///
+    /// # Errors
+    ///
+    /// Rejects any payload at its first token: a key as one the marker does not take
+    /// ([`super::placement::misplaced_key`]).
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        parse_declaration_marker(tokens, Marker::Constant, "constant").map(|()| ConstantAttribute)
+    }
+}
+
+/// Rejects the payload of a declaration's marker, which takes none, at its first token.
+fn parse_declaration_marker(
+    tokens: TokenStream,
+    marker: Marker,
+    attribute: &'static str,
+) -> Result<(), SyntaxError> {
+    if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
+        return Err(super::placement::misplaced_key(marker, &first));
+    }
+    parse_empty_tokens(tokens, attribute)
 }
 
 fn parse_configuration_stream(

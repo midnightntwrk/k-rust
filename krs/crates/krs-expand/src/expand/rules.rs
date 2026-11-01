@@ -348,13 +348,94 @@ fn requires_on_static_clause(reason: &'static str, span: Option<Span>) -> Expand
     }
 }
 
+/// The retired `#[k::priority(N)]`, refused naming the order key of the item's own sentence
+/// marker, or none where the sentence is chosen against no other.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Attribute macro entry points own their input token streams."
+)]
 pub(crate) fn priority(
     _env: &dyn MacroEnvironment,
     attributes: TokenStream,
-    _item: TokenStream,
+    item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    krs_syntax::PriorityAttribute::parse_tokens(attributes)?;
+    krs_syntax::PriorityAttribute::parse_on(&attributes, item_marker(&item))?;
     unreachable!("the retired priority attribute never parses")
+}
+
+/// The marker of the sentence an attribute entry point expands, as `krs-syntax` names it.
+pub(crate) const fn sentence_marker(entry: AttributeMacro) -> Option<krs_syntax::Marker> {
+    use krs_syntax::Marker;
+    Some(match entry {
+        AttributeMacro::Rule => Marker::Rule,
+        AttributeMacro::Equation => Marker::Equation,
+        AttributeMacro::Simplification => Marker::Simplification,
+        AttributeMacro::Claim => Marker::Claim,
+        AttributeMacro::Context => Marker::Context,
+        AttributeMacro::ContextAlias => Marker::ContextAlias,
+        AttributeMacro::Alias | AttributeMacro::Desugar => Marker::StaticClause,
+        AttributeMacro::Constant => Marker::Constant,
+        _ => return None,
+    })
+}
+
+/// Refuses the retired `#[k::priority(N)]` among `attributes`, written on a sentence whose
+/// marker is `marker`, naming that marker's order key, or none where the sentence is chosen
+/// against no other.
+pub(crate) fn reject_retired_priority(
+    marker: krs_syntax::Marker,
+    attributes: &[Attribute],
+) -> crate::Result<()> {
+    for attribute in attributes {
+        if helper_entry(attribute.path()) == Some(AttributeMacro::Priority) {
+            let tokens = match &attribute.meta {
+                syn::Meta::List(list) => list.tokens.clone(),
+                _ => TokenStream::new(),
+            };
+            krs_syntax::PriorityAttribute::parse_on(&tokens, Some(marker))?;
+        }
+    }
+    Ok(())
+}
+
+/// [`reject_retired_priority`] on the attributes of `item`, a fn or a const.
+pub(crate) fn reject_retired_priority_on(
+    marker: krs_syntax::Marker,
+    item: &TokenStream,
+) -> crate::Result<()> {
+    let attributes = match syn::parse2::<syn::Item>(item.clone()) {
+        Ok(syn::Item::Fn(function)) => function.attrs,
+        Ok(syn::Item::Const(constant)) => constant.attrs,
+        // A fn whose body holds `name @ pattern` is no Rust item.
+        _ => match krs_syntax::parse_fn_item(item.clone()) {
+            Ok(function) => function.attrs,
+            Err(_) => return Ok(()),
+        },
+    };
+    reject_retired_priority(marker, &attributes)
+}
+
+/// The sentence marker of `item`, a fn or a const, if it has one.
+fn item_marker(item: &TokenStream) -> Option<krs_syntax::Marker> {
+    use krs_syntax::Marker;
+    let attrs = match syn::parse2::<syn::Item>(item.clone()).ok()? {
+        syn::Item::Fn(function) => function.attrs,
+        syn::Item::Const(constant) => constant.attrs,
+        _ => return None,
+    };
+    attrs.iter().find_map(|attribute| {
+        Some(match helper_entry(attribute.path())? {
+            AttributeMacro::Rule => Marker::Rule,
+            AttributeMacro::Equation => Marker::Equation,
+            AttributeMacro::Simplification => Marker::Simplification,
+            AttributeMacro::Claim => Marker::Claim,
+            AttributeMacro::Context => Marker::Context,
+            AttributeMacro::ContextAlias => Marker::ContextAlias,
+            AttributeMacro::Alias | AttributeMacro::Desugar => Marker::StaticClause,
+            AttributeMacro::Constant => Marker::Constant,
+            _ => return None,
+        })
+    })
 }
 
 fn ordinary_rule(
@@ -597,6 +678,19 @@ fn expand_ordinary_rule(
     // A single-body rule (KF-011) is a transition that is not an anywhere
     // rule: its subject's `k::rewrite!` islands say what changes.
     if rule.result().is_none()
+        && sentence_kind == krs_ir::SentenceKind::Transition
+        && let Some(anywhere) = attribute.anywhere()
+    {
+        // The mistake is the key, on a form that states no anywhere rule.
+        return Err(krs_syntax::SyntaxError::new(
+            krs_syntax::SyntaxErrorKind::InvalidLocalRewrite {
+                reason: "a single-body rule (one that returns `()`) marks its changes with `k::rewrite!` where its subject heads the computation cell; the form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn with a result states".to_owned(),
+            },
+            anywhere.span(),
+        )
+        .into());
+    }
+    if rule.result().is_none()
         && sentence_kind != krs_ir::SentenceKind::Context
         && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
@@ -689,11 +783,17 @@ fn expand_ordinary_rule(
         ),
     };
     let name = name_ident.unraw().to_string();
-    let label = attribute
-        .label()
+    // A label names the one sentence its marker states: a transition's or a context's, an
+    // equation's, a simplification's.
+    let (label, label_key) = match (equation, simplification) {
+        (Some(equation), _) => (equation.label(), equation.label_key()),
+        (_, Some(simplification)) => (simplification.label(), simplification.label_key()),
+        _ => (attribute.label(), attribute.label_key()),
+    };
+    let label = label
         .map(|label| -> crate::Result<_> {
             Ok(DescriptorRuleLabel {
-                key: ledger.define(attribute.label_key())?,
+                key: ledger.define(label_key)?,
                 name: label.value().clone(),
             })
         })
@@ -1320,6 +1420,15 @@ fn unbound_variables(
     })
 }
 
+/// A helper (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]`) expanded before
+/// its item's sentence marker: the attributes of one item state one sentence whatever their
+/// order, so the helper is handed to the marker as if written after it, and the marker accepts
+/// or refuses it as it does there. A helper on an item with no sentence marker is the
+/// invocation's mistake.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Attribute macro entry points own their input token streams."
+)]
 pub(crate) fn orphan_rule_helper(
     env: &dyn MacroEnvironment,
     entry: AttributeMacro,
@@ -1327,12 +1436,6 @@ pub(crate) fn orphan_rule_helper(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let name = entry.name();
-    if matches!(
-        entry,
-        AttributeMacro::Exists | AttributeMacro::Ensures | AttributeMacro::Fresh
-    ) {
-        return orphan_result_helper(env, entry, attributes, item);
-    }
     if entry == AttributeMacro::Requires
         && let Ok(mut shorthand) = syn::parse2::<krs_syntax::ShorthandItem>(item.clone())
         && let Some(index) = shorthand
@@ -1350,141 +1453,63 @@ pub(crate) fn orphan_rule_helper(
         shorthand.attrs.insert(0, helper);
         return super::constructors::function(env, payload, shorthand.to_token_stream());
     }
-    if entry == AttributeMacro::Requires {
-        let mut function: ItemFn = syn::parse2(item)?;
-        for (marker, reason) in [
-            (
-                AttributeMacro::Desugar,
-                krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
-            ),
-            (AttributeMacro::Alias, krs_syntax::REQUIRES_ON_ALIAS_CLAUSE),
-        ] {
-            if function
-                .attrs
-                .iter()
-                .any(|attribute| helper_entry(attribute.path()) == Some(marker))
-            {
-                // The misplaced `#[k::requires]` is the invocation itself.
-                return Err(requires_on_static_clause(reason, None));
-            }
-        }
-        if let Some((index, outer)) =
-            function
-                .attrs
-                .iter()
-                .enumerate()
-                .find_map(|(index, attribute)| {
-                    let helper = helper_entry(attribute.path())?;
-                    matches!(
-                        helper,
-                        AttributeMacro::Equation | AttributeMacro::Simplification
-                    )
-                    .then_some((index, helper))
-                })
-        {
-            let sentence = function.attrs.remove(index);
-            // The sentence attribute's own keys, such as `priority = N`, travel with it.
-            let sentence_payload = match &sentence.meta {
-                syn::Meta::List(list) => list.tokens.clone(),
-                _ => TokenStream::new(),
-            };
-            let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
-            function.attrs.insert(0, helper);
-            return if outer == AttributeMacro::Equation {
-                equation(env, sentence_payload, function.to_token_stream())
-            } else {
-                simplification(env, sentence_payload, function.to_token_stream())
-            };
-        }
+    if let Some(expanded) = hand_to_marker(env, entry, &attributes, &item) {
+        return expanded;
     }
     // The misplaced helper is the invocation itself.
-    Err(ExpandError::at_invocation(
-        expand::ORPHAN_HELPER,
-        format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it"),
-    ))
-}
-
-/// `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]` written before its
-/// sentence attribute: handed to a following `#[k::rule]`, rejected before
-/// any other sentence.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Attribute macro entry points own their input token streams."
-)]
-fn orphan_result_helper(
-    env: &dyn MacroEnvironment,
-    entry: AttributeMacro,
-    attributes: TokenStream,
-    item: TokenStream,
-) -> crate::Result<TokenStream> {
-    let name = entry.name();
-    let mut function: ItemFn = syn::parse2(item)?;
-    let outer = function
-        .attrs
-        .iter()
-        .enumerate()
-        .find_map(|(index, attribute)| {
-            let helper = helper_entry(attribute.path())?;
-            matches!(
-                helper,
-                AttributeMacro::Rule
-                    | AttributeMacro::Claim
-                    | AttributeMacro::Equation
-                    | AttributeMacro::Simplification
-                    | AttributeMacro::Alias
-                    | AttributeMacro::ContextAlias
-                    | AttributeMacro::Desugar
-            )
-            .then_some((index, helper))
-        });
-    match outer {
-        Some((index, AttributeMacro::Rule)) => {
-            // `#[k::exists]`/`#[k::fresh]`/`#[k::ensures]` before
-            // `#[k::rule]`, as a readable clause expands: hand the helper
-            // to the rule.
-            let sentence = function.attrs.remove(index);
-            let sentence_payload = match &sentence.meta {
-                syn::Meta::List(list) => list.tokens.clone(),
-                _ => TokenStream::new(),
-            };
-            let helper_name = format_ident!("{name}");
-            let helper: Attribute = syn::parse_quote!(#[k::#helper_name(#attributes)]);
-            function.attrs.insert(0, helper);
-            return rule(env, sentence_payload, function.to_token_stream());
-        }
-        // The misplaced helper is the invocation itself.
-        Some((_, AttributeMacro::Claim | AttributeMacro::ContextAlias))
-            if entry == AttributeMacro::Fresh =>
-        {
-            return Err(misplaced_fresh(None));
-        }
-        Some((
-            _,
-            AttributeMacro::Equation
-            | AttributeMacro::Simplification
-            | AttributeMacro::Alias
-            | AttributeMacro::Desugar,
-        )) => {
-            return Err(if entry == AttributeMacro::Fresh {
-                misplaced_fresh(None)
-            } else {
-                misplaced_existential(None)
-            });
-        }
-        _ => {}
-    }
-    // The misplaced helper is the invocation itself.
-    if entry == AttributeMacro::Fresh {
-        return Err(ExpandError::at_invocation(
-            expand::ORPHAN_HELPER,
-            "`#[k::fresh]` is a rule helper; place `#[k::rule(...)]` before it",
-        ));
-    }
     Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
         format!(
-            "`#[k::{name}]` is a rule or claim helper; place `#[k::rule(...)]` or `#[k::claim(...)]` before it"
+            "`#[k::{name}]` is a helper of a sentence, and this item has no sentence marker (`#[k::rule]`, `#[k::equation]`, `#[k::simplification]`, `#[k::claim]`, `#[k::context]`) for it to belong to"
         ),
+    ))
+}
+
+/// The sentence markers a helper written before them is handed to.
+const HELPED_MARKERS: [AttributeMacro; 9] = [
+    AttributeMacro::Rule,
+    AttributeMacro::Equation,
+    AttributeMacro::Simplification,
+    AttributeMacro::Claim,
+    AttributeMacro::Context,
+    AttributeMacro::ContextAlias,
+    AttributeMacro::Alias,
+    AttributeMacro::Desugar,
+    AttributeMacro::Constant,
+];
+
+/// Expands `item` as its first sentence marker would with the helper `entry(attributes)` written
+/// first among the attributes after the marker, or `None` when the item has no sentence marker.
+fn hand_to_marker(
+    env: &dyn MacroEnvironment,
+    entry: AttributeMacro,
+    attributes: &TokenStream,
+    item: &TokenStream,
+) -> Option<crate::Result<TokenStream>> {
+    let mut parsed: syn::Item = syn::parse2(item.clone()).ok()?;
+    let attrs = match &mut parsed {
+        syn::Item::Fn(function) => &mut function.attrs,
+        syn::Item::Const(constant) => &mut constant.attrs,
+        _ => return None,
+    };
+    let (index, marker) = attrs.iter().enumerate().find_map(|(index, attribute)| {
+        let marker = helper_entry(attribute.path())?;
+        HELPED_MARKERS.contains(&marker).then_some((index, marker))
+    })?;
+    let sentence = attrs.remove(index);
+    // The marker's own keys, such as `priority = N`, travel with it.
+    let payload = match &sentence.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => TokenStream::new(),
+    };
+    let helper_name = format_ident!("{}", entry.name());
+    let helper: Attribute = syn::parse_quote!(#[k::#helper_name(#attributes)]);
+    attrs.insert(index, helper);
+    Some(crate::expand_attribute(
+        marker,
+        env,
+        payload,
+        parsed.to_token_stream(),
     ))
 }
 
@@ -1534,7 +1559,7 @@ pub(super) fn reject_fresh_helper(item: &TokenStream) -> crate::Result<()> {
 /// `span` is the misplaced binder or helper; `None` when the helper is the invocation being
 /// expanded.
 fn misplaced_existential(span: Option<Span>) -> ExpandError {
-    let message = "existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases";
+    let message = "existential results and ensures state what a step's result satisfies, on claims and transition rules; an equation, a simplification and a static clause reach no result state";
     match span {
         Some(span) => ExpandError::new(expand::EXISTENTIAL_PLACEMENT, span, message),
         None => ExpandError::at_invocation(expand::EXISTENTIAL_PLACEMENT, message),

@@ -1225,15 +1225,15 @@ fn branching(
     ),
     (
         "exists_claim",
-        r"
+        r#"
 #[k::exists(n: Int)]
-#[k::claim(one_path)]
+#[k::claim(one_path, label = "reaches")]
 fn reaches(
     k::cells! { k: k::configuration::KCell(Start(), tail @ ..), state @ .. }: Machine,
 ) -> Machine {
     k::cells! { k: k::configuration::KCell(Done(n), ..tail), ..state }
 }
-",
+"#,
     ),
     (
         "ensures_orphan",

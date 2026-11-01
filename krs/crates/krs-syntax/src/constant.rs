@@ -46,6 +46,21 @@ impl ConstantItem {
     /// Returns [`SyntaxErrorKind::InvalidConstant`] for generics, a type
     /// that is not a sort, or a value that is not a ground constructor term.
     pub fn from_item(item: ItemConst) -> Result<Self, SyntaxError> {
+        // A sentence's helper states a condition, a postcondition, an existential or a fresh
+        // value of a sentence; a constant declares a value and applies to nothing.
+        if let Some((helper, name)) = item.attrs.iter().find_map(|attribute| {
+            use crate::surface::AttributeMacro as M;
+            let entry = crate::surface::helper_entry(attribute.path())?;
+            matches!(entry, M::Requires | M::Ensures | M::Exists | M::Fresh)
+                .then(|| (attribute, entry.name()))
+        }) {
+            return Err(invalid(
+                &format!(
+                    "`#[k::{name}]` is a helper of a sentence; a constant declares a value and applies to nothing, so no condition, postcondition, existential or fresh value means anything on it"
+                ),
+                helper.path().span(),
+            ));
+        }
         if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
             return Err(invalid(
                 "a constant is not generic: K has no parametric values",

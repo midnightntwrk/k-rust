@@ -8,10 +8,11 @@ use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::rule::{
-    NONDET_ON_FUNCTION, OWISE_ON_SIMPLIFICATION, OWISE_PRIORITY, OWISE_WITH_PRIORITY,
-    PRIORITY_ON_STATIC_RULE, PriorityValue, parse_priority_value, rule_key_error,
+    OWISE_PRIORITY, OWISE_WITH_PRIORITY, PRIORITY_ON_STATIC_RULE, PriorityValue,
+    parse_priority_value, rule_key_error,
 };
 
+use super::placement::{Marker, misplaced_key};
 use super::value::{
     parse_empty_tokens, parse_parent_paths_value, parse_sort_value,
     parse_unqualified_identifier_value,
@@ -448,9 +449,11 @@ fn restriction_error(reason: String, span: proc_macro2::Span) -> ParseError {
 /// `smt_lemma` keys.
 #[derive(Clone, Debug, Default)]
 pub struct EquationAttribute {
+    label: Option<LitStr>,
     owise: Option<Ident>,
     priority: Option<PriorityValue>,
     restriction: MatchRestriction,
+    label_key: Option<ProvenanceKey>,
     owise_key: Option<ProvenanceKey>,
     priority_key: Option<ProvenanceKey>,
     /// The anchors of the attribute's standalone keying, which
@@ -459,6 +462,19 @@ pub struct EquationAttribute {
 }
 
 impl EquationAttribute {
+    /// Returns the explicit `label = "..."`, which names the equation in place of its fn's or
+    /// row's name.
+    #[must_use]
+    pub const fn label(&self) -> Option<&LitStr> {
+        self.label.as_ref()
+    }
+
+    /// The key of the label.
+    #[must_use]
+    pub const fn label_key(&self) -> Option<&ProvenanceKey> {
+        self.label_key.as_ref()
+    }
+
     /// Returns the `concrete`, `symbolic`, and `smt_lemma` keys.
     #[must_use]
     pub const fn restriction(&self) -> &MatchRestriction {
@@ -519,8 +535,14 @@ impl EquationAttribute {
         Ok(self)
     }
 
-    /// Keys `owise`, the priority, then the restriction.
+    /// Keys the label, `owise`, the priority, then the restriction.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.label_key = match &self.label {
+            Some(label) => {
+                Some(keys.key(ProvenanceRole::RuleLabel, TokenRange::for_tokens(label)?)?)
+            }
+            None => None,
+        };
         self.owise_key = match &self.owise {
             Some(owise) => Some(keys.key(
                 ProvenanceRole::EquationOwise,
@@ -543,8 +565,10 @@ impl EquationAttribute {
 /// with optional `concrete`, `symbolic`, and `smt_lemma` keys.
 #[derive(Clone, Debug, Default)]
 pub struct SimplificationAttribute {
+    label: Option<LitStr>,
     priority: Option<(LitInt, u32)>,
     restriction: MatchRestriction,
+    label_key: Option<ProvenanceKey>,
     priority_key: Option<ProvenanceKey>,
     /// The anchors of the attribute's keying, which [`Self::provenance`]
     /// returns.
@@ -552,6 +576,19 @@ pub struct SimplificationAttribute {
 }
 
 impl SimplificationAttribute {
+    /// Returns the explicit `label = "..."`, which names the simplification in place of its
+    /// fn's name.
+    #[must_use]
+    pub const fn label(&self) -> Option<&LitStr> {
+        self.label.as_ref()
+    }
+
+    /// The key of the label.
+    #[must_use]
+    pub const fn label_key(&self) -> Option<&ProvenanceKey> {
+        self.label_key.as_ref()
+    }
+
     /// Returns the `concrete`, `symbolic`, and `smt_lemma` keys.
     #[must_use]
     pub const fn restriction(&self) -> &MatchRestriction {
@@ -579,9 +616,15 @@ impl SimplificationAttribute {
         self.priority_key.as_ref()
     }
 
-    /// Keys the priority, then the restriction.
+    /// Keys the label, the priority, then the restriction.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
+        self.label_key = match &self.label {
+            Some(label) => {
+                Some(keys.key(ProvenanceRole::RuleLabel, TokenRange::for_tokens(label)?)?)
+            }
+            None => None,
+        };
         self.priority_key = match &self.priority {
             Some((literal, _)) => Some(keys.key(
                 ProvenanceRole::SimplificationPriority,
@@ -1122,6 +1165,7 @@ impl KrsSyntax for EquationAttribute {
 }
 
 fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, ParseError> {
+    let mut label: Option<LitStr> = None;
     let mut owise: Option<Ident> = None;
     let mut priority: Option<PriorityValue> = None;
     let mut restriction = MatchRestriction::default();
@@ -1136,6 +1180,17 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
             continue;
         }
         match key_name.as_str() {
+            "label" if label.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "label" },
+                    key.span(),
+                )
+                .into());
+            }
+            "label" => {
+                input.parse::<Token![=]>()?;
+                label = Some(super::value::parse_rule_label_value(input.parse()?)?);
+            }
             "owise" if owise.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "owise" },
@@ -1161,17 +1216,7 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
                 input.parse::<Token![=]>()?;
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
-            "nondet" => return Err(rule_key_error(NONDET_ON_FUNCTION, key.span())),
-            "unbound_variables" => {
-                return Err(unbound_variables_outside_desugar(key.span()).into());
-            }
-            _ => {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnknownArgument { name: key_name },
-                    key.span(),
-                )
-                .into());
-            }
+            _ => return Err(misplaced_key(Marker::Equation, &key).into()),
         }
         if input.is_empty() {
             break;
@@ -1179,9 +1224,11 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
         input.parse::<Token![,]>()?;
     }
     Ok(EquationAttribute {
+        label,
         owise,
         priority,
         restriction,
+        label_key: None,
         owise_key: None,
         priority_key: None,
         anchors: Vec::new(),
@@ -1205,6 +1252,7 @@ impl KrsSyntax for SimplificationAttribute {
 fn parse_simplification_stream(
     input: ParseStream<'_>,
 ) -> Result<SimplificationAttribute, ParseError> {
+    let mut label: Option<LitStr> = None;
     let mut priority: Option<(LitInt, u32)> = None;
     let mut restriction = MatchRestriction::default();
     while !input.is_empty() {
@@ -1212,12 +1260,16 @@ fn parse_simplification_stream(
         let consumed = restriction.parse_key(&key, input)?;
         if consumed {
             // A `concrete`, `symbolic`, or `smt_lemma` key.
-        } else if key == "owise" {
-            return Err(rule_key_error(OWISE_ON_SIMPLIFICATION, key.span()));
-        } else if key == "nondet" {
-            return Err(rule_key_error(NONDET_ON_FUNCTION, key.span()));
-        } else if key == "unbound_variables" {
-            return Err(unbound_variables_outside_desugar(key.span()).into());
+        } else if key == "label" {
+            if label.is_some() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "label" },
+                    key.span(),
+                )
+                .into());
+            }
+            input.parse::<Token![=]>()?;
+            label = Some(super::value::parse_rule_label_value(input.parse()?)?);
         } else if key == "priority" {
             if priority.is_some() {
                 return Err(SyntaxError::new(
@@ -1231,13 +1283,7 @@ fn parse_simplification_stream(
             let value = literal.base10_parse::<u32>()?;
             priority = Some((literal, value));
         } else {
-            return Err(SyntaxError::new(
-                SyntaxErrorKind::UnknownArgument {
-                    name: key.to_string(),
-                },
-                key.span(),
-            )
-            .into());
+            return Err(misplaced_key(Marker::Simplification, &key).into());
         }
         if input.is_empty() {
             break;
@@ -1245,37 +1291,25 @@ fn parse_simplification_stream(
         input.parse::<Token![,]>()?;
     }
     Ok(SimplificationAttribute {
+        label,
         priority,
         restriction,
+        label_key: None,
         priority_key: None,
         anchors: Vec::new(),
     }
     .keyed()?)
 }
 
-/// Rejects the payload of a static clause marker at its first token.
+/// Rejects the payload of a static clause marker at its first token: a key, for what it is on a
+/// clause ([`misplaced_key`]), and anything else as a payload the marker does not
+/// take.
 fn parse_static_clause_tokens(
     tokens: TokenStream,
     attribute: &'static str,
 ) -> Result<(), SyntaxError> {
     if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
-        let reason = if first == "priority" || first == "owise" {
-            Some(PRIORITY_ON_STATIC_RULE)
-        } else if first == "nondet" {
-            Some(NONDET_ON_FUNCTION)
-        } else if first == "recursive" {
-            Some(RECURSIVE_ON_CLAUSE)
-        } else if first == "unbound_variables" {
-            return Err(unbound_variables_outside_desugar(first.span()));
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            return Err(SyntaxError::new(
-                SyntaxErrorKind::InvalidRuleKey { reason },
-                first.span(),
-            ));
-        }
+        return Err(misplaced_key(Marker::StaticClause, &first));
     }
     parse_empty_tokens(tokens, attribute)
 }
@@ -1348,13 +1382,28 @@ impl KrsSyntax for ContextAliasAttribute {
 }
 
 impl KrsSyntax for PriorityAttribute {
-    /// Rejects the retired standalone priority attribute.
+    /// Rejects the retired standalone priority attribute, naming the
+    /// replacement on an equation.
     ///
     /// # Errors
     ///
-    /// Always returns [`SyntaxErrorKind::RetiredAttribute`], naming
-    /// `#[k::equation(priority = N)]` with the authored value, at the payload.
+    /// Always returns [`SyntaxErrorKind::RetiredAttribute`], at the payload.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::parse_on(&tokens, Some(Marker::Equation))
+    }
+}
+
+impl PriorityAttribute {
+    /// Rejects the retired standalone priority attribute written on a sentence whose marker is
+    /// `marker`: the replacement is the order key of that marker, `#[k::rule(priority = N)]`,
+    /// `#[k::equation(priority = N)]` or `#[k::simplification(priority = N)]`, with the authored
+    /// value; a sentence chosen against no other (a claim, a context, a static clause, a
+    /// constant) has none. An item with no sentence marker (`None`) is named the equation's.
+    ///
+    /// # Errors
+    ///
+    /// Always returns [`SyntaxErrorKind::RetiredAttribute`], at the payload.
+    pub fn parse_on(tokens: &TokenStream, marker: Option<Marker>) -> Result<Self, SyntaxError> {
         let span = tokens
             .clone()
             .into_iter()
@@ -1366,10 +1415,16 @@ impl KrsSyntax for PriorityAttribute {
         } else {
             value.trim().to_owned()
         };
+        let path = match marker {
+            Some(Marker::Rule) => Some("rule"),
+            Some(Marker::Equation) | None => Some("equation"),
+            Some(Marker::Simplification) => Some("simplification"),
+            _ => None,
+        };
         Err(SyntaxError::new(
             SyntaxErrorKind::RetiredAttribute {
                 attribute: "#[k::priority(..)]",
-                replacement: format!("#[k::equation(priority = {value})]"),
+                replacement: path.map(|path| format!("#[k::{path}(priority = {value})]")),
             },
             span,
         ))
@@ -1536,14 +1591,7 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
                 .into());
             }
             "here" => "here",
-            "unbound_variables" => return Err(unbound_variables_outside_desugar(key.span()).into()),
-            _ => {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnknownArgument { name: key_name },
-                    key.span(),
-                )
-                .into());
-            }
+            _ => return Err(misplaced_key(Marker::ContextAlias, &key).into()),
         };
         input.parse::<Token![=]>()?;
         let value: Expr = input.parse()?;
@@ -1652,8 +1700,11 @@ mod keyed {
     }
 
     impl EquationAttribute {
-        /// Records the keys of `owise`, the priority and the restriction.
+        /// Records the keys of the label, `owise`, the priority and the restriction.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(label) = &self.label {
+                nodes.push_tokens(self.label_key.as_ref(), label)?;
+            }
             if let Some(owise) = &self.owise {
                 nodes.push_tokens(self.owise_key.as_ref(), owise)?;
             }
@@ -1665,8 +1716,11 @@ mod keyed {
     }
 
     impl SimplificationAttribute {
-        /// Records the keys of the priority and the restriction.
+        /// Records the keys of the label, the priority and the restriction.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(label) = &self.label {
+                nodes.push_tokens(self.label_key.as_ref(), label)?;
+            }
             if let Some((literal, _)) = &self.priority {
                 nodes.push_tokens(self.priority_key.as_ref(), literal)?;
             }

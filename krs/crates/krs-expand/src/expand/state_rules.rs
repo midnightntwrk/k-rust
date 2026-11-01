@@ -15,12 +15,13 @@ use krs_ir::{
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::positions::Form;
+use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{
     KSequence, KSequenceNotation, MapBody, MapExpression, RuleSide, StateMacroRemainder,
     StateRuleBindingKind, StateRuleReferenceKind, StateTerm, TokenRange,
     parse_state_context_alias_item,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
@@ -37,6 +38,37 @@ use super::tokens::{call_site_cfg_attributes, respanned, sort_type_tokens, spell
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
+/// Rejects a condition, a postcondition or an existential on a context alias, at the helper: a
+/// context alias names the configuration around a strict argument, which contexts instantiate,
+/// and applies to nothing itself.
+fn reject_context_alias_helper(item: &TokenStream) -> crate::Result<()> {
+    let Ok(function) = syn::parse2::<syn::ItemFn>(item.clone()) else {
+        return Ok(());
+    };
+    for attribute in &function.attrs {
+        let Some(
+            helper @ (AttributeMacro::Requires | AttributeMacro::Ensures | AttributeMacro::Exists),
+        ) = helper_entry(attribute.path())
+        else {
+            continue;
+        };
+        let span = attribute
+            .path()
+            .segments
+            .last()
+            .map_or_else(Span::call_site, |segment| segment.ident.span());
+        return Err(ExpandError::new(
+            expand::ORPHAN_HELPER,
+            span,
+            format!(
+                "`#[k::{}]` is a helper of a sentence that applies; a context alias names the configuration around a strict argument, which contexts instantiate, and applies to nothing itself",
+                helper.name()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The context alias and its complete provenance are expanded together."
@@ -48,6 +80,7 @@ pub(crate) fn context_alias(
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ContextAliasAttribute::parse_tokens(attributes)?;
     super::rules::reject_fresh_helper(&item)?;
+    reject_context_alias_helper(&item)?;
     let alias = parse_state_context_alias_item(item, attribute.here())?;
     let facade = env.facade_path()?;
     let anchors = alias.descriptor_provenance(&attribute)?;
