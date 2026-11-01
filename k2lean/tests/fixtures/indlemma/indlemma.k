@@ -53,4 +53,15 @@ module INDLEMMA
   rule lw(loop(_, { B }) ; C) => cw(B) +Int lw(C)
   rule cw(_B) >=Int 2 => true [simplification]
   rule lw(_C) >=Int 0 => true [simplification]
+
+  // the same through a weight that has no lemma of its own, which matches a pattern: `mu`'s call is
+  // never cased on, only unfolded inside a case's hypothesis, and its lemma is read from its
+  // statement for every argument (EQ-23b)
+  syntax Int ::= dw(Code) [function, total]
+  rule dw({ B }) => 3 +Int mu(B)
+  syntax Int ::= kw(Stmts) [function, total]
+  rule kw(.Stmts) => 0
+  rule kw(add(_) ; C) => kw(C)
+  rule kw(loop(_, B) ; C) => dw(B) +Int kw(C)
+  rule kw(_C) >=Int 0 => true [simplification]
 endmodule

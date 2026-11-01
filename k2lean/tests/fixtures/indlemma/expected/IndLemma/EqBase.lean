@@ -41,7 +41,7 @@ scoped macro "k2l_eqn_r " f:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : t
   `(tactic| (
     (conv => lhs; rw [$e:ident])
     try simp only []
-    try (repeat' (first | k2l_case_list | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts», K.«lw(_)_INDLEMMA_Int_Stmts», K.«mu(_)_INDLEMMA_Int_Stmts», proj_KItem_Bool, proj_KItem_Code, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_KItem_Int, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_Map, proj_KItem_RegCell, proj_RegCellOpt_RegCell, proj_KItem_RegCellOpt, proj_KItem_Set, proj_KItem_Stmt, proj_KItem_Stmts] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))
+    try (repeat' (first | k2l_case_list | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«app(_,_)_INDLEMMA_Stmts_Stmts_Stmts», K.«kw(_)_INDLEMMA_Int_Stmts», K.«lw(_)_INDLEMMA_Int_Stmts», K.«mu(_)_INDLEMMA_Int_Stmts», proj_KItem_Bool, proj_KItem_Code, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_KItem_Int, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_Map, proj_KItem_RegCell, proj_RegCellOpt_RegCell, proj_KItem_RegCellOpt, proj_KItem_Set, proj_KItem_Stmt, proj_KItem_Stmts] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))
     all_goals first
       | (simp_all [k2l_eq, $xs,*]; done)
       | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [k2l_eq, $xs,*]) <;> omega)))

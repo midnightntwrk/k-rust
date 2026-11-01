@@ -156,7 +156,7 @@ fn indlemma() {
     snapshot_with(
         "indlemma",
         "IndLemma",
-        &["--extra-fns", "mu,cw,lw"],
+        &["--extra-fns", "mu,cw,lw,dw,kw"],
         "expected",
     );
 }

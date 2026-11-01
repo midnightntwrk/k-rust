@@ -245,6 +245,40 @@ theorem Eqn.«cw(_)_INDLEMMA_Int_Stmts_1» (B : SortStmts) :
     | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»])
     | (unfold K.«cw(_)_INDLEMMA_Int_Stmts» K.«cw(_)_INDLEMMA_Int_Stmts».rule1; k2l_eqn_c [K.«cw(_)_INDLEMMA_Int_Stmts».rule1, K.«cw(_)_INDLEMMA_Int_Stmts»]))
 
+/-- dw(_)_INDLEMMA_Int_Code equation 1 -/
+@[k2l_equation]
+theorem Eqn.«dw(_)_INDLEMMA_Int_Code_1» (B : SortStmts) :
+    K.«dw(_)_INDLEMMA_Int_Code» (SortCode.«{_}» B) = (Option.bind (K.«mu(_)_INDLEMMA_Int_Stmts» B) fun r => some (KPrelude.IntHook.add (3 : Int) r)) := by
+  intros
+  first
+  | k2l_eqn_row K.«dw(_)_INDLEMMA_Int_Code» [K.«dw(_)_INDLEMMA_Int_Code», K.«dw(_)_INDLEMMA_Int_Code».rule1]
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«dw(_)_INDLEMMA_Int_Code».rule1, K.«dw(_)_INDLEMMA_Int_Code»]
+    | (unfold K.«dw(_)_INDLEMMA_Int_Code» K.«dw(_)_INDLEMMA_Int_Code».rule1; k2l_eqn_b [K.«dw(_)_INDLEMMA_Int_Code».rule1, K.«dw(_)_INDLEMMA_Int_Code»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«dw(_)_INDLEMMA_Int_Code».rule1, K.«dw(_)_INDLEMMA_Int_Code»])
+    | (unfold K.«dw(_)_INDLEMMA_Int_Code» K.«dw(_)_INDLEMMA_Int_Code».rule1; k2l_eqn_c [K.«dw(_)_INDLEMMA_Int_Code».rule1, K.«dw(_)_INDLEMMA_Int_Code»]))
+
+/-- kw(_)_INDLEMMA_Int_Stmts equation 1 -/
+@[k2l_equation]
+theorem Eqn.«kw(_)_INDLEMMA_Int_Stmts_1» :
+    K.«kw(_)_INDLEMMA_Int_Stmts» SortStmts.«.List{"_;__INDLEMMA-SYNTAX_Stmts_Stmt_Stmts"}_Stmts» = some (0 : Int) := by
+  intros
+  k2l_eqn_r K.«kw(_)_INDLEMMA_Int_Stmts» []
+
+/-- kw(_)_INDLEMMA_Int_Stmts equation 2 -/
+@[k2l_equation]
+theorem Eqn.«kw(_)_INDLEMMA_Int_Stmts_2» (Gen0 : SortInt) (C : SortStmts) :
+    K.«kw(_)_INDLEMMA_Int_Stmts» (SortStmts.«_;_» (SortStmt.«add(_)» Gen0) C) = (Option.bind (K.«kw(_)_INDLEMMA_Int_Stmts» C) fun r => some r) := by
+  intros
+  k2l_eqn_r K.«kw(_)_INDLEMMA_Int_Stmts» []
+
+/-- kw(_)_INDLEMMA_Int_Stmts equation 3 -/
+@[k2l_equation]
+theorem Eqn.«kw(_)_INDLEMMA_Int_Stmts_3» (Gen0 : SortInt) (B : SortCode) (C : SortStmts) :
+    K.«kw(_)_INDLEMMA_Int_Stmts» (SortStmts.«_;_» (SortStmt.«loop(_,_)» Gen0 B) C) = (Option.bind (K.«dw(_)_INDLEMMA_Int_Code» B) fun r => (Option.bind (K.«kw(_)_INDLEMMA_Int_Stmts» C) fun r_1 => some (KPrelude.IntHook.add r r_1))) := by
+  intros
+  k2l_eqn_r K.«kw(_)_INDLEMMA_Int_Stmts» [K.«dw(_)_INDLEMMA_Int_Code».rule1, K.«dw(_)_INDLEMMA_Int_Code»]
+
 /-- lw(_)_INDLEMMA_Int_Stmts equation 1 -/
 @[k2l_equation]
 theorem Eqn.«lw(_)_INDLEMMA_Int_Stmts_1» :
@@ -1068,6 +1102,18 @@ theorem Simp.s_c3e985620317 (B : SortStmts) :
 @[k2l_value]
 theorem Simp.s_0e4e3a312710 (C : SortStmts) :
     (Option.bind (K.«lw(_)_INDLEMMA_Int_Stmts» C) fun r => some (KPrelude.IntHook.ge r (0 : Int))) = some true := by
+  intros
+  first
+  | k2l_eqn_a []
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+  | k2l_eqn_ind C []
+
+/-- simplification c23992d04f8d (indlemma.k) -/
+@[k2l_value]
+theorem Simp.s_c23992d04f8d (C : SortStmts) :
+    (Option.bind (K.«kw(_)_INDLEMMA_Int_Stmts» C) fun r => some (KPrelude.IntHook.ge r (0 : Int))) = some true := by
   intros
   first
   | k2l_eqn_a []

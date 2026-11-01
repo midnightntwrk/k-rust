@@ -2146,6 +2146,36 @@ module INDLEMMA
     terminals{}("1101"),
     total{}()
   ]
+  symbol Lbldw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Code{}(SortCode{}) : SortInt{}
+  [
+    format{}("%cdw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,18,60,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblkw'LParUndsRParUnds'INDLEMMA'Unds'Int'Unds'Stmts{}(SortStmts{}) : SortInt{}
+  [
+    format{}("%ckw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,18,62,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/indlemma/indlemma.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),

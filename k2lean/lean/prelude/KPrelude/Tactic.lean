@@ -631,10 +631,67 @@ elab "k2l_value_facts" : tactic => withMainContext do
   let (_, g') ← g.assertHypotheses hs
   replaceMainGoal [g']
 
+/-- `k2l_value_val` for every value the bind binds. -/
+theorem k2l_value_val_all {α β : Type _} {o : Option α} {f : α → Option β} {c : β}
+    (h : o.bind f = some c) : ∀ v, o = some v → f v = some c :=
+  fun _ hv => k2l_value_val h hv
+
+/-- The functions a goal reaches: the constants of its target and hypotheses, and, through the
+rows (`c.ruleN`) of each generated function among them and its proved equations (`@[k2l_equation]`,
+those of a recursive function, which has no rows), the functions those call. -/
+def k2lReachedFns : TacticM NameSet := withMainContext do
+  let env ← getEnv
+  let mut todo : Array Name := #[]
+  let mut es := #[← instantiateMVars (← getMainTarget)]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do es := es.push (← instantiateMVars d.type)
+  for e in es do todo := todo ++ e.getUsedConstants
+  let mut seen : NameSet := {}
+  while h : todo.size > 0 do
+    let c := todo[todo.size - 1]
+    todo := todo.pop
+    if seen.contains c then continue
+    seen := seen.insert c
+    let mut i := 1
+    while env.contains (c ++ Name.mkSimple s!"rule{i}") do
+      if let some v := (env.find? (c ++ Name.mkSimple s!"rule{i}")).bind (·.value?) then
+        todo := todo ++ v.getUsedConstants
+      i := i + 1
+    for e in equationsOf env c do
+      if let some ci := env.find? e then todo := todo ++ ci.type.getUsedConstants
+  return seen
+
+/-- `k2l_value_all`: for each proved lemma about the value of a function the goal reaches
+(`k2lReachedFns`, `@[k2l_value]`) without premises, `∀ xs, g xs ≠ none` and `∀ xs v, g xs = some v →
+f v = some c`, added as `k2l_vdefN` and `k2l_vvalN`. Where a call of `g` is never cased on itself
+(it is inside the body of a function that has no such lemma, unfolded in a case's hypothesis: `iw(new(_,
+{C})) => 2 +Int mu(C)`), `simp` reads its definedness and bound from these at every occurrence (EQ-23b).
+Fails when the goal reaches no function with such a lemma. -/
+elab "k2l_value_all" : tactic => withMainContext do
+  let env ← getEnv
+  let mut hs : Array Hypothesis := #[]
+  for g in ← k2lReachedFns do
+    for l in valueLemmasOf env g do
+      let c ← mkConstWithFreshMVarLevels l
+      let r? ← observing? <| forallTelescopeReducing (← inferType c) fun xs _ => do
+        for x in xs do
+          if ← isProp (← inferType x) then throwError "a lemma with premises"
+        let pl := mkAppN c xs
+        let pd ← mkAppM ``k2l_value_def #[pl]
+        let pv ← mkAppM ``k2l_value_val_all #[pl]
+        return (← mkForallFVars xs (← inferType pd), ← mkLambdaFVars xs pd,
+          ← mkForallFVars xs (← inferType pv), ← mkLambdaFVars xs pv)
+      let some (td, pd, tv, pv) := r? | continue
+      hs := hs.push { userName := Name.mkSimple s!"k2l_vdef{hs.size}", type := td, value := pd }
+      hs := hs.push { userName := Name.mkSimple s!"k2l_vval{hs.size}", type := tv, value := pv }
+  if hs.isEmpty then throwError "k2l_value_all: the goal reaches no function with a lemma about its value"
+  let (_, g') ← (← getMainGoal).assertHypotheses hs
+  replaceMainGoal [g']
+
 /-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),
 which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
 are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
-macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> (try k2l_value_facts) <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> (try k2l_value_facts) <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
+macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (try k2l_value_all); (k2l_case_call <;> (try k2l_value_facts) <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> (try k2l_value_facts) <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
 
 /-! ### An equation by its own row
 
@@ -1345,6 +1402,7 @@ macro "k2l_int_arith" : tactic => `(tactic| (
 
 /-- The closing steps of `k2l_eqn_ind`, after the cases and the hypotheses. -/
 macro "k2l_eqn_ind_close" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
+  all_goals (try k2l_value_all)
   all_goals (try k2l_eqns_simp)
   all_goals (try simp only [Option.bind] at *)
   all_goals (repeat' (k2l_case_call <;> (try k2l_value_facts) <;> (try k2l_eqns_simp) <;>
