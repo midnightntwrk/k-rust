@@ -1,16 +1,18 @@
 //! The red list, `krs/tests/class-matrix/pending.toml`: the cases known not to conform.
 //!
-//! Each entry is a table keyed by the case's ID, with the `finding` that owns the deviation
-//! (`unassigned` while none does), the observed `deviation` exactly as the harness prints it
-//! ([`super::invariants::signature`]), and optionally the `step` (`S1` to `S6`) whose design
-//! makes the case conform:
+//! Each entry is a table keyed by the case's ID, with the `finding` the deviation belongs to and
+//! the observed `deviation` exactly as the harness prints it ([`super::invariants::signature`]):
 //!
 //! ```toml
 //! ["readable/result/pc/Some(x)"]
-//! finding = "unassigned"
+//! finding = "B3"
 //! deviation = "krs::expand::not-a-declaration @ spelling"
-//! step = "S5"
 //! ```
+//!
+//! The finding is registered in `findings.toml` with its owner (a ticket, or the step `S1` to
+//! `S6` whose design makes its cases conform) and its kind ([`super::findings`]); an entry has no
+//! owner of its own, so it cannot disagree with its finding's. The harness writes a deviation no
+//! entry records with the finding [`UNASSIGNED`], which no finding is: the author names one.
 //!
 //! The rules ([`Pending::judge`]):
 //! - a case that conforms passes;
@@ -48,7 +50,8 @@ use std::fmt;
 
 use toml_edit::DocumentMut;
 
-/// The finding of a deviation that no finding owns yet.
+/// The placeholder finding of a deviation the harness writes out for review: no registered
+/// finding has this name, so an entry that keeps it fails the registry's audit.
 pub const UNASSIGNED: &str = "unassigned";
 
 /// The ID prefix of the entries that record a disagreement among sort judges, not a case.
@@ -96,15 +99,33 @@ pub fn case_of(id: &str) -> Option<&str> {
     )
 }
 
+/// The test a pending key belongs to: `k1`, `k3`, `k6`, `k7`, `twin` or `k8` by its prefix, `k4`
+/// for a [`LATTICE`] entry, `k5` for a broken entry point's (`entry/..`), and `k2` otherwise
+/// ([`FULL`] included).
+#[must_use]
+pub fn test_of(key: &str) -> &'static str {
+    [
+        (KEYS, "k1"),
+        (CLOSURE, "k3"),
+        (NATIVE, "k6"),
+        (RUN, "k7"),
+        (TWIN, "twin"),
+        (ADVICE, "k8"),
+        (LATTICE, "k4"),
+        ("entry/", "k5"),
+    ]
+    .into_iter()
+    .find(|(prefix, _)| key.starts_with(prefix))
+    .map_or("k2", |(_, test)| test)
+}
+
 /// One pending case.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingEntry {
-    /// The finding that owns the deviation, or [`UNASSIGNED`].
+    /// The finding the deviation belongs to, registered in `findings.toml`.
     pub finding: String,
     /// The deviation's signature, exactly as observed.
     pub deviation: String,
-    /// The step (`S1` to `S6`) that makes the case conform, when known.
-    pub step: Option<String>,
 }
 
 /// The parsed red list.
@@ -201,29 +222,20 @@ impl Pending {
                 }
             };
             for (key, _) in table {
-                if !["finding", "deviation", "step"].contains(&key) {
+                if key == "step" {
+                    errors.push(format!(
+                        "{id:?}.step: a step owns a finding, not an entry; it is the finding's \
+                         owner in findings.toml"
+                    ));
+                } else if !["finding", "deviation"].contains(&key) {
                     errors.push(format!("{id:?} has the unknown key {key:?}"));
                 }
             }
             let finding = field("finding", &mut errors);
             let deviation = field("deviation", &mut errors);
-            let step = field("step", &mut errors);
-            if step
-                .as_deref()
-                .is_some_and(|step| !["S1", "S2", "S3", "S4", "S5", "S6"].contains(&step))
-            {
-                errors.push(format!("{id:?}.step is not one of S1 to S6"));
-            }
             match (finding, deviation) {
                 (Some(finding), Some(deviation)) => {
-                    entries.insert(
-                        id.to_owned(),
-                        PendingEntry {
-                            finding,
-                            deviation,
-                            step,
-                        },
-                    );
+                    entries.insert(id.to_owned(), PendingEntry { finding, deviation });
                 }
                 _ => errors.push(format!("{id:?} needs a finding and a deviation")),
             }
@@ -266,7 +278,7 @@ impl Pending {
             .collect()
     }
 
-    /// The red count per finding and per step, for the cases `red` names.
+    /// The red count per finding, for the cases `red` names.
     #[must_use]
     pub fn tally<'a>(&self, red: impl IntoIterator<Item = &'a str>) -> Tally {
         let mut tally = Tally::default();
@@ -275,20 +287,14 @@ impl Pending {
                 continue;
             };
             *tally.by_finding.entry(entry.finding.clone()).or_default() += 1;
-            *tally
-                .by_step
-                .entry(entry.step.clone().unwrap_or_else(|| "no step".to_owned()))
-                .or_default() += 1;
         }
         tally
     }
 }
 
-/// Red counts, which size each finding and step.
+/// Red counts, which size each finding.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Tally {
-    /// Red cases per finding; [`UNASSIGNED`] counts the cases no finding owns yet.
+    /// Red cases per finding.
     pub by_finding: BTreeMap<String, usize>,
-    /// Red cases per step, `no step` for entries without one.
-    pub by_step: BTreeMap<String, usize>,
 }

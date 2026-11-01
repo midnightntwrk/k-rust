@@ -108,6 +108,10 @@ pub struct Judged {
     /// How the twin check's runs of the case ended, by witness
     /// ([`krs_test_support::class_matrix::twin_runs`]), for a case K6 accepted, when K7 runs.
     pub twin_ends: Vec<(&'static str, String)>,
+    /// K7's batch interference ([`Worker::check_interference`]): the case's run deviated beside
+    /// the other cases of its check and conforms alone, and what the neighbours that change it
+    /// write. Its K7 verdict is then the run alone's, and the shard fails.
+    pub interference: Option<String>,
 }
 
 /// How a run judges its accepted cases by K6.
@@ -308,6 +312,7 @@ struct Verdicts {
     native: BTreeMap<String, Native>,
     ran: BTreeMap<String, Ran>,
     twin_ends: BTreeMap<String, Vec<(&'static str, String)>>,
+    interference: BTreeMap<String, String>,
 }
 
 /// Collect `source` alone, as a package in the directory `name` of the scratch, with a target of
@@ -473,6 +478,7 @@ impl Worker<'_> {
             judged.native = verdicts.native.remove(&judged.id);
             judged.ran = verdicts.ran.remove(&judged.id);
             judged.twin_ends = verdicts.twin_ends.remove(&judged.id).unwrap_or_default();
+            judged.interference = verdicts.interference.remove(&judged.id);
         }
     }
 
@@ -560,6 +566,7 @@ impl Worker<'_> {
                 if !together {
                     self.run_apart(collected, all, cases, out);
                 }
+                self.check_interference(collected, all, cases, judged, out);
             }
             (refused, [placed]) => {
                 out.native.insert(placed.case.id.clone(), refused);
@@ -674,6 +681,115 @@ impl Worker<'_> {
                 return;
             }
         }
+    }
+
+    /// K7's batch interference. A case's sentence is meant to change only what its own command
+    /// runs, so its K7 verdict must not depend on the cases it shares a definition with; but a
+    /// neighbour's sentence can change a symbol of the base (a function context on the base's
+    /// `Probe` makes every application of it carry the configuration), and then the verdict
+    /// does. So each case of `cases` whose run deviated beside other cases (the keyed cases run
+    /// together; an unkeyed one runs alone already) is run again on a definition of its own. Where
+    /// it conforms there, the deviation was the batch's: its verdict becomes the run alone's, and
+    /// the neighbours are bisected down to those beside which it still deviates, whose sentences
+    /// the failure names. A deviation the case also shows alone is its own, and stands.
+    fn check_interference<'a>(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'a>],
+        cases: &[&Placed<'a>],
+        judged: &[Judged],
+        out: &mut Verdicts,
+    ) {
+        let keyed = cases
+            .iter()
+            .filter(|placed| !placed.case.unkeyed)
+            .copied()
+            .collect::<Vec<_>>();
+        if keyed.len() < 2 {
+            return;
+        }
+        for placed in &keyed {
+            let Some(Ran::Deviates(batched)) = out.ran.get(&placed.case.id).cloned() else {
+                continue;
+            };
+            let Some(alone @ Ran::Conforms(_)) = self.ran_beside(collected, all, placed, &[])
+            else {
+                continue;
+            };
+            let neighbours = keyed
+                .iter()
+                .filter(|other| other.case.id != placed.case.id)
+                .copied()
+                .collect::<Vec<_>>();
+            let culprits = self.interfering(collected, all, placed, &neighbours);
+            let named = culprits
+                .iter()
+                .map(|culprit| {
+                    let sentences = judged
+                        .iter()
+                        .find(|judged| judged.id == culprit.case.id)
+                        .and_then(|judged| judged.additions.as_ref())
+                        .map_or_else(
+                            || "no sentence known".to_owned(),
+                            |sentences| sentences.join(" | ").replace('\n', " "),
+                        );
+                    format!("`{}` (its sentences: {sentences})", culprit.case.id)
+                })
+                .collect::<Vec<_>>();
+            out.interference.insert(
+                placed.case.id.clone(),
+                format!(
+                    "batch interference: K7 deviates beside {} other cases ({batched}) and conforms alone; it still deviates beside {}",
+                    neighbours.len(),
+                    named.join(", ")
+                ),
+            );
+            out.ran.insert(placed.case.id.clone(), alone);
+        }
+    }
+
+    /// The neighbours of `placed` beside which its run still deviates: `neighbours` halved while
+    /// one half alone makes it deviate, down to one case, or to a set no half of which does.
+    fn interfering<'p, 'a>(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'a>],
+        placed: &Placed<'a>,
+        neighbours: &[&'p Placed<'a>],
+    ) -> Vec<&'p Placed<'a>> {
+        let mut set = neighbours.to_vec();
+        while set.len() > 1 {
+            let (left, right) = set.split_at(set.len() / 2);
+            let deviates = |half| {
+                matches!(
+                    self.ran_beside(collected, all, placed, half),
+                    Some(Ran::Deviates(_))
+                )
+            };
+            if deviates(left) {
+                set = left.to_vec();
+            } else if deviates(right) {
+                set = right.to_vec();
+            } else {
+                break;
+            }
+        }
+        set
+    }
+
+    /// K7's verdict on `placed`, run on the definition of the base, `placed` and `beside`.
+    fn ran_beside<'a>(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'a>],
+        placed: &Placed<'a>,
+        beside: &[&Placed<'a>],
+    ) -> Option<Ran> {
+        let mut set = vec![placed];
+        set.extend_from_slice(beside);
+        let mut out = Verdicts::default();
+        self.run_on(collected, all, &set, &mut out);
+        out.ran.remove(&placed.case.id)
     }
 
     /// Keep the runs of an accepted check of `cases`, and run each case a panic left unrun on a
@@ -1106,6 +1222,7 @@ fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
         native: None,
         ran: None,
         twin_ends: Vec::new(),
+        interference: None,
     }
 }
 

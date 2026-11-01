@@ -17,9 +17,10 @@
 //! and judges the advice of the classes whose refusal advises a rewrite (K8, [`k8`]);
 //! `k5`, which checks one broken header per entry
 //! point ([`mutations`]); and `k4`, which compares KRS's sort judges with
-//! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
-//! and per step, and fails on a case that deviates and is not pending, a pending case that
-//! conforms or deviates differently, and a table error.
+//! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding,
+//! and by kind and owner ([`account`]), and fails on a case that deviates and is not pending, a
+//! pending case that conforms or deviates differently, a table error, and a red the findings
+//! registry does not account for (`class_matrix::findings`).
 //!
 //! A K2 entry of `pending.toml` is keyed by the case's ID, and the fast tier reads the same entry
 //! for a case the front refuses; where the two tiers observe such a case differently, this tier
@@ -67,13 +68,14 @@ use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
 use krs_test_support::class_matrix::advice::{Corpus, Followed, Reading, judge, read};
+use krs_test_support::class_matrix::findings::{FINDINGS_FILE, Findings, Red, Summary, audit};
 use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::pending::{
     ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, TWIN,
-    case_of,
+    case_of, test_of,
 };
 use krs_test_support::class_matrix::table::{
     Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
@@ -92,11 +94,13 @@ const UNCOVERED_IS_A_TABLE_ERROR: bool = true;
 /// `same_k_as` names a case whose K an earlier shard of the run may have just written.
 static RECORDED: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
 
-/// The generated cases and the two files that judge them.
+/// The generated cases, the two files that judge them, and the registry of the red list's
+/// findings.
 struct Spec {
     cases: Vec<Case>,
     table: Table,
     pending: Pending,
+    findings: Findings,
 }
 
 fn spec() -> &'static Spec {
@@ -109,12 +113,77 @@ fn spec() -> &'static Spec {
         .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
         let pending = Pending::parse(&read_class_matrix("pending.toml"))
             .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
+        let findings = Findings::parse(&read_class_matrix(FINDINGS_FILE))
+            .unwrap_or_else(|errors| panic!("{FINDINGS_FILE}: {errors:#?}"));
         Spec {
             cases: class_matrix::cases(),
             table,
             pending,
+            findings,
         }
     })
+}
+
+/// The table's resolution of every generated case, which every shard reads, filtered or not.
+fn resolution() -> &'static Resolution<'static> {
+    static RESOLUTION: OnceLock<Resolution<'static>> = OnceLock::new();
+    RESOLUTION.get_or_init(|| {
+        let spec = spec();
+        spec.table.resolve_cases(&spec.cases, registry_kind)
+    })
+}
+
+/// The kind of the pending entry `key` ([`Red::of`]): its deviation against the table's
+/// expectation of its case.
+fn red_kind(key: &str, deviation: &str) -> Red {
+    let expected = case_of(key).and_then(|case| resolution().expected.get(case));
+    Red::of(key, deviation, expected, registry_kind)
+}
+
+/// The red list's accounting, which every shard checks, filtered or not, since it reads only the
+/// two files: every entry's finding is registered, every registered finding holds an entry, and
+/// every red's kind is one its finding's kind admits ([`audit`]).
+fn registry_failures() -> &'static [String] {
+    static FAILURES: OnceLock<Vec<String>> = OnceLock::new();
+    FAILURES.get_or_init(|| {
+        let spec = spec();
+        audit(&spec.findings, &spec.pending, |key, entry| {
+            red_kind(key, &entry.deviation)
+        })
+        .into_iter()
+        .map(|failure| format!("{FINDINGS_FILE}: {failure}"))
+        .collect()
+    })
+}
+
+/// Account for a shard's reds: fail on the registry's failures, and print and write to the TSV
+/// (`red` and `summary` lines) each red's kind, finding and owner, counted by kind, by owner,
+/// and by kind and finding.
+fn account(name: &str, shard: &mut Shard, red: &[String]) {
+    let spec = spec();
+    shard.failures.extend(registry_failures().iter().cloned());
+    let mut summary = Summary::default();
+    for key in red {
+        let Some(entry) = spec.pending.entries.get(key) else {
+            continue;
+        };
+        let kind = red_kind(key, &entry.deviation);
+        let owner = spec
+            .findings
+            .owner(&entry.finding, key)
+            .map_or_else(|| "unregistered".to_owned(), ToString::to_string);
+        writeln!(
+            shard.lines,
+            "red\t{key}\t{kind}\t{}\t{owner}",
+            entry.finding
+        )
+        .expect("writing to a String cannot fail");
+        summary.add(&spec.findings, key, entry, kind);
+    }
+    for line in summary.lines().lines() {
+        writeln!(shard.lines, "summary\t{line}").expect("writing to a String cannot fail");
+    }
+    eprintln!("[krs-class] {name}: red {}, {summary}", red.len());
 }
 
 fn class_matrix_path(file: &str) -> PathBuf {
@@ -723,8 +792,11 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
 const NO_UNCHECKED: &[&str] = &["attrs", "cells", "import", "readable", "runs"];
 
 /// Fail the shard `name` where its unchecked K8 refusals differ from [`UNCHECKED`]'s, or where it
-/// is pinned neither there nor in [`NO_UNCHECKED`].
-fn check_unchecked(name: &str, shard: &mut Shard) {
+/// is pinned neither there nor in [`NO_UNCHECKED`]. A run that `KRS_CLASS_FILTER` narrows
+/// (`whole` false) sees a subset of the shard's cases, so it cannot tell a count that fell; it
+/// fails where a class turns unchecked that the shard's pin does not list, or where a class's
+/// count exceeds its pin, both of which no superset of the run can undo.
+fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
     if !NO_UNCHECKED.contains(&name) && !UNCHECKED.iter().any(|(pinned, ..)| *pinned == name) {
         shard.failures.push(format!(
             "the shard {name} pins its unchecked K8 refusals neither in UNCHECKED nor in NO_UNCHECKED"
@@ -735,10 +807,23 @@ fn check_unchecked(name: &str, shard: &mut Shard) {
         .filter(|(pinned, ..)| *pinned == name)
         .map(|(_, class, count)| ((*class).to_owned(), *count))
         .collect::<BTreeMap<_, _>>();
-    if shard.unchecked != pinned {
+    if whole {
+        if shard.unchecked != pinned {
+            shard.failures.push(format!(
+                "K8's unchecked refusals by class are {:?}, where UNCHECKED pins {pinned:?}: review the advice no generated case writes, then pin it",
+                shard.unchecked
+            ));
+        }
+        return;
+    }
+    let beyond = shard
+        .unchecked
+        .iter()
+        .filter(|(class, count)| pinned.get(*class).is_none_or(|pin| *count > pin))
+        .collect::<BTreeMap<_, _>>();
+    if !beyond.is_empty() {
         shard.failures.push(format!(
-            "K8's unchecked refusals by class are {:?}, where UNCHECKED pins {pinned:?}: review the advice no generated case writes, then pin it",
-            shard.unchecked
+            "K8's unchecked refusals by class include {beyond:?} in this filtered run, beyond what UNCHECKED pins for the shard {name} ({pinned:?}): review the advice no generated case writes, then pin it"
         ));
     }
 }
@@ -769,27 +854,6 @@ fn advised_by<'r>(resolution: &'r Resolution<'_>) -> BTreeMap<String, BTreeSet<&
         }
     }
     advised
-}
-
-/// The test a pending key belongs to.
-fn test_of(key: &str) -> &'static str {
-    if key.starts_with(KEYS) {
-        "k1"
-    } else if key.starts_with(CLOSURE) {
-        "k3"
-    } else if key.starts_with(NATIVE) {
-        "k6"
-    } else if key.starts_with(RUN) {
-        "k7"
-    } else if key.starts_with(TWIN) {
-        "twin"
-    } else if key.starts_with(ADVICE) {
-        "k8"
-    } else if key.starts_with("entry/") {
-        "k5"
-    } else {
-        "k2"
-    }
 }
 
 /// The cases of `expected`'s `same_k_as` whose K is not `k`: the K this run recorded for them,
@@ -1078,7 +1142,7 @@ fn shard(name: &str, families: &[Family]) {
     let cases = selected(families);
     assert!(!cases.is_empty(), "the shard {name} selects no case");
     let spec = spec();
-    let resolution = spec.table.resolve_cases(&spec.cases, registry_kind);
+    let resolution = resolution();
     let (mut settings, _scratch) = settings();
     settings.refused_by_table = resolution
         .expected
@@ -1103,9 +1167,9 @@ fn shard(name: &str, families: &[Family]) {
     let mut accepted = 0;
     let mut uncovered = 0;
     let mut forms = BTreeMap::new();
-    let (ks, recorded) = accepted_ks(&judged, &by_id, &resolution, recording);
-    let advised = advised_by(&resolution);
-    let corpus = accepted_corpus(&resolution);
+    let (ks, recorded) = accepted_ks(&judged, &by_id, resolution, recording);
+    let advised = advised_by(resolution);
+    let corpus = accepted_corpus(resolution);
     for (judged, k) in judged.iter().zip(ks) {
         let case = by_id[judged.id.as_str()];
         let expected = resolution.expected.get(&judged.id);
@@ -1126,14 +1190,19 @@ fn shard(name: &str, families: &[Family]) {
             ));
         }
         let compared = k.as_deref().filter(|_| !recording);
-        let covered = k2(&mut shard, &resolution, case, judged, compared);
+        let covered = k2(&mut shard, resolution, case, judged, compared);
         uncovered += usize::from(!covered);
         k1(&mut shard, judged);
         let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
         k3(&mut shard, judged, pairs, &mut forms);
         k6(&mut shard, judged);
         k7(&mut shard, judged);
-        k8(&mut shard, &resolution, &advised, &corpus, judged);
+        if let Some(interference) = &judged.interference {
+            shard
+                .failures
+                .push(format!("{}: {interference}", judged.id));
+        }
+        k8(&mut shard, resolution, &advised, &corpus, judged);
     }
     twins(&mut shard, &judged, &by_id);
     if recording {
@@ -1144,10 +1213,9 @@ fn shard(name: &str, families: &[Family]) {
         );
     }
     let whole = variable("KRS_CLASS_FILTER").is_none();
-    if whole {
-        check_unchecked(name, &mut shard);
-    }
+    check_unchecked(name, &mut shard, whole);
     let red = shard.judge(&spec.pending, families, whole);
+    account(name, &mut shard, &red);
     write_out(name, &shard);
 
     for (form, counts) in &forms {
@@ -1160,13 +1228,12 @@ fn shard(name: &str, families: &[Family]) {
         *by_test.entry(test_of(key)).or_default() += 1;
     }
     eprintln!(
-        "[krs-class] {name}: {} cases in {:.1} s; {accepted} accepted, {} refused; red {} (by test {by_test:?}; by finding {:?}; by step {:?}); {uncovered} not covered by the table",
+        "[krs-class] {name}: {} cases in {:.1} s; {accepted} accepted, {} refused; red {} (by test {by_test:?}; by finding {:?}); {uncovered} not covered by the table",
         judged.len(),
         started.elapsed().as_secs_f64(),
         judged.len() - accepted,
         red.len(),
         tally.by_finding,
-        tally.by_step,
     );
     assert!(
         shard.failures.is_empty(),
@@ -1284,22 +1351,23 @@ fn k4() {
 
     let mut shard = Shard::default();
     let red = shard.judge_recorded(&spec.pending, &format!("{LATTICE}class-"), &observed);
+    account("k4", &mut shard, &red);
     if let Some(out) = variable("KRS_CLASS_OUT") {
         let out = PathBuf::from(out);
         std::fs::create_dir_all(&out).expect("the output directory is created");
         std::fs::write(out.join("k4.txt"), &report).expect("the report is written");
+        std::fs::write(out.join("k4.tsv"), &shard.lines).expect("the TSV is written");
         std::fs::write(out.join("k4.pending.toml"), &shard.record)
             .expect("the pending entries are written");
     }
     let tally = spec.pending.tally(red.iter().map(String::as_str));
     eprint!("{report}");
     eprintln!(
-        "[krs-class] k4: {} bases in {:.1} s; red {} (by finding {:?}; by step {:?})",
+        "[krs-class] k4: {} bases in {:.1} s; red {} (by finding {:?})",
         comparisons.len(),
         started.elapsed().as_secs_f64(),
         red.len(),
         tally.by_finding,
-        tally.by_step,
     );
     assert!(
         shard.failures.is_empty(),
@@ -1341,6 +1409,7 @@ fn k5() {
         shard.add("k5", &checked.id, checked.signature(), misses);
     }
     let red = shard.judge(&spec.pending, &[], false);
+    account("k5", &mut shard, &red);
     let judged = checked
         .iter()
         .map(|checked| checked.id.as_str())
@@ -1361,14 +1430,13 @@ fn k5() {
     }
     let tally = spec.pending.tally(red.iter().map(String::as_str));
     eprintln!(
-        "[krs-class] k5: {} entry points in {:.1} s; one diagnostic under krs check {}, one error under cargo check {}; red {} (by finding {:?}; by step {:?})",
+        "[krs-class] k5: {} entry points in {:.1} s; one diagnostic under krs check {}, one error under cargo check {}; red {} (by finding {:?})",
         checked.len(),
         started.elapsed().as_secs_f64(),
         one[0],
         one[1],
         red.len(),
         tally.by_finding,
-        tally.by_step,
     );
     assert!(
         shard.failures.is_empty(),

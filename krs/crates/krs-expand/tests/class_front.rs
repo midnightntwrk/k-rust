@@ -812,9 +812,6 @@ fn front(shard: &[class_matrix::Family]) {
     for (finding, count) in &tally.by_finding {
         writeln!(report, "  red by finding {finding}: {count}").expect("writing to a String");
     }
-    for (step, count) in &tally.by_step {
-        writeln!(report, "  red by step {step}: {count}").expect("writing to a String");
-    }
     eprint!("{report}");
 
     if !failures.is_empty() {

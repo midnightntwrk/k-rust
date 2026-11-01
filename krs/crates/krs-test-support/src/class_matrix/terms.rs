@@ -664,6 +664,11 @@ impl Spelling {
 /// holds an unevaluated application.
 const COMPUTED: &str = "a computed term, which no evaluated term is";
 
+/// Why an application of `Size`, the base's function that no equation defines, has no value: the
+/// reason the `Size(x)` spelling states too, written out there, where the spelling list's layout
+/// keeps it.
+const SIZE_HAS_NO_VALUE: &str = "Size is partial and the base gives it no equation, so the definition names no value of its application";
+
 /// Why a bare binder has no counter-witness: it matches every term where it is the only
 /// occurrence of its name.
 const BINDER: &str = "a binder matches every term where it is the only occurrence of its name";

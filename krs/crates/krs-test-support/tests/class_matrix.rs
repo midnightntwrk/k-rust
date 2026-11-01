@@ -9,6 +9,9 @@ use std::path::Path;
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_test_support::class_matrix::attributes::Written;
+use krs_test_support::class_matrix::findings::{
+    FINDINGS_FILE, FindingKind, Findings, Owner, Red, RedKind, Summary, audit,
+};
 use krs_test_support::class_matrix::invariants::{
     FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, front_stops_at_rustc_parse,
     registry_kind, signature, violations, without_rustc_parse_error,
@@ -21,7 +24,7 @@ use krs_test_support::class_matrix::positions::{
     Construct, Entry, Form, Kind, Notation, Opening, Position, Slot as Part,
 };
 use krs_test_support::class_matrix::table::{
-    self as table, At, Expected, Glob, TERM_ACCEPTS_FILE, Table, TableError,
+    self as table, Accepted, At, Expected, Glob, MistakeClass, TERM_ACCEPTS_FILE, Table, TableError,
 };
 use krs_test_support::class_matrix::{
     self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
@@ -685,6 +688,269 @@ fn the_shipped_table_and_red_list_parse() {
     let mut named = ids.clone();
     named.extend(mutations.iter().map(|mutation| mutation.id.as_str()));
     assert!(pending.stale(&named).is_empty());
+
+    // Every red has a registered owner, and its computed kind is one its finding's kind admits.
+    let findings = Findings::parse(&read_class_matrix(FINDINGS_FILE))
+        .unwrap_or_else(|errors| panic!("{FINDINGS_FILE}: {errors:#?}"));
+    let red = |key: &str, entry: &krs_test_support::class_matrix::pending::PendingEntry| {
+        let expected = case_of(key).and_then(|case| resolution.expected.get(case));
+        Red::of(key, &entry.deviation, expected, registry_kind)
+    };
+    let errors = audit(&findings, &pending, red);
+    assert!(
+        errors.is_empty(),
+        "{FINDINGS_FILE} against pending.toml:\n{}",
+        errors.join("\n")
+    );
+    let mut summary = Summary::default();
+    for (key, entry) in &pending.entries {
+        summary.add(&findings, key, entry, red(key, entry));
+    }
+    eprintln!("pending.toml: {} reds, {summary}", pending.entries.len());
+}
+
+/// A red's kind is computed from its key, its deviation and the table's expectation of its case,
+/// and the internal flag from the codes its deviation names; a finding's kind admits it or not.
+#[test]
+fn the_kind_of_a_red_is_computed_from_its_entry() {
+    let (class, accepted) = expectations();
+    let refuse = Expected::Refuse {
+        name: "wrong-shape",
+        class: &class,
+        at: At::Spelling,
+    };
+    let accept = Expected::Accept(&accepted);
+    let red = |key: &str, deviation: &str, expected: &Expected<'_>| {
+        Red::of(key, deviation, Some(expected), registry_kind)
+    };
+    // The kinds, computed from the key, the deviation and the table's expectation.
+    let internal = INTERNAL;
+    for (key, deviation, expected, kind, is_internal) in [
+        ("terms/a", "accepted", &refuse, RedKind::UnderRefusal, false),
+        (
+            "full/terms/a",
+            "accepted",
+            &refuse,
+            RedKind::UnderRefusal,
+            false,
+        ),
+        (
+            "terms/a",
+            "krs::analysis::invalid-term @ item",
+            &refuse,
+            RedKind::Diagnostic,
+            false,
+        ),
+        ("terms/a", internal, &accept, RedKind::OverRefusal, true),
+        ("terms/a", "accepted", &accept, RedKind::OtherK, false),
+        (
+            "k3/terms/a",
+            "printed surface refused: krs::emit::unsupported-shape @ unlocated",
+            &accept,
+            RedKind::K3,
+            true,
+        ),
+        ("k7/terms/a", "not applied", &accept, RedKind::K7, false),
+        ("k8/terms/a", "advises", &refuse, RedKind::K8, false),
+        (
+            "lattice/class-x/a~b/c",
+            "1 pairs",
+            &accept,
+            RedKind::K4,
+            false,
+        ),
+        ("entry/k::rule", "2 errors", &accept, RedKind::K5, false),
+    ] {
+        assert_eq!(
+            red(key, deviation, expected),
+            Red {
+                kind,
+                internal: is_internal
+            },
+            "{key}: {deviation}"
+        );
+    }
+    let under = red("terms/a", "accepted", &refuse);
+    assert_eq!(under.to_string(), "under-refusal");
+    assert_eq!(
+        red("terms/a", internal, &accept).to_string(),
+        "over-refusal+internal"
+    );
+    assert!(under.admits(FindingKind::Bug) && !under.admits(FindingKind::Generator));
+    assert!(!red("terms/a", internal, &refuse).admits(FindingKind::Diagnostic));
+    assert!(!red("k7/terms/a", "d", &accept).admits(FindingKind::Diagnostic));
+    assert!(red("k7/terms/a", "d", &accept).admits(FindingKind::Generator));
+    assert!(red("k8/terms/a", "d", &refuse).admits(FindingKind::Diagnostic));
+}
+
+/// An internal code, as a deviation names it.
+const INTERNAL: &str = "krs::emit::unsupported-shape @ spelling";
+
+/// A refusal's class and an accept entry, for the table's expectations of a red's case.
+fn expectations() -> (MistakeClass, Accepted) {
+    (
+        MistakeClass {
+            code: "krs::analysis::invalid-term".to_owned(),
+            doc: String::new(),
+            proposed: false,
+            advice: Vec::new(),
+        },
+        Accepted {
+            k: None,
+            same_k_as: Vec::new(),
+        },
+    )
+}
+
+/// A registry of three findings: a bug with an under-refusal's risk and a K3 owner of its own, a
+/// diagnostic, and a kept limit.
+const REGISTRY: &str = r#"
+["A"]
+owner = "NT-28"
+kind = "bug"
+what = "an under-refusal, with its risk"
+risk = "KRS writes K the spelling does not say"
+by_test = { k3 = "NT-30" }
+
+["B"]
+owner = "S5"
+kind = "diagnostic"
+what = "a misplaced site"
+
+["C"]
+owner = "kept: D4"
+kind = "feature"
+what = "a kept limit"
+"#;
+
+/// The registry's audit fails on each way a red loses its owner or hides its kind: an
+/// unregistered finding, a finding with no entry left (and a `by_test` owner with none), an
+/// under-refusal or an internal code under a finding that is not a bug, a red of what KRS ran
+/// under a diagnostic, and an under-refusal with no stated risk.
+#[test]
+fn the_findings_registry_owns_every_red_by_its_kind() {
+    let findings = Findings::parse(REGISTRY).unwrap_or_else(|errors| panic!("{errors:#?}"));
+    let (class, accepted) = expectations();
+    let refuse = Expected::Refuse {
+        name: "wrong-shape",
+        class: &class,
+        at: At::Spelling,
+    };
+    let accept = Expected::Accept(&accepted);
+    let red = |key: &str, deviation: &str, expected: &Expected<'_>| {
+        Red::of(key, deviation, Some(expected), registry_kind)
+    };
+    let internal = INTERNAL;
+    let entry = |finding: &str, deviation: &str| {
+        format!("finding = \"{finding}\"\ndeviation = \"{deviation}\"\n")
+    };
+    let audited = |pending: &str| {
+        let pending = Pending::parse(pending).unwrap_or_else(|errors| panic!("{errors:#?}"));
+        audit(&findings, &pending, |key, entry| {
+            let expected = if key.ends_with("refused") {
+                &refuse
+            } else {
+                &accept
+            };
+            red(key, &entry.deviation, expected)
+        })
+    };
+    // Every finding holds an entry of its kind: no failure.
+    let sound = format!(
+        "[\"terms/refused\"]\n{}\n[\"k3/terms/a\"]\n{}\n[\"terms/b/refused\"]\n{}\n[\"terms/c\"]\n{}",
+        entry("A", "accepted"),
+        entry("A", "printed surface refused"),
+        entry("B", "krs::analysis::invalid-term @ item"),
+        entry("C", "krs::analysis::invalid-term @ spelling"),
+    );
+    assert_eq!(audited(&sound), Vec::<String>::new());
+
+    // Each failure, forced: its message names the fix.
+    let unregistered = format!("{sound}\n[\"terms/d\"]\n{}", entry("D", "accepted"));
+    let stale = format!(
+        "[\"terms/refused\"]\n{}\n[\"terms/b/refused\"]\n{}",
+        entry("A", "accepted"),
+        entry("B", "krs::analysis::invalid-term @ item"),
+    );
+    let internal_diagnostic = format!("{sound}\n[\"terms/e/refused\"]\n{}", entry("B", internal));
+    let ran_diagnostic = format!("{sound}\n[\"k7/terms/e\"]\n{}", entry("B", "not applied"));
+    let under_feature = format!("{sound}\n[\"terms/f/refused\"]\n{}", entry("C", "accepted"));
+    for (pending, fragments) in [
+        (
+            unregistered.as_str(),
+            vec!["terms/d: its finding \"D\" is not in findings.toml"],
+        ),
+        (
+            stale.as_str(),
+            vec![
+                "C: no pending entry is left under it: it is done",
+                "A: by_test gives its k3 entries an owner, but none is left",
+            ],
+        ),
+        (
+            internal_diagnostic.as_str(),
+            vec![
+                "terms/e/refused: a red of kind diagnostic+internal under B, a diagnostic finding",
+            ],
+        ),
+        (
+            ran_diagnostic.as_str(),
+            vec!["k7/terms/e: a red of kind k7 under B, a diagnostic finding"],
+        ),
+        (
+            under_feature.as_str(),
+            vec![
+                "terms/f/refused: a red of kind under-refusal under C, a feature finding",
+                "C holds an under-refusal: state its risk",
+            ],
+        ),
+    ] {
+        let errors = audited(pending);
+        for fragment in fragments {
+            assert!(
+                errors.iter().any(|error| error.contains(fragment)),
+                "{fragment:?} missing from {errors:#?}"
+            );
+        }
+    }
+}
+
+/// The registry's own schema: an entry's owner by its test, sorted names, a known owner, kind and
+/// test, no placeholder.
+#[test]
+fn the_findings_registry_follows_its_schema() {
+    let findings = Findings::parse(REGISTRY).unwrap_or_else(|errors| panic!("{errors:#?}"));
+    assert_eq!(
+        findings.owner("A", "k3/terms/x"),
+        Some(&Owner::Ticket("NT-30".to_owned()))
+    );
+    assert_eq!(
+        findings.owner("A", "terms/x"),
+        Some(&Owner::Ticket("NT-28".to_owned()))
+    );
+    assert_eq!(
+        findings.owner("C", "terms/x"),
+        Some(&Owner::Kept("D4".to_owned()))
+    );
+    let errors = Findings::parse(
+        "[\"b\"]\nowner = \"NT-1\"\nkind = \"bug\"\nwhat = \"w\"\n\n\
+         [\"a\"]\nowner = \"T9\"\nkind = \"cosmetic\"\nwhat = \"w\"\nby_test = { k9 = \"S5\" }\n\n\
+         [\"unassigned\"]\nowner = \"S5\"\nkind = \"bug\"\n",
+    )
+    .expect_err("the registry is broken");
+    for fragment in [
+        "\"a\" follows \"b\": keep the findings sorted by name",
+        "\"T9\" is no owner",
+        "not one of bug, feature, diagnostic, generator",
+        "by_test names \"k9\"",
+        "the placeholder of a deviation no finding owns",
+        "needs an owner, a kind and a what",
+    ] {
+        assert!(
+            errors.iter().any(|error| error.contains(fragment)),
+            "{fragment:?} missing from {errors:#?}"
+        );
+    }
 }
 
 /// A run family's case is judged as its twin, the machine-base case of the same slot and spelling,
@@ -1676,7 +1942,6 @@ fn pending_cases_follow_the_pending_rules() {
 ["readable/result/pc/Some(x)"]
 finding = "unassigned"
 deviation = "E0277 @ item"
-step = "S5"
 
 ["init/k/k::k![]"]
 finding = "F1"
@@ -1727,10 +1992,6 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
         tally.by_finding,
         BTreeMap::from([("F1".to_owned(), 1), (UNASSIGNED.to_owned(), 1)])
     );
-    assert_eq!(
-        tally.by_step,
-        BTreeMap::from([("S5".to_owned(), 1), ("no step".to_owned(), 1)])
-    );
 
     // The full tier's prefixed entries name their case; a lattice entry names none.
     let prefixed = Pending::parse(
@@ -1747,12 +2008,12 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
     );
 
     let errors = Pending::parse(
-        "[\"a\"]\nfinding = \"\"\n\n[\"b\"]\nfinding = \"F\"\ndeviation = \"d\"\nstep = \"S9\"\nnote = 1\n",
+        "[\"a\"]\nfinding = \"\"\n\n[\"b\"]\nfinding = \"F\"\ndeviation = \"d\"\nstep = \"S5\"\nnote = 1\n",
     )
     .expect_err("the entries are broken");
     for fragment in [
         "needs a finding and a deviation",
-        "not one of S1 to S6",
+        "a step owns a finding, not an entry",
         "unknown key \"note\"",
         "not a non-empty string",
     ] {

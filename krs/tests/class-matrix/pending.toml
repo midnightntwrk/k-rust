@@ -1,11 +1,12 @@
 # The class-test cases known not to conform: the red list. Each entry is keyed by the case ID and
-# names the finding that owns the deviation, the deviation exactly as the harness prints it, and the
-# step (S1 to S6) whose design makes the case conform:
+# names the finding the deviation belongs to and the deviation exactly as the harness prints it:
 #
 #    ["readable/result/pc/Some(x)"]
 #    finding = "B3"
 #    deviation = "krs::expand::not-a-declaration @ spelling"
-#    step = "S5"
+#
+# Every finding is registered in findings.toml, with its owner (a ticket, or the step S1 to S6
+# whose design makes its cases conform), its kind and what it is.
 #
 # A pending case that conforms, or deviates differently, fails until this file records it; see
 # `class_matrix::pending`. Keys: a case ID (K2, read by both tiers), `full/ID` (K2 where the full
@@ -20,834 +21,668 @@
 ["lattice/class-imported/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 20 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-imported/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 20 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-initial/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-initial/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-machine/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-machine/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-maincell/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 12 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-maincell/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 12 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-maink/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 12 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-maink/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 12 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-nested/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-nested/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-run/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 16 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-run/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 16 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-terms/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 20 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-terms/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 20 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/class-typed/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
-step = "S4"
 
 ["lattice/class-typed/coverage~k-rust-subsorts/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
-step = "S4"
 
 ["lattice/configuration-sort-chain/catalog~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "13 pairs only catalog holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/configuration-sort-chain/definition-validator~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "13 pairs only definition-validator holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/configuration-sort-chain/overlap~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "13 pairs only overlap holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/configuration-sort-chain/semantic-validator~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "13 pairs only semantic-validator holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/grammar-builtin-subsort/catalog~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "10 pairs only catalog holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/grammar-builtin-subsort/definition-validator~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "10 pairs only definition-validator holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/grammar-builtin-subsort/overlap~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "10 pairs only overlap holds; 0 pairs only coverage holds"
-step = "S4"
 
 ["lattice/grammar-builtin-subsort/semantic-validator~coverage/s-kitem"]
 finding = "S0-8"
 deviation = "10 pairs only semantic-validator holds; 0 pairs only coverage holds"
-step = "S4"
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
 ["cells/result/counter/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells/result/env/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells/result/frame/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells/result/job/k::configuration::Cell(0)"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::Cell([x, y])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::Cell(k::map![x -> y])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::Cell(x)"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::KCell()"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/job/k::configuration::KCell(x)"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells/result/k/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells/result/pc/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells/result/stack/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["claim/result/counter/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/[]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/x"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/counter/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/env/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/env/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/env/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/env/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/env/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["claim/result/frame/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/frame/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/frame/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/frame/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/frame/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["claim/result/frame/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["claim/result/job/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/None"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/[]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/result/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/x"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["claim/result/job/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["claim/result/k/0"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/None"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/[]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/x"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/result/k/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["claim/result/pc/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/pc/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/pc/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/pc/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["claim/result/pc/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["claim/result/pc/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["claim/result/stack/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["claim/result/stack/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["claim/subject/counter/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["claim/subject/counter/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/subject/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/subject/env/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/subject/frame/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/subject/job/0"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["claim/subject/job/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["claim/subject/job/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/subject/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/subject/k/0"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["claim/subject/k/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["claim/subject/k/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/subject/k/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["claim/subject/pc/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["claim/subject/stack/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/result/counter/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/[]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/x"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/counter/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/env/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/env/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/env/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/env/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/env/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable/result/frame/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/frame/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/frame/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/frame/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/frame/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable/result/frame/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable/result/job/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/None"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/[]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/result/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/x"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable/result/job/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable/result/k/0"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/None"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/[]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/x"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/result/k/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable/result/pc/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/pc/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/pc/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/pc/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable/result/pc/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable/result/pc/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable/result/stack/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable/result/stack/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable/subject/counter/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable/subject/counter/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/subject/env/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/frame/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/job/0"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable/subject/job/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable/subject/job/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/subject/k/0"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable/subject/k/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable/subject/k/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/k/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable/subject/pc/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/stack/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
 # NT-3: a readable key beside a name bound nowhere else (`Cmd::Pair { a: HOLE, b: z }`) cannot spell
@@ -856,756 +691,606 @@ step = "S5"
 ["terms/readable/map-key/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/y @ Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/[x, ..]"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/as-body/!(x < 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/\"s\""]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/-(x + 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/-1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/1.5"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Cmd::Go"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Cmd::Go()"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Cmd::Hold(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Cmd::Pair { a: x, .. }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Cmd::Pair { a: x, ..x }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Size(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/Wrap::<KItem>(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/[x, ..]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/_"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::anonymous!(Int, \"_V\")"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::builtin::int::add(1, 2)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::builtin::int::add(x, 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::builtin::set::item(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::bytes!(b\"ab\")"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::id!(\"$x\")"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::is!(Int, x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::lexeme!(Word, \"word\")"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::map![x -> 1]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::or_bool!(true, false)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::project!(Int, x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/k::rewrite!(_ => 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/map![x -> 1]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/true"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x & 1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x && true"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x + 1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x < 1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x << 1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x == 1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x || true"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x.add::<Int>(1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/y @ Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/{ let y = x; y }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/as-body/{ let y @ Cmd::Hold(_) = x; y }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/!(x < 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/\"s\""]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/-(x + 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/-1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/1.5"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Cmd::Go"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Cmd::Go()"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Cmd::Hold(x)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-record-update @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Size(x)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Wrap::<KItem>(x)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/[x, ..]"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/_"]
 finding = "S0-14"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::builtin::int::add(1, 2)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::builtin::int::add(x, 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::builtin::set::item(x)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::bytes!(b\"ab\")"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::id!(\"$x\")"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::lexeme!(Word, \"word\")"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/true"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x & 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x && true"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x + 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x < 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x << 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x == 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x || true"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x.add::<Int>(1)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/y @ Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/as-body/x | 1"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/x | 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/Cmd::Pair { a: x, ..x }"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-record-update @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::is!(Int, x)"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::project!(Int, x)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["terms/readable/map-key/beside-fresh/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/beside-fresh/[x, ..]"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/beside-fresh/_"]
 finding = "S0-14"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/beside-fresh/x | 1"]
 finding = "S0-14"
 deviation = "krs::analysis::function-in-pattern @ spelling"
-step = "S5"
 
 ["terms/readable/map-key/beside-fresh/y @ Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::list::item(x).len()"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::list::item(x)[0]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::list::size(k::builtin::list::item(x))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty().contains_key(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty().update(x, 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty()[x]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::item(x).to_list()"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::list::item(x).len()"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::list::item(x)[0]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::list::size(k::builtin::list::item(x))"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::empty().contains_key(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::empty().update(x, 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::empty()[x]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::get(k::builtin::map::empty(), x)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-expression-notation @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::item(x).to_list()"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::to_list(k::builtin::set::item(x))"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 # NT-6: the collection literals and the calls they denote, at the same openers as NT-5's notation.
 
 ["notation/readable/map-key/as-body/k::builtin::map::empty()"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::empty()"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::item(x)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/map![0 -> 1]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/map![]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/map![x -> 1, ..k::builtin::map::empty()]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/map![x -> 1, 2 -> 3]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/set![]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/set![x, ..k::builtin::set::empty()]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/set![x, 1]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/as-body/set![x]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::empty()"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::empty()"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/map![0 -> 1]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/map![]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/map![x -> 1, ..k::builtin::map::empty()]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/map![x -> 1, 2 -> 3]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/set![]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/set![x, ..k::builtin::set::empty()]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/set![x, 1]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["notation/readable/map-key/or-branch/set![x]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/k::map![x -> 1]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 ["terms/readable/map-key/or-branch/map![x -> 1]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
-step = "S5"
 
 # S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
 
 ["claim/subject/job/[]"]
 finding = "S0-15"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable/subject/job/[]"]
 finding = "S0-15"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
 # The two left: S5 reads `job: [x, ..]` results by declared kind
@@ -1613,12 +1298,10 @@ step = "S5"
 ["claim/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
-step = "S5"
 
 ["readable/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
-step = "S5"
 
 # S0-17: a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses
 # A readable claim's states hold them too since NT-15, and its printed `cells!` claim fn refuses them alike.
@@ -1626,490 +1309,390 @@ step = "S5"
 ["k3/terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/item-root/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/result-item-root/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/claim/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/result-item-root/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/result/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/claim/subject/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/readable/result-list-element/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/readable/result-list-element/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/readable/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/readable/result/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/readable/result-item-root/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/readable/result-item-root/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result-root/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result-root/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/function-argument/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/function-argument/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/!(x < 1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/\"s\""]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/-(x + 1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/-1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/1.5"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/Cmd::Go"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/Cmd::Go()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/Cmd::Hold(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/Size(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::builtin::int::add(1, 2)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::builtin::int::add(x, 1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::builtin::set::item(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::bytes!(b\"ab\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::id!(\"$x\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::is!(Int, x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::lexeme!(Word, \"word\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::project!(Int, x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/true"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x & 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x && true"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x + 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x < 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x << 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x == 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x || true"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x.add::<Int>(1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/\"s\""]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/1.5"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/Cmd::Go"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/Cmd::Go()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/Cmd::Hold(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/Cmd::Pair { a: x, .. }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
-
 
 ["k3/terms/sort-rule/result/let-pattern/_"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
-
 
 ["k3/terms/sort-rule/result/let-pattern/k::builtin::set::item(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/k::bytes!(b\"ab\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/k::id!(\"$x\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/k::lexeme!(Word, \"word\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/true"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-pattern/x"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/\"s\""]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/-1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/1.5"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/Cmd::Go"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/Cmd::Go()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
-
 
 ["k3/terms/sort-rule/result/matches-pattern/k::bytes!(b\"ab\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/k::id!(\"$x\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/k::lexeme!(Word, \"word\")"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/matches-pattern/true"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/update-field/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/update-field/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/x | 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::list::item(x).len()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::list::item(x)[0]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::list::size(k::builtin::list::item(x))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::empty().contains_key(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::empty().update(x, 1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::empty()[x]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::get(k::builtin::map::empty(), x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::item(x).to_list()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::to_list(k::builtin::set::item(x))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 # NT-6: the collection literals and the calls they denote, printed in a `for Stmt` result's `let` or
 # `k::matches!`.
@@ -2117,244 +1700,196 @@ step = "S6"
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::item(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/map![0 -> 1]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/map![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/map![x -> 1, ..k::builtin::map::empty()]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/map![x -> 1, 2 -> 3]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/set![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/set![x, ..k::builtin::set::empty()]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/set![x, 1]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/set![x]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/k::builtin::map::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/k::builtin::set::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/k::builtin::set::item(x)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/map![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/set![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/set![x]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/matches-pattern/k::builtin::map::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/matches-pattern/k::builtin::set::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/matches-pattern/map![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/notation/sort-rule/result/matches-pattern/set![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/k::map![x -> 1]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/map![x -> 1]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 # B1: an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation
 
 ["init/counter/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/counter/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/counter/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/env/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/env/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/env/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/frame/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/frame/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/frame/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/job/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/job/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/job/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/k/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/k/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/k/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/pc/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/pc/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/pc/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/stack/[0]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/stack/[]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 ["init/stack/[pgm]"]
 finding = "B1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-step = "S5"
 
 # B2: an initializer value of the wrong kind or sort is rustc E0308 at the entry's value (its inferred wrapper is spanned there), not a KRS error
 # The value's kind (a cell wrapper, map notation, presence, a group or instance record, a leaf
@@ -2371,372 +1906,298 @@ step = "S5"
 ["init/counter/0"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::builtin::map::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::map![0 -> 1]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::map![pgm -> 1, 0 -> 2]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/list::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/counter/pgm"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/k::absent!(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/env/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/0"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::absent!(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::builtin::map::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::map![0 -> 1]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::map![pgm -> 1, 0 -> 2]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/list::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/frame/pgm"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/0"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::absent!(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::builtin::map::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::map![0 -> 1]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::map![pgm -> 1, 0 -> 2]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/list::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/job/pgm"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/0"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/k::absent!(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/k::builtin::map::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/k::map![0 -> 1]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/k::map![pgm -> 1, 0 -> 2]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/list::empty()"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/k/pgm"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/k::absent!(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/pc/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/k::absent!(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 ["init/stack/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S5"
 
 # B3: `Some(..)`/`None` in a readable result on a cell that is not optional is `krs::expand::not-a-declaration` at the spelling (rustc resolves it to `Option`'s variant), not the presence rule
 # `Some(..)`/`None` written as a result entry is presence, decided against the cell's declared kind
@@ -2746,126 +2207,102 @@ step = "S5"
 ["claim/result/env/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/env/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/frame/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/frame/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/pc/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/pc/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/stack/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["claim/result/stack/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/env/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/env/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/frame/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/frame/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/pc/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/pc/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/stack/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable/result/stack/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 # B7: a bare entry on a `*` collection is accepted with a one-instance meaning
 
 ["claim/subject/job/x"]
 finding = "B7"
 deviation = "accepted"
-step = "S5"
 
 ["k3/claim/subject/job/x"]
 finding = "B7"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
-step = "S5"
 
 ["k3/readable/subject/job/x"]
 finding = "B7"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
-step = "S5"
 
 ["readable/subject/job/x"]
 finding = "B7"
 deviation = "accepted"
-step = "S5"
 
 # B8: an optional cell's pattern accepts a leaf spelling (`counter: x`, `Cell(0)`) as present
 
 ["claim/subject/counter/0"]
 finding = "B8"
 deviation = "accepted"
-step = "S5"
 
 ["claim/subject/counter/x"]
 finding = "B8"
 deviation = "accepted"
-step = "S5"
 
 ["readable/subject/counter/0"]
 finding = "B8"
 deviation = "accepted"
-step = "S5"
 
 ["readable/subject/counter/x"]
 finding = "B8"
 deviation = "accepted"
-step = "S5"
 
 # NT-2-4: an open record in a built term or a `cells!` value is admitted and fails in lowering with an internal descriptor message
 # `Ctor { f: e, .. }` leaves the unlisted fields open, which only a pattern can: a result or a
@@ -3005,7 +2442,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["terms/simplification/guard/Cmd::Pair { a: x, .. }"]
 finding = "NT-2-4"
 deviation = "krs::analysis::invalid-term @ spelling"
-
 
 # NT-2-6: a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class
 # Where a pattern is parsed below a subject's root (a `let` or `k::matches!` pattern, a rewrite's
@@ -5561,7 +4997,6 @@ finding = "NT-6-1"
 deviation = "krs::analysis::invalid-constant @ spelling"
 
 
-
 # K8 (NT-13): the attribute axis's cases (`attrs/..`) and the advice check's verdicts (`k8/..`),
 # grouped by finding. A `k8/` entry of a case whose K2
 # entry is pending above belongs to that entry's finding (the refusal it reads is that finding's).
@@ -5572,7 +5007,6 @@ deviation = "krs::analysis::invalid-constant @ spelling"
 ["k8/terms/rule/guard/closure-body/Cmd::Pair { a: x, .. }"]
 finding = "NT-2-4"
 deviation = "open-record-outside-pattern advises none, and its refusal advises `int::eq`"
-
 
 # NT-2-14 (K8): the advice check on cases pending above under NT-2-14, whose refusal it reads.
 
@@ -5592,7 +5026,6 @@ deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::c
 finding = "NT-2-14"
 deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
 
-
 # NT-2-27 (K8): the advice check on cases pending above under NT-2-27, whose refusal it reads.
 
 ["k8/terms/context-alias/item-root/k::builtin::int::add(x, 1)"]
@@ -5602,7 +5035,6 @@ deviation = "binder-sort's refusal advises `#[k::simplification]`, which cells/s
 ["k8/terms/context-alias/subject/k::builtin::int::add(x, 1)"]
 finding = "NT-2-27"
 deviation = "binder-sort's refusal advises `#[k::simplification]`, which cells/subject/pc/k::configuration::Cell(x) does not write (attrs/simplification/#[k::requires(k::is!(Int, x))] does)"
-
 
 # NT-3-1 (K8): the advice check on cases pending above under NT-3-1, whose refusal it reads.
 
@@ -5654,7 +5086,6 @@ deviation = "refused where the table accepts, advising `bool::or_else(..)`"
 finding = "NT-3-1"
 deviation = "refused where the table accepts, advising `int::add(..)`"
 
-
 # NT-5-1 (K8): the advice check on cases pending above under NT-5-1, whose refusal it reads.
 
 ["k8/notation/rule/subject/or-branch/k::builtin::list::item(x)[0]"]
@@ -5668,7 +5099,6 @@ deviation = "alternatives-bind-unequally advises none, and its refusal advises `
 ["k8/notation/rule/subject/or-branch/k::builtin::map::empty()[x]"]
 finding = "NT-5-1"
 deviation = "alternatives-bind-unequally advises none, and its refusal advises `a.bit_or::<Int>(b)`"
-
 
 
 # NT-13-1 (K8): a key a claim's `#[k::claim(..)]` does not take (`owise`, `heat`, `concrete`, an
@@ -5806,7 +5236,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-
 # NT-13-2 (K8): a label is refused on an equation, a simplification, a table row
 # (`#[k::equation(label = ..)]`, `#[k::simplification(label = ..)]`: unknown argument), a function
 # shorthand's one equation (`#[k::function(.., label = ..)]`: unknown argument) and a
@@ -5834,7 +5263,6 @@ deviation = "krs::syntax::unknown-argument @ spelling"
 ["attrs/table/label = \"named-TAG\""]
 finding = "NT-13-2"
 deviation = "krs::syntax::unknown-argument @ spelling"
-
 
 # NT-13-3 (K8): a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]`, a
 # documented boundary (docs-site boundaries.mdx:66, "local rewrites": "with no `#[k::exists]`,
@@ -5877,7 +5305,6 @@ deviation = "krs::syntax::invalid-local-rewrite @ item"
 finding = "NT-13-3"
 deviation = "krs::syntax::invalid-local-rewrite @ item"
 
-
 # NT-13-4 (K8): `anywhere` on a single-body rule is a documented boundary (boundaries.mdx:66:
 # "a transition (not an anywhere rule)"), but its error lies outside the attribute (at the
 # rewrite); and on a `for Sort` clause, a term-shaped transition, `anywhere` is refused advising
@@ -5893,7 +5320,6 @@ deviation = "krs::syntax::invalid-local-rewrite @ item"
 ["attrs/sort-rule/anywhere"]
 finding = "NT-13-4"
 deviation = "krs::syntax::invalid-rule-key @ spelling"
-
 
 # NT-13-5 (K8): a placement mistake answered under another mistake's code: a context's
 # `#[k::ensures]`/`#[k::exists]` under `krs::syntax::invalid-local-rewrite` ("a context takes no
@@ -5917,7 +5343,6 @@ deviation = "krs::syntax::invalid-local-rewrite @ spelling"
 ["attrs/context/#[k::exists(n: Int)]"]
 finding = "NT-13-5"
 deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
 
 # NT-13-6 (K8): a helper (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]`) on a
 # `#[k::constant]` is passed through to its own macro, whose "expected `fn`" is reported as
@@ -5948,7 +5373,6 @@ deviation = "krs::syntax::rust-syntax @ item"
 finding = "NT-13-6"
 deviation = "krs::syntax::rust-syntax @ item"
 
-
 # NT-13-8 (K8, advice): a function shorthand's `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` and
 # `#[k::priority]` are refused advising "write the struct and `#[k::equation]` fns instead", a
 # form that is refused for the same helper (`existential-outside-step`, `fresh-outside-step`,
@@ -5974,7 +5398,6 @@ deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equ
 ["k8/attrs/shorthand/#[k::priority(20)]"]
 finding = "NT-13-8"
 deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equation]`"
-
 
 # NT-13-9 (K8, advice): the retired `#[k::priority(N)]` is refused advising
 # "write `#[k::equation(priority = N)]`" on every sentence (krs-syntax attribute/sort.rs, the
@@ -6040,7 +5463,6 @@ deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`
 finding = "NT-13-9"
 deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/sort-rule/priority = 20 does not write (attrs/equation/priority = 20 does)"
 
-
 # NT-13-10 (K8, advice): a `#[k::requires]`, `#[k::ensures]` or `#[k::exists]` on a
 # `#[k::context_alias]` is refused as an orphan helper advising "place `#[k::rule]` before it"
 # (krs-expand expand/rules.rs, the orphan helper's message): a context alias names the
@@ -6067,7 +5489,6 @@ deviation = "helper-on-context-alias advises none, and its refusal advises `#[k:
 ["k8/attrs/context-alias/#[k::requires(k::is!(Word, x))]"]
 finding = "NT-13-10"
 deviation = "helper-on-context-alias advises none, and its refusal advises `#[k::rule]`"
-
 
 # NT-13-11 (K2): a sentence key on a static clause's, an initializer's or a constant's marker
 # (`#[k::alias(owise)]`, `#[k::desugar(label = ..)]`, `#[k::init(priority = 20)]`,
@@ -6333,7 +5754,6 @@ deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
 finding = "NT-13-11"
 deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
 
-
 # NT-13-12 (K2): a key that means something on other sentences (an order, a restriction,
 # `anywhere`, `recursive`, `result`) is refused as `krs::syntax::unknown-argument` on a context, a
 # context alias, an equation or a simplification, where a rule's and a static clause's markers
@@ -6481,7 +5901,6 @@ deviation = "krs::syntax::unknown-argument @ spelling"
 finding = "NT-13-12"
 deviation = "krs::syntax::unknown-argument @ spelling"
 
-
 # NT-13-13 (K2): two `#[k::requires]` on one sentence (a rule fn, a readable clause, an
 # equation) are refused ("unsupported rule signature: a rule may declare only one
 # `#[k::requires(...)]` condition"); two conditions on one sentence state that it applies where
@@ -6500,7 +5919,6 @@ deviation = "krs::syntax::unsupported-rule-signature @ spelling"
 finding = "NT-13-13"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
 
-
 # NT-13-14 (K2, K8): a `#[k::requires]` written before its rule fn's `#[k::rule]` is refused
 # as an orphan helper advising "place `#[k::rule]` before it", where the same condition before an
 # `#[k::equation]` (and `#[k::exists]`, `#[k::ensures]`, `#[k::fresh]` before a `#[k::rule]`, as
@@ -6514,7 +5932,6 @@ deviation = "krs::expand::orphan-helper @ spelling"
 ["k8/attrs/rule/requires before the marker"]
 finding = "NT-13-14"
 deviation = "refused where the table accepts, advising `#[k::rule]`"
-
 
 # NT-13-15 (K2, K8): `concrete(x)` on an equation and a table row is refused ("restricts only some
 # binders with `concrete(..)`: K requires a function's equations to be bare `concrete` when one of
@@ -6539,7 +5956,6 @@ deviation = "refused where the table accepts, advising `concrete`"
 finding = "NT-13-15"
 deviation = "refused where the table accepts, advising `concrete`"
 
-
 # NT-13-16 (K3): a `k::rules!` clause or a `k::equations!` row under `#[cfg(any())]`, a
 # configuration that does not hold, is accepted and left out of the definition (K7: the sentence
 # does not apply), but `krs expand` of the package fails with the internal
@@ -6559,7 +5975,6 @@ deviation = "printed surface refused: krs expand: krs::reference::rule-coverage 
 ["k3/attrs/table/cfg that does not hold"]
 finding = "NT-13-16"
 deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
-
 
 # S0-9 (K8): the advice check on cases pending above under S0-9, whose refusal it reads.
 
@@ -6594,7 +6009,6 @@ deviation = "collection-without-instances advises none, and its refusal advises 
 ["k8/cells/result/job/k::configuration::KCell(x)"]
 finding = "S0-9"
 deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
 
 # S0-14 (K8): the advice check on cases pending above under S0-14, whose refusal it reads.
 
@@ -6658,7 +6072,6 @@ deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplif
 finding = "S0-14"
 deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (terms/alias/result/x || true does)"
 
-
 # NT-19: the run families (`readable-run/..`, `cells-run/..`), the readable records and `cells!` rules
 # on the run base, which K7 runs. A twin of a pending machine-base case deviates exactly as its twin
 # does (checked when these entries were made), under its twin's finding and step.
@@ -6666,77 +6079,62 @@ deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplif
 ["cells-run/result/counter/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells-run/result/env/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells-run/result/frame/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::Cell(0)"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::Cell([x, y])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::Cell(k::map![x -> y])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::Cell(x)"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::KCell()"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/job/k::configuration::KCell(x)"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
-step = "S5"
 
 ["cells-run/result/k/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells-run/result/pc/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["cells-run/result/stack/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
 
 ["k3/readable-run/subject/job/x"]
 finding = "B7"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
-step = "S5"
 
 ["k8/cells-run/result/job/k::configuration::Cell(0)"]
 finding = "S0-9"
@@ -6773,382 +6171,306 @@ deviation = "collection-without-instances advises none, and its refusal advises 
 ["readable-run/result/counter/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/[]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/x"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/counter/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/env/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/env/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/env/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/env/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/env/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/env/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/env/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/frame/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable-run/result/job/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/None"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/[]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
-step = "S5"
 
 ["readable-run/result/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/x"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-step = "S5"
 
 ["readable-run/result/job/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable-run/result/k/0"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/None"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/[]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/x"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/result/k/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/[..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/[Job { payload: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/[x, ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/pc/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable-run/result/stack/None"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/stack/Some(x)"]
 finding = "B3"
 deviation = "krs::expand::not-a-declaration @ spelling"
-step = "S5"
 
 ["readable-run/result/stack/{ .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
-step = "S5"
 
 ["readable-run/result/stack/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S5"
 
 ["readable-run/subject/counter/0"]
 finding = "B8"
 deviation = "accepted"
-step = "S5"
 
 ["readable-run/subject/counter/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable-run/subject/counter/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/subject/counter/x"]
 finding = "B8"
 deviation = "accepted"
-step = "S5"
 
 ["readable-run/subject/env/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/frame/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/job/0"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable-run/subject/job/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable-run/subject/job/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/job/[]"]
 finding = "S0-15"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/subject/job/x"]
 finding = "B7"
 deviation = "accepted"
-step = "S5"
 
 ["readable-run/subject/k/0"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable-run/subject/k/Frame { ret: x }"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
-step = "S5"
 
 ["readable-run/subject/k/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/k/_"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["readable-run/subject/pc/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 ["readable-run/subject/stack/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-step = "S5"
 
 # NT-19-1 (K2): one mistake, two codes. An anonymous `..` in a map literal names no map, the class
 # `anonymous-rest-in-map-literal` (`krs::syntax::invalid-expression-notation`, as a readable record
@@ -7183,22 +6505,6 @@ deviation = "advice of anonymous-rest-in-map-literal: refused: krs::syntax::rust
 finding = "NT-19-2"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-
-# NT-24-1 (K7, the printed state): K7 reads the printed `<k>` head back with the main module's
-# grammar, which reads `word` as an `Id` wherever it stands (and as `#LowerId` at a `Word`
-# position: the scanner picks one token whatever the parse expects); the program grammar, which
-# `krs run` reads a program with, has no `Id` here and reads `word` as the `Word` it is, so the
-# printer reverses the clause (NT-24: a clause whose subject token a program does not read back is
-# not reversed). The print reads back as a program; the check's grammar is the question.
-
-["k7/terms/alias/subject-written/k::lexeme!(Word, \"word\")"]
-finding = "NT-24-1"
-deviation = "<k> head printed `cade81b66(ak, word)`, which reads back as cmdCade81b66(1, word), where the state holds Cmd::Hold(1)"
-
-["k7/terms/alias/subject/k::lexeme!(Word, \"word\")"]
-finding = "NT-24-1"
-deviation = "<k> head printed `cced49ed0(ak, word)`, which reads back as cmdCced49ed0(1, word), where the state holds Cmd::Hold(1)"
-
 # NT-16 review S4: the update of a computed record that `record-update-base` now advises, a `let`
 # that destructures it, deviates where the term family's other `let` spellings do, under their
 # findings; the advice itself deviates on the context form (NT-16-4: a context has no result slot,
@@ -7212,7 +6518,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["terms/readable/map-key/as-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
-step = "S5"
 
 ["terms/readable/map-key/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-3-2"
@@ -7273,42 +6578,34 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["k3/terms/readable/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/readable/result-list-element/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/readable/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/function-argument/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/let-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/update-field/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k3/terms/sort-rule/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
-step = "S6"
 
 ["k8/terms/context/guard/Cmd::Pair { a: x, ..x }"]
 finding = "NT-16-4"
@@ -7331,19 +6628,3 @@ deviation = "record-update-in-pattern advises none, and its refusal advises `{ l
 ["terms/context-alias/map-key/k::project!(Int, x)"]
 finding = "NT-18-1"
 deviation = "krs::expand::missing-provenance-key @ spelling"
-
-# NT-18-3 (K7): the `function-argument` opener writes a looked-up key as `Size(HOLE)`, and the
-# generator states `Size(v)` as a value, the application left as written (`terms::drivers`
-# `meaning`). With a projection in the hole the key is a fresh name its condition equates with the
-# application after the projection's guard (NT-18's second rulings: the projection is evaluated
-# only once `isInt(x)` held), so the run decides `K ==K size(1)` for each entry: `Size` is partial
-# and has no equation, so `size(1)` has no value, and native-rust leaves the condition undecided
-# ("indeterminate") where the lookup form matched the unevaluated `size(1)` as written. By the
-# meaning a key whose application has no value looks nothing up; the generator's convention that
-# an unevaluated application is a value is what differs. Proposal: state the opener's value in a
-# looked-up key as undefined where the hole is guarded, or give the opener a function the base
-# defines. Probe: `terms/readable/map-key/function-argument/k::project!(Int, x)`.
-
-["k7/terms/readable/map-key/function-argument/k::project!(Int, x)"]
-finding = "NT-18-3"
-deviation = "not applied: 2 of 3 steps, then indeterminate; k = k[Cmd::Ccb0d83a1(1, 0)]"

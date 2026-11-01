@@ -189,11 +189,21 @@ the descriptors of the base and its own. A case is judged by
   the right thing: a rule that never applies, a program that cannot be expanded and a built term
   with another value all look accepted to K1 to K6.
 
+  *Batch interference*: a case's sentence changes only what its own command runs, so its verdict
+  must not depend on the cases it shares a definition with. A case whose run deviates beside others
+  is run again alone; where it conforms there, its verdict is the run alone's and the shard fails
+  with `batch interference`, naming the neighbours (bisected) beside which it still deviates and
+  their sentences: one that changes a symbol of the base, as an equation's function context on
+  `Probe` does, makes its slot `.alone()`.
+
   *The printed state is the state* (NT-23): K7 reads values structurally, so it also reads a
   conforming run's state back as `krs run` prints it: the computation cell's first item and every
-  other leaf cell, each printed, parsed with the definition's grammar at the cell's sort with its
-  aliases expanded again, must be the term the state holds, value for value, tokens by their text
-  (`printed_reads_back`). The printer is the one the case has alone, the base's aliases and its
+  other leaf cell, each printed, read back as a program reads it, with the program grammar at the
+  cell's sort (a `<k>` item's, the sort it is injected from) with its aliases expanded again, must
+  be the term the state holds, value for value, tokens by their text (`printed_reads_back`). The
+  main module's grammar, which holds every token sort, reads `word` as an `Id` wherever it stands,
+  where the program grammar reads the `Word` the print means (NT-24-1); it reads only what the
+  program grammar has no syntax for (a builtin collection, a `K` sequence). The printer is the one the case has alone, the base's aliases and its
   own, so a verdict does not depend on the batch (`KRS_CLASS_NATIVE=alone` gives the same). A print
   with a KAST fallback is not read back, nor one that does not parse where the term printed without
   reversal does not parse either (the grammar has no syntax for part of it, `$x`). The terms base
@@ -522,7 +532,20 @@ creating its `[accept."ID"]` entry if needed, and keeps `same_k_as`. Review the 
 ## Pending entries
 
 A case that deviates fails the suite until `pending.toml` records it, keyed by the test and the case
-(`readable/result/pc/None` for K2, `k1/..`, `k3/..`, `k6/..`, `k7/..` and `k8/..` for K1, K3, K6, K7 and K8), with the finding that owns it (`unassigned` while none does) and the
+(`readable/result/pc/None` for K2, `k1/..`, `k3/..`, `k6/..`, `k7/..` and `k8/..` for K1, K3, K6, K7 and K8), with its finding and the
 deviation exactly as the harness prints it. `KRS_CLASS_OUT` writes the entries of every unrecorded
-deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review. A pending case that
+deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review: name the finding. A pending case that
 conforms, or deviates differently, also fails: remove its entry, or record the new deviation.
+
+Every finding is registered in `findings.toml` (`class_matrix::findings`), one table per finding,
+sorted: its `owner` (a ticket `NT-n`, a step `S1` to `S6`, or `kept: REF` for a limit a decision
+keeps; `by_test` gives one test's entries another owner), its `kind` (`bug`, `feature`,
+`diagnostic` or `generator`), one line of `what`, and on a finding that holds an under-refusal a
+`risk`: what the K KRS writes means. A step owns findings, not entries, so an entry has no `step`.
+Every shard, filtered or not, and `cargo test -p krs-test-support --test class_matrix` fail where
+an entry names an unregistered finding, a registered finding has no entry left (remove it: it is
+done), or a red's computed kind is not one its finding's kind admits: an under-refusal (accepted,
+where the table refuses) or a red whose deviation names an internal code only under a `bug`, an
+over-refusal, other K, or a K1, K3, K4, K6, K7 or twin red never under a `diagnostic`. Each shard
+prints its reds by kind, by owner, and by kind and finding, and its TSV carries a `red` line per
+red (key, kind, finding, owner) and a `summary` line per kind and finding.

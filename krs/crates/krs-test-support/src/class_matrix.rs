@@ -85,6 +85,7 @@ mod cells;
 mod config_drivers;
 pub use config_drivers::{Extent, Part, Reading};
 pub mod entry_points;
+pub mod findings;
 pub mod invariants;
 pub mod k7;
 mod machine;

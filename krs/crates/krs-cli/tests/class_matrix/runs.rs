@@ -105,10 +105,9 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
 }
 
 /// Whether the state, as `krs run` prints it, is the state: the computation cell's first item and
-/// every other leaf cell's content, each printed and read back with the definition's grammar
-/// (which expands its aliases again, [`Semantics::parse_k_head`], [`Semantics::parse_cell`]),
-/// must be the term the state holds, value for value. `None` when each is; otherwise the first
-/// deviation.
+/// every other leaf cell's content, each printed and read back as a program reads it
+/// ([`read_back`], which expands its aliases again), must be the term the state holds, value for
+/// value. `None` when each is; otherwise the first deviation.
 ///
 /// The printer is the one the case prints with alone ([`case_printer`]), so that a verdict does
 /// not depend on the batch. A print with a warning (a symbol printed as KAST) is not read back,
@@ -176,10 +175,7 @@ fn printed_reads_back(
             continue;
         }
         let name = cell.trim_start_matches('<').trim_end_matches('>');
-        let mut read_back = |text: &str| match &sort {
-            None => semantics.parse_k_head(text),
-            Some(sort) => semantics.parse_cell(name, sort, text),
-        };
+        let mut read_back = |text: &str| read_back(semantics, name, sort.as_deref(), content, text);
         let read = match read_back(&printed.text) {
             Ok(read) => read,
             // Where the term printed as the state holds it does not parse either, the grammar
@@ -212,6 +208,48 @@ fn printed_reads_back(
         }
     }
     None
+}
+
+/// Read `text`, the print of `content` in the cell `cell` (`k` for the computation cell's first
+/// item, whose `sort` is `None`), back as a program reads it: with the program grammar, which
+/// `krs run` reads a program with, at the content's sort (a `<k>` item's is the sort it is injected
+/// from), its aliases and desugars expanded ([`Semantics::parse`]). The main module's grammar is
+/// not the reader: it holds every token sort of the definition, so its scanner reads `word` as an
+/// `Id` wherever it stands, also where the program grammar reads the `Word` the print means, and an
+/// alias whose subject holds that `Word` reads back as another term. Where the program grammar has
+/// no syntax for the sort or the text (a builtin collection, a `K` sequence), the main module's
+/// grammar, which has it, reads it ([`Semantics::parse_k_head`], [`Semantics::parse_cell`]).
+fn read_back(
+    semantics: &mut Semantics,
+    cell: &str,
+    sort: Option<&str>,
+    content: &Pattern,
+    text: &str,
+) -> Result<Pattern, krs_exec::ExecError> {
+    let at = sort.map(str::to_owned).or_else(|| injected_sort(content));
+    if let Some(at) = &at {
+        let input = ProgramInput {
+            name: format!("the printed <{cell}>"),
+            text: text.to_owned(),
+        };
+        if let Ok(term) = semantics.parse(Some(at), &input) {
+            return Ok(term.kore().clone());
+        }
+    }
+    match sort {
+        None => semantics.parse_k_head(text),
+        Some(sort) => semantics.parse_cell(cell, sort, text),
+    }
+}
+
+/// The K sort a `KItem` is injected from (`inj{SortStmt{}, SortKItem{}}(..)` is a `Stmt`).
+fn injected_sort(item: &Pattern) -> Option<String> {
+    match item {
+        Pattern::Application { symbol, .. } if symbol.name == "inj" => {
+            symbol.sort_parameters.first().and_then(k_sort)
+        }
+        _ => None,
+    }
 }
 
 /// `ground` with every token's sort left out: a token prints as its text alone, so where two

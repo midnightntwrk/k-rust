@@ -1,0 +1,293 @@
+# The findings of the red list: every `finding` that `pending.toml` names, who owns it, and what kind
+# of fix it needs. The harness reads this file (`class_matrix::findings`); one table per finding,
+# sorted by name:
+#
+#    ["NT-2-7"]
+#    owner = "NT-28"
+#    kind = "bug"
+#    what = "one line saying what is wrong"
+#    by_test = { k3 = "NT-30" }
+#
+# - `owner`: a ticket (`NT-28`), a step (`S1` to `S6`), or `kept: REF`, a limit kept by the decision
+#   REF. A step is a finding's owner, never an entry's: `pending.toml` has no `step`.
+# - `kind`: `bug` (KRS does what the language does not mean), `feature` (the table admits what KRS
+#   does not do yet), `diagnostic` (the refusal is right, its code, site or advice is not) or
+#   `generator` (the test's own data or harness is wrong).
+# - `by_test`: the owners of the finding's entries of one test (`k2`, `k3`, `k7`, `k8`, ..), where
+#   another than `owner` owns them.
+# - `risk`: required on a finding that holds an under-refusal (the table refuses, KRS accepts), and
+#   only there: what the K KRS writes means, and how it differs from what the spelling says.
+#
+# It fails (`class_matrix::findings::audit`) where a pending entry names a finding this file does
+# not have, a finding (or a `by_test` owner) has no pending entry left (it is done: remove it), or
+# a red's kind (`class_matrix::findings::Red`) is not one the finding's kind may hold: an
+# under-refusal or a red with an internal code only under a `bug`, a red of what KRS wrote or ran
+# (an over-refusal, other K, K1, K3, K4, K6, K7, the twin check) never under a `diagnostic`.
+
+["B1"]
+owner = "S5"
+kind = "bug"
+what = "an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation"
+
+["B2"]
+owner = "S5"
+kind = "diagnostic"
+what = "an initializer value of the wrong kind or sort is rustc's E0308 at the entry's value, not a KRS error"
+
+["B3"]
+owner = "S5"
+kind = "diagnostic"
+what = "`Some(..)`/`None` in a readable result on a cell that is not optional is `krs::expand::not-a-declaration` at the spelling, not the presence rule"
+
+["B7"]
+owner = "S5"
+kind = "bug"
+what = "a bare entry on a `*` collection (`job: x`) is accepted with an undocumented one-instance meaning (decision D4: refuse it with the instance-list hint)"
+risk = "KRS writes `X:JobCell`, one instance, for the entry the reference reads as an instance list: what the rule matches over a collection of no or several instances is not what `job: x` says, and nothing tells the author"
+
+["B8"]
+owner = "S5"
+kind = "bug"
+what = "an optional cell's pattern accepts a leaf spelling (`counter: x`, `counter: 0`) as present (decision D5: require `Some(..)`/`None`)"
+risk = "KRS writes the presence pattern `<counter> X </counter>`, which `Some(x)` says: `counter: x` reads as \"whatever the counter holds\", but the rule never applies to an absent counter, silently"
+
+["NT-13-1"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a key or value a claim's `#[k::claim(..)]` does not take is `rust-syntax`, where the other markers answer `unknown-argument`, `invalid-argument-value` or `invalid-rule-key` at the key"
+
+["NT-13-10"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a helper on a `#[k::context_alias]` is refused as an orphan helper advising a `#[k::rule]` before it, which makes it mean nothing there either"
+
+["NT-13-11"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a sentence key on a static clause's, an initializer's or a constant's marker is `unexpected-attribute-payload`, where the same mistake on another marker answers its own class"
+
+["NT-13-12"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a key that means something on other sentences is `unknown-argument` on a context, a context alias, an equation or a simplification, where the rule markers answer `invalid-rule-key`"
+
+["NT-13-13"]
+owner = "NT-34"
+kind = "feature"
+what = "two `#[k::requires]` on one sentence are refused, where they state their conjunction"
+
+["NT-13-14"]
+owner = "NT-34"
+kind = "feature"
+what = "a `#[k::requires]` before its rule fn's `#[k::rule]` is refused as an orphan helper, where the attributes of one item state one sentence whatever their order"
+
+["NT-13-15"]
+owner = "NT-34"
+kind = "feature"
+what = "`concrete(x)` on an equation and a table row is refused, advising bare `concrete`, where the reference lists `concrete(x, ..)` as an equation key"
+
+["NT-13-16"]
+owner = "NT-30"
+kind = "bug"
+what = "a `k::rules!` clause or `k::equations!` row under a `cfg` that does not hold is accepted, but `krs expand` fails with the internal `krs::reference::rule-coverage`"
+
+["NT-13-2"]
+owner = "NT-34"
+kind = "feature"
+what = "a label is refused on an equation, a simplification, a table row, a function shorthand and a `k::claims!` clause, where other sentences take one"
+
+["NT-13-3"]
+owner = "NT-33"
+kind = "feature"
+what = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]` (a documented boundary the oracle does not share), and the error lies outside the attribute"
+
+["NT-13-4"]
+owner = "NT-33"
+kind = "feature"
+what = "`anywhere` on a single-body rule or a `for Sort` clause is refused outside the attribute, or advising a form the clause already is"
+
+["NT-13-5"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a placement mistake answered under another mistake's code (a context's `#[k::ensures]` as `invalid-local-rewrite`, a readable claim's `#[k::fresh]` as `unsupported-rule-signature`)"
+
+["NT-13-6"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a helper on a `#[k::constant]` is `rust-syntax` (\"expected `fn`\") at the whole item, outside the attribute"
+
+["NT-13-8"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "a function shorthand's `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` and `#[k::priority]` are refused advising a form that is refused for the same helper"
+
+["NT-13-9"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "the retired `#[k::priority(N)]` is refused advising `#[k::equation(priority = N)]` on every sentence, whatever its marker"
+
+["NT-16-4"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "`record-update-base` advises, on a context, a `let` at the context's result, a slot a context does not have, so no generated case writes it"
+
+["NT-18-1"]
+owner = "NT-28"
+kind = "bug"
+what = "a sort projection in a context alias's map key reaches expansion's internal `krs::expand::missing-provenance-key`"
+
+["NT-19-1"]
+owner = "NT-33"
+kind = "diagnostic"
+what = "an anonymous `..` in a map literal answers `invalid-state-macro` in a `cells!` result that builds a Set instance's map, `invalid-expression-notation` elsewhere"
+
+["NT-19-2"]
+owner = "NT-34"
+kind = "feature"
+what = "a readable record cannot read a Set instance's map cell with its other entries open (`m: { 1 -> 2, .. }`)"
+
+["NT-2-13"]
+owner = "NT-28"
+kind = "bug"
+what = "a `cells!` or context subject's alias whose binder is declared at the position's sort reaches the IR validator's internal `#as` sort error"
+
+["NT-2-14"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "a static clause whose body rustc cannot parse leaves its production's marker orphaned"
+
+["NT-2-15"]
+owner = "NT-30"
+kind = "bug"
+what = "`krs expand` panics on a readable map read whose value is `_`"
+
+["NT-2-16"]
+owner = "NT-30"
+kind = "bug"
+what = "`krs expand` prints a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block so that the re-check refuses it"
+
+["NT-2-17"]
+owner = "NT-28"
+kind = "bug"
+what = "a context alias's subject reports the internal `missing-provenance-key` for islands, alternatives, an alias and a turbofish"
+
+["NT-2-18"]
+owner = "NT-28"
+kind = "bug"
+what = "a negative literal at some roots and in a `let` pattern is refused with a stale anchor"
+
+["NT-2-19"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "a turbofish in a constant is refused, though it applies a constructor to ground terms"
+
+["NT-2-21"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "a readable map read whose value is `true` reaches rustc (E0308)"
+
+["NT-2-22"]
+owner = "NT-28"
+kind = "bug"
+what = "a record update's base in a rewrite's right side reaches the collector's internal `provenance-mismatch`"
+
+["NT-2-24"]
+owner = "NT-28"
+kind = "bug"
+what = "an alias over a parametric constructor in a subject is an internal descriptor error"
+
+["NT-2-25"]
+owner = "NT-32"
+kind = "diagnostic"
+what = "a name mistake is reported before a placement mistake"
+
+["NT-2-26"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "a constant's whole value that rustc cannot parse gets no KRS answer"
+
+["NT-2-27"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "a context alias's binder that an operand sorts more narrowly is the IR validator's error, not its class"
+
+["NT-2-28"]
+owner = "NT-28"
+kind = "bug"
+what = "alternatives in a context's subject reach the IR validator's internal `#Or` restriction"
+
+["NT-2-4"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "an open record in a built term or a `cells!` value is refused by the IR validator, not at the construct (`open-record-outside-pattern`)"
+
+["NT-2-6"]
+owner = "NT-32"
+kind = "diagnostic"
+what = "a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class"
+
+["NT-2-7"]
+owner = "NT-28"
+kind = "bug"
+what = "`_` where no production field gives it a sort is the descriptor validator's message; `krs expand` prints `_` at an item root so that the re-check refuses it"
+by_test = { k3 = "NT-30" }
+
+["NT-3-1"]
+owner = "NT-31"
+kind = "feature"
+what = "a set's element in a pattern refuses what a key admits: computed constructs and notation"
+
+["NT-3-2"]
+owner = "NT-31"
+kind = "feature"
+what = "a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up"
+
+["NT-5-1"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "alternatives one of which is an index or a collection method are read as the operator `|`"
+
+["NT-5-2"]
+owner = "NT-28"
+kind = "bug"
+what = "a simplification rooted at a collection's function fails the semantic theory's validation (internal), unlocated, for a false reason"
+
+["NT-5-3"]
+owner = "NT-28"
+kind = "diagnostic"
+what = "a context alias's computation item gives a projected collection read no sort"
+
+["NT-6-1"]
+owner = "NT-28"
+kind = "bug"
+what = "a constant refuses the empty map and set, which are values"
+
+["S0-14"]
+owner = "S5"
+kind = "bug"
+what = "a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys"
+
+["S0-15"]
+owner = "S5"
+kind = "bug"
+what = "`job: []`, a List collection with no instance, is refused in a subject, though the reference documents it"
+
+["S0-16"]
+owner = "S5"
+kind = "diagnostic"
+what = "an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)"
+
+["S0-17"]
+owner = "S6"
+kind = "bug"
+what = "a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses"
+
+["S0-8"]
+owner = "S4"
+kind = "bug"
+what = "the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges the other judges have"
+
+["S0-9"]
+owner = "S5"
+kind = "diagnostic"
+what = "one cell-entry mistake answers with the code of whichever layer meets it first"
