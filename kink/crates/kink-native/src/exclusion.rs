@@ -64,8 +64,9 @@
 //!   unevaluated as a defined value everywhere else (the constant fold, the load, every proof
 //!   route; compat "Implementation-chosen hook values", pinned by the kink-native test
 //!   `the_passages_the_census_leaves_to_the_run_list_are_pinned`), so a run whose list is empty
-//!   read no class value and decision 1's census need not read the classes (`#read`, class
-//!   `read-count`, takes no value without a console and is on `unsupportedHooks` instead). A run
+//!   read no class value and decision 1's census need not read the classes (`#read`, no k-rust
+//!   class since GAP A1 and on the list by kink's own choice until GK-1/GK-2, takes no value
+//!   without a console and is on `unsupportedHooks` instead). A run
 //!   with an empty list still rests on k-rust's stated readings of the values it does compute:
 //!   since the census no longer refuses Float arithmetic, a kill through `+Float`, `-Float`,
 //!   `*Float` or `/Float` on symbolic operands rests on roundTiesToEven and one NaN per format
@@ -205,9 +206,10 @@ pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion
 /// classifies the application from the hook, its arguments and the computed value, notes it on
 /// the run's list in an execution (the initial state's normalization included) and withholds it
 /// everywhere else, leaving the application unevaluated as a defined value (the constant fold,
-/// the load, proof routes, `ground_defined`, kink's feasibility checks). `read-count` is the one
-/// class not withheld: `#read` needs a console, which kink's requests do not attach, so a run that
-/// needs its value lists it on `unsupportedHooks` (with a console it is marked in every mode). So
+/// the load, proof routes, `ground_defined`, kink's feasibility checks). `IO.read` is no k-rust
+/// class since GAP A1 (the count a `#read` returns is the file's, by k-rust's console contract);
+/// the list keeps it by kink's own choice until GK-1/GK-2: `#read` needs a console, which kink's
+/// requests do not attach, so a run that needs its value lists it on `unsupportedHooks`. So
 /// the census ([`census_hook`]) reads none of them, and the initial-state check
 /// ([`state_references_implementation_chosen`]) reads only `IO.read`, as it reads the other
 /// console operations: without a console `#read` takes no value and notes no mark, so the
@@ -711,7 +713,8 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 /// `execution_only`) or because k-rust has no evaluator for them (its inventory class
 /// `unsupported`, its `NOT_EVALUATED` list, or a namespace it does not evaluate), less those with
 /// a k-rust `chosen_value` class ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`], judged by the run's
-/// lists: `IO.read`, a console operation of class `read-count`, is on that list).
+/// lists: `IO.read`, a console operation k-rust classed `read-count` before GAP A1, is on that
+/// list, by kink's own choice until GK-1/GK-2).
 ///
 /// Why the census need not read them: such a hook takes no value in a run kink requests. An
 /// application of one on constructor-like arguments whose value the run needs is on the run's

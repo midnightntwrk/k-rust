@@ -3733,10 +3733,10 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
 /// - R3-ADMIT-FLOAT fix round 1: the census refuses the `t12probe.k` rows before any run, so
 ///   they exercise no canonicalization; `census_free_float_spelling_routes_are_not_killed` runs
 ///   F6, F8, F9, F11, F12 and V5b on census-free rows of `floatzero.k`.
-/// - every `t12probe.k` row: its own rules apply `String2Bytes` (rule `b1s`), whose encoding the
-///   definition leaves open and k-rust evaluates with no run-level record, so the census excludes
-///   every run on it and the baseline is refused (`implementation-chosen-hook`) before any mutant
-///   runs. (Its `+Float` and `/Float` are k-rust classes, judged per run since kink27
+/// - every `t12probe.k` row: its own rules apply `String2Bytes` (rule `b1s`), which the census
+///   reads by kink's own choice until GK-1/GK-2 (k-rust's AM-1 states its encoding since GAP A1),
+///   so the census excludes every run on it and the baseline is refused
+///   (`implementation-chosen-hook`) before any mutant runs. (Its `+Float` and `/Float` are k-rust classes, judged per run since kink27
 ///   R3-CENSUS-RUNLEVEL.)
 ///
 /// Every row is measured before the first assertion, so failing-first logs contain the complete

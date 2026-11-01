@@ -12,9 +12,10 @@
 // conversion's pick) through no open value but its own class, the control a nonzero value as before.
 // `i2f` converts to binary32 (`float-rounding` where the format does not hold N, or N is 0) and `rt`
 // takes a square root (`float-rounding` where it is not exact, `outside-domain` for a negative
-// radicand). K1's other classes (`hex-case`, `byte-encoding`, `curve`, ECDSA's `outside-domain`)
-// have no rule here: their hooks are still on the census (until kink27 GK-1), which would exclude
-// this definition as a whole.
+// radicand). The hooks of K1's other classes have no rule here: `hex-case`, `byte-encoding` and
+// `curve` are no k-rust classes since GAP A1 (AM-1 to AM-3 determine their values), ECDSA's
+// `outside-domain` is, and all of these hooks are still on the census (until kink27 GK-1), which
+// would exclude this definition as a whole.
 module CLASSES-SYNTAX
   imports BASIC-K
   imports INT-SYNTAX
