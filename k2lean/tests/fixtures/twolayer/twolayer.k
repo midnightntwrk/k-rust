@@ -112,4 +112,41 @@ module TWOLAYER
   rule noDup(.List) => true
   rule noDup(ListItem(X) L) => notBool (X in L) andBool noDup(L)
   rule wf(<T> TS:TasksCell <procs> _ </procs> <vals> _ </vals> </T>) => noDup(mclaims(TS))
+  // The work left, the measure of every run's length (`gen --measure measure@T`), in two maps: each
+  // task weighs what its <k> still has to do, and each suspended process the steps its code left
+  // takes when resumed (`mu`: one per statement, a loop's body as often as it runs, and one more for
+  // the loop's own end). A resume moves a process's code from <procs> into the task and a yield
+  // moves the rest back, so every rule lowers the total, by the cells it rewrites alone.
+  syntax Int ::= measure(TCell) [function, total]
+               | work(TasksCell) [function, total]
+               | pwork(Map) [function, total]
+               | sw(KItem) [function, total]
+               | kw(K) [function, total]
+               | iw(Instr) [function, total]
+               | pw(Pgm) [function, total]
+               | mu(Stmts) [function, total]
+  rule measure(<T> TS:TasksCell <procs> PS </procs> _ </T>) => work(TS) +Int pwork(PS)
+  rule work(<tasks> .Bag </tasks>) => 0
+  rule work(<tasks> <task> <tid> _ </tid> <n> _ </n> <reg> _ </reg> <k> K </k> </task> Ts </tasks>)
+    => kw(K) +Int work(<tasks> Ts </tasks>)
+  rule pwork(.Map) => 0
+  rule pwork((_ |-> V) PS) => sw(V) +Int pwork(PS)
+  rule sw(st(_, _, C)) => mu(C)
+  rule sw(_) => 0 [owise]
+  rule kw(I:Instr) => iw(I)
+  rule kw(P:Pgm) => pw(P)
+  rule kw(seg(_, _, C)) => 2 +Int mu(C)
+  rule kw(_) => 1 [owise]
+  rule iw(new(_, { C })) => 2 +Int mu(C)
+  rule iw(resume(_, _, _)) => 3
+  rule pw(.Pgm) => 2
+  rule pw(I & P) => iw(I) +Int 1 +Int pw(P)
+  rule mu(.Stmts) => 0
+  rule mu(add(_) ; C) => 1 +Int mu(C)
+  rule mu(dbl ; C) => 1 +Int mu(C)
+  rule mu(yield ; C) => 1 +Int mu(C)
+  rule mu(loop(M, { B }) ; C) => 1 +Int maxInt(M, 0) *Int (mu(B) +Int 1) +Int mu(C)
+  rule mu(app(A, B)) => mu(A) +Int mu(B) [simplification]
+  rule mu(_C) >=Int 0 => true [simplification]
+  rule pw(_P) >=Int 0 => true [simplification]
 endmodule

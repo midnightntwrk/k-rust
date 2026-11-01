@@ -23,14 +23,17 @@ measure over a cell map is a fold whose equations read a binding's key twice (a 
 element under its own id), so on a Lean map that binds an element under another key, which no run
 builds but a rule's instance ranges over, it has no value (`MeasureSum`).
 
-`k2l_measure [unfold] [lemmas] [sums]` proves one rule's obligation, `Step.Rel.r (Lower μ)`:
+`k2l_measure [unfold] [lemmas] [sums] [weights]` proves one rule's obligation, `Step.Rel.r (Lower μ)`:
 - it unfolds `Lower`, the measure and the functions it calls by their proved equations (`unfold`);
 - it reads each sum over a map by its generated `iff` (`sums`, `Measure.F_eq`: defined exactly on a
-  well-formed map whose bindings pass the fold's test with defined weights, and then `sumOf`), splits
+  well-formed map whose bindings pass the fold's test with defined weights, and then `sumOf`), the
+  measure's value taken apart into each fold's where it combines several (`F(M) +Int G(N)`), splits
   each map the rule matches or builds as `M₁ M₂` into its operands (the sum, the bindings'
   definedness, the well-formedness), and bounds each sum left over a map (the rest the rule leaves)
-  below by `0`, its weight being nonnegative wherever it is defined (`k2l_measure_weight`: the weight
-  unfolded to its rules' matches, split, each value bounded by the lemmas) (`k2l_measure_sum`);
+  below by `0`, its weight being nonnegative wherever it is defined (`weights`, `Measure.F_g_nonneg`,
+  stated once by `gen` and proved by `k2l_measure_weight`: the weight unfolded to its rules' matches,
+  split, the calls of functions with rule matchers unfolded and split in turn, each value left
+  bounded by the lemmas) (`k2l_measure_sum`);
 - it adds what the author's lemmas say at each call whose value the context knows: a lemma is a K
   simplification rule, stated by `gen` as `Option.bind (f xs) k = rhs` (`mu(app(A, B)) =>
   mu(A) +Int mu(B)`, `mu(C) >=Int 0 => true`), and where `f as = some v` (a rule's premise, or a case
@@ -38,10 +41,11 @@ builds but a rule's instance ranges over, it has no value (`MeasureSum`).
   says the call has a value), which closes the case (`k2l_measure_facts`);
 - it cases on each call the goal's values still bind (`k2l_case_call`), adding the lemmas' facts in
   each case;
-- then arithmetic (`k2l_measure_arith`): the hooks in Lean's arithmetic (`k2l_arith`), then
-  `k2l_int_arith` (each `if` split, the sign of each product whose factors are bounded, then
-  `k2l_int_omega`, then `grind`, which normalizes the products a measure over repetition has,
-  `max(M, 0) * (μ(B) + 1)`).
+- then arithmetic (`k2l_measure_arith`): the hooks in Lean's arithmetic (`k2l_arith`), the values
+  known by an equation substituted, then `k2l_int_arith` (each `if` split, the sign of each product
+  whose factors are bounded, then `k2l_int_omega`, then `grind`, which normalizes the products a
+  measure over repetition has, `max(M, 0) * (μ(B) + 1)`); where that fails, the calls of functions
+  with rule matchers left in the hypotheses unfolded and split (`k2l_measure_calls`), and again.
 -/
 
 namespace KPrelude.Measure
@@ -263,10 +267,12 @@ elab "k2l_measure_cells" : tactic => KPrelude.K2LPreserve.casesCells
 /-- `k2l_measure_arith`: the obligation's arithmetic once the measure's values are known: the hooks
 in Lean's arithmetic (`k2l_arith`, with `maxInt` and `minInt` by `IntHook.max_eq` and `min_eq`),
 then `k2l_int_arith` (each `if` split, the sign of each product of nonnegative factors,
-`k2l_int_omega`, `grind`), on the obligation or on each of its two parts. -/
+`k2l_int_omega`, `grind`), on the obligation or on each of its two parts. A call's value known by an equation (`v = e`, from the
+author's lemma at the call) is substituted first, so that the `if`s of `e` are the goal's. -/
 macro "k2l_measure_arith" : tactic => `(tactic| (
   (try simp only [k2l_arith, IntHook.max_eq, IntHook.min_eq, decide_eq_true_eq, Option.some.injEq,
     exists_and_left, exists_eq_left', exists_eq', and_true, true_and] at *)
+  (try subst_vars)
   first
   | k2l_int_arith
   | (refine ⟨?_, ?_⟩ <;> k2l_int_arith)))
@@ -295,17 +301,56 @@ def weightFuns (ty : Expr) : MetaM (Array Name) := do
     out := out ++ (← K2LPreserve.withRules c)
   return out
 
+/-- In each goal, the K functions with rule matchers (`withRules`: not recursive) that a hypothesis
+not in `base` applies, unfolded to their rules' matches and those split (`splitHypMatches`); true
+when a goal had one. -/
+def unfoldCalls (base : Array FVarId) : TacticM Bool := do
+  let env ← getEnv
+  let mut any := false
+  let mut out : Array MVarId := #[]
+  for g in ← getGoals do
+    if ← g.isAssigned then continue
+    -- each hypothesis not in `base` with the functions it applies
+    let hs ← g.withContext do
+      let mut hs : Array (FVarId × Array Name) := #[]
+      for d in ← getLCtx do
+        if d.isImplementationDetail || base.contains d.fvarId then continue
+        let acc ← IO.mkRef (#[] : Array Name)
+        (← instantiateMVars d.type).forEach fun e => do
+          let .const c _ := e.getAppFn | return
+          unless (← acc.get).contains c do
+            if env.contains (c ++ `rule1) then acc.modify (·.push c)
+        let fs ← acc.get
+        unless fs.isEmpty do hs := hs.push (d.fvarId, fs)
+      return hs
+    setGoals [g]
+    unless hs.isEmpty do
+      any := true
+      let mut g := g
+      for (h, fs) in hs do
+        for c in fs do
+          for u in ← K2LPreserve.withRules c do
+            g ← (try unfoldLocalDecl g h u catch _ => pure g)
+      setGoals [g]
+      K2LPreserve.splitHypMatches fun d => !base.contains d.fvarId
+    out := out ++ (← getGoals).toArray
+  setGoals out.toList
+  return any
+
 /-- `k2l_measure_weight [unfold] [lemmas]`: a weight is nonnegative wherever it is defined,
 `∀ k v a, g k v = some a → 0 ≤ a`: the weight unfolded (`unfold`: its definition and the
 projections it reads), the K functions it applies unfolded to their rules' matches and those split
 (`splitHypMatches`, the cases that cannot hold refuted), then in each case the value is a rule's
-right-hand side, bounded by the author's lemmas at the calls it makes and arithmetic. -/
+right-hand side. A call that right-hand side makes to a function with rule matchers (not recursive:
+`kw(I:Instr) => iw(I)`) is unfolded and split the same way, a few rounds, so what is left is calls
+of recursive functions, bounded by the author's lemmas, and arithmetic. -/
 syntax (name := measureWeight) "k2l_measure_weight" " [" ident,* "]" " [" ident,* "]" : tactic
 
 @[tactic measureWeight] def evalMeasureWeight : Tactic := fun stx => do
   let us : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
   let ls : Array Ident := stx[5].getSepArgs.map (⟨·⟩)
   let hw := mkIdent `k2l_w
+  let base ← (← getMainGoal).withContext do return (← getLCtx).getFVarIds
   evalTactic (← `(tactic| intro _ _ _ $hw:ident))
   let usA ← us.mapM (fun i => (simpArgOf i : TacticM _))
   evalTactic (← `(tactic| try simp only [$[$usA],*] at $hw:ident))
@@ -316,7 +361,12 @@ syntax (name := measureWeight) "k2l_measure_weight" " [" ident,* "]" " [" ident,
   unless fs.isEmpty do
     let ids := fs.map mkIdent
     evalTactic (← `(tactic| unfold $[$ids]* at $hw:ident))
-  K2LPreserve.splitHypMatches fun _ => true
+  -- one hypothesis split per goal and round: a weight's rules nest their matches (a K sequence,
+  -- an injection, a constructor, a call), so more rounds than the default
+  K2LPreserve.splitHypMatches (fun _ => true) (rounds := 12)
+  -- the calls the cases make to functions with rule matchers, unfolded and split in turn
+  for _ in [0:3] do
+    unless ← unfoldCalls base do break
   evalTactic (← `(tactic| all_goals (try subst_vars)))
   evalTactic (← `(tactic| all_goals (try simp only [Option.some.injEq, reduceCtorEq] at *)))
   evalTactic (← `(tactic| all_goals (try subst_vars)))
@@ -333,25 +383,46 @@ def sumAtoms (e : Expr) : MetaM (Array (Expr × Expr)) := do
       unless (← acc.get).contains x do acc.modify (·.push x)
   acc.get
 
-/-- `k2l_measure_sum [sums] [unfold] [lemmas]`: the sums over a map in a rule's obligation (a
+/-- The lemma of `ws` that bounds the weight `w`: its statement `∀ k v a, g k v = some a → 0 ≤ a`
+with `g` the weight itself. -/
+def weightLemma (ws : Array Ident) (w : Expr) : TacticM (Option Name) := do
+  for i in ws do
+    let n ← realizeGlobalConstNoOverload i
+    let some c := (← getEnv).find? n | continue
+    let ok ← (← getMainGoal).withContext do withNewMCtxDepth do
+      -- the telescope takes the implication's hypothesis last: `g k v = some a`
+      let (xs, _, _) ← forallMetaTelescope c.type
+      let some h := xs.back? | return false
+      let some (_, l, _) := (← instantiateMVars (← inferType h)).eq? | return false
+      unless l.getAppNumArgs ≥ 2 do return false
+      isDefEq l.appFn!.appFn! w
+    if ok then return some n
+  return none
+
+/-- `k2l_measure_sum [sums] [unfold] [lemmas] [weights]`: the sums over a map in a rule's obligation (a
 measure that adds a weight per binding, `MeasureSum`). Each fold's call is read by its generated
 `iff` (`sums`: defined exactly where the map is well formed and every binding matches with a defined
 weight, and then `sumOf g m`), so the source's definedness gives every binding's and the target's
 is what is left to show. Each map the rule matches or builds as `M₁ M₂` (`concat M₁ M₂ = some M`)
 splits its sum, its bindings' definedness and well-formedness into the operands', down to the
 elements the rule writes and the rest it leaves; and each sum left over a map (the rest) is
-nonnegative, its weight being so (`k2l_measure_weight`). -/
-syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" " [" ident,* "]" : tactic
+nonnegative, its weight being so: by the lemma of `weights` (`∀ k v a, g k v = some a → 0 ≤ a`)
+whose weight is the sum's, else by `k2l_measure_weight` there. -/
+syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" " [" ident,* "]"
+  " [" ident,* "]" : tactic
 
 @[tactic measureSum] def evalMeasureSum : Tactic := fun stx => do
   let ss : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
   let us : Array Ident := stx[5].getSepArgs.map (⟨·⟩)
   let ls : Array Ident := stx[8].getSepArgs.map (⟨·⟩)
+  let ws : Array Ident := stx[11].getSepArgs.map (⟨·⟩)
   if ss.isEmpty then return
   evalTactic (← `(tactic| try subst_vars))
   let ssA ← ss.mapM (fun i => (simpArgOf i : TacticM _))
-  -- the folds' calls read as sums, the source's definedness taken apart
-  evalTactic (← `(tactic| try simp only [$[$ssA],*, Option.isSome_iff_exists, exists_and_left,
+  -- the folds' calls read as sums, the source's definedness taken apart (a measure that combines
+  -- several folds, `F(M) +Int G(N)`, binds their calls: each is defined, with its own value)
+  evalTactic (← `(tactic| try simp only [$[$ssA],*, Option.isSome_iff_exists, Option.bind_eq_some_iff,
+    Option.some.injEq, exists_and_left,
     exists_and_right, exists_eq_left, exists_eq_right, exists_eq', exists_eq_left', and_assoc] at *))
   K2LPreserve.splitAnds
   -- the maps the rule matches and builds, named, split into their operands
@@ -397,14 +468,18 @@ syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" 
     let hn ← match weights.find? (·.1 == w) with
       | some (_, n) => pure (some n)
       | none =>
-        let n := Name.mkSimple s!"k2l_wn{weights.size}"
-        let ok ← K2LPreserve.tryRec (do
-          let wt ← (← getMainGoal).withContext (Term.exprToSyntax w)
-          evalTactic (← `(tactic| have $(mkIdent n):ident : ∀ k v a, $wt k v = some a → 0 ≤ a := by
-            k2l_measure_weight [$[$us],*] [$[$ls],*]))
-          pure true) (pure false)
-        weights := weights.push (w, n)
-        pure (if ok then some n else none)
+        if let some l ← weightLemma ws w then
+          weights := weights.push (w, l)
+          pure (some l)
+        else
+          let n := Name.mkSimple s!"k2l_wn{weights.size}"
+          let ok ← K2LPreserve.tryRec (do
+            let wt ← (← getMainGoal).withContext (Term.exprToSyntax w)
+            evalTactic (← `(tactic| have $(mkIdent n):ident : ∀ k v a, $wt k v = some a → 0 ≤ a := by
+              k2l_measure_weight [$[$us],*] [$[$ls],*]))
+            pure true) (pure false)
+          weights := weights.push (w, n)
+          pure (if ok then some n else none)
     let some hn := hn | continue
     let mt ← (← getMainGoal).withContext (Term.exprToSyntax m)
     K2LPreserve.tryRec (evalTactic (← `(tactic|
@@ -413,19 +488,42 @@ syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" 
   evalTactic (← `(tactic| try and_intros))
   evalTactic (← `(tactic| all_goals (try assumption)))
 
-/-- `k2l_measure [unfold] [lemmas]`: one rule's obligation `Step.Rel.r (Lower μ)` (module doc). -/
-macro "k2l_measure" " [" us:ident,* "]" " [" ls:ident,* "]" " [" ss:ident,* "]" : tactic =>
+/-- `k2l_measure_calls`: each value `h : f x = some v` of a call to a function with rule matchers
+(not recursive: `iw(I)` at a variable instruction), unfolded to its rules' matches and those split
+(`unfoldCalls`), so that the value is a rule's right-hand side; fails when there is none. -/
+elab "k2l_measure_calls" : tactic => do
+  let g ← getMainGoal
+  let env ← getEnv
+  let base ← g.withContext do
+    let mut base : Array FVarId := #[]
+    for d in ← getLCtx do
+      let call := match (← instantiateMVars d.type).eq? with
+        | some (_, l, r) =>
+          r.isAppOfArity ``Option.some 2 && (match l.getAppFn with
+            | .const c _ => env.contains (c ++ `rule1)
+            | _ => false)
+        | none => false
+      unless call do base := base.push d.fvarId
+    return base
+  unless ← unfoldCalls base do throwError "k2l_measure_calls: no call to unfold"
+
+/-- `k2l_measure [unfold] [lemmas] [sums] [weights]`: one rule's obligation `Step.Rel.r (Lower μ)` (module doc). -/
+macro "k2l_measure" " [" us:ident,* "]" " [" ls:ident,* "]" " [" ss:ident,* "]"
+    " [" ws:ident,* "]" : tactic =>
   `(tactic| (
     repeat intro
     k2l_measure_cells
     all_goals (try simp only [KPrelude.Measure.Lower] at *)
     (try k2l_measure_norm [$us,*])
-    all_goals k2l_measure_sum [$ss,*] [$us,*] [$ls,*]
+    all_goals k2l_measure_sum [$ss,*] [$us,*] [$ls,*] [$ws,*]
     all_goals (try k2l_measure_norm [$us,*])
     all_goals k2l_measure_facts [$ls,*]
     all_goals (try k2l_measure_norm [$us,*])
     all_goals (repeat' (k2l_measure_case <;> (try k2l_measure_norm [$us,*]) <;>
       k2l_measure_facts [$ls,*] <;> (try k2l_measure_norm [$us,*])))
-    all_goals k2l_measure_arith))
+    all_goals first
+      | k2l_measure_arith
+      | (k2l_measure_calls; all_goals (try subst_vars); all_goals k2l_measure_facts [$ls,*]
+         all_goals (try k2l_measure_norm [$us,*]); all_goals k2l_measure_arith)))
 
 end KPrelude.Measure

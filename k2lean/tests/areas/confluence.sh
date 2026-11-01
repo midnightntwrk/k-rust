@@ -11,6 +11,7 @@
 # a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
 # from the coroutine language on its own, the fixture corout, library corout; TwoParamEnds and
 # TwoParamTx (B's): every segment ends, and every order of a script ends in its run's result;
+# TwoLayerTx (B's): the same statement for the combined form, the fixture twolayer (its measure);
 # ImpPlusConf: IMP++'s threads joined up to the flush of K's stdout stream, its races refuted at
 # peaks of four programs (demos/ImpPlusConf/witnesses), library impplus). Registry: confluence.py.
 
@@ -44,7 +45,7 @@ gen_confluence() {
     drf) libs_fixture_args "$1"; GEN_ARGS+=(--invariant drfOk@T) ;;
     # the two-layer prototype (tests/fixtures/twolayer, docs/direction.md §8 step 4): the script's
     # tasks run the segments of a coroutine language, with the script's well-formedness `wf`
-    twolayer) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
+    twolayer) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T --measure measure@T) ;;
     # its parameterized form (tests/fixtures/twoparam): a resume is one step, the segment's register
     # and code functions with no equations (`class Hooks`), with the same well-formedness `wf` and
     # the outputs' invariant `valsOk` (every output below its process's count, which tells the
@@ -279,6 +280,13 @@ gate_confluence() {
   if runs demo TwoParamTx; then
     phase "build TwoParamTx"
     dbuild TwoParamTx
+  fi
+  # the same for the combined form (B's): the work left in the tasks and in the suspended processes'
+  # code (twolayer's measure, generated in generated/twolayer), with TwoConf's legal
+  # `terminal_unique`; built against TwoConf's phase
+  if runs demo TwoLayerTx; then
+    phase "build TwoLayerTx"
+    dbuild TwoLayerTx
   fi
   # IMP++ (the soundness area's library impplus): threads, `print`, K's stdout stream at priorities 25
   # and 30 before the language's rules, and the store a map changed at some bindings; up to the

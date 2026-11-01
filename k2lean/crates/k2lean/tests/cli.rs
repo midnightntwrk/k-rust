@@ -1694,7 +1694,7 @@ fn measure_states_one_case_per_rule_with_the_authors_lemmas_and_a_listed_case_by
     assert!(thms.contains(
         "theorem Measure.terminates (c : SortGeneratedTopCell) (h : (Measure.value c).isSome) : Paths.Terminates Step c"
     ));
-    assert!(mac.ends_with("[])"), "{mac}");
+    assert!(mac.ends_with("[] [])"), "{mac}");
     assert!(!thms.contains("import Corout.MeasureHand"));
 
     std::fs::write(d.join("open-measure-cases.txt"), "loop | listed by hand\n").unwrap();
@@ -1753,8 +1753,17 @@ fn measure_reads_a_sum_over_a_cell_map_through_its_iff() {
         .find(|l| l.starts_with("local macro \"k2l_meas\""))
         .unwrap();
     assert!(mac.contains("Measure.work_test, Measure.work_g"), "{mac}");
-    assert!(mac.ends_with("[Measure.work_eq])"), "{mac}");
+    assert!(
+        mac.ends_with("[Measure.work_eq] [Measure.work_g_nonneg])"),
+        "{mac}"
+    );
     assert_eq!(thms.matches(":= by k2l_meas\n").count(), 6);
+    // the weight's bound, proved once, before the macro: a quotation resolves its names where it is
+    // written
+    let w = thms
+        .find("theorem Measure.work_g_nonneg : ∀ k v a, Measure.work_g k v = some a → 0 ≤ a := by\n  k2l_measure_weight [")
+        .expect("the weight's bound");
+    assert!(w < thms.find("local macro \"k2l_meas\"").unwrap());
 }
 
 /// `gen --progress` (design.md §3.9) on the stack machine `vm`: one case per head of `<k>`, each

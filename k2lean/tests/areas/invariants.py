@@ -74,4 +74,7 @@ RECORDS = {
     # twoparam's measure (the confluence area's library twoparam, built by its demo TwoParamTx): the
     # work left, a sum over the <tasks> cell map, lowered by every rule (INV-17)
     "twoparam-measure": {"tier": "light", "measure": measure_meas("twoparam", "TwoParam"), "sources": []},
+    # twolayer's measure (the confluence area's library twolayer, built by its demo TwoLayerTx): the
+    # work left in the tasks and in the suspended processes' code, two sums
+    "twolayer-measure": {"tier": "light", "measure": measure_meas("twolayer", "TwoLayer"), "sources": []},
 }

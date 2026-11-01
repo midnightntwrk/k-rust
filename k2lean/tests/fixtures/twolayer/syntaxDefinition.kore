@@ -2483,6 +2483,126 @@ module TWOLAYER
     terminals{}("1101"),
     total{}()
   ]
+  symbol Lblmeasure'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'TCell{}(SortTCell{}) : SortInt{}
+  [
+    format{}("%cmeasure%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(120,18,120,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblwork'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'TasksCell{}(SortTasksCell{}) : SortInt{}
+  [
+    format{}("%cwork%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(121,18,121,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblpwork'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'Map{}(SortMap{}) : SortInt{}
+  [
+    format{}("%cpwork%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(122,18,122,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblsw'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'KItem{}(SortKItem{}) : SortInt{}
+  [
+    format{}("%csw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(123,18,123,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblkw'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'K{}(SortK{}) : SortInt{}
+  [
+    format{}("%ckw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(124,18,124,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lbliw'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'Instr{}(SortInstr{}) : SortInt{}
+  [
+    format{}("%ciw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(125,18,125,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblpw'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'Pgm{}(SortPgm{}) : SortInt{}
+  [
+    format{}("%cpw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(126,18,126,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblmu'LParUndsRParUnds'TWOLAYER'Unds'Int'Unds'Stmts{}(SortStmts{}) : SortInt{}
+  [
+    format{}("%cmu%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(127,18,127,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twolayer/twolayer.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'tid'-GT-'{}(SortInt{}) : SortTidCell{}
   [
     cell{}(),
