@@ -637,6 +637,16 @@ fn is_head_path(path: &Path) -> bool {
         && !path.segments.is_empty()
 }
 
+/// A name some alternatives of an `A | B` bind and another does not
+/// (rustc's E0408), at the first alternative that does not bind it.
+#[derive(Clone, Debug)]
+pub struct UnboundAlternative {
+    /// The name, unraw.
+    pub name: String,
+    /// The first alternative that does not bind the name.
+    pub range: TokenRange,
+}
+
 /// Structured term/pattern shape used for deterministic argument lowering.
 ///
 /// Parentheses and invisible `syn` groups are transparent. A wildcard occurs
@@ -710,12 +720,12 @@ pub enum TermTree {
         range: TokenRange,
         /// The alternatives, in source order.
         alternatives: AtLeastTwo<TermTree>,
-        /// A name some alternative binds and another does not, at the first
-        /// alternative that does not (rustc's E0408). Every alternative binds
-        /// the same names where alternatives may stand, so whether they do is
-        /// judged after where the alternatives, and the constructs in them,
-        /// stand: by the term walker, once it has admitted them.
-        unbound: Option<Box<SyntaxError>>,
+        /// A name some alternative binds and another does not (rustc's
+        /// E0408). Every alternative binds the same names where alternatives
+        /// may stand, so whether they do is judged after where the
+        /// alternatives, and the constructs in them, stand: by the term
+        /// walker, once it has admitted them, which refuses it there.
+        unbound: Option<UnboundAlternative>,
     },
     /// `k::matches!(subject, pattern)`: K's `( PATTERN :=K SUBJECT )`, a Bool
     /// test, only in results and conditions.
@@ -878,11 +888,11 @@ impl TermTree {
     }
 
     /// The first `A | B` in the tree, in preorder, with a name some
-    /// alternative binds and another does not: the error the term walker
-    /// reports there once the alternatives may stand where they do
+    /// alternative binds and another does not, which the term walker
+    /// refuses once the alternatives may stand where they do
     /// ([`TermTree::Or`]).
     #[must_use]
-    pub fn unbound_alternative(&self) -> Option<&SyntaxError> {
+    pub fn unbound_alternative(&self) -> Option<&UnboundAlternative> {
         if let Self::Or {
             unbound: Some(unbound),
             ..
@@ -2290,18 +2300,22 @@ pub(crate) fn validate_pattern_or(
     {
         nodes[index] = TermNode::Or(TokenRange::new(range.first(), last));
     }
-    let unbound = names.iter().find_map(|name| {
+    let mut unbound = None;
+    for name in &names {
         let spelling = syn::ext::IdentExt::unraw(name).to_string();
-        let (case, _) = or
+        if let Some((case, _)) = or
             .cases
             .iter()
             .zip(&bound)
-            .find(|(_, spellings)| !spellings.contains(&spelling))?;
-        Some(Box::new(pattern_or_error(
-            format!("variable `{spelling}` is not bound in all alternatives"),
-            case.span(),
-        )))
-    });
+            .find(|(_, spellings)| !spellings.contains(&spelling))
+        {
+            unbound = Some(UnboundAlternative {
+                name: spelling,
+                range: TokenRange::for_tokens(case)?,
+            });
+            break;
+        }
+    }
     let alternatives = AtLeastTwo::try_from(trees).map_err(|_| {
         pattern_or_error(
             "an or-pattern needs at least two alternatives".to_owned(),

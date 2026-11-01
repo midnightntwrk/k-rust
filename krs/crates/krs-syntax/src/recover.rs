@@ -24,14 +24,16 @@
 //!
 //! The leaves are found on the tokens: each is wrapped in a marker macro invocation, which both
 //! grammars read as one term, and the parsed term's markers are replaced by the leaves they hold.
-//! A marker never leaves this module.
+//! A marker never leaves this module, and every marker it replaces is its own: tokens that already
+//! name the marker get no reading here, so an author who writes it gets the parser's error.
 
 use proc_macro2::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, TokenTree};
 use syn::parse::{ParseStream, Parser as _};
 use syn::visit_mut::VisitMut;
 use syn::{Expr, Pat, Stmt};
 
-/// The marker macro's name. It is only ever written by this module, and read back by it.
+/// The marker macro's name. It is only ever written by this module, and read back by it; tokens
+/// that hold it already are not read here ([`holds_marker`]).
 const MARKER: &str = "__krs_recovered_term";
 
 /// Reads `tokens`, which neither grammar reads whole, at a pattern position: a pattern whose
@@ -39,6 +41,9 @@ const MARKER: &str = "__krs_recovered_term";
 /// reading exists, or when it would be the whole term as one expression, which the caller reads
 /// as such.
 pub(crate) fn pattern(tokens: &TokenStream) -> Option<Pat> {
+    if holds_marker(tokens) {
+        return None;
+    }
     let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
     let marked = pattern_element(&tokens)?;
     if is_one_marker(&marked) || same(&marked, &tokens) {
@@ -53,6 +58,9 @@ pub(crate) fn pattern(tokens: &TokenStream) -> Option<Pat> {
 /// whose aliases are [`Expr::Verbatim`] leaves, and whose `let` patterns are read as
 /// [`pattern`] reads one. `None` when no such reading exists.
 pub(crate) fn expression(tokens: &TokenStream) -> Option<Expr> {
+    if holds_marker(tokens) {
+        return None;
+    }
     let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
     let marked = expression_tokens(&tokens)?;
     let mut expression = syn::parse2::<Expr>(marked.into_iter().collect()).ok()?;
@@ -81,17 +89,46 @@ pub(crate) fn holds_alternatives(expression: &Expr) -> bool {
     }
 }
 
-/// Whether `tokens` are rooted at a construct only the pattern grammar reads: `name @ pattern`
-/// or alternatives.
-pub(crate) fn rooted_in_pattern_syntax(tokens: &TokenStream) -> bool {
+/// Whether `tokens` are alternatives at their own level.
+pub(crate) fn rooted_in_alternatives(tokens: &TokenStream) -> bool {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
-    let alias = matches!(trees.as_slice(), [TokenTree::Ident(_), TokenTree::Punct(at), ..] if at.as_char() == '@');
-    alias || (0..trees.len()).any(|index| is_alternative_bar(&trees, index))
+    (0..trees.len()).any(|index| is_alternative_bar(&trees, index))
+}
+
+/// The tokens of the first `name @ pattern` that [`expression`] read as a leaf of `expression`,
+/// in source order: an alias that stands where the expression is built, not one in a `let`
+/// pattern or a macro's tokens.
+pub(crate) fn first_alias(expression: &Expr) -> Option<TokenStream> {
+    struct First(Option<TokenStream>);
+    impl<'ast> syn::visit::Visit<'ast> for First {
+        fn visit_expr(&mut self, expression: &'ast Expr) {
+            if self.0.is_some() {
+                return;
+            }
+            match expression {
+                Expr::Verbatim(tokens) if is_alias(tokens) => self.0 = Some(tokens.clone()),
+                _ => syn::visit::visit_expr(self, expression),
+            }
+        }
+    }
+    let mut first = First(None);
+    syn::visit::Visit::visit_expr(&mut first, expression);
+    first.0
+}
+
+/// Whether `tokens` are `name @ pattern`.
+fn is_alias(tokens: &TokenStream) -> bool {
+    let mut trees = tokens.clone().into_iter();
+    matches!(
+        (trees.next(), trees.next()),
+        (Some(TokenTree::Ident(_)), Some(TokenTree::Punct(at))) if at.as_char() == '@'
+    )
 }
 
 /// The tokens of the next term in `input`, up to the first token at its own level that ends a
-/// term wherever one stands (`,`, `;`, `=>`, `->`, `~>`, or an `=` that is no operator's), and
-/// the number of token trees they are.
+/// term wherever one stands (`,`, `;`, `=>`, `->`, `~>`, an `=` that is no operator's, or the
+/// `where` of a clause's narrowing, which no term holds), and the number of token trees they
+/// are.
 pub(crate) fn next_term(input: ParseStream<'_>) -> (TokenStream, usize) {
     let mut trees = Vec::new();
     let mut cursor = input.cursor();
@@ -128,8 +165,10 @@ fn continues_operator(trees: &[TokenTree], index: usize) -> bool {
 
 /// Whether the token at `index` ends the term before it (see [`next_term`]).
 fn ends_term(trees: &[TokenTree], index: usize) -> bool {
-    let Some(TokenTree::Punct(token)) = trees.get(index) else {
-        return false;
+    let token = match trees.get(index) {
+        Some(TokenTree::Punct(token)) => token,
+        Some(TokenTree::Ident(keyword)) => return keyword == "where",
+        _ => return false,
     };
     if continues_operator(trees, index) {
         return false;
@@ -198,6 +237,16 @@ fn marker(trees: &[TokenTree]) -> Vec<TokenTree> {
         TokenTree::Punct(bang),
         TokenTree::Group(group),
     ]
+}
+
+/// Whether `tokens` name the marker anywhere, a group's tokens included: an author's tokens,
+/// since this module reads only tokens it has not marked yet.
+fn holds_marker(tokens: &TokenStream) -> bool {
+    tokens.clone().into_iter().any(|tree| match tree {
+        TokenTree::Ident(name) => name == MARKER,
+        TokenTree::Group(group) => holds_marker(&group.stream()),
+        TokenTree::Punct(_) | TokenTree::Literal(_) => false,
+    })
 }
 
 fn is_marker(path: &syn::Path) -> bool {
@@ -431,6 +480,7 @@ mod tests {
     use quote::{ToTokens as _, quote};
 
     use super::*;
+    use crate::parse::KrsSyntax as _;
 
     #[test]
     fn a_pattern_reads_an_expression_below_its_root_as_a_leaf() {
@@ -498,5 +548,110 @@ mod tests {
             panic!("a let statement");
         };
         assert!(matches!(&local.pat, Pat::Verbatim(tokens) if tokens.to_string() == "x + 1"));
+    }
+
+    #[test]
+    fn a_pattern_followed_by_an_operator_is_its_operand() {
+        let read = (|input: ParseStream<'_>| {
+            let pattern = crate::term::parse_term_pattern(input)?;
+            input.parse::<syn::Token![,]>()?;
+            input.parse::<syn::Token![..]>()?;
+            Ok(pattern)
+        })
+        .parse2(quote!(x + 1, ..))
+        .expect("a term, then the list's rest");
+        assert!(matches!(&read, Pat::Verbatim(tokens) if tokens.to_string() == "x + 1"));
+    }
+
+    #[test]
+    fn a_let_binder_in_an_aliased_pattern_is_the_lets_own() {
+        // The `let` is refused where it stands, by the term walker; its `y`
+        // is no second binding of the alias's.
+        crate::RuleBlock::parse_source(
+            "for Stmt; a: Cmd::C(y @ Cmd::Hold({ let y = x; y }), _) => Cmd::Go();",
+        )
+        .expect("no E0416: the alias's subpattern binds no `y`");
+    }
+
+    #[test]
+    fn a_for_sort_clause_whose_subject_is_a_let_block_is_a_term_clause() {
+        crate::RuleBlock::parse_source("for Stmt; a: { let y = x; y } => Cmd::Go();")
+            .expect("a term clause: no cell is named `let`");
+    }
+
+    #[test]
+    fn tokens_a_group_leaves_unread_reach_the_recovery() {
+        let read = crate::term::parse_term_expression
+            .parse2(quote!({ let Cmd::Pair { a: x, ..x } = x; x }))
+            .expect("the let pattern, read as the term it is");
+        let Expr::Block(block) = read else {
+            panic!("a block");
+        };
+        let Some(Stmt::Local(local)) = block.block.stmts.first() else {
+            panic!("a let statement");
+        };
+        assert!(matches!(&local.pat, Pat::Verbatim(_)), "{:?}", local.pat);
+    }
+
+    #[test]
+    fn a_term_ends_before_a_clauses_where() {
+        let (tokens, length) = (|input: ParseStream<'_>| {
+            let read = next_term(input);
+            input.parse::<TokenStream>()?;
+            Ok(read)
+        })
+        .parse2(quote!(Cmd::Hold({ let y = x; y @ Cmd::Hold(_) }) where x: Int))
+        .expect("tokens");
+        assert_eq!(length, 5, "{tokens}");
+        assert!(!tokens.to_string().contains("where"), "{tokens}");
+        crate::RuleBlock::parse_source(
+            "for Stmt; a: Cmd::C(x, _) => Cmd::Hold({ let y = x; y @ Cmd::Hold(_) }) where x: Int;",
+        )
+        .expect("the result is read up to its `where`");
+    }
+
+    #[test]
+    fn an_authored_marker_gets_no_recovered_reading() {
+        assert!(pattern(&quote!(Cmd::C(x, y @ x + 1))).is_some());
+        assert!(pattern(&quote!(Cmd::C(x, y @ x + 1, __krs_recovered_term!(z)))).is_none());
+        assert!(expression(&quote!({ let y = x; y @ Cmd::Hold(_) })).is_some());
+        assert!(
+            expression(&quote!({ let y = x; y @ Cmd::Hold(__krs_recovered_term!(_)) })).is_none()
+        );
+    }
+
+    #[test]
+    fn a_readable_keys_alias_is_refused_at_the_alias() {
+        for key in [
+            "Wrap::<Stmt>(y @ Cmd::Hold(_))",
+            "Cmd::Pair { a: y @ Cmd::Hold(_), b: z }",
+            "{ let y = x; y @ Cmd::Hold(_) }",
+            "y @ Cmd::Hold(_)",
+        ] {
+            let source = format!(
+                "for Machine; a: {{ k: [Cmd::C(y, _), ..], env: {{ {key} -> v, .. }} }} => {{ k: [..] }};"
+            );
+            let Err(error) = crate::RuleBlock::parse_source(&source) else {
+                panic!("{key}: a readable key's alias is refused");
+            };
+            assert!(
+                matches!(
+                    error.kind(),
+                    crate::SyntaxErrorKind::InvalidPatternAs { reason }
+                        if reason.contains("key of a readable map read")
+                ),
+                "{key}: {error}"
+            );
+            assert_eq!(
+                error.span().start().column,
+                source.find("y @").unwrap(),
+                "{key}"
+            );
+        }
+        // A `let` pattern in a key is the pattern it is, judged where it stands.
+        crate::RuleBlock::parse_source(
+            "for Machine; a: { k: [Cmd::C(y, _), ..], env: { { let k::builtin::list::item(x).len() = y; y } -> v, .. } } => { k: [..] };",
+        )
+        .expect("a key's let pattern reads");
     }
 }

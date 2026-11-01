@@ -153,14 +153,12 @@ fn malformed_or_patterns_are_rejected() {
         "fn r(k::term![First(Pair(x, _) | Pair(_, y))]: Term<Exp>) -> Term<Exp> { x }",
     )
     .unwrap();
-    let error = rule
+    let unbound = rule
         .subject_tree()
         .unbound_alternative()
         .expect("alternatives that bind different names");
-    assert!(
-        reason(error).contains("variable `x` is not bound in all alternatives"),
-        "{error}"
-    );
+    assert_eq!(unbound.name, "x");
+    assert_eq!(unbound.range.start().column, 33, "the second alternative");
     let error =
         krs_syntax::parse_cells_pattern(tokens("k: KCell(A(), tail @ .. | B())")).unwrap_err();
     assert!(
@@ -176,15 +174,12 @@ fn malformed_or_patterns_are_rejected() {
         "for Exp; use ExpSyntax::*; bad: Pair(x, _) | Pair(_, y) => 1;",
     )
     .unwrap();
-    let error = readable.clauses()[0]
+    let unbound = readable.clauses()[0]
         .rule()
         .subject_tree()
         .unbound_alternative()
         .expect("alternatives that bind different names");
-    assert!(
-        reason(error).contains("variable `x` is not bound in all alternatives"),
-        "{error}"
-    );
+    assert_eq!(unbound.name, "x");
     let records = krs_syntax::RuleBlock::parse_source(
         "for Machine; bad: { fuel: f } | { acc: f } => { fuel: f };",
     )

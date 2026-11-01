@@ -644,32 +644,53 @@ fn map_read_key(key: &Expr) -> Result<TermExpression, ParseError> {
     })
 }
 
-pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> syn::Result<Expr> {
+/// The reason a readable map read's key refuses `name @ pattern`.
+const ALIAS_IN_READABLE_KEY: &str = "`name @ pattern` (K's #as) is not supported in the key of a readable map read: the key is read as the term the entry is looked up by, which binds no name";
+
+pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> Result<Expr, ParseError> {
     let fork = input.fork();
     let mut tokens = TokenStream::new();
     while !fork.peek(Token![->]) {
         if fork.peek(Token![=>]) {
-            return Err(fork.error("`=>` is reserved for rewrites; map entries use `->`"));
+            return Err(fork
+                .error("`=>` is reserved for rewrites; map entries use `->`")
+                .into());
         }
         if fork.is_empty() {
-            return Err(fork.error("a map item requires `key -> value`"));
+            return Err(fork.error("a map item requires `key -> value`").into());
         }
         tokens.extend([fork.parse::<TokenTree>()?]);
     }
     if tokens.is_empty() {
-        return Err(fork.error("a map item requires a key before `->`"));
+        return Err(fork.error("a map item requires a key before `->`").into());
     }
     input.advance_to(&fork);
-    // A pattern's construct below the key's root, where the key computes, is
-    // the construct it is ([`crate::recover`]). A key rooted at `name @ ..`
-    // or at alternatives selects entries by matching them, which this reader
-    // does not read (finding S0-14).
-    syn::parse2::<Expr>(tokens.clone()).or_else(|error| {
-        if crate::recover::rooted_in_pattern_syntax(&tokens) {
-            return Err(error);
-        }
-        crate::recover::expression(&tokens).ok_or(error)
-    })
+    let error = match syn::parse2::<Expr>(tokens.clone()) {
+        Ok(key) => return Ok(key),
+        Err(error) => error,
+    };
+    // A key is read as the term it looks its entry up by, so a key that
+    // matches, with alternatives at its root or an alias anywhere, is no key
+    // this reader reads (finding S0-14); the alias is refused at its own
+    // tokens. A `let` pattern in the key is the pattern it is
+    // ([`crate::recover`]).
+    if crate::recover::rooted_in_alternatives(&tokens) {
+        return Err(error.into());
+    }
+    let key = crate::recover::expression(&tokens).ok_or(error)?;
+    if let Some(alias) = crate::recover::first_alias(&key) {
+        return Err(crate::SyntaxError::new(
+            crate::SyntaxErrorKind::InvalidPatternAs {
+                reason: ALIAS_IN_READABLE_KEY.to_owned(),
+            },
+            alias
+                .into_iter()
+                .next()
+                .map_or_else(proc_macro2::Span::call_site, |tree| tree.span()),
+        )
+        .into());
+    }
+    Ok(key)
 }
 
 fn parse_machine_result_record(

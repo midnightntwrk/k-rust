@@ -1335,18 +1335,36 @@ impl<'a> TermBuilder<'a> {
                 unbound,
             } => {
                 self.admit(side, Construct::Or, *range)?;
-                let node = keys.node(NodeKind::Or, *range)?;
-                let key = Self::take_pattern_or(node)?;
+                // The names the alternatives bind are judged once they, and
+                // what they hold, may stand where they do; a name the author
+                // wrote wrong outranks a key the expansion lacks.
+                let unbound = || {
+                    unbound.as_ref().map(|unbound| {
+                        ExpandError::at_range(
+                            krs_diagnostic::codes::syntax::INVALID_PATTERN_OR,
+                            unbound.range,
+                            format!(
+                                "variable `{}` is not bound in all alternatives",
+                                unbound.name
+                            ),
+                        )
+                    })
+                };
+                let key = match keys
+                    .node(NodeKind::Or, *range)
+                    .and_then(Self::take_pattern_or)
+                {
+                    Ok(key) => key,
+                    Err(error) => return Err(unbound().unwrap_or(error)),
+                };
                 let alternatives = self.below_selection(|this| {
                     alternatives
                         .try_map_ref(|alternative| this.expand_node(alternative, keys, side, slots))
                 })?;
-                // The names the alternatives bind are judged once they, and
-                // what they hold, may stand where they do.
-                if let Some(unbound) = unbound {
-                    return Err(unbound.as_ref().clone().into());
+                match unbound() {
+                    Some(unbound) => Err(unbound),
+                    None => Ok(WireTerm::Or { key, alternatives }),
                 }
-                Ok(WireTerm::Or { key, alternatives })
             }
             TermTree::Matches {
                 range,
