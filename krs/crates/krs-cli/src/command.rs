@@ -262,8 +262,9 @@ struct PreparedDefinition {
     /// can evaluate (`smt_hook` without equations), reported by every
     /// command that lowers the definition ([`definition_warnings`]).
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
-    /// `k::is!` and `k::project!` terms that test nothing, and total
-    /// functions with arguments no equation defines, reported by every
+    /// `k::is!` and `k::project!` terms that test nothing, total functions
+    /// with arguments no equation defines, and tests of a partial construct
+    /// that do not protect it (`krs::analysis::dead-guard`), reported by every
     /// command that lowers the definition ([`definition_warnings`]).
     sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
     bundle: DescriptorBundle,
@@ -558,7 +559,9 @@ fn prepare_bundle(
         .try_span("definition.lower", |_| lower_definition(&semantic))
         .map_err(warned)?;
     count_definition(&mut measurement.counters, &lowered);
-    let coverage = krs_compiler::coverage_warnings(semantic.modules());
+    let coverage = krs_compiler::coverage_warnings(semantic.modules())
+        .into_iter()
+        .chain(krs_compiler::guard_warnings(semantic.modules()));
     Ok(PreparedDefinition {
         raw_k_warnings: raw_k.warnings,
         sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())

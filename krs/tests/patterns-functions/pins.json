@@ -20,7 +20,7 @@
       "definition.k": "ae5941118f653b70afd9deffaa9ceb737616dea6f1078eb364712a31875de39c"
     },
     "krs-patterns-functions-lets": {
-      "definition.k": "8ac0e0e97b124dd57d271a2a70bfd21a1d928e58f23af541d71ea07a5815d05c"
+      "definition.k": "a29b8a8adc9e439ad02601e8917d71e246d4f54edfd9d2379e97f0e024c1fd06"
     },
     "krs-patterns-functions-contexts": {
       "definition.k": "e752c435ea0f00f698c37f19147a440b5ce64f295834a6953188bb775fecc6b9"
@@ -40,9 +40,9 @@
     "krs-patterns-functions-matches": "890aa4181b57245096f475b44d096c00293101caf7dbef277b06edd4eda197aa",
     "krs-patterns-functions-matches-reference": "c4a5e1108b5807aa9101369670cafe128b6e76ed18d08ac61202bdaf2fa3ef3a",
     "krs-patterns-functions-matches-haskell": "5c7e5d5307dca442e731c8ca39356bedd1206258196335eabcd2cec50d73370a",
-    "krs-patterns-functions-lets": "7d2e8289e20e78f7f0944205844db332dd083507cb16a60f200e7b5e74dc71a5",
+    "krs-patterns-functions-lets": "1e679d8f644dd5d3d96c3125c7abb10c5f273edf81da45fe628cbd6227969519",
     "krs-patterns-functions-lets-reference": "ed2b8722bab84511de7fc0a81e047fc548a708d572c6911f7c9afa3e2b38e76c",
-    "krs-patterns-functions-lets-haskell": "079ea02262dfe84d509101a63a18589c2ddcfd2c5d320369a9e82304d09f1f35",
+    "krs-patterns-functions-lets-haskell": "cff7c19b08eed9eb99d9a1e7d260ecca9ccdb37041b087b101179472434ce69c",
     "krs-patterns-functions-contexts": "69b7199deaaaf3005bfdbc3fed34cd72913ba9707c482539d4da5317e81986d9",
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
     "krs-patterns-functions-contexts-haskell": "99bf2f669427d4b1136238cb1a208d26b1e90e77dad64a0f30ad648f6363acbc",

@@ -189,14 +189,7 @@ impl SemanticTheory {
 
     /// The framework's `KItem`, when the theory declares it.
     fn framework_k_item(&self) -> Option<SemanticSortRef> {
-        self.modules
-            .iter()
-            .flat_map(|module| &module.sorts)
-            .map(|sort| &sort.id)
-            .filter(|id| is_framework_k_item(id))
-            .min()
-            .cloned()
-            .map(SemanticSortRef::Declared)
+        crate::definedness::framework_k_item(&self.modules)
     }
 
     /// Returns the IR schema version.
@@ -404,7 +397,7 @@ impl SemanticTheory {
             .iter()
             .find_map(|module| module.configuration.as_ref());
         let sort_parents = self.judging_sort_parents();
-        let k_item = self.framework_k_item();
+        let definedness_sorts = crate::definedness::Sorts::of_modules(&self.modules);
 
         for module in &self.modules {
             for import in &module.imports {
@@ -522,10 +515,8 @@ impl SemanticTheory {
                 in_item(Some(&rule.id), || {
                     validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)
                 })?;
-                if let Some(k_item) = &k_item {
-                    in_item(Some(&rule.id), || {
-                        validate_definedness(rule, k_item, &sort_parents)
-                    })?;
+                if let Some(sorts) = &definedness_sorts {
+                    in_item(Some(&rule.id), || validate_definedness(rule, sorts))?;
                 }
             }
             for alias in &module.context_aliases {
@@ -1993,9 +1984,10 @@ pub enum SemanticValidationError {
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
     RuleConditionSortMismatch,
-    /// A partial construct is evaluated where no test that it has a value precedes it: in a
-    /// condition with no earlier conjunct testing it, or in a pattern that matches evaluated
-    /// terms (NT-37, [`crate::definedness`]).
+    /// A partial construct ([`crate::definedness::requirements`]: a projection, a builtin
+    /// operation with a stated domain, a refutable `let`; not a user function's application) is
+    /// evaluated where no test that it has a value precedes it: in a condition with no earlier
+    /// conjunct testing it, or in a pattern that matches evaluated terms (NT-37).
     UnguardedPartialConstruct(crate::definedness::Place),
     /// A static alias clause carried a runtime condition.
     AliasCondition,
@@ -2276,10 +2268,10 @@ impl fmt::Display for SemanticValidationError {
                 formatter.write_str("rule condition must have builtin Bool sort")
             }
             Self::UnguardedPartialConstruct(crate::definedness::Place::Condition) => formatter.write_str(
-                "a partial construct (a sort projection, a projected read, a lookup, an index, or a `let` whose pattern may not match) stands in a condition with no test that it has a value before it",
+                "a partial construct (a sort projection, a read KRS projects, an application of a builtin operation whose domain the catalog states, or a `let` whose pattern may not match) stands in a condition with no test that it has a value before it",
             ),
             Self::UnguardedPartialConstruct(crate::definedness::Place::Pattern) => formatter.write_str(
-                "a partial construct (a sort projection, a projected read, a lookup, or an index) stands in a pattern that matches evaluated terms, which evaluates it before any condition could test it",
+                "a partial construct (a sort projection, a read KRS projects, an application of a builtin operation whose domain the catalog states, or a `let` whose pattern may not match) stands in a pattern that matches evaluated terms, which evaluates it before any condition could test it",
             ),
             Self::AliasCondition => {
                 formatter.write_str("static alias and desugar clauses cannot carry requires conditions")
@@ -2364,37 +2356,20 @@ impl fmt::Display for SemanticValidationError {
 
 impl Error for SemanticValidationError {}
 
-/// Recognises the framework's `KItem` sort declaration (`k::KItem`).
 /// Every partial construct `rule` evaluates is preceded by its test ([`crate::definedness`]).
 fn validate_definedness(
     rule: &SemanticRule,
-    k_item: &SemanticSortRef,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sorts: &crate::definedness::Sorts,
 ) -> Result<(), SemanticValidationError> {
-    let is_subsort = |candidate: &SemanticSortRef, expected: &SemanticSortRef| {
-        crate::ir_validation::is_subsort::<SemanticLevel>(candidate, expected, sort_parents)
-    };
-    let sorts = crate::definedness::Sorts {
-        k_item,
-        is_subsort: &is_subsort,
-    };
-    match crate::definedness::unguarded(rule, &sorts) {
+    match crate::definedness::unguarded(rule, sorts) {
         None => Ok(()),
         Some(unguarded) => {
-            crate::failure_site::report(unguarded.construct.origin());
+            crate::failure_site::report(&unguarded.construct);
             Err(SemanticValidationError::UnguardedPartialConstruct(
                 unguarded.place,
             ))
         }
     }
-}
-
-fn is_framework_k_item(id: &StableItemId) -> bool {
-    id.item_kind() == ItemKind::Sort
-        && id.item_name() == "KItem"
-        && id.package().k_namespace() == "KRS-FRAMEWORK"
-        && id.package().cargo_name() == "krs"
-        && id.package().cargo_source() == "framework"
 }
 
 fn validate_item_kind(

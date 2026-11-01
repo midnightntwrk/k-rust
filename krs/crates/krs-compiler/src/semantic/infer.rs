@@ -460,14 +460,14 @@ impl StructuredTermBuilder<'_> {
     /// has a value first, so a key that computes one is a fresh name the condition equates with
     /// its value, and the condition tests the construct before it (NT-37).
     fn holds_partial(&self, term: &SemanticTerm) -> bool {
-        let is_subsort = |candidate: &SemanticSortRef, expected: &SemanticSortRef| {
-            *expected == self.k_item_sort
-                || super::catalog::semantic_is_subsort(candidate, expected, self.sort_parents)
-        };
-        let sorts = krs_ir_levels::definedness::Sorts {
-            k_item: &self.k_item_sort,
-            is_subsort: &is_subsort,
-        };
+        let sorts = krs_ir_levels::definedness::Sorts::new(
+            self.k_item_sort.clone(),
+            self.sort_parents.iter().flat_map(|(subsort, parents)| {
+                parents
+                    .iter()
+                    .map(move |parent| (subsort.clone(), parent.clone()))
+            }),
+        );
         krs_ir_levels::definedness::holds_partial(term, true, &sorts)
     }
 

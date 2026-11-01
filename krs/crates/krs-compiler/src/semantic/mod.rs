@@ -52,6 +52,7 @@ pub use error::{
 };
 
 use crate::overlap::OverlapViolation;
+pub use definedness::guard_warnings;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
 pub use raw_k::{RawKPolicy, raw_k_policy};
 
@@ -454,8 +455,8 @@ pub fn lower_descriptor_bundle(
             second_head_range: range,
         });
     }
-    let modules = definedness::guard_conditions(modules, &semantic_sort_parents)?;
     let modules = local_functions::lift_local_functions(modules)?;
+    let modules = definedness::guard_conditions(modules)?;
     // A validator failure is located at the innermost term the validator was checking, and
     // names the item whose sentence it was checking.
     SemanticTheory::new_located(modules).map_err(|failure| {

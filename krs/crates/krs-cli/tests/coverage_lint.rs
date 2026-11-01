@@ -81,8 +81,10 @@ k::equations! {
     signed_truncate_high: (value, width) => int::sub(value, int::shift_left(1, width));
 }
 
-/// Guards that read an element only where its index is in range: the
-/// three cover every argument.
+/// Guards that read an element only where its index is in range. The list
+/// holds `KItem`s, and the read is an `Int` only where the element is one, which
+/// the condition tests before it (`isInt(L [ I ])`, NT-37): no equation
+/// applies where an element in range is no `Int`, and the lint says so.
 #[k::function(total, internal)]
 pub fn Element(items: Term<List>, index: Term<Int>) -> Term<Int>;
 
@@ -729,6 +731,8 @@ fn total_functions_warn_where_no_equation_applies() {
         [
             "warning[krs::analysis::uncovered-total-function]: total function `Clamp` has no equation for `Clamp(0)`",
             "= note: 2 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers and of `k::matches!` tests, reading the bits that comparisons of `bitRangeInt` and `&Int` fix and each application of a total function as one unknown value (one of its equations' results, when they cover every argument), where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
+            "warning[krs::analysis::uncovered-total-function]: total function `Element` has no equation for `Element(items, 0)` when `index < list::size(items)`, `k::is!(Int, ..)(list::get(items, index))` is false",
+            "= note: 3 of its equations have `requires`; KRS decides a `requires` only as a Boolean combination of comparisons with integer constants and between two integers and of `k::matches!` tests, reading the bits that comparisons of `bitRangeInt` and `&Int` fix and each application of a total function as one unknown value (one of its equations' results, when they cover every argument), where each partial Int operation in it (division, remainder, shift, exponent, bit range) is defined",
             "warning[krs::analysis::stale-underspecified]: `FlagBit` states `underspecified`, but its equations define every argument; remove `underspecified`",
             "warning[krs::analysis::uncovered-total-function]: total function `Nibble` has no equation for `Nibble(16)`",
             "= note: KRS evaluated the `requires` of its equations on every argument they bound (0..=15) and on one argument beyond them, which stands for every other",

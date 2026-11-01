@@ -64,9 +64,10 @@ pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
     CollectionApplication, CollectionConcatenation, CollectionDomain, CollectionMethod,
     CollectionMethodSpelling, CollectionNotation, CollectionOperandSort, CollectionOperationSpec,
-    CollectionReading, CollectionResultSort, FacadeMarker, GuardMeaning, HookOperationSpec,
-    HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
-    MlConnective, MlOperand, OperationSort, RawKProfile, RelationLiteral,
+    CollectionReading, CollectionResultSort, DomainFact, DomainTerm, FacadeMarker, GuardMeaning,
+    HookOperationSpec, HookPointConstructor, HookPointSortSource, HookSignature,
+    HookSortConstraint, IntLiterals, MlConnective, MlOperand, OperandBound, OperationDomain,
+    OperationSort, RawKProfile, RelationLiteral,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,

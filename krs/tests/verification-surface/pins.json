@@ -59,7 +59,7 @@
       "spec.k": "68ad332c1d4b9bb5fb36bdd56012cd762fb3e63c6904a7260fa1634bc1ee94d4"
     },
     "krs-verification-surface-set-instance-claims": {
-      "definition.k": "6c84c189861a9e6ed902db18403c65a9af8394587d6e3050d805bbc898c8ffd3",
+      "definition.k": "2158eb8e71eed3c90253ea650246e6e05742d845f9607d366a2d4ee3e57bdada",
       "spec.k": "a817f845bca0e3d000026a94badea64347f03cba5a9411ed3de598b9402ef815"
     },
     "krs-verification-surface-local-function-claims": {
@@ -88,7 +88,7 @@
     "krs-verification-surface-l22-verification": "1688167f61d3576b87aa98cf60d3053461d0fc23310cfe7d1b78cc0f14ddcaaf",
     "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f",
     "krs-verification-surface-cell-maps": "83f575e4cc44736e727eb367c2f057cdfe2aeea9901266baac7b30020f2c57be",
-    "krs-verification-surface-set-instance-claims": "4eb9157a327572b8fc0d9eef58a4306bbc9f9d7cf9894009ede7ec8b35b34c3a",
+    "krs-verification-surface-set-instance-claims": "9a80530f5b7c17989a6a799ca77449908049ea67332656b1447fde6772b890b7",
     "krs-verification-surface-local-function-claims": "e1572270d5cf7c0b04408f549d6a0960c30c13ceda9310a301d7a388e95e39c5",
     "krs-verification-surface-owise": "ccf91c020fecbfc4c24d835d98ebe2d6a8ba882a701935b50eb6d4f50c413d29"
   },

@@ -600,24 +600,18 @@ fn operation(operation: BuiltinOperation, values: &[Ground]) -> Option<Ground> {
         _ => {}
     }
     let ints = ints?;
-    // The partial Int operations outside their domain (domains.md: division
-    // by zero, a negative shift, exponent, index or length).
-    let undefined = match (operation, ints.as_slice()) {
-        (
-            BuiltinOperation::IntTDiv
-            | BuiltinOperation::IntTMod
-            | BuiltinOperation::IntEDiv
-            | BuiltinOperation::IntMod,
-            [_, divisor],
-        ) => *divisor == 0,
-        (
-            BuiltinOperation::IntShiftLeft
-            | BuiltinOperation::IntShiftRight
-            | BuiltinOperation::IntPow,
-            [_, amount],
-        ) => *amount < 0,
-        (BuiltinOperation::IntBitRange, [_, index, length]) => *index < 0 || *length < 0,
-        (BuiltinOperation::IntSignExtendBitRange, [_, index, length]) => *index < 0 || *length < 1,
+    // A partial operation outside the domain the catalog states for it, read where each fact
+    // bounds one operand by a constant.
+    let undefined = match operation.domain() {
+        krs_ir::OperationDomain::Where(facts) => facts.iter().any(|fact| {
+            fact.operand_bound().is_some_and(|(position, bound)| {
+                ints.get(position).is_some_and(|value| match bound {
+                    krs_ir::OperandBound::NonZero => *value == 0,
+                    krs_ir::OperandBound::AtLeast(least) => *value < i128::from(least),
+                    krs_ir::OperandBound::AtMost(most) => *value > i128::from(most),
+                })
+            })
+        }),
         _ => false,
     };
     if undefined {

@@ -466,7 +466,8 @@ def verify_lets(harness: FixtureGate, workspace: Path) -> None:
         "rule swapPair ( P:Exp ) => ( #let pair ( X:Exp , Y:Exp ) = P:Exp #in pair ( Y:Exp , X:Exp ) ) [label(",
         "rule scale ( E:Exp ) => ( #let M:Int = E:Exp #in ( #let N:Int = M:Int +Int 1 #in N:Int *Int M:Int ) ) [label(",
         "<k> shadow ( E:Exp ) => pair ( ( #let E_2:Exp = pair ( E:Exp , E:Exp ) #in E_2:Exp ) , E:Exp ) ... </k>",
-        "requires ( #let M:Int = E:Exp #in M:Int >Int 0 )",
+        # The ascription is a sort test, which the condition states before the block (NT-37).
+        "requires isInt(E:Exp) andThenBool ( #let M:Int = E:Exp #in M:Int >Int 0 )",
     ))
     # A refuted pattern is undefined natively too (k-rust `docs/compatibility.md`,
     # "Refuted local-function patterns"), so every program runs on both routes.

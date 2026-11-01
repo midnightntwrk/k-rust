@@ -2328,12 +2328,10 @@ impl BuiltinOperation {
     ///
     /// `false` also when totality is not established here, so a reader that
     /// needs a defined term (the coverage lint's guard reading) stays sound.
-    /// Excluded for a reason: division and remainder by zero, a negative
-    /// shift or exponent, `log2Int` of a non-positive Int, bit ranges and
-    /// byte operations with an out-of-range index or length, the conversions
-    /// partial on their input (`String2Int`, `String2Bool`, `String2Bytes`),
-    /// `findString` with a negative start, `chrChar`/`ordChar`, `_dividesInt_`
-    /// of zero, the polymorphic `#if`, every Float operation, and I/O.
+    /// Excluded: every operation whose [`Self::domain`] is not total (division
+    /// by zero, a negative shift, an index outside the bytes, ..), and the
+    /// polymorphic `#if` and `Bytes2String`, whose values these readers do not
+    /// compute.
     #[must_use]
     pub const fn is_total(self) -> bool {
         matches!(
@@ -2480,6 +2478,352 @@ impl SetOperation {
         matches!(self, Self::Empty | Self::Item | Self::Concat)
     }
 }
+
+/// A term a [`DomainFact`] reads, over the operands of the operation whose domain it states,
+/// numbered in the catalog's operand order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DomainTerm {
+    /// The operand at this position.
+    Operand(usize),
+    /// An `Int` literal.
+    Int(i64),
+    /// The length of the operand at this position: `lengthBytes` of a `Bytes`, `lengthString`
+    /// of a `String`, `size` of a `List`. A length is never negative.
+    Length(usize),
+    /// `left -Int right`.
+    Difference(&'static DomainTerm, &'static DomainTerm),
+    /// `left +Int right`.
+    Sum(&'static DomainTerm, &'static DomainTerm),
+}
+
+/// One Bool fact of an operation's domain ([`OperationDomain`]), over its operands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DomainFact {
+    /// `left <Int right`.
+    Less(DomainTerm, DomainTerm),
+    /// `left <=Int right`.
+    AtMost(DomainTerm, DomainTerm),
+    /// `left ==Int right`.
+    Equal(DomainTerm, DomainTerm),
+    /// `term =/=Int 0`.
+    NonZero(DomainTerm),
+    /// `key in_keys(map)`: the operand at `key` is a key of the map at `map`.
+    KeyOf {
+        /// The key's position.
+        key: usize,
+        /// The map's position.
+        map: usize,
+    },
+    /// `intersectSet(left, right) ==K .Set`: the two sets share no element.
+    Disjoint {
+        /// The left set's position.
+        left: usize,
+        /// The right set's position.
+        right: usize,
+    },
+    /// `operand ==String t1 orElseBool operand ==String t2 ..`: the operand is one of the texts.
+    OneOf {
+        /// The `String` operand's position.
+        operand: usize,
+        /// The texts it may be.
+        texts: &'static [&'static str],
+    },
+}
+
+/// A bound of one operand by a constant, the form of a [`DomainFact`] that a reader of Int
+/// guards reads (the coverage lint, the overlap check's evaluation).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperandBound {
+    /// The operand is not zero.
+    NonZero,
+    /// The operand is at least the constant.
+    AtLeast(i64),
+    /// The operand is at most the constant.
+    AtMost(i64),
+}
+
+impl DomainFact {
+    /// The fact as a bound of one operand by a constant, `(position, bound)`, or `None` for a
+    /// fact of another form.
+    #[must_use]
+    pub const fn operand_bound(self) -> Option<(usize, OperandBound)> {
+        match self {
+            Self::NonZero(DomainTerm::Operand(operand)) => Some((operand, OperandBound::NonZero)),
+            Self::AtMost(DomainTerm::Int(least), DomainTerm::Operand(operand)) => {
+                Some((operand, OperandBound::AtLeast(least)))
+            }
+            Self::Less(DomainTerm::Int(below), DomainTerm::Operand(operand)) => {
+                Some((operand, OperandBound::AtLeast(below + 1)))
+            }
+            Self::AtMost(DomainTerm::Operand(operand), DomainTerm::Int(most)) => {
+                Some((operand, OperandBound::AtMost(most)))
+            }
+            Self::Less(DomainTerm::Operand(operand), DomainTerm::Int(above)) => {
+                Some((operand, OperandBound::AtMost(above - 1)))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Where an operation has a value, as KRS states it: the one statement every reader of a
+/// builtin's definedness reads, the condition guard that tests a partial construct before a
+/// sentence evaluates it (`krs_ir_levels::definedness`), the coverage lint's guard reading and
+/// the overlap check's evaluation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperationDomain {
+    /// A value wherever its operands have one.
+    Total,
+    /// A value exactly where every fact holds, in the order a test states them (an operand's
+    /// range before a fact that reads it as an index).
+    Where(&'static [DomainFact]),
+    /// Partial on some operands, or not shown total, with no condition a sentence states
+    /// before it: the text says why. A condition that evaluates it tests nothing for it, so
+    /// where it has no value the routes may still disagree (an LLVM run aborts).
+    Untested(&'static str),
+}
+
+/// The domain facts the constant tables below share.
+mod domain {
+    use super::{DomainFact, DomainTerm};
+
+    const fn operand(position: usize) -> DomainTerm {
+        DomainTerm::Operand(position)
+    }
+
+    /// `0 <=Int operand`.
+    pub(super) const fn natural(position: usize) -> DomainFact {
+        DomainFact::AtMost(DomainTerm::Int(0), operand(position))
+    }
+
+    pub(super) const NONZERO_DIVISOR: [DomainFact; 1] = [DomainFact::NonZero(operand(1))];
+    pub(super) const NATURAL_AMOUNT: [DomainFact; 1] = [natural(1)];
+    /// `0 <=Int i`, `i <Int length(s)`: an index of the operand at 0, from its start.
+    pub(super) const INDEX: [DomainFact; 2] = [
+        natural(1),
+        DomainFact::Less(operand(1), DomainTerm::Length(0)),
+    ];
+    /// `0 <=Int start`, `start <=Int end`, `end <=Int length(s)`: a range of the operand at 0.
+    pub(super) const RANGE: [DomainFact; 3] = [
+        natural(1),
+        DomainFact::AtMost(operand(1), operand(2)),
+        DomainFact::AtMost(operand(2), DomainTerm::Length(0)),
+    ];
+    /// `0 <=Int length`, `0 <=Int value`, `value <=Int 255`: a length and a byte value.
+    pub(super) const PAD: [DomainFact; 3] = [
+        natural(1),
+        natural(2),
+        DomainFact::AtMost(operand(2), DomainTerm::Int(255)),
+    ];
+    /// `0 <=Int i`, `i +Int length(src) <=Int length(dest)`: a region of the operand at 0 that
+    /// the operand at 2 replaces.
+    pub(super) const REGION: [DomainFact; 2] = [
+        natural(1),
+        DomainFact::AtMost(
+            DomainTerm::Sum(&DomainTerm::Operand(1), &DomainTerm::Length(2)),
+            DomainTerm::Length(0),
+        ),
+    ];
+}
+
+impl BuiltinOperation {
+    /// Where the operation has a value ([`OperationDomain`]), from its meaning.
+    ///
+    /// - Truncating and Euclidean division and remainder have no value for a zero divisor, and
+    ///   `_dividesInt_`, which is `I2 %Int I1 ==Int 0`, none for a zero `I1`.
+    /// - A shift by a negative amount and a power with a negative exponent have none (KRS's
+    ///   guard reading, [`OperandBound`], counts the exponent's sign alone), nor `^%Int` with a
+    ///   negative exponent or a zero modulus, nor `log2Int` of a number below 1.
+    /// - `bitRangeInt(I, IDX, LEN)` is `(I >>Int IDX) modInt (1 <<Int LEN)`, with a value for a
+    ///   non-negative index and length; `signExtendBitRangeInt` also shifts by `LEN -Int 1`, so
+    ///   its length is at least 1.
+    /// - A byte read or update is at an index of the bytes, counted from the start, and an
+    ///   update writes a byte value (`0` to `255`); a substring is a range of the bytes or the
+    ///   string (`0 <= start <= end <= length`); padding takes a non-negative length and a byte
+    ///   value; `replaceAtBytes(dest, i, src)` replaces a region of `dest` from a non-negative
+    ///   `i`; `Int2Bytes(len, v, e)` a non-negative length.
+    /// - `findString` searches from a position of the haystack, `0` to its length included (the
+    ///   empty needle occurs at the end); `chrChar` takes a code point, `0` to `0x10FFFF`;
+    ///   `ordChar` a string of one code point; `String2Bool` the text `"true"` or `"false"`.
+    /// - `String2Int` has a value on a decimal integer's text only, which no builtin tests, so
+    ///   it is untested; so are the operations defined by the prelude's equations alone, every
+    ///   Float operation, whose domain KRS does not state, and I/O, whose value is its effect.
+    #[must_use]
+    pub const fn domain(self) -> OperationDomain {
+        use domain::{INDEX, NATURAL_AMOUNT, NONZERO_DIVISOR, PAD, RANGE, REGION, natural};
+        const POW_MOD: [DomainFact; 2] = [DomainFact::NonZero(DomainTerm::Operand(2)), natural(1)];
+        const LOG2: [DomainFact; 1] =
+            [DomainFact::Less(DomainTerm::Int(0), DomainTerm::Operand(0))];
+        const DIVIDES: [DomainFact; 1] = [DomainFact::NonZero(DomainTerm::Operand(0))];
+        const BIT_RANGE: [DomainFact; 2] = [natural(1), natural(2)];
+        const SIGN_EXTEND: [DomainFact; 2] = [
+            natural(1),
+            DomainFact::AtMost(DomainTerm::Int(1), DomainTerm::Operand(2)),
+        ];
+        const BYTE_UPDATE: [DomainFact; 4] = [
+            natural(1),
+            DomainFact::Less(DomainTerm::Operand(1), DomainTerm::Length(0)),
+            natural(2),
+            DomainFact::AtMost(DomainTerm::Operand(2), DomainTerm::Int(255)),
+        ];
+        const LENGTH: [DomainFact; 1] = [natural(0)];
+        const FIND: [DomainFact; 2] = [
+            natural(2),
+            DomainFact::AtMost(DomainTerm::Operand(2), DomainTerm::Length(0)),
+        ];
+        const CODE_POINT: [DomainFact; 2] = [
+            natural(0),
+            DomainFact::AtMost(DomainTerm::Operand(0), DomainTerm::Int(0x0010_FFFF)),
+        ];
+        const ONE_CODE_POINT: [DomainFact; 1] =
+            [DomainFact::Equal(DomainTerm::Length(0), DomainTerm::Int(1))];
+        const BOOLEAN_TEXT: [DomainFact; 1] = [DomainFact::OneOf {
+            operand: 0,
+            texts: &["true", "false"],
+        }];
+        match self {
+            Self::IntTDiv | Self::IntTMod | Self::IntEDiv | Self::IntMod => {
+                OperationDomain::Where(&NONZERO_DIVISOR)
+            }
+            Self::IntDivides => OperationDomain::Where(&DIVIDES),
+            Self::IntShiftLeft | Self::IntShiftRight | Self::IntPow => {
+                OperationDomain::Where(&NATURAL_AMOUNT)
+            }
+            Self::IntPowMod => OperationDomain::Where(&POW_MOD),
+            Self::IntLog2 => OperationDomain::Where(&LOG2),
+            Self::IntBitRange => OperationDomain::Where(&BIT_RANGE),
+            Self::IntSignExtendBitRange => OperationDomain::Where(&SIGN_EXTEND),
+            Self::BytesGet => OperationDomain::Where(&INDEX),
+            Self::BytesUpdate => OperationDomain::Where(&BYTE_UPDATE),
+            Self::BytesSubstring | Self::StringSubstring => OperationDomain::Where(&RANGE),
+            Self::BytesPadRight | Self::BytesPadLeft => OperationDomain::Where(&PAD),
+            Self::BytesReplaceAt => OperationDomain::Where(&REGION),
+            Self::BytesFromInt => OperationDomain::Where(&LENGTH),
+            Self::StringFind => OperationDomain::Where(&FIND),
+            Self::StringChr => OperationDomain::Where(&CODE_POINT),
+            Self::StringOrd => OperationDomain::Where(&ONE_CODE_POINT),
+            Self::StringToBool => OperationDomain::Where(&BOOLEAN_TEXT),
+            Self::StringToInt => OperationDomain::Untested(
+                "defined on a decimal integer's text only, which no builtin tests",
+            ),
+            Self::BytesFromIntNoLen | Self::BytesFromString => OperationDomain::Untested(
+                "defined by the prelude's equations, whose domain KRS does not restate",
+            ),
+            Self::IoWrite | Self::IoPutc | Self::IoLog => {
+                OperationDomain::Untested("an I/O hook, whose value is its effect")
+            }
+            // `#if` is a function of its three operands, defined where each is, and
+            // `Bytes2String` gives each byte its code point.
+            Self::KEqualIte | Self::BytesToString => OperationDomain::Total,
+            _ if self.is_total() => OperationDomain::Total,
+            _ => OperationDomain::Untested("a Float operation, whose domain KRS does not state"),
+        }
+    }
+}
+
+impl MapOperation {
+    /// Where the operation has a value ([`OperationDomain`]): a lookup at a key of the map. A
+    /// juxtaposition of items is undefined where two keys are equal; KRS builds a map of several
+    /// entries by updates, so the items it evaluates are one entry.
+    #[must_use]
+    pub const fn domain(self) -> OperationDomain {
+        const KEY: [DomainFact; 1] = [DomainFact::KeyOf { key: 1, map: 0 }];
+        match self {
+            Self::Get => OperationDomain::Where(&KEY),
+            _ => OperationDomain::Total,
+        }
+    }
+}
+
+impl ListOperation {
+    /// Where the operation has a value ([`OperationDomain`]):
+    ///
+    /// - a read `L [ I ]` at an index of the list, a negative one counting from the end
+    ///   (`-size(L) <= I < size(L)`);
+    /// - an update `L [ I <- V ]` at an index from the start (`0 <= I < size(L)`), for which KRS
+    ///   states no counting from the end;
+    /// - `makeList(N, V)` of a non-negative length;
+    /// - `range(L, F, B)` trimming counts the list holds (`0 <= F`, `0 <= B`, `F + B <= size(L)`);
+    /// - `updateList(L, I, R)` replacing a region from a non-negative `I` (`I + size(R) <=
+    ///   size(L)`).
+    #[must_use]
+    pub const fn domain(self) -> OperationDomain {
+        use domain::{REGION, natural};
+        const READ: [DomainFact; 2] = [
+            DomainFact::Less(DomainTerm::Operand(1), DomainTerm::Length(0)),
+            DomainFact::AtMost(
+                DomainTerm::Difference(&DomainTerm::Int(0), &DomainTerm::Length(0)),
+                DomainTerm::Operand(1),
+            ),
+        ];
+        const UPDATE: [DomainFact; 2] = [
+            DomainFact::Less(DomainTerm::Operand(1), DomainTerm::Length(0)),
+            natural(1),
+        ];
+        const MAKE: [DomainFact; 1] = [natural(0)];
+        const TRIM: [DomainFact; 3] = [
+            natural(1),
+            natural(2),
+            DomainFact::AtMost(
+                DomainTerm::Sum(&DomainTerm::Operand(1), &DomainTerm::Operand(2)),
+                DomainTerm::Length(0),
+            ),
+        ];
+        match self {
+            Self::Get => OperationDomain::Where(&READ),
+            Self::Update => OperationDomain::Where(&UPDATE),
+            Self::Make => OperationDomain::Where(&MAKE),
+            Self::Range => OperationDomain::Where(&TRIM),
+            Self::UpdateAll => OperationDomain::Where(&REGION),
+            _ => OperationDomain::Total,
+        }
+    }
+}
+
+impl SetOperation {
+    /// Where the operation has a value ([`OperationDomain`]): a concatenation of disjoint sets.
+    /// `Set2List` has a value, whose element order KRS does not fix.
+    #[must_use]
+    pub const fn domain(self) -> OperationDomain {
+        const DISJOINT: [DomainFact; 1] = [DomainFact::Disjoint { left: 0, right: 1 }];
+        match self {
+            Self::Concat => OperationDomain::Where(&DISJOINT),
+            _ => OperationDomain::Total,
+        }
+    }
+}
+
+// An operation counted total has the total domain, so the two statements of definedness agree;
+// `is_total` leaves out a few total operations its readers do not evaluate (`#if`, `Set2List`).
+const _: () = {
+    const fn consistent(total: bool, domain: OperationDomain) -> bool {
+        !total || matches!(domain, OperationDomain::Total)
+    }
+    let mut index = 0;
+    while index < BuiltinOperation::ALL.len() {
+        let operation = BuiltinOperation::ALL[index];
+        assert!(consistent(operation.is_total(), operation.domain()));
+        index += 1;
+    }
+    let mut index = 0;
+    while index < MapOperation::ALL.len() {
+        let operation = MapOperation::ALL[index];
+        assert!(consistent(operation.is_total(), operation.domain()));
+        index += 1;
+    }
+    let mut index = 0;
+    while index < ListOperation::ALL.len() {
+        let operation = ListOperation::ALL[index];
+        assert!(consistent(operation.is_total(), operation.domain()));
+        index += 1;
+    }
+    let mut index = 0;
+    while index < SetOperation::ALL.len() {
+        let operation = SetOperation::ALL[index];
+        assert!(consistent(operation.is_total(), operation.domain()));
+        index += 1;
+    }
+};
 
 // Every Bool-valued builtin, and only those, has a guard meaning; a canonical
 // relation is a positive, unswapped literal of itself with the same symmetry,

@@ -33,7 +33,7 @@
       "definition.k": "e08b9503421c82f014651e79236b0ecc1dae82e56e2e4316368ffba21be721b3"
     },
     "krs-configuration-cells-set-instances": {
-      "definition.k": "a06619bd2a6233f6e9be4969b3a6653fa91ef5d3d0c612c01e7852eea1a5d5ec"
+      "definition.k": "0da01ade86a24669afa8555d7dc4e516d717ab6a2d1ecb6509a9ed836381395e"
     }
   },
   "reference_sha256": {
@@ -44,7 +44,7 @@
     "krs-configuration-cells-objects": "ee55b73e078490923820b5bd8abfe9712f39e19308b6266a5a21ac9f18f59286",
     "krs-configuration-cells-queue": "4b317808832163506f0859913b5a6a4a257e76b0bab7ece52232e891551a106d",
     "krs-configuration-cells-optional-config-var-initial": "cf72e17bfd8065dec0ae6a81c07389aa76a455c215cdbee633adc13622798bfe",
-    "krs-configuration-cells-set-instances": "fac71e59385b4e267727ddba863f9d3d50b7aae1111813e8535a77cd86248b84"
+    "krs-configuration-cells-set-instances": "c9bb80d18f108bc4c0914a1d441291a103e68ed7ca0679b4a65b61612cb93a6a"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {

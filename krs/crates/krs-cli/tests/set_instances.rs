@@ -471,7 +471,8 @@ fn a_computed_instance_is_emitted_with_its_guards() {
 }
 
 /// Two computed instances in one rule are two guarded elements; the guards
-/// come before the author's condition, which reads what they found (`dz`);
+/// come before the author's condition, which reads what they found, and the
+/// condition tests its divisor before the division (`dz`, NT-37);
 /// set and map cells, a `cells!` instance's exact map cell among them
 /// (`bagc`), are part of the value looked up.
 #[test]
@@ -495,7 +496,7 @@ fn set_and_map_cells_and_two_instances_are_emitted_with_their_guards() {
         <oid> Krs_Instance0:Int </oid>
         <hits> 0 </hits>
         </obj>
-        requires (Krs_Instance0:Int ==K (N:Int +Int 100)) andThenBool ((10 /Int N:Int) >Int 0)
+        requires (Krs_Instance0:Int ==K (N:Int +Int 100)) andThenBool ((N:Int =/=Int 0) andThenBool ((10 /Int N:Int) >Int 0))
         rule [bags]:
         <k> bags N:Int => .K ... </k>
         <bag>

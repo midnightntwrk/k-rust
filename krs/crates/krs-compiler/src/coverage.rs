@@ -1515,34 +1515,25 @@ impl<'r> GuardReader<'r> {
         }
     }
 
-    /// Whether a partial Int operation is defined because its restricted
-    /// operand is a constant in range: a nonzero divisor, a non-negative
-    /// shift or exponent.
+    /// Whether a partial operation is defined because its restricted operands are
+    /// constants in range: the domain the catalog states, read where each of its facts
+    /// bounds one operand by a constant ([`krs_ir::OperandBound`]).
     fn defined_at(operation: BuiltinOperation, arguments: &[SemanticTerm]) -> bool {
-        let operand = |index: usize| arguments.get(index).and_then(Self::constant);
-        let zero = BigInt::from(0);
-        match operation {
-            BuiltinOperation::IntTDiv
-            | BuiltinOperation::IntEDiv
-            | BuiltinOperation::IntMod
-            | BuiltinOperation::IntTMod => operand(1).is_some_and(|divisor| divisor != zero),
-            BuiltinOperation::IntShiftLeft
-            | BuiltinOperation::IntShiftRight
-            | BuiltinOperation::IntPow => operand(1).is_some_and(|amount| amount >= zero),
-            // `bitRangeInt(I, IDX, LEN)` is `(I >>Int IDX) modInt (1 <<Int LEN)`:
-            // both shifts are defined for a non-negative amount, and the
-            // divisor is then at least 1.
-            BuiltinOperation::IntBitRange => {
-                operand(1).is_some_and(|index| index >= zero)
-                    && operand(2).is_some_and(|length| length >= zero)
-            }
-            // `signExtendBitRangeInt` also shifts by `LEN -Int 1`.
-            BuiltinOperation::IntSignExtendBitRange => {
-                operand(1).is_some_and(|index| index >= zero)
-                    && operand(2).is_some_and(|length| length >= BigInt::from(1))
-            }
-            _ => false,
-        }
+        let krs_ir::OperationDomain::Where(facts) = operation.domain() else {
+            return false;
+        };
+        facts.iter().all(|fact| {
+            fact.operand_bound().is_some_and(|(position, bound)| {
+                arguments
+                    .get(position)
+                    .and_then(Self::constant)
+                    .is_some_and(|value| match bound {
+                        krs_ir::OperandBound::NonZero => value != BigInt::from(0),
+                        krs_ir::OperandBound::AtLeast(least) => value >= BigInt::from(least),
+                        krs_ir::OperandBound::AtMost(most) => value <= BigInt::from(most),
+                    })
+            })
+        })
     }
 
     /// The canonical text of a defined term and records its rendering, and
@@ -1766,43 +1757,39 @@ impl<'r> GuardReader<'r> {
         }
     }
 
-    /// Where a partial Int operation is defined, as a formula: a nonzero
-    /// divisor, a non-negative shift or exponent, a non-negative bit index
-    /// and length (a positive one for a sign extension). `None` for any
-    /// other partial operation.
+    /// Where a partial operation is defined, as a formula: the conjunction of its domain's
+    /// facts as the catalog states them (a nonzero divisor, a non-negative shift or exponent,
+    /// a non-negative bit index and length, ..), each a bound of one operand by a constant.
+    /// `None` for an operation whose domain has a fact of another form, or none stated.
     fn domain(
         &mut self,
         operation: BuiltinOperation,
         arguments: &[SemanticTerm],
     ) -> Option<Formula> {
-        let zero = BigInt::from(0);
-        let at_least = |reader: &mut Self, index: usize, least: BigInt| {
-            Some(
-                reader
-                    .compare(arguments.get(index)?, Bound::Below, least)?
-                    .not(),
-            )
+        let krs_ir::OperationDomain::Where(facts) = operation.domain() else {
+            return None;
         };
-        match operation {
-            BuiltinOperation::IntTDiv
-            | BuiltinOperation::IntEDiv
-            | BuiltinOperation::IntMod
-            | BuiltinOperation::IntTMod => {
-                Some(self.compare(arguments.get(1)?, Bound::At, zero)?.not())
-            }
-            BuiltinOperation::IntShiftLeft
-            | BuiltinOperation::IntShiftRight
-            | BuiltinOperation::IntPow => at_least(self, 1, zero),
-            BuiltinOperation::IntBitRange => Some(Formula::And(
-                Box::new(at_least(self, 1, zero.clone())?),
-                Box::new(at_least(self, 2, zero)?),
-            )),
-            BuiltinOperation::IntSignExtendBitRange => Some(Formula::And(
-                Box::new(at_least(self, 1, zero)?),
-                Box::new(at_least(self, 2, BigInt::from(1))?),
-            )),
-            _ => None,
+        let mut formula: Option<Formula> = None;
+        for fact in facts {
+            let (position, bound) = fact.operand_bound()?;
+            let argument = arguments.get(position)?;
+            let atom = match bound {
+                krs_ir::OperandBound::NonZero => {
+                    self.compare(argument, Bound::At, BigInt::from(0))?.not()
+                }
+                krs_ir::OperandBound::AtLeast(least) => self
+                    .compare(argument, Bound::Below, BigInt::from(least))?
+                    .not(),
+                krs_ir::OperandBound::AtMost(most) => self
+                    .compare(argument, Bound::Above, BigInt::from(most))?
+                    .not(),
+            };
+            formula = Some(match formula {
+                None => atom,
+                Some(earlier) => Formula::And(Box::new(earlier), Box::new(atom)),
+            });
         }
+        formula
     }
 
     /// Where `map::get(map, key)` is defined: `key` is a key of `map`.
