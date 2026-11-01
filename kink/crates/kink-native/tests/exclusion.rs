@@ -235,6 +235,25 @@ fn k_rust_backend() -> PathBuf {
 /// gains an outcome, and the five that leave were never census hooks (`FLOAT.`, asserted below),
 /// so no definition-level status moves; a run that read one of their values was marked and
 /// excluded by its list, and now is not, its value being determined.
+///
+/// GAP A1 (`draft/kink27/gap`, ticket A1; k-rust `docs/amendments.md` AM-1, AM-2, AM-3, AM-7):
+/// `chosen_value` loses the arms of the classes `read-count` (`IO.read`), `byte-encoding`
+/// (`String2Bytes`, `Bytes2String`), `hex-case` (the eight hex digest spellings; `ecdsaPubKey`
+/// keeps its `outside-domain` arm, now merged into the ECDSA one) and `curve` (both
+/// `isValidPoint`s, and the BN128 sum, product and pairing on every outcome), and the
+/// `outside-domain` value arm of `BYTES.replaceAt` up to the end of its `Bytes`; the sum, product
+/// and pairing join the `\bottom` arm (`outside-domain` on a non-point), and `BYTES.replaceAt`
+/// stays there. The removed hooks are listed in [`K_RUST_GAP_A1_HOOKS`]. Each removed arm's
+/// values are determined, so the classifier narrows exactly there: the count a `#read` returns
+/// is the file's, which k-rust's console contract gives (and a kink request has no console, so
+/// its `#read` is unsupported and on `unsupportedHooks`, as before); the byte conversions are one
+/// byte per code point (AM-1), a hex output is lowercase (AM-2), the BN128 hooks on points are
+/// alt_bn128's (AM-3) and `replaceAtBytes` up to the end is the replaced `Bytes` (AM-7). A run
+/// that reads one of these values now carries no mark for it, and has the same leaves in every
+/// model of the definition read with those amendments. The census is not narrowed: it reads every
+/// hook it read before (`String2Bytes`, `Bytes2String`, the undocumented crypto hooks and
+/// `IO.read` included; dropping them is the kink session's GK-1/GK-2), so no definition-level
+/// status moves.
 #[test]
 fn implementation_chosen_hooks_are_k_rusts() {
     let backend = k_rust_backend();
@@ -250,8 +269,9 @@ fn implementation_chosen_hooks_are_k_rusts() {
     );
     let nan = function(&float, "nan_sign");
     let zeros = function(&float, "signed_zeros");
-    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP A2 (e3a79aae -> 111edafc,
-    // the Float arms narrowed as the doc above says),
+    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP A1 on A2 (e3a79aae ->
+    // 111edafc at A2, the Float arms narrowed; -> c25b0d29 at A1, the arms A1 removed; as the doc
+    // above says),
     // `float::nan_sign`'s at GAP K6 (c17041cf -> f7e3a96f: only its reason string changed,
     // "k-rust's reading, false" to "k-rust's pick, false", so it classifies the same hook on the
     // same arguments and the list derived from it is unchanged); a changed text needs the hook
@@ -269,7 +289,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         [
             (
                 "chosen_value",
-                "111edafc9bee78b54e27b249525469e271301c0ca2963cf5cd53169d4bcc99cc".to_owned()
+                "c25b0d29db6d630096d800a77fac164484cc18433e5e5ed7ba405fbbb1569087".to_owned()
             ),
             (
                 "float::mixed_destination",
@@ -299,7 +319,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
     let mut hooks = arm_hooks(chosen);
     assert_eq!(
         hooks.len(),
-        8 + K_RUST_GAP_K1_HOOKS.len() + K_RUST_GAP_K2_HOOKS.len(),
+        8 + K_RUST_GAP_K1_HOOKS.len() + K_RUST_GAP_K2_HOOKS.len() - K_RUST_GAP_A1_HOOKS.len(),
         "{chosen}"
     );
     assert!(mixed.contains("BinaryOperation::of(hook)?"), "{mixed}");
@@ -317,6 +337,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         .iter()
         .chain(&K_RUST_GAP_K1_HOOKS)
         .chain(&K_RUST_GAP_K2_HOOKS)
+        .filter(|hook| !K_RUST_GAP_A1_HOOKS.contains(*hook))
         .map(|hook| (*hook).to_owned())
         .collect::<BTreeSet<_>>();
     assert_eq!(hooks, k_rust);
@@ -325,7 +346,16 @@ fn implementation_chosen_hooks_are_k_rusts() {
         K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.len()
             + K_RUST_GAP_K1_HOOKS.len()
             + K_RUST_GAP_K2_HOOKS.len()
+            - K_RUST_GAP_A1_HOOKS.len()
     );
+    // GAP A1: each hook it removed was named before, by the census list or by K1.
+    for hook in K_RUST_GAP_A1_HOOKS {
+        assert!(
+            K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook)
+                || K_RUST_GAP_K1_HOOKS.contains(&hook),
+            "{hook}"
+        );
+    }
     // GAP K2: none of its hooks is a census hook.
     for hook in K_RUST_GAP_K2_HOOKS {
         assert!(
@@ -388,6 +418,25 @@ const K_RUST_GAP_K1_HOOKS: [&str; 20] = [
     "SECP256K1.ecdsaRecover",
     "FLOAT.float2int",
     "FLOAT.root",
+];
+
+/// The hooks GAP A1 removed from k-rust's `chosen_value`, whose values the amendments AM-1, AM-2
+/// and AM-3 of k-rust's `docs/amendments.md`, and k-rust's console contract, determine
+/// (`implementation_chosen_hooks_are_k_rusts`).
+const K_RUST_GAP_A1_HOOKS: [&str; 13] = [
+    "IO.read",
+    "KRYPTO.bn128valid",
+    "KRYPTO.bn128g2valid",
+    "BYTES.string2bytes",
+    "BYTES.bytes2string",
+    "KRYPTO.keccak256",
+    "HASH.keccak256",
+    "KRYPTO.sha256",
+    "HASH.sha256",
+    "KRYPTO.sha3256",
+    "HASH.sha3_256",
+    "KRYPTO.ripemd160",
+    "HASH.ripemd160",
 ];
 
 /// The hooks GAP K2 added to k-rust's `chosen_value` (its `outside-domain` `\bottom`s, and the
@@ -1248,7 +1297,8 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
 /// - the constant fold leaves every application of a class unfolded, so no class value is in the
 ///   compiled definition a run starts from;
 /// - outside `Execution` every class that is a value is withheld (left unevaluated as a defined
-///   value) except `read-count`, whose `#read` a request without a console leaves unsupported;
+///   value; before GAP A1 except `read-count`, whose `#read` a request without a console leaves
+///   unsupported);
 /// - the evaluation mode belongs to the request: executions and searches run in `Execution`, every
 ///   load and proof route in `Proof`, whatever scope the caller holds;
 /// - a search lists every mark it noted, a pattern's matching included, and a search with an empty
@@ -1267,8 +1317,16 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
 /// GAP A2 re-pin of the second passage (fd18c558 -> 80fa610a): `float-rounding` is now only a
 /// `Float2Int` tie, the other conversions and the roots being IEEE 754's
 /// (`docs/amendments.md` AM-4, AM-5), so the passage lists "a `Float2Int` tie (class
-/// `float-rounding`)" where it listed "a conversion or root of class `float-rounding`". Every class
-/// but `read-count` is still withheld outside `Execution`, so the census reads the same.
+/// `float-rounding`)" where it listed "a conversion or root of class `float-rounding`". No class
+/// left the withheld set, so the census reads the same.
+///
+/// GAP A1 re-pin of the second passage (80fa610a -> 1faa97a3; its opening with it, "withheld there
+/// except" to "withheld there"): the classes `read-count`, `hex-case`, `byte-encoding` and `curve`
+/// are gone (their values determined by k-rust's console contract and amendments AM-1, AM-2 and
+/// AM-3), so the passage lists no exception and only `outside-domain` as a class of unknown
+/// definedness. What the census rests on is unchanged, and stronger: outside `Execution` every
+/// class that is a value is withheld, so no class value enters the fold, the load, a proof route or
+/// kink's feasibility checks.
 #[test]
 fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
     let passage = |anchor, opening, lines, digest| passage::Passage {
@@ -1289,9 +1347,9 @@ fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
             ),
             passage(
                 "## Implementation-chosen hook values",
-                "Every class that is a value is withheld there except",
+                "Every class that is a value is withheld there:",
                 1,
-                "80fa610acca4d37c96cb974bd3743b084f6ad959402ced3f2a0f179f59a2d03e",
+                "1faa97a36648bad6c95129a6434dd7f5504b2efde24e464047442b3bed53cc7e",
             ),
             passage(
                 "## Implementation-chosen hook values",

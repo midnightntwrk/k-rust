@@ -11209,9 +11209,8 @@ fn console_getc_consumes_sequential_reads_in_term_order() {
 }
 
 /// An execution with the default options runs in `EvaluationMode::Proof`, and still reads the
-/// console: a `#read` that returns two or more characters (class `read-count`) is not withheld
-/// there, because a proof route has no console and so never meets one; only the order of a run
-/// of a program with a console decides how many characters a read returns.
+/// console: how many characters a `#read` returns is the file's, as the characters are, so a read
+/// of two or more characters is no open value and is evaluated there too.
 #[test]
 fn a_default_options_execution_reads_two_or_more_console_characters() {
     assert_eq!(

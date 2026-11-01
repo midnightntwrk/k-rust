@@ -11,7 +11,6 @@ use super::{
     UnsupportedHookReason, describe_int, expect_arity, int_term, read_int,
 };
 use crate::allowance::Allowance;
-use crate::choice_sampling;
 use crate::term::{Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -60,39 +59,15 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    // Under a `choice_sampling` seed, the encoding the seed chooses (class `byte-encoding`):
-    // k-rust's, or UTF-8, a named encoding a model may read the conversions by. Where UTF-8
-    // decodes no string from the bytes, that model's `total` `Bytes2String` has a value the
-    // encoding does not give, so the application is left unevaluated, as k-rust leaves
-    // `String2Bytes` above U+00FF, and no value is taken.
-    if let Some(seed) = choice_sampling::seed()
-        && choice_sampling::bit(seed)
-    {
-        return Ok(match std::str::from_utf8(&bytes) {
-            Ok(text) => {
-                choice_sampling::taken(super::ChosenClass::ByteEncoding);
-                BuiltinResult::Value(string_term(text))
-            }
-            Err(_) => BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
-                defined: true,
-                detail: "Bytes2String of bytes that are no UTF-8 sequence, read as UTF-8".into(),
-            }),
-        });
-    }
-    if choice_sampling::seed().is_some() {
-        choice_sampling::taken(super::ChosenClass::ByteEncoding);
-    }
+    // Each byte is the code point of its value (AM-1 of `docs/amendments.md`).
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
 /// `String2Bytes` is the inverse of `Bytes2String`: each code point `b` in `0..=255` maps to the
-/// byte `b`. That is k-rust's pick, not a value the text fixes: `domains.md` names no encoding
-/// for the pair (it bounds the time and makes the result a copy independent of later mutation,
-/// and warns that encodings may change), so every evaluated application is open, class
-/// `byte-encoding`, which an execution takes and marks and every other evaluation leaves
-/// unevaluated (`super::chosen_value`; `encodeBytes` and `decodeBytes`, which name their
-/// encoding, are determined on valid input). The hook is `total`, so on a string holding a code
-/// point above 255, which this pick maps to no byte sequence, the application is left
+/// byte `b`, as amendment AM-1 of `docs/amendments.md` reads the conversions, so every value is
+/// determined. The String domain supports the code points 0 to 255 (`domains.md`, "Strings"),
+/// and AM-1 states the encoding there only; the hook is `total`, so on a string holding a code
+/// point above 255, to which the reading gives no byte sequence, the application is left
 /// unevaluated on every route.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
@@ -111,15 +86,6 @@ fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
             },
         ));
     };
-    // Under a `choice_sampling` seed, where k-rust takes a value, the encoding the seed chooses
-    // (class `byte-encoding`): k-rust's, or UTF-8, which encodes every string. An application
-    // k-rust leaves unevaluated is no pick and stays unevaluated.
-    if let Some(seed) = choice_sampling::seed() {
-        choice_sampling::taken(super::ChosenClass::ByteEncoding);
-        if choice_sampling::bit(seed) {
-            return Ok(BuiltinResult::Value(bytes_term(value.as_bytes())));
-        }
-    }
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
@@ -238,22 +204,17 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
 ///
 /// "Valid index" is defined two sections above, for `B[I <- V]` (`domains.md`:2106-2107): an
 /// index that is not "less than zero or greater than or equal to the length", `0 <= i < K`. The
-/// sentence applies it to `index + N`, the end of the replaced range, one past its last element.
-/// Read literally, a replacement that ends at the length (`INDEX + N == K`) is `#False`; the
-/// description's value clause ("equal to `dest` except the `N` elements starting at `index` are
-/// replaced") gives the replaced `DEST` there, the end bound of a range (`0 <= INDEX + N <= K`).
-/// k-rust does not decide between the two, so:
-/// - `INDEX + N < 0` or `INDEX + N > K` is no valid index under either reading: `#False` is
-///   stated (`Undefinedness::Stated`).
+/// sentence applies it to `index + N`, the end of the replaced range, one past its last element,
+/// which amendment AM-7 of `docs/amendments.md` reads as the end bound of the range,
+/// `0 <= INDEX + N <= K`, the bound under which the value clause ("equal to `dest` except the `N`
+/// elements starting at `index` are replaced") names elements of `DEST`. So:
+/// - `INDEX + N < 0` or `INDEX + N > K`: `#False` is stated (`Undefinedness::Stated`).
 /// - `INDEX < 0` with `0 <= INDEX + N <= K`: "the `N` elements starting at `index`" names no
-///   element of `DEST` at a negative start, so the description says nothing there (and states no
-///   `#False` under the end-bound reading), as `updateList` at a negative index: k-rust's
-///   `\bottom` is one model's (`Undescribed`, class `outside-domain`).
-/// - `0 <= INDEX` and `INDEX + N == K`: `#False` read literally, the replaced `DEST` by the value
-///   clause, so the outcome is open. The evaluator gives the value, which
-///   [`replaces_up_to_the_end`] makes class `outside-domain` for `chosen_value`: an execution takes
-///   it, marked, and every other evaluation leaves the application of unknown definedness.
-/// - `0 <= INDEX` and `INDEX + N < K`: the described value under both readings.
+///   element of `DEST` at a negative start, so the description says nothing there, as
+///   `updateList` at a negative index: k-rust's `\bottom` is one model's (`Undescribed`, class
+///   `outside-domain`).
+/// - `0 <= INDEX` and `INDEX + N <= K`: the described value, a replacement that ends at the
+///   length included (AM-7).
 fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.replaceAt", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
@@ -272,39 +233,8 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(index) = index.to_usize() else {
         return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
-    // Under a `choice_sampling` seed a replacement up to the end takes the model the seed
-    // chooses: `#False` read literally (`\bottom`, which is `outside-domain` at its scoped site
-    // and which the seed may in turn replace by a value of the sort) or the replaced `DEST`. A
-    // `total` declaration excludes `\bottom`, so there the seed takes the replaced `DEST`.
-    if index + replacement.len() == bytes.len()
-        && let Some(seed) = choice_sampling::seed()
-    {
-        choice_sampling::taken(super::ChosenClass::OutsideDomain);
-        if choice_sampling::bit(seed) && !choice_sampling::declared_total() {
-            return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
-        }
-    }
     bytes[index..index + replacement.len()].copy_from_slice(&replacement);
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
-}
-
-/// Whether `replaceAtBytes(DEST, INDEX, SRC)` replaces up to the end of `DEST` from a
-/// nonnegative `INDEX`, `INDEX + lengthBytes(SRC) == lengthBytes(DEST)`: the arguments at which
-/// the two readings of "valid index" disagree ([`replace_at`]), and the evaluator's value is one
-/// model's.
-pub(super) fn replaces_up_to_the_end(arguments: &[Term]) -> bool {
-    let [destination, index, source] = arguments else {
-        return false;
-    };
-    let (Some(destination), Some(index), Some(source)) = (
-        bytes_value(destination),
-        read_int(index),
-        bytes_value(source),
-    ) else {
-        return false;
-    };
-    index.sign() != Sign::Minus
-        && index + BigInt::from(source.len()) == BigInt::from(destination.len())
 }
 
 /// `padRightBytes` (`left` false) or `padLeftBytes` (`left` true) under the cap that `allowance`
@@ -788,39 +718,37 @@ mod tests {
         );
     }
 
-    /// `#False` where `index + N` is no valid index under either reading of the phrase (below 0
-    /// or above the length); at a negative start whose `index + N` is one, and nowhere the text
-    /// states it, `\bottom` is one model's (`Undescribed`); where `index + N` is the length the
-    /// evaluator's value is the end-bound reading's, of class `outside-domain` there
-    /// ([`replaces_up_to_the_end`]).
+    /// `#False` where `index + N` is no end bound of the range (below 0 or above the length); at
+    /// a negative start whose `index + N` is one, and nowhere the text states it, `\bottom` is one
+    /// model's (`Undescribed`); from a nonnegative start up to the length included, the replaced
+    /// `Bytes` (AM-7).
     #[test]
     fn replace_at_past_the_end_is_bottom() {
         let replace = |index: i64, source: &[u8]| {
-            let arguments = [bytes_term(b"abc"), integer(index), bytes_term(source)];
-            (replace_at(&arguments), replaces_up_to_the_end(&arguments))
+            replace_at(&[bytes_term(b"abc"), integer(index), bytes_term(source)])
         };
         let stated = BuiltinResult::Bottom(Undefinedness::Stated);
         let undescribed = BuiltinResult::Bottom(Undefinedness::Undescribed);
         let value = |bytes: &[u8]| BuiltinResult::Value(bytes_term(bytes));
-        for (index, source, result, open) in [
-            (2, &b"xyz"[..], stated.clone(), false),
-            (3, b"x", stated.clone(), false),
-            (4, b"", stated.clone(), false),
-            (100, b"", stated.clone(), false),
-            (-4, b"xx", stated.clone(), false),
-            (-1, b"", stated.clone(), false),
-            (-1, b"xx", undescribed.clone(), false),
-            (-1, b"xxxx", undescribed.clone(), false),
-            (-2, b"xx", undescribed.clone(), false),
-            (1, b"", value(b"abc"), false),
-            (0, b"xy", value(b"xyc"), false),
-            (1, b"xy", value(b"axy"), true),
-            (0, b"xyz", value(b"xyz"), true),
-            (3, b"", value(b"abc"), true),
+        for (index, source, result) in [
+            (2, &b"xyz"[..], stated.clone()),
+            (3, b"x", stated.clone()),
+            (4, b"", stated.clone()),
+            (100, b"", stated.clone()),
+            (-4, b"xx", stated.clone()),
+            (-1, b"", stated.clone()),
+            (-1, b"xx", undescribed.clone()),
+            (-1, b"xxxx", undescribed.clone()),
+            (-2, b"xx", undescribed.clone()),
+            (1, b"", value(b"abc")),
+            (0, b"xy", value(b"xyc")),
+            (1, b"xy", value(b"axy")),
+            (0, b"xyz", value(b"xyz")),
+            (3, b"", value(b"abc")),
         ] {
             assert_eq!(
                 replace(index, source),
-                (Ok(result), open),
+                Ok(result),
                 "replaceAtBytes(abc, {index}, {source:?})"
             );
         }
@@ -1203,9 +1131,9 @@ mod tests {
         );
     }
 
-    /// Under k-rust's pick for the pair, one byte per code point (open, class `byte-encoding`; see
-    /// `string_to_bytes`), every code point up to 255 is the byte of the same number, and a
-    /// string with a code point above 255 has no byte sequence `Bytes2String` maps to it.
+    /// One byte per code point (AM-1; see `string_to_bytes`): every code point up to 255 is the
+    /// byte of the same number, and a string with a code point above 255 has no byte sequence
+    /// `Bytes2String` maps to it.
     #[test]
     fn string_to_bytes_above_255_is_unspecified() {
         assert_eq!(

@@ -937,8 +937,7 @@ fn chosen_value_met(
             "read the literal {hook} of the request, whose element the definition leaves open ({})",
             class.name()
         ),
-        k_rust_backend::builtin::ChosenClass::Curve
-        | k_rust_backend::builtin::ChosenClass::OutsideDomain => format!(
+        k_rust_backend::builtin::ChosenClass::OutsideDomain => format!(
             "read an outcome of {hook} the definition leaves open: its value and, where the definition also admits no value, whether it has one ({})",
             class.name()
         ),
@@ -949,9 +948,6 @@ fn chosen_value_met(
         | k_rust_backend::builtin::ChosenClass::LetterCase
         | k_rust_backend::builtin::ChosenClass::SignedZero
         | k_rust_backend::builtin::ChosenClass::FreshName
-        | k_rust_backend::builtin::ChosenClass::ReadCount
-        | k_rust_backend::builtin::ChosenClass::HexCase
-        | k_rust_backend::builtin::ChosenClass::ByteEncoding
         | k_rust_backend::builtin::ChosenClass::FloatRounding
         | _ => format!(
             "read a value of {hook} the definition leaves open ({})",

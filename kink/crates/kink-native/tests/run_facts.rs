@@ -296,6 +296,22 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// order k-rust fixes"), as the rest of the document does, instead of as a reading k-rust keeps;
 /// the models it quantifies over are the same (those that agree with the request's inputs and
 /// with that order), and so are the marks, so A-1's exclusions read the same.
+///
+/// GAP A1 re-pin of the mark passage (`draft/kink27/gap`, ticket A1): two sentences changed, both
+/// by dropping classes k-rust no longer has. The first now names `outside-domain` alone as the
+/// class whose `\bottom` is noted (the BN128 `\bottom` of a non-point, which was `curve`, is
+/// `outside-domain` now) and no longer names `read-count` in a backend execution with default
+/// options; the definedness-check exception names `outside-domain` alone. The marks that go are
+/// those of values that are now determined: a `#read`'s count, which is the file's and given by
+/// k-rust's console contract (kink's requests have no console, so they never read one), the byte
+/// conversions (one byte per code point, k-rust `docs/amendments.md` AM-1), a hex output's
+/// letter case (lowercase, AM-2), a BN128 outcome on points (alt_bn128, AM-3) and `replaceAtBytes`
+/// up to the end (AM-7). So a run's list loses exactly marks of values every model of the
+/// definition read with those amendments gives alike, and the guarantee for a run whose list is
+/// empty (the passage's last sentence, unchanged) holds over those models: A-1's exclusion of a
+/// run with a non-empty list now admits runs that read only such values, which agree in every
+/// such model. Whether kink adopts the amendments' models as its own is the premise this re-pin
+/// rests on (GAP Phase 2's design; the kink session's to confirm).
 const A1_PASSAGES: [passage::Passage; 7] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -323,7 +339,7 @@ const A1_PASSAGES: [passage::Passage; 7] = [
         anchor: "### Marks in executions",
         opening: "A mark is noted where the evaluator takes",
         lines: 26,
-        digest: "ed6562afa86c1b402fed8471868d1221449d37876b77cbcd7f0e3c524dd56c30",
+        digest: "5715c6861e9feb6dde9d56d81e8d3a852a493b9b9ba900760f9e3f8ec423905b",
     },
     passage::Passage {
         file: "docs/compatibility.md",
@@ -674,8 +690,8 @@ mod kink_tier {
     /// a class withheld outside an execution is not flagged as such
     /// (`state_references_implementation_chosen`): the seed's normalization runs inside the run.
     /// Fix round 1 (review should-fix 3 and 4), the positive controls of that check: a state
-    /// applying `#read` (class `read-count`, which without a console takes no value and notes no
-    /// mark) or `Float2String` (a run-list hook) is flagged, and the run from `done(#read(0, 3))`
+    /// applying `#read` (a census hook, which without a console takes no value and notes no mark;
+    /// its count is no class since GAP A1) or `Float2String` (a run-list hook) is flagged, and the run from `done(#read(0, 3))`
     /// lists `IO.read` on `unsupportedHooks` and no class value.
     /// GAP K1: `nan`, `mz` and `mx` reach their zero as `1.0 -Float 1.0` from N = 1 (+0.0 by
     /// `fp.sub`; their controls are N = 2), where they converted `Int2Float(0, 53, 11)`, whose sign

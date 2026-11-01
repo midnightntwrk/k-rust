@@ -604,13 +604,9 @@ export type ChosenClass =
   | 'letter-case'
   | 'signed-zero'
   | 'fresh-name'
-  | 'read-count'
   | 'effect-order'
   | 'fresh-association'
-  | 'hex-case'
-  | 'byte-encoding'
   | 'float-rounding'
-  | 'curve'
   | 'outside-domain'
   | 'literal'
 

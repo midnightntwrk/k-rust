@@ -4489,8 +4489,9 @@ module MAIN
 /// definition leaves open in the classes `float-rounding` (an inexact `Int2Float` or
 /// `roundFloat`, `Int2Float` of 0, `Float2Int` at a tie, an inexact root), `outside-domain` (a root
 /// of a negative value, a floor, ceiling or truncation of a non-integer to a zero or of an
-/// infinity) and `byte-encoding` (every `String2Bytes` and `Bytes2String`), while the determined
-/// neighbours fold. Before K1 every one of these folded to k-rust's pick.
+/// infinity), while the determined neighbours fold. Before K1 every one of these folded to
+/// k-rust's pick. (`String2Bytes` and `Bytes2String`, open from K1 to A1 and determined by AM-1
+/// of `docs/amendments.md` since, are `BYTES` hooks, which the fold does not evaluate.)
 ///
 /// GAP A2: `Int2Float`, `roundFloat`, an inexact root and `floorFloat`, `ceilFloat` and
 /// `truncFloat` are IEEE 754's (`docs/amendments.md`, AM-4 to AM-6), so they fold again; the
@@ -4500,8 +4501,6 @@ fn leaves_conversions_roots_and_encodings_the_definition_leaves_open_unfolded() 
     let open = [
         "Float2Int(2.5)",
         "rootFloat(-4.0, 2)",
-        r#"String2Bytes("a")"#,
-        r#"Bytes2String(b"a")"#,
     ];
     let determined = [
         "Int2Float(3, 24, 8)",

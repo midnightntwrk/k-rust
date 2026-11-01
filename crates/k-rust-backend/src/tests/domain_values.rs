@@ -817,10 +817,9 @@ fn mint_and_float_hooks_read_no_token_of_a_sort_named_after_their_builtin() {
 /// elements, and the `STRING`, `BYTES`, `KRYPTO` and `IO` hooks give a token the value they give
 /// the builtin value of the same payload. `STRING.token2string` reads any token's text.
 ///
-/// The hooks are evaluated in an execution: `Bytes2String`, `String2Bytes` (`byte-encoding`) and
-/// a hex `Keccak256` (`hex-case`) have values the definition leaves open (GAP K1), which every
-/// other evaluation withholds at both sorts alike; an execution takes them, so the comparison
-/// reads the value each sort gives.
+/// The hooks are evaluated in an execution, which takes every value an evaluator gives, so the
+/// comparison reads the value each sort gives; `Bytes2String`, `String2Bytes` (AM-1) and a hex
+/// `Keccak256` (AM-2) are determined and would be evaluated outside one too.
 #[test]
 fn string_and_bytes_hooks_read_a_token_as_its_payload() {
     with_evaluation(

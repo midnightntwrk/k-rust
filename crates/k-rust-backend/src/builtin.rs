@@ -127,10 +127,7 @@ pub enum BuiltinResult {
 /// takes it and marks it, every other evaluation leaves the application unevaluated with its
 /// definedness unknown, and at a `total` symbol, where `\bottom` is no model, it is left
 /// unevaluated as a defined value on every route. Each evaluator site that answers
-/// `Undescribed` states why its description is scoped. The BN128 hooks answer `Undescribed` too:
-/// the curve is not named, so whether a pair is a point, and with it whether a sum, a multiple or
-/// a pairing is defined, is one model's, and every outcome of theirs is class `curve` by its
-/// hook; at a `total` symbol their `\bottom` is no model either.
+/// `Undescribed` states why its description is scoped.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Undefinedness {
     /// `\bottom` in every model of the definition.
@@ -393,9 +390,13 @@ pub(crate) fn bounded_floor(floor: u64) -> u64 {
 /// (`Float2String` round-trips every `Float` through a syntax with one `NaN` lexeme per format),
 /// the one-format arithmetic hooks (their `smt-hook`s name `roundNearestTiesToEven`), `minFloat`
 /// and `maxFloat` with one NaN operand (`fp.min` gives the other operand), the raw digests and
-/// the digest bytes (named standard hash functions), `ECDSARecover` and `ECDSAPubKey` on their
-/// documented inputs, `encodeBytes` and `decodeBytes` (they name their encoding), and `IO.getc`,
-/// `IO.putc` and `IO.write` (a function of the request's console). A hook without an evaluator
+/// the digest bytes (named standard hash functions), the hex digests in lowercase (AM-2 of
+/// `docs/amendments.md`), `ECDSARecover` and `ECDSAPubKey` on their documented inputs (a key's
+/// hex in lowercase, AM-2), the BN128 hooks on points (alt_bn128, AM-3), `encodeBytes` and
+/// `decodeBytes` (they name their encoding), `String2Bytes` and `Bytes2String` (one byte per code
+/// point, AM-1), `replaceAtBytes` up to the end of its `Bytes` (AM-7), and `IO.getc`, `IO.read`,
+/// `IO.putc` and `IO.write` (a function of the request's console, the count a read returns
+/// included). A hook without an evaluator
 /// leaves its application unevaluated and so chooses no value. The undefinedness of a partial
 /// hook where its description excludes every value is determined; where its description only
 /// does not cover the arguments, the evaluator's `\bottom` is not classified here yet.
@@ -416,8 +417,6 @@ pub enum ChosenClass {
     SignedZero,
     /// The names of the binders `substOne` traverses, which `substitution.md` does not fix.
     FreshName,
-    /// How many characters a `#read` that returned two or more characters returns.
-    ReadCount,
     /// Whether a decided `andBool`, `orBool`, `impliesBool` or `#if` performs the effects of the
     /// operand it makes irrelevant. Not a value, so [`chosen_value`] never returns it.
     EffectOrder,
@@ -430,22 +429,10 @@ pub enum ChosenClass {
     /// names, whatever spelling compilation gives its counter advance, and, failing closed, any
     /// rule whose compiled counter the load cannot read as an advance by 0 or 1.
     FreshAssociation,
-    /// The case of a letter digit in the hex `String` of `Keccak256`, `Sha256`, `RipEmd160`,
-    /// `ECDSAPubKey` and their `HASH` and `KRYPTO.sha3256` spellings: "`String` values are
-    /// interpreted as hex-encoded data" (`krypto.md`:16) names no case and, unlike
-    /// `Base2String`'s, no consistency clause, so each application's case is a model's choice.
-    HexCase,
-    /// The bytes `String2Bytes` gives a string, and the string `Bytes2String` gives bytes: the
-    /// text names no encoding (`domains.md`, "String and Bytes conversion").
-    ByteEncoding,
     /// The value of `Float2Int` at a tie: "rounds to the nearest integer" names two there and no
     /// tie rule. The other Float conversions and the roots round as IEEE 754's roundTiesToEven
     /// (`docs/amendments.md`, AM-4 and AM-5), which determines them.
     FloatRounding,
-    /// Every outcome of the BN128 hooks, a value or `\bottom`: "The BN128 elliptic curve"
-    /// (`krypto.md`:95) names no curve parameters, so which pairs are points, and every sum,
-    /// product and pairing, are a model's.
-    Curve,
     /// An outcome of a hook where its description gives none and does not exclude every value
     /// (`\bottom` and every value are models): the values of `ecdsaRecover` and `ecdsaPubKey`
     /// outside their documented inputs and of `rootFloat` outside a positive finite value and a
@@ -473,27 +460,22 @@ impl ChosenClass {
             Self::LetterCase => "letter-case",
             Self::SignedZero => "signed-zero",
             Self::FreshName => "fresh-name",
-            Self::ReadCount => "read-count",
             Self::EffectOrder => "effect-order",
             Self::FreshAssociation => "fresh-association",
-            Self::HexCase => "hex-case",
-            Self::ByteEncoding => "byte-encoding",
             Self::FloatRounding => "float-rounding",
-            Self::Curve => "curve",
             Self::OutsideDomain => "outside-domain",
             Self::Literal => "literal",
         }
     }
 
     /// Whether the hook's description may leave an application of this class without a value,
-    /// so that its definedness is open too unless the symbol is declared `total`: `curve` (a
-    /// pair of integers is a point on some curves and not on others) and `outside-domain` (the
-    /// description gives no value there, so `\bottom` is a model), and `literal`, whose element
-    /// can decide whether what a sentence holding it computes is defined (a machine-integer
-    /// division by `256p8`, which is zero in k-rust's model). Every other class is a choice among values the
-    /// description gives.
+    /// so that its definedness is open too unless the symbol is declared `total`:
+    /// `outside-domain` (the description gives no value there, so `\bottom` is a model), and
+    /// `literal`, whose element can decide whether what a sentence holding it computes is
+    /// defined (a machine-integer division by `256p8`, which is zero in k-rust's model). Every
+    /// other class is a choice among values the description gives.
     pub fn may_be_undefined(self) -> bool {
-        matches!(self, Self::Curve | Self::OutsideDomain | Self::Literal)
+        matches!(self, Self::OutsideDomain | Self::Literal)
     }
 
     /// Whether an application whose value is of this class is defined in every model, its symbol
@@ -519,7 +501,7 @@ pub struct ChosenValue {
     pub withheld_in_proof: bool,
     /// Whether the application is defined in every model (the `Unspecified` outcome's `defined`
     /// outside an execution): the description gives it a value, whichever it is, or its symbol
-    /// is declared `total`. `false` for `curve` and `outside-domain` at a partial symbol, where
+    /// is declared `total`. `false` for `outside-domain` at a partial symbol, where
     /// `\bottom` is a model too, so that even an evaluation that reads only the application's
     /// definedness depends on the pick (`crate::path_facts`).
     pub defined: bool,
@@ -538,14 +520,9 @@ impl ChosenValue {
         Self {
             hook,
             class,
-            // Every class that is a value but `ReadCount`: a proof route has no console, and an
-            // execution of the backend that runs in `Proof` by default reads the console it is
-            // given. `FreshAssociation` is fixed when the definition is compiled, so no
-            // evaluation can leave it open.
-            withheld_in_proof: !matches!(
-                class,
-                ChosenClass::ReadCount | ChosenClass::FreshAssociation
-            ),
+            // Every class that is a value. `FreshAssociation` is fixed when the definition is
+            // compiled, so no evaluation can leave it open.
+            withheld_in_proof: class != ChosenClass::FreshAssociation,
             defined: class.defined_in_every_model(total),
         }
     }
@@ -609,10 +586,9 @@ impl<'a> HookOutcome<'a> {
 /// listing is the same in every order), `None` when every model gives it the same value. `total`
 /// says whether the applied symbol is declared `total`, which gives [`ChosenValue::defined`]. The
 /// fold and the evaluation entry read it; a class that needs the value (`LetterCase`,
-/// `ReadCount`, `HexCase`, `OutsideDomain` of the ECDSA hooks, `rootFloat`) does not fire without
-/// it. Of a `\bottom` outcome only the BN128 hooks' (`Curve`, every one
-/// [`Undescribed`](Undefinedness::Undescribed)) and an `Undescribed` one of the scoped sites
-/// (`OutsideDomain`) are classified.
+/// `OutsideDomain` of the ECDSA hooks, `rootFloat`) does not fire without it. Of a `\bottom`
+/// outcome only an [`Undescribed`](Undefinedness::Undescribed) one of the scoped sites
+/// (`OutsideDomain`) is classified.
 ///
 /// - `Order`: `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose
 ///   keys are all constructor-like, and `Set2List(S)` of a closed set of two or more
@@ -636,14 +612,6 @@ impl<'a> HookOutcome<'a> {
 /// - `FreshName`: `substOne` whenever the term it substitutes into holds an application of a
 ///   `binder` production, renamed or not: KORE terms are not quotiented by renaming and the
 ///   contract fixes no names (`substitution::substitutes_under_a_binder`).
-/// - `ReadCount`: `#read` that returned two or more characters, which could have returned
-///   fewer; one character could be fewer only by being none, which states end of file.
-/// - `Curve`: every outcome of `BN128Add`, `BN128Mul`, `BN128AtePairing` and both
-///   `isValidPoint`s, `\bottom` included: the curve is not named, so each is a model's.
-/// - `ByteEncoding`: every value of `String2Bytes` and `Bytes2String`; no encoding is named, and
-///   even the empty string and ASCII text have other encodings (a byte-order mark, UTF-16).
-/// - `HexCase`: a hex digest, of the `KRYPTO` and `HASH` spellings, and an `ECDSAPubKey` key,
-///   that holds a letter digit (`krypto::writes_a_hex_letter`). Their digits are determined.
 /// - `OutsideDomain`: the failure value of `ecdsaRecover` and `ecdsaPubKey`, which the evaluator
 ///   gives exactly outside the documented inputs (`krypto::is_failure_value`); `rootFloat`
 ///   outside a positive finite value and a positive degree (`float::root_outside_domain`); and
@@ -653,11 +621,10 @@ impl<'a> HookOutcome<'a> {
 ///   `String2Int` and `String2Base` of a text off the radix's syntax, `String2Base` and
 ///   `Base2String` in a radix outside `2..36`, a partial `String2Token` of a text that names no
 ///   element, `L[I <- V]` and `range` out of range, `updateList` at a negative index or past
-///   the end, and `replaceAtBytes` at a negative index whose end is an index; and the value the
-///   evaluator gives where the description gives none: `replaceAtBytes` from a nonnegative index
-///   up to the end of its `Bytes`, which "valid index", read as `domains.md` defines it, makes
-///   `#False` and the description's value clause the replaced `Bytes`
-///   (`bytes::replaces_up_to_the_end`); `substrString` of an empty range strictly inside its
+///   the end, `replaceAtBytes` at a negative index whose end is an index, and `BN128Add`,
+///   `BN128Mul` and `BN128AtePairing` of an argument that is no point, or of pairing lists of
+///   different lengths (AM-3 fixes the curve, not these outcomes); and the value the evaluator
+///   gives where the description gives none: `substrString` of an empty range strictly inside its
 ///   string, outside its valid indices (`startIndex < endIndex`) and reached by no
 ///   `domains.md` rule (`string::takes_an_empty_range`); and `findString` and
 ///   `rfindString` from a start that is no position of the haystack
@@ -666,19 +633,13 @@ impl<'a> HookOutcome<'a> {
 ///   an inexact root and `floorFloat`, `ceilFloat` and `truncFloat` are determined
 ///   (`docs/amendments.md`, AM-4 to AM-6).
 ///
-/// The application is defined in every class but `Curve` and `OutsideDomain` whatever its
-/// symbol's declaration says: a defined collection has a listing and, when non-empty, an item; a
-/// Float operation has a result in some format; a NaN has a sign bit; `Base2String`,
-/// `minFloat`/`maxFloat`, the conversions, the digests and an in-domain key have a value on
-/// these arguments; a substitution the evaluator computes has a result under some naming of the
-/// binders; a read that returned characters returned some count of them. A `Curve` or
-/// `OutsideDomain` application is defined in every model only at a `total` symbol, or, for the
-/// two `isValidPoint` checks, whose description gives a Bool for every argument, everywhere.
-/// `withheld_in_proof` is set for every class but `ReadCount`: an evaluation outside an
-/// execution leaves those applications unevaluated. A proof route (`kprove`, implication, the
-/// RPC `implies`, the analyses at load) has no console, so `ReadCount` never arises there, and
-/// the backend's own executions, which run in `Proof` unless their options ask for an
-/// execution, keep reading the console they are given.
+/// The application is defined in every class but `OutsideDomain` whatever its symbol's
+/// declaration says: a defined collection has a listing and, when non-empty, an item; a Float
+/// operation has a result in some format; a NaN has a sign bit; `Base2String`,
+/// `minFloat`/`maxFloat` and the conversions have a value on these arguments; a substitution the
+/// evaluator computes has a result under some naming of the binders. An `OutsideDomain`
+/// application is defined in every model only at a `total` symbol. `withheld_in_proof` is set
+/// for every class: an evaluation outside an execution leaves those applications unevaluated.
 pub fn chosen_value(
     hook: &str,
     arguments: &[Term],
@@ -688,14 +649,6 @@ pub fn chosen_value(
     let fires = |class: ChosenClass, fires: bool| fires.then_some(class);
     let value = || outcome.value().map(peel_injection);
     let class = match hook {
-        "KRYPTO.bn128add" | "KRYPTO.bn128mul" | "KRYPTO.bn128ate" => Some(ChosenClass::Curve),
-        "KRYPTO.bn128valid" | "KRYPTO.bn128g2valid" => {
-            return Some(ChosenValue::of_application(
-                hook.into(),
-                ChosenClass::Curve,
-                true,
-            ));
-        }
         // The scoped sites, each argued at its evaluator: the description covers only some
         // arguments, so `\bottom` is one model's answer outside them.
         "BYTES.decodeBytes"
@@ -708,16 +661,15 @@ pub fn chosen_value(
         | "LIST.range"
         | "LIST.updateAll"
         | "BYTES.replaceAt"
+        | "KRYPTO.bn128add"
+        | "KRYPTO.bn128mul"
+        | "KRYPTO.bn128ate"
             if matches!(outcome, HookOutcome::Bottom(Undefinedness::Undescribed)) =>
         {
             Some(ChosenClass::OutsideDomain)
         }
         // Every other `\bottom` is the application's value in every model.
         _ if matches!(outcome, HookOutcome::Bottom(_)) => None,
-        "BYTES.replaceAt" => fires(
-            ChosenClass::OutsideDomain,
-            bytes::replaces_up_to_the_end(arguments),
-        ),
         "STRING.substr" => fires(
             ChosenClass::OutsideDomain,
             string::takes_an_empty_range(arguments),
@@ -740,20 +692,7 @@ pub fn chosen_value(
             ChosenClass::FreshName,
             substitution::substitutes_under_a_binder(arguments),
         ),
-        "IO.read" => fires(
-            ChosenClass::ReadCount,
-            string::read_string(value()?).is_some_and(|read| read.chars().nth(1).is_some()),
-        ),
-        "BYTES.string2bytes" | "BYTES.bytes2string" => Some(ChosenClass::ByteEncoding),
-        "KRYPTO.keccak256" | "HASH.keccak256" | "KRYPTO.sha256" | "HASH.sha256"
-        | "KRYPTO.sha3256" | "HASH.sha3_256" | "KRYPTO.ripemd160" | "HASH.ripemd160" => {
-            fires(ChosenClass::HexCase, krypto::writes_a_hex_letter(value()?))
-        }
-        "KRYPTO.ecdsaPubKey" if krypto::is_failure_value(hook, value()?) => {
-            Some(ChosenClass::OutsideDomain)
-        }
-        "KRYPTO.ecdsaPubKey" => fires(ChosenClass::HexCase, krypto::writes_a_hex_letter(value()?)),
-        "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" => fires(
+        "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" | "KRYPTO.ecdsaPubKey" => fires(
             ChosenClass::OutsideDomain,
             krypto::is_failure_value(hook, value()?),
         ),
@@ -818,7 +757,7 @@ fn chosen_detail(chosen: &ChosenValue, arguments: &[Term]) -> String {
 /// [`chosen_value`] of `term`, a hooked application whose evaluator computes a value, read on
 /// its arguments alone, when an evaluation outside an execution withholds it
 /// (`withheld_in_proof`); `None` otherwise. The value says whether the application is defined in
-/// every model ([`ChosenValue::defined`]): in every class but `curve` and `outside-domain` the
+/// every model ([`ChosenValue::defined`]): in every class but `outside-domain` the
 /// value exists by the hook's own description, read on the arguments, whether or not its symbol
 /// is declared `total`. An application to which the description gives no value is defined only
 /// where its symbol is declared `total`, which its evaluator reads (`mint::no_width`,
@@ -940,7 +879,6 @@ fn evaluate_composed(
     // With a definition's declarations, every domain value the hook builds is recorded with the
     // kind it is built with, for the checks below.
     let built = facts.map(|_| BuiltDomainValues::record());
-    let has_console = loaded.execution.is_some();
     let result = evaluate_hook_with_context(
         hook,
         arguments,
@@ -1003,7 +941,7 @@ fn evaluate_composed(
         _ => None,
     };
     // Every scoped site's hook is named in `chosen_value`, so its `\bottom` is never taken as
-    // determined: `outside-domain`, or `curve` for the BN128 hooks, all of whose outcomes are.
+    // determined: it is `outside-domain`.
     debug_assert!(
         result != BuiltinResult::Bottom(Undefinedness::Undescribed)
             || chosen_value(
@@ -1012,34 +950,24 @@ fn evaluate_composed(
                 HookOutcome::Bottom(Undefinedness::Undescribed),
                 total
             )
-            .is_some_and(|chosen| matches!(
-                chosen.class,
-                ChosenClass::OutsideDomain | ChosenClass::Curve
-            )),
+            .is_some_and(|chosen| chosen.class == ChosenClass::OutsideDomain),
         "{hook}: an undescribed \\bottom that chosen_value does not classify"
     );
     if let Some(outcome) = outcome
         && let Some(chosen) = chosen_value(hook, arguments, outcome, total)
     {
-        // A `#read` count exists only where a run's console answered the read.
-        debug_assert!(
-            chosen.class != ChosenClass::ReadCount || has_console,
-            "{hook} read characters without a console"
-        );
-        // An outcome the definition leaves to the implementation (every class of `chosen_value`
-        // but `ReadCount`: the order of `keys_list`, `values` and `Set2List` of two or more
-        // items, the item `choice` gives, the result format of a Float operation over a binary32
-        // and a binary64 operand, the sign of a NaN, `Base2String`'s letter case, `minFloat` and
-        // `maxFloat` of the two zeros, the names `substOne` gives, a hex output's letter case,
-        // a byte encoding, a Float rounding, a curve, a value outside a described domain) is
+        // An outcome the definition leaves to the implementation (every class of `chosen_value`:
+        // the order of `keys_list`, `values` and `Set2List` of two or more items, the item
+        // `choice` gives, the result format of a Float operation over a binary32 and a binary64
+        // operand, the sign of a NaN, `Base2String`'s letter case, `minFloat` and `maxFloat` of
+        // the two zeros, the names `substOne` gives, a Float rounding, a value outside a
+        // described domain) is
         // computed only inside an execution, which runs a program and may take any outcome the
         // definition admits. Elsewhere a verdict that read it would hold only in k-rust's
         // choice, not in every model of the definition, so the application stays unevaluated
         // (`crate::evaluation`): defined where every model gives it a value, of unknown
-        // definedness otherwise (`ChosenValue::defined`). A `#read`'s count is not withheld: a
-        // proof route has no console, so it never meets one, and an execution that runs in
-        // `Proof` by default (the backend's own `execute*` with default options) must keep
-        // reading its console. The outcome is `Unsupported`, not `NotApplicable`, so that a
+        // definedness otherwise (`ChosenValue::defined`). The outcome is `Unsupported`, not
+        // `NotApplicable`, so that a
         // simplifier records no normal-form certificate for it: its value claim would let
         // apartness tell it from a written list.
         if mode == Some(EvaluationMode::Proof) && chosen.withheld_in_proof {
@@ -1051,9 +979,7 @@ fn evaluate_composed(
             ));
         }
         // The outcome is taken: the paths that read it are one model's (`crate::path_facts`).
-        // In `Execution` that is every class; in `Proof` only a `#read`'s count gets here, read
-        // from the console of a backend execution that runs in `Proof` by default, whose leaves
-        // depend on it as an execution's do. The context-free evaluation (no mode) is no run's.
+        // Only an `Execution` gets here; the context-free evaluation (no mode) is no run's.
         if mode.is_some() {
             crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(chosen));
         }
@@ -1087,12 +1013,11 @@ fn evaluate_composed(
 /// the evaluator's `\bottom` is one model's answer outside the inputs the description covers
 /// (`Undefinedness::Undescribed`), for the test-only chooser (`crate::choice_sampling`). The
 /// description says nothing there, so every value of the sort is a model's; the one built is
-/// the simplest the arguments give: `0` for an `Int`, `""` for a `String`, and the destination
-/// list or `Bytes` unchanged for an update, a range or a replacement. `None` where none is built:
+/// the simplest the arguments give: `0` for an `Int`, `""` for a `String`, the destination
+/// list or `Bytes` unchanged for an update, a range or a replacement, the first point argument
+/// for a BN128 sum or product, and `false` for a pairing. `None` where none is built:
 /// `String2Token` of a text naming no element of its declared sort, whose values are tokens of
-/// that sort's lexical syntax, which the arguments do not give, and the BN128 hooks, whose
-/// `\bottom` of a non-point is a pick of the curve (class `curve`), which has no other
-/// implementation here.
+/// that sort's lexical syntax, which the arguments do not give.
 fn undescribed_value(hook: &str, arguments: &[Term]) -> Option<Term> {
     match hook {
         "STRING.ord" | "STRING.string2int" | "STRING.string2base" => Some(int_term(BigInt::ZERO)),
@@ -1100,6 +1025,8 @@ fn undescribed_value(hook: &str, arguments: &[Term]) -> Option<Term> {
         "LIST.update" | "LIST.range" | "LIST.updateAll" | "BYTES.replaceAt" => {
             arguments.first().cloned()
         }
+        "KRYPTO.bn128add" | "KRYPTO.bn128mul" => arguments.first().cloned(),
+        "KRYPTO.bn128ate" => Some(bool_term(false)),
         _ => None,
     }
 }
@@ -1505,20 +1432,11 @@ fn io_read(
             UnsupportedHookReason::NotImplemented,
         ));
     };
-    // Each byte read is one character, the code point of its value, as for `IO.getc`.
-    let bytes = if let Some(seed) = choice_sampling::seed() {
-        // How many of the characters available a read takes is open (class `read-count`): under
-        // a `choice_sampling` seed, a read that would take two or more takes fewer.
-        let available = maximum.min(execution.remaining());
-        if available >= 2 {
-            choice_sampling::taken(ChosenClass::ReadCount);
-            execution.read(choice_sampling::read_count(seed, available))
-        } else {
-            execution.read(maximum)
-        }
-    } else {
-        execution.read(maximum)
-    };
+    // Each byte read is one character, the code point of its value, as for `IO.getc`. How many
+    // of the characters that remain a read returns is the file's, as the characters are: the
+    // read touches only the environment, and the console contract gives every one that remains,
+    // up to `maximum` (`docs/compatibility.md`, "Strings and their literals").
+    let bytes = execution.read(maximum);
     Ok(BuiltinResult::Value(inject_result(
         Term::string(console_text(bytes)),
         result_sort,
@@ -4917,25 +4835,25 @@ mod tests {
         );
     }
 
-    /// A `#read` that returned two or more characters could have returned fewer
-    /// (`domains.md`: "may be fewer characters than requested"): `read-count`. One character
-    /// could only be fewer by being none, which states end of file, and none is end of file, so
-    /// both are determined. The value is read through the injection into the declared sort.
+    /// GAP A1: how many characters a `#read` returns is the file's, as the characters are: the
+    /// read touches only the environment, whose console contract gives both
+    /// (`docs/compatibility.md`, "Strings and their literals"), so no read is classified,
+    /// whatever its count, through the injection into the declared sort too.
     #[test]
-    fn a_read_of_two_or_more_characters_is_read_count() {
+    fn a_read_is_no_class_whatever_its_count() {
         let arguments = [Term::int(0), Term::int(4)];
         let class = |value: Term| {
             chosen_value("IO.read", &arguments, HookOutcome::Value(&value), false)
                 .map(|chosen| chosen.class)
         };
-        assert_eq!(class(Term::string("AB")), Some(ChosenClass::ReadCount));
+        assert_eq!(class(Term::string("AB")), None);
         assert_eq!(
             class(Term::injection(
                 Sort::builtin(BuiltinSort::String),
                 Sort::simple("SortIOString"),
                 Term::string("ABC"),
             )),
-            Some(ChosenClass::ReadCount)
+            None
         );
         assert_eq!(class(Term::string("A")), None);
         assert_eq!(class(Term::string("")), None);
@@ -4945,11 +4863,9 @@ mod tests {
         );
     }
 
-    /// Every class that is a value is withheld outside an execution except `read-count`, which
-    /// no proof route meets (it has no console) and which a default-options execution must keep
-    /// reading.
+    /// Every class that is a hook's value is withheld outside an execution.
     #[test]
-    fn every_class_but_read_count_is_withheld_in_proofs() {
+    fn every_value_class_is_withheld_in_proofs() {
         let mixed = [float_term("0.1f"), float_term("2.0")];
         let mixed_value = evaluator_value("FLOAT.div", &mixed);
         let destination =
@@ -4979,14 +4895,6 @@ mod tests {
                 .unwrap()
                 .withheld_in_proof
         );
-        let read = chosen_value(
-            "IO.read",
-            &[Term::int(0), Term::int(2)],
-            HookOutcome::Value(&Term::string("AB")),
-            false,
-        )
-        .unwrap();
-        assert!(!read.withheld_in_proof);
         assert_eq!(
             chosen_value(
                 "FLOAT.sign",
@@ -5014,13 +4922,9 @@ mod tests {
                 ChosenClass::LetterCase,
                 ChosenClass::SignedZero,
                 ChosenClass::FreshName,
-                ChosenClass::ReadCount,
                 ChosenClass::EffectOrder,
                 ChosenClass::FreshAssociation,
-                ChosenClass::HexCase,
-                ChosenClass::ByteEncoding,
                 ChosenClass::FloatRounding,
-                ChosenClass::Curve,
                 ChosenClass::OutsideDomain,
                 ChosenClass::Literal,
             ]
@@ -5033,13 +4937,9 @@ mod tests {
                 "letter-case",
                 "signed-zero",
                 "fresh-name",
-                "read-count",
                 "effect-order",
                 "fresh-association",
-                "hex-case",
-                "byte-encoding",
                 "float-rounding",
-                "curve",
                 "outside-domain",
                 "literal",
             ]
@@ -5147,8 +5047,8 @@ mod tests {
     /// GAP K1: where a description gives no value and does not exclude every value, k-rust's
     /// value is `outside-domain`, of unknown definedness at a partial symbol: `rootFloat` outside
     /// a positive finite value and a positive degree, and the ECDSA failure values. A recovered
-    /// key or a public key is determined (a hex `String`, `hex-case` when it holds a letter
-    /// digit). GAP A2: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's roundToIntegral
+    /// key or a public key is determined (a hex `String` whose letter digits are lowercase,
+    /// AM-2). GAP A2: `floorFloat`, `ceilFloat` and `truncFloat` are IEEE 754's roundToIntegral
     /// (`docs/amendments.md`, AM-6), so every argument is determined, a NaN, an infinity and a
     /// non-integer rounding to a zero among them.
     #[test]
@@ -5206,20 +5106,30 @@ mod tests {
             chosen_value("KRYPTO.ecdsaRecover", &[], HookOutcome::Value(&key), false),
             None
         );
+        let public_key = evaluator_value(
+            "KRYPTO.ecdsaPubKey",
+            &[bytes::bytes_term(b"0123456789abcdef0123456789abcdef")],
+        );
+        assert!(krypto_writes_a_letter_digit(&public_key), "{public_key:?}");
         assert_eq!(
             chosen_class(
                 "KRYPTO.ecdsaPubKey",
                 &[bytes::bytes_term(b"0123456789abcdef0123456789abcdef")]
             ),
-            Some(ChosenClass::HexCase)
+            None
         );
     }
 
-    /// GAP K1: a hex output's letter digits have no case in `krypto.md`, so a digest or key
-    /// holding one is `hex-case`, under every spelling of the hook; a string of decimal digits,
-    /// and a raw digest, are determined.
+    /// Whether `value` is a `String` holding a letter digit.
+    fn krypto_writes_a_letter_digit(value: &Term) -> bool {
+        string::read_string(value).is_some_and(|text| text.chars().any(|c| c.is_ascii_alphabetic()))
+    }
+
+    /// GAP A1: a hex output is two lowercase hexadecimal digits per byte (AM-2), so no digest or
+    /// key is classified, one holding a letter digit included, under every spelling of the hook;
+    /// nor is a raw digest.
     #[test]
-    fn hex_outputs_with_a_letter_digit_are_hex_case() {
+    fn hex_outputs_are_determined() {
         for hook in [
             "KRYPTO.keccak256",
             "HASH.keccak256",
@@ -5231,11 +5141,11 @@ mod tests {
             "HASH.ripemd160",
         ] {
             let arguments = [bytes::bytes_term(b"")];
-            assert_eq!(
-                chosen_class(hook, &arguments),
-                Some(ChosenClass::HexCase),
+            assert!(
+                krypto_writes_a_letter_digit(&evaluator_value(hook, &arguments)),
                 "{hook}"
             );
+            assert_eq!(chosen_class(hook, &arguments), None, "{hook}");
             let digits = Term::string("0123456789");
             assert_eq!(
                 chosen_value(hook, &arguments, HookOutcome::Value(&digits), false),
@@ -5258,25 +5168,51 @@ mod tests {
         }
     }
 
-    /// GAP K1: `String2Bytes` and `Bytes2String` name no encoding, and even the empty string and
-    /// ASCII text have other encodings, so every value is `byte-encoding`, defined (both hooks
-    /// give a value in every model).
+    /// GAP A1: `String2Bytes` and `Bytes2String` write one byte per code point on the code
+    /// points 0 to 255 (AM-1), so every value they give is determined, Latin-1 letters and the
+    /// bytes no UTF-8 sequence holds included.
     #[test]
-    fn every_byte_conversion_is_byte_encoding() {
-        for (hook, argument) in [
-            ("BYTES.string2bytes", Term::string("")),
-            ("BYTES.string2bytes", Term::string("a")),
-            ("BYTES.bytes2string", bytes::bytes_term(b"")),
-            ("BYTES.bytes2string", bytes::bytes_term(b"a")),
+    fn byte_conversions_are_determined() {
+        for (hook, argument, value) in [
+            (
+                "BYTES.string2bytes",
+                Term::string(""),
+                bytes::bytes_term(b""),
+            ),
+            (
+                "BYTES.string2bytes",
+                Term::string("a"),
+                bytes::bytes_term(b"a"),
+            ),
+            (
+                "BYTES.string2bytes",
+                Term::string("\u{e9}\u{ff}"),
+                bytes::bytes_term(&[0xe9, 0xff]),
+            ),
+            (
+                "BYTES.bytes2string",
+                bytes::bytes_term(b""),
+                Term::string(""),
+            ),
+            (
+                "BYTES.bytes2string",
+                bytes::bytes_term(b"a"),
+                Term::string("a"),
+            ),
+            (
+                "BYTES.bytes2string",
+                bytes::bytes_term(&[0xe9, 0xff, 0x80]),
+                Term::string("\u{e9}\u{ff}\u{80}"),
+            ),
         ] {
             let arguments = [argument];
+            assert_eq!(evaluator_value(hook, &arguments), value, "{hook}");
+            assert_eq!(chosen_class(hook, &arguments), None, "{hook}");
             assert_eq!(
-                chosen_class(hook, &arguments),
-                Some(ChosenClass::ByteEncoding),
+                chosen_value(hook, &arguments, HookOutcome::Unknown, false),
+                None,
                 "{hook}"
             );
-            let chosen = chosen_value(hook, &arguments, HookOutcome::Unknown, false).unwrap();
-            assert!(chosen.defined && chosen.withheld_in_proof, "{hook}");
         }
     }
 
@@ -5363,9 +5299,8 @@ mod tests {
                 "{hook}"
             );
         }
-        // `replaceAtBytes` up to the end of its `Bytes` from a nonnegative index has a value
-        // under one reading of "valid index" and none under the other: `outside-domain`. Short of
-        // the end it is determined.
+        // `replaceAtBytes` up to the end of its `Bytes` from a nonnegative index is the replaced
+        // `Bytes`, as short of the end (AM-7): determined.
         let replace = |index: i64, source: &[u8]| {
             [
                 bytes::bytes_term(b"abc"),
@@ -5373,12 +5308,14 @@ mod tests {
                 bytes::bytes_term(source),
             ]
         };
-        let tail = replace(1, b"xy");
-        let value = bytes::bytes_term(b"axy");
-        let chosen =
-            chosen_value("BYTES.replaceAt", &tail, HookOutcome::Value(&value), false).unwrap();
-        assert_eq!(chosen.class, ChosenClass::OutsideDomain);
-        assert!(!chosen.defined && chosen.withheld_in_proof);
+        for (index, source, replaced) in [(1, &b"xy"[..], &b"axy"[..]), (3, b"", b"abc")] {
+            let tail = replace(index, source);
+            assert_eq!(
+                evaluator_value("BYTES.replaceAt", &tail),
+                bytes::bytes_term(replaced)
+            );
+            assert_eq!(chosen_class("BYTES.replaceAt", &tail), None, "{index}");
+        }
         let inner = replace(0, b"xy");
         let value = bytes::bytes_term(b"xyc");
         assert_eq!(
@@ -5403,30 +5340,33 @@ mod tests {
         }
     }
 
-    /// GAP K1: every BN128 outcome is `curve`, `\bottom` included; at a partial symbol its
-    /// definedness is open (a pair is a point on some curves only) except for the two
-    /// `isValidPoint` checks, whose description gives a Bool for every argument. No other hook's
+    /// GAP A1: the BN128 hooks are those of alt_bn128 (AM-3), so a sum, product or pairing of
+    /// points is determined, and so is `isValidPoint` on every argument. Their `\bottom` outside
+    /// the points (and for pairing lists of different lengths), which the description does not
+    /// cover, is `outside-domain`, of open definedness at a partial symbol. No other hook's
     /// `\bottom` is classified.
     #[test]
-    fn every_bn128_outcome_is_curve() {
+    fn bn128_values_are_determined_and_a_non_point_is_outside_domain() {
         let point = Term::int(0);
         for hook in ["KRYPTO.bn128add", "KRYPTO.bn128mul", "KRYPTO.bn128ate"] {
-            for outcome in [
-                HookOutcome::Bottom(Undefinedness::Undescribed),
-                HookOutcome::Value(&point),
-                HookOutcome::Unknown,
-            ] {
-                let chosen = chosen_value(hook, &[], outcome, false).unwrap();
-                assert_eq!(chosen.class, ChosenClass::Curve, "{hook}");
-                assert!(!chosen.defined && chosen.withheld_in_proof, "{hook}");
-                assert!(chosen_value(hook, &[], outcome, true).unwrap().defined);
+            for outcome in [HookOutcome::Value(&point), HookOutcome::Unknown] {
+                assert_eq!(chosen_value(hook, &[], outcome, false), None, "{hook}");
             }
+            let undescribed = HookOutcome::Bottom(Undefinedness::Undescribed);
+            let chosen = chosen_value(hook, &[], undescribed, false).unwrap();
+            assert_eq!(chosen.class, ChosenClass::OutsideDomain, "{hook}");
+            assert!(!chosen.defined && chosen.withheld_in_proof, "{hook}");
+            assert!(chosen_value(hook, &[], undescribed, true).unwrap().defined);
         }
         for hook in ["KRYPTO.bn128valid", "KRYPTO.bn128g2valid"] {
-            let chosen =
-                chosen_value(hook, &[], HookOutcome::Value(&bool_term(false)), false).unwrap();
-            assert_eq!(chosen.class, ChosenClass::Curve, "{hook}");
-            assert!(chosen.defined, "{hook}");
+            for valid in [false, true] {
+                let value = bool_term(valid);
+                assert_eq!(
+                    chosen_value(hook, &[], HookOutcome::Value(&value), false),
+                    None,
+                    "{hook}"
+                );
+            }
         }
         assert_eq!(
             chosen_value(
@@ -5452,9 +5392,13 @@ mod tests {
     /// one mark, as the diagnostic they become is one.
     #[test]
     fn a_mark_is_its_hook_and_class() {
-        let partial =
-            ChosenValue::of_application("KRYPTO.bn128add".into(), ChosenClass::Curve, false);
-        let total = ChosenValue::of_application("KRYPTO.bn128add".into(), ChosenClass::Curve, true);
+        let partial = ChosenValue::of_application(
+            "KRYPTO.bn128add".into(),
+            ChosenClass::OutsideDomain,
+            false,
+        );
+        let total =
+            ChosenValue::of_application("KRYPTO.bn128add".into(), ChosenClass::OutsideDomain, true);
         assert_ne!(partial.defined, total.defined);
         assert_eq!(partial, total);
         assert_eq!(partial.cmp(&total), std::cmp::Ordering::Equal);

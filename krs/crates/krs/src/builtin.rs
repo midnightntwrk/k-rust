@@ -642,13 +642,13 @@ pub mod bytes {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct ToInt(pub Bytes, pub Endianness, pub Signedness);
 
-    /// Marker for `String2Bytes` (`BYTES.string2bytes`). `domains.md` names no encoding, so
-    /// the bytes are open: k-rust writes one byte per code point below 256 and marks the run.
+    /// Marker for `String2Bytes` (`BYTES.string2bytes`): one byte per code point, each below
+    /// 256, as amendment AM-1 of k-rust's `docs/amendments.md` reads `domains.md`.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct StringToBytes(pub super::string::String);
 
-    /// Marker for `Bytes2String` (`BYTES.bytes2string`). `domains.md` names no encoding, so
-    /// the string is open: k-rust reads one code point per byte and marks the run.
+    /// Marker for `Bytes2String` (`BYTES.bytes2string`): one code point per byte, as amendment
+    /// AM-1 of k-rust's `docs/amendments.md` reads `domains.md`.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct BytesToString(pub Bytes);
 

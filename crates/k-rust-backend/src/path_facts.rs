@@ -91,8 +91,8 @@ impl PathFact {
     }
 
     /// Whether a [`suspend`]ed evaluation leaves the fact unnoted: only a chosen value whose
-    /// definedness is the same in every model ([`ChosenValue::defined`]). A `curve` or
-    /// `outside-domain` value of a partial symbol is not: a model may leave the application
+    /// definedness is the same in every model ([`ChosenValue::defined`]). An `outside-domain`
+    /// value of a partial symbol is not: a model may leave the application
     /// undefined, so an evaluation that reads only whether it is defined reads k-rust's pick.
     fn suspends(&self) -> bool {
         matches!(self, Self::ChosenValue(chosen) if chosen.defined)
@@ -1125,7 +1125,7 @@ pub(crate) fn aside<T>(action: impl FnOnce() -> T) -> T {
 
 /// Run `action` with the notes of chosen values suspended: an evaluation whose value decides
 /// nothing that depends on which admitted value it took. A chosen value whose definedness is
-/// itself open (`ChosenValue::defined` false: `curve`, `outside-domain` at a partial symbol) is
+/// itself open (`ChosenValue::defined` false: `outside-domain` at a partial symbol) is
 /// still noted, since the definedness such an evaluation decides is the pick. Every other kind
 /// of fact is noted as
 /// anywhere else, because it can steer the definedness the evaluation decides: the
@@ -1284,17 +1284,17 @@ mod tests {
     /// application replayed in a suspended evaluation elsewhere still notes its mark.
     #[test]
     fn a_memo_keeps_the_open_definedness_of_a_chosen_value_noted_after_a_defined_one() {
-        let curve = |total| {
+        let outside = |total| {
             PathFact::ChosenValue(ChosenValue::of_application(
                 Arc::from("KRYPTO.bn128add"),
-                ChosenClass::Curve,
+                ChosenClass::OutsideDomain,
                 total,
             ))
         };
         let ((), _run) = run(|| {
-            let ((), _facts) = collect(|| note(curve(true)));
+            let ((), _facts) = collect(|| note(outside(true)));
             let marker = marker();
-            let ((), _facts) = collect(|| note(curve(false)));
+            let ((), _facts) = collect(|| note(outside(false)));
             let memo = since(marker);
             assert!(
                 memo.iter()
@@ -1302,7 +1302,7 @@ mod tests {
                 "{memo:?}"
             );
             let ((), replayed) = collect(|| suspend(|| replay(&memo)));
-            assert_eq!(replayed.shared, FactSet::from([curve(false)]));
+            assert_eq!(replayed.shared, FactSet::from([outside(false)]));
         });
     }
 

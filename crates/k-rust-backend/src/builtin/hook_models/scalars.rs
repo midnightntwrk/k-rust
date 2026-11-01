@@ -316,8 +316,7 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
     use Val::{Bytes, Int, Str, Tag};
     match (hook, arguments) {
         ("BYTES.empty", []) => Spec::value(Bytes(Vec::new())),
-        // Each byte is the code point of the same number: k-rust's pick, open (class
-        // `byte-encoding`, `domains.md` names no encoding), the value the evaluator computes.
+        // Each byte is the code point of the same number (AM-1 of `docs/amendments.md`).
         ("BYTES.bytes2string", [Bytes(bytes)]) => Spec::value(Str(bytes
             .iter()
             .map(|byte| char::from(*byte))

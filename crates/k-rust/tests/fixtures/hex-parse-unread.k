@@ -1,7 +1,7 @@
 // KEVM's hex parsing (serialization.md, `#parseByteStack` and what it calls) with the INT
-// lemmas it meets, over a digest whose argument no evaluation reads: a symbolic `B`, or the
-// spelling of `String2Bytes("execute()")`, whose encoding no text fixes (byte-encoding), so a
-// proof leaves it unevaluated (GAP K1). `#abiCallData` reaches the same shape.
+// lemmas it meets, over a digest whose argument no evaluation reads, a symbolic `B`, and over the
+// digest of the spelling of `String2Bytes("execute()")`, the shape `#abiCallData` reaches,
+// which the amendments AM-1 and AM-2 determine.
 module HEXS
   imports STRING
   imports BYTES

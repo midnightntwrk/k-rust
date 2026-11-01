@@ -1,8 +1,8 @@
 // Rules whose conditions read a partial hook outside the inputs its description covers, beside
 // controls where the description excludes every value (`L[I]` past the end, `makeList` of a
 // negative length, `chrChar` of a non-code-point) or the text states the undefinedness
-// (`/Int` by zero, `replaceAtBytes` whose `index + N` is no index under either reading of "valid
-// index"). Each `yes` rule's condition holds wherever its application is defined
+// (`/Int` by zero, `replaceAtBytes` whose `index + N` is below 0 or past the length, the end
+// bound AM-7 reads "valid index" as). Each `yes` rule's condition holds wherever its application is defined
 // (`ok` is `total`), so the `owise` rule applies exactly where k-rust takes the application as
 // undefined. `gss` reads the value of the `total` `substrString` on an empty range, which its
 // description leaves out (it requires `startIndex < endIndex`) and no rule reaches strictly

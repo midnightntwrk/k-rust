@@ -9,13 +9,13 @@
 //! and a harness over unmarked runs tests nothing for it).
 //!
 //! Each program is compiled and run inside the seed's scope (a compile-time choice is read
-//! there), for the seeds 1 to 3 and once without a scope, with a console (`#read`'s count is a
-//! class) and in `Execution` mode, where k-rust takes its own value for every open application.
+//! there), for the seeds 1 to 3 and once without a scope, with a console and in `Execution`
+//! mode, where k-rust takes its own value for every open application.
 //! The chooser's count of the open values each class's sites took (`choice_sampling::take_counts`)
 //! is read apart for the compilation and the run: a probe's class takes one under some seed, and
 //! a control's run takes none. The classes and sites the chooser has no other value for
-//! (`curve`, `literal`, `String2Token` naming no element; `k_rust_backend::choice_sampling`) are
-//! asserted marked and unchanged under every seed instead.
+//! (`literal`, `String2Token` naming no element; `k_rust_backend::choice_sampling`) are asserted
+//! marked and unchanged under every seed instead.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -92,12 +92,13 @@ module MAIN
 endmodule
 "#;
 
-/// GAP's classes (`docs/compatibility.md`, "Implementation-chosen hook values"): a hex output's
-/// letter case, a byte encoding, a Float rounding, and the values and `\bottom`s of hooks outside
-/// their described domains, each probe beside a control on which the value is determined. A
-/// `\bottom` probe reaches the pick as a step's result (`ord`, `upd`, `dec`), as a condition
-/// whose rule then gives way to its `owise` rule (`cnd`), and as an operand a decided `#if`
-/// discards, whose definedness alone is read (`skip`, a `suspend`ed evaluation).
+/// GAP's classes (`docs/compatibility.md`, "Implementation-chosen hook values"): a Float
+/// rounding, and the values and `\bottom`s of hooks outside their described domains, each probe
+/// beside a control on which the value is determined; and the values the amendments AM-1, AM-2,
+/// AM-3 and AM-7 of `docs/amendments.md` determine, as controls. A `\bottom` probe reaches the
+/// pick as a step's result (`ord`, `upd`, `dec`, `rpl`, `add`), as a condition whose rule then
+/// gives way to its `owise` rule (`cnd`), and as an operand a decided `#if` discards, whose
+/// definedness alone is read (`skip`, a `suspend`ed evaluation).
 const GAP: &str = r#"
 module MAIN
   imports INT
@@ -110,10 +111,12 @@ module MAIN
                   | ECDSAPubKey(Bytes) [function, hook(KRYPTO.ecdsaPubKey)]
   syntax Bytes ::= Keccak256raw(Bytes) [function, hook(KRYPTO.keccak256raw)]
                  | ECDSARecover(Bytes, Int, Bytes, Bytes) [function, hook(KRYPTO.ecdsaRecover)]
+  syntax G1Point ::= g1(Int, Int)
+  syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
   syntax Pgm ::= kec(Bytes) | kraw(Bytes) | s2b(String) | b2s(Bytes) | enc(String) | i2f(Int)
                | rnd(Float) | f2i(Float) | rt(Float, Int) | fl(Float) | flinf(Float) | rec(Int)
                | pub(Bytes) | sub(Int) | fnd(Int) | rpl(Int) | ord(String) | upd(Int)
-               | dec(Bytes) | cnd(String) | skip(Int) | done(KItem)
+               | dec(Bytes) | cnd(String) | skip(Int) | add(Int, Int) | done(KItem)
   configuration <k> $PGM:Pgm </k>
   rule kec(B) => done(Keccak256(B))
   rule kraw(B) => done(Keccak256raw(B))
@@ -137,15 +140,17 @@ module MAIN
   rule cnd(S) => done(1) requires ordChar(S) ==Int 0
   rule cnd(_) => done(2) [owise]
   rule skip(I) => done(#if true #then 1 #else size(ListItem(1) [ I <- 0 ]) #fi)
+  rule add(X, Y) => done(BN128Add(g1(0, 0), g1(X, Y)))
 endmodule
 "#;
 
 /// Open values inside an operand a decided `#if` discards, whose definedness alone is read (a
-/// `suspend`ed evaluation, `k_rust_backend::path_facts`): `String2Bytes` (`byte-encoding`,
-/// defined in every model), a failed `ECDSARecover` (`outside-domain` at a partial symbol, which
-/// a model may leave undefined), and `replaceAtBytes` up to the end at a symbol `RA` declared
-/// `total` (`outside-domain`, but defined in every model by the declaration), discarded (`rs`)
-/// and as a step's result (`ra`).
+/// `suspend`ed evaluation, `k_rust_backend::path_facts`): `substrString` of an empty range
+/// strictly inside its string (`outside-domain`, defined in every model: the symbol is
+/// `total`), a failed `ECDSARecover` (`outside-domain` at a partial symbol, which a model may
+/// leave undefined), and `replaceAtBytes` at a negative start at a symbol `RA` declared `total`
+/// (`\bottom` is no model there, so k-rust takes no outcome at all), discarded (`rs`) and as a
+/// step's result (`ra`).
 const SUSPENDED: &str = r#"
 module MAIN
   imports INT
@@ -154,9 +159,9 @@ module MAIN
   imports K-EQUAL
   syntax Bytes ::= ECDSARecover(Bytes, Int, Bytes, Bytes) [function, hook(KRYPTO.ecdsaRecover)]
                  | RA(Bytes, Int, Bytes) [function, total, hook(BYTES.replaceAt)]
-  syntax Pgm ::= sb(String) | sr(Int) | rs(Int) | ra(Int) | done(KItem)
+  syntax Pgm ::= ss(Int) | sr(Int) | rs(Int) | ra(Int) | done(KItem)
   configuration <k> $PGM:Pgm </k>
-  rule sb(S) => done(#if true #then 1 #else lengthBytes(String2Bytes(S)) #fi)
+  rule ss(I) => done(#if true #then 1 #else lengthString(substrString("abc", I, I)) #fi)
   rule sr(V) => done(#if true #then 1 #else lengthBytes(ECDSARecover(b"", V, b"", b"")) #fi)
   rule rs(I) => done(#if true #then 1 #else lengthBytes(RA(b"\x01\x02\x03", I, b"\x00\x00")) #fi)
   rule ra(I) => done(RA(b"\x01\x02\x03", I, b"\x00\x00"))
@@ -164,24 +169,20 @@ endmodule
 "#;
 
 /// The classes and sites the chooser leaves at k-rust's value, each with its reason
-/// (`k_rust_backend::choice_sampling`): every BN128 outcome (`curve`: no other curve is
-/// implemented), a literal's element (`literal`, a machine integer its width cannot hold: fixed
-/// when the definition is loaded), and
-/// `String2Token` of a text naming no element of its sort (`outside-domain`: a value of the
-/// declared sort is a token its lexical syntax admits, which the arguments do not give).
+/// (`k_rust_backend::choice_sampling`): a literal's element (`literal`, a machine integer its
+/// width cannot hold: fixed when the definition is loaded), and `String2Token` of a text naming
+/// no element of its sort (`outside-domain`: a value of the declared sort is a token its lexical
+/// syntax admits, which the arguments do not give).
 const EXEMPT: &str = r#"
 module MAIN
   imports INT
   imports FLOAT
   imports MINT
   imports STRING
-  syntax G1Point ::= g1(Int, Int)
-  syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
   syntax Int ::= String2PInt(String) [function, hook(STRING.string2token)]
   syntax MInt{8} ::= m8() [function]
-  syntax Pgm ::= add(Int, Int) | inf(Int) | wide(Int) | tok(String) | done(KItem)
+  syntax Pgm ::= inf(Int) | wide(Int) | tok(String) | done(KItem)
   configuration <k> $PGM:Pgm </k>
-  rule add(X, Y) => done(BN128Add(g1(0, 0), g1(X, Y)))
   rule [inf]: inf(_) => done(Infinity)
   rule [wide]: wide(_) => done(256p8)
   rule [m8]: m8() => 1p8
@@ -204,7 +205,7 @@ const fn program(class: &'static str, source: &'static str, program: &'static st
     }
 }
 
-/// The console input of every run: `rd(3)` may read one to three of its characters.
+/// The console input of every run: `rd(3)` reads its three characters.
 const CONSOLE: &[u8] = b"ABC";
 
 /// Programs whose run reads a value of the class.
@@ -219,18 +220,15 @@ const POWER: &[Program] = &[
     program("letter-case", PROBES, "b2s(255)"),
     program("signed-zero", PROBES, "mz(0.0)"),
     program("fresh-name", PROBES, "sub(lam(y, app(x, y)), 1, x)"),
-    program("read-count", PROBES, "rd(3)"),
     program("fresh-association", FRESH, "mk(3)"),
-    program("hex-case", GAP, r#"kec(b"")"#),
-    program("byte-encoding", GAP, r#"s2b("\xe9")"#),
-    program("byte-encoding", GAP, r#"b2s(b"\xc3\xa9")"#),
     program("float-rounding", GAP, "f2i(2.5)"),
     program("outside-domain", GAP, "rec(29)"),
     program("outside-domain", GAP, r#"pub(b"")"#),
     program("outside-domain", GAP, "rt(-4.0, 2)"),
     program("outside-domain", GAP, "sub(1)"),
     program("outside-domain", GAP, "fnd(-1)"),
-    program("outside-domain", GAP, "rpl(1)"),
+    program("outside-domain", GAP, "rpl(-1)"),
+    program("outside-domain", GAP, "add(1, 3)"),
     program("outside-domain", GAP, r#"ord("ab")"#),
     program("outside-domain", GAP, "upd(5)"),
     program("outside-domain", GAP, r#"dec(b"\xff")"#),
@@ -238,10 +236,12 @@ const POWER: &[Program] = &[
     program("outside-domain", GAP, "skip(5)"),
 ];
 
-/// Programs beside each probe whose value of the class is determined. GAP A2: among them the
-/// conversions, the inexact root and the roundings to an integer the amendments determine
-/// (`docs/amendments.md`, AM-4 to AM-6; K5's probes of `float-rounding` and `outside-domain`),
-/// and the `Infinity` lexeme (AM-8; K5's exempted `literal` probe).
+/// Programs beside each probe whose value of the class is determined, and programs whose value
+/// the console contract (`console`) or an amendment (`AM-<n>`) determines, labelled by that text.
+/// GAP A2: the class-labelled controls include the conversions, the inexact root and the
+/// roundings to an integer the amendments determine (`docs/amendments.md`, AM-4 to AM-6; K5's
+/// probes of `float-rounding` and `outside-domain`), and the `Infinity` lexeme (AM-8; K5's
+/// exempted `literal` probe).
 const CONTROLS: &[Program] = &[
     program("order", PROBES, "keysOne(1)"),
     program("item", PROBES, "choiceOne(1)"),
@@ -250,10 +250,16 @@ const CONTROLS: &[Program] = &[
     program("letter-case", PROBES, "b2s(9)"),
     program("signed-zero", PROBES, "mz(1.0)"),
     program("fresh-name", PROBES, "sub(app(x, x), 1, x)"),
-    program("read-count", PROBES, "rd(1)"),
+    program("console", PROBES, "rd(3)"),
+    program("console", PROBES, "rd(1)"),
     program("fresh-association", FRESH, "one(3)"),
-    program("hex-case", GAP, r#"kraw(b"")"#),
-    program("byte-encoding", GAP, r#"enc("\xe9")"#),
+    program("AM-1", GAP, r#"s2b("\xe9")"#),
+    program("AM-1", GAP, r#"b2s(b"\xc3\xa9")"#),
+    program("AM-1", GAP, r#"enc("\xe9")"#),
+    program("AM-2", GAP, r#"kec(b"")"#),
+    program("AM-2", GAP, r#"kraw(b"")"#),
+    program("AM-3", GAP, "add(1, 2)"),
+    program("AM-7", GAP, "rpl(1)"),
     program("float-rounding", GAP, "i2f(3)"),
     program("float-rounding", GAP, "f2i(2.4)"),
     program("float-rounding", GAP, "rt(4.0, 2)"),
@@ -276,7 +282,6 @@ const CONTROLS: &[Program] = &[
 
 /// Programs whose run reads a value of a class, or a site, the chooser exempts ([`EXEMPT`]).
 const EXEMPTED: &[Program] = &[
-    program("curve", EXEMPT, "add(1, 2)"),
     program("literal", EXEMPT, "wide(0)"),
     program("outside-domain", EXEMPT, r#"tok("x")"#),
 ];
@@ -474,19 +479,20 @@ fn exempt_classes_are_marked_and_no_seed_takes_another_value_of_them() {
 
 /// A value taken where only the application's definedness is read (an operand a decided `#if`
 /// discards) is counted exactly where its mark is noted. Where every model defines the
-/// application (`String2Bytes`; `replaceAtBytes` at a `total` symbol) the value does not reach
-/// the run's result, the mark is dropped, and the chooser counts no value taken, so an unmarked
-/// run takes none. Where a model may leave it undefined (a failed `ECDSARecover` at a partial
-/// symbol) the definedness read is the pick: the run is marked and the value is counted. A
-/// `total` symbol's application up to the end is a step's result (`ra(1)`): the declaration
-/// excludes `\bottom`, so no seed takes it, the run is unchanged and stays marked.
+/// application (`substrString`, `total`) the value does not reach the run's result, the mark is
+/// dropped, and the chooser counts no value taken, so an unmarked run takes none. Where a model
+/// may leave it undefined (a failed `ECDSARecover` at a partial symbol) the definedness read is
+/// the pick: the run is marked and the value is counted. Where the description gives no value
+/// and the symbol is `total` (`replaceAtBytes` at a negative start), `\bottom` is no model and
+/// k-rust takes no outcome, discarded (`rs(-1)`) or as a step's result (`ra(-1)`): no seed
+/// takes one, and the run is unchanged and unmarked.
 #[test]
 fn a_value_taken_where_only_definedness_is_read_is_counted_as_its_mark_is() {
     let cases = [
-        (program("byte-encoding", SUSPENDED, r#"sb("\xe9")"#), false),
+        (program("outside-domain", SUSPENDED, "ss(1)"), false),
         (program("outside-domain", SUSPENDED, "sr(29)"), true),
-        (program("outside-domain", SUSPENDED, "rs(1)"), false),
-        (program("outside-domain", SUSPENDED, "ra(1)"), true),
+        (program("outside-domain", SUSPENDED, "rs(-1)"), false),
+        (program("outside-domain", SUSPENDED, "ra(-1)"), false),
     ];
     let mut failures = Vec::new();
     for (case, marked) in &cases {

@@ -7,14 +7,14 @@
 //! name the plugin does not use; no K module declares these names, so each is the same function
 //! as its `KRYPTO` spelling by this module's dispatch and its contract is the one
 //! `docs/compatibility.md`, "Cryptographic hooks", states. Each digest is the value of a named
-//! standard hash function of its `Bytes` literal argument. The plugin's text leaves three things
-//! open, which the evaluator picks and the open-value classifier (`super::chosen_value`) names:
-//! the letter case of a hex output (of the digests and of `ecdsaPubKey`; k-rust writes
-//! lowercase, class `hex-case`), the value of `ecdsaRecover` and `ecdsaPubKey` outside their
-//! documented domain (k-rust's empty `Bytes` and empty `String`, class `outside-domain`), and
-//! every outcome of the BN128 hooks, whose curve the text does not name (k-rust's alt_bn128,
-//! class `curve`). An execution takes those picks and marks them; every other evaluation leaves
-//! the application unevaluated.
+//! standard hash function of its `Bytes` literal argument, and a hex output writes it in
+//! lowercase (amendment AM-2 of `docs/amendments.md`); the BN128 hooks are those of the
+//! alt_bn128 curve of EIP-196 and EIP-197 (AM-3). The plugin's text leaves the outcomes outside
+//! the documented inputs open, which the evaluator picks and the open-value classifier
+//! (`super::chosen_value`) names `outside-domain`: the value of `ecdsaRecover` and `ecdsaPubKey`
+//! there (k-rust's empty `Bytes` and empty `String`), and the `\bottom` of a BN128 sum, product
+//! or pairing of a non-point. An execution takes those picks and marks them; every other
+//! evaluation leaves the application unevaluated.
 
 use super::Undefinedness;
 use std::sync::{Arc, LazyLock};
@@ -330,9 +330,9 @@ fn bn128_add(
     expect_arity(hook, arguments, 2)?;
     // A non-point makes the sum undefined whatever the other argument is, so it is checked
     // before an opaque argument can leave the call unevaluated. Every BN128 `\bottom` is
-    // `Undescribed`: `krypto.md` names no curve, so which pairs are points is one model's
-    // (class `curve` for every outcome, `chosen_value`), and it says nothing of pairing lists of
-    // different lengths.
+    // `Undescribed` (class `outside-domain`, `chosen_value`): `krypto.md` describes the sum,
+    // product and pairing of points of the curve AM-3 names, and says nothing of a non-point or
+    // of pairing lists of different lengths.
     Ok(
         match (
             read_g1(&arguments[0], points),
@@ -499,32 +499,9 @@ where
     Ok(BuiltinResult::Value(string_term(hex_output(&digest))))
 }
 
-/// The hex `String` of a hook with a hex output: [`encode_hex`]'s lowercase digits, and under a
-/// `choice_sampling` seed each letter digit in the case the seed chooses for its position (class
-/// `hex-case`, one choice per letter digit: `krypto.md`:16 names no case and no consistency
-/// clause).
+/// The hex `String` of a hook with a hex output: two hexadecimal digits per byte, the more
+/// significant first, the letter digits lowercase (AM-2 of `docs/amendments.md`).
 fn hex_output(input: &[u8]) -> String {
-    let encoded = encode_hex(input);
-    let Some(seed) = crate::choice_sampling::seed() else {
-        return encoded;
-    };
-    if encoded.bytes().any(|digit| digit.is_ascii_alphabetic()) {
-        crate::choice_sampling::taken(super::ChosenClass::HexCase);
-    }
-    encoded
-        .chars()
-        .enumerate()
-        .map(|(position, digit)| {
-            if crate::choice_sampling::upper_case_at(seed, position) {
-                digit.to_ascii_uppercase()
-            } else {
-                digit
-            }
-        })
-        .collect()
-}
-
-fn encode_hex(input: &[u8]) -> String {
     let mut encoded = String::with_capacity(input.len() * 2);
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in input {
@@ -648,16 +625,6 @@ fn ecdsa_recover(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// k-rust's `ecdsaRecover` outside the documented domain: the empty `Bytes` ([`failure_value`]).
 fn failed_recovery() -> BuiltinResult {
     BuiltinResult::Value(bytes::bytes_term(&failure_value::<[u8]>(&[], &[0])))
-}
-
-/// Whether `value`, the hex `String` a hook with a hex output gives, holds a letter digit: the
-/// plugin's "`String` values are interpreted as hex-encoded data" (`krypto.md`:16) names no
-/// letter case and has no consistency clause, so each letter digit's case is a model's choice
-/// (`super::chosen_value`, `HexCase`), while a string of decimal digits reads the same in every
-/// case. The empty string has no digit at all.
-pub(super) fn writes_a_hex_letter(value: &Term) -> bool {
-    super::string::read_string(value)
-        .is_some_and(|text| text.chars().any(|digit| digit.is_ascii_alphabetic()))
 }
 
 /// Whether `value`, the evaluator's value of `ecdsaRecover` or `ecdsaPubKey` (`hook`), is the

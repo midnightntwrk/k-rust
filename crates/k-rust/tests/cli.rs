@@ -2752,13 +2752,13 @@ fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// KEVM's `#parseByteStack` of a digest no evaluation reads (`fixtures/hex-parse-unread.k`) ends,
-/// keeps the parse unevaluated, and does a bounded amount of work, counted in definedness
-/// discharges (`--trace-aggregate`), not in time.
-///
-/// The argument is a symbolic `Keccak256(B)` or `Keccak256(String2Bytes("execute()"))`, which a
-/// proof leaves unevaluated (byte-encoding: no text fixes the encoding), the shape KEVM's
-/// `#abiCallData` reaches. Two faults made this diverge. The predicate simplifier expanded
+/// KEVM's `#parseByteStack` of a digest (`fixtures/hex-parse-unread.k`) ends and does a bounded
+/// amount of work, counted in definedness discharges (`--trace-aggregate`), not in time: of a
+/// symbolic `Keccak256(B)`, which no evaluation reads, it keeps the parse unevaluated, and of
+/// `Keccak256(String2Bytes("execute()"))`, the shape KEVM's `#abiCallData` reaches, whose
+/// conversion and digest are determined (AM-1 and AM-2 of `docs/amendments.md`), it gives the
+/// digest's bytes. Between GAP K1 and A1 a proof withheld that conversion, and the parse of the
+/// digest stayed unevaluated as of the symbolic one. Two faults made this diverge. The predicate simplifier expanded
 /// `\ceil(findString(Keccak256(B), "0x", 0))` (`findString` and `Keccak256` are partial) to
 /// itself beside `\ceil(Keccak256(B))`, which the known `lengthString(replace(Keccak256(B), ..))
 /// <Int 2` already states (its term is defined there), so the pass over that conjunction dropped
@@ -2786,12 +2786,12 @@ fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
         &compiled,
     );
     let keccak = "LblKeccak256'LParUndsRParUnds'HEXS'Unds'String'Unds'Bytes{}";
-    let withheld = format!(
+    let literal = format!(
         r#"{keccak}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{{}}(\dv{{SortString{{}}}}("execute()")))"#
     );
     for (name, digest) in [
         ("symbolic", format!("{keccak}(VarB:SortBytes{{}})")),
-        ("withheld", withheld),
+        ("literal", literal),
     ] {
         let pattern = root.join(format!("{name}.kore"));
         fs::write(&pattern, format!("LblparseByteStack{{}}({digest})")).unwrap();
@@ -2812,13 +2812,18 @@ fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
             String::from_utf8_lossy(&output.stderr)
         );
         let simplified = String::from_utf8(output.stdout).unwrap();
-        // The parse stays unevaluated, and so does the withheld conversion it holds.
-        assert!(
+        // The parse of the symbolic digest stays unevaluated; that of the literal's digest is
+        // its 32 bytes.
+        assert_eq!(
             simplified.contains("LblparseHexBytesAux{}"),
+            name == "symbolic",
             "{name}: {simplified}"
         );
-        if name == "withheld" {
-            assert!(simplified.contains("LblString2Bytes"), "{simplified}");
+        if name == "literal" {
+            assert!(
+                !simplified.contains("Lbl") && simplified.contains(r"\dv{SortBytes{}}"),
+                "{simplified}"
+            );
         }
         let document: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&aggregate).unwrap()).unwrap();
@@ -3888,16 +3893,13 @@ fn krun_io_on_preserves_descriptor_order_and_arbitrary_bytes() {
         String::from_utf8_lossy(&arbitrary.stderr)
     );
     assert_eq!(arbitrary.stdout, bytes);
-    // `#read(0, 4)` returned four characters, a count the definition leaves open (`read-count`,
-    // docs/compatibility.md, "Marks in executions"): the result's path is marked, and krun warns
-    // once.
-    let warning = String::from_utf8(arbitrary.stderr).unwrap();
-    assert_eq!(warning.lines().count(), 1, "{warning}");
-    assert!(
-        warning.starts_with("warning: ")
-            && warning.contains("IO.read")
-            && warning.contains("(read-count)"),
-        "{warning}"
+    // `#read(0, 4)` returned the four characters the file holds, which the console contract
+    // gives (docs/compatibility.md, "Strings and their literals"): no value is open, and krun
+    // warns of none.
+    assert_eq!(
+        String::from_utf8(arbitrary.stderr).unwrap(),
+        "",
+        "the read is no open value"
     );
 
     fs::remove_dir_all(root).unwrap();
@@ -14242,9 +14244,9 @@ endmodule
 
 /// A claim whose truth depends on a value the definition leaves open (Base2String's letter
 /// case, `minFloat` and `maxFloat` of `+0.0` and `-0.0`, the names `substOne` gives the binders
-/// it traverses, and since GAP K1 `String2Bytes`'s encoding, a `Float2Int` tie, an inexact
-/// `Int2Float` or root, a floor rounding to a zero, the empty Bytes of a failed ECDSA recovery
-/// and a hex digest's letter case) holds in some models of the definition and not in others, so
+/// it traverses, and since GAP K1 a `Float2Int` tie, an inexact `Int2Float` or root, a floor
+/// rounding to a zero and the empty Bytes of a failed ECDSA recovery) holds in some models of the
+/// definition and not in others, so
 /// it is neither proven nor disproved, whether its verdict came from the final state, from a rule
 /// condition (`cond-upper`) or from the apartness of `==K` against the other case (`eqk-false`). A
 /// withheld application is an unknown value of its sort, so `rt-valid`, which holds for every
@@ -14258,6 +14260,11 @@ endmodule
 /// `domains.md` names no encoding for `String2Bytes` and no tie rule for `Float2Int`, and
 /// `krypto.md` describes `ECDSARecover` only on a 32-byte hash with a recoverable signature, so
 /// each claim fails in a model the definition admits, and none is a consequence of it.
+///
+/// GAP A1 re-pin: `s2b-latin1` and `kec-lower` (undecided from K1) are proven: AM-1 of
+/// `docs/amendments.md` reads `String2Bytes` as one byte per code point and AM-2 a hex digest as
+/// lowercase, so in every model the definition with its amendments admits `String2Bytes("\xe9")`
+/// is `b"\xe9"` and `Keccak256(b"")` the lowercase hex of its digest.
 ///
 /// GAP A2 re-pin: `i2f-inexact`, `rtf-inexact` and `fl-half` are proven, and `i2f-zero` with
 /// them. `Int2Float` and an inexact root are correctly rounded under roundTiesToEven, `Int2Float`
@@ -14319,13 +14326,11 @@ endmodule
         "max-zeros",
         "cond-upper",
         "eqk-false",
-        "s2b-latin1",
         "f2i-tie",
         "ecdsa-failure",
         "rtf-negative",
         "rtf-negative-some",
         "ecdsa-some",
-        "kec-lower",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }
@@ -14347,6 +14352,8 @@ endmodule
         "fl-half",
         "kec-some",
         "kraw-digest",
+        "s2b-latin1",
+        "kec-lower",
     ] {
         assert_eq!(
             claim_verdict(&verdicts, claim, &output),
@@ -14363,9 +14370,7 @@ endmodule
 /// end, `range`, `updateList` past the end and at a negative index, `ordChar`, `String2Int` and
 /// `String2Base` off their syntax, either radix hook outside `2..36`, `decodeBytes` of an
 /// invalid sequence, a partial `String2Token` naming no element, `replaceAtBytes` at a negative
-/// index whose end is an index). `replaceAtBytes` up to the end of its `Bytes` (`rpl-tail-*`) is
-/// `#False` under one reading of "valid index" and a value under the other, so neither its `yes`
-/// nor its `owise` claim is proven. So do the claims that hold only vacuously, from a `requires`
+/// index whose end is an index). So do the claims that hold only vacuously, from a `requires`
 /// that holds such an application, even under `--allow-vacuous`. The controls stay proven: an
 /// in-range update and replacement, and the sites whose description excludes every value
 /// (`L[I]` past the end, `makeList` of a negative length, `chrChar` of a non-code-point) or
@@ -14384,10 +14389,13 @@ endmodule
 /// `fch-negative`); from a start in `0..=length` they are determined (`*-end`, `*-in-range`).
 /// The vacuous forms (`vac-ss`, `vac-fnd`, `vac-rfnd`) are undecided; `vac-fnd-end` is proven.
 ///
-/// GAP K2 fix round 3: `vac-rpl-tail` is the vacuous form of the tail (`replaceAtBytes` up to the
-/// end from index 1), whose definedness is unknown although its evaluator answers a value: a
-/// proof must not take that value to discharge the `requires`, so it is undecided. It pins
-/// behaviour the head already has (no failure at the base is claimed).
+/// GAP A1 re-pin: `replaceAtBytes` up to the end of its `Bytes` (`rpl-tail-*`, from index 1) was
+/// `#False` under one reading of "valid index" and a value under the other, and undecided from
+/// GAP K2 on, with its vacuous form `vac-rpl-tail` (GAP K2 fix round 3). AM-7 of
+/// `docs/amendments.md` reads the condition as the end bound of the range, so the replacement is
+/// defined, the replaced `Bytes`, in every model: the `yes` claim is proven, and the `owise` claim
+/// and the vacuous form, whose `requires` holds and whose `gu(ListItem(1), 0)` reaches `yes`, are
+/// disproved.
 #[test]
 fn kprove_proves_nothing_from_a_hook_outside_its_described_domain() {
     let source = format!(
@@ -14450,8 +14458,6 @@ endmodule
         "dec-owise",
         "tok-owise",
         "rpl-negative",
-        "rpl-tail-yes",
-        "rpl-tail-no",
         "ss-empty",
         "ss-other",
         "fnd-negative",
@@ -14470,6 +14476,7 @@ endmodule
         "chr-owise",
         "div-owise",
         "rpl-in-range",
+        "rpl-tail-yes",
         "rpl-past",
         "rpl-before",
         "ss-some",
@@ -14485,6 +14492,11 @@ endmodule
             "{claim}: {output}"
         );
     }
+    assert_eq!(
+        claim_verdict(&verdicts, "rpl-tail-no", &output),
+        "disproved",
+        "{output}"
+    );
     let vacuous = format!(
         r#"{}
 module VACUOUS-SPEC
@@ -14508,14 +14520,7 @@ endmodule
     let (verdicts, output) =
         claim_verdicts_with(&vacuous, "OUTSIDE", "VACUOUS-SPEC", &["--allow-vacuous"]);
     for claim in [
-        "vac-upd",
-        "vac-rng",
-        "vac-ord",
-        "vac-rpl",
-        "vac-rpl-tail",
-        "vac-ss",
-        "vac-fnd",
-        "vac-rfnd",
+        "vac-upd", "vac-rng", "vac-ord", "vac-rpl", "vac-ss", "vac-fnd", "vac-rfnd",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }
@@ -14526,6 +14531,11 @@ endmodule
             "{claim}: {output}"
         );
     }
+    assert_eq!(
+        claim_verdict(&verdicts, "vac-rpl-tail", &output),
+        "disproved",
+        "{output}"
+    );
 }
 
 /// A Float operation over a binary32 and a binary64 operand is defined whatever format its result

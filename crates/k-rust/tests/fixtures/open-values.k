@@ -1,9 +1,9 @@
 requires "substitution.md"
 
 // Rules whose results read values the definition leaves open (Base2String's letter case,
-// minFloat of the two zeros, substOne's names under a binder, String2Bytes's encoding, a
-// Float2Int tie, an inexact Int2Float or root, a floor rounding to a zero, the ECDSA failure
-// value, a hex digest's letter case) beside rules that read determined values.
+// minFloat of the two zeros, substOne's names under a binder, a Float2Int tie, an inexact
+// Int2Float or root, a floor rounding to a zero, the ECDSA failure value) beside rules that read
+// determined values (String2Bytes and a hex digest among them, AM-1 and AM-2).
 // `kprove_proves_no_claim_that_depends_on_an_open_value` in cli.rs.
 module OPEN
   imports DOMAINS

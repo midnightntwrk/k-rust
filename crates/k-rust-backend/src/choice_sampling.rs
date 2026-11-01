@@ -7,21 +7,16 @@
 //! some single model of the definition gives, and a run without a mark must be unchanged.
 //!
 //! Every choice is a function of the seed and of the application's arguments (the collection's
-//! value, whose stored order is canonical; the length a read may take; the substitution's terms;
-//! the rule), so one seed is one model: one listing order per collection value, one item, one
-//! letter case, one NaN sign, one zero, one destination format for operands of two formats, one
-//! renaming of the binders of each substitution, one association of each rule's fresh names,
-//! one case per letter digit of a hex output, one byte encoding (k-rust's, or UTF-8), one
-//! integer per `Float2Int` tie, one value per hook application outside
-//! its described domain, and a value of the sort for each `\bottom` k-rust takes there where the
-//! hook's arguments give one. The exception is `#read`, an effect, whose count another
-//! implementation may choose per call.
+//! value, whose stored order is canonical; the substitution's terms; the rule), so one seed is
+//! one model: one listing order per collection value, one item, one letter case, one NaN sign,
+//! one zero, one destination format for operands of two formats, one renaming of the binders of
+//! each substitution, one association of each rule's fresh names, one integer per `Float2Int`
+//! tie, one value per hook application outside its described domain, and a value of the sort
+//! for each `\bottom` k-rust takes there where the hook's arguments give one.
 //!
-//! Three classes have no other value here. `curve`: no other curve than alt_bn128 is
-//! implemented, so no other model's sums, products, pairings or point tests can be computed.
-//! `literal`: a literal's element is fixed when the definition is loaded, before any seed scope
-//! of a run, and the load runs in `Proof`, so no execution computes it. `effect-order` is not a
-//! value. Within `outside-domain`, `String2Token` of a text that names no element of its sort
+//! Two classes have no other value here. `literal`: a literal's element is fixed when the
+//! definition is loaded, before any seed scope of a run, and the load runs in `Proof`, so no
+//! execution computes it. `effect-order` is not a value. Within `outside-domain`, `String2Token` of a text that names no element of its sort
 //! keeps k-rust's `\bottom`: a value of the declared sort is a token the sort's lexical syntax
 //! admits, which the hook's arguments do not give; a `total` symbol's application there is
 //! defined and unknown on every route, so it has no pick to replace. The matcher's refutation of
@@ -57,7 +52,7 @@ thread_local! {
 
 /// The evaluation of one hook application, whose symbol is declared `total` exactly when
 /// `total` holds, for as long as the value lives: a site reads the declaration through
-/// [`declared_total`] and [`taken`]. Nothing without the feature `choice-sampling`.
+/// `declared_total` and [`taken`]. Nothing without the feature `choice-sampling`.
 pub(crate) struct Application {
     #[cfg(feature = "choice-sampling")]
     enclosing: bool,
@@ -88,17 +83,10 @@ impl Drop for Application {
 }
 
 /// Whether the symbol of the hook application under evaluation is declared `total`
-/// ([`Application`]); `false` outside one, and always without the feature `choice-sampling`.
-#[inline(always)]
-pub(crate) fn declared_total() -> bool {
-    #[cfg(feature = "choice-sampling")]
-    {
-        TOTAL.get()
-    }
-    #[cfg(not(feature = "choice-sampling"))]
-    {
-        false
-    }
+/// ([`Application`]); `false` outside one.
+#[cfg(feature = "choice-sampling")]
+fn declared_total() -> bool {
+    TOTAL.get()
 }
 
 /// Run `action` with every site computing an implementation-chosen value on this thread taking
@@ -143,9 +131,9 @@ pub(crate) fn seed() -> Option<u64> {
 /// A value is counted where its mark is noted. Inside a `suspend`ed evaluation, which reads only
 /// whether the application is defined (`crate::path_facts::suspend`), a value of an application
 /// every model defines (`ChosenClass::defined_in_every_model`, at the declaration
-/// [`declared_total`] reads) decides nothing that depends on which value was taken, so it does
+/// `declared_total` reads) decides nothing that depends on which value was taken, so it does
 /// not reach the run's result and neither its mark nor its count is kept: an unmarked run then
-/// takes no value. One whose definedness is open (`curve`, `outside-domain` at a partial symbol)
+/// takes no value. One whose definedness is open (`outside-domain` at a partial symbol)
 /// is the pick that evaluation reads, so it is marked and counted.
 #[inline(always)]
 pub(crate) fn taken(class: ChosenClass) {
@@ -218,21 +206,6 @@ pub(crate) fn defines(seed: u64) -> bool {
     seed & 2 == 2
 }
 
-/// The case of the letter digit at `position` of one hex output: uppercase when this is `true`.
-/// `krypto.md` names no case and no consistency clause, so each letter digit's case is a model's
-/// own choice; the choice is a function of the seed and the position, so one application has one
-/// spelling per seed.
-pub(crate) fn upper_case_at(seed: u64, position: usize) -> bool {
-    let mut state = seed ^ (position as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
-    split_mix_64(&mut state) & 1 == 1
-}
-
-/// How many of the `n >= 2` characters a read may take it takes: from 1 to `n - 1`.
-pub(crate) fn read_count(seed: u64, n: usize) -> usize {
-    debug_assert!(n >= 2);
-    1 + (seed % (n as u64 - 1)) as usize
-}
-
 /// One step of SplitMix64.
 fn split_mix_64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -258,10 +231,9 @@ mod tests {
     }
 
     #[test]
-    fn reads_and_items_stay_in_range() {
+    fn items_stay_in_range() {
         for seed in 0..12 {
             for n in 2..9 {
-                assert!((1..n).contains(&read_count(seed, n)));
                 assert!(item(seed, n) < n);
             }
         }

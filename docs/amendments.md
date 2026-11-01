@@ -40,6 +40,127 @@ Each entry has these fields:
 - Status: `local` while the proposal has not been sent upstream; `proposed` once it has; `upstream` once the pinned release holds it, when the entry is removed with the next pin.
 - Replaces: what the amendment determines (a class of [implementation-chosen hook values](compatibility.md#implementation-chosen-hook-values) and its construct), or, for K text, `K text` with the marked lines of the embedded file and the upstream lines they replace.
 
+### AM-1: `String2Bytes` and `Bytes2String` write one byte per code point
+
+- Upstream: `domains.md` at K v7.1.337, :1683-1685; `domains.md` at K v7.1.337, :2089-2091; `domains.md` at K v7.1.337, :2094-2096
+- Passage:
+
+  > implementation is currently incomplete and does not fully support encodings
+  > and code points beyond the initial 256 code points of the Basic Latin and
+  > Latin-1 Supplement blocks.
+
+  > You can convert between a `Bytes` and a `String` in O(N) time. The resulting
+  > value is a copy of the original and will not be affected by subsequent
+  > mutations of the input or output value.
+
+  ```k
+    syntax String ::= Bytes2String(Bytes) [function, total, hook(BYTES.bytes2string)]
+                    | Bytes2Hex(Bytes)    [function, total, hook(BYTES.bytes2hex)]
+    syntax Bytes ::= String2Bytes(String) [function, total, hook(BYTES.string2bytes)]
+  ```
+
+- k-rust reads: `Bytes2String(B)` is the string of the same length whose code point at each index is the value of the byte of `B` there, and `String2Bytes(S)`, for a string `S` whose code points are all below 256, is the `Bytes` of the same length whose byte at each index is the code point of `S` there; on those strings the two are inverse.
+  Of a string holding a code point above U+00FF the reading says nothing.
+- Reason: a `Bytes` is a sequence of bytes, the values 0 to 255, and the strings the String domain supports are the sequences of the first 256 code points, the values 0 to 255: the two sorts' supported elements are sequences over alphabets of the same 256 values, and the text calls the operations a conversion between them, of linear cost.
+  Both are declared `total`, so `Bytes2String` gives a string for every byte sequence and `String2Bytes` a byte sequence for every supported string.
+  The conversion that maps each element to the element of the same value is the one that meets these requirements without naming anything the text does not name: it is total in both directions on the supported strings, each direction inverts the other, and it is linear.
+  The encodings K names elsewhere do not meet them: UTF-8, UTF-16 and UTF-32 decode no string from some byte sequences (`b"\xff"`, a sequence of odd length), so a `total` `Bytes2String` read through one of them would need a value the encoding does not give, and their encodings of the code points 128 to 255 are not one byte each.
+  The text names no encoding because the supported strings and the byte sequences correspond one element to one element; nothing in it makes the encoding a choice of the implementation, as it does for `Float2String`'s format (:1801-1802) or `Base2String`'s letter case (:1829-1831).
+  Beyond U+00FF the text warns that strings are incompletely supported, so the amendment states nothing there, and k-rust leaves `String2Bytes` of such a string unevaluated.
+- Evidence: `byte_conversions_are_determined` in [builtin.rs](../crates/k-rust-backend/src/builtin.rs), `string_to_bytes_above_255_is_unspecified` in [bytes.rs](../crates/k-rust-backend/src/builtin/bytes.rs), `an_amended_value_is_evaluated_outside_an_execution` in the [backend tests](../crates/k-rust-backend/tests/backend/evaluation_mode.rs), and `kprove_proves_no_claim_that_depends_on_an_open_value` (`s2b-latin1`) in [cli.rs](../crates/k-rust/tests/cli.rs).
+  The KRS `builtin-domains` gate's `strings` cases `from-string*` and `to-string` run the conversions on Latin-1 text.
+- Upstream proposal:
+
+  ```diff
+   You can convert between a `Bytes` and a `String` in O(N) time. The resulting
+   value is a copy of the original and will not be affected by subsequent
+  -mutations of the input or output value. `Bytes2Hex` uses hexadecimal encoding.
+  +mutations of the input or output value. `String2Bytes` writes each code point
+  +of its string, which must be below 256, as the byte of the same value, and
+  +`Bytes2String` reads each byte as the code point of its value.
+  +`Bytes2Hex` uses hexadecimal encoding.
+  ```
+
+- Status: local
+- Replaces: class `byte-encoding` (every `String2Bytes` and `Bytes2String`).
+
+### AM-2: A hex-encoded `String` is lowercase
+
+- Upstream: `krypto.md` at blockchain-k-plugin 651a2db5, :15-16; `krypto.md` at blockchain-k-plugin 651a2db5, :26-30; `krypto.md` at blockchain-k-plugin 651a2db5, :82
+- Passage:
+
+  > Throughout,
+  > -   `String` values are interpreted as hex-encoded data
+
+  > -   `Keccak256` takes a byte string and returns a 64-character hex-encoded string of the 32-byte keccak256 hash of the input.
+  > -   `Sha256` takes a byte string and returns a 64-character hex-encoded string of the 32-byte SHA2-256 hash of the input.
+  > -   `Sha512` takes a byte string and returns a 128-character hex-encoded string of the 64-byte SHA2-512 hash of the input.
+  > -   `Sha3_256` takes a byte string and returns 64-character hex-encoded string of the 32-byte SHA3-256 hash of the input.
+  > -   `RipEmd160` takes a byte string and returns a 40-character hex-encoded string of the 20-byte RIPEMD160 hash of the input.
+
+  > -   `ECDSAPubKey` takes a 32-character byte string of a private key, and returns the 64 byte hex-encoded public key
+
+- k-rust reads: A hex-encoded `String` that a hook returns writes each byte as two hexadecimal digits, the more significant first, in the order of the bytes, and its letter digits are lowercase, `a` to `f`.
+- Reason: each of these hooks is a `function`, one value per argument, and the text describes the value as the hex encoding of a named digest, or of a public key, of a stated length; two digits per byte, the more significant first, is what the hex encoding of a byte string is ([compatibility.md, Cryptographic hooks](compatibility.md#cryptographic-hooks)).
+  The description leaves out only the case of the letter digits, and nothing in the text makes the case a choice of the implementation: where K leaves a letter case to the implementation, it says so, as `domains.md` does of `Base2String` ("Whether the letters returned by `Base2String` are upper or lowercase is determined by the backend, but the backend will consistently choose one or the other", :1829-1831), and `krypto.md` has no such sentence.
+  So the case is a detail the description omits, not a freedom it grants, and it has to be fixed for the hooks to have the one value the text describes.
+  The amendment fixes lowercase, the case in which hexadecimal digests are commonly written as text; that choice between the two cases is the amendment's, and the upstream proposal states it.
+  It does not change what a hex `String` argument is read as ("interpreted as hex-encoded data"): no hook k-rust evaluates reads one.
+- Evidence: `hex_outputs_are_determined` in [builtin.rs](../crates/k-rust-backend/src/builtin.rs), `hex_digests_are_two_lowercase_hex_digits_per_byte` in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs), `an_amended_value_is_evaluated_outside_an_execution` in the [backend tests](../crates/k-rust-backend/tests/backend/evaluation_mode.rs), and `kprove_proves_no_claim_that_depends_on_an_open_value` (`kec-lower`) in [cli.rs](../crates/k-rust/tests/cli.rs).
+  The execution differential's `crypto` case ([reference-differential.toml](../scripts/reference-differential.toml)) compares k-rust's `Sha256(b"abc")`, whose digest holds letter digits, with the reference K's output without normalising the case.
+- Upstream proposal:
+
+  ```diff
+   Throughout,
+  --   `String` values are interpreted as hex-encoded data
+  +-   `String` values are interpreted as hex-encoded data; a hook that returns one
+  +    writes each byte as two hexadecimal digits, the more significant first, with
+  +    lowercase letter digits (`a`-`f`)
+  ```
+
+- Status: local
+- Replaces: class `hex-case` (the hex results of `Keccak256`, `Sha256`, `RipEmd160`, their `HASH` spellings, `KRYPTO.sha3256` and `HASH.sha3_256`, and `ECDSAPubKey`).
+
+### AM-3: The BN128 curve is alt_bn128
+
+- Upstream: `krypto.md` at blockchain-k-plugin 651a2db5, :95; `krypto.md` at blockchain-k-plugin 651a2db5, :97-100
+- Passage:
+
+  > The BN128 elliptic curve is defined over 2-dimensional points over the fields of zero- and first-degree polynomials modulo a large prime. (x, y) is a point on G1, whereas (x1 x x2, y1 x y2) is a point on G2, in which x1 and y1 are zero-degree coefficients and x2 and y2 are first-degree coefficients. In each case, (0, 0) is used to represent the point at infinity.
+
+  > -   `BN128Add` adds two points in G1 together,
+  > -   `BN128Mul` multiplies a point in G1 by a scalar.
+  > -   `BN128AtePairing` accepts a list of points in G1 and a list of points in G2 and returns whether the sum of the product of the discrete logarithm of the G1 points multiplied by the discrete logarithm of the G2 points is equal to zero.
+  > -   `isValidPoint` takes a point in either G1 or G2 and validates that it actually falls on the respective elliptic curve.
+
+- k-rust reads: The curve is alt_bn128 of EIP-196 and EIP-197.
+  p = 21888242871839275222246405745257275088696311157297823662689037894645226208583 and r = 21888242871839275222246405745257275088548364400416034343698204186575808495617.
+  G1 is the group of the points (x, y) with x and y in [0, p) and y² ≡ x³ + 3 (mod p), with (0, 0) denoting the point at infinity; it has order r.
+  F_p² is F_p[i]/(i² + 1); the `G2Point` (x1 x x2, y1 x y2) denotes the point (x1 + x2·i, y1 + y2·i) of the twist y² = x³ + 3/(9 + i) over F_p², and (0 x 0, 0 x 0) the point at infinity; G2 is the twist's subgroup of order r.
+  `isValidPoint` of a `G1Point` is true exactly when it is a point of G1, and of a `G2Point` exactly when its four coordinates lie in [0, p) and it is a point of G2; it is false for every other point term.
+  `BN128Add(P, Q)`, for P and Q in G1, is their sum in G1; `BN128Mul(P, k)`, for P in G1 and every integer k, is k·P (the sum of |k| copies of P, negated when k < 0); `BN128AtePairing(Ps, Qs)`, for two lists of equal length whose items are points of G1 and G2 respectively, is true exactly when Σ aⱼ·bⱼ ≡ 0 (mod r), where Pⱼ = aⱼ·g1 and Qⱼ = bⱼ·g2 for generators g1 of G1 and g2 of G2, and true for two empty lists.
+  The reading says nothing of a sum, product or pairing of a term that is no point, or of pairing lists of different lengths.
+- Reason: `krypto.md` is the text of blockchain-k-plugin, whose cryptographic hooks are those of Ethereum's precompiles, and its section describes one curve by the name under which EIP-196 and EIP-197 add it to Ethereum: a curve over a prime field whose G2 is over the field of first-degree polynomials, with (0, 0) as the point at infinity, which is EIP-196's encoding of the point at infinity.
+  It names no parameters because it takes the curve as known, not because it leaves the curve open: each hook is a `function` that adds, multiplies or pairs points of one group G1 or G2, which needs one curve, and no sentence makes the curve the implementation's.
+  So the curve is a detail the text takes from its context, and the amendment states it with the parameters EIP-196 and EIP-197 give.
+  The `isValidPoint` of a `G2Point` is read as membership of G2, not only of the twist: the text calls a `G2Point` "a point on G2", and the pairing it pairs with G1 is defined through discrete logarithms of G2 points, which exist only in the order-r subgroup.
+  A coordinate outside [0, p) is no element of the prime field the points are over, so a pair holding one is no point.
+  The text describes the sum, product and pairing of points only, so the amendment fixes their values on points and leaves their outcome elsewhere as the text leaves it.
+- Evidence: `validates_concrete_bn128_g1_points`, `validates_concrete_bn128_g2_points_and_subgroup`, `adds_concrete_bn128_g1_points`, `multiplies_concrete_bn128_g1_points_with_reduced_scalars`, `evaluates_concrete_bn128_pairing_products` and `rejects_malformed_concrete_bn128_pairing_arguments` in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs), on points and products of EIP-196 and EIP-197; `bn128_values_are_determined_and_a_non_point_is_outside_domain` in [builtin.rs](../crates/k-rust-backend/src/builtin.rs); `an_amended_value_is_evaluated_outside_an_execution` in the [backend tests](../crates/k-rust-backend/tests/backend/evaluation_mode.rs); and `krun_executes_bn128_fixture_to_pinned_kore_results` and `krun_evaluates_bn128_hooks_on_the_pinned_plugin_point_productions` in [cli.rs](../crates/k-rust/tests/cli.rs).
+  No reference gate evaluates the hooks: the pinned Haskell backend implements none of them, so the KRS KEVM gate's Java-reference route skips the BN128 precompile cases (`krs/tests/kevm/verify.py`).
+- Upstream proposal:
+
+  ```diff
+   The BN128 elliptic curve is defined over 2-dimensional points over the fields of zero- and first-degree polynomials modulo a large prime. (x, y) is a point on G1, whereas (x1 x x2, y1 x y2) is a point on G2, in which x1 and y1 are zero-degree coefficients and x2 and y2 are first-degree coefficients. In each case, (0, 0) is used to represent the point at infinity.
+  +The curve is alt_bn128 of EIP-196 and EIP-197: p = 21888242871839275222246405745257275088696311157297823662689037894645226208583, r = 21888242871839275222246405745257275088548364400416034343698204186575808495617.
+  +G1 is the group of the points (x, y) with x and y in [0, p) and y² = x³ + 3 (mod p); it has order r.
+  +(x1 x x2, y1 x y2) denotes the point (x1 + x2·i, y1 + y2·i) of the twist y² = x³ + 3/(9 + i) over F_p[i]/(i² + 1), and G2 is the twist's subgroup of order r.
+  ```
+
+  and, in the `isValidPoint` item, "validates that it actually lies in G1 or G2 respectively, its coordinates in [0, p)".
+- Status: local
+- Replaces: class `curve` (every outcome of `BN128Add`, `BN128Mul`, `BN128AtePairing` and both `isValidPoint`s); the `\bottom` of a sum, product or pairing outside the points becomes class `outside-domain`.
+
 ### AM-4: Float conversions and roots round to nearest, ties to even
 
 - Upstream: `domains.md` at K v7.1.337, :1464-1467, :1653-1654, :1579-1580, :1577
@@ -136,6 +257,41 @@ Each entry has these fields:
 
 - Status: local
 - Replaces: class `outside-domain` at `floorFloat`, `ceilFloat` and `truncFloat` of a NaN, an infinity, or a non-integer whose rounding is a zero.
+
+### AM-7: `replaceAtBytes` is defined up to the end of its `Bytes`
+
+- Upstream: `domains.md` at K v7.1.337, :2103-2105; `domains.md` at K v7.1.337, :2143-2147
+- Passage:
+
+  > The result is `#False` if `value` is
+  > not in the range [0..255] or if `index` is not a valid index (ie, less than
+  > zero or greater than or equal to the length of the `Bytes` term).
+
+  > You can modify a `Bytes` to return a `Bytes` which is equal to `dest` except the
+  > `N` elements starting at `index` are replaced with the contents of `src` in O(N)
+  > time. If `--llvm-mutable-bytes` is active, this will not create a new `Bytes`
+  > object and will instead modify the original on concrete backends. The result is
+  > `#False` if `index` + `N` is not a valid index.
+
+- k-rust reads: In `replaceAtBytes(dest, index, src)`, with `N` the length of `src`, "`index` + `N` is not a valid index" holds exactly when `index + N` is less than 0 or greater than the length of `dest`; so `replaceAtBytes` from a nonnegative `index` with `index + N` equal to the length of `dest` is `dest` with its last `N` bytes replaced by `src`.
+  Of a negative `index` whose `index + N` is between 0 and the length of `dest` the reading says nothing.
+- Reason: "valid index" is defined for the index of one byte (`B[I <- V]`), as a position `0 <= i < length`, and the sentence applies it to `index + N`, which is no byte's position but the end of the replaced range, one past its last byte.
+  Read as a position, the condition would make every replacement that ends at the end of `dest` `#False`, the replacement of a single last byte and of the whole `dest` included, while the value clause names those `N` bytes of `dest` and their replacement.
+  The bound that says the `N` elements starting at `index` lie inside `dest` is `index + N <= length`, the bound of a range's end, as `substrBytes` states it for its `endIndex` ("`lengthBytes(B) <Int endIndex`" is `#Bottom`, :2136-2139).
+  So the condition is an end bound, written with the phrase defined for positions; nothing in the text makes the tail case the implementation's.
+  A negative `index` with `index + N` in range is outside what the value clause names (no element of `dest` starts there), and the amendment leaves it as the text does.
+- Evidence: `replace_at_past_the_end_is_bottom` in [bytes.rs](../crates/k-rust-backend/src/builtin/bytes.rs), `an_undescribed_bottom_is_outside_domain_and_a_stated_one_is_no_class` in [builtin.rs](../crates/k-rust-backend/src/builtin.rs), `an_amended_value_is_evaluated_outside_an_execution` and `a_bottom_outside_a_described_domain_is_of_unknown_definedness_outside_an_execution` in the [backend tests](../crates/k-rust-backend/tests/backend/evaluation_mode.rs), and `kprove_proves_nothing_from_a_hook_outside_its_described_domain` (`rpl-tail-yes`, `rpl-tail-no`, `vac-rpl-tail`) in [cli.rs](../crates/k-rust/tests/cli.rs).
+- Upstream proposal:
+
+  ```diff
+   object and will instead modify the original on concrete backends. The result is
+  -`#False` if `index` + `N` is not a valid index. This function accepts both
+  +`#False` if `index` + `N` is less than zero or greater than the length of
+  +`dest`. This function accepts both
+  ```
+
+- Status: local
+- Replaces: class `outside-domain` of `replaceAtBytes` from a nonnegative index up to the end of its `Bytes`; the negative start stays `outside-domain`.
 
 ### AM-8: A Float literal is its rational correctly rounded
 

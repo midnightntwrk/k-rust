@@ -288,8 +288,9 @@ fn float_letter_case_and_substitution_values_computed_at_run_time_are_marked() {
 /// (`float-rounding`: an inexact `Int2Float`, `Int2Float` of 0, an inexact `roundFloat`,
 /// `Float2Int` at a tie, an inexact root of a positive value), a value outside a described domain
 /// (`outside-domain`: a root of a negative value, `floorFloat` of a non-integer rounding to a
-/// zero, the ECDSA failure values), a byte encoding (`byte-encoding`, every application), a hex
-/// output's letter case (`hex-case`) and every BN128 outcome (`curve`).
+/// zero, the ECDSA failure values, a BN128 sum of a non-point). A byte conversion, a hex output and
+/// a BN128 value on points are determined (AM-1, AM-2 and AM-3 of `docs/amendments.md`) and
+/// unmarked.
 ///
 /// GAP A2: the inexact and zero `Int2Float`, the inexact `roundFloat` and root and `floorFloat`
 /// to a zero are IEEE 754's (`docs/amendments.md`, AM-4 to AM-6), so they are unmarked; the
@@ -344,37 +345,23 @@ fn conversions_roots_encodings_digests_and_curve_values_computed_at_run_time_are
     assert_marked(GAP_VALUES, "fl(0.5)", &[]);
     assert_marked(GAP_VALUES, "fl(-0.5)", &[]);
     assert_marked(GAP_VALUES, "fl(1.5)", &[]);
-    assert_marked(
-        GAP_VALUES,
-        r#"s2b("a")"#,
-        &[mark("BYTES.string2bytes", "byte-encoding")],
-    );
-    assert_marked(
-        GAP_VALUES,
-        r#"b2s(b"a")"#,
-        &[mark("BYTES.bytes2string", "byte-encoding")],
-    );
-    assert_marked(
-        GAP_VALUES,
-        r#"kec(b"")"#,
-        &[mark("KRYPTO.keccak256", "hex-case")],
-    );
+    assert_marked(GAP_VALUES, r#"s2b("a\xe9")"#, &[]);
+    assert_marked(GAP_VALUES, r#"b2s(b"a\xe9")"#, &[]);
+    assert_marked(GAP_VALUES, r#"kec(b"")"#, &[]);
     assert_marked(GAP_VALUES, r#"kraw(b"")"#, &[]);
     assert_marked(GAP_VALUES, r#"pub(b"")"#, &outside("KRYPTO.ecdsaPubKey"));
     assert_marked(
         GAP_VALUES,
         r#"pub(b"0123456789abcdef0123456789abcdef")"#,
-        &[mark("KRYPTO.ecdsaPubKey", "hex-case")],
+        &[],
     );
     assert_marked(GAP_VALUES, "rec(29)", &outside("KRYPTO.ecdsaRecover"));
-    assert_marked(GAP_VALUES, "add(1, 2)", &[mark("KRYPTO.bn128add", "curve")]);
-    // A non-point: k-rust's `\bottom`, a pick of the curve too, marks the undefined step.
-    assert_marked(GAP_VALUES, "add(1, 3)", &[mark("KRYPTO.bn128add", "curve")]);
-    assert_marked(
-        GAP_VALUES,
-        "valid(1, 3)",
-        &[mark("KRYPTO.bn128valid", "curve")],
-    );
+    assert_marked(GAP_VALUES, "add(1, 2)", &[]);
+    // A non-point, which the description of the sum does not cover: k-rust's `\bottom` marks the
+    // undefined step.
+    assert_marked(GAP_VALUES, "add(1, 3)", &outside("KRYPTO.bn128add"));
+    assert_marked(GAP_VALUES, "valid(1, 3)", &[]);
+    assert_marked(GAP_VALUES, "valid(1, 2)", &[]);
 }
 
 const DISCARDED_GAP: &str = r#"
@@ -396,15 +383,14 @@ endmodule
 "#;
 
 /// The operand a decided `#if` discards is only checked for definedness (a `suspend`ed
-/// evaluation). At a partial symbol the definedness of an `outside-domain` or `curve` outcome is
-/// itself k-rust's pick: `\bottom` and every value of the sort are models of the failed recovery
-/// (k-rust's value is the empty `Bytes`), and every BN128 outcome, a point sum's value or k-rust's
-/// `\bottom` of a non-point, is one outcome of the curve among others. Where k-rust's outcome is a
-/// value, the leaf's result rests on the pick that the operand is defined, so it is marked
-/// (`zr(29)`, `zb(1, 2)`); where it is `\bottom` (`zb(1, 3)`), the `#if` is undefined, the step
-/// is undefined and its leaf, the unstepped state, is marked. The control `String2Bytes` is
-/// `total`: its operand is defined in every model, the definedness check reads no pick, and the
-/// leaf is unmarked although the value itself is open (`byte-encoding`).
+/// evaluation). At a partial symbol the definedness of an `outside-domain` outcome is itself
+/// k-rust's pick: `\bottom` and every value of the sort are models of the failed recovery
+/// (k-rust's value is the empty `Bytes`) and of a BN128 sum of a non-point (k-rust's `\bottom`).
+/// Where k-rust's outcome is a value, the leaf's result rests on the pick that the operand is
+/// defined, so it is marked (`zr(29)`); where it is `\bottom` (`zb(1, 3)`), the `#if` is
+/// undefined, the step is undefined and its leaf, the unstepped state, is marked. The controls
+/// are determined: a BN128 sum of points (`zb(1, 2)`, AM-3) and the `total` `String2Bytes`
+/// (AM-1), whose operands are defined in every model, so the leaf is unmarked.
 #[test]
 fn a_discarded_operand_whose_definedness_is_an_outcome_k_rust_picks_is_marked() {
     assert_marked(
@@ -412,15 +398,11 @@ fn a_discarded_operand_whose_definedness_is_an_outcome_k_rust_picks_is_marked() 
         "zr(29)",
         &[mark("KRYPTO.ecdsaRecover", "outside-domain")],
     );
-    assert_marked(
-        DISCARDED_GAP,
-        "zb(1, 2)",
-        &[mark("KRYPTO.bn128add", "curve")],
-    );
+    assert_marked(DISCARDED_GAP, "zb(1, 2)", &[]);
     assert_marked(
         DISCARDED_GAP,
         "zb(1, 3)",
-        &[mark("KRYPTO.bn128add", "curve")],
+        &[mark("KRYPTO.bn128add", "outside-domain")],
     );
     assert_marked(DISCARDED_GAP, r#"zs("a")"#, &[]);
 }
@@ -1792,13 +1774,14 @@ module MAIN
 endmodule
 "#;
 
-    /// `#read` may return fewer characters than requested: a read that returned two is marked,
-    /// one that returned one is not (one character could be fewer only by being none, which
-    /// states end of file). The backend's executions with default options run in `Proof`, where
-    /// the read count is not withheld (a proof route has no console), and mark it too.
+    /// How many characters a `#read` returns is the file's, as its characters are: the read
+    /// touches only the environment, whose console contract gives every character that remains up
+    /// to the length (docs/compatibility.md, "Strings and their literals"). So no read is marked,
+    /// of two characters or one, in an execution and in the backend's executions with default
+    /// options, which run in `Proof`.
     #[test]
-    fn a_read_of_two_characters_is_marked_and_of_one_is_not() {
-        for (program, expected) in [("rd(2)", 1), ("rd(1)", 0)] {
+    fn no_read_is_marked_whatever_its_count() {
+        for program in ["rd(2)", "rd(1)"] {
             let (kore, initial) = compile(READ, program);
             let (mut backend, pattern) = internal(&kore, &initial);
             let definition = backend.select_definition(None).unwrap();
@@ -1814,12 +1797,7 @@ endmodule
                 );
                 assert_eq!(
                     leaf_marks(&result),
-                    [expected],
-                    "{program}, {evaluation:?}: {result:#?}"
-                );
-                assert_eq!(
-                    format!("{result:?}").matches("ReadCount").count() > 0,
-                    expected > 0,
+                    [0],
                     "{program}, {evaluation:?}: {result:#?}"
                 );
             }
@@ -1895,10 +1873,9 @@ endmodule
                     );
                 }
             }
-            // `#read(0, 5)` taking all five characters is the one implementation-chosen value
-            // here (class `read-count`); the presentation itself is never marked.
-            let expected = usize::from(program == "echo(5)");
-            assert_eq!(leaf_marks(&result), [expected], "{program}: {result:#?}");
+            // `#read(0, 5)` takes the five characters the file holds, which the console contract
+            // gives; neither it nor the presentation is marked.
+            assert_eq!(leaf_marks(&result), [0], "{program}: {result:#?}");
         }
     }
 

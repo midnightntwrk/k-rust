@@ -326,12 +326,13 @@ fn definedness(definition: &BackendDefinition, source: &str, mode: EvaluationMod
     })
 }
 
-/// GAP K1: outside an execution a value of class `curve` or `outside-domain` at a partial symbol
-/// is of unknown definedness, since `\bottom` is a model too: the `\ceil` of a BN128 sum of a
+/// GAP K1: outside an execution a value of class `outside-domain` at a partial symbol is of
+/// unknown definedness, since `\bottom` is a model too: the `\ceil` of a BN128 sum of a
 /// non-point (k-rust's pick is `\bottom`) and of a failed recovery (k-rust's pick is the empty
-/// `Bytes`) is neither true nor false. At a `total` symbol, and for a class whose description
-/// gives a value (`byte-encoding`), the application is defined. An execution takes k-rust's pick.
-/// Before K1 the proof routes read the pick: the sum was undefined and the recovery defined.
+/// `Bytes`) is neither true nor false. At a `total` symbol, and for a hook whose value is
+/// determined (`String2Bytes`, AM-1), the application is defined. An execution takes k-rust's
+/// pick. Before K1 the proof routes read the pick: the sum was undefined and the recovery
+/// defined.
 #[test]
 fn an_open_outcome_of_a_partial_symbol_is_of_unknown_definedness_outside_an_execution() {
     let syntax = parse_definition(OPEN_OUTCOMES).expect("the fixture parses");
@@ -363,8 +364,8 @@ fn an_open_outcome_of_a_partial_symbol_is_of_unknown_definedness_outside_an_exec
             "{source}"
         );
     }
-    // A `total` BN128 sum of a non-point is defined in every model, and the curve, which no text
-    // names, decides its value: no route takes k-rust's `\bottom` (GAP K2 fix round 1).
+    // A `total` BN128 sum of a non-point is defined in every model, and no text gives its value:
+    // no route takes k-rust's `\bottom` (GAP K2 fix round 1).
     let total_sum = sum.replacen("add{}", "totalAdd{}", 1);
     for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
         assert_eq!(
@@ -381,6 +382,83 @@ fn an_open_outcome_of_a_partial_symbol_is_of_unknown_definedness_outside_an_exec
         definedness(&definition, &failed("rec"), EvaluationMode::Execution),
         Predicate::True
     );
+}
+
+/// GAP A1: hooks whose values the amendments AM-1, AM-2, AM-3 and AM-7 of `docs/amendments.md`
+/// determine.
+const AMENDED: &str = r#"[]
+module MAIN
+  sort SortK{} []
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+  hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+  sort SortG1Point{} []
+  symbol g1{}(SortInt{}, SortInt{}) : SortG1Point{} [constructor{}()]
+  hooked-symbol add{}(SortG1Point{}, SortG1Point{}) : SortG1Point{}
+    [function{}(), hook{}("KRYPTO.bn128add")]
+  hooked-symbol valid{}(SortG1Point{}) : SortBool{} [function{}(), hook{}("KRYPTO.bn128valid")]
+  hooked-symbol keccak{}(SortBytes{}) : SortString{} [function{}(), hook{}("KRYPTO.keccak256")]
+  hooked-symbol s2b{}(SortString{}) : SortBytes{}
+    [function{}(), total{}(), hook{}("BYTES.string2bytes")]
+  hooked-symbol b2s{}(SortBytes{}) : SortString{}
+    [function{}(), total{}(), hook{}("BYTES.bytes2string")]
+  hooked-symbol rep{}(SortBytes{}, SortInt{}, SortBytes{}) : SortBytes{}
+    [function{}(), hook{}("BYTES.replaceAt")]
+endmodule []"#;
+
+/// GAP A1: a value an amendment determines is evaluated outside an execution, as in one, without
+/// a warning: `String2Bytes` and `Bytes2String` one byte per code point (AM-1), a hex digest in
+/// lowercase (AM-2), a BN128 sum of points and the validity of a pair (AM-3), and a replacement up
+/// to the end of the `Bytes` (AM-7). Before A1 each stayed unevaluated outside an execution.
+#[test]
+fn an_amended_value_is_evaluated_outside_an_execution() {
+    let syntax = parse_definition(AMENDED).expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let int = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+    let point = |x: i64, y: i64| format!("g1{{}}({}, {})", int(x), int(y));
+    let cases = [
+        (
+            r#"s2b{}(\dv{SortString{}}("a\xe9\xff"))"#.to_owned(),
+            r#"\dv{SortBytes{}}("a\xe9\xff")"#.to_owned(),
+        ),
+        (
+            r#"b2s{}(\dv{SortBytes{}}("a\xe9\xff"))"#.to_owned(),
+            r#"\dv{SortString{}}("a\xe9\xff")"#.to_owned(),
+        ),
+        (
+            r#"keccak{}(\dv{SortBytes{}}(""))"#.to_owned(),
+            r#"\dv{SortString{}}("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")"#
+                .to_owned(),
+        ),
+        (
+            format!("add{{}}({}, {})", point(0, 0), point(1, 2)),
+            point(1, 2),
+        ),
+        (
+            format!("valid{{}}({})", point(1, 2)),
+            r#"\dv{SortBool{}}("true")"#.to_owned(),
+        ),
+        (
+            format!("valid{{}}({})", point(1, 3)),
+            r#"\dv{SortBool{}}("false")"#.to_owned(),
+        ),
+        (
+            format!(
+                r#"rep{{}}(\dv{{SortBytes{{}}}}("\x01\x02\x03"), {}, \dv{{SortBytes{{}}}}("\x00\x00"))"#,
+                int(1)
+            ),
+            r#"\dv{SortBytes{}}("\x01\x00\x00")"#.to_owned(),
+        ),
+    ];
+    for (source, expected) in &cases {
+        let expected = internal_term(&definition, expected);
+        for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
+            let (term, diagnostics) = with_evaluation(mode, || simplified(&definition, source));
+            assert_eq!(term, expected, "{source} {mode:?}");
+            assert!(diagnostics.is_empty(), "{source} {mode:?}: {diagnostics:?}");
+        }
+    }
 }
 
 /// GAP K2: partial and `total` symbols hooked at scoped sites (`ordChar`, `String2Int`) and at a
@@ -417,22 +495,12 @@ fn a_bottom_outside_a_described_domain_is_of_unknown_definedness_outside_an_exec
             r#"rep{{}}(\dv{{SortBytes{{}}}}("\x01\x02\x03"), \dv{{SortInt{{}}}}("{index}"), \dv{{SortBytes{{}}}}("\x00\x00"))"#
         )
     };
-    // `replaceAtBytes` at a negative index (`index + N` an index) and where `index + N` is the
-    // length, at which "valid index" has two readings: of unknown definedness outside an
-    // execution, which takes k-rust's `\bottom` and value. Before the fix round both were
-    // decided.
-    let tail = rep(1);
-    let proof = definedness(&definition, &tail, EvaluationMode::Proof);
-    assert!(
-        !matches!(proof, Predicate::True | Predicate::False),
-        "{tail}: {proof:?}"
-    );
-    assert_eq!(
-        definedness(&definition, &tail, EvaluationMode::Execution),
-        Predicate::True
-    );
+    // `replaceAtBytes` at a negative index (`index + N` an index) is of unknown definedness
+    // outside an execution, which takes k-rust's `\bottom`; where `index + N` is the length it is
+    // defined, the replaced `Bytes` (AM-7), on every route.
     for (index, defined) in [
         (0, Predicate::True),
+        (1, Predicate::True),
         (2, Predicate::False),
         (-3, Predicate::False),
     ] {

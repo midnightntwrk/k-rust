@@ -151,8 +151,10 @@ macro_rules! __krs_hook_operation_catalog {
                 }
             }
             /// Validate a concrete G1 point of the plugin's BN128 curve (`KRYPTO.bn128valid`).
-            /// `plugin/krypto.md` gives no curve parameters, so every value is open: k-rust computes
-            /// `alt_bn128` and marks the run.
+            /// The curve is alt_bn128 of EIP-196 and EIP-197, as amendment AM-3 of k-rust's
+            /// `docs/amendments.md` reads `plugin/krypto.md`, so the BN128 values on points are
+            /// determined; a sum, product or pairing of a non-point, which the plugin does not
+            /// describe, is open, and k-rust marks the run there.
             KryptoBn128Valid {
                 rust_module: krypto,
                 rust_name: bn128_valid,
@@ -1553,8 +1555,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Bool,
                 functional: true
             }
-            /// `String2Bytes` (`BYTES.string2bytes`). `domains.md` names no encoding, so the bytes
-            /// are open: k-rust writes one byte per code point below 256 and marks the run.
+            /// `String2Bytes` (`BYTES.string2bytes`): one byte per code point, each below 256, as
+            /// amendment AM-1 of k-rust's `docs/amendments.md` reads `domains.md`.
             BytesFromString {
                 rust_module: bytes,
                 rust_name: from_string,
@@ -1567,8 +1569,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Bytes,
                 functional: true
             }
-            /// `Bytes2String` (`BYTES.bytes2string`). `domains.md` names no encoding, so the string
-            /// is open: k-rust reads one code point per byte and marks the run.
+            /// `Bytes2String` (`BYTES.bytes2string`): one code point per byte, as amendment AM-1 of
+            /// k-rust's `docs/amendments.md` reads `domains.md`.
             BytesToString {
                 rust_module: bytes,
                 rust_name: to_string,

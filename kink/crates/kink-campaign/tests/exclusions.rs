@@ -429,7 +429,10 @@ mod kink_tier {
     /// reads before the initial state's, refuses it as `implementation-chosen-value`. The baseline
     /// is refused as before (`BaselineOracleFailed`) for the same open value; only the reason
     /// names the record k-rust now keeps. The initial-state check still reads the hook (it is on
-    /// the census until GK-1), but this state no longer reaches it.
+    /// the census until GK-1), but this state no longer reaches it. GAP A1: `String2Bytes` is one
+    /// byte per code point (k-rust `docs/amendments.md` AM-1), so k-rust marks no value of it and
+    /// the run's lists are empty again; the initial-state check, whose census still holds the hook,
+    /// refuses the baseline as before K1 (`implementation-chosen-hook`).
     #[test]
     #[ignore = "kink"]
     fn an_excluded_baseline_is_refused() {
@@ -487,8 +490,8 @@ mod kink_tier {
                 )
                 .unwrap_or_else(|failure| panic!("{id}: {failure}"));
             }
-            // An initial state that applies `String2Bytes` is refused for the value it reads: its
-            // run lists the `byte-encoding` mark (GAP K1) before the initial-state check is read.
+            // An initial state that applies `String2Bytes` is refused by the initial-state check,
+            // whose census holds the hook: since GAP A1 its run lists no mark.
             let encoded = parse_pattern(
                 r#"Lblval{}(LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes{}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{}(\dv{SortString{}}("a"))))"#,
             )
@@ -503,7 +506,7 @@ mod kink_tier {
             .expect_err("an initial state applying String2Bytes is refused");
             assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
             assert!(
-                failure.to_string().contains("implementation-chosen-value"),
+                failure.to_string().contains("implementation-chosen-hook"),
                 "{failure}"
             );
         });
