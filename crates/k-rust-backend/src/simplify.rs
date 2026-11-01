@@ -39,7 +39,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "simplify_conjunction_with_budget", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \\not; c = assumed conjuncts that share its key; k = known predicates"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited", "SimplifyConjunctNodes", "SimplifyKnownPredicates"]
 //! span = "per call"
@@ -68,6 +68,10 @@
 //! [[cost]]
 //! mode = "opaque \\ceil or absence expansion (expansion_obligations)"
 //! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
+//!
+//! [[cost]]
+//! mode = "further pass of a \\ceil or absence atom's arm (settled)"
+//! bound = "per round of that pass, at the conjunct equal to the atom: one flattening of the other conjuncts' current values and one key and containment test of each against the known predicates; none in any other pass"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -704,11 +708,13 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
 /// the assumptions state defined (`known_defined_subterms`: every application is strict, so a
 /// defined term has defined subterms), and `atom` itself when it is such a `\ceil`. The further
 /// pass over the expansion's conjunction (`simplify_predicate_on_stack`) receives these same
-/// assumptions as its known predicates and drops those members for that reason, so they must be
-/// dropped here too: otherwise an expansion that adds only such members beside the opaque `atom`
-/// leaves that pass with `atom` alone under the same assumptions, which is this simplification
-/// again, and the two recur without end. KEVM's `#parseByteStack` of an unevaluated
-/// `Keccak256(B)` reaches `\ceil(findString(Keccak256(B), "0x", 0))` under a known
+/// assumptions as its known predicates and drops those members for that reason, so they are
+/// dropped here too: an expansion that adds only such members beside the opaque `atom` leaves
+/// that pass with `atom` alone under the same assumptions, which is this simplification again.
+/// The pass keeps `atom` as it is there (`simplify_conjunction_with_budget`), so dropping them
+/// here spares it a round; before that stop (K10) the two recurred without end. KEVM's
+/// `#parseByteStack` of an unevaluated `Keccak256(B)` reaches
+/// `\ceil(findString(Keccak256(B), "0x", 0))` under a known
 /// `lengthString(replace(Keccak256(B), ..)) <Int 2`: `\ceil(Keccak256(B))` is such a member.
 ///
 /// For the same reason a member `\ceil(s)` is dropped when the definedness of `s` is that of
@@ -717,7 +723,7 @@ fn known_defined_subterms(definition: &BackendDefinition, known: &[Predicate]) -
 /// states, and the further pass would discharge it by that same judgement and be left with
 /// `atom` alone, under the same assumptions. With a digest stated defined on every byte string
 /// (`builtin::defined_on_every_argument`), `\ceil(Keccak256(B))` of the same expansion is such
-/// a member under no assumption at all, and before it was dropped here the pass and this
+/// a member under no assumption at all, and before it was dropped here (K9) the pass and this
 /// simplification recurred until the native stack ran out.
 ///
 /// The known-defined terms and the judgements are read only when a member besides `atom`
@@ -1015,6 +1021,11 @@ struct PredicateAssumptions<'a> {
     /// `terms.predicates`, with the slot of the conjunct being simplified: it is not an
     /// assumption of its own simplification.
     level: Option<(&'a LevelConjuncts, Option<usize>)>,
+    /// For the further pass of a definedness atom's arm over the atom's expansion, the atom: a
+    /// conjunction simplification under these assumptions keeps it as it is once it is alone
+    /// beside the known predicates ([`simplify_conjunction_with_budget`]). Read by the `And` arm
+    /// alone.
+    settled: Option<&'a Predicate>,
 }
 
 impl<'a> PredicateAssumptions<'a> {
@@ -1027,6 +1038,21 @@ impl<'a> PredicateAssumptions<'a> {
             terms,
             known,
             level,
+            settled: None,
+        }
+    }
+
+    /// These assumptions, for the further pass of the arm of the definedness atom `atom` over
+    /// its expansion.
+    fn settling_at<'b>(&'b self, atom: &'b Predicate) -> PredicateAssumptions<'b> {
+        PredicateAssumptions {
+            terms: TermAssumptions {
+                predicates: self.terms.predicates,
+                path_condition: self.terms.path_condition,
+            },
+            known: self.known,
+            level: self.level,
+            settled: Some(atom),
         }
     }
 
@@ -1501,6 +1527,32 @@ fn simplify_predicates_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Vec<Predicate>> {
+    simplify_conjunction_with_budget(
+        definition,
+        predicates,
+        known_predicates,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+        None,
+    )
+}
+
+/// [`simplify_predicates_with_budget`]; when `settled` is a definedness atom whose arm takes
+/// this pass over the atom's expansion, the atom is kept as it is once it is alone beside the
+/// known predicates.
+#[allow(clippy::too_many_arguments)]
+fn simplify_conjunction_with_budget(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    settled: Option<&Predicate>,
+) -> SimplifyResult<Vec<Predicate>> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
@@ -1598,6 +1650,24 @@ fn simplify_predicates_with_budget(
                 && crate::deferred::impure_outcome(definition, subject).is_some())
         {
             Ok(Predicate::True)
+        } else if settled.is_some_and(|atom| {
+            // The pass of a definedness atom's arm (`settled`) is over the atom's expansion: `A`
+            // and the members `M`, the conjunction that `ceil_term` states of `A`'s subject, which
+            // is equivalent to `A`, so `A` implies every member. A round may discharge a member by
+            // any route: the sibling `A` states its subject defined, a conditional ceil equation or
+            // a predicate equation decides it under the known predicates, or `crate::deferred`
+            // does. Once every other conjunct is `\top` or a known predicate, the conjunction is
+            // `A` under the known predicates, and simplifying `A` here would be simplifying it
+            // under them and nothing else: the arm's own simplification again, whose expansion is
+            // `M` again, so it would take this pass again and come back here, without end. `A`
+            // stays as it is: the members were there to decide `A` beside them, and the rounds
+            // beside them did not.
+            predicate == atom
+                && distinct_conjuncts(&assumptions[offset..])
+                    .into_iter()
+                    .all(|other| *other == Predicate::True || known_index.contains(other))
+        }) {
+            Ok(predicate.clone())
         } else {
             let excluded_path_condition = (!conjunct_equalities[index].is_empty())
                 .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
@@ -1678,7 +1748,7 @@ fn simplify_predicates_with_budget(
     }
     *remaining -= 1;
     // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
-    simplify_predicates_with_budget(
+    simplify_conjunction_with_budget(
         definition,
         &simplified,
         known_predicates,
@@ -1686,6 +1756,7 @@ fn simplify_predicates_with_budget(
         remaining,
         active_conditions,
         solver,
+        settled,
     )
 }
 
@@ -3307,10 +3378,13 @@ fn simplify_predicate_on_stack(
                     .into());
                 }
                 *remaining -= 1;
+                // The pass keeps the atom as it is once the atom is alone beside the known
+                // predicates: this simplification of it is the one in progress
+                // (`simplify_conjunction_with_budget`).
                 return simplify_predicate_with_budget(
                     definition,
                     &conjunction,
-                    assumptions,
+                    &assumptions.settling_at(&unchanged),
                     limit,
                     remaining,
                     active_conditions,
@@ -3409,10 +3483,11 @@ fn simplify_predicate_on_stack(
                     .into());
                 }
                 *remaining -= 1;
+                // As for `\ceil` above, the pass keeps the atom once it is alone.
                 return simplify_predicate_with_budget(
                     definition,
                     &conjunction,
-                    assumptions,
+                    &assumptions.settling_at(&simplified),
                     limit,
                     remaining,
                     active_conditions,
@@ -3434,7 +3509,7 @@ fn simplify_predicate_on_stack(
         }
         Predicate::And(inner) => {
             let mut inner_remaining = *remaining;
-            let inner = simplify_predicates_with_budget(
+            let inner = simplify_conjunction_with_budget(
                 definition,
                 inner,
                 assumptions.terms.predicates,
@@ -3442,6 +3517,7 @@ fn simplify_predicate_on_stack(
                 &mut inner_remaining,
                 active_conditions,
                 solver,
+                assumptions.settled,
             )?;
             Predicate::And(inner.into())
         }

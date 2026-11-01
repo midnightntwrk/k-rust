@@ -584,6 +584,192 @@ fn a_defined_argument_ends_the_definedness_of_its_partial_parent() {
     }
 }
 
+/// The `\ceil` of `source` simplified under `known_predicates` in proof mode, with the default
+/// budget.
+fn definedness_under(
+    definition: &BackendDefinition,
+    source: &str,
+    known_predicates: &[Predicate],
+) -> Predicate {
+    let predicate = Predicate::Ceil(internal_term(definition, source));
+    with_evaluation(EvaluationMode::Proof, || {
+        unstopped::simplify_predicate_with_solver(
+            definition,
+            &predicate,
+            known_predicates,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the definedness simplifies")
+    })
+}
+
+/// GAP K10: the `\ceil` of a partial application whose expansion keeps a member that its further
+/// pass discharges because the `\ceil` itself, a sibling there, states the member's subject
+/// defined. `find(skec(pkec(B)), ..)` expands to itself and `\ceil(skec(pkec(B)))`
+/// (`\ceil(pkec(B))` holds by its hook's text and is dropped, K9); the pass discharges
+/// `\ceil(skec(pkec(B)))` under the sibling `\ceil(find(..))`, whose expansion beside it still
+/// held `\ceil(pkec(B))`, and is left with the `\ceil` alone. The same with an argument the
+/// known predicates state defined (`skec(S)` under `\ceil(ps2b(skec(S)))`). Before K10 the pass
+/// simplified the `\ceil` alone again, which expanded it to the same members, and the two
+/// recurred until the iteration limit (the native stack under `kore-simplify`'s unbounded one).
+#[test]
+fn a_member_its_parent_states_defined_ends_the_further_pass() {
+    let syntax = parse_definition(SYMBOLIC_DEFINEDNESS).expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let find = |argument: &str| {
+        format!(r#"find{{}}({argument}, \dv{{SortString{{}}}}("0x"), \dv{{SortInt{{}}}}("0"))"#)
+    };
+    let digest = find("skec{}(pkec{}(B:SortBytes{}))");
+    assert_eq!(
+        definedness_under(&definition, &digest, &[]),
+        Predicate::Ceil(internal_term(&definition, &digest)),
+    );
+    let nested = find("skec{}(skec{}(S:SortString{}))");
+    let known = [Predicate::Ceil(internal_term(
+        &definition,
+        "ps2b{}(skec{}(S:SortString{}))",
+    ))];
+    assert_eq!(
+        definedness_under(&definition, &nested, &known),
+        Predicate::Ceil(internal_term(&definition, &nested)),
+    );
+}
+
+/// GAP K10: a conditional ceil equation on `fun` whose condition the known predicates state.
+const CONDITIONAL_CEIL: &str = r#"[]
+module MAIN
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  sort SortKey{} [hasDomainValues{}()]
+  sort SortValue{} [hasDomainValues{}()]
+  hooked-sort SortMap{}
+    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+  hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  symbol isFun{}(SortInt{}) : SortBool{} [function{}(), total{}()]
+  symbol fun{}(SortInt{}) : SortInt{} [function{}()]
+  symbol funMap{}(SortInt{}) : SortMap{} [function{}()]
+  symbol outer{}(SortInt{}) : SortInt{} [function{}()]
+  axiom{R, Q} \implies{R}(
+    \equals{SortBool{}, R}(isFun{}(X:SortInt{}), \dv{SortBool{}}("true")),
+    \equals{Q, R}(\ceil{SortInt{}, Q}(fun{}(X:SortInt{})), \and{Q}(\top{Q}(), \top{Q}()))
+  ) [label{}("ceil-fun"), simplification{}()]
+  axiom{R, Q} \implies{R}(
+    \equals{SortBool{}, R}(isFun{}(X:SortInt{}), \dv{SortBool{}}("true")),
+    \equals{Q, R}(\ceil{SortMap{}, Q}(funMap{}(X:SortInt{})), \and{Q}(\top{Q}(), \top{Q}()))
+  ) [label{}("ceil-fun-map"), simplification{}()]
+endmodule []"#;
+
+/// GAP K10: a member of the expansion that a conditional ceil equation decides under the known
+/// predicates: `\ceil(outer(fun(X)))` expands to itself and `\ceil(fun(X))`, which the pass
+/// decides by `ceil-fun` under `isFun(X) = true`; and the definedness of a map with an entry
+/// beside an opaque `funMap(X)`, whose expansion is the key's absence from it (no membership
+/// function is declared) and `\ceil(funMap(X))`, decided the same way. Each pass was left with
+/// the atom alone (the `\ceil`; the absence, after the member that precedes it in the same
+/// round) and, before K10, simplified it again, recurring until the iteration limit.
+#[test]
+fn a_member_a_conditional_ceil_equation_decides_ends_the_further_pass() {
+    let syntax = parse_definition(CONDITIONAL_CEIL).expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let known = [Predicate::Equals(
+        internal_term(&definition, "isFun{}(X:SortInt{})"),
+        internal_term(&definition, r#"\dv{SortBool{}}("true")"#),
+    )];
+    let nested = "outer{}(fun{}(X:SortInt{}))";
+    assert_eq!(
+        definedness_under(&definition, nested, &known),
+        Predicate::Ceil(internal_term(&definition, nested)),
+    );
+    let map =
+        r#"mapConcat{}(mapItem{}(K:SortKey{}, \dv{SortValue{}}("1")), funMap{}(X:SortInt{}))"#;
+    let absence = definedness_under(&definition, map, &known);
+    assert!(matches!(absence, Predicate::Absent(_)), "{absence:?}");
+}
+
+/// GAP K10: a map-key disequality, a member of the expansion of `\ceil(outer(M))`, that a
+/// predicate equation decides: `X +Int 1` and `X +Int 2` are not shown apart, so the expansion
+/// states `\not(X +Int 1 = X +Int 2)`, and `different-offsets` refutes the equality in the
+/// pass. Before K10 the pass was left with the `\ceil` alone and recurred as above.
+#[test]
+fn a_map_key_disequality_a_predicate_equation_decides_ends_the_further_pass() {
+    let syntax = parse_definition(
+        r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  sort SortValue{} [hasDomainValues{}()]
+  hooked-sort SortMap{}
+    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+  hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol mapItem{}(SortInt{}, SortValue{}) : SortMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+    [function{}(), total{}(), hook{}("INT.add")]
+  symbol outer{}(SortMap{}) : SortInt{} [function{}()]
+  axiom{R, Q} \implies{R}(
+    \not{R}(\equals{SortInt{}, R}(J:SortInt{}, K:SortInt{})),
+    \equals{Q, R}(
+      \equals{SortInt{}, Q}(add{}(I:SortInt{}, J:SortInt{}), add{}(I:SortInt{}, K:SortInt{})),
+      \and{Q}(\bottom{Q}(), \top{Q}())
+    )
+  ) [label{}("different-offsets"), simplification{}()]
+endmodule []"#,
+    )
+    .expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let entry = |offset: i64| {
+        format!(
+            r#"mapItem{{}}(add{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{offset}")), \dv{{SortValue{{}}}}("1"))"#
+        )
+    };
+    let source = format!("outer{{}}(mapConcat{{}}({}, {}))", entry(1), entry(2));
+    assert_eq!(
+        definedness_under(&definition, &source, &[]),
+        Predicate::Ceil(internal_term(&definition, &source)),
+    );
+}
+
+/// GAP K10: a deferred atom of the expansion that its own arm decides: `#if` never evaluates the
+/// branch `X /Int 2`, so the expansion of `\ceil(outer(#if C #then X /Int 2 #else 0 #fi))` is
+/// itself and the deferred definedness of the branch, which `crate::deferred` establishes in
+/// the pass by `ceil-div` with `2 =/=Int 0` decided by its hook. Before K10 the pass was left
+/// with the `\ceil` alone and recurred as above.
+#[test]
+fn a_deferred_member_its_own_arm_decides_ends_the_further_pass() {
+    let syntax = parse_definition(
+        r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
+    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+  hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+  hooked-symbol ite{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{}
+    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+  symbol outer{}(SortInt{}) : SortInt{} [function{}()]
+  axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+    \ceil{SortInt{}, R}(tdiv{}(I1:SortInt{}, I2:SortInt{})),
+    \and{R}(
+      \equals{SortBool{}, R}(neInt{}(I2:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
+      \top{R}())))
+    [label{}("ceil-div"), simplification{}()]
+endmodule []"#,
+    )
+    .expect("the fixture parses");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
+    let source = r#"outer{}(ite{}(C:SortBool{}, tdiv{}(X:SortInt{}, \dv{SortInt{}}("2")), \dv{SortInt{}}("0")))"#;
+    assert_eq!(
+        definedness_under(&definition, source, &[]),
+        Predicate::Ceil(internal_term(&definition, source)),
+    );
+}
+
 /// GAP K2: partial and `total` symbols hooked at scoped sites (`ordChar`, `String2Int`) and at a
 /// universal one (`chrChar`).
 const OUTSIDE_BOTTOMS: &str = r#"[]

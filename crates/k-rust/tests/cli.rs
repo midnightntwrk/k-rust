@@ -3007,6 +3007,48 @@ fn kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_w
     fs::remove_dir_all(root).unwrap();
 }
 
+/// GAP K10: `krust kore-simplify`, whose predicate budget is unbounded, of a pattern constrained by
+/// `\ceil(find(skec(pkec(B)), "0x", 0))`: the expansion keeps `\ceil(skec(pkec(B)))` beside the
+/// `\ceil` (a digest over a `String`, which no text describes; that of `pkec(B)` holds by its
+/// hook's text, K9), and the pass over the two discharges it because its sibling states its
+/// subject defined, leaving the `\ceil` alone. Before K10 the pass simplified that `\ceil` again,
+/// which is the same simplification, until the native stack ran out; now the `\ceil` is kept.
+#[test]
+fn kore_simplify_of_a_ceil_whose_member_its_parent_states_defined_ends() {
+    let (root, _) = fixture();
+    let definition = root.join("sibling-held.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+  hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+  sort SortK{} []
+  symbol c{}(SortInt{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+  hooked-symbol pkec{}(SortBytes{}) : SortString{} [function{}(), hook{}("KRYPTO.keccak256")]
+  hooked-symbol skec{}(SortString{}) : SortString{} [function{}(), hook{}("KRYPTO.keccak256")]
+  hooked-symbol find{}(SortString{}, SortString{}, SortInt{}) : SortInt{}
+    [function{}(), hook{}("STRING.find")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let ceil = r#"\ceil{SortInt{}, SortK{}}(find{}(skec{}(pkec{}(B:SortBytes{})), \dv{SortString{}}("0x"), \dv{SortInt{}}("0")))"#;
+    let simplified = kore_simplify_in(
+        &root,
+        &definition,
+        &format!(r"\and{{SortK{{}}}}(c{{}}(X:SortInt{{}}), {ceil})"),
+    );
+    let compact = simplified.split_whitespace().collect::<String>();
+    assert!(
+        compact.contains(r"\ceil{SortInt{},SortK{}}(find{}(skec{}(pkec{}(B:SortBytes{}))"),
+        "{simplified}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `fixtures/hex-parse-unread.k` compiled: the fixture root and the compiled directory.
 fn hex_parse_definition() -> (PathBuf, PathBuf) {
     let (root, _) = fixture();

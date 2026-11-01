@@ -4110,6 +4110,11 @@ symbol = "simplify_predicates_with_budget"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_conjunction_with_budget"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "known_defined_subterms"
 
 [[node.sites]]
@@ -4260,6 +4265,10 @@ bound = '''only in a round with a \ceil conjunct: one walk of the known predicat
 [[node.cost]]
 mode = 'opaque \ceil or absence expansion (expansion_obligations)'
 bound = '''per ceil_term expansion of a \ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms'''
+
+[[node.cost]]
+mode = '''further pass of a \ceil or absence atom's arm (settled)'''
+bound = "per round of that pass, at the conjunct equal to the atom: one flattening of the other conjuncts' current values and one key and containment test of each against the known predicates; none in any other pass"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
