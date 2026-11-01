@@ -1,0 +1,1 @@
+new(1, 0) ; new(2, 0) ; new(3, 0) ; resume(2, 0, 1) ; resume(3, 0, 2) ; resume(1, 0, o(2, 0)) ; resume(1, 0, o(3, 0))

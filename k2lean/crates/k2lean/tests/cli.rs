@@ -1678,6 +1678,112 @@ fn confluence_witnesses_under_an_invariant_are_legal() {
 }
 
 #[test]
+fn confluence_witnesses_of_a_library_with_parameters_run_at_an_instance() {
+    let d = tmp("cli-confluence-witnesses-hooks");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/handoff");
+    // the generated text only: the runs at the instance are the build's (demos/HandoffConf, Race)
+    let run = |extra: &[&str]| {
+        std::fs::write(
+            d.join("open.txt"),
+            "join.key.new.new | refuted two-news\njoin.key.«resume-lit».«resume-lit»\n",
+        )
+        .unwrap();
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(fx.join("definition.kore"))
+            .args([
+                "--name",
+                "Handoff",
+                "--ns",
+                "HR",
+                "--threads",
+                "tasks",
+                "--obs",
+                "vals",
+            ])
+            .arg("--witnesses")
+            .arg(fx.join("witnesses"))
+            .arg("--slots")
+            .arg(d.join("Slots.lean"))
+            .arg("--open-joins")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"))
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let o = run(&[
+        "--witness-instance",
+        "HR.sum",
+        "--witness-instance-module",
+        "HR.Inst",
+    ]);
+    assert!(o.status.success(), "{}", err(&o));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
+    // the slots for every instance; the witnesses' section after them, at the instance, outside
+    // the `[Hooks]` binder; what they refute stated for every instance
+    let (b, x) = (
+        m.find("variable [Handoff.Hooks]").unwrap(),
+        m.find("end HR\n\n/-! ## The witnesses' runs, at the instance `HR.sum`")
+            .unwrap(),
+    );
+    assert!(b < x && m[..x].contains("theorem terminal_unique"), "{m}");
+    assert!(m.contains("import HR.Inst\n"), "{m}");
+    for x in [
+        "namespace HR\n\nopen KPrelude\n\nattribute [local instance] HR.sum\n",
+        "def witness.«two-news» : Handoff.SortGeneratedTopCell :=",
+        "the\ndefinition is not confluent from it,\nat the instance `HR.sum`. -/",
+        "theorem Open.refuted : ¬ ∀ [Handoff.Hooks], Open := fun P =>\n",
+        "theorem join.key.new.new.refuted : ¬ ∀ [Handoff.Hooks], join.key.new.new.statement := fun h =>\n  peak_key (r₁ := .new) (r₂ := .new) (c₀ := witness.«two-news»)\n",
+        "#k2l_refuted join.key.new.new\n",
+    ] {
+        assert!(m[b..].contains(x), "{x}\n{m}");
+    }
+    assert!(m[..x].matches("def witness.").count() == 0, "{m}");
+    assert!(r.contains("instance = \"HR.sum\"\n"), "{r}");
+    // no instance; an instance without a module to find it in; an instance of a library without
+    // parameters
+    let o = run(&[]);
+    assert!(
+        !o.status.success() && err(&o).contains("two runs need an instance: name one"),
+        "{}",
+        err(&o)
+    );
+    let o = run(&["--witness-instance", "HR.sum"]);
+    assert!(
+        !o.status.success() && err(&o).contains("name the module that defines it"),
+        "{}",
+        err(&o)
+    );
+    let drf = fx.join("../drf");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(drf.join("definition.kore"))
+        .args(["--name", "Drf", "--ns", "DW", "--threads", "workers"])
+        .arg("--witnesses")
+        .arg(drf.join("witnesses"))
+        .arg("--slots")
+        .arg(d.join("Slots.lean"))
+        .arg("--out")
+        .arg(d.join("Views.lean"))
+        .args(["--witness-instance", "DW.i"])
+        .output()
+        .unwrap();
+    assert!(
+        !o.status.success() && err(&o).contains("the library has no parameters"),
+        "{}",
+        err(&o)
+    );
+}
+
+#[test]
 fn confluence_threads_views_a_thread_end_as_a_removal() {
     let d = tmp("cli-confluence-threads");
     let fx = Path::new(env!("CARGO_MANIFEST_DIR"))

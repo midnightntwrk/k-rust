@@ -312,6 +312,9 @@ pub struct ConfigurationAssembler<'g> {
     syntax_module: String,
     variables: &'g BTreeMap<String, KastSort>,
     parser_modules: Option<BTreeMap<String, String>>,
+    /// The module reading each named variable that no `parser` attribute names
+    /// ([`Self::reading_variables_with`]).
+    variable_modules: BTreeMap<String, String>,
     expansion: Option<ProgramExpansion<'g>>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
@@ -337,6 +340,7 @@ impl<'g> ConfigurationAssembler<'g> {
             syntax_module: syntax_module.into(),
             variables,
             parser_modules: None,
+            variable_modules: BTreeMap::new(),
             expansion: None,
             parsers: BTreeMap::new(),
             injector: None,
@@ -405,6 +409,15 @@ impl<'g> ConfigurationAssembler<'g> {
         Ok(())
     }
 
+    /// This assembler, reading each variable `modules` names (without its `$`) first with that
+    /// module's grammar where no `parser` attribute of its cell names one and it is no stream
+    /// variable, and with the main module's grammar where that one does not parse the text.
+    #[must_use]
+    pub fn reading_variables_with(mut self, modules: BTreeMap<String, String>) -> Self {
+        self.variable_modules = modules;
+        self
+    }
+
     /// Bind the configuration variable `name` (with or without its `$`) to `text`.
     ///
     /// The name is checked before the text is parsed, so a repeated or undeclared name is
@@ -412,21 +425,31 @@ impl<'g> ConfigurationAssembler<'g> {
     pub fn bind(&mut self, name: &str, text: &str) -> Result<(), ConfigurationError> {
         let (name, sort) = self.unbound_variable(name)?;
         let (name, sort) = (name.as_str(), &sort);
-        let parser_module = self.parser_module(name, sort)?;
         let resolved = self.grammar.resolved();
-        if !self.parsers.contains_key(&parser_module) {
-            self.parsers.insert(
-                parser_module.clone(),
-                ProgramParser::from_resolved(resolved, &parser_module)?,
-            );
-        }
         let parse_sort = configuration_position(sort);
-        let parsed = if sort.is_builtin(BuiltinSort::K) {
-            self.parsers[&parser_module].parse_configuration_k_value(text)
-        } else {
-            self.parsers[&parser_module].parse(&parse_sort, text)
+        // The first module whose grammar parses the text reads it; where none does, the last
+        // one's failure is reported.
+        let mut read = None;
+        for parser_module in self.parser_modules_of(name, sort)? {
+            if !self.parsers.contains_key(&parser_module) {
+                self.parsers.insert(
+                    parser_module.clone(),
+                    ProgramParser::from_resolved(resolved, &parser_module)?,
+                );
+            }
+            let parsed = if sort.is_builtin(BuiltinSort::K) {
+                self.parsers[&parser_module].parse_configuration_k_value(text)
+            } else {
+                self.parsers[&parser_module].parse(&parse_sort, text)
+            };
+            let done = parsed.is_ok();
+            read = Some((parser_module, parsed));
+            if done {
+                break;
+            }
         }
-        .map_err(|error| ConfigurationError::Parse {
+        let (parser_module, parsed) = read.expect("a variable is read by at least one module");
+        let parsed = parsed.map_err(|error| ConfigurationError::Parse {
             variable: name.into(),
             sort: sort.clone(),
             error: Box::new(error),
@@ -488,24 +511,46 @@ impl<'g> ConfigurationAssembler<'g> {
         Ok(())
     }
 
-    /// The module whose grammar reads the value of the variable `name` of sort `sort`: its
-    /// cell's `parser` module, `STRING-SYNTAX` for a stream variable, or the main module.
+    /// The module whose grammar reads the value of the variable `name` of sort `sort` first
+    /// ([`Self::parser_modules_of`]), whose lexical hooks a term bound without the parser takes.
     fn parser_module(&mut self, name: &str, sort: &KastSort) -> Result<String, ConfigurationError> {
+        let mut modules = self.parser_modules_of(name, sort)?;
+        Ok(modules.remove(0))
+    }
+
+    /// The modules whose grammars read the value of the variable `name` of sort `sort`, in the
+    /// order they are tried: its cell's `parser` module alone; `STRING-SYNTAX` alone for a stream
+    /// variable; the module [`Self::reading_variables_with`] names for it, then the main module;
+    /// or the main module alone.
+    fn parser_modules_of(
+        &mut self,
+        name: &str,
+        sort: &KastSort,
+    ) -> Result<Vec<String>, ConfigurationError> {
         let declared_parser = self.parser_modules()?.get(name).cloned();
-        let parser_module = match declared_parser {
-            Some(parser_module) => parser_module,
+        let modules = match declared_parser {
+            Some(parser_module) => vec![parser_module],
             None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
-                "STRING-SYNTAX".to_owned()
+                vec!["STRING-SYNTAX".to_owned()]
             }
-            None => self.main_module.clone(),
+            None => self
+                .variable_modules
+                .get(name)
+                .filter(|module| **module != self.main_module)
+                .cloned()
+                .into_iter()
+                .chain([self.main_module.clone()])
+                .collect(),
         };
-        if self.grammar.resolved().module_id(&parser_module).is_none() {
-            return Err(ConfigurationError::ParserModuleNotFound {
-                variable: name.into(),
-                module: parser_module,
-            });
+        for parser_module in &modules {
+            if self.grammar.resolved().module_id(parser_module).is_none() {
+                return Err(ConfigurationError::ParserModuleNotFound {
+                    variable: name.into(),
+                    module: parser_module.clone(),
+                });
+            }
         }
-        Ok(parser_module)
+        Ok(modules)
     }
 
     /// The declared sort of `name` (with or without its `$`), checked to be a declared variable

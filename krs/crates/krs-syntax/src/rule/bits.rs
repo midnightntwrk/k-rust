@@ -679,8 +679,10 @@ pub(crate) fn desugar(
         {
             substitution.visit_expr_mut(&mut condition);
             list.tokens = condition.to_token_stream();
+            // The guard goes before the first authored condition, so it leads the
+            // conjunction of every `#[k::requires]`.
             if name == "requires" {
-                requires = Some(index);
+                requires.get_or_insert(index);
             }
         }
     }
@@ -940,10 +942,12 @@ fn is_test_value(value: &Expr) -> bool {
     }
 }
 
-/// Puts the templates' guards into the item's `requires`, before the
-/// authored condition at attribute `requires`, if any.
+/// Puts the templates' guards into the item's `requires`, before the first
+/// authored condition, at attribute `requires`, if any: the conditions of
+/// several `#[k::requires]` are one conjunction in written order, so the
+/// guard leads all of them.
 fn insert_guard(item: &mut ItemFn, occurrences: &[Occurrence], requires: Option<usize>) {
-    // The guard precedes an authored condition: a template is part of the
+    // The guard precedes every authored condition: a template is part of the
     // pattern, matched before any guard, and `&&` (K's `andThenBool`)
     // evaluates left to right, so an authored condition that is defined only
     // on the template's values is never evaluated outside them. Provenance
@@ -1510,6 +1514,47 @@ impl VisitMut for Substitution<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The authored conditions of `item`'s `#[k::requires]`, in written order.
+    fn conditions(item: &ItemFn) -> Vec<Expr> {
+        item.attrs
+            .iter()
+            .filter(|attribute| condition_name(attribute) == Some("requires"))
+            .map(|attribute| attribute.parse_args::<Expr>().unwrap())
+            .collect()
+    }
+
+    /// With several `#[k::requires]`, a template's guard leads the first, so the conjunction is
+    /// `guard && first && second`: neither authored condition, each of which may be defined only
+    /// on the template's values, is evaluated outside them.
+    #[test]
+    fn a_template_s_guard_leads_every_authored_condition() {
+        let mut item: ItemFn = syn::parse_str(
+            r#"#[k::requires(first(b))] #[k::requires(second(b))] fn code(k::term![Code(k::bits!("01 bb"))]: Term<Int>) -> Term<Int> { b }"#,
+        )
+        .unwrap();
+        desugar_bit_templates(&mut item).unwrap();
+        let conditions = conditions(&item);
+        assert_eq!(conditions.len(), 2, "{conditions:?}");
+        let Expr::Binary(guarded) = &conditions[0] else {
+            panic!(
+                "the first condition is guarded: {}",
+                conditions[0].to_token_stream()
+            );
+        };
+        assert!(matches!(guarded.op, syn::BinOp::And(_)), "{guarded:?}");
+        let head = |expr: &Expr| match expr {
+            Expr::Call(call) => call.func.to_token_stream().to_string(),
+            other => other.to_token_stream().to_string(),
+        };
+        assert_eq!(head(&guarded.right), "first");
+        assert!(
+            !guarded.left.to_token_stream().to_string().contains("first"),
+            "{}",
+            guarded.left.to_token_stream()
+        );
+        assert_eq!(head(&conditions[1]), "second");
+    }
 
     fn template(text: &str) -> Result<BitTemplate, SyntaxError> {
         BitTemplate::pattern(&LitStr::new(text, Span::call_site()), &[])

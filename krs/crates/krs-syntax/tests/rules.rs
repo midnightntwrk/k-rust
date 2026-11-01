@@ -117,12 +117,46 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
     );
 }
 
+/// Several `#[k::requires]` state their conjunction in written order, `andThenBool`: the
+/// earlier condition is tested first, so a later one may rely on it.
 #[test]
-fn requires_rejects_missing_payloads_and_duplicates() {
-    for source in [
-        "#[k::requires] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
-        "#[k::requires(is_ready(Foo))] #[k::requires(ok(Foo))] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
-    ] {
+fn several_requires_are_their_conjunction_in_written_order() {
+    let rule = krs_syntax::RuleItem::parse_source(
+        "#[k::requires(is_ready(Foo))] #[k::requires(ok(Foo) || done(Foo))] fn good(Foo: Term<Expr>) -> Term<Expr> { Done }",
+    )
+    .unwrap();
+    let condition = rule.requires().expect("the conjunction");
+    let krs_syntax::TermTree::Application(conjunction) = condition.term().tree() else {
+        panic!("a conjunction: {:?}", condition.term().tree());
+    };
+    assert_eq!(
+        quote::ToTokens::to_token_stream(conjunction.head())
+            .to_string()
+            .replace(' ', ""),
+        "bool::and_then"
+    );
+    let krs_syntax::TermArguments::Positional(arguments) = conjunction.arguments() else {
+        panic!("positional operands");
+    };
+    let heads = arguments
+        .iter()
+        .map(|argument| match argument {
+            krs_syntax::TermTree::Application(application) => {
+                quote::ToTokens::to_token_stream(application.head())
+                    .to_string()
+                    .replace(' ', "")
+            }
+            other => panic!("an application: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    // The written order, and the later condition's own disjunction kept whole.
+    assert_eq!(heads, ["is_ready", "bool::or_else"]);
+}
+
+#[test]
+fn requires_rejects_missing_payloads() {
+    {
+        let source = "#[k::requires] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }";
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(
             matches!(

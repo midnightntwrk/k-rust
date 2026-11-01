@@ -395,6 +395,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept.'attrs/claim/label = "named-TAG"']
+k = """
+claim [named-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/claim/one_path"]
 k = """
@@ -494,6 +500,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."attrs/equation/concrete(x)"]
 
 [accept.'attrs/equation/label = "named-TAG"']
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(named-TAG)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."attrs/equation/owise"]
 k = """
@@ -531,6 +542,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."attrs/equation/requires twice"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0
+requires isInt(V0:KItem) andThenBool isWord(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."attrs/equation/smt_lemma of an smtlib function"]
 k = """
@@ -801,6 +818,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."attrs/readable/requires twice"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+requires isInt(V0:KItem) andThenBool isWord(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/rule/#[k::ensures(k::is!(Int, x))]"]
 k = """
@@ -932,8 +956,20 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."attrs/rule/requires before the marker"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires isWord(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/rule/requires twice"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires isInt(V0:KItem) andThenBool isWord(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/shorthand/#[k::requires(k::is!(Int, x))]"]
 k = """
@@ -956,6 +992,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept.'attrs/shorthand/label = "named-TAG"']
+k = """
+rule fTAG ( V0:KItem ) => size ( V0:KItem ) [label(named-TAG)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/simplification/#[k::requires(k::is!(Int, x))]"]
 k = """
@@ -988,6 +1031,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept.'attrs/simplification/label = "named-TAG"']
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [simplification, label(named-TAG)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."attrs/simplification/priority = 20"]
 k = """
@@ -1228,6 +1276,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept.'attrs/table/label = "named-TAG"']
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(named-TAG)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."attrs/table/owise"]
 k = """

@@ -325,7 +325,14 @@ fn other_initializer_attributes_are_rejected_at_the_attribute() {
 
 #[test]
 fn init_marker_rejects_payload_at_first_token() {
-    let error = krs_syntax::InitAttribute::parse_source("unexpected").unwrap_err();
+    // A key is one the marker does not take: an initializer declares, and takes no sentence key.
+    let error = krs_syntax::InitAttribute::parse_source("owise").unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        SyntaxErrorKind::UnknownArgument { name } if name == "owise"
+    ));
+    assert_eq!(error.span().start().column, 0);
+    let error = krs_syntax::InitAttribute::parse_source("1").unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::UnexpectedAttributePayload { attribute: "init" }

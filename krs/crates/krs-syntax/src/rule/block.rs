@@ -24,9 +24,13 @@ use crate::state_macro::StatePosition;
 use crate::term::{IslandKeys, TermVisit};
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{
-    ProvenanceAnchor, ProvenanceRole, RuleSide, SyntaxError, TermExpression, TermTree, TokenRange,
+    ProvenanceAnchor, ProvenanceRole, RuleSide, SyntaxError, SyntaxErrorKind, TermExpression,
+    TermTree, TokenRange,
 };
 use krs_ir::ProvenanceKey;
+
+/// The reason given for `#[k::fresh]` on a claim clause.
+const CLAIM_FRESH: &str = "a claim is proved, not taken as a step, so `#[k::fresh]`, a value a transition step draws, means nothing on it";
 
 enum TermTableExtra {
     Have(HaveMapExtra),
@@ -1392,7 +1396,7 @@ impl RuleBlock {
             }
             let semicolon = input.parse::<Token![;]>()?;
 
-            let (attribute, retained) = take_rule_clause_attribute(attributes)?;
+            let (attribute, retained) = take_rule_clause_attribute(attributes, true)?;
             let placeholder = match &head_result {
                 RuleHeadResult::Replace(_) => result,
                 RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
@@ -1643,8 +1647,15 @@ pub fn parse_rule_block_source_with_trivia(
     Ok((RuleBlock::parse_tokens(tokens)?, trivia))
 }
 
+/// Why `anywhere` is refused on a `for Sort` clause, whose subject is a term.
+const ANYWHERE_ON_HEAD_CLAUSE: &str = "a `for Sort` clause rewrites its subject where it heads the computation cell, and an `anywhere` rule rewrites it wherever it occurs: the clause form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn states";
+
+/// Takes a clause's `#[k::rule(..)]`, refusing `anywhere`: a `for Sort` clause's subject is a
+/// term (`term_shaped`), rewritten where it heads the computation cell, and a readable clause's
+/// is cells, which occur only at their place.
 pub(super) fn take_rule_clause_attribute(
     attributes: Vec<Attribute>,
+    term_shaped: bool,
 ) -> Result<(crate::RuleAttribute, Vec<Attribute>), SyntaxError> {
     let mut rule = None;
     let mut retained = Vec::with_capacity(attributes.len());
@@ -1671,7 +1682,11 @@ pub(super) fn take_rule_clause_attribute(
             if let Some(anywhere) = parsed.anywhere() {
                 return Err(SyntaxError::new(
                     crate::SyntaxErrorKind::InvalidRuleKey {
-                        reason: crate::ANYWHERE_NOT_TERM_SHAPED,
+                        reason: if term_shaped {
+                            ANYWHERE_ON_HEAD_CLAUSE
+                        } else {
+                            crate::ANYWHERE_NOT_TERM_SHAPED
+                        },
                     },
                     anywhere.span(),
                 ));
@@ -1719,12 +1734,16 @@ pub(super) fn take_claim_clause_attribute(
                     name,
                 )?);
             }
-            Some(other @ ("rule" | "fresh")) => {
+            Some("rule") => {
                 return Err(unsupported_signature(
-                    if other == "rule" {
-                        "`#[k::rule(..)]` is a rule's metadata; a claim clause takes `#[k::claim(..)]`"
-                    } else {
-                        "`#[k::fresh]` draws values in a rule step; a claim has no fresh binders"
+                    "`#[k::rule(..)]` is a rule's metadata; a claim clause takes `#[k::claim(..)]`",
+                    attribute.span(),
+                ));
+            }
+            Some("fresh") => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::MisplacedFresh {
+                        reason: CLAIM_FRESH,
                     },
                     attribute.span(),
                 ));

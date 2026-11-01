@@ -910,6 +910,31 @@ preserve = []
 "join.open.stop.stop" = { status = "generic", id = "d4e2be21de6a3d28" }
 "join.same.put.put" = { status = "generic", id = "e8be5bf424def9f4" }
 
+[demo.HandoffRaceConf]
+tier = "light"
+guarded = 37
+preserve = []
+
+[demo.HandoffRaceConf.slots]
+"join.key.new.new" = { status = "refuted", id = "ae8ea0df000e1532" }
+"join.key.new.«resume-lit»" = { status = "generic", id = "28e42b86d73f3b2e" }
+"join.key.new.«resume-oid»" = { status = "generic", id = "39a0300c789e7ac6" }
+"join.key.«resume-lit».new" = { status = "generic", id = "a75803f6c8d80b55" }
+"join.key.«resume-lit».«resume-lit»" = { status = "refuted", id = "a447176a8f87e1fe" }
+"join.key.«resume-lit».«resume-oid»" = { status = "refuted", id = "5a30fbffdec65c2f" }
+"join.key.«resume-oid».new" = { status = "generic", id = "7e8116e08fef6f30" }
+"join.key.«resume-oid».«resume-lit»" = { status = "refuted", id = "9f60df6da1e361a3" }
+"join.key.«resume-oid».«resume-oid»" = { status = "refuted", id = "7c3b63899ea3c2f6" }
+"join.open.fork.fork" = { status = "generic", id = "41582ca69c4577ae" }
+"join.same.done.done" = { status = "generic", id = "29761c707d1c1f1e" }
+"join.same.fork.fork" = { status = "generic", id = "68f697e921a24a72" }
+"join.same.new.new" = { status = "generic", id = "9145ca4d9fd395b0" }
+"join.same.nil.nil" = { status = "generic", id = "4d1cb5cac8073865" }
+"join.same.«resume-lit».«resume-lit»" = { status = "generic", id = "62c251dd488a4d2e" }
+"join.same.«resume-lit».«resume-oid»" = { status = "generic", id = "8324ac31897ad72e" }
+"join.same.«resume-oid».«resume-lit»" = { status = "generic", id = "23d4c376bc8779ae" }
+"join.same.«resume-oid».«resume-oid»" = { status = "generic", id = "2274cf95e715285b" }
+
 [demo.TwoConf]
 tier = "light"
 guarded = 174
@@ -1160,6 +1185,39 @@ preserve = []
 "join.same.«resume-lit».«resume-oid»" = { status = "generic", id = "0ddf8df77997010f" }
 "join.same.«resume-oid».«resume-lit»" = { status = "generic", id = "c7a4cf28edd83b15" }
 "join.same.«resume-oid».«resume-oid»" = { status = "generic", id = "b6c764406689ad2f" }
+
+[demo.TwoParamOkConf]
+tier = "light"
+guarded = 46
+preserve = []
+
+[demo.TwoParamOkConf.slots]
+"join.key.new.new" = { status = "refuted", id = "1b0aaccaf973e763" }
+"join.key.new.«resume-lit»" = { status = "generic", id = "faf9fdabde538118" }
+"join.key.new.«resume-oid»" = { status = "generic", id = "7018b5571c01b485" }
+"join.key.«resume-lit».new" = { status = "generic", id = "74d20276a7749ae0" }
+"join.key.«resume-lit».«resume-lit»" = { status = "refuted", id = "c1fe197bbb796e3e" }
+"join.key.«resume-lit».«resume-oid»" = { status = "refuted", id = "74ff357444836e76" }
+"join.key.«resume-oid».new" = { status = "generic", id = "9bf8a68069ac72eb" }
+"join.key.«resume-oid».«resume-lit»" = { status = "refuted", id = "6e91f46900239c93" }
+"join.key.«resume-oid».«resume-oid»" = { status = "refuted", id = "db3a93b7404e148c" }
+"join.open.fork.fork" = { status = "generic", id = "f962209f0d78f83e" }
+"join.same.done.done" = { status = "generic", id = "147bc42a6ab50fab" }
+"join.same.fork.fork" = { status = "generic", id = "96b7783e9f302f2f" }
+"join.same.new.new" = { status = "generic", id = "302028e2b61bb314" }
+"join.same.nil.nil" = { status = "generic", id = "82a39fd50529b58e" }
+"join.same.«resume-lit».«resume-lit»" = { status = "generic", id = "0f8c3a475703473c" }
+"join.same.«resume-lit».«resume-oid»" = { status = "generic", id = "cea9475c42edca83" }
+"join.same.«resume-oid».«resume-lit»" = { status = "generic", id = "a0817fc4aa7233dd" }
+"join.same.«resume-oid».«resume-oid»" = { status = "generic", id = "749cf01bfaf0a715" }
+"witness.«lit-and-oid».legal" = { status = "hand", id = "98936b05421c2696" }
+"witness.«lit-and-oid».refutes" = { status = "generic", id = "e78c18ad8d198a97" }
+"witness.«two-news».legal" = { status = "hand", id = "9921aafec64d8357" }
+"witness.«two-news».refutes" = { status = "generic", id = "ac6cd1d5a89ed209" }
+"witness.«two-resumes».legal" = { status = "hand", id = "34a9f231beada4b2" }
+"witness.«two-resumes».refutes" = { status = "generic", id = "01b97405a05a1a0b" }
+"witness.«two-spends».legal" = { status = "hand", id = "c4e663df9731251e" }
+"witness.«two-spends».refutes" = { status = "generic", id = "132987a6d85aa801" }
 
 [demo.TwoParamInst]
 tier = "light"
@@ -1422,6 +1480,9 @@ preserve = []
 "demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "83fe996222021ff4de593622de1a3614f96da0638dc446b07ffad2bbcc14753a" }
 "demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "1ec04076ac4c55636d29a044c45299b5ff1e6ecec72f00d3f3db8afab7f639d0" }
 "demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "d1139ac197761802cf7be5fcda277dafa7543234aacf2cbbc15f062b5dd8d2f6" }
+"demos/HandoffRaceConf/HandoffRaceConf/Slots.lean" = { tier = "light", sha256 = "cdb753dad136497053795ef2df4c6fb43e66eb136ee887272bbeff799408c9e4" }
+"demos/HandoffRaceConf/HandoffRaceConf/Views.lean" = { tier = "light", sha256 = "40a7c50376d33deb4b18519a133800059cbbb43463ab6e323f2073258d5e7b89" }
+"demos/HandoffRaceConf/confluence.toml" = { tier = "light", sha256 = "3dc66fbb5840210e0280e615adaaf160e8e755da4a228cdf2fe77eb221786b67" }
 "demos/HandoffSeqRel/HandoffSeqRel/Tr.lean" = { tier = "light", sha256 = "bd9a3e8baec99b7cdfd42f722dc80386de93782b906ea98fadf54e753225cf63" }
 "demos/HandoffSeqRel/correspondence.toml" = { tier = "light", sha256 = "54e14cb1653dff4bc76f86ced355c7bf60fdef8742fc3a2a71160d77274275a9" }
 "demos/ImpPlusConf/ImpPlusConf/Slots.lean" = { tier = "light", sha256 = "e5ed71527feafd5a3323012b85917a3ce77ce7736ea5cea4d9592251800a339a" }
@@ -1449,6 +1510,9 @@ preserve = []
 "demos/TwoParamConf/confluence.toml" = { tier = "light", sha256 = "3224c55f28595379934965460c07cbfea8cf2861a552c3c8b79346fc5f8ea312" }
 "demos/TwoParamInst/TwoParamInst/Back.lean" = { tier = "light", sha256 = "921ffa739b9db85ac800dba3982c7bd5a1a62e61e1e1297498c76b04604313b4" }
 "demos/TwoParamInst/TwoParamInst/Tr.lean" = { tier = "light", sha256 = "3b847a0feba23a204851cba9765ea950bca8615dd97e25690aed807d6f7db2d5" }
+"demos/TwoParamOkConf/TwoParamOkConf/Slots.lean" = { tier = "light", sha256 = "8830527952229a6149b5ff9c5078299246e6db2ca969cc3c08396ac134162449" }
+"demos/TwoParamOkConf/TwoParamOkConf/Views.lean" = { tier = "light", sha256 = "f33872d87587e84212a0f8f69262d55e369fa1c34622689b40f1790efcbf43cf" }
+"demos/TwoParamOkConf/confluence.toml" = { tier = "light", sha256 = "c13ab4baeec4282893edb1e732ba4c50eec45b8d04bcef570d710bddfa303170" }
 "demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "91e59af29ba4c006e51198c4be011fd0e26b454cbe604ecbe96478872d210f43" }
 "demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "20f7bb57a07adfecbbe05e37cfa8b187fc6e1a5856f2e08ceffcd0a53c234ca8" }
 "demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "f1caa6876267d02167a7fd07453dc85c2cecf824061ceb0013b4538ed75ff671" }
@@ -1613,6 +1677,25 @@ preserve = []
 "generated/twoparam/invariant-unfold.txt" = { tier = "light", sha256 = "5615a227783384beda0b6f3f614c8b34e1da94d8698a0cb3f6aa62180be4d721" }
 "generated/twoparam/lakefile.lean" = { tier = "light", sha256 = "4865f513cdb20fd34cb1394449f1af361b37524aa3018b3a430afb429045afc8" }
 "generated/twoparam/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/twoparamok/TwoParam.lean" = { tier = "light", sha256 = "bb290d96fcab51b0894b78af237556616f59c4221d9f97f8fe766cef7f53df26" }
+"generated/twoparamok/TwoParam/Adequacy.lean" = { tier = "light", sha256 = "2fd366fc5f572b3c7f598fa680d03298bbcd156dd35cf94e6aaed6f8ad774223" }
+"generated/twoparamok/TwoParam/Determinism.lean" = { tier = "light", sha256 = "058f4dfe692572b96fa92cedc7876cff2e8f801e7578be3c5b0609133b6717bd" }
+"generated/twoparamok/TwoParam/EqBase.lean" = { tier = "light", sha256 = "006d5a10b255ac126d301d052b383d738266ce78d2e1b2aeb7b01b53c3bc096c" }
+"generated/twoparamok/TwoParam/Equations.lean" = { tier = "light", sha256 = "cc0a6dcf682b7f7df71e27c5897cf7156add5286a8eecc90d226ad3ffa1f14fc" }
+"generated/twoparamok/TwoParam/Functions.lean" = { tier = "light", sha256 = "fa892201e793a8bbeb49a6732397bed188896250db0e3b711136f5bdd3c35d91" }
+"generated/twoparamok/TwoParam/Init.lean" = { tier = "light", sha256 = "9f6bde553641c2245d81bf0b226402ea3cc2963aeb6dca9d8b193c26b0982a39" }
+"generated/twoparamok/TwoParam/InvariantDefs.lean" = { tier = "light", sha256 = "2beb8575ba068c9dd630afb0b0a80eed0b8ed06c8f2e7d4425d3af3588a6552c" }
+"generated/twoparamok/TwoParam/Invariants.lean" = { tier = "light", sha256 = "d1cd9622568af186e1ab8c0e44dce00307a51a896694f39dbd9ee4fc167a0d08" }
+"generated/twoparamok/TwoParam/Preserves.lean" = { tier = "light", sha256 = "29a06ed58ff58ff8ee37fac0820a0aa01b58464f158d1ee19e871061ac0baf01" }
+"generated/twoparamok/TwoParam/Rules.lean" = { tier = "light", sha256 = "7e11837643ed2f44ac7a80d5e2fe79664328448f88adab5beb87da972d283bbe" }
+"generated/twoparamok/TwoParam/Terms.lean" = { tier = "light", sha256 = "c0848fbf9eea54c3292f5c9a92b7c963a873571bde9854551b517f9b118ad8b5" }
+"generated/twoparamok/TwoParamBench/Main.lean" = { tier = "light", sha256 = "7d6e78d24035e73ec4104ac7723e1e01b5d97a2d979959aa6c1ffbd693be3db7" }
+"generated/twoparamok/TwoParamBench/Programs.lean" = { tier = "light", sha256 = "f3900252c2c444eb2bd346a4d0e66428525e7d17f97d47bf6a782762543819a6" }
+"generated/twoparamok/TwoParamTest/Axioms.lean" = { tier = "light", sha256 = "ef4806e6df8310635d2d528d600b9661889cb856e89740f1b86a4e5f32bc88cc" }
+"generated/twoparamok/TwoParamTest/Main.lean" = { tier = "light", sha256 = "b152589487c097c8b08570441d6a5ae254f798b9e6be1c82919f235f09a7cd6b" }
+"generated/twoparamok/invariant-unfold.txt" = { tier = "light", sha256 = "40bd562cec06263b401233d2ed2b000d368bea6553fa1899cbb210604e791869" }
+"generated/twoparamok/lakefile.lean" = { tier = "light", sha256 = "4865f513cdb20fd34cb1394449f1af361b37524aa3018b3a430afb429045afc8" }
+"generated/twoparamok/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/utxo/Utxo.lean" = { tier = "light", sha256 = "1bc93cf1a423e7eadb0b660209f4a822137a7a4e0ba36b2613edd973b035b13c" }
 "generated/utxo/Utxo/Adequacy.lean" = { tier = "light", sha256 = "9bd7e184685d2096820128fc2540c8bd2f15cd5a04c663e0318af3503cf5ebbd" }
 "generated/utxo/Utxo/Determinism.lean" = { tier = "light", sha256 = "d15c48663371cefeb2e2cbcf60cbcca90dfc1801c8ecf9c7d0148c6a1390830f" }

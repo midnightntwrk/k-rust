@@ -1111,6 +1111,7 @@ fn equation(lowering: &Lowering<'_>, leaf: Leaf) -> Result<ShorthandEquation, Sy
         fn #name(#subject: #result_type) -> #result_type #block
     })?;
     Ok(ShorthandEquation {
+        label: None,
         item,
         owise: path.owise.map(|span| Ident::new("owise", span)),
         signs,

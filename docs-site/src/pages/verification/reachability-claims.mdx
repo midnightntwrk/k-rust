@@ -67,6 +67,7 @@ Use a trusted claim to split a proof into parts, never to make one pass: nothing
 ## Readable claims
 
 `k::claims!` is to `#[k::claim] fn` what `k::rules!` is to `#[k::rule] fn`: each clause `label: { .. } => { .. };` states, over the block's configuration, the claim whose `cells!` records its readable records stand for.
+The clause's name, with `_` written `-`, is its label, unless its `#[k::claim(..)]` names it with `label = ".."`, as a readable rule clause's `#[k::rule(..)]` does.
 KWasm's `simple_addition` reads:
 
 ```rust

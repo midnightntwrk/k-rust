@@ -117,6 +117,39 @@ pub struct MetadataNode {
     /// Direct resolved dependency package IDs.
     #[serde(default)]
     pub dependencies: Vec<String>,
+    /// The direct dependencies with the crate names this package's sources give them.
+    #[serde(default)]
+    pub deps: Vec<MetadataNodeDependency>,
+}
+
+/// One direct dependency of a resolved node.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetadataNodeDependency {
+    /// The crate name the dependent's sources use: the dependency's rename, or its library
+    /// target's name.
+    pub name: String,
+    /// Its package ID.
+    pub pkg: String,
+    /// The kinds of dependency edge Cargo resolved under this name.
+    #[serde(default)]
+    pub dep_kinds: Vec<MetadataDependencyKind>,
+}
+
+impl MetadataNodeDependency {
+    /// Whether the dependent's library and binaries, not only its tests, benches or build
+    /// script, name the dependency by [`Self::name`]: one of its edges is a normal dependency
+    /// (`kind` null). Cargo before 1.41 lists no kinds; a name is then taken as normal.
+    #[must_use]
+    pub fn is_normal(&self) -> bool {
+        self.dep_kinds.is_empty() || self.dep_kinds.iter().any(|kind| kind.kind.is_none())
+    }
+}
+
+/// One kind of a resolved dependency edge.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetadataDependencyKind {
+    /// `null` for a normal dependency, `"dev"` or `"build"` otherwise.
+    pub kind: Option<String>,
 }
 
 /// Invalid Cargo metadata JSON.
@@ -132,5 +165,32 @@ impl fmt::Display for MetadataError {
 impl Error for MetadataError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MetadataNode;
+
+    /// A crate name the library's sources use comes from a normal dependency edge: the same
+    /// package renamed as a dev-dependency is named so only in tests.
+    #[test]
+    fn a_dependency_name_is_normal_only_on_a_normal_edge() {
+        let node: MetadataNode = serde_json::from_value(serde_json::json!({
+            "id": "root 0.1.0",
+            "deps": [
+                {"name": "base_in_tests", "pkg": "base 0.1.0", "dep_kinds": [{"kind": "dev", "target": null}]},
+                {"name": "semantic_base", "pkg": "base 0.1.0", "dep_kinds": [{"kind": null, "target": null}]},
+                {"name": "old_cargo", "pkg": "other 0.1.0"}
+            ]
+        }))
+        .unwrap();
+        let normal = node
+            .deps
+            .iter()
+            .filter(|dependency| dependency.is_normal())
+            .map(|dependency| dependency.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(normal, ["semantic_base", "old_cargo"]);
     }
 }

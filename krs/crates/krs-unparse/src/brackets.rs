@@ -6,6 +6,9 @@
 //! (right) that ends (begins) with a non-terminal. The algorithm is unsound by design, exactly as
 //! K's: it is what `krun --output pretty` and `kast --output program` use. Injections are removed.
 
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+
 use k_rust::kore::ast::Sort;
 
 use crate::data::PrintData;
@@ -17,7 +20,8 @@ const BARE_RIGHT: u8 = 2;
 /// What to do when a child needs brackets and its sort has no bracket production.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Fallback {
-    /// `kprint`: a bare `( .. )`.
+    /// `kprint`: K's default bracket `( .. )`, which no production of the definition declares:
+    /// the sorts it groups are kept ([`Brackets::grouped`]).
     Parentheses,
     /// `kast --output program`: print the child as it is.
     Nothing,
@@ -26,6 +30,8 @@ pub(crate) enum Fallback {
 pub(crate) struct Brackets<'a> {
     data: &'a PrintData,
     fallback: Fallback,
+    /// The sorts of the children [`Fallback::Parentheses`] grouped, by K name.
+    grouped: RefCell<BTreeSet<String>>,
 }
 
 /// `get_nt_position_in_prod`: the item index of the `position`-th non-terminal.
@@ -48,7 +54,19 @@ fn terminal_at(terminals: &[u8], position: Option<usize>) -> bool {
 
 impl<'a> Brackets<'a> {
     pub fn new(data: &'a PrintData, fallback: Fallback) -> Self {
-        Self { data, fallback }
+        Self {
+            data,
+            fallback,
+            grouped: RefCell::new(BTreeSet::new()),
+        }
+    }
+
+    /// The sorts of the children grouped with K's default bracket `( .. )`
+    /// ([`crate::Printed::grouped`]): where priority, associativity or a sort requires a bracket
+    /// around a child and no bracket production of a sort the position admits takes the
+    /// child's sort.
+    pub fn grouped(self) -> BTreeSet<String> {
+        self.grouped.into_inner()
     }
 
     fn terminals(&self, sym: &Sym) -> Option<&'a [u8]> {
@@ -206,6 +224,9 @@ impl<'a> Brackets<'a> {
         match self.fallback {
             Fallback::Nothing => inner.clone(),
             Fallback::Parentheses => {
+                self.grouped
+                    .borrow_mut()
+                    .insert(sort_name(inner_sort.as_ref()));
                 let mut sym = Sym::new("bracket", Vec::new());
                 sym.sort = inner_sort;
                 Node::app(sym, vec![inner.clone()])
@@ -244,7 +265,7 @@ impl<'a> Brackets<'a> {
         let Node::App(outer) = node else {
             return node.clone();
         };
-        if outer.sym.name == "\\dv" {
+        if outer.sym.name == "\\dv" || outer.sym.name == crate::instance::KORE_TEXT {
             return node.clone();
         }
         let outer_fixity = self.fixity(&outer.sym);
@@ -288,6 +309,17 @@ const SAME_SORT_CONNECTIVES: &[&str] = &[
     "weakExistsFinally",
     "allPathGlobally",
 ];
+
+/// The K name of `sort`, a KORE sort (`Map` for `SortMap{}`).
+fn sort_name(sort: Option<&Sort>) -> String {
+    match sort {
+        Some(Sort::Application { name, arguments }) if arguments.is_empty() => name
+            .strip_prefix("Sort")
+            .map_or_else(|| name.clone(), crate::format::decode_kore),
+        Some(sort) => sort.to_string(),
+        None => "a term of no known sort".to_owned(),
+    }
+}
 
 /// `get_arg_sort`: the sort expected at argument `position` of `sym`.
 fn argument_sort(sym: &Sym, position: usize, first_argument: Option<&Sort>) -> Option<Sort> {

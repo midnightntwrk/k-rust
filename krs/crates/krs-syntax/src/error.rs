@@ -372,8 +372,10 @@ pub enum SyntaxErrorKind {
     RetiredAttribute {
         /// Retired attribute as written, such as `#[k::priority(..)]`.
         attribute: &'static str,
-        /// Replacement spelling, with the authored values filled in.
-        replacement: String,
+        /// Replacement spelling on the sentence it is written on, with the authored values
+        /// filled in; `None` where the sentence has no replacement (an order on a sentence that
+        /// is chosen against no other).
+        replacement: Option<String>,
     },
     /// A `#[k::token]` attribute, a stack of them, or a `k::lexeme!` term was malformed.
     InvalidTokenAttribute {
@@ -409,6 +411,21 @@ pub enum SyntaxErrorKind {
     /// (the pattern or `requires`), shadows another binding, or is unused.
     FreshBinderPosition {
         /// Specific placement restriction.
+        reason: &'static str,
+    },
+    /// A `#[k::fresh]` helper on a sentence that is no transition step: a
+    /// claim, a context. Its code is the expand route's `fresh-placement`, not
+    /// a syntax code: the class is the mistake, so the same mistake has the
+    /// same code whether the macro or the shared parser finds it.
+    MisplacedFresh {
+        /// What the sentence is, and why it draws no value.
+        reason: &'static str,
+    },
+    /// A `#[k::ensures]` or `#[k::exists]` helper on a sentence that reaches
+    /// no result state: a context. Its code is the expand route's
+    /// `existential-placement`, for the reason [`Self::MisplacedFresh`] gives.
+    MisplacedExistential {
+        /// What the sentence is, and why it has no result state.
         reason: &'static str,
     },
     /// A function's `smtlib` or `smt_hook` metadata was malformed (KF-044).
@@ -551,6 +568,8 @@ impl SyntaxErrorKind {
             Self::InvalidConsList { .. } => codes::syntax::INVALID_CONS_LIST_ATTRIBUTE,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
+            Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
+            Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
@@ -856,11 +875,21 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidTokenAttribute { reason }
             | SyntaxErrorKind::InvalidLexicalMacro { reason }
             | SyntaxErrorKind::InvalidSyntaxList { reason }
-            | SyntaxErrorKind::FreshBinderPosition { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::FreshBinderPosition { reason }
+            | SyntaxErrorKind::MisplacedFresh { reason }
+            | SyntaxErrorKind::MisplacedExistential { reason } => formatter.write_str(reason),
             SyntaxErrorKind::RetiredAttribute {
                 attribute,
                 replacement,
-            } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
+            } => match replacement {
+                Some(replacement) => {
+                    write!(formatter, "`{attribute}` is retired; write `{replacement}`")
+                }
+                None => write!(
+                    formatter,
+                    "`{attribute}` is retired: an order is a key of a sentence's own marker, and this sentence is chosen against no other, so no order means anything on it"
+                ),
+            },
             SyntaxErrorKind::InvalidFunctionShorthand { reason }
             | SyntaxErrorKind::InvalidConstant { reason }
             | SyntaxErrorKind::InvalidEquationTable { reason }

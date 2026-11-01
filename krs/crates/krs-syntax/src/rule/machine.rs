@@ -1790,7 +1790,7 @@ fn assemble_machine_clause(
     }
     let (attribute, claim, retained) = match sentence {
         ReadableSentence::Rule => {
-            let (attribute, retained) = take_rule_clause_attribute(attributes.to_vec())?;
+            let (attribute, retained) = take_rule_clause_attribute(attributes.to_vec(), false)?;
             (attribute, None, retained)
         }
         ReadableSentence::Claim => {

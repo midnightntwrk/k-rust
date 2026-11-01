@@ -539,10 +539,12 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
         krs_syntax::parse_map_expression(
             krs_syntax::parse::tokens_from_source("X -> V, ..").unwrap()
         ),
-        error if error.kind() == &SyntaxErrorKind::InvalidStateMacro {
-            macro_name: "map",
-            reason: "expression remainders must reuse a named binding as `..name`",
-        }
+        // A built map is a literal written over the map its rest names, as `map![..]` is.
+        error if matches!(
+            error.kind(),
+            SyntaxErrorKind::InvalidExpressionNotation { reason }
+                if reason.contains("an anonymous `..` names no map")
+        )
     );
 }
 
@@ -1385,4 +1387,39 @@ fn empty_cells_entry_shells_are_keyed_at_their_invocation() {
             .unwrap();
     assert!(alone.payload_key().is_none());
     assert!(alone.provenance().unwrap().is_empty());
+}
+
+/// An anonymous `..` ending a map or a set a `cells!` result builds is the literal's mistake, as
+/// in any term (NT-19-1): the rest is the collection the entries are written over, and `..`
+/// names none; a `cells!` pattern reads entries with it.
+#[test]
+fn an_anonymous_rest_in_a_built_collection_is_the_literal_s_mistake() {
+    for (collection, entry) in [
+        ("map", "acc: Cell(k::map![x -> y, ..])"),
+        ("set", "acc: Cell(k::set![x, ..])"),
+        (
+            "map",
+            "Sacks::bag: { k::fragment![crate::Bag { s: set![], m: k::map![x -> y, ..] }], ..instances0 }",
+        ),
+        (
+            "set",
+            "Sacks::bag: { k::fragment![crate::Bag { s: k::set![x, ..], m: map![] }], ..instances0 }",
+        ),
+    ] {
+        let source = format!("k: KCell(..tail), {entry}, ..state");
+        let error = krs_syntax::parse_cells_expression(source.parse().unwrap())
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(
+            error.kind().code().as_str(),
+            "krs::syntax::invalid-expression-notation",
+            "{source}: {error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("`{collection}![..]` is a literal")),
+            "{source}: {error}"
+        );
+    }
 }

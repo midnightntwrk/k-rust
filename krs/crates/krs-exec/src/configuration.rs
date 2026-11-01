@@ -152,9 +152,38 @@ pub struct Configuration {
     grammar: &'static Grammar,
     assembler: ConfigurationAssembler<'static>,
     parser_modules: BTreeMap<String, String>,
+    /// The module tried before the main module for each variable no `parser` attribute names
+    /// ([`variable_modules`]).
+    variable_modules: BTreeMap<String, String>,
     parsers: BTreeMap<String, ProgramParser>,
     ground_value_parser: Option<ProgramParser>,
+    /// The parsers a print is read back with, [`Readings::Listed`]: copies of the two above
+    /// that list an ambiguity's readings.
+    listing_parsers: BTreeMap<String, ProgramParser>,
+    listing_ground_value_parser: Option<ProgramParser>,
     macro_definition: MacroExpansionDefinition,
+    /// What [`Self::read_token_in`] read, by grammar, KORE sort name and text.
+    token_reads: BTreeMap<(Reader, String, String), Option<Pattern>>,
+}
+
+/// What a parse of an ambiguous text gives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Readings {
+    /// An error: the text must read one way.
+    One,
+    /// Each of its readings, where the parser lists them
+    /// ([`ProgramParser::parse_readings`]).
+    Listed,
+}
+
+/// One of the two grammars a printed term is read back with.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Reader {
+    /// The syntax module's, the one a program is read with.
+    Program,
+    /// The main module's, which also has the builtin collections' syntax and the productions
+    /// the partition placed in the semantics module.
+    Main,
 }
 
 impl Configuration {
@@ -179,22 +208,28 @@ impl Configuration {
         let resolved = grammar.program.resolved();
         let syntax_module = k_rust::outer::resolve_syntax_module(resolved, None)?.name;
         let parser_modules = parser_modules(resolved, &main_module)?;
+        let variable_modules = variable_modules(grammar, &syntax_module, &parser_modules);
         let macro_definition = MacroExpansionDefinition::prepare(grammar.program.definition())?;
         let assembler = ConfigurationAssembler::new(
             &grammar.program,
             main_module.clone(),
             syntax_module.clone(),
             &grammar.variables,
-        );
+        )
+        .reading_variables_with(variable_modules.clone());
         Ok(Self {
             main_module,
             syntax_module,
             grammar,
             assembler,
             parser_modules,
+            variable_modules,
             parsers: BTreeMap::new(),
             ground_value_parser: None,
+            listing_parsers: BTreeMap::new(),
+            listing_ground_value_parser: None,
             macro_definition,
+            token_reads: BTreeMap::new(),
         })
     }
 
@@ -205,8 +240,23 @@ impl Configuration {
         source: &str,
         k_item: bool,
     ) -> Result<(Pattern, Sort), Box<dyn Error>> {
+        let mut values =
+            self.parse_surface_readings(parser_module, sort, source, k_item, Readings::One)?;
+        Ok(values.swap_remove(0))
+    }
+
+    /// [`Self::parse_surface`], with `readings` saying whether an ambiguous text gives each of
+    /// its listed readings ([`ProgramParser::parse_readings`]) or fails. Each value is the
+    /// reading expanded, typed and converted as a parse's one value is.
+    fn parse_surface_readings(
+        &mut self,
+        parser_module: &str,
+        sort: &KastSort,
+        source: &str,
+        k_item: bool,
+        readings: Readings,
+    ) -> Result<Vec<(Pattern, Sort)>, Box<dyn Error>> {
         let resolved = self.grammar.program.resolved();
-        self.parser(parser_module)?;
         let parse_sort = if sort.is_builtin(BuiltinSort::K) && k_item {
             KastSort::builtin(BuiltinSort::KItem)
         } else {
@@ -214,32 +264,39 @@ impl Configuration {
         };
         // A `K` cell holds a sequence, which only the ground K-value grammar reads; the value is injected at `K`, where a lone item is the one-item sequence the cell stores.
         let k_value = sort.is_builtin(BuiltinSort::K) && !k_item;
-        let value = if k_value {
-            self.ground_value_parser()?.parse(sort, source)?
-        } else {
-            self.parsers
-                .get(parser_module)
-                .expect("parser was inserted above")
-                .parse(&parse_sort, source)?
+        let values = match (readings, k_value) {
+            (Readings::One, true) => vec![self.ground_value_parser()?.parse(&parse_sort, source)?],
+            (Readings::One, false) => vec![self.parser(parser_module)?.parse(&parse_sort, source)?],
+            (Readings::Listed, true) => self
+                .listing_ground_value_parser()?
+                .parse_readings(&parse_sort, source)?,
+            (Readings::Listed, false) => self
+                .listing_parser(parser_module)?
+                .parse_readings(&parse_sort, source)?,
         };
-        let value = self
-            .macro_definition
-            .expand_program(&self.main_module, value, &parse_sort)?;
-        // Type the expanded value at the position it was expanded at, as the assembler does for a configuration value.
         let injector = SortInjector::new(resolved, &self.main_module)?;
-        let value_sort = if k_value {
-            sort.clone()
-        } else {
-            injector.term_sort(value.term(), Some(value.position()))?
-        };
-        let value = injector.inject(value.term(), &value_sort)?;
-        let value = term_to_kore_from_resolved_with_token_module(
-            resolved,
-            &self.main_module,
-            parser_module,
-            &value,
-        )?;
-        Ok((value, encode_kore_sort(&value_sort)))
+        values
+            .into_iter()
+            .map(|value| {
+                let value =
+                    self.macro_definition
+                        .expand_program(&self.main_module, value, &parse_sort)?;
+                // Type the expanded value at the position it was expanded at, as the assembler does for a configuration value.
+                let value_sort = if k_value {
+                    sort.clone()
+                } else {
+                    injector.term_sort(value.term(), Some(value.position()))?
+                };
+                let value = injector.inject(value.term(), &value_sort)?;
+                let value = term_to_kore_from_resolved_with_token_module(
+                    resolved,
+                    &self.main_module,
+                    parser_module,
+                    &value,
+                )?;
+                Ok((value, encode_kore_sort(&value_sort)))
+            })
+            .collect()
     }
 
     fn parse_variable(
@@ -252,17 +309,33 @@ impl Configuration {
             .variables
             .get(name)
             .ok_or_else(|| format!("definition has no configuration variable `${name}`"))?;
-        let parser_module = if name == "PGM" {
-            &self.syntax_module
+        // As the assembler reads it: a variable without a `parser` attribute is read with the
+        // syntax module's grammar where it has the variable's sort, and with the main module's
+        // where that one does not parse the text.
+        let modules = if name == "PGM" {
+            vec![self.syntax_module.clone()]
+        } else if let Some(module) = self.parser_modules.get(name) {
+            vec![module.clone()]
         } else {
-            self.parser_modules.get(name).unwrap_or(&self.main_module)
+            self.variable_modules
+                .get(name)
+                .cloned()
+                .into_iter()
+                .chain([self.main_module.clone()])
+                .collect()
+        };
+        let mut read: Result<(Pattern, Sort), Box<dyn Error>> =
+            Err("no module reads the variable".into());
+        for module in modules {
+            read = self.parse_surface(&module, sort, source, true);
+            if read.is_ok() {
+                break;
+            }
         }
-        .clone();
-        self.parse_surface(&parser_module, sort, source, true)
-            .map_err(|error| {
-                format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
-                    .into()
-            })
+        read.map_err(|error| {
+            format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
+                .into()
+        })
     }
 
     /// Parse surface text at a cell's declared sort through the configuration frontend.
@@ -276,9 +349,22 @@ impl Configuration {
         sort: &KastSort,
         source: &str,
     ) -> Result<Pattern, Box<dyn Error>> {
+        let mut values = self.parse_cell_readings(cell, sort, source, Readings::One)?;
+        Ok(values.swap_remove(0))
+    }
+
+    /// [`Self::parse_cell`], with `readings` saying whether an ambiguous text gives each of its
+    /// listed readings or fails.
+    pub(crate) fn parse_cell_readings(
+        &mut self,
+        cell: &str,
+        sort: &KastSort,
+        source: &str,
+        readings: Readings,
+    ) -> Result<Vec<Pattern>, Box<dyn Error>> {
         let parser_module = self.main_module.clone();
-        self.parse_surface(&parser_module, sort, source, false)
-            .map(|(value, _)| value)
+        self.parse_surface_readings(&parser_module, sort, source, false, readings)
+            .map(|values| values.into_iter().map(|(value, _)| value).collect())
             .map_err(|error| format!("could not parse <{cell}> at sort {sort}: {error}").into())
     }
 
@@ -288,23 +374,40 @@ impl Configuration {
     ///
     /// Returns an error when the surface head cannot be parsed.
     pub fn parse_head(&mut self, cell: &str, source: &str) -> Result<Pattern, Box<dyn Error>> {
+        let mut values = self.parse_head_readings(cell, source, Readings::One)?;
+        Ok(values.swap_remove(0))
+    }
+
+    /// [`Self::parse_head`], with `readings` saying whether an ambiguous text gives each of its
+    /// listed readings or fails.
+    pub(crate) fn parse_head_readings(
+        &mut self,
+        cell: &str,
+        source: &str,
+        readings: Readings,
+    ) -> Result<Vec<Pattern>, Box<dyn Error>> {
         let parser_module = self.main_module.clone();
         let item_sort = KastSort::builtin(BuiltinSort::KItem);
-        let (value, value_sort) = self
-            .parse_surface(&parser_module, &item_sort, source, false)
+        let values = self
+            .parse_surface_readings(&parser_module, &item_sort, source, false, readings)
             .map_err(|error| format!("could not parse <{cell}> head: {error}"))?;
         let kore_item_sort = encode_kore_sort(&item_sort);
-        if value_sort == kore_item_sort {
-            Ok(value)
-        } else {
-            Ok(Pattern::Application {
-                symbol: Symbol {
-                    name: "inj".to_owned(),
-                    sort_parameters: vec![value_sort, kore_item_sort],
-                },
-                arguments: vec![value],
+        Ok(values
+            .into_iter()
+            .map(|(value, value_sort)| {
+                if value_sort == kore_item_sort {
+                    value
+                } else {
+                    Pattern::Application {
+                        symbol: Symbol {
+                            name: "inj".to_owned(),
+                            sort_parameters: vec![value_sort, kore_item_sort.clone()],
+                        },
+                        arguments: vec![value],
+                    }
+                }
             })
-        }
+            .collect())
     }
 
     /// Assemble `initGeneratedTopCell` from surface text for the declared variables.
@@ -439,16 +542,27 @@ impl Configuration {
     }
 
     /// The term `printed`, a token's printed text, reads as at a position of sort `position`:
-    /// parsed there alone with the syntax module's grammar, the one a program is read with, its
-    /// aliases expanded, and without the injection the position puts around it. The scanner
-    /// reads a token whatever the parse expects there, so the text alone reads as it does inside
-    /// a printed term, unless the token sort's regex can take in what is printed after it
-    /// ([`crate::reversal`]).
+    /// parsed there alone with the syntax module's grammar, the one a program is read with
+    /// ([`Self::read_token_in`]).
+    pub(crate) fn read_token(&mut self, position: &Sort, printed: &str) -> Option<Pattern> {
+        self.read_token_in(Reader::Program, position, printed)
+    }
+
+    /// The term `printed`, a token's printed text, reads as at a position of sort `position`:
+    /// parsed there alone with `grammar`, its aliases expanded, and without the injection the
+    /// position puts around it. The scanner reads a token whatever the parse expects there, so
+    /// the text alone reads as it does inside a printed term, unless the token sort's regex can
+    /// take in what is printed after it ([`crate::reversal`]).
     ///
     /// `None` where the text does not parse there, and where the position cannot be judged: a
     /// sort with parameters, which no `--sort` names, or a KORE name that is not the encoding of a
     /// K sort's name.
-    pub(crate) fn read_token(&mut self, position: &Sort, printed: &str) -> Option<Pattern> {
+    pub(crate) fn read_token_in(
+        &mut self,
+        grammar: Reader,
+        position: &Sort,
+        printed: &str,
+    ) -> Option<Pattern> {
         let Sort::Application { name, arguments } = position else {
             return None;
         };
@@ -457,10 +571,52 @@ impl Configuration {
             .filter(|_| arguments.is_empty())
             .map(|name| KastSort::new(krs_unparse::decode_kore(name)))
             .filter(|kast| encode_kore_sort(kast) == *position)?;
-        let module = self.syntax_module.clone();
-        self.parse_surface(&module, &kast, printed, false)
+        let key = (grammar, name.clone(), printed.to_owned());
+        if let Some(read) = self.token_reads.get(&key) {
+            return read.clone();
+        }
+        let module = self.module(grammar).to_owned();
+        let read = self
+            .parse_surface(&module, &kast, printed, false)
             .ok()
-            .map(|(value, _)| without_injection(&value).clone())
+            .map(|(value, _)| without_injection(&value).clone());
+        self.token_reads.insert(key, read.clone());
+        read
+    }
+
+    /// Whether the syntax module's grammar, the one a program is read with, has a production
+    /// that applies `symbol` ([`Self::writes_symbol_in`]).
+    pub(crate) fn writes_symbol(&mut self, symbol: &str) -> Result<bool, Box<dyn Error>> {
+        self.writes_symbol_in(Reader::Program, symbol)
+    }
+
+    /// Whether `grammar` has a production that applies `symbol`, a KORE symbol name
+    /// (`LblSetItem`): whether its text can write an application of it. The syntax module's
+    /// grammar has no builtin collection's constructors (K supplies them only with a full
+    /// module), nor a production the partition placed in the semantics module; the main
+    /// module's has both. A name that encodes no K label is written by neither.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error that building the grammar's parser met.
+    pub(crate) fn writes_symbol_in(
+        &mut self,
+        grammar: Reader,
+        symbol: &str,
+    ) -> Result<bool, Box<dyn Error>> {
+        let Ok(label) = k_rust::kast::identifier::decode_label(symbol) else {
+            return Ok(false);
+        };
+        let module = self.module(grammar).to_owned();
+        Ok(self.parser(&module)?.has_label(&label))
+    }
+
+    /// The module whose grammar `grammar` is.
+    fn module(&self, grammar: Reader) -> &str {
+        match grammar {
+            Reader::Program => &self.syntax_module,
+            Reader::Main => &self.main_module,
+        }
     }
 
     /// Parse program text at `sort` with the syntax module's grammar, as `kast --sort` does.
@@ -519,20 +675,7 @@ impl Configuration {
     /// Every sort visible to the program grammar, by name.
     #[must_use]
     pub fn program_sorts(&self) -> BTreeSet<String> {
-        let resolved = self.grammar.parsing.resolved();
-        let Some(module) = resolved.module_id(&self.syntax_module) else {
-            return BTreeSet::new();
-        };
-        resolved
-            .sentences(module)
-            .into_iter()
-            .filter_map(|sentence| match sentence {
-                Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
-                    Some(sort.name.clone())
-                }
-                _ => None,
-            })
-            .collect()
+        program_sorts(&self.grammar.parsing, &self.syntax_module)
     }
 
     fn parser(&mut self, parser_module: &str) -> Result<&ProgramParser, Box<dyn Error>> {
@@ -552,6 +695,31 @@ impl Configuration {
             .expect("parser was inserted above"))
     }
 
+    /// [`Self::parser`], listing an ambiguity's readings.
+    fn listing_parser(&mut self, parser_module: &str) -> Result<&ProgramParser, Box<dyn Error>> {
+        if !self.listing_parsers.contains_key(parser_module) {
+            let parser = self.parser(parser_module)?.clone().listing_readings();
+            self.listing_parsers
+                .insert(parser_module.to_owned(), parser);
+        }
+        Ok(self
+            .listing_parsers
+            .get(parser_module)
+            .expect("parser was inserted above"))
+    }
+
+    /// [`Self::ground_value_parser`], listing an ambiguity's readings.
+    fn listing_ground_value_parser(&mut self) -> Result<&ProgramParser, Box<dyn Error>> {
+        if self.listing_ground_value_parser.is_none() {
+            self.listing_ground_value_parser =
+                Some(self.ground_value_parser()?.clone().listing_readings());
+        }
+        Ok(self
+            .listing_ground_value_parser
+            .as_ref()
+            .expect("parser was built above"))
+    }
+
     /// The ground K-value parser of the main module, built on first use.
     fn ground_value_parser(&mut self) -> Result<&ProgramParser, Box<dyn Error>> {
         if self.ground_value_parser.is_none() {
@@ -565,6 +733,58 @@ impl Configuration {
             .as_ref()
             .expect("parser was built above"))
     }
+}
+
+/// The module whose grammar reads first each configuration variable but `$PGM` that no `parser`
+/// attribute (`declared`) assigns one and that is no stream variable (`$IO`, `$STDIN` at
+/// `String`, read with `STRING-SYNTAX`): the syntax module, a program's grammar, wherever it has
+/// the variable's sort. A variable's text is input, as a program is, and the main module's
+/// grammar holds more than a program can write: every token sort of the definition, so its
+/// scanner reads `word` as an `Id` wherever it stands, also where a variable of a token sort
+/// `Word` means that `Word`. A `K` or `KItem` variable takes any item, which the syntax module
+/// reads as it reads `$PGM`. Where the syntax module's grammar does not parse the text, the main
+/// module's reads it: it also has the productions only rules may use (a builtin collection's
+/// constructors, a production the partition placed in the semantics module), with which a value
+/// can be written. A sort the syntax module does not have (a builtin collection's, which K
+/// supplies only with a full module) is read with the main module's grammar alone.
+fn variable_modules(
+    grammar: &Grammar,
+    syntax_module: &str,
+    declared: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let program_sorts = program_sorts(&grammar.program, syntax_module);
+    grammar
+        .variables
+        .iter()
+        .filter(|(name, sort)| {
+            name.as_str() != "PGM"
+                && !declared.contains_key(name.as_str())
+                && !(matches!(name.as_str(), "IO" | "STDIN")
+                    && sort.is_builtin(BuiltinSort::String))
+                && (sort.is_builtin(BuiltinSort::K)
+                    || sort.is_builtin(BuiltinSort::KItem)
+                    || program_sorts.contains(&sort.name))
+        })
+        .map(|(name, _)| (name.clone(), syntax_module.to_owned()))
+        .collect()
+}
+
+/// Every sort visible to the grammar of `module`, by name.
+fn program_sorts(grammar: &ProgramGrammar, module: &str) -> BTreeSet<String> {
+    let resolved = grammar.resolved();
+    let Some(module) = resolved.module_id(module) else {
+        return BTreeSet::new();
+    };
+    resolved
+        .sentences(module)
+        .into_iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
+                Some(sort.name.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// `pattern` without the injection at its root, if it has one.
@@ -757,6 +977,164 @@ endmodule
             "\\dv{SortInt{}}(\"3\")"
         );
         assert_eq!(configured["variables"]["PGM"]["sort"], "SortPgm{}");
+    }
+
+    /// A configuration variable is input, read as a program is, with the syntax module's grammar
+    /// wherever it has the variable's sort: `word` given for a `Word` variable is that `Word`,
+    /// although the main module's grammar, whose token sort `Name` the scanner prefers, reads it
+    /// as a `Name`. A sort only the main module has (here `Name`) is read with its grammar, and so
+    /// is a value the syntax module's grammar does not parse: one written with a production of
+    /// the semantics module (`two`) or a builtin collection's constructor (`SetItem`, `.Map`).
+    #[test]
+    fn a_configuration_variable_is_read_with_the_grammar_a_program_is_read_with() {
+        let parsed = k_rust::outer::parse(
+            "variables.k",
+            r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Word ::= r"w[a-z]*" [token]
+  syntax Pgm ::= "run" [symbol(run)]
+  syntax Data ::= one(Int) [symbol(one)]
+endmodule
+
+module MAIN
+  imports MAIN-SYNTAX
+  imports BASIC-K
+  imports INT
+  imports LIST
+  imports SET
+  imports MAP
+  syntax Name ::= r"wor[a-z]*" [token, prec(2)]
+  syntax Data ::= two(Int, List) [symbol(two)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <n> $N:Name </n> <d> $D:Data </d>
+                <e> $E:Data </e> <s> $S:KItem </s> <m> $M:KItem </m>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([
+                ("PGM".to_owned(), Sort::new("Pgm")),
+                ("W".to_owned(), Sort::new("Word")),
+                ("N".to_owned(), Sort::new("Name")),
+                ("D".to_owned(), Sort::new("Data")),
+                ("E".to_owned(), Sort::new("Data")),
+                ("S".to_owned(), Sort::builtin(BuiltinSort::KItem)),
+                ("M".to_owned(), Sort::builtin(BuiltinSort::KItem)),
+            ]),
+        )
+        .unwrap();
+        let configured = configuration
+            .configure(
+                json!({
+                    "PGM": "run",
+                    "W": "word",
+                    "N": "word",
+                    "D": "two(1, .List)",
+                    "E": "one(2)",
+                    "S": "SetItem(1)",
+                    "M": ".Map",
+                })
+                .as_object()
+                .unwrap(),
+            )
+            .unwrap();
+        let variable = |name: &str| configured["variables"][name]["kore"].as_str().unwrap();
+        assert!(variable("D").starts_with("Lbltwo{}("), "{}", variable("D"));
+        assert!(variable("E").starts_with("Lblone{}("), "{}", variable("E"));
+        assert!(variable("S").contains("LblSetItem{}("), "{}", variable("S"));
+        assert!(
+            variable("M").contains("Lbl'Stop'Map{}()"),
+            "{}",
+            variable("M")
+        );
+        assert_eq!(
+            configured["variables"]["W"]["kore"],
+            "\\dv{SortWord{}}(\"word\")"
+        );
+        assert_eq!(
+            configured["variables"]["N"]["kore"],
+            "\\dv{SortName{}}(\"word\")"
+        );
+        let pattern = configured["pattern"].as_str().unwrap();
+        assert!(pattern.contains("\\dv{SortWord{}}(\"word\")"), "{pattern}");
+    }
+
+    /// A printed cell is read back with the main module's grammar where it is no program text,
+    /// and that grammar may read the print several ways: `size ( SetItem ( 1 ) )` is the
+    /// definition's `size` over an item and the set's `size`. Read for a read-back, the text
+    /// gives both readings, so a state holding either reads back; read as a program or a value
+    /// the user writes, it is an ambiguity. A map whose key is a map has no text at all: `_|->_`
+    /// is non-associative and no bracket groups a map there, so `( 1 |-> 2 ) |-> 0` does not
+    /// parse (the printer reports its K default bracket: `Printed::grouped`).
+    #[test]
+    fn a_read_back_lists_the_readings_of_an_ambiguous_print() {
+        let parsed = k_rust::outer::parse(
+            "readings.k",
+            r#"
+module MAIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= "run" [symbol(run)]
+endmodule
+
+module MAIN
+  imports MAIN-SYNTAX
+  imports BASIC-K
+  imports INT
+  imports SET
+  imports MAP
+  syntax KItem ::= hold(KItem) [symbol(hold)]
+  syntax Int ::= size(KItem) [function, symbol(Size)]
+  configuration <k> $PGM:Pgm </k> <env> .Map </env>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([("PGM".to_owned(), Sort::new("Pgm"))]),
+        )
+        .unwrap();
+        let text = "hold(size ( SetItem ( 1 ) ))";
+        let readings = configuration
+            .parse_head_readings("k", text, super::Readings::Listed)
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        assert_eq!(readings.len(), 2, "{readings:#?}");
+        assert!(
+            readings
+                .iter()
+                .any(|reading| reading
+                    .contains("LblSize{}(inj{SortSet{}, SortKItem{}}(LblSetItem{}(")),
+            "{readings:#?}"
+        );
+        assert!(
+            readings
+                .iter()
+                .any(|reading| !reading.contains("LblSize{}")),
+            "{readings:#?}"
+        );
+        let error = configuration.parse_head("k", text).unwrap_err().to_string();
+        assert!(error.contains("Parsing ambiguity"), "{error}");
+        let error = configuration
+            .parse_cell_readings(
+                "env",
+                &Sort::builtin(BuiltinSort::Map),
+                "( 1 |-> 2 ) |-> 0",
+                super::Readings::Listed,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unexpected token '('"), "{error}");
     }
 
     #[test]

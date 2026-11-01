@@ -444,3 +444,53 @@ fn a_static_result_s_local_functions_have_their_values() {
             .unwrap_or_default(),
     );
 }
+
+/// A parametric application whose instance no program text fixes prints as its KORE pattern, and
+/// the command says so on stderr (NT-36): `Wrap::<KItem>(lf)` printed as `wrap(lf)` would read
+/// back at `Leaf`, since the argument reads at `Leaf` and nothing in the text raises it. The same
+/// application at `Leaf`, which its argument fixes, prints as its production's text.
+#[test]
+fn an_instance_printed_as_kore_is_reported() {
+    let source = "
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum More {
+    #[k::syntax(\"raise({a})\")] Raise { a: Leaf },
+    #[k::syntax(\"own({a})\")] Own { a: Leaf },
+}
+
+/// `Wrap` at `KItem`, which a turbofish names only where the argument's sort is `KItem` too.
+#[k::function(partial, syntax = \"wk({a})\")]
+pub fn Wk(a: Term<KItem>) -> Term<KItem> {
+    Wrap::<dyn k::KItemSort>(a)
+}
+
+#[k::rule(label = \"raise\")]
+fn raise(k::term![More::Raise(x)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Hold(Wk(x))
+}
+
+#[k::rule(label = \"own\")]
+fn own(k::term![More::Own(x)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Hold(Wrap::<dyn LeafSort>(x))
+}
+";
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), source);
+    let file = manifest.with_file_name("program.txt");
+    let warning = "warning: no program text fixes the instance of `wrap`, which would read back at another; printed as KORE";
+    fs::write(&file, "raise(lf)").unwrap();
+    let (passed, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+    assert!(passed, "{stderr}");
+    assert!(
+        stdout.contains("hold(Lblwrap{SortKItem{}}(inj{SortLeaf{}, SortKItem{}}("),
+        "{stdout}"
+    );
+    assert!(stderr.contains(warning), "{stderr}");
+    fs::write(&file, "own(lf)").unwrap();
+    let (passed, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+    assert!(passed, "{stderr}");
+    assert!(stdout.contains("hold(wrap ( lf ))"), "{stdout}");
+    assert!(!stderr.contains("warning:"), "{stderr}");
+}

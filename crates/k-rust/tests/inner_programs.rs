@@ -1919,3 +1919,80 @@ fn nullable_list_productions_make_items_ambiguous() {
     ambiguity(&fixture.ground("GROUND-LIST-ITEM"), "K", "op 1");
     ambiguity(&fixture.plain("GROUND-LIST-ITEM"), "KItem", "op 1");
 }
+
+/// On a parser made to list them, an ambiguous text lists its readings, each a whole term as a
+/// parse returns its one reading, where they number at most `LISTED_READINGS`, so that a reader
+/// holding the term a text was printed from can ask whether that term is one of them.
+/// `size ( .Map )` reads as the definition's own `size` over an item and as the map's `size`;
+/// under `S ::= S S | "a"`, `a a a` reads two ways and seven `a`s 132 ways, past the limit:
+/// then none is listed, and `parse_readings` reports the ambiguity. A parser not made to list
+/// them lists none.
+#[test]
+fn an_ambiguous_text_lists_its_readings_up_to_the_limit() {
+    let fixture = GroundFixture::load(
+        r#"
+        module SIZES
+          imports INT
+          imports MAP
+          syntax KItem ::= "hold" "(" KItem ")" [symbol(hold)]
+          syntax Int ::= "size" "(" KItem ")" [function, symbol(Size)]
+        endmodule
+        "#,
+        "SIZES",
+    );
+    let sizes = fixture.plain("SIZES");
+    let error = sizes
+        .parse_readings(&Sort::new("KItem"), "hold(size ( .Map ))")
+        .expect_err("a parser lists readings only where it is made to");
+    assert!(matches!(&*error.error, ParseError::Ambiguous { readings, .. } if readings.is_empty()));
+    let sizes = sizes.listing_readings();
+    let readings = sizes
+        .parse_readings(&Sort::new("KItem"), "hold(size ( .Map ))")
+        .expect("the readings are listed")
+        .iter()
+        .map(|reading| reading.typed_term().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        readings,
+        [
+            "hold(`Size`(`.Map`(.KList)))",
+            "hold(sizeMap(`.Map`(.KList)))"
+        ]
+    );
+    let one = sizes
+        .parse_readings(&Sort::new("KItem"), "hold(1)")
+        .expect("one reading");
+    assert_eq!(one.len(), 1);
+
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax S ::= S S [symbol(cat)] | "a" [symbol(a)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN")
+        .unwrap()
+        .listing_readings();
+    let readings = parser
+        .parse_readings(&Sort::new("S"), "a a a")
+        .expect("two readings are listed");
+    assert_eq!(
+        readings
+            .iter()
+            .map(|reading| reading.typed_term().to_string())
+            .collect::<Vec<_>>(),
+        [
+            "cat(a(.KList),cat(a(.KList),a(.KList)))",
+            "cat(cat(a(.KList),a(.KList)),a(.KList))"
+        ]
+    );
+    let error = parser
+        .parse_readings(&Sort::new("S"), "a a a a a a a")
+        .expect_err("132 readings are not listed");
+    let ParseError::Ambiguous { readings, .. } = &*error.error else {
+        panic!("expected an ambiguity, got {error}");
+    };
+    assert!(readings.is_empty());
+}

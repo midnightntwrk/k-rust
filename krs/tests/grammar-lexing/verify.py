@@ -561,6 +561,7 @@ def main() -> int:
             "grammar-lexing", pins, workspace, krs, gate, environment,
             refresh=arguments.refresh_reference,
             divergences=pins.get("known_divergences", {}),
+            check_prints=True,
         )
 
         harness.check(PARTITION)

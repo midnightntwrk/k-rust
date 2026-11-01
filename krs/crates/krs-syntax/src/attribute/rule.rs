@@ -8,6 +8,7 @@ use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 use krs_ir::ProvenanceKey;
 
+use super::placement::{Marker, taken, untaken};
 use super::value::parse_rule_label_value;
 
 /// Typed metadata of `#[k::rule(owise | priority = N, heat | cool, hole = x,
@@ -64,12 +65,17 @@ pub const MAX_RULE_PRIORITY: u32 = 254;
 
 pub(crate) const OWISE_WITH_PRIORITY: &str = "owise applies where no other rule or equation applies, which no priority orders; write one of them";
 pub(crate) const PRIORITY_RANGE: &str = "k-rust ranks rule priorities 0..=254";
+pub(crate) const CLAIM_MODALITIES: &str =
+    "a claim has one modality: `all_paths` and `one_path` cannot stand together";
+pub(crate) const CLAIM_WITHOUT_MODALITY: &str =
+    "a claim states its modality, `all_paths` or `one_path`, and the marker has neither";
+pub(crate) const CIRCULARITY_ON_ONE_PATH: &str = "circularity is valid only on an all-path claim";
+pub(crate) const TRUSTED_CIRCULARITY: &str =
+    "a trusted claim is assumed, not proved; circularity has no effect";
 pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
     "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there";
-pub(crate) const PRIORITY_ON_STATIC_RULE: &str = "static rules have no priority";
 pub(crate) const RESTRICTION_ON_RULE: &str = "restrictions apply to equations and simplifications: `concrete`, `symbolic`, and `smt_lemma` are keys of #[k::equation] and #[k::simplification]";
-pub(crate) const NONDET_ON_FUNCTION: &str =
-    "functions are deterministic in K; overlapping equations make the function ill-defined";
+pub(crate) const NONDET_ON_FUNCTION: &str = "a function's equations define one value per argument; a nondeterministic group would give it several";
 pub(crate) const ANYWHERE_WITH_ORDER: &str = "an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`";
 pub(crate) const HEAT_WITH_COOL: &str =
     "a rule is a heating step or a cooling step, not both; write `heat` or `cool`";
@@ -77,6 +83,8 @@ pub(crate) const EVALUATION_WITHOUT_HOLE: &str = "a heat or cool rule names the 
 pub(crate) const HOLE_WITHOUT_EVALUATION: &str =
     "`hole` and `result` are keys of a heat or cool rule; add `heat` or `cool`";
 pub(crate) const EVALUATION_WITH_ORDER: &str = "a heat or cool rule is ordered by its hole: K adds `requires notBool isKResult(HOLE)` to heating and `requires isKResult(HOLE)` to cooling; it takes no `owise`, `priority`, `nondet`, or `anywhere`";
+/// The diagnostic for `anywhere` on a single-body rule (one that returns `()`), at the key.
+pub const ANYWHERE_ON_SINGLE_BODY_RULE: &str = "a single-body rule (one that returns `()`) marks its changes with `k::rewrite!` where its subject heads the computation cell; the form states no `anywhere` rule, which a `#[k::rule(anywhere)]` fn with a result states";
 /// The diagnostic for `anywhere` on a readable clause or a `cells!` rule.
 pub const ANYWHERE_NOT_TERM_SHAPED: &str =
     "an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn";
@@ -629,18 +637,41 @@ impl ClaimAttribute {
         reason = "Every claim key is checked in one pass that keeps its diagnostic at its token."
     )]
     fn parse_with_label(tokens: TokenStream, clause: Option<&Ident>) -> Result<Self, SyntaxError> {
-        let error = |span, message| ParseError::from(syn::Error::new(span, message));
+        let duplicate = |name, span| -> ParseError {
+            SyntaxError::new(SyntaxErrorKind::DuplicateArgument { name }, span).into()
+        };
+        let invalid_label = |span| -> ParseError {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidArgumentValue {
+                    name: "label",
+                    expected: "a portable K claim label: a nonempty string without whitespace, `[`, `]`, `:` or `_`",
+                },
+                span,
+            )
+            .into()
+        };
         let parser = |input: ParseStream<'_>| -> Result<ClaimAttribute, ParseError> {
-            let mut modality = None;
+            let mut modality: Option<(ClaimModality, Ident)> = None;
             let mut label = None;
             let mut circularity = None;
             let mut trusted = None;
             while !input.is_empty() {
                 let key: Ident = input.parse()?;
-                match key.to_string().as_str() {
+                match taken(Marker::Claim, &key)?.as_str() {
                     "all_paths" | "one_path" => {
-                        if modality.is_some() {
-                            return Err(error(key.span(), "a claim requires exactly one modality"));
+                        if let Some((_, written)) = &modality {
+                            return Err(if *written == key {
+                                duplicate(
+                                    if key == "all_paths" {
+                                        "all_paths"
+                                    } else {
+                                        "one_path"
+                                    },
+                                    key.span(),
+                                )
+                            } else {
+                                rule_key_error(CLAIM_MODALITIES, key.span())
+                            });
                         }
                         let value = if key == "all_paths" {
                             ClaimModality::AllPaths
@@ -649,81 +680,80 @@ impl ClaimAttribute {
                         };
                         modality = Some((value, key));
                     }
-                    "label" if clause.is_some() => {
-                        return Err(error(
-                            key.span(),
-                            "a `k::claims!` clause is labelled by its name: rename the clause instead of writing `label`",
-                        ));
-                    }
                     "label" => {
                         if label.is_some() {
-                            return Err(error(key.span(), "duplicate claim label"));
+                            return Err(duplicate("label", key.span()));
                         }
                         input.parse::<Token![=]>()?;
-                        let literal: LitStr = input.parse()?;
+                        let literal = super::value::parse_string_value("label", input.parse()?)?;
                         if !valid_claim_label(&literal.value()) {
-                            return Err(error(literal.span(), "invalid portable K claim label"));
+                            return Err(invalid_label(literal.span()));
                         }
                         label = Some(literal);
                     }
                     "circularity" => {
                         if circularity.is_some() {
-                            return Err(error(key.span(), "duplicate circularity modifier"));
+                            return Err(duplicate("circularity", key.span()));
                         }
                         circularity = Some(key);
                     }
                     "trusted" => {
                         if trusted.is_some() {
-                            return Err(error(key.span(), "duplicate trusted modifier"));
+                            return Err(duplicate("trusted", key.span()));
                         }
                         if input.peek(Token![=]) {
-                            return Err(error(
+                            return Err(SyntaxError::new(
+                                SyntaxErrorKind::InvalidArgumentValue {
+                                    name: "trusted",
+                                    expected: "a bare flag, without a value",
+                                },
                                 key.span(),
-                                "`trusted` is a bare flag; write `trusted` without a value",
-                            ));
+                            )
+                            .into());
                         }
                         trusted = Some(key);
                     }
-                    "unbound_variables" => {
-                        return Err(
-                            super::sort::unbound_variables_outside_desugar(key.span()).into()
-                        );
-                    }
-                    _ => {
-                        return Err(error(key.span(), "unknown claim argument"));
-                    }
+                    other => untaken(Marker::Claim, other),
                 }
                 if input.is_empty() {
                     break;
                 }
                 input.parse::<Token![,]>()?;
             }
-            let (modality, modality_ident) =
-                modality.ok_or_else(|| input.error("claim requires `all_paths` or `one_path`"))?;
-            let label = match clause {
-                Some(name) => {
+            let (modality, modality_ident) = modality.ok_or_else(|| {
+                ParseError::from(SyntaxError::new(
+                    SyntaxErrorKind::InvalidRuleKey {
+                        reason: CLAIM_WITHOUT_MODALITY,
+                    },
+                    input.span(),
+                ))
+            })?;
+            // A `k::claims!` clause is labelled by its name, as a readable rule is, unless a
+            // `label` names it otherwise.
+            let label = match (label, clause) {
+                (Some(label), _) => label,
+                (None, Some(name)) => {
                     let spelling = name.unraw().to_string().replace('_', "-");
                     if !valid_claim_label(&spelling) {
-                        return Err(error(name.span(), "invalid portable K claim label"));
+                        return Err(invalid_label(name.span()));
                     }
                     LitStr::new(&spelling, name.span())
                 }
-                None => label
-                    .ok_or_else(|| input.error("claim requires an explicit `label = \"...\"`"))?,
+                (None, None) => {
+                    return Err(SyntaxError::new(
+                        SyntaxErrorKind::MissingArgument { name: "label" },
+                        input.span(),
+                    )
+                    .into());
+                }
             };
             if modality == ClaimModality::OnePath
                 && let Some(circularity) = &circularity
             {
-                return Err(error(
-                    circularity.span(),
-                    "circularity is valid only on an all-path claim",
-                ));
+                return Err(rule_key_error(CIRCULARITY_ON_ONE_PATH, circularity.span()));
             }
             if let (Some(trusted), Some(_)) = (&trusted, &circularity) {
-                return Err(error(
-                    trusted.span(),
-                    "a trusted claim is assumed, not proved; circularity has no effect",
-                ));
+                return Err(rule_key_error(TRUSTED_CIRCULARITY, trusted.span()));
             }
             Ok(ClaimAttribute {
                 modality,
@@ -825,7 +855,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
     let mut result: Option<Path> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
+        let key_name = taken(Marker::Rule, &key)?;
         match key_name.as_str() {
             "label" if label.is_some() => {
                 return Err(SyntaxError::new(
@@ -916,19 +946,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                     "nondet", value,
                 )?);
             }
-            "concrete" | "symbolic" | "smt_lemma" => {
-                return Err(rule_key_error(RESTRICTION_ON_RULE, key.span()));
-            }
-            "unbound_variables" => {
-                return Err(super::sort::unbound_variables_outside_desugar(key.span()).into());
-            }
-            _ => {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnknownArgument { name: key_name },
-                    key.span(),
-                )
-                .into());
-            }
+            other => untaken(Marker::Rule, other),
         }
         if input.is_empty() {
             break;
@@ -1065,21 +1083,12 @@ fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, Pars
     let mut label: Option<LitStr> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
+        let key_name = taken(Marker::Context, &key)?;
         let duplicate = match key_name.as_str() {
             "hole" => hole.is_some().then_some("hole"),
             "result" => result.is_some().then_some("result"),
             "label" => label.is_some().then_some("label"),
-            "unbound_variables" => {
-                return Err(super::sort::unbound_variables_outside_desugar(key.span()).into());
-            }
-            _ => {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnknownArgument { name: key_name },
-                    key.span(),
-                )
-                .into());
-            }
+            other => untaken(Marker::Context, other),
         };
         if let Some(name) = duplicate {
             return Err(
@@ -1095,7 +1104,8 @@ fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, Pars
                 )?);
             }
             "result" => result = Some(parse_result_sort(value)?),
-            _ => label = Some(parse_rule_label_value(value)?),
+            "label" => label = Some(parse_rule_label_value(value)?),
+            other => untaken(Marker::Context, other),
         }
         if input.is_empty() {
             break;

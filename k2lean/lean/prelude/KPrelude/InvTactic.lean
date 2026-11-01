@@ -4,6 +4,7 @@ import KPrelude.Hooks
 import KPrelude.EqBase
 import KPrelude.FamilyCases
 import KPrelude.InvDisjoint
+import KPrelude.MeasureSum
 
 /-!
 # `k2l_preserve`: one case per rule, closed generically or left tagged by the rule
@@ -20,6 +21,13 @@ On each goal it runs, in order, until one closes the goal completely:
    does not close the goal, case on the first application of one of the functions `f` in the
    goal (with an equation, and on enumeration-typed fields of the result) and repeat, at most
    `fuel` cases deep (default 5);
+2b. *sums*, only with `sums [F_eq, …]`: each sum over a map that `P` reads (`MeasureSum`: a fold
+   `F(.Map) => 0`, `F((K |-> V) R) => g(K, V) +Int F(R)`) is read through its generated `iff`
+   (`F m = some s` exactly where `m` is well formed and every binding matches with a defined
+   weight, and then `s = sumOf g m`), each map the rule matches or builds split into its operands
+   down to the bindings it writes (`k2l_sum_split`), and what is left closed by the arithmetic of
+   5: the sums of the rest the rule leaves are atoms on both sides (a transfer between two
+   bindings conserves the total whatever the amount);
 3. *collections*: substitute the rule's equations `x = t` (a list pattern binds its list so);
    split conjunctions; add the facts read off the rule's matched collections
    (for `EntriesOn Q m` and a match `concat a b = some m`: `Q (k, v)` for an operand
@@ -107,7 +115,7 @@ The unfolding set is: the head constant of `P` (for `OnCell proj Q`, also the he
 and `Q`; for `fun c => A c ∧ B c`, the heads of `A` and `B`), the `@[k2l_pres]` simp set, and
 the lemmas given in `[…]`.
 
-Syntax: `k2l_preserve [simp lemmas]? (split [f, …])? (fuel n)? (hand NS)?`.
+Syntax: `k2l_preserve [simp lemmas]? (split [f, …])? (sums [F_eq, …])? (fuel n)? (hand NS)?`.
 -/
 
 namespace KPrelude
@@ -875,14 +883,154 @@ partial def splitLoop (simpU : TSyntax `tactic) (simpAllU : TSyntax `tactic)
       out := out ++ (← getGoals)
     setGoals out.toList
 
+/-- An identifier as a `simp` argument. -/
+def simpArgOfIdent (i : Ident) : MetaM SimpArg := do
+  return ⟨(← `(Lean.Parser.Tactic.simpLemma| $i:ident)).raw⟩
+
+/-- The local hypotheses of the main goal whose type, instantiated, satisfies `p`. -/
+def hypsWhere (p : Expr → MetaM Bool) : TacticM (Array (Name × Expr)) := do
+  (← getMainGoal).withContext do
+    let mut acc := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let ty ← instantiateMVars d.type
+      if ← p ty then acc := acc.push (d.userName, ty)
+    return acc
+
+/-- The maps `m` and keys `k` of the terms `MapHook.remove m k` in the main goal and its hypotheses,
+outside binders. -/
+def removeAtoms : TacticM (Array (Expr × Expr)) := do
+  let g ← getMainGoal
+  g.withContext do
+    let acc ← IO.mkRef (#[] : Array (Expr × Expr))
+    let visit (e : Expr) : MetaM Unit := e.forEach fun s => do
+      if s.isAppOf ``MapHook.remove && !s.hasLooseBVars && s.getAppNumArgs ≥ 2 then
+        let x := (s.getArg! (s.getAppNumArgs - 2), s.getArg! (s.getAppNumArgs - 1))
+        unless (← acc.get).contains x do acc.modify (·.push x)
+    visit (← instantiateMVars (← g.getType))
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do visit (← instantiateMVars d.type)
+    acc.get
+
+/-- The sums over a map in a rule's case (`KPrelude.MeasureSum`), split along the maps the rule
+reads and writes; shared by `k2l_measure_sum` and closer 2b of `k2l_preserve`.
+- Each fold's call is read by its generated `iff` (`ss`, `F_eq`: defined exactly where the map is
+  well formed and every binding matches with a defined weight, and then `sumOf g m`), so the
+  source's value gives every binding's definedness, and the target's is what is left to show.
+- Each map the rule matches or builds as `M₁ M₂` (`concat M₁ M₂ = some M`) splits its sum, its
+  bindings' definedness and its well-formedness into the operands', down to the elements the rule
+  writes and the rest it leaves.
+- A map the rule writes by the hooks (`M[K <- V]`, `M[K <- undef]`) at a well-formed `M` is the
+  binding at `K` beside the rest of `M` (`sumOf_update`, `claimsDef_update`), and the rest relates
+  to `M` by what `M` binds at `K`: the binding the rule looked up (`lookup M K = some V`), none (a
+  `requires` that `K` is not a key; `M[K <- undef]` is then `M`), or, where the rule says
+  neither, both cases. -/
+def sumSplit (ss : Array Ident) : TacticM Unit := do
+  if ss.isEmpty then return
+  evalTactic (← `(tactic| try subst_vars))
+  let ssA ← ss.mapM (fun i => (simpArgOfIdent i : MetaM _))
+  -- the folds' calls read as sums, the source's definedness taken apart (an expression that
+  -- combines several folds, `F(M) +Int G(N)`, binds their calls: each is defined, with its value)
+  evalTactic (← `(tactic| try simp only [$[$ssA],*, Option.isSome_iff_exists, Option.bind_eq_some_iff,
+    Option.some.injEq, exists_and_left,
+    exists_and_right, exists_eq_left, exists_eq_right, exists_eq', exists_eq_left', and_assoc] at *))
+  splitAnds
+  if (← getGoals).isEmpty then return
+  -- the maps the rule matches and builds, named, split into their operands; a map written by the
+  -- hooks, at each well-formed map
+  let g ← getMainGoal
+  let (g, cs, ws) ← g.withContext do
+    let mut g := g
+    let mut cs : Array Name := #[]
+    let mut ws : Array Name := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let ty ← instantiateMVars d.type
+      if ty.isAppOf ``MapHook.WF then
+        let n := Name.mkSimple s!"k2l_sw{ws.size}"
+        g ← g.rename d.fvarId n
+        ws := ws.push n
+        continue
+      let some (_, l, r) := ty.eq? | continue
+      unless l.isAppOf ``MapHook.concat && r.isAppOfArity ``Option.some 2 do continue
+      let n := Name.mkSimple s!"k2l_cc{cs.size}"
+      g ← g.rename d.fvarId n
+      cs := cs.push n
+    return (g, cs, ws)
+  setGoals [g]
+  let mut args : Array SimpArg := #[]
+  for n in cs do
+    let i := mkIdent n
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.sumOf_concat $i:ident)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.claimsDef_concat $i:ident)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_of_concat $i:ident))).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_operands_of_concat $i:ident).1)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_operands_of_concat $i:ident).2)).raw⟩
+  for n in ws do
+    let i := mkIdent n
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.sumOf_update $i:ident)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.claimsDef_update $i:ident)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_update $i:ident))).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_remove $i:ident))).raw⟩
+  evalTactic (← `(tactic| try simp only [$[$args],*, MapHook.sumOf_element, MapHook.sumOf_unit,
+    MapHook.claimsDef_element, MapHook.claimsDef_unit, Option.getD_some, MapHook.wf_unit,
+    and_true, true_and, and_assoc] at *))
+  splitAnds
+  if (← getGoals).isEmpty then return
+  -- the rest of a map written by the hooks: what the map binds at the key
+  for (m, k) in ← removeAtoms do
+    if (← getGoals).isEmpty then return
+    let g ← getMainGoal
+    let (ms, ks) ← g.withContext do return (← Term.exprToSyntax m, ← Term.exprToSyntax k)
+    let wf ← hypsWhere fun ty => do
+      return ty.isAppOf ``MapHook.WF && ty.appArg!.isFVar && m.isFVar && ty.appArg! == m
+    let some (hw, _) := wf[0]? | continue
+    let hwI := mkIdent hw
+    -- the binding the rule looked up, else a key the rule requires absent, else both cases
+    let found ← hypsWhere fun ty => do
+      let some (_, l, r) := ty.eq? | return false
+      return l.isAppOf ``MapHook.lookup && r.isAppOfArity ``Option.some 2 &&
+        (← isDefEq l (← mkAppM ``MapHook.lookup #[m, k]))
+    let hl := mkIdent (Name.mkSimple "k2l_sl")
+    if let some (h, _) := found[0]? then
+      evalTactic (← `(tactic| try simp only [MapHook.sumOf_remove_eq $hwI:ident $(mkIdent h):ident] at *))
+      continue
+    let absent ← tryRec (do
+        evalTactic (← `(tactic| have $hl:ident : MapHook.lookup $ms $ks = none := by
+          first
+          | assumption
+          | (cases k2l_sq : MapHook.lookup $ms $ks <;>
+              simp_all [MapHook.inKeys, MapHook.lookup, BoolHook.not]; done)))
+        pure true) (pure false)
+    if absent then
+      evalTactic (← `(tactic| try simp only [MapHook.remove_of_lookup_none $hl:ident] at *))
+      continue
+    -- both cases: the rest is the map, or the map less the binding at the key
+    evalTactic (← `(tactic| rcases $hl:ident : MapHook.lookup $ms $ks with _ | _))
+    let gs ← getGoals
+    let some g₁ := gs[0]? | continue
+    let some g₂ := gs[1]? | continue
+    setGoals [g₁]
+    evalTactic (← `(tactic| try simp only [MapHook.remove_of_lookup_none $hl:ident] at *))
+    let r₁ ← getGoals
+    setGoals [g₂]
+    evalTactic (← `(tactic| try simp only [MapHook.sumOf_remove_eq $hwI:ident $hl:ident] at *))
+    setGoals (r₁ ++ (← getGoals) ++ gs.drop 2)
+  splitAnds
+
+/-- `k2l_sum_split [F_eq, …]`: `sumSplit` on the main goal, the split of closer 2b (for a hand case
+of an invariant that reads a sum over a map). -/
+elab "k2l_sum_split" " [" ss:ident,* "]" : tactic => sumSplit ss.getElems
+
 syntax splitHeads := " split " "[" ident,* "]"
+syntax sumsArg := &" sums " "[" ident,* "]"
 syntax fuelArg := &" fuel " num
 syntax handArg := &" hand " ident
 
 /-- See the module documentation. -/
 syntax (name := k2lPreserve) "k2l_preserve"
   (" [" (Lean.Parser.Tactic.simpStar <|> Lean.Parser.Tactic.simpErase <|>
-    Lean.Parser.Tactic.simpLemma),* "]")? (splitHeads)? (fuelArg)? (handArg)? : tactic
+    Lean.Parser.Tactic.simpLemma),* "]")? (splitHeads)? (sumsArg)? (fuelArg)? (handArg)? : tactic
 
 /-- The closers of one rule's goal `P lhs → P rhs`, as `k2l_preserve` builds them. -/
 structure Closers where
@@ -898,6 +1046,8 @@ structure Closers where
   simpAllU : TSyntax `tactic
   coll : Array Name
   heads : Array Name
+  /-- The `iff`s of the sums over a map that the predicate reads (closer 2b). -/
+  sums : Array Ident := #[]
   fuel : Nat
   ambient : Array FVarId
 
@@ -959,6 +1109,40 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
     ok ← tryRec (do splitLoop k.simpU k.simpAllU k.heads k.fuel; pure (← getGoals).isEmpty)
       (pure false)
     unless ok do s1.restore
+  -- 2b. sums over maps (only with `sums [...]`): read as `sumOf`, split along the rule's maps,
+  -- then each part from the source's facts or by arithmetic
+  unless ok || k.sums.isEmpty do
+    ok ← tryRec (do
+        evalTactic (← `(tactic| (intro h; try subst_vars; $(k.unfoldBoth))))
+        -- the cells the invariant reads, as constructors (a rule's cell variable `<fees> F`)
+        casesCells
+        tryRec (evalTactic (← `(tactic| all_goals (try dsimp only at *)))) (pure ())
+        -- the invariant's equations again, now that its cells are constructors
+        let U := k.U
+        evalTactic (← `(tactic| all_goals (try simp only [$U,*] at *)))
+        -- the rule's `==K` tests as equations of terms, and those taken apart and substituted
+        -- (`drop`'s looked-up value `0`), so a weight read at them evaluates
+        evalTactic (← `(tactic| all_goals (try simp only [KEqHook.eq, decide_eq_true_eq] at *)))
+        evalTactic (← `(tactic| all_goals (try injections)))
+        evalTactic (← `(tactic| all_goals (try subst_vars)))
+        for g in ← getGoals do
+          setGoals [g]
+          sumSplit k.sums
+          if (← getGoals).isEmpty then continue
+          -- the weights of the bindings the rule wrote, evaluated before the arithmetic reads
+          -- the comparisons (`decide` of a comparison keeps the instance of its unevaluated form)
+          let mut Uw := k.U
+          for n in [``Option.getD_some, ``Option.isSome_some] do Uw := Uw.push (← simpArgOfName n)
+          evalTactic (← `(tactic| all_goals (try simp only [$Uw,*] at *)))
+          evalTactic (← `(tactic| all_goals (try and_intros)))
+          evalTactic (← `(tactic| all_goals first
+            | assumption
+            | (apply MapHook.claimsDef_remove; assumption)
+            | $(k.arith):tactic
+            | $(k.disch):tactic))
+          unless (← getGoals).isEmpty do return false
+        pure true) (pure false)
+    if ok then setGoals [] else s1.restore
   -- 3. collections (with the facts read off the rule's matched collections)
   unless ok do
     ok ← tryRec (do
@@ -1114,7 +1298,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
 predicate's heads, then `k2l_pres`, `↓reduceIte` and the user's lemmas) and the tactics built on it;
 the hypotheses of `g`'s context not named in the user's list are ambient. -/
 def mkClosers (g : MVarId) (headNames : Array Name) (userArgs : Array SimpArg) (heads : Array Name)
-    (fuel : Nat) (keepCtx : Bool := false) : TacticM Closers := do
+    (fuel : Nat) (keepCtx : Bool := false) (sums : Array Ident := #[]) : TacticM Closers := do
   let mut U : Array SimpArg := #[]
   for n in headNames do U := U.push (← simpArgOfName n)
   U := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_pres)).raw⟩
@@ -1143,7 +1327,7 @@ def mkClosers (g : MVarId) (headNames : Array Name) (userArgs : Array SimpArg) (
       if ← isProp d.type then acc := acc.push d.fvarId
     return acc
   let norm ← `(tactic| simp only [$U,*])
-  return { unfoldBoth, arith, norm, U, disch, simpU, simpAllU, coll, heads, fuel, ambient }
+  return { unfoldBoth, arith, norm, U, disch, simpU, simpAllU, coll, heads, sums, fuel, ambient }
 
 @[tactic k2lPreserve] def evalK2LPreserve : Tactic := fun stx => do
   -- an optional multi-token group is a null node holding the tokens themselves
@@ -1153,12 +1337,16 @@ def mkClosers (g : MVarId) (headNames : Array Name) (userArgs : Array SimpArg) (
     match stx[2].getOptional? with
     | some a => a[2].getSepArgs.mapM fun i => realizeGlobalConstNoOverloadWithInfo i
     | none => pure #[]
-  let fuel : Nat :=
+  let sums : Array Ident :=
     match stx[3].getOptional? with
+    | some a => a[2].getSepArgs.map (⟨·⟩)
+    | none => #[]
+  let fuel : Nat :=
+    match stx[4].getOptional? with
     | some a => a[1].isNatLit?.getD 5
     | none => 5
   let handNs : Option Name :=
-    match stx[4].getOptional? with
+    match stx[5].getOptional? with
     | some a => some a[1].getId
     | none => none
   let g ← getMainGoal
@@ -1170,7 +1358,7 @@ def mkClosers (g : MVarId) (headNames : Array Name) (userArgs : Array SimpArg) (
     | some (_, _, P), _ => pure P
     | none, (``KPrelude.Preserved, #[_, _, P]) => pure P
     | _, _ => throwError "k2l_preserve: the goal must be `Preserved S P` or a rule case `Step.Case.r P`"
-  let k ← mkClosers g (← predHeads P) userArgs heads fuel
+  let k ← mkClosers g (← predHeads P) userArgs heads fuel (sums := sums)
   -- per-case mode: one rule's case `Step.Case.r P`, as `Step.preserves_of` asks for it
   if let some (n, r, _) := case? then
     if handNs.isSome then

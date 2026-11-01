@@ -87,7 +87,7 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidRuleKey { reason: "example" },
         SyntaxErrorKind::RetiredAttribute {
             attribute: "example",
-            replacement: String::from("example"),
+            replacement: Some(String::from("example")),
         },
         SyntaxErrorKind::InvalidTokenAttribute { reason: "example" },
         SyntaxErrorKind::InvalidLexicalMacro { reason: "example" },

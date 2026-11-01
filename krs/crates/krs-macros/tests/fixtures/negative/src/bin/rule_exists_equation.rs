@@ -8,7 +8,7 @@ pub trait ExprSort {} pub type Expr = renamed_krs::Term<dyn ExprSort>;
 pub struct Done;
 
 #[equation]
-#[renamed_krs::exists(x: renamed_krs::builtin::int::Int)] //~ ERROR existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases
+#[renamed_krs::exists(x: renamed_krs::builtin::int::Int)] //~ ERROR existential results and ensures state what a step's result satisfies
 fn invalid(Done: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     x
 }

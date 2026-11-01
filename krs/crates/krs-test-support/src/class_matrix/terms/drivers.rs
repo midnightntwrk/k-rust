@@ -26,7 +26,7 @@ use std::cell::Cell;
 
 use super::super::Command;
 use super::super::k7::{Ground, K7, Meaning, Run, SkipKind, Status};
-use super::super::positions::Construct;
+use super::super::positions::{Construct, Notation};
 use super::{Side, Slot, Spelling, go, hold, int, pair};
 
 /// The term a driver puts at its hole, and what it checks of it.
@@ -1161,17 +1161,18 @@ impl Driver<'_> {
     }
 
     /// `plan`, with the case's own command among the aliases no print writes where its alias
-    /// clause's subject holds a token whose printed text no program reads back as it: the `Id`
-    /// `$x` (`k::id!("$x")`), which a program writes only through its maker, so printed as `$x`
-    /// it lexes as no token at all.
+    /// clause's subject is no program text: it holds a term a program writes only through a
+    /// maker ([`no_program_text`]), or its head, the command's own production, is placed in the
+    /// semantics module ([`head_in_semantics`]); printed, it reads back as nothing.
     fn forward_only_if_unread(&self, mut plan: Result<K7, K7>) -> Result<K7, K7> {
         if let Ok(K7::Run(run)) = &mut plan
             && self.slot.form == "alias"
-            && self
-                .spelling
-                .nodes
-                .iter()
-                .any(|node| node.construct == Construct::IdToken)
+            && (head_in_semantics(self.command)
+                || self
+                    .spelling
+                    .nodes
+                    .iter()
+                    .any(|node| no_program_text(node.construct)))
         {
             run.forward_only.push(self.command.name.clone());
         }
@@ -1253,6 +1254,28 @@ const fn empty_items() -> Vec<Ground> {
 /// The token `word` of the base's token sort `Word`, which is no `KResult`.
 fn word() -> Ground {
     Ground::token("Word", "word")
+}
+
+/// Whether `construct`, written in a term, prints as text no program reads back: the `Id` `$x`
+/// (`k::id!("$x")`), which lexes as no token, and a builtin collection's value (`set![x]`,
+/// `k::builtin::set::item(x)`, list brackets), whose constructors (`SetItem`, `ListItem`) no
+/// program grammar has, since K supplies them only with a full module. A program writes each
+/// only through a maker, a function the base defines (`idx`, `sone(a)`, `lone(a)`).
+const fn no_program_text(construct: Construct) -> bool {
+    matches!(
+        construct,
+        Construct::IdToken
+            | Construct::CollectionValue
+            | Construct::Notation(Notation::CollectionValue)
+            | Construct::ListBrackets
+    )
+}
+
+/// Whether `command`'s production is placed in the semantics module, where no program grammar
+/// has it: a field of a builtin collection's sort (`List`, `Set`, `Map`) puts it there, since K
+/// supplies those sorts only with a full module.
+fn head_in_semantics(command: &Command) -> bool {
+    command.arity > 0 && matches!(command.field_sort, "List" | "Set" | "Map")
 }
 
 /// Whether `term` holds [`Ground::Any`].

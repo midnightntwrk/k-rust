@@ -260,7 +260,7 @@ pub(super) fn parse_group_value(value: Expr) -> Result<LitStr, ParseError> {
     Ok(literal)
 }
 
-pub(super) fn parse_rule_label_value(value: Expr) -> Result<LitStr, ParseError> {
+pub(crate) fn parse_rule_label_value(value: Expr) -> Result<LitStr, ParseError> {
     let literal = parse_string_value("label", value)?;
     let spelling = literal.value();
     let valid = spelling

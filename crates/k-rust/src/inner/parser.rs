@@ -980,6 +980,10 @@ pub struct CyclicDerivation {
     pub span: Option<TermSpan>,
 }
 
+/// The most readings an ambiguity lists as terms ([`ParseError::Ambiguous`]'s `readings`): a
+/// reader that holds the term a text was printed from can then ask whether it is one of them.
+pub const LISTED_READINGS: usize = 16;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ParseError {
     InvalidRegex {
@@ -1023,6 +1027,12 @@ pub enum ParseError {
         /// When the readings at `span` have one root key, the subterms below it at which they
         /// differ, each with one entry per root key of its readings.
         places: Vec<AmbiguityPlace>,
+        /// The readings themselves, whole terms as a parse returns its one reading, in term
+        /// order, where the grammar lists them (`Grammar::list_readings`) and the readings of
+        /// the input's lowered forest number at most [`LISTED_READINGS`]; empty otherwise, and
+        /// for an ambiguity found before the forest is lowered (by prediction or sort
+        /// inference).
+        readings: Vec<Term>,
     },
     /// A sort derives itself over a text without consuming input.
     CyclicDerivation(Box<CyclicDerivation>),
@@ -1712,6 +1722,11 @@ impl std::ops::DerefMut for SubsortRelations {
 /// their original form for sort inference.
 #[derive(Clone, Debug)]
 pub struct Grammar {
+    /// Whether an ambiguity of the lowered forest lists its readings as terms
+    /// (`ParseError::Ambiguous`'s `readings`, `Grammar::list_readings`). Off by default: the
+    /// report then costs work linear in the forest and depends on the set of readings only
+    /// through the questions it asks of it.
+    lists_readings: bool,
     generation: u64,
     sort_denotations: SortDenotations,
     productions: Vec<Production>,
@@ -1853,6 +1868,7 @@ enum ParserRole {
 impl Default for Grammar {
     fn default() -> Self {
         Self {
+            lists_readings: false,
             generation: next_grammar_generation(),
             sort_denotations: SortDenotations::default(),
             productions: Vec::new(),
@@ -1964,6 +1980,13 @@ impl Grammar {
             }
         }
         changed
+    }
+
+    /// Make every ambiguity of the lowered forest list its readings, up to
+    /// [`LISTED_READINGS`] (`ParseError::Ambiguous`'s `readings`), for a reader that holds the
+    /// term a text was printed from and asks whether it is one of them.
+    pub(crate) fn list_readings(&mut self) {
+        self.lists_readings = true;
     }
 
     /// The sort that a spelling denotes in this grammar's module.

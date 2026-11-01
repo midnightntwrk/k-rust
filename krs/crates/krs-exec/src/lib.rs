@@ -20,6 +20,7 @@ mod claims;
 mod configuration;
 mod console;
 mod origin;
+mod read_back;
 mod report;
 mod reversal;
 mod stage;
@@ -59,6 +60,7 @@ pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
+pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Halt, Modality, ProofLeaf, ProofReport, REPORT_SCHEMA,
     RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Term, Verdict,
@@ -527,6 +529,8 @@ pub struct Semantics {
     spec_provers: BTreeMap<String, SpecProver>,
     /// The main cell's K name ([`Self::main_cell`]).
     main_cell: Option<String>,
+    /// The printed texts [`Self::read_back`] read, by grammar, cell, sort and text.
+    print_reads: BTreeMap<read_back::ReadKey, read_back::Read>,
 }
 
 /// One author spec module's compiled proof definition (KF-041).
@@ -608,14 +612,16 @@ impl Semantics {
         // The printer reverses the alias clauses `reversal` judges by the definition's reading
         // of their tokens' values, so it is built after the values.
         let unparser = timings.try_span("exec.unparser", |_| {
-            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
-                .map(|unparser| unparser.with_program_grammar(&frontend_definition))
-                .map(|unparser| {
-                    let reversed =
-                        reversal::reversed(definition, &unparser, &mut configuration, &values);
-                    unparser.reversing_only(|label| reversed.contains(label))
-                })
-                .map_err(|error| ExecError::Backend(error.to_string()))
+            let unparser = krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
+                .map_err(|error| ExecError::Backend(error.to_string()))?
+                .with_program_grammar(&frontend_definition);
+            let reversed = reversal::reversed(definition, &unparser, &mut configuration, &values)
+                .map_err(|error| {
+                    ExecError::Backend(format!(
+                        "the program grammar, which judges the aliases printing reverses, cannot be built: {error}"
+                    ))
+                })?;
+            Ok::<_, ExecError>(unparser.reversing_only(|label| reversed.contains(label)))
         })?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
@@ -654,6 +660,7 @@ impl Semantics {
             spec_definition,
             spec_provers: BTreeMap::new(),
             main_cell,
+            print_reads: BTreeMap::new(),
         })
     }
 
@@ -1277,6 +1284,44 @@ impl Semantics {
             .map_err(|error| ExecError::Parse {
                 input: format!("the printed <{cell}> head"),
                 sort: "KItem".to_owned(),
+                message: error.to_string(),
+            })
+    }
+
+    /// [`Self::parse_computation_head`], where an ambiguous text gives each of its readings the
+    /// parser lists ([`k_rust::inner::ProgramParser::parse_readings`]).
+    pub(crate) fn parse_computation_head_readings(
+        &mut self,
+        text: &str,
+    ) -> Result<Vec<Pattern>, ExecError> {
+        let cell = self.main_cell.clone().unwrap_or_else(|| "k".to_owned());
+        self.configuration
+            .parse_head_readings(&cell, text, configuration::Readings::Listed)
+            .map_err(|error| ExecError::Parse {
+                input: format!("the printed <{cell}> head"),
+                sort: "KItem".to_owned(),
+                message: error.to_string(),
+            })
+    }
+
+    /// [`Self::parse_cell`], where an ambiguous text gives each of its readings the parser
+    /// lists ([`k_rust::inner::ProgramParser::parse_readings`]).
+    pub(crate) fn parse_cell_readings(
+        &mut self,
+        cell: &str,
+        sort: &str,
+        text: &str,
+    ) -> Result<Vec<Pattern>, ExecError> {
+        self.configuration
+            .parse_cell_readings(
+                cell,
+                &KastSort::new(sort),
+                text,
+                configuration::Readings::Listed,
+            )
+            .map_err(|error| ExecError::Parse {
+                input: format!("the printed <{cell}>"),
+                sort: sort.to_owned(),
                 message: error.to_string(),
             })
     }

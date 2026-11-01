@@ -12,9 +12,9 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use k_rust::backend::CancellationToken;
-use k_rust::kore::ast::{Pattern, Sort as KoreSort};
+use k_rust::kore::ast::Pattern;
 use krs_exec::{
-    CellError, ConfigInputs, ExecError, Halt, ProgramInput, RunOptions, RunReport, Semantics,
+    CellError, ConfigInputs, Halt, ProgramInput, ReadBack, RunOptions, RunReport, Semantics,
     SortRef, StateView, Term, Value, ValueIndex, View, unparse,
 };
 use krs_test_support::class_matrix::k7::{Ground, Run, Status};
@@ -105,15 +105,15 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
 }
 
 /// Whether the state, as `krs run` prints it, is the state: the computation cell's first item and
-/// every other leaf cell's content, each printed and read back as a program reads it
-/// ([`read_back`], which expands its aliases again), must be the term the state holds, value for
-/// value. `None` when each is; otherwise the first deviation.
+/// every other leaf cell's content, each printed and read back as a program reads it, must be the
+/// term the state holds, value for value, instance for instance ([`Semantics::read_back`], the
+/// rule `KRS_CHECK_PRINTS=1` checks `krs run`'s prints with: the program grammar where the
+/// content is program text throughout, the main module's grammar elsewhere, tokens by text
+/// there, and a stated skip where no grammar writes a part). `None` when each is; otherwise the
+/// first deviation.
 ///
 /// The printer is the one the case prints with alone ([`case_printer`]), so that a verdict does
-/// not depend on the batch. A print with a warning (a symbol printed as KAST) is not read back,
-/// and neither is a cell of a sort with parameters, nor a print that does not parse where the
-/// term printed without reversing an alias does not parse either. Tokens compare by text
-/// ([`untyped_tokens`]).
+/// not depend on the batch.
 ///
 /// Before it is read back, a print must reverse exactly the aliases the plan states: it must be
 /// the print of a printer that reverses every alias of the definition but those `forward_only`
@@ -135,171 +135,28 @@ fn printed_reads_back(
                 .any(|name| symbol.strip_prefix("Lblcmd") == Some(name.as_str()))
         });
     let options = unparse::Options::new(unparse::Mode::Pretty);
-    let as_held = unparse::Options {
-        reverse_aliases: false,
-        ..options
-    };
-    let mut cells = Vec::new();
-    // The main cell, the computation, is read back by its first item, whatever its name.
-    let main = semantics.main_cell().map(|cell| format!("<{cell}>"));
-    if let Some(cell) = semantics.main_cell()
-        && let Some(Some(item)) = state.computation_head_kore(cell)
-    {
-        cells.push((format!("<{cell}>"), None, item));
-    }
-    for (symbol, content) in state.leaf_cells() {
-        let label = unparse::label_name(symbol);
-        if main.as_deref() == Some(label.as_str()) {
-            continue;
-        }
-        let Some(sort) = case
-            .argument_sorts(symbol)
-            .and_then(<[KoreSort]>::first)
-            .and_then(k_sort)
-        else {
-            continue;
-        };
-        cells.push((label, Some(sort), content));
-    }
-    for (cell, sort, content) in cells {
-        let printed = case.print_kore(content, &options);
-        // The main cell is named by its first item, `<k> head`.
-        let place = if sort.is_none() {
-            format!("{cell} head")
-        } else {
-            cell.clone()
-        };
-        let expected = stated.print_kore(content, &options);
-        if expected.text != printed.text {
+    for cell in semantics.printed_cells(&case, state) {
+        let expected = stated.print_kore(cell.content, &options);
+        if expected.text != cell.printed.text {
             return Some(format!(
-                "{place} printed `{}`, where reversing the aliases the plan states prints `{}`",
-                printed.text, expected.text
+                "{} printed `{}`, where reversing the aliases the plan states prints `{}`",
+                cell.place, cell.printed.text, expected.text
             ));
         }
-        if !printed.warnings.is_empty() {
-            continue;
-        }
-        let name = cell.trim_start_matches('<').trim_end_matches('>');
-        let mut read_back = |text: &str| read_back(semantics, name, sort.as_deref(), content, text);
-        let read = match read_back(&printed.text) {
-            Ok(read) => read,
-            // Where the term printed as the state holds it does not parse either, the grammar
-            // has no syntax for a part of it (an `Id` token `$x`, a parametric instance), which
-            // is no property of the print.
-            Err(_) if read_back(&case.print_kore(content, &as_held).text).is_err() => {
-                continue;
-            }
+        match semantics.read_back(&cell) {
+            Ok(ReadBack::Reads | ReadBack::Skipped(_)) => {}
+            Ok(ReadBack::Fails(deviation)) => return Some(deviation),
             Err(error) => {
                 return Some(format!(
-                    "{place} printed `{}`, which does not read back: {}",
-                    printed.text,
+                    "{} printed `{}`, which cannot be read back: {}",
+                    cell.place,
+                    cell.printed.text,
                     first_line(&error.to_string())
                 ));
             }
-        };
-        let index = semantics.values();
-        let value = |pattern: &Pattern| {
-            untyped_tokens(index.decode(pattern).map_or_else(
-                |_| Ground::Opaque(pattern.to_string()),
-                |value| ground(index, &value),
-            ))
-        };
-        let (held, read) = (value(content), value(&read));
-        if held != read {
-            return Some(format!(
-                "{place} printed `{}`, which reads back as {read}, where the state holds {held}",
-                printed.text
-            ));
         }
     }
     None
-}
-
-/// Read `text`, the print of `content` in the cell `cell` (`k` for the computation cell's first
-/// item, whose `sort` is `None`), back as a program reads it: with the program grammar, which
-/// `krs run` reads a program with, at the content's sort (a `<k>` item's is the sort it is injected
-/// from), its aliases and desugars expanded ([`Semantics::parse`]). A `<k>` item is any term a
-/// program can write there, so where its own sort does not read the print, the sort of `$PGM` is
-/// tried too: an alias of a wider sort reads back as a value of the item's (`ak`, a `Stmt` whose
-/// clause gives `1`, for an `Int`). The main module's grammar is not the reader: it holds every
-/// token sort of the definition, so its scanner reads `word` as an `Id` wherever it stands, also
-/// where the program grammar reads the `Word` the print means, and an alias whose subject holds
-/// that `Word` reads back as another term. Only where the program grammar has no syntax for the
-/// sort (no sort to read at, as for a `K` sequence, or a sort it does not have,
-/// [`ExecError::UnknownSort`], as for a builtin collection), the main module's grammar, which has
-/// it, reads it ([`Semantics::parse_computation_head`], [`Semantics::parse_cell`]). Text the program grammar
-/// fails to parse at the sorts it has is the print's failure, which the main grammar must not
-/// answer for.
-fn read_back(
-    semantics: &mut Semantics,
-    cell: &str,
-    sort: Option<&str>,
-    content: &Pattern,
-    text: &str,
-) -> Result<Pattern, ExecError> {
-    let at = sort.map(str::to_owned).or_else(|| injected_sort(content));
-    if let Some(at) = &at {
-        let input = ProgramInput {
-            name: format!("the printed <{cell}>"),
-            text: text.to_owned(),
-        };
-        match semantics.parse(Some(at), &input) {
-            Ok(term) => return Ok(term.kore().clone()),
-            Err(ExecError::UnknownSort { .. }) => {}
-            Err(error) if sort.is_none() => {
-                return semantics
-                    .parse(None, &input)
-                    .map(|term| term.kore().clone())
-                    .map_err(|_| error);
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    match sort {
-        None => semantics.parse_computation_head(text),
-        Some(sort) => semantics.parse_cell(cell, sort, text),
-    }
-}
-
-/// The K sort a `KItem` is injected from (`inj{SortStmt{}, SortKItem{}}(..)` is a `Stmt`).
-fn injected_sort(item: &Pattern) -> Option<String> {
-    match item {
-        Pattern::Application { symbol, .. } if symbol.name == "inj" => {
-            symbol.sort_parameters.first().and_then(k_sort)
-        }
-        _ => None,
-    }
-}
-
-/// `ground` with every token's sort left out: a token prints as its text alone, so where two
-/// token sorts read the same text (`word`, a `Word` and an `Id`), the text reads back as the one
-/// the grammar picks, and the print says no more than the text.
-fn untyped_tokens(ground: Ground) -> Ground {
-    let all = |items: Vec<Ground>| items.into_iter().map(untyped_tokens).collect();
-    match ground {
-        Ground::Token { text, .. } => Ground::Token {
-            sort: String::new(),
-            text,
-        },
-        Ground::Ctor { path, fields } => Ground::Ctor {
-            path,
-            fields: all(fields),
-        },
-        Ground::Unevaluated { label, arguments } => Ground::Unevaluated {
-            label,
-            arguments: all(arguments),
-        },
-        Ground::List(items) => Ground::List(all(items)),
-        Ground::Seq(items) => Ground::Seq(all(items)),
-        Ground::Set(elements) => Ground::set(all(elements)),
-        Ground::Map(entries) => Ground::map(
-            entries
-                .into_iter()
-                .map(|(key, value)| (untyped_tokens(key), untyped_tokens(value)))
-                .collect(),
-        ),
-        other => other,
-    }
 }
 
 /// The printer of the case whose command is `own` alone: the definition's, without the aliases
@@ -313,16 +170,6 @@ fn case_printer(printer: &unparse::Unparser, own: Option<&str>) -> unparse::Unpa
         });
         !other_case || own.as_deref() == Some(symbol)
     })
-}
-
-/// The K name of a KORE sort without parameters (`SortMap{}` is `Map`).
-fn k_sort(sort: &KoreSort) -> Option<String> {
-    match sort {
-        KoreSort::Application { name, arguments } if arguments.is_empty() => {
-            name.strip_prefix("Sort").map(unparse::decode_kore)
-        }
-        _ => None,
-    }
 }
 
 /// How a twin check's run ([`krs_test_support::class_matrix::twin_runs`]) of `run` ended, within
@@ -635,24 +482,4 @@ fn opaque(index: &ValueIndex, pattern: &Pattern) -> Ground {
         );
     }
     Ground::Opaque(pattern.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Ground, untyped_tokens};
-
-    /// A token read back as another sort's token of the same text (`word`, a `Word` the state
-    /// holds, an `Id` the grammar reads) is the same print; another text is not.
-    #[test]
-    fn a_token_reads_back_by_its_text() {
-        let token = |sort: &str, text: &str| Ground::Token {
-            sort: sort.to_owned(),
-            text: text.to_owned(),
-        };
-        let held = Ground::ctor("Cmd::Hold", vec![Ground::set(vec![token("Word", "word")])]);
-        let read = Ground::ctor("Cmd::Hold", vec![Ground::set(vec![token("Id", "word")])]);
-        assert_eq!(untyped_tokens(held.clone()), untyped_tokens(read));
-        let other = Ground::ctor("Cmd::Hold", vec![Ground::set(vec![token("Word", "wa")])]);
-        assert_ne!(untyped_tokens(held), untyped_tokens(other));
-    }
 }

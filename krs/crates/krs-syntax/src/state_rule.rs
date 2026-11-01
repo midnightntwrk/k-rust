@@ -779,6 +779,17 @@ impl StateRuleItem {
         let typed_bindings = parse_typed_bindings(&item)?;
         let mut bindings = Vec::new();
         collect_cells_bindings(&subject, &mut bindings)?;
+        // A result helper on a single-body rule is refused at the helper, before the rewrites'
+        // names are judged against the left image the helper would have named them in.
+        if result.is_none()
+            && form != StateRuleForm::Context
+            && let Some(helper) = result_helper(&item.attrs)
+        {
+            return Err(local_rewrite_error(
+                SINGLE_BODY_BINDERS.to_owned(),
+                helper.path().span(),
+            ));
+        }
         validate_rewrite_right_sides(&subject, &bindings)?;
         attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
         if let Some(result) = &result {
@@ -789,15 +800,11 @@ impl StateRuleItem {
         if result.is_none()
             && let Some(helper) = existentials.attributes().first()
         {
-            return Err(local_rewrite_error(
-                if form == StateRuleForm::Context {
-                    CONTEXT_BINDERS
-                } else {
-                    SINGLE_BODY_BINDERS
-                }
-                .to_owned(),
-                helper.path().span(),
-            ));
+            return Err(if form == StateRuleForm::Context {
+                context_helper_error(helper)
+            } else {
+                local_rewrite_error(SINGLE_BODY_BINDERS.to_owned(), helper.path().span())
+            });
         }
         for condition in requires
             .as_ref()
@@ -1413,9 +1420,33 @@ pub(crate) const CONTEXT_BODY: &str =
 pub(crate) const CONTEXT_REWRITES: &str =
     "a context rewrites at most its hole, once: `k::rewrite!(h => f(h))`, K's `HOLE => f(HOLE)`";
 
-/// The reason given for result binders on a context.
-pub(crate) const CONTEXT_BINDERS: &str =
-    "a context takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: it has no after-state";
+/// The reason given for `#[k::exists]` or `#[k::ensures]` on a context.
+pub(crate) const CONTEXT_EXISTENTIALS: &str = "a context says where evaluation may happen and reaches no result state of its own, so no `#[k::exists]` or `#[k::ensures]` states anything of one";
+
+/// The reason given for `#[k::fresh]` on a context.
+pub(crate) const CONTEXT_FRESH: &str = "a context says where evaluation may happen and takes no step of its own, so `#[k::fresh]` draws no value there";
+
+/// The refusal of a result helper (`#[k::exists]`, `#[k::ensures]`, `#[k::fresh]`) on a context,
+/// at the helper: the mistake each makes there.
+pub(crate) fn context_helper_error(helper: &syn::Attribute) -> SyntaxError {
+    let fresh = helper
+        .path()
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "fresh");
+    SyntaxError::new(
+        if fresh {
+            SyntaxErrorKind::MisplacedFresh {
+                reason: CONTEXT_FRESH,
+            }
+        } else {
+            SyntaxErrorKind::MisplacedExistential {
+                reason: CONTEXT_EXISTENTIALS,
+            }
+        },
+        helper.path().span(),
+    )
+}
 
 /// Checks the shape of a `#[k::context]` fn (KF-021): a unit return, an
 /// empty body, and at most one `k::rewrite!` (at `rewrites`).
@@ -1448,6 +1479,20 @@ pub(crate) const SINGLE_BODY_WITHOUT_REWRITE: &str = "a single-body rule must ch
 
 /// The reason given for result binders on a single-body rule.
 pub(crate) const SINGLE_BODY_BINDERS: &str = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: write a rule with a result to introduce new values";
+
+/// The first `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]` among `attributes`.
+pub(crate) fn result_helper(attributes: &[syn::Attribute]) -> Option<&syn::Attribute> {
+    attributes.iter().find(|attribute| {
+        matches!(
+            crate::surface::helper_entry(attribute.path()),
+            Some(
+                crate::surface::AttributeMacro::Exists
+                    | crate::surface::AttributeMacro::Ensures
+                    | crate::surface::AttributeMacro::Fresh
+            )
+        )
+    })
+}
 
 /// The reason given for a rewrite in a rule that has a result.
 pub(crate) const REWRITE_WITH_RESULT: &str = "`k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state";

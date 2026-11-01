@@ -267,10 +267,20 @@ impl CargoFixture {
 /// Construct a KRS CLI process using a binary path supplied by the caller.
 ///
 /// KRS CLI integration tests should use [`krs_command!`] so Cargo expands its binary path in the test crate.
+/// The process reads back every state `krs run`, `search` and `prove` print through the
+/// definition's grammar (`KRS_CHECK_PRINTS=1`): a print that does not read back as its state
+/// fails the command, so every test that prints a state checks that it reads back.
 #[must_use]
 pub fn krs_command(binary: impl AsRef<OsStr>) -> Command {
-    Command::new(binary)
+    let mut command = Command::new(binary);
+    command.env(CHECK_PRINTS, "1");
+    command
 }
+
+/// The environment variable that makes `krs run`, `search` and `prove` read every state they
+/// print through the definition's grammar back, and fail where one does not read back as the
+/// state.
+pub const CHECK_PRINTS: &str = "KRS_CHECK_PRINTS";
 
 /// Run the KRS CLI at `binary` with `args` and return its captured output.
 ///

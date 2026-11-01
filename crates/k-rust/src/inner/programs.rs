@@ -279,6 +279,9 @@ pub struct ProgramParser {
     /// The identities of the parametric productions of the catalog the grammar was built from:
     /// a label a parse builds from one of them carries sort arguments that inference supplied.
     parametric_productions: BTreeSet<ProductionIdentity>,
+    /// The labels of the grammar's productions with a program spelling: the symbols program text
+    /// written for them builds ([`Self::has_label`]).
+    labels: BTreeSet<String>,
     /// What locating a parse needs; `None` when no sort of the grammar declares `[locations]`.
     locations: Option<Locations>,
 }
@@ -465,17 +468,49 @@ impl ProgramParser {
             })
             .map(|(id, _)| source_catalog.identity(id))
             .collect();
+        // A user list's terminator (`intsNil`, declared with the terminal `.Ints`) is spelled by
+        // no text in a program: the parser erases its terminal, so a program writes the empty
+        // list as nothing, and no text written for it reads back as an application of it; a
+        // print names it by its `.`-name (`.Ints`), which no program spelling has.
+        let labels = sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    items,
+                    attributes,
+                    ..
+                } if !(attributes.has(AttributeKey::UserList)
+                    && !items.iter().any(|item| {
+                        matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
+                    })) =>
+                {
+                    Some(label.name.clone())
+                }
+                _ => None,
+            })
+            .collect();
         let locations = Locations::of(&sentences, &source_catalog);
         Ok(Self {
             module: module.to_owned(),
             grammar,
             parametric_productions,
+            labels,
             locations,
         })
     }
 
     pub fn module(&self) -> &str {
         &self.module
+    }
+
+    /// Whether a production of this parser's grammar with a program spelling has the label
+    /// `name` (a K label name, `SetItem`): whether program text written for it reads as a term
+    /// applying it. A user list's terminator is not counted: a program spells the empty list as
+    /// no text, and a print writes its `.`-name (`.Ints`), which no program spelling has. A bracket's label is listed too,
+    /// though no term applies it, since the parser erases a bracket.
+    pub fn has_label(&self, name: &str) -> bool {
+        self.labels.contains(name)
     }
 
     /// The sort a start spelling denotes in this parser's module's full view.
@@ -506,6 +541,47 @@ impl ProgramParser {
         file: &str,
     ) -> Result<ParsedProgram, ProgramParseError> {
         self.parse_within(start_sort, source, file, DiagnosticWork::from_environment())
+    }
+
+    /// This parser, with every ambiguity it reports listing its readings ([`Self::parse_readings`]).
+    #[must_use]
+    pub fn listing_readings(mut self) -> Self {
+        self.grammar.list_readings();
+        self
+    }
+
+    /// Every reading of `source` at `start_sort`: the one a parse ([`Self::parse`]) returns, or,
+    /// for a parser made with [`Self::listing_readings`], where the text is ambiguous and its
+    /// readings number at most [`LISTED_READINGS`](super::LISTED_READINGS), each of them as a
+    /// parse would return it were it the only one, in term order. A reader that holds the term a
+    /// text was printed from asks with it whether that term is among the readings; a program,
+    /// which must read one way, is parsed with [`Self::parse`].
+    ///
+    /// # Errors
+    ///
+    /// The error of [`Self::parse`], an ambiguity whose readings are not listed included.
+    pub fn parse_readings(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+    ) -> Result<Vec<ParsedProgram>, ProgramParseError> {
+        match self.parse(start_sort, source) {
+            Ok(program) => Ok(vec![program]),
+            Err(error) => match &*error.error {
+                ParseError::Ambiguous { readings, .. } if !readings.is_empty() => Ok(readings
+                    .iter()
+                    .map(|reading| {
+                        ParsedProgram(without_source_spans(self.locate(
+                            start_sort,
+                            source,
+                            UNNAMED_PROGRAM,
+                            reading.clone(),
+                        )))
+                    })
+                    .collect()),
+                _ => Err(error),
+            },
+        }
     }
 
     /// `parse_file`, with the diagnostic of a failure limited to `diagnostic_work`.
@@ -1305,6 +1381,25 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("MAIN loads: {error}"));
         ProgramParser::from_resolved(loaded.resolved(), "MAIN").unwrap()
+    }
+
+    /// A user list's terminator is spelled by no program text (the parser erases its `.Ints`),
+    /// so it is no label a program's text writes; the list's cons and other productions are.
+    #[test]
+    fn a_user_list_terminator_is_no_label_program_text_writes() {
+        let parser = parser_with_prelude(
+            r#"
+module MAIN
+  imports INT-SYNTAX
+  syntax Ints ::= List{Int, ","} [symbol(intsCons), terminator-symbol(intsNil)]
+  syntax Data ::= nest(Ints) [symbol(nest)] | "nil" [symbol(nil)]
+endmodule
+"#,
+        );
+        assert!(parser.has_label("intsCons"));
+        assert!(parser.has_label("nest"));
+        assert!(parser.has_label("nil"));
+        assert!(!parser.has_label("intsNil"));
     }
 
     /// `A ::= A "λλ" A` is a prediction that no later token lets advance, but `A` matches the

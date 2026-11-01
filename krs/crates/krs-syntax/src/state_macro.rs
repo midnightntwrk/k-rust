@@ -2266,6 +2266,9 @@ fn parse_remainder_tokens(
             });
         }
         if context == StateMacroContext::Expression {
+            if macro_name == "map" {
+                return Err(crate::collection_literal::anonymous_map_rest(dots.spans[0]));
+            }
             return Err(state_error(
                 macro_name,
                 "expression remainders must reuse a named binding as `..name`",

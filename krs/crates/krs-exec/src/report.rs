@@ -149,7 +149,7 @@ fn leaf_cells<'t>(pattern: &'t Pattern, cells: &mut Vec<(&'t str, &'t Pattern)>)
 }
 
 /// The first item of a K sequence, `None` when it is empty.
-fn first_item(sequence: &Pattern) -> Option<&Pattern> {
+pub(crate) fn first_item(sequence: &Pattern) -> Option<&Pattern> {
     match sequence {
         Pattern::Application { symbol, arguments }
         | Pattern::AssociativeApplication {

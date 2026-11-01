@@ -639,12 +639,17 @@ impl Renaming {
             ParseError::Ambiguous {
                 alternatives,
                 places,
+                readings,
                 ..
             } => {
                 restore_alternatives(alternatives);
                 for AmbiguityPlace { alternatives, .. } in places {
                     restore_alternatives(alternatives);
                 }
+                *readings = std::mem::take(readings)
+                    .into_iter()
+                    .map(|reading| self.restore_term(reading))
+                    .collect();
             }
             _ => {}
         }

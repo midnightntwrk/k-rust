@@ -533,6 +533,17 @@ impl RuleItem {
             && returns_unit
             && (item.block.stmts.is_empty() || rewrite.is_some());
         let single_body = single_body || form == ClauseForm::Context;
+        // A result helper on a single-body rule is refused at the helper, before the rewrites'
+        // names are judged against the left image the helper would have named them in.
+        if single_body
+            && form != ClauseForm::Context
+            && let Some(helper) = crate::state_rule::result_helper(&item.attrs)
+        {
+            return Err(crate::term::local_rewrite_error(
+                crate::state_rule::SINGLE_BODY_BINDERS.to_owned(),
+                helper.path().span(),
+            ));
+        }
         let mut unchanged = None;
         match (single_body, rewrite) {
             (false, Some(rewrite)) => {
@@ -594,15 +605,14 @@ impl RuleItem {
         let requires = take_requires_helper(&mut item.attrs)?;
         let existentials = RuleExistentials::take(&mut item.attrs)?;
         if single_body && let Some(helper) = existentials.attributes().first() {
-            return Err(crate::term::local_rewrite_error(
-                if form == ClauseForm::Context {
-                    crate::state_rule::CONTEXT_BINDERS
-                } else {
-                    crate::state_rule::SINGLE_BODY_BINDERS
-                }
-                .to_owned(),
-                helper.path().span(),
-            ));
+            return Err(if form == ClauseForm::Context {
+                crate::state_rule::context_helper_error(helper)
+            } else {
+                crate::term::local_rewrite_error(
+                    crate::state_rule::SINGLE_BODY_BINDERS.to_owned(),
+                    helper.path().span(),
+                )
+            });
         }
         // A readable clause checks its existentials against every cell it
         // writes (`RuleClause::check_existentials`); its item has only the head.

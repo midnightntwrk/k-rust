@@ -4,8 +4,9 @@
 //! only where that application is a term the author wrote for the state, and reads back as it.
 //! `macros.kore` cannot tell either, so the printer is told which clauses it reverses, and
 //! reverses no other axiom: one whose label names no alias clause of the definition, or none at
-//! all, prints expanded. A clause is reversed when its written result constructs and every token
-//! its subject writes reads back as itself; every other clause runs forward only:
+//! all, prints expanded. A clause is reversed when its written result constructs and its subject
+//! is program text: every symbol it applies is one a program writes and every token it writes
+//! reads back as itself; every other clause runs forward only:
 //!
 //! - **A clause whose written result computes** (a function's application, an operator, a sort
 //!   test or projection, `let`, `k::matches!`, or a collection operation that does not write one
@@ -43,6 +44,13 @@
 //!   read back; judging the whole printed subject would need its arguments, which only a print
 //!   has.
 //!
+//! - **A clause whose subject applies a symbol no program writes**: a builtin collection's
+//!   constructor (`SetItem`, `_|->_`, `ListItem`), which K supplies only with a full module and
+//!   so no program grammar has, or a production placed in the semantics module. Its reversal
+//!   prints an application the grammar a printed term is read back with has no syntax for
+//!   (`c(ak, SetItem ( ak ))`), so the print reads back as nothing; the symbol is asked of that
+//!   grammar ([`Configuration::writes_symbol`]), the clause's own head included.
+//!
 //! Such a clause still expands wherever a program or a rule writes it; a term it would have
 //! printed prints expanded, which is the state as it is.
 
@@ -60,13 +68,19 @@ use crate::configuration::Configuration;
 use crate::values::{Value, ValueIndex};
 
 /// The labels of the alias clauses printing reverses: those whose written result constructs and
-/// whose subject writes only tokens `configuration` reads back as themselves where they stand.
+/// whose subject applies only symbols `configuration`'s program grammar writes and writes only
+/// tokens it reads back as themselves where they stand.
+///
+/// # Errors
+///
+/// Returns the error building the program grammar's parser met: without the grammar no clause
+/// can be judged, and printing reversing none would hide it.
 pub(crate) fn reversed(
     definition: &DefinitionIr,
     unparser: &krs_unparse::Unparser,
     configuration: &mut Configuration,
     values: &ValueIndex,
-) -> BTreeSet<String> {
+) -> Result<BTreeSet<String>, Box<dyn std::error::Error>> {
     let (constructing, computing) = alias_clauses(definition);
     debug_assert!(
         {
@@ -77,28 +91,32 @@ pub(crate) fn reversed(
         },
         "an alias clause whose result computes has no axiom in macros.kore: {computing:?}"
     );
-    unparser
-        .reversed_clauses()
-        .into_iter()
-        .filter_map(|clause| {
-            let label = clause.label.filter(|label| constructing.contains(label))?;
-            clause
-                .tokens
-                .iter()
-                .all(|token| {
-                    configuration
-                        .read_token(&token.position, &token.printed)
-                        .is_some_and(|read| same_token(values, &read, &token.token))
-                })
-                .then_some(label)
-        })
-        .collect()
+    let mut reversed = BTreeSet::new();
+    for clause in unparser.reversed_clauses() {
+        let Some(label) = clause.label.filter(|label| constructing.contains(label)) else {
+            continue;
+        };
+        let mut written = true;
+        for symbol in &clause.symbols {
+            written = written && configuration.writes_symbol(symbol)?;
+        }
+        if written
+            && clause.tokens.iter().all(|token| {
+                configuration
+                    .read_token(&token.position, &token.printed)
+                    .is_some_and(|read| same_token(values, &read, &token.token))
+            })
+        {
+            reversed.insert(label);
+        }
+    }
+    Ok(reversed)
 }
 
 /// Whether `read` and `token`, two tokens, are one term: of one sort and denoting one value as
 /// the definition reads them (`0.15000000000000000e1` and `1.5` are one `Float`), or, where
 /// either denotes no value it reads, the same pattern.
-fn same_token(values: &ValueIndex, read: &Pattern, token: &Pattern) -> bool {
+pub(crate) fn same_token(values: &ValueIndex, read: &Pattern, token: &Pattern) -> bool {
     let value = |pattern: &Pattern| match pattern {
         Pattern::DomainValue { sort, .. } => values
             .decode(pattern)

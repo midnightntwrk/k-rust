@@ -1,0 +1,13 @@
+# Under `valsOk` alone, two tasks race for one creation, one segment or one spend; each race is
+# refuted at a peak of a program `valsOk` admits (tests/fixtures/twoparam/witnesses), at the
+# instance `TwoParamOkConf.seg`. Every witness is an initial configuration, so it satisfies `valsOk`
+# (`TwoParamOkConf/Hand.lean`).
+join.key.new.new | refuted two-news
+join.key.«resume-lit».«resume-lit» | refuted two-resumes
+join.key.«resume-lit».«resume-oid» | refuted lit-and-oid
+join.key.«resume-oid».«resume-lit» | refuted lit-and-oid
+join.key.«resume-oid».«resume-oid» | refuted two-spends
+witness.«two-news».legal | hand
+witness.«two-resumes».legal | hand
+witness.«lit-and-oid».legal | hand
+witness.«two-spends».legal | hand

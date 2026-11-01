@@ -1,4 +1,5 @@
 import KPrelude.InvDisjoint
+import KPrelude.HookLaws
 
 /-!
 # A measure summed over the bindings of a map
@@ -17,6 +18,12 @@ in the canonical order, which is the sum in any order (`sumOf_concat`, by permut
 - `sumOf_concat`, `sumOf_element`, `sumOf_unit`: the sum of a defined `M₁ M₂` is the sum of both,
   which is what a rule's case reads at the maps it matches (`K |-> V REST`) and builds.
 - `sumOf_nonneg`: with every weight nonnegative, so is the sum.
+- `sumOf_remove`, `sumOf_update`, `remove_of_lookup_none` and their `ClaimsDef` forms: what a rule
+  reads at a map it writes by the hooks rather than by a pattern (`M[K <- V]`, `M[K <- undef]`): the
+  binding at `k` taken out, the rest's sum and definedness unchanged.
+
+`K2LPreserve.sumSplit` (`InvTactic`) reads a rule's sums by these lemmas, for measures
+(`k2l_measure_sum`) and invariants (`k2l_preserve`'s closer 2b).
 -/
 
 set_option linter.unusedSectionVars false
@@ -147,5 +154,77 @@ theorem fold_sum_eq {F : M → Option Int} {T : K → V → Prop} {g : K → V �
     {m : M} (hw : WF m) (hd : ClaimsDef T g m) : F m = some (sumOf g m) := by
   obtain ⟨s, h⟩ := Option.isSome_iff_exists.1 (hi m hw hd)
   rw [h, (hs m s h).2]
+
+end KPrelude.MapHook
+
+namespace KPrelude.SAL
+
+variable {α β : Type} [Ord α] [Std.TransOrd α] [Std.LawfulEqOrd α]
+
+/-- Inserting at a key after erasing it is inserting it. -/
+theorem insert_erase {k : α} {v : β} : ∀ {m : List (α × β)}, Sorted m →
+    insert k v (erase k m) = insert k v m
+  | [], _ => rfl
+  | (k', v') :: t, hs => by
+    cases hs with
+    | cons hlt ht =>
+      unfold erase
+      split
+      · rfl
+      · next hc =>
+        cases eq_of_cmp hc
+        simp only [insert, cmp_self]
+        cases t with
+        | nil => rfl
+        | cons p t' => simp only [insert, hlt p (by simp)]
+      · next hc => simp only [insert, hc]; rw [insert_erase ht]
+
+end KPrelude.SAL
+
+namespace KPrelude.MapHook
+
+open ListIso
+
+variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
+  [Std.TransOrd K] [Std.LawfulEqOrd K]
+
+/-- `M[K <- undef]` at a key `M` does not bind is `M`. -/
+theorem remove_of_lookup_none {m : M} {k : K} (h : lookup m k = none) : remove m k = m := by
+  rw [lookup_def] at h
+  rw [remove_def, SAL.erase_of_lookup_none h, ofList_toList]
+
+/-- `M[K <- V]` is the binding `k |-> v` beside the rest of `M` (`M[K <- undef]`). -/
+theorem concat_element_remove_update {m : M} {k : K} {v : V} (hw : WF m) :
+    concat (element k v) (remove m k) = some (update m k v) := by
+  refine concat_element_iff.2 ⟨wf_remove hw, ?_, ?_⟩
+  · rw [lookup_def, remove_def, toList_ofList]
+    exact SAL.lookup_erase_self k hw
+  · rw [update_def, update_def, remove_def, toList_ofList, SAL.insert_erase hw]
+
+/-- The sum of a map that binds `k` is `k`'s weight and the rest's sum. -/
+theorem sumOf_remove {g : K → V → Option Int} {m : M} {k : K} {v : V} (hw : WF m)
+    (h : lookup m k = some v) : sumOf g m = (g k v).getD 0 + sumOf g (remove m k) := by
+  rw [sumOf_concat (concat_element_remove hw h), sumOf_element]
+
+/-- The sum of the rest of a map that binds `k`, as a rewrite of the rest's sum. -/
+theorem sumOf_remove_eq {g : K → V → Option Int} {m : M} {k : K} {v : V} (hw : WF m)
+    (h : lookup m k = some v) : sumOf g (remove m k) = sumOf g m - (g k v).getD 0 := by
+  rw [sumOf_remove hw h]; omega
+
+/-- The sum of `M[K <- V]`: `k`'s new weight and the sum of the rest of `M`. -/
+theorem sumOf_update {g : K → V → Option Int} {m : M} {k : K} {v : V} (hw : WF m) :
+    sumOf g (update m k v) = (g k v).getD 0 + sumOf g (remove m k) := by
+  rw [sumOf_concat (concat_element_remove_update hw), sumOf_element]
+
+theorem claimsDef_remove {L : Type} {T : K → V → Prop} {g : K → V → Option L} {m : M} {k : K}
+    (h : ClaimsDef T g m) : ClaimsDef T g (remove m k) := by
+  intro p hp
+  rw [remove_def, toList_ofList] at hp
+  exact h p (SAL.mem_erase hp)
+
+theorem claimsDef_update {L : Type} {T : K → V → Prop} {g : K → V → Option L} {m : M} {k : K}
+    {v : V} (hw : WF m) :
+    ClaimsDef T g (update m k v) ↔ (T k v ∧ (g k v).isSome) ∧ ClaimsDef T g (remove m k) := by
+  rw [claimsDef_concat (concat_element_remove_update hw), claimsDef_element]
 
 end KPrelude.MapHook
