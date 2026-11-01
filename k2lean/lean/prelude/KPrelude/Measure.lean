@@ -402,10 +402,8 @@ def weightLemma (ws : Array Ident) (w : Expr) : TacticM (Option Name) := do
 /-- `k2l_measure_sum [sums] [unfold] [lemmas] [weights]`: the sums over a map in a rule's obligation (a
 measure that adds a weight per binding, `MeasureSum`). Each fold's call is read by its generated
 `iff` (`sums`: defined exactly where the map is well formed and every binding matches with a defined
-weight, and then `sumOf g m`), so the source's definedness gives every binding's and the target's
-is what is left to show. Each map the rule matches or builds as `M₁ M₂` (`concat M₁ M₂ = some M`)
-splits its sum, its bindings' definedness and well-formedness into the operands', down to the
-elements the rule writes and the rest it leaves; and each sum left over a map (the rest) is
+weight, and then `sumOf g m`), and split along the maps the rule matches and builds, by the hooks
+too (`K2LPreserve.sumSplit`, shared with invariants); and each sum left over a map (the rest) is
 nonnegative, its weight being so: by the lemma of `weights` (`∀ k v a, g k v = some a → 0 ≤ a`)
 whose weight is the sum's, else by `k2l_measure_weight` there. -/
 syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" " [" ident,* "]"
@@ -417,41 +415,8 @@ syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" 
   let ls : Array Ident := stx[8].getSepArgs.map (⟨·⟩)
   let ws : Array Ident := stx[11].getSepArgs.map (⟨·⟩)
   if ss.isEmpty then return
-  evalTactic (← `(tactic| try subst_vars))
-  let ssA ← ss.mapM (fun i => (simpArgOf i : TacticM _))
-  -- the folds' calls read as sums, the source's definedness taken apart (a measure that combines
-  -- several folds, `F(M) +Int G(N)`, binds their calls: each is defined, with its own value)
-  evalTactic (← `(tactic| try simp only [$[$ssA],*, Option.isSome_iff_exists, Option.bind_eq_some_iff,
-    Option.some.injEq, exists_and_left,
-    exists_and_right, exists_eq_left, exists_eq_right, exists_eq', exists_eq_left', and_assoc] at *))
-  K2LPreserve.splitAnds
-  -- the maps the rule matches and builds, named, split into their operands
-  let g ← getMainGoal
-  let (g, cs) ← g.withContext do
-    let mut g := g
-    let mut cs : Array Name := #[]
-    for d in ← getLCtx do
-      if d.isImplementationDetail then continue
-      let ty ← instantiateMVars d.type
-      let some (_, l, r) := ty.eq? | continue
-      unless l.isAppOf ``MapHook.concat && r.isAppOfArity ``Option.some 2 do continue
-      let n := Name.mkSimple s!"k2l_cc{cs.size}"
-      g ← g.rename d.fvarId n
-      cs := cs.push n
-    return (g, cs)
-  setGoals [g]
-  let mut args : Array K2LPreserve.SimpArg := #[]
-  for n in cs do
-    let i := mkIdent n
-    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.sumOf_concat $i:ident)).raw⟩
-    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.claimsDef_concat $i:ident)).raw⟩
-    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_of_concat $i:ident))).raw⟩
-    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_operands_of_concat $i:ident).1)).raw⟩
-    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_operands_of_concat $i:ident).2)).raw⟩
-  evalTactic (← `(tactic| try simp only [$[$args],*, MapHook.sumOf_element, MapHook.sumOf_unit,
-    MapHook.claimsDef_element, MapHook.claimsDef_unit, Option.getD_some, MapHook.wf_unit,
-    and_true, true_and, and_assoc] at *))
-  K2LPreserve.splitAnds
+  -- the folds' calls read as sums and split along the maps the rule matches and builds
+  K2LPreserve.sumSplit ss
   if (← getGoals).isEmpty then return
   -- each sum left over a map is nonnegative: its weight is, wherever it is defined
   let g ← getMainGoal

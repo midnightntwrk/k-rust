@@ -213,7 +213,7 @@ pub fn emit(
     let mut sum_eqs: Vec<String> = Vec::new();
     let mut weights: Vec<String> = Vec::new();
     for f in &sums {
-        defs.push_str(&sum_defs(f));
+        defs.push_str(&sum_defs(f, "Measure"));
         let b = &f.base;
         unfold.push(format!("Measure.{b}_test"));
         unfold.push(format!("Measure.{b}_g"));
@@ -354,12 +354,13 @@ namespace {ns}\n\nopen KPrelude\n\n{skel}end {ns}\n",
     })
 }
 
-/// The definitions and theorems of a sum over a map (`MapFold`): its test and weight of one binding,
-/// its value at the empty map, and its value as the sum of the weights (`Measure.F_sum`, from its
-/// instances by `MapHook.fold_sum`), where it is defined (`Measure.F_isSome`, by
-/// `MapHook.fold_sum_isSome`), and both read together (`Measure.F_eq`). The proofs are those of a
-/// fold of claims (`invariants.rs`) with the weights added rather than the claims concatenated.
-fn sum_defs(f: &MapFold) -> String {
+/// The definitions and theorems of a sum over a map (`MapFold`) in the namespace `p` (`Measure`, or
+/// `Invariant` for an invariant that reads the sum): its test and weight of one binding, its value
+/// at the empty map, and its value as the sum of the weights (`p.F_sum`, from its instances by
+/// `MapHook.fold_sum`), where it is defined (`p.F_isSome`, by `MapHook.fold_sum_isSome`), and both
+/// read together (`p.F_eq`). The proofs are those of a fold of claims (`invariants.rs`) with the
+/// weights added rather than the claims concatenated.
+pub(crate) fn sum_defs(f: &MapFold, p: &str) -> String {
     let (b, l) = (&f.base, &f.lean);
     let reads: String = f.reads.iter().map(|r| format!(", {r}")).collect();
     let insts = format!("{l}.instances, {l}.inst1, {l}.inst2");
@@ -373,20 +374,29 @@ fn sum_defs(f: &MapFold) -> String {
         format!("    {}\n", cases.join(" <;> "))
     };
     let (key, val, map, test, part) = (&f.key, &f.val, &f.map, &f.test, &f.part);
+    // a weight that matches the binding's patterns: its match split where the weight is defined
+    let (split, split2) = if f.matched {
+        (
+            "      split at ha\n      all_goals (try (simp at ha; done))\n      all_goals\n  ",
+            "  ",
+        )
+    } else {
+        ("", "")
+    };
     let unit = f.at("KPrelude.MapHook.unit");
     let at_m = f.at("m");
     format!(
         "/-- The sum `{l}`: what the patterns of one binding `k |-> v` read twice is equal. -/\n\
-def Measure.{b}_test (k : {key}) (v : {val}) : Prop :=\n  {test}\n\n\
+def {p}.{b}_test (k : {key}) (v : {val}) : Prop :=\n  {test}\n\n\
 /-- The sum `{l}`: the weight of one binding `k |-> v`. -/\n\
-def Measure.{b}_g (k : {key}) (v : {val}) : Option Int :=\n  {part}\n\n\
-theorem Measure.{b}_unit : {unit} = some 0 := by\n  \
+def {p}.{b}_g (k : {key}) (v : {val}) : Option Int :=\n  {part}\n\n\
+theorem {p}.{b}_unit : {unit} = some 0 := by\n  \
 rw [{l}.eq_instances]\n  simp [{insts}, KPrelude.firstNonempty_singleton]\n\n\
 /-- The sum `{l}`'s value is the sum of every binding's weight, each binding matching the patterns\n\
 with its weight defined (`MapHook.fold_sum`, from its instances). -/\n\
-theorem Measure.{b}_sum (m : {map}) (s : Int) (h : {at_m} = some s) :\n    \
-KPrelude.MapHook.ClaimsDef Measure.{b}_test Measure.{b}_g m ∧ s = KPrelude.MapHook.sumOf Measure.{b}_g m := by\n  \
-refine KPrelude.MapHook.fold_sum (F := fun m => {at_m}) (T := Measure.{b}_test)\n    Measure.{b}_unit ?_ m s h\n  \
+theorem {p}.{b}_sum (m : {map}) (s : Int) (h : {at_m} = some s) :\n    \
+KPrelude.MapHook.ClaimsDef {p}.{b}_test {p}.{b}_g m ∧ s = KPrelude.MapHook.sumOf {p}.{b}_g m := by\n  \
+refine KPrelude.MapHook.fold_sum (F := fun m => {at_m}) (T := {p}.{b}_test)\n    {p}.{b}_unit ?_ m s h\n  \
 intro m s hu h\n  rw [{l}.eq_instances] at h\n  \
 simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n  \
 split at h\n  · rename_i hw\n    \
@@ -394,37 +404,37 @@ obtain ⟨k, v, hk, hb⟩ := KPrelude.MapHook.mem_of_head?_chooseAll (Option.joi
 refine ⟨(KPrelude.MapHook.wfb_iff _).1 hw, k, v, ?_⟩\n    repeat' (split at hb)\n    \
 all_goals (simp only [List.mem_singleton, List.not_mem_nil, Option.some.injEq, reduceCtorEq] at hb)\n    \
 all_goals\n      subst hb\n      subst_vars\n      apply Exists.intro; apply Exists.intro\n      \
-refine ⟨hk, ?_, ?_, ?_, ?_⟩\n      · simp_all [Measure.{b}_test{reads}]\n      \
-· simp only [Measure.{b}_g{reads}]; first | assumption | rfl\n      · assumption\n      \
+refine ⟨hk, ?_, ?_, ?_, ?_⟩\n      · simp_all [{p}.{b}_test{reads}]\n      \
+· simp only [{p}.{b}_g{reads}]; first | assumption | rfl\n      · assumption\n      \
 · first | rfl | (simp only [KPrelude.IntHook.add_eq]; done) | (simp only [KPrelude.IntHook.add_eq]; k2l_int_omega)\n  \
 · simp at h\n\n\
 /-- The sum `{l}` is defined where every binding matches its patterns with a defined weight\n\
 (`MapHook.fold_sum_isSome`, from its instances). -/\n\
-theorem Measure.{b}_isSome (m : {map}) (hw : KPrelude.MapHook.WF m)\n    \
-(hd : KPrelude.MapHook.ClaimsDef Measure.{b}_test Measure.{b}_g m) : ({at_m}).isSome := by\n  \
-refine KPrelude.MapHook.fold_sum_isSome (F := fun m => {at_m}) (T := Measure.{b}_test)\n    \
-(g := Measure.{b}_g) Measure.{b}_unit ?_ m hw hd\n  intro m hu hw h\n  rw [{l}.eq_instances]\n  \
+theorem {p}.{b}_isSome (m : {map}) (hw : KPrelude.MapHook.WF m)\n    \
+(hd : KPrelude.MapHook.ClaimsDef {p}.{b}_test {p}.{b}_g m) : ({at_m}).isSome := by\n  \
+refine KPrelude.MapHook.fold_sum_isSome (F := fun m => {at_m}) (T := {p}.{b}_test)\n    \
+(g := {p}.{b}_g) {p}.{b}_unit ?_ m hw hd\n  intro m hu hw h\n  rw [{l}.eq_instances]\n  \
 simp only [{insts}, hu, ite_false, List.nil_append,\n    \
 KPrelude.firstNonempty_singleton, (KPrelude.MapHook.wfb_iff m).2 hw, ite_true]\n  \
 unfold KPrelude.MapHook.chooseAll\n  cases hl : KPrelude.ListIso.toList m with\n  \
 | nil => exact absurd hl (KPrelude.MapHook.toList_ne_nil_of_ne_unit hu)\n  | cons p t =>\n    \
 obtain ⟨⟨ht, hg⟩, hr⟩ := h p.1 p.2 (by rw [hl]; exact List.mem_cons_self ..)\n    \
 obtain ⟨k, v⟩ := p\n    rw [List.flatMap_cons]\n{cases}    all_goals\n      \
-simp only [Measure.{b}_test, Measure.{b}_g{reads}, Option.isSome_iff_exists] at ht hg hr\n      \
-obtain ⟨a, ha⟩ := hg\n      obtain ⟨r, hr'⟩ := hr\n      simp [ht, ha, hr']\n\n\
+simp only [{p}.{b}_test, {p}.{b}_g{reads}, Option.isSome_iff_exists] at ht hg hr\n      \
+obtain ⟨a, ha⟩ := hg\n{split}      obtain ⟨r, hr'⟩ := hr\n{split2}      simp [ht, ha, hr']\n\n\
 /-- The sum `{l}` read as a sum: defined exactly at a well-formed map whose every binding matches\n\
 the patterns with a defined weight, and then the sum of the weights. -/\n\
-theorem Measure.{b}_eq (m : {map}) (s : Int) :\n    {at_m} = some s ↔\n      \
-KPrelude.MapHook.WF m ∧ KPrelude.MapHook.ClaimsDef Measure.{b}_test Measure.{b}_g m ∧\n        \
-s = KPrelude.MapHook.sumOf Measure.{b}_g m := by\n  \
-constructor\n  · intro h\n    refine ⟨?_, Measure.{b}_sum m s h⟩\n    \
+theorem {p}.{b}_eq (m : {map}) (s : Int) :\n    {at_m} = some s ↔\n      \
+KPrelude.MapHook.WF m ∧ KPrelude.MapHook.ClaimsDef {p}.{b}_test {p}.{b}_g m ∧\n        \
+s = KPrelude.MapHook.sumOf {p}.{b}_g m := by\n  \
+constructor\n  · intro h\n    refine ⟨?_, {p}.{b}_sum m s h⟩\n    \
 by_cases hu : m = KPrelude.MapHook.unit\n    · subst hu; exact KPrelude.MapHook.wf_unit\n    \
 · rw [{l}.eq_instances] at h\n      \
 simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n      \
 split at h\n      · exact (KPrelude.MapHook.wfb_iff _).1 ‹_›\n      · simp at h\n  \
 · rintro ⟨hw, hd, rfl⟩\n    \
-exact KPrelude.MapHook.fold_sum_eq (fun m s h => Measure.{b}_sum m s h)\n      \
-(fun m hw hd => Measure.{b}_isSome m hw hd) hw hd\n\n"
+exact KPrelude.MapHook.fold_sum_eq (fun m s h => {p}.{b}_sum m s h)\n      \
+(fun m hw hd => {p}.{b}_isSome m hw hd) hw hd\n\n"
     )
 }
 

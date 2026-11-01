@@ -1281,6 +1281,10 @@ pub(crate) struct MapFold {
     pub(crate) reads: Vec<String>,
     pub(crate) key_pat: Option<String>,
     pub(crate) val_pat: Option<String>,
+    /// the weight matches the binding's patterns (constructors and injections, as the fold's
+    /// instances match them) rather than reading cells through projections; its proofs then split
+    /// that match
+    pub(crate) matched: bool,
 }
 
 impl MapFold {
@@ -1389,7 +1393,26 @@ pub(crate) fn map_fold_of(
     } else {
         return None;
     };
-    if mentions(g, f, rest) || !cells_only(m, kp) || !cells_only(m, vp) {
+    // a binding's patterns: trees of cells, read through projections; or, for a sum, constructors
+    // and injections with distinct variables, which the weight matches (`v:Int`, `hold(_, X)`: a
+    // binding that does not match has no weight, and the sum none, as in K)
+    let (k_match, v_match) = (!cells_only(m, kp), !cells_only(m, vp));
+    let matchable = |p: &P| kind == FoldKind::Sum && ctor_only(m, p);
+    if mentions(g, f, rest) || (k_match && !matchable(kp)) || (v_match && !matchable(vp)) {
+        return None;
+    }
+    let mut mvars = Vec::new();
+    if k_match {
+        free_vars(kp, &mut mvars);
+    }
+    if v_match {
+        free_vars(vp, &mut mvars);
+    }
+    if mvars
+        .iter()
+        .enumerate()
+        .any(|(i, x)| mvars[..i].contains(x))
+    {
         return None;
     }
     // the variables read: those of the claims, and those the patterns read twice
@@ -1403,31 +1426,39 @@ pub(crate) fn map_fold_of(
             _ => {}
         }
     }
-    count(kp, &mut seen);
-    count(vp, &mut seen);
+    if !k_match {
+        count(kp, &mut seen);
+    }
+    if !v_match {
+        count(vp, &mut seen);
+    }
     need.extend(seen.into_iter().filter(|(_, n)| *n > 1).map(|(v, _)| v));
     let (mut projs, mut names_new) = (projections.clone(), proj_names.clone());
     let mut rd: Vec<(String, String)> = Vec::new();
-    pattern_reads(
-        m,
-        ns,
-        kp,
-        "k".into(),
-        &need,
-        &mut rd,
-        &mut projs,
-        &mut names_new,
-    )?;
-    pattern_reads(
-        m,
-        ns,
-        vp,
-        "v".into(),
-        &need,
-        &mut rd,
-        &mut projs,
-        &mut names_new,
-    )?;
+    if !k_match {
+        pattern_reads(
+            m,
+            ns,
+            kp,
+            "k".into(),
+            &need,
+            &mut rd,
+            &mut projs,
+            &mut names_new,
+        )?;
+    }
+    if !v_match {
+        pattern_reads(
+            m,
+            ns,
+            vp,
+            "v".into(),
+            &need,
+            &mut rd,
+            &mut projs,
+            &mut names_new,
+        )?;
+    }
     let unit_eqn = format!(
         "Eqn.{}",
         names::ident(&format!("{}_{}", names::demangle(f), i_unit + 1))
@@ -1449,18 +1480,36 @@ pub(crate) fn map_fold_of(
             }
         }
     }
+    let elems = m.elems(&map);
+    let (key, val) = (elems.first()?.clone(), elems.get(1)?.clone());
+    // the matched patterns, as Lean patterns: their variables under fresh names
+    for (i, x) in mvars.iter().enumerate() {
+        lw.vars.insert(x.clone(), format!("x{i}"));
+    }
+    let mut pat = |p: &P, sort: &str, matched: bool| -> Option<String> {
+        if !matched {
+            return Some("_".into());
+        }
+        let e = lw.expr(p, sort).ok()?;
+        lw.steps.is_empty().then(|| e.render())
+    };
+    let (kps, vps) = (pat(kp, &key, k_match)?, pat(vp, &val, v_match)?);
     let e = lw.expr(g, &sig.result).ok()?;
     let steps = std::mem::take(&mut lw.steps);
-    let part = match steps.as_slice() {
+    let mut part = match steps.as_slice() {
         [] => format!("some {}", e.render_arg()),
         [crate::lower::Step::Bind { expr, var, .. }] if e.render() == *var => expr.render(),
         _ => option_expr(&steps, &e)?,
     };
+    if k_match || v_match {
+        part = format!(
+            "match k, v with\n  | {kps}, {vps} => {}\n  | _, _ => none",
+            part.replace('\n', "\n    ")
+        );
+    }
     if conj.is_empty() {
         conj.push("True".into());
     }
-    let elems = m.elems(&map);
-    let (key, val) = (elems.first()?.clone(), elems.get(1)?.clone());
     let added: Vec<String> = names_new
         .iter()
         .filter(|n| !proj_names.contains(n))
@@ -1502,9 +1551,25 @@ pub(crate) fn map_fold_of(
         test: conj.join(" ∧ "),
         part,
         reads: used,
-        key_pat: matches!(kp, P::App(..)).then(|| cases_pat(kp)),
-        val_pat: matches!(vp, P::App(..)).then(|| cases_pat(vp)),
+        key_pat: (!k_match && matches!(kp, P::App(..))).then(|| cases_pat(kp)),
+        val_pat: (!v_match && matches!(vp, P::App(..))).then(|| cases_pat(vp)),
+        matched: k_match || v_match,
     })
+}
+
+/// A pattern of constructors, injections and variables only (a binding's pattern that a weight can
+/// match as the fold's instances do): no function, hook, literal or collection.
+fn ctor_only(m: &Model, p: &P) -> bool {
+    match p {
+        P::Var(..) => true,
+        P::App(s, _, args) if s == "inj" => args.len() == 1 && ctor_only(m, &args[0]),
+        P::App(s, _, args) => m.ctors.get(s).is_some_and(|ci| {
+            !m.anywhere.contains(s)
+                && args.len() == ci.args.len()
+                && args.iter().all(|a| ctor_only(m, a))
+        }),
+        _ => false,
+    }
 }
 
 /// K's `noDup` of a list, recognized by its equations: `D(.List) => true` and
@@ -2831,6 +2896,9 @@ pub fn emit(
     // folds of claims (with their K symbols) and the `noDup` functions over them
     let mut claims: Vec<(String, MapFold, BTreeSet<ClaimsUse>)> = Vec::new();
     let mut nodups: Vec<(String, NoDupFn)> = Vec::new();
+    // sums over a map (`KPrelude.MeasureSum`): one meaning whatever the walk's order, so read
+    // wherever the invariant reads them
+    let mut sums: Vec<MapFold> = Vec::new();
     // every function the invariants call, directly or not
     let mut closure_fns: BTreeSet<String> = BTreeSet::new();
 
@@ -3180,6 +3248,18 @@ pub fn emit(
                     if !claims.iter().any(|(x, _, _)| *x == g) {
                         claims.push((g.clone(), c, BTreeSet::new()));
                     }
+                } else if let Some(f) = map_fold_of(
+                    cx,
+                    &g,
+                    FoldKind::Sum,
+                    "Invariant",
+                    &mut projections,
+                    &mut proj_names,
+                ) {
+                    // a sum over a map, read through its `iff` (`Invariant.F_eq`) by closer 2b
+                    if !sums.iter().any(|x| x.lean == f.lean) {
+                        sums.push(f);
+                    }
                 } else if let Some(n) = nodup_of(cx, &g) {
                     if !nodups.iter().any(|(x, _)| *x == g) {
                         nodups.push((g.clone(), n));
@@ -3483,6 +3563,19 @@ pub fn emit(
             }
         }
     }
+    // a sum's test and weight of one binding, which a rule's written bindings evaluate, and its
+    // value at the empty map
+    for f in &sums {
+        simp.push(format!("Invariant.{}_test", f.base));
+        simp.push(format!("Invariant.{}_g", f.base));
+        // the sum of the empty map (an initial configuration's)
+        simp.push(format!("Invariant.{}_unit", f.base));
+        for r in &f.reads {
+            if !simp.contains(r) {
+                simp.push(r.clone());
+            }
+        }
+    }
     for w in &walks {
         simp.push(format!("Invariant.{}_walk", w.base));
         simp.push(format!("Invariant.{}_test", w.base));
@@ -3778,6 +3871,11 @@ KPrelude.ListHook.nodup_fn {u} (fun _ _ => {c} ..) l\n\n",
             u = n.unit_eqn,
             c = n.cons_eqn,
         ));
+    }
+    // sums over a map (`KPrelude.MeasureSum`): the test and weight of one binding, the sum's value
+    // from its instances, and its `iff`, which closer 2b of `k2l_preserve` reads
+    for f in &sums {
+        d.push_str(&crate::measure::sum_defs(f, "Invariant"));
     }
     for (_, c, uses) in &claims {
         let (b, l) = (&c.base, &c.lean);
@@ -4457,8 +4555,25 @@ exact KPrelude.MapHook.entry_of_concat_element h₁ (({walk} _{pa}).1 h).2\n\n",
     // the proof by computation of a part at init: with no configuration variable in its cell, or
     // with some, for every value of them (a `Pgm` item of `<k>` that the predicate accepts by its
     // sort)
+    // a sum over a map at init (a literal map): read as `sumOf` (`k2l_sum_split`), the literal's
+    // bindings' weights evaluated, then the arithmetic
+    let sum_eqs: Vec<String> = sums
+        .iter()
+        .map(|f| format!("Invariant.{}_eq", f.base))
+        .collect();
+    let by_sums = if sums.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " | (k2l_sum_split [{}]; (try simp only [{}, KPrelude.MapHook.sumOf_element, KPrelude.MapHook.sumOf_unit, \
+KPrelude.MapHook.claimsDef_element, KPrelude.MapHook.claimsDef_unit, KPrelude.MapHook.wf_element, KPrelude.MapHook.wf_unit, \
+Option.getD_some, Option.isSome_some]); simp [k2l_arith]; done)",
+            sum_eqs.join(", "),
+            simp.join(", ")
+        )
+    };
     let computed = format!(
-        "(by simp only [Invariant, {}, init]; first | rfl | decide | (k2l_coll_close [{}]) | (simp [{}]; done))",
+        "(by simp only [Invariant, {}, init]; first | rfl | decide | (k2l_coll_close [{}]) | (simp [{}]; done){by_sums})",
         simp.join(", "),
         simp.join(", "),
         simp.join(", ")
@@ -4677,6 +4792,12 @@ exact KPrelude.MapHook.entry_of_concat_element h₁ (({walk} _{pa}).1 h).2\n\n",
     }
 
     let any_open = !open.is_empty();
+    // the sums' `iff`s, for closer 2b
+    let sums_arg = if sums.is_empty() {
+        String::new()
+    } else {
+        format!(" sums [{}]", sum_eqs.join(", "))
+    };
     let mut t = String::new();
     t.push_str(&format!("import {ns}.InvariantDefs\n"));
     if init_ok {
@@ -4697,7 +4818,7 @@ on the configuration variables, and `Invariant.star`, `Invariant.stepsN` extend 
 reachable from `init`, `Invariant.always` to every point of every run from it. -/\n\n\
 set_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n\n\
 /-- `k2l_preserve` with the unfolding set of `Invariant`. -/\n\
-local macro \"k2l_inv\" : tactic => `(tactic| k2l_preserve [{}])\n\nnamespace Invariant.case\n\n",
+local macro \"k2l_inv\" : tactic => `(tactic| k2l_preserve [{}]{sums_arg})\n\nnamespace Invariant.case\n\n",
         simp.join(", ")
     ));
     let mut n_auto = 0;
@@ -4825,7 +4946,7 @@ theorem Invariant.always{psi}{hs} :\n    ∀ s, s 0 = init{args} → Paths.IsRun
             "import {ns}.InvariantDefs\n\n/-! Hand-written proofs of the cases of `Invariant` listed in `open-invariant-cases.txt`.\n\n\
 `k2lean gen` wrote this file once, because it did not exist, and never changes it. Prove each case\n\
 below as the theorem it names (uncomment and complete it); `Invariants.lean` uses them by name. The\n\
-generated proofs use `k2l_preserve [{}]`. -/\n\n\
+generated proofs use `k2l_preserve [{}]{sums_arg}`. -/\n\n\
 namespace {ns}\n\nopen KPrelude\n\n{skel}end {ns}\n",
             simp.join(", ")
         )

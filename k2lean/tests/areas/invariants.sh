@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
 
@@ -17,7 +17,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;; ledger) echo Ledger ;; escrow) echo Escrow ;;
     simpleinv|simplestore|simplet|simpleenvs) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -73,6 +73,14 @@ gen_invariants() {
     twoparamvals) GEN_ARGS=(--kore "$FIXTURES/twoparam/definition.kore" --runtime "$FIXTURES/twoparam/runtime.json"
             --out "$o" --name TwoParam --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant wf@T --invariant valsOk@T) ;;
+    # value conserved, a sum over a map (tests/fixtures/ledger: balances in a map cell, written by
+    # patterns and by the map hooks; tests/fixtures/escrow: two sums, one over a cell collection)
+    ledger) GEN_ARGS=(--kore "$FIXTURES/ledger/definition.kore" --runtime "$FIXTURES/ledger/runtime.json"
+            --out "$o" --name Ledger --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant conserved@books) ;;
+    escrow) GEN_ARGS=(--kore "$FIXTURES/escrow/definition.kore" --runtime "$FIXTURES/escrow/runtime.json"
+            --out "$o" --name Escrow --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant conserved@T) ;;
     # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
             --out "$o" --name KWalk --prelude ../../lean --open-obligations "$o/open-obligations.txt"
@@ -290,6 +298,9 @@ gate_invariants() {
   runs lib drfinv && inv_lib drfinv Drf
   # twoparam's outputs behind their process's count in <procs> (tests/fixtures/twoparam's `valsOk`)
   runs lib twoparamvals && inv_lib twoparamvals TwoParam
+  # value conserved, a sum over a map (tests/fixtures/ledger, tests/fixtures/escrow; closer 2b)
+  runs lib ledger && inv_lib ledger Ledger
+  runs lib escrow && inv_lib escrow Escrow
   runs negative krsimp-ill-typed && negative_ill_typed
   # SIMPLE with the K function `holdsOk` (demos/k/simple-inv), as for kimpinv; "every store value
   # is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's top cell
