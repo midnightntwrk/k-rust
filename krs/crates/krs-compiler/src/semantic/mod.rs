@@ -10,6 +10,7 @@ mod configuration;
 mod configuration_rules;
 mod cons_lists;
 mod constants;
+mod definedness;
 mod equation_alternatives;
 mod error;
 mod evaluation;
@@ -453,6 +454,7 @@ pub fn lower_descriptor_bundle(
             second_head_range: range,
         });
     }
+    let modules = definedness::guard_conditions(modules, &semantic_sort_parents)?;
     let modules = local_functions::lift_local_functions(modules)?;
     // A validator failure is located at the innermost term the validator was checking, and
     // names the item whose sentence it was checking.

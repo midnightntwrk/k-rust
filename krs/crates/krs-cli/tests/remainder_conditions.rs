@@ -239,7 +239,7 @@ fn conditions_name_the_computation_and_map_remainders() {
         rule [look3]:
             <k> look3 ~> Tail:K => V:Int ~> Tail:K </k>
             <typed> 0 |-> V:Int Rest:Map </typed>
-            requires (notBool 1 in_keys(Rest:Map)) andThenBool ({Rest:Map [ 2 ]}:>Int ==Int V:Int)
+            requires (notBool 1 in_keys(Rest:Map)) andThenBool (2 in_keys(Rest:Map) andThenBool (isInt(Rest:Map [ 2 ]) andThenBool ({Rest:Map [ 2 ]}:>Int ==Int V:Int)))
         rule [look4]:
             <k> look4 ~> Tail:K => .K ~> Tail:K </k>
             ensures isKResult(Tail:K)"]]

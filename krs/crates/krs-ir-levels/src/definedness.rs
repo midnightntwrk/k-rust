@@ -324,7 +324,13 @@ fn rename(term: &mut SemanticTerm, wildcard: &mut dyn FnMut(&SemanticSortRef) ->
         Ok::<_, std::convert::Infallible>(child)
     };
     let kind = match &term.kind {
-        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => return,
+        // A `let` pattern holds no rewrite, alias, test or block.
+        IrTermKind::Variable { .. }
+        | IrTermKind::Token { .. }
+        | IrTermKind::Rewrite { .. }
+        | IrTermKind::As { .. }
+        | IrTermKind::Matches { .. }
+        | IrTermKind::Let { .. } => return,
         IrTermKind::Application {
             application,
             arguments,
@@ -369,11 +375,6 @@ fn rename(term: &mut SemanticTerm, wildcard: &mut dyn FnMut(&SemanticSortRef) ->
             let Ok(alternatives) = alternatives.try_map_ref(&mut each);
             IrTermKind::Or { alternatives }
         }
-        // A `let` pattern holds no rewrite, alias, test or block.
-        IrTermKind::Rewrite { .. }
-        | IrTermKind::As { .. }
-        | IrTermKind::Matches { .. }
-        | IrTermKind::Let { .. } => return,
     };
     term.kind = kind;
 }
@@ -426,7 +427,7 @@ pub fn same(left: &SemanticTerm, right: &SemanticTerm) -> bool {
         | (IrTermKind::Matches { .. }, IrTermKind::Matches { .. })
         | (IrTermKind::Let { .. }, IrTermKind::Let { .. }) => children(left, right),
         (IrTermKind::As { alias: l, .. }, IrTermKind::As { alias: r, .. }) => {
-            l == r && children(left, right)
+            children(left, right) && l == r
         }
         _ => false,
     }

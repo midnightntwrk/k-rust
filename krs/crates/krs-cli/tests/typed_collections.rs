@@ -307,11 +307,12 @@ fn rules(body: &str) -> String {
 /// returns a `KItem`, which KRS projects to the sort the position needs, and no
 /// native route reads a projection on a left side (finding NT-11-1). The
 /// projection denotes the read where the read has that sort, so the sentence
-/// requires that instead: at a typed map's key root the key is the read, as a
-/// map holds it, with the guard `isId(read)` (S2 of NT-18's review); below a
-/// function the projected read is the function's argument, which matching
-/// would evaluate before the guard, so the application is a fresh name the
-/// condition equates with it after `isSet(read)` holds (M2). An equation's
+/// requires that instead, with `isId(read)` at a typed map's key root (S2 of
+/// NT-18's review) and `isSet(read)` below a function (M2). The read is a
+/// lookup, which has a value only where the map holds the key and which
+/// matching would evaluate before any guard, so the key is a fresh name the
+/// condition equates with it after the key's presence and the read's sort are
+/// tested (NT-37). An equation's
 /// function context guards its keys in the equation's condition as a rule
 /// does (M1): `k::project!(Int, n)` is the key `n` where `isInt(n)` holds; and
 /// since the equation matches the context as written, a key that computes
@@ -376,8 +377,8 @@ fn a_key_computed_by_a_projected_read_is_guarded() {
     };
     expect_test::expect![[r#"
         [
-            "<k> op 20 ~> hold M:Map => V:Value ... </k> <env> (M:Map [ 1 ]) |-> V:Value ... </env> requires isId(M:Map [ 1 ])",
-            "<k> op 21 ~> hold M:Map => V:KItem ... </k> <raw> Krs_Instance1:Int |-> V:KItem ... </raw> requires isSet(M:Map [ 1 ]) andThenBool (Krs_Instance1:Int ==K size({M:Map [ 1 ]}:>Set))",
+            "<k> op 20 ~> hold M:Map => V:Value ... </k> <env> Krs_Instance1:KItem |-> V:Value ... </env> requires (1 in_keys(M:Map) andThenBool isId(M:Map [ 1 ])) andThenBool (Krs_Instance1:KItem ==K (M:Map [ 1 ]))",
+            "<k> op 21 ~> hold M:Map => V:KItem ... </k> <raw> Krs_Instance1:Int |-> V:KItem ... </raw> requires (1 in_keys(M:Map) andThenBool isSet(M:Map [ 1 ])) andThenBool (Krs_Instance1:Int ==K size({M:Map [ 1 ]}:>Set))",
             "rule [[ rd ( N:KItem ) => V:KItem ]] <raw> N:KItem |-> V:KItem ... </raw> requires isInt(N:KItem)",
             "rule [[ rn ( N:KItem ) => V:KItem ]] <raw> Krs_Instance1:Int |-> V:KItem ... </raw> requires isInt(N:KItem) andThenBool (Krs_Instance1:Int ==K ({N:KItem}:>Int +Int 1))",
         ]

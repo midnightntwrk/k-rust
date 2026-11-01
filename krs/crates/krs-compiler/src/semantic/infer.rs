@@ -442,13 +442,33 @@ impl StructuredTermBuilder<'_> {
                 guarded.map_err(|error| self.locate(error, term))?
             }
         };
-        if computes && matched && (guarded_below || self.key_matched_as_written()) {
+        if computes
+            && matched
+            && (guarded_below || self.key_matched_as_written() || self.holds_partial(&lowered))
+        {
             let sort = lowered.sort().clone();
             return self
                 .guard_equal(key, sort, lowered)
                 .map_err(|error| self.locate(error, term));
         }
         Ok(lowered)
+    }
+
+    /// Whether `term` evaluates a construct that has a value only on part of its domain (a
+    /// lookup, a list read, a projection: [`krs_ir_levels::definedness`]). Matching evaluates a
+    /// looked-up key before the sentence's condition, where nothing can test that the construct
+    /// has a value first, so a key that computes one is a fresh name the condition equates with
+    /// its value, and the condition tests the construct before it (NT-37).
+    fn holds_partial(&self, term: &SemanticTerm) -> bool {
+        let is_subsort = |candidate: &SemanticSortRef, expected: &SemanticSortRef| {
+            *expected == self.k_item_sort
+                || super::catalog::semantic_is_subsort(candidate, expected, self.sort_parents)
+        };
+        let sorts = krs_ir_levels::definedness::Sorts {
+            k_item: &self.k_item_sort,
+            is_subsort: &is_subsort,
+        };
+        krs_ir_levels::definedness::holds_partial(term, true, &sorts)
     }
 
     /// The number of guards the sentence's keys and instances have made.

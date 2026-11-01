@@ -1123,7 +1123,7 @@ fn a_partial_block_in_a_set_instance_is_guarded_as_in_a_key() {
             "<name> Krs_Instance1:Int </name>",
             "requires ( pair _ _ :=K A:Arg ) andThenBool (Krs_Instance1:Int ==K ( #let pair _ B:Int = A:Arg #in B:Int ))",
             "<name> Krs_Instance0:Int </name>",
-            "requires Krs_Instance0:Int ==K {A:Arg}:>Int",
+            "requires isInt(A:Arg) andThenBool (Krs_Instance0:Int ==K {A:Arg}:>Int)",
             "<name> B:Int </name>",
         ]
     "#]]
