@@ -9,6 +9,7 @@ mod cases;
 mod claims;
 mod confluence;
 mod convert;
+mod defined;
 mod det2;
 mod diverges;
 mod drivers;
@@ -1107,6 +1108,53 @@ fn main() {
                         .filter(|l| refuted::name_of(l).is_some())
                         .count()
                 );
+                // progress to a step (SND-20): `DefinedDefs.lean`, `Defined.lean`,
+                // `open-defined-rules.txt`; `--no-step-forms` leaves them out, for an invariant
+                // known not to give every rule's right-hand side a value (handoff's `Live`)
+                let step_forms = !a.rest.iter().any(|x| x == "--no-step-forms");
+                for f in ["DefinedDefs.lean", "Defined.lean"] {
+                    if !step_forms {
+                        let _ = std::fs::remove_file(pmod.join(f));
+                    }
+                }
+                if step_forms {
+                    let dopen_path = match a.rest.iter().position(|x| x == "--open-defined-rules") {
+                        Some(i) => PathBuf::from(&a.rest[i + 1]),
+                        None => pdir.join("open-defined-rules.txt"),
+                    };
+                    let dopen_text = std::fs::read_to_string(&dopen_path).unwrap_or_default();
+                    let dhand = pmod.join("DefinedHand.lean");
+                    let d = defined::emit(
+                        &cx,
+                        &o.shape,
+                        &prios,
+                        &fgen.params,
+                        &dopen_text,
+                        dhand.exists(),
+                    )
+                    .unwrap_or_else(|e| panic!("{e}"));
+                    let hmod = out.join(ns).join("HooksDefined.lean");
+                    match &d.hooks {
+                        Some(t) => write(&hmod, t),
+                        None => {
+                            let _ = std::fs::remove_file(&hmod);
+                        }
+                    }
+                    write(&pmod.join("DefinedDefs.lean"), &hooked(d.defs));
+                    write(&pmod.join("Defined.lean"), &hooked(d.theorems));
+                    write(&dopen_path, &d.open_list);
+                    if let Some(sk) = d.hand_skeleton {
+                        write(&dhand, &hooked(sk));
+                        eprintln!(
+                            "note: wrote the hand-proof skeleton {} (it is never overwritten)",
+                            dhand.display()
+                        );
+                    }
+                    eprintln!(
+                        "defined: {} rules with right-hand-side premises, {} open",
+                        d.obligations, d.open
+                    );
+                }
             } else {
                 for f in ["ProgressDefs.lean", "Progress.lean"] {
                     let _ = std::fs::remove_file(out.join(ns).join(f));

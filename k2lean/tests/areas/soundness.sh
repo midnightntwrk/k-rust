@@ -77,29 +77,36 @@ gen_soundness() {
 # case (`open-from-log` into open-progress-cases.txt) and the library is regenerated, so the case is
 # then taken from the hand module (proved, or refuted: a third outcome of `progress`, `Progress.Refuted`),
 # as for invariants.
-progcases() { # DIR NAME: build NAME.Progress, at most three attempts; the last log is build-DIR-prog.log
+progcases() { # DIR NAME: build NAME.Progress and NAME.Defined (its step forms, SND-20), at most three
+  # attempts; the last log is build-DIR-prog.log
   local d=$1 n=$2 o=$GEN/$1 k
   for k in 1 2 3; do
-    if lbuild "$o" "build-$d-prog-$k" "$n.Progress"; then
+    if lbuild "$o" "build-$d-prog-$k" "$n.Progress" "$n.Defined"; then
       cp "$L/build-$d-prog-$k.log" "$L/build-$d-prog.log"; ok "progress $d" "$L/build-$d-prog.log"; return 0
     fi
     cp "$L/build-$d-prog-$k.log" "$L/build-$d-prog.log"
     [ "$k" = 3 ] && break
     "$G" open-from-log "$o/$n/Progress.lean" "$L/build-$d-prog-$k.log" "$o/open-progress-cases.txt" >> "$L/gen-$d.log" 2>&1
+    "$G" open-from-log "$o/$n/Defined.lean" "$L/build-$d-prog-$k.log" "$o/open-defined-rules.txt" >> "$L/gen-$d.log" 2>&1
     genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
   done
-  bad "progress $d" "$L/build-$d-prog.log"; unbuilt "$o" "$L/build-$d-prog.log" "$n.Progress"; return 1
+  bad "progress $d" "$L/build-$d-prog.log"; unbuilt "$o" "$L/build-$d-prog.log" "$n.Progress" "$n.Defined"; return 1
 }
-prog_reset() { # DIR: GATE_RETRY_OPEN also retries the open progress cases (refuted ones are kept)
-  if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$GEN/$1/open-progress-cases.txt" ]; then
-    grep -E '^#| \| refuted( hand)?( *#.*)?$' "$GEN/$1/open-progress-cases.txt" > "$GEN/$1/open-progress-cases.txt.keep" || true
-    mv -f "$GEN/$1/open-progress-cases.txt.keep" "$GEN/$1/open-progress-cases.txt"
-  fi
+prog_reset() { # DIR: GATE_RETRY_OPEN also retries the open progress cases and rules (refuted ones are kept)
+  local f
+  for f in open-progress-cases.txt open-defined-rules.txt; do  # refuted and unproved entries are kept
+    if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$GEN/$1/$f" ]; then
+      grep -E '^#| \| (refuted( hand)?|unproved)( *#.*)?$' "$GEN/$1/$f" > "$GEN/$1/$f.keep" || true
+      mv -f "$GEN/$1/$f.keep" "$GEN/$1/$f"
+    fi
+  done
   return 0
 }
 # no stuck states under a kind 2 invariant (SND-14 slice 2b): `progress` of the fixture handoff under
 # the script's closure `HandoffConf.Live`, which the library cannot import, so the progress modules go
-# to the demo that holds it (`--progress-out`); its open cases are proved in HandoffConf/ProgressHand.lean
+# to the demo that holds it (`--progress-out`); its open cases are proved in HandoffConf/ProgressHand.lean.
+# No step forms (`--no-step-forms`, SND-20): `Live` gives `new`'s process key unbound, but neither
+# `fork`'s task id nor a resume's output `o(Q, N)`, so those rules have no value under it
 gen_handoff_prog() {
   local o=$GEN/handoff c=$D/HandoffConf GEN_ARGS=()
   libs_fixture_args handoff
@@ -107,7 +114,7 @@ gen_handoff_prog() {
   "$G" gen "${GEN_ARGS[@]}" --invariant wf@T --progress --assume-invariant HandoffConf.Live \
     --invariant-module HandoffConf.Live --invariant-preserved HandoffConf.Live.preserved \
     --invariant-unfold "$c/live-unfold.txt" --element-fact HandoffConf.Live.taskOk \
-    --rank HandoffConf.taskRank --progress-out "$c" --progress-prefix HandoffConf
+    --rank HandoffConf.taskRank --progress-out "$c" --progress-prefix HandoffConf --no-step-forms
 }
 prog_handoff() { lib_open handoff; prog_demo handoff "$D/HandoffConf" HandoffConf gen_handoff_prog HandoffConf.Progress; }
 # type soundness as an instance (SND-16 to SND-18): `progress` of each typed language under its
@@ -137,23 +144,28 @@ prog_impplustypes() { prog_demo impplustypes "$D/ImpPlusTypes" ImpPlusTypes gen_
 prog_demo() { # NAME DIR PFX GEN TARGET: `progress` written into the demo DIR (`--progress-out DIR
   # --progress-prefix PFX`) by the function GEN and built as far as TARGET, as progcases does for a
   # library: up to three builds, each failed case added to the open list in between
-  local n=$1 c=$2 p=$3 gf=$4 t=$5 k
+  local n=$1 c=$2 p=$3 gf=$4 t=$5 k f ts
   phase "progress $n"
-  if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$c/open-progress-cases.txt" ]; then
-    grep -E '^#| \| refuted( hand)?( *#.*)?$' "$c/open-progress-cases.txt" > "$c/open-progress-cases.txt.keep" || true
-    mv -f "$c/open-progress-cases.txt.keep" "$c/open-progress-cases.txt"
-  fi
+  for f in open-progress-cases.txt open-defined-rules.txt; do  # refuted and unproved entries are kept
+    if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$c/$f" ]; then
+      grep -E '^#| \| (refuted( hand)?|unproved)( *#.*)?$' "$c/$f" > "$c/$f.keep" || true
+      mv -f "$c/$f.keep" "$c/$f"
+    fi
+  done
   "$gf" > "$L/gen-$n-prog.log" 2>&1 || { bad "gen $n" "$L/gen-$n-prog.log"; return 1; }
+  # the step forms, unless the generator was told to leave them out (`--no-step-forms`)
+  ts=("$t"); [ -f "$c/$p/Defined.lean" ] && ts+=("$p.Defined")
   for k in 1 2 3; do
-    if lbuild "$c" "build-$n-prog-$k" "$t"; then
+    if lbuild "$c" "build-$n-prog-$k" "${ts[@]}"; then
       cp "$L/build-$n-prog-$k.log" "$L/build-$n-prog.log"; ok "progress $n" "$L/build-$n-prog.log"; return 0
     fi
     cp "$L/build-$n-prog-$k.log" "$L/build-$n-prog.log"
     [ "$k" = 3 ] && break
     "$G" open-from-log "$c/$p/Progress.lean" "$L/build-$n-prog-$k.log" "$c/open-progress-cases.txt" >> "$L/gen-$n-prog.log" 2>&1
+    [ -f "$c/$p/Defined.lean" ] && "$G" open-from-log "$c/$p/Defined.lean" "$L/build-$n-prog-$k.log" "$c/open-defined-rules.txt" >> "$L/gen-$n-prog.log" 2>&1
     "$gf" >> "$L/gen-$n-prog.log" 2>&1 || { bad "gen $n" "$L/gen-$n-prog.log"; return 1; }
   done
-  bad "progress $n" "$L/build-$n-prog.log"; unbuilt "$c" "$L/build-$n-prog.log" "$t"; return 1
+  bad "progress $n" "$L/build-$n-prog.log"; unbuilt "$c" "$L/build-$n-prog.log" "${ts[@]}"; return 1
 }
 
 prog_lib() { # DIR NAME: a library built as far as `progress` needs: Equations, Invariants, Progress

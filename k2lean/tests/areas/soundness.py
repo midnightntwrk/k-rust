@@ -47,17 +47,20 @@ PROGS = {
     # into demos/ImpTypes
     "imptypes": {"ns": "ImpTypes", "tier": "light", "dir": "demos/ImpTypes",
                  "sources": ["demos/ImpTypes/ImpTypes/ProgressDefs.lean",
-                             "demos/ImpTypes/ImpTypes/Progress.lean"]},
+                             "demos/ImpTypes/ImpTypes/Progress.lean",
+                             "demos/ImpTypes/ImpTypes/DefinedDefs.lean", "demos/ImpTypes/ImpTypes/Defined.lean"]},
     # EXPR under its runtime typing ExprTypes.Typed (SND-18): programs end with a value, which the
     # ending `kDone` accepts
     "exprtypes": {"ns": "ExprTypes", "tier": "light", "dir": "demos/ExprTypes",
                   "sources": ["demos/ExprTypes/ExprTypes/ProgressDefs.lean",
-                              "demos/ExprTypes/ExprTypes/Progress.lean"]},
+                              "demos/ExprTypes/ExprTypes/Progress.lean",
+                              "demos/ExprTypes/ExprTypes/DefinedDefs.lean", "demos/ExprTypes/ExprTypes/Defined.lean"]},
     # IMP++ under its runtime typing ImpPlusTypes.Typed (SND-17): `<k>` in the cell map `<threads>`,
     # four priority ranks, and the ending `kDone` (a thread may wait at `join` forever)
     "impplustypes": {"ns": "ImpPlusTypes", "tier": "light", "dir": "demos/ImpPlusTypes",
                      "sources": ["demos/ImpPlusTypes/ImpPlusTypes/ProgressDefs.lean",
-                                 "demos/ImpPlusTypes/ImpPlusTypes/Progress.lean"]},
+                                 "demos/ImpPlusTypes/ImpPlusTypes/Progress.lean",
+                                 "demos/ImpPlusTypes/ImpPlusTypes/DefinedDefs.lean", "demos/ImpPlusTypes/ImpPlusTypes/Defined.lean"]},
 }
 
 DEMOS = {

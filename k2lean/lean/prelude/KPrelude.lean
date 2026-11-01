@@ -29,6 +29,7 @@ import KPrelude.Version
 import KPrelude.Determinism
 import KPrelude.Soundness
 import KPrelude.Progress
+import KPrelude.Defined
 import KPrelude.Scaffold
 import KPrelude.Flush
 import KPrelude.Measure

@@ -1,0 +1,11 @@
+# Rules whose definedness `def_close` does not prove (`k2lean gen --progress`, SND-20).
+# `k2lean open-from-log NS/Defined.lean BUILD.log open-defined-rules.txt` adds the rules whose proof failed.
+# Each entry: `Defined.r`; prove it in NS/DefinedHand.lean as `theorem Defined.hand.r : Defined.r.statement`,
+# or mark it `| refuted hand` with `theorem Defined.r.refuted : ¬ Defined.r.statement` there (the rule applies
+# and nothing steps: an undefined behaviour; `progress_step` then has the rule as an outcome, `Undefined`),
+# or mark it `| unproved` (neither shown; `progress_step` has the rule as an outcome, `Unproved`).
+Defined.«STDIN-STREAM.stdinGetc» | unproved  # `#getc` is an I/O hook k2lean's model leaves undefined (design.md §3.6)
+Defined.«STDIN-STREAM.stdinParseInt» | unproved  # `String2Int` of the buffered digits, partial on a string that is no integer
+Defined.«STDOUT-STREAM.stdoutWrite» | unproved  # `#write` is an I/O hook k2lean's model leaves undefined (design.md §3.6)
+Defined.«int X, Xs;» | unproved  # a fresh location from `!N`: unbound in the store only under a freshness invariant (ImpPlusFresh), not the typing
+Defined.«spawn S» | unproved  # a fresh thread id: unbound in `<threads>` only under a freshness invariant (ImpPlusFresh), not the typing

@@ -33,6 +33,9 @@
 //! (a stuck configuration the invariant allows), its refutation `Progress.case.h.refuted` is in the
 //! hand module and checked by `#k2l_refuted`, and `progress` has the configurations with its head as a
 //! third outcome (`Progress.Refuted`).
+//!
+//! **The step forms** (`progress_step`, SND-20) are `defined`'s: from `App`, a step, given that each
+//! rule's right-hand side is defined where it applies (`Out::shape` is what they extend).
 
 use crate::invariants::{CellPath, find_cell};
 use crate::ir::P;
@@ -158,6 +161,8 @@ pub struct Out {
     pub open_list: String,
     pub hand_skeleton: Option<String>,
     pub cases: usize,
+    /// What `progress_step` (`defined`) extends: `progress`'s shape and the closers' unfolding set.
+    pub shape: crate::defined::Shape,
 }
 
 /// A head of `<k>`: its case's name, the binders of its arguments, the content of `<k>` with that
@@ -701,6 +706,8 @@ theorem always {{c0 : {top}}} (h0 : {inv} c0) :\n    ∀ s, s 0 = c0 → Paths.I
             hand_exists,
             n_heads: heads.len(),
             coll: false,
+            close: close_list.clone(),
+            has_refuted: !refuted_heads.is_empty(),
             doc: format!(
                 "`progress`: a configuration that satisfies `{inv}` is an acceptable ending (`Ending`) or some rule applies\n\
 (`App`), so no such configuration is stuck. One case per head of `<k>` ({} heads), each by\n\
@@ -727,6 +734,10 @@ struct Finish<'a> {
     coll: bool,
     /// the module documentation of `Progress.lean`
     doc: String,
+    /// the search's unfolding set (`prog_close`)
+    close: Vec<String>,
+    /// `progress` has the outcome `Progress.Refuted`
+    has_refuted: bool,
 }
 
 /// The open list, the hand skeleton and the two modules.
@@ -821,6 +832,12 @@ set_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\
         open_list: ol,
         hand_skeleton,
         cases: n_heads,
+        shape: crate::defined::Shape {
+            coll: f.coll,
+            refuted: f.has_refuted,
+            inv: inv_name(cx).to_string(),
+            close: f.close,
+        },
     })
 }
 
@@ -1590,6 +1607,8 @@ Paths.always_iff.2 fun c h =>\n    progress c (Preserved.star {inv}.preserved h 
             hand_exists,
             n_heads,
             coll: true,
+            close: close_list.clone(),
+            has_refuted: !refuted_heads.is_empty(),
             doc: format!(
                 "`progress`: a configuration that satisfies `{inv}` (and whose cell map binds each element at its key cell,\n\
 `Progress.Keys`) is an acceptable ending (`Ending`: every element is one) or some rule applies (`App`), so no such\n\

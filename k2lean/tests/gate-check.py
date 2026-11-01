@@ -513,8 +513,26 @@ def prog_measure(tree, logs, status, d, e):
     names = [n for n, _ in listed_names(lst)]
     opened = sorted(n for n in names if n not in marked)
     ref = sorted(n for n in names if n in marked)
-    return {"tier": e["tier"], "cases": auto + hand + len(ref), "auto": auto, "open": opened, "refuted": ref,
-            "guarded": guarded(logs / f"build-{d}-prog.log") if built else None}
+    r = {"tier": e["tier"], "cases": auto + hand + len(ref), "auto": auto, "open": opened, "refuted": ref,
+         "guarded": guarded(logs / f"build-{d}-prog.log") if built else None}
+    # the step forms (SND-20, `Defined.lean`): the rules with right-hand-side premises, those whose
+    # definedness `def_close` proves, and the open and refuted ones
+    dsrc = read(at / e["ns"] / "Defined.lean")
+    if dsrc is not None:
+        ddefs = read(at / e["ns"] / "DefinedDefs.lean") or ""
+        dlst = at / "open-defined-rules.txt"
+        dmarked = refuted_marks(dlst)
+        dlisted = listed_names(dlst)
+        dnames = [n for n, _ in dlisted]
+        # `| unproved`: neither proved nor refuted, an outcome of `progress_step` (`Unproved`)
+        dun = {n for n, rest in dlisted if re.match(r"\s*\|\s*unproved\s*(#.*)?$", rest)}
+        r["defined"] = {
+            "rules": len(re.findall(r"^def Defined\.\S+\.statement : Prop :=$", ddefs, re.M)),
+            "auto": len(re.findall(r"^theorem Defined\.\S+ : \S+ := by$", dsrc, re.M)),
+            "open": sorted(n for n in dnames if n not in dmarked and n not in dun),
+            "unproved": sorted(dun),
+            "refuted": sorted(n for n in dnames if n in dmarked)}
+    return r
 
 
 def prog_compare(m, base, F, N, P, lower):
@@ -543,6 +561,28 @@ def prog_compare(m, base, F, N, P, lower):
             bad.append(f"prog.{d}: refuted cases no longer refuted: {', '.join(sorted(rwas - rnow))}")
         if e["auto"] < b["auto"]:
             bad.append(f"prog.{d}: cases proved by k2l_progress {b['auto']} -> {e['auto']} (of {e['cases']})")
+        # the step forms: open rules may only shrink, refuted ones only grow from the open ones, the
+        # rules proved by `def_close` may not decrease, nor may the step forms disappear
+        de, db = e.get("defined"), b.get("defined")
+        if db is not None and de is None:
+            bad.append(f"prog.{d}: the step forms (Defined.lean) are gone")
+        if de is not None and db is not None:
+            dnow, dwas = set(de["open"]), set(db["open"])
+            drn, drw = set(de["refuted"]), set(db["refuted"])
+            if sorted(dnow - dwas):
+                bad.append(f"prog.{d}: newly open rules (definedness): {', '.join(sorted(dnow - dwas))}")
+            if sorted(drn - drw - dwas):
+                bad.append(f"prog.{d}: newly refuted rules that were not open: {', '.join(sorted(drn - drw - dwas))}")
+            if sorted(drw - drn):
+                bad.append(f"prog.{d}: refuted rules no longer refuted: {', '.join(sorted(drw - drn))}")
+            if de["auto"] < db["auto"]:
+                bad.append(f"prog.{d}: rules proved defined by def_close {db['auto']} -> {de['auto']} (of {de['rules']})")
+            unew = sorted(set(de.get("unproved", [])) - set(db.get("unproved", [])) - dwas)
+            if unew:
+                bad.append(f"prog.{d}: newly unproved rules that were not open: {', '.join(unew)}")
+        elif de is not None:
+            N(f"prog.{d}: step forms new: {de['auto']} of {de['rules']} rules by def_close, open {de['open'] or 'none'}, "
+              f"unproved {de['unproved'] or 'none'}, refuted {de['refuted'] or 'none'}")
         for f in bad:
             F(f)
         if not bad:

@@ -1,0 +1,7 @@
+# Rules whose definedness `def_close` does not prove (`k2lean gen --progress`, SND-20).
+# `k2lean open-from-log NS/Defined.lean BUILD.log open-defined-rules.txt` adds the rules whose proof failed.
+# Each entry: `Defined.r`; prove it in NS/DefinedHand.lean as `theorem Defined.hand.r : Defined.r.statement`,
+# or mark it `| refuted hand` with `theorem Defined.r.refuted : ¬ Defined.r.statement` there (the rule applies
+# and nothing steps: an undefined behaviour; `progress_step` then has the rule as an outcome, `Undefined`),
+# or mark it `| unproved` (neither shown; `progress_step` has the rule as an outcome, `Unproved`).
+Defined.«X / Y» | unproved  # `X / Y => X /Int Y` has no guard: no value at a divisor 0 (a refutation needs a typed witness; SND-20b)
