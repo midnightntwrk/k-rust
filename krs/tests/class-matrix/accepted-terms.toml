@@ -92,12 +92,40 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."attrs/cells-local/#[k::ensures(k::is!(Int, x))]"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => go) , _ ) ... </k>
+ensures isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/cells-local/#[k::ensures(k::is!(Word, x))]"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => go) , _ ) ... </k>
+ensures isWord(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/cells-local/#[k::exists(n: Int)]"]
+k = """
+// krs-capability: RuleExistential case_TAG
+
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => hold ( ?V1:Int )) , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/cells-local/#[k::fresh(l: Int)]"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => hold ( !V1:Int )) , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/cells-local/#[k::requires(k::is!(Int, x))]"]
 k = """
@@ -568,12 +596,36 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."attrs/local-rule/#[k::ensures(k::is!(Int, x))]"]
+k = """
+rule cTAG ( (V0:KItem => go) , _ )
+ensures isInt(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/local-rule/#[k::ensures(k::is!(Word, x))]"]
+k = """
+rule cTAG ( (V0:KItem => go) , _ )
+ensures isWord(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/local-rule/#[k::exists(n: Int)]"]
+k = """
+// krs-capability: RuleExistential krsRule_DIGEST
+
+rule cTAG ( (V0:KItem => hold ( ?V1:Int )) , _ ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/local-rule/#[k::fresh(l: Int)]"]
+k = """
+rule cTAG ( (V0:KItem => hold ( !V1:Int )) , _ ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/local-rule/#[k::requires(k::is!(Int, x))]"]
 k = """
@@ -592,6 +644,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."attrs/local-rule/anywhere"]
+k = """
+// krs-capability: AnywhereRule krsRule_DIGEST
+
+rule cTAG ( (1 => go) , _ ) [anywhere, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."attrs/local-rule/cool, hole = x"]
 k = """
@@ -1122,8 +1181,6 @@ requires isWord(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
-
-[accept."attrs/sort-rule/anywhere"]
 
 [accept."attrs/sort-rule/cfg that does not hold"]
 k = """
@@ -19872,6 +19929,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 '''
 
 [accept."terms/readable/map-key/let-pattern/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> V1:KItem |-> V2:KItem ... </env>
+requires ( -1 :=K V0:KItem ) andThenBool (V1:KItem ==K ( #let -1 = V0:KItem #in V0:KItem ))
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/readable/map-key/let-pattern/1"]
 k = """
@@ -20592,6 +20657,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/rule/guard/let-pattern/-1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( #let -1 = V0:KItem #in true ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/guard/matches-pattern/_"]
 k = """
@@ -20609,6 +20680,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/sort-rule/result/let-pattern/-1"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let -1 = V0:KItem #in V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/result/matches-pattern/_"]
 k = """

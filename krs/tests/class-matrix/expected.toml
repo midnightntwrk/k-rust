@@ -117,7 +117,7 @@ advice = "readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
 
 [class.anywhere-outside-term-rule]
 code = "krs::syntax::invalid-rule-key"
-doc = "`anywhere` on a sentence that is no term-shaped transition: it makes a transition rewrite its subject's root application wherever it occurs, which a configuration-shaped rule (it matches cells, which occur only at their place), a function's equation (which applies wherever its application occurs already) and the other forms do not have"
+doc = "`anywhere` on a sentence that is no term-shaped transition, or on a `for Sort` clause: it makes a transition rewrite its subject's root application wherever it occurs, which a configuration-shaped rule (it matches cells, which occur only at their place), a `for Sort` clause (its header anchors it at the head of the computation cell), a function's equation (which applies wherever its application occurs already) and the other forms do not have"
 advice = "none"
 
 [class.binder-bound-twice]
@@ -4615,6 +4615,16 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> 1 |-> 2 ... </m>
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/bag/{ Obj { key: 1, m: map![1 -> 2] }, .. }"]
 k = """

@@ -59,26 +59,6 @@ owner = "NT-38"
 kind = "feature"
 what = "`concrete(x)` on an equation and a table row is refused: a restriction limits where an equation applies, not what it states, so it means what is written wherever no equation ordered after it would apply in its place; but k-rust's frontend, which both the native and the K text route go through, takes a restriction on an equation only when it is bare and on every equation of the function (`check_function_rule_attributes`), so no route compiles it yet"
 
-["NT-13-3"]
-owner = "NT-33"
-kind = "feature"
-what = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]` (a documented boundary the oracle does not share); refused at the helper since NT-33"
-
-["NT-13-4"]
-owner = "NT-33"
-kind = "feature"
-what = "`anywhere` on a single-body rule or a `for Sort` clause is refused (at the key since NT-33): both forms rewrite where their subject heads the computation cell, and neither is lowered as an anywhere rule"
-
-["NT-19-2"]
-owner = "NT-34"
-kind = "feature"
-what = "a readable record cannot read a Set instance's map cell with its other entries open (`m: { 1 -> 2, .. }`)"
-
-["NT-2-18"]
-owner = "NT-28"
-kind = "bug"
-what = "a negative literal at some roots and in a `let` pattern is refused with a stale anchor"
-
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"

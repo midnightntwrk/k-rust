@@ -1530,6 +1530,10 @@ deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
+["k3/terms/sort-rule/result/let-pattern/-1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
 ["k3/terms/sort-rule/result/let-pattern/1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
@@ -2369,23 +2373,6 @@ deviation = "accepted"
 # `krs::expand::missing-provenance-key` "this node holds no provenance key from its sentence's parse".
 # Probe: `terms/context-alias/subject/k::bytes!(b"ab")`. Plan: new.
 
-# NT-2-18: a negative literal at some roots and in a `let` pattern is a stale anchor
-# `-1` at a readable or claim computation item's root, a `for KItem` clause's root and in a `let`
-# pattern is `krs::collect::stale-anchor` "anchor .. no longer matches reparsed source": the negative
-# literal's anchor does not survive reparsing there. Probe: `terms/readable/item-root/-1`. Plan: new.
-
-["terms/rule/guard/let-pattern/-1"]
-finding = "NT-2-18"
-deviation = "krs::collect::stale-anchor @ spelling"
-
-["terms/sort-rule/result/let-pattern/-1"]
-finding = "NT-2-18"
-deviation = "krs::collect::stale-anchor @ spelling"
-
-["terms/readable/map-key/let-pattern/-1"]
-finding = "NT-2-18"
-deviation = "krs::collect::stale-anchor @ spelling"
-
 # NT-2-19: a turbofish in a constant is refused, though it applies a constructor to ground terms
 # `#[k::constant] const K: KItem = Wrap::<dyn KItemSort>(1);` is `invalid-constant` ("a parametric
 # production's turbofish is not one"), while `Wrap(1)` is accepted and the table admits a turbofish
@@ -2548,62 +2535,6 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling"
 
 # NT-5-1 (K8): the advice check on cases pending above under NT-5-1, whose refusal it reads.
 
-
-# NT-13-3 (K8): a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]`, a
-# documented boundary (language.mdx, "Local rewrites"; boundaries.mdx, "local rewrites"); the
-# oracle, which reads a single-body rule as the transition it is, accepts them, since each means on
-# it what it means on a rule with a result (a postcondition of the step, an existential or a fresh
-# value its rewrite's right side writes). NT-33 moved the refusal to the helper, before the
-# rewrites' names are judged (`state_rule::result_helper`); the boundary itself is the feature left.
-# Probe: `#[k::fresh(l: Int)] fn r(k::term![Cmd::C(k::rewrite!(x => Cmd::Hold(l)), _)]: Term<Stmt>) {}`.
-
-["attrs/cells-local/#[k::ensures(k::is!(Int, x))]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/cells-local/#[k::ensures(k::is!(Word, x))]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/cells-local/#[k::exists(n: Int)]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/cells-local/#[k::fresh(l: Int)]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/local-rule/#[k::ensures(k::is!(Int, x))]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/local-rule/#[k::ensures(k::is!(Word, x))]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/local-rule/#[k::exists(n: Int)]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-["attrs/local-rule/#[k::fresh(l: Int)]"]
-finding = "NT-13-3"
-deviation = "krs::syntax::invalid-local-rewrite @ spelling"
-
-# NT-13-4 (K8): `anywhere` on a single-body rule and on a `for Sort` clause, both term-shaped
-# transitions, which the oracle accepts. Both forms rewrite where their subject heads the
-# computation cell (a `for Sort` clause is lowered as a head rule, whose descriptor has no
-# `anywhere`), so neither states an anywhere rule; NT-33 refuses the key at the key, saying so
-# without advising a form the clause already is. The feature left is lowering either form as an
-# anywhere rule. Probe: `#[k::rule(anywhere)] r: Cmd::C(x, _) => Cmd::Hold(x);` in
-# `k::rules! { for Stmt; .. }`.
-
-["attrs/local-rule/anywhere"]
-finding = "NT-13-4"
-deviation = "krs::syntax::invalid-rule-key @ spelling"
-
-["attrs/sort-rule/anywhere"]
-finding = "NT-13-4"
-deviation = "krs::syntax::invalid-rule-key @ spelling"
 
 # NT-13-15 (K2, K8): `concrete(x)` on an equation and a table row is refused, advising bare
 # `concrete`, where the reference (boundaries.mdx, "Concrete, symbolic, and SMT lemmas") lists
@@ -3134,25 +3065,6 @@ deviation = "krs::analysis::collection-entry @ entry"
 ["readable-run/subject/stack/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-
-# NT-19-2 (K2): a readable record cannot read a Set instance's map cell with its other entries
-# open. `{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }` is refused as Rust syntax at the spelling ("expected
-# one of: identifier, `::`, `<`, `_`, literal, .."), the instance's cells being read pattern-first;
-# `map![1 -> 2, ..]` there is a literal with an anonymous rest, refused, and its message advises
-# `{ k -> v, .. }`, this form. The `cells!` rule reads it (`cells-run/subject/bag/{ k::fragment![
-# crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }` is accepted, and K7 shows it
-# applies to the object `{1 -> 2, 3 -> 4}` and not to `{1 -> 3}`), and language.mdx states that a
-# computed instance's map cell with `..` leaves entries open. Probe: the case. It is also K8's: the
-# class `anonymous-rest-in-map-literal` advises this case, whose form its refusal proposes, and the
-# case is refused.
-
-["k8/readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
-finding = "NT-19-2"
-deviation = "advice of anonymous-rest-in-map-literal: refused: krs::syntax::rust-syntax"
-
-["readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
-finding = "NT-19-2"
-deviation = "krs::syntax::rust-syntax @ spelling"
 
 # NT-35-1 (K7, the printed state): the printer reverses the case's alias, whose subject writes
 # `k::builtin::set::item(x)`, so the `<k>` head prints `SetItem ( .. )`, which the program grammar,
