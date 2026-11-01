@@ -898,10 +898,11 @@ Not supported yet (the generator stops with a message): nested cell collections 
 
 In a finite execution "every run ends" is termination of `Step`: no infinite path from any configuration (`Paths.Terminates`), proved by a measure into `Nat` that every step lowers (`KPrelude.Ends.terminates_of_measure`; `direction.md` §5).
 The author writes the measure in K, as for an invariant, a function of one cell to `Int` (K has no `Nat`), and `gen --measure NAME@CELL` states one obligation per rule, over the rule's instance: its step lowers the measure (`Step.Rel.r (KPrelude.Measure.Lower Measure.value)`, `NS/Measure.lean`).
-`Lower μ c c'` is: the value is defined at `c` and at `c'`, nonnegative at `c'`, and smaller there than at `c`.
+`Lower μ c c'` is: where the value is defined at `c`, it is defined at `c'`, nonnegative there, and smaller there than at `c`.
 That is enough: a strictly decreasing sequence of nonnegative integers is finite, and a first configuration with a negative value has no step, since its successor's value would be nonnegative and below it.
-The value's definedness is part of each obligation, because K's `total` is the author's claim, which k2lean states and does not assume (§8.1).
-`Measure.lower` gathers the cases (`Step.rel_of`), and `Measure.terminates` is termination from every configuration (`KPrelude.Measure.terminates`, by `toNat` of the value).
+The target's definedness is part of each obligation, because K's `total` is the author's claim, which k2lean states and does not assume (§8.1).
+The source's is a hypothesis, because a measure over a cell map has no value on some Lean maps no run builds (below), while a rule's instance ranges over every rest of the map it matches; from a source where it is defined, the target's is shown, so definedness is preserved (`isSome_preserved`).
+`Measure.lower` gathers the cases (`Step.rel_of`), and `Measure.terminates` is termination from every configuration where the measure is defined (`KPrelude.Measure.terminates`, by `toNat` of the value).
 
 A measure over a recursive structure needs facts about the functions the rules apply, and the author states them in K as simplification rules, which `gen` states as obligations (§3, `Simp.s_…`) and never assumes; the measure's cases use those that are proved.
 The fixture `corout` (the coroutine language of `direction.md` §8 step 4) counts the steps left, a loop's body as many times as it runs:
@@ -921,7 +922,21 @@ The `loop` rule's step leads to `app(B, loop(M -Int 1, { B }) ; C)`, whose measu
 - then the arithmetic: the hooks in Lean's arithmetic (`k2l_arith`, `maxInt` and `minInt` unfolded), then the equations' `k2l_int_arith` (EQ-21): each `if` split on its condition, the sign of each product whose two factors `k2l_int_omega` bounds, then `k2l_int_omega`, then `grind`, which normalizes the products (`max(M, 0) * (μ(B) + 1)` against `max(M - 1, 0) * (μ(B) + 1)`), which `omega` does not accept.
 A case `k2l_measure` does not close is listed in `open-measure-cases.txt` (`open-from-log NS/Measure.lean`) and taken from the hand module `NS/MeasureHand.lean` (written once), as for invariants.
 
+**A sum over a cell map.** The work left in a coordination script is a weight per task added over the `<tasks>` cell map (the fixture `twoparam`, INV-17):
+
+```k
+rule work(<tasks> .Bag </tasks>) => 0
+rule work(<tasks> <task> <tid> _ </tid> <n> _ </n> <k> K </k> </task> Ts </tasks>)
+  => kw(K) +Int work(<tasks> Ts </tasks>)
+```
+
+`K |-> V R` matches modulo associativity and commutativity, so K fixes no order of the walk; unlike a fold of claims (`docs/invariants.md`, "claims disjoint across a map's elements"), a sum has one meaning anyway, since `+Int` is associative and commutative: every order gives the same total where every weight is defined, and none where one is not.
+`gen --measure` recognizes such a fold among the functions the measure calls (`F(.Map) => 0`, `F((K |-> V) R) => g(K, V) +Int F(R)` or `F(R) +Int g(K, V)`, the map bare or in a cell; the recognizer of a fold of claims, `invariants::map_fold_of`), and states in `MeasureDefs.lean` its test of a binding (`Measure.F_test`, what the patterns read twice is equal: here the key and the task's own `<tid>`), its weight (`Measure.F_g`) and `Measure.F_eq`: the fold is defined exactly on a well-formed map whose bindings pass the test with defined weights, and is then `MapHook.sumOf F_g m` (`KPrelude.MeasureSum`, from the fold's instances).
+The test is why the source's definedness is a hypothesis: the Lean map type also holds a map that binds a task under another key, a map no run builds, and there the fold has no value.
+`k2l_measure`'s sum stage reads each fold through its `iff`, splits each map the rule matches or builds as `M₁ M₂` into its operands (the sum, the bindings' definedness, the well-formedness), so a case is the weights of the elements the rule removes and writes over the same rest, and bounds the rest's sum below by `0`, from the weight being nonnegative wherever it is defined (`k2l_measure_weight`: the weight unfolded to its rules' matches, those split, each value bounded by the author's lemmas: here `pw(P) >=Int 0`; the author need not state `kw`'s, whose `owise` case the equations' attempt does not prove).
+
 Measured on `corout` (2026-11-01): 4 rules, 4 cases by `k2l_measure`, `Measure.lean` in about 3 s; `Measure.terminates` on Lean's three axioms.
+On `twoparam` (INV-17): 6 rules, 6 cases by `k2l_measure`, `Measure.lean` in about 6 s; its consumer `demos/TwoParamTx` states the transaction theorem: a well-formed script with one run to no task left ends in that run's configuration in every order (`TwoParamTx.transaction`, from `Measure.terminates`, `TwoParamConf.terminal_unique` and the run).
 Its consumer, `demos/TwoParamEnds`: corout's run from a segment's start reaches a first configuration that does not step (`KPrelude.Measure.exists_firstReach_terminal`), so the hooks that `TwoParamInst` takes from it always have a value (`hooks_some`), and `TwoParamConf.terminal_unique`'s instance has no segment without a result.
 Not supported yet: a measure read from a cell inside a cell collection (the generator stops), a measure under an invariant (`terminates_of_measure_on` is in the prelude; the flag is not), a lexicographic measure.
 
@@ -934,7 +949,7 @@ Not supported yet: a measure read from a cell inside a cell collection (the gene
 | `goldens`, `cases`, `configs` | test and benchmark data from krust runs |
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |
-| `gen --measure NAME@CELL` | every run ends: one case per rule that its step lowers the author's measure, a K function of a cell to `Int`, with the author's lemmas as K simplification rules (§3.10) |
+| `gen --measure NAME@CELL` | every run ends: one case per rule that its step lowers the author's measure, a K function of a cell to `Int`, with the author's lemmas as K simplification rules and its sums over a map read order-free (§3.10) |
 | `gen --progress [--ending NAME@CELL]` | no stuck states: every configuration satisfying the invariant is an acceptable ending or has a rule that applies, one case per head of `<k>`, or of an element's `<k>` when `<k>` is in a cell map; under a kind 2 invariant with `--assume-invariant` and `--progress-out` (§3.9) |
 | `soundness` | the runtime typing, preservation, progress and type soundness of a semantics for a K type checker, around a hand module (§3.3) |
 | `refine` | a stuttering bisimulation between two definitions whose steps do not correspond one to one, from `relate --per-rule` and a hand module (§3.5) |

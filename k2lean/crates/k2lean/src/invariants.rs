@@ -942,6 +942,7 @@ fn cells_only(m: &Model, p: &P) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn pattern_reads(
     m: &Model,
+    ns: &str,
     p: &P,
     at: String,
     need: &[String],
@@ -967,9 +968,10 @@ fn pattern_reads(
                 if !vs.iter().any(|v| need.contains(v)) {
                     continue;
                 }
-                let n = proj_arg(m, s, i, projections, proj_names)?;
+                let n = proj_arg(m, ns, s, i, projections, proj_names)?;
                 pattern_reads(
                     m,
+                    ns,
                     a,
                     format!("({n} {at})"),
                     need,
@@ -1123,6 +1125,7 @@ fn walk_of(
     let mut rd: Vec<(String, String)> = Vec::new();
     pattern_reads(
         m,
+        "Invariant",
         kp,
         "k".into(),
         &need,
@@ -1132,6 +1135,7 @@ fn walk_of(
     )?;
     pattern_reads(
         m,
+        "Invariant",
         vp,
         "v".into(),
         &need,
@@ -1233,38 +1237,51 @@ fn walk_of(
     })
 }
 
-/// A fold that concatenates the claims of each binding of a map (`F(.Map) => .List`,
-/// `F((K |-> V) R) => g(K, V) F(R)`, or `F(R) g(K, V)`), recognized among the functions an
-/// invariant calls. `F` alone has no single meaning in K: `K |-> V R` matches modulo associativity
-/// and commutativity, so its value depends on the order the walk takes the bindings in, which K
-/// does not fix. Its value up to the order of the elements does not, and `noDup` (`NoDupFn`) is
-/// invariant under permutations, so a fold is recognized only where every call of it is the
-/// argument of a `noDup` (`claims_uses_ok`): there the library's canonical order agrees with K's
-/// meaning (`KPrelude.InvDisjoint`).
-struct ClaimsFold {
-    lean: String,
-    base: String,
-    /// the list sort of its result
-    list: String,
-    /// the Lean constructor of the cell that holds the map, and that cell's sort
-    wrap: Option<String>,
-    cell: Option<String>,
-    /// the sorts of the map, its keys and its values
-    map: String,
-    key: String,
-    val: String,
-    /// what the patterns read twice is equal (`True` when nothing is read twice)
-    test: String,
-    /// the claims of one binding `k |-> v`, an `Option` of the list sort
-    claims: String,
-    /// the projections the test and the claims read
-    reads: Vec<String>,
-    key_pat: Option<String>,
-    val_pat: Option<String>,
+/// What a fold over the bindings of a map combines (`MapFold`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FoldKind {
+    /// the claims of each binding, concatenated: `F(.Map) => .List`, `F((K |-> V) R) => g(K, V)
+    /// F(R)` (or `F(R) g(K, V)`)
+    Claims,
+    /// the weight of each binding, added: `F(.Map) => 0`, `F((K |-> V) R) => g(K, V) +Int F(R)` (or
+    /// `F(R) +Int g(K, V)`)
+    Sum,
 }
 
-impl ClaimsFold {
-    fn at(&self, map: &str) -> String {
+/// A fold over the bindings of a map, recognized among the functions an invariant or a measure
+/// calls. `K |-> V R` matches modulo associativity and commutativity, so K fixes no order of the
+/// walk.
+/// - A fold of claims alone has no single meaning in K: its value depends on that order. Its value
+///   up to the order of the elements does not, and `noDup` (`NoDupFn`) is invariant under
+///   permutations, so a fold of claims is recognized only where every call of it is the argument of
+///   a `noDup` (`claims_uses_ok`): there the library's canonical order agrees with K's meaning
+///   (`KPrelude.InvDisjoint`).
+/// - A sum has one meaning: `+Int` is associative and commutative, so every order gives the same
+///   total where every weight is defined, and none where one is not (`KPrelude.MeasureSum`).
+pub(crate) struct MapFold {
+    pub(crate) lean: String,
+    pub(crate) base: String,
+    /// the sort of its result (a list sort for claims, `SortInt` for a sum)
+    pub(crate) result: String,
+    /// the Lean constructor of the cell that holds the map, and that cell's sort
+    pub(crate) wrap: Option<String>,
+    pub(crate) cell: Option<String>,
+    /// the sorts of the map, its keys and its values
+    pub(crate) map: String,
+    pub(crate) key: String,
+    pub(crate) val: String,
+    /// what the patterns read twice is equal (`True` when nothing is read twice)
+    pub(crate) test: String,
+    /// the part of one binding `k |-> v` (its claims, or its weight), an `Option` of the result sort
+    pub(crate) part: String,
+    /// the projections the test and the part read
+    pub(crate) reads: Vec<String>,
+    pub(crate) key_pat: Option<String>,
+    pub(crate) val_pat: Option<String>,
+}
+
+impl MapFold {
+    pub(crate) fn at(&self, map: &str) -> String {
         match &self.wrap {
             Some(c) => format!("{} ({c} {map})", self.lean),
             None => format!("{} {}", self.lean, paren(map)),
@@ -1272,22 +1289,29 @@ impl ClaimsFold {
     }
 }
 
-fn claims_fold_of(
+/// The fold of `kind` that `f` is, its projections named in the namespace `ns` (`Invariant`,
+/// `Measure`).
+pub(crate) fn map_fold_of(
     cx: &Ctx,
     f: &str,
+    kind: FoldKind,
+    ns: &str,
     projections: &mut BTreeMap<String, String>,
     proj_names: &mut Vec<String>,
-) -> Option<ClaimsFold> {
+) -> Option<MapFold> {
     let m = cx.m;
     let sig = cx.fns.get(f)?;
     let es = cx.eqs.get(f)?;
-    let is_list = m
-        .sorts
-        .get(&sig.result)
-        .is_some_and(|i| i.kind == Kind::Coll(Coll::List));
+    let of_kind = match kind {
+        FoldKind::Claims => m
+            .sorts
+            .get(&sig.result)
+            .is_some_and(|i| i.kind == Kind::Coll(Coll::List)),
+        FoldKind::Sum => sig.result == "SortInt",
+    };
     if es.len() != 2
         || sig.args.len() != 1
-        || !is_list
+        || !of_kind
         || es.iter().any(|e| e.owise || !e.requires.is_empty())
     {
         return None;
@@ -1320,7 +1344,11 @@ fn claims_fold_of(
         .iter()
         .position(|e| unwrap(&e.args[0]).is_some_and(|p| is_unit(&p, "MAP.unit")))?;
     let (unit, step) = (&es[i_unit], &es[1 - i_unit]);
-    if !is_unit(&unit.rhs, "LIST.unit") {
+    let unit_ok = match kind {
+        FoldKind::Claims => is_unit(&unit.rhs, "LIST.unit"),
+        FoldKind::Sum => matches!(&unit.rhs, P::Dv(_, v) if v == "0"),
+    };
+    if !unit_ok {
         return None;
     }
     let P::App(c, _, ca) = unwrap(&step.args[0])? else {
@@ -1336,11 +1364,15 @@ fn claims_fold_of(
     let [kp, vp] = el.as_slice() else {
         return None;
     };
-    // `g(K, V) F(R)` or `F(R) g(K, V)`
+    // `g(K, V) F(R)` or `F(R) g(K, V)` (with `+Int` between them for a sum)
     let P::App(cat, _, ra) = &step.rhs else {
         return None;
     };
-    if hook(m, cat) != Some("LIST.concat") || ra.len() != 2 {
+    let combine = match kind {
+        FoldKind::Claims => "LIST.concat",
+        FoldKind::Sum => "INT.add",
+    };
+    if hook(m, cat) != Some(combine) || ra.len() != 2 {
         return None;
     }
     let is_rec = |p: &P| {
@@ -1375,6 +1407,7 @@ fn claims_fold_of(
     let mut rd: Vec<(String, String)> = Vec::new();
     pattern_reads(
         m,
+        ns,
         kp,
         "k".into(),
         &need,
@@ -1384,6 +1417,7 @@ fn claims_fold_of(
     )?;
     pattern_reads(
         m,
+        ns,
         vp,
         "v".into(),
         &need,
@@ -1414,7 +1448,7 @@ fn claims_fold_of(
     }
     let e = lw.expr(g, &sig.result).ok()?;
     let steps = std::mem::take(&mut lw.steps);
-    let claims = match steps.as_slice() {
+    let part = match steps.as_slice() {
         [] => format!("some {}", e.render_arg()),
         [crate::lower::Step::Bind { expr, var, .. }] if e.render() == *var => expr.render(),
         _ => option_expr(&steps, &e)?,
@@ -1453,17 +1487,17 @@ fn claims_fold_of(
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    Some(ClaimsFold {
+    Some(MapFold {
         lean: sig.lean.clone(),
         base,
-        list: sig.result.clone(),
+        result: sig.result.clone(),
         wrap,
         cell,
         map,
         key,
         val,
         test: conj.join(" ∧ "),
-        claims,
+        part,
         reads: used,
         key_pat: matches!(kp, P::App(..)).then(|| cases_pat(kp)),
         val_pat: matches!(vp, P::App(..)).then(|| cases_pat(vp)),
@@ -2362,10 +2396,12 @@ fn proj_name(m: &Model, sym: &str, i: usize) -> Option<String> {
     }
 }
 
-/// The projection of argument `i` of the cell constructor `sym` (`Invariant.cell_x` for a
-/// subcell, `Invariant.content_x` for the content of a leaf cell), defined once; returns its name.
+/// The projection of argument `i` of the cell constructor `sym` (`NS.cell_x` for a subcell,
+/// `NS.content_x` for the content of a leaf cell, `NS` the namespace `ns` of the module that reads
+/// it: `Invariant`, `Measure`), defined once; returns its name.
 fn proj_arg(
     m: &Model,
+    ns: &str,
     sym: &str,
     i: usize,
     projections: &mut BTreeMap<String, String>,
@@ -2384,6 +2420,7 @@ fn proj_arg(
                 name: cell_name(&child.klabel)?,
                 sym: sym.to_string(),
             },
+            ns,
             projections,
             proj_names,
         ));
@@ -2392,7 +2429,7 @@ fn proj_arg(
         return None;
     }
     let cname = cell_name(&ci.klabel)?;
-    let name = format!("Invariant.content_{cname}");
+    let name = format!("{ns}.content_{cname}");
     projections.entry(name.clone()).or_insert_with(|| {
         proj_names.push(name.clone());
         format!(
@@ -2475,7 +2512,7 @@ fn cell_tree(
         let mut r = "x".to_string();
         let mut ps = Vec::new();
         for (s, i) in path {
-            let n = proj_arg(m, s, *i, projections, proj_names)?;
+            let n = proj_arg(m, "Invariant", s, *i, projections, proj_names)?;
             r = format!("({n} {r})");
             ps.push(n);
         }
@@ -2549,7 +2586,7 @@ fn cell_tree(
         for (v, path) in &vars {
             if names_of.contains_key(v.as_str()) {
                 for (s, i) in path {
-                    let n = proj_arg(m, s, *i, projections, proj_names)?;
+                    let n = proj_arg(m, "Invariant", s, *i, projections, proj_names)?;
                     if !unfolds.contains(&n) {
                         unfolds.push(n);
                     }
@@ -2676,13 +2713,14 @@ struct Lifted {
     outer: Vec<Lifted>,
 }
 
-/// The projection of one level of a cell path, defined once; returns its name.
+/// The projection of one level of a cell path, in the namespace `ns`, defined once; returns its name.
 fn proj_level(
     lv: &Level,
+    ns: &str,
     projections: &mut BTreeMap<String, String>,
     proj_names: &mut Vec<String>,
 ) -> String {
-    let name = format!("Invariant.cell_{}", lv.name);
+    let name = format!("{ns}.cell_{}", lv.name);
     let pats: Vec<String> = (0..lv.arity)
         .map(|i| {
             if i == lv.index {
@@ -2785,7 +2823,7 @@ pub fn emit(
     let mut owise_injs: Vec<OwiseInj> = Vec::new();
     let mut walks: Vec<Walk> = Vec::new();
     // folds of claims (with their K symbols) and the `noDup` functions over them
-    let mut claims: Vec<(String, ClaimsFold, BTreeSet<ClaimsUse>)> = Vec::new();
+    let mut claims: Vec<(String, MapFold, BTreeSet<ClaimsUse>)> = Vec::new();
     let mut nodups: Vec<(String, NoDupFn)> = Vec::new();
     // every function the invariants call, directly or not
     let mut closure_fns: BTreeSet<String> = BTreeSet::new();
@@ -2799,7 +2837,7 @@ pub fn emit(
      -> (String, String, Option<Lifted>) {
         let mut read = "c".to_string();
         for lv in &path.levels {
-            let name = proj_level(lv, projections, proj_names);
+            let name = proj_level(lv, "Invariant", projections, proj_names);
             read = format!("{name} {}", paren(&read));
         }
         let mut lifted = None;
@@ -2837,7 +2875,7 @@ pub fn emit(
                 };
                 let mut r = elem.to_string();
                 for lv in inner {
-                    let name = proj_level(lv, projections, proj_names);
+                    let name = proj_level(lv, "Invariant", projections, proj_names);
                     r = format!("{name} {}", paren(&r));
                 }
                 let elem_cell = cell_ctor(m, cl.elems.last().unwrap())
@@ -3124,7 +3162,14 @@ pub fn emit(
                 .collect();
             let all_proved = !eq_names.is_empty() && eq_names.iter().all(proved);
             if cx.recursive.contains(&gs.lean) {
-                if let Some(c) = claims_fold_of(cx, &g, &mut projections, &mut proj_names) {
+                if let Some(c) = map_fold_of(
+                    cx,
+                    &g,
+                    FoldKind::Claims,
+                    "Invariant",
+                    &mut projections,
+                    &mut proj_names,
+                ) {
                     // a fold of claims, kept only where `noDup` is all that reads it (below)
                     if !claims.iter().any(|(x, _, _)| *x == g) {
                         claims.push((g.clone(), c, BTreeSet::new()));
@@ -3778,9 +3823,9 @@ obtain ⟨a, ha⟩ := hg\n      obtain ⟨r, hr'⟩ := hr\n      simp [ht, ha, h
             key = c.key,
             val = c.val,
             map = c.map,
-            list = c.list,
+            list = c.result,
             test = c.test,
-            claims = c.claims,
+            claims = c.part,
             unit = c.at("KPrelude.MapHook.unit"),
             at_m = c.at("m"),
         ));
@@ -3799,7 +3844,7 @@ by_cases hu : m = KPrelude.MapHook.unit\n  · subst hu; exact KPrelude.MapHook.w
 simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n    \
 split at h\n    · exact (KPrelude.MapHook.wfb_iff _).1 ‹_›\n    · simp at h\n\n",
             map = c.map,
-            list = c.list,
+            list = c.result,
             at_m = c.at("m"),
         ));
         for (_, n) in &nodups {
@@ -3845,7 +3890,7 @@ split at h\n    · exact (KPrelude.MapHook.wfb_iff _).1 ‹_›\n    · simp at 
                         "claimsOK_iff_of'",
                     ),
                 };
-                let o_bind = o_bind.replace("{list}", &c.list);
+                let o_bind = o_bind.replace("{list}", &c.result);
                 d.push_str(&format!(
                     "/-- `{dl}` of the fold `{l}`{what}, read order-free: the map well formed, every binding\n\
 matching the patterns with its claims defined, and no claim twice (`KPrelude.MapHook.ClaimsOK`). -/\n\

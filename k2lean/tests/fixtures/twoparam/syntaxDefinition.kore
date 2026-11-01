@@ -2530,6 +2530,66 @@ module TWOPARAM
     terminals{}("110101"),
     total{}()
   ]
+  symbol Lblmeasure'LParUndsRParUnds'TWOPARAM'Unds'Int'Unds'TCell{}(SortTCell{}) : SortInt{}
+  [
+    format{}("%cmeasure%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(113,18,113,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblwork'LParUndsRParUnds'TWOPARAM'Unds'Int'Unds'TasksCell{}(SortTasksCell{}) : SortInt{}
+  [
+    format{}("%cwork%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(114,18,114,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblkw'LParUndsRParUnds'TWOPARAM'Unds'Int'Unds'K{}(SortK{}) : SortInt{}
+  [
+    format{}("%ckw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(115,18,115,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblpw'LParUndsRParUnds'TWOPARAM'Unds'Int'Unds'Pgm{}(SortPgm{}) : SortInt{}
+  [
+    format{}("%cpw%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(116,18,116,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/twoparam/twoparam.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'tid'-GT-'{}(SortInt{}) : SortTidCell{}
   [
     cell{}(),

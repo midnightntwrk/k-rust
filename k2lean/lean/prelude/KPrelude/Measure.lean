@@ -1,4 +1,5 @@
 import KPrelude.Ends
+import KPrelude.MeasureSum
 import KPrelude.Invariant
 import KPrelude.InvAttr
 import KPrelude.InvTactic
@@ -10,15 +11,26 @@ import KPrelude.Tactic
 In a finite execution "every run ends" is termination of the step relation, and a measure that
 every step lowers proves it (`Ends.terminates_of_measure`). The author writes the measure in K, as
 a function from a cell to `Int` (K has no `Nat`), and `gen --measure NAME@CELL` states, per rule,
-that the rule's step lowers it (`Lower`): its value is defined at both ends, nonnegative at the
-target and below its value at the source. A strictly decreasing sequence of nonnegative integers is
-finite, and a first configuration with a negative value has no step at all, so `Lower` at every step
-gives a `Nat` measure that every step lowers (`nat_lt`), and termination (`terminates`, and under a
-preserved invariant `terminates_on`). That the value is defined is part of each obligation, since
-K's `total` is the author's claim, which k2lean states and never assumes.
+that the rule's step lowers it (`Lower`): where its value is defined at the source, it is defined at
+the target, nonnegative there and below its value at the source. A strictly decreasing sequence of
+nonnegative integers is finite, and a first configuration with a negative value has no step at all,
+so `Lower` at every step gives a `Nat` measure that every step from a configuration where the
+measure is defined lowers (`nat_lt`), definedness is preserved (`isSome_preserved`), and no infinite
+run starts where the measure is defined (`terminates`, and under a preserved invariant
+`terminates_on`). That the target's value is defined is part of each obligation, since K's `total`
+is the author's claim, which k2lean states and never assumes. The source's is a hypothesis: a
+measure over a cell map is a fold whose equations read a binding's key twice (a cell map binds each
+element under its own id), so on a Lean map that binds an element under another key, which no run
+builds but a rule's instance ranges over, it has no value (`MeasureSum`).
 
-`k2l_measure [unfold] [lemmas]` proves one rule's obligation, `Step.Rel.r (Lower μ)`:
+`k2l_measure [unfold] [lemmas] [sums]` proves one rule's obligation, `Step.Rel.r (Lower μ)`:
 - it unfolds `Lower`, the measure and the functions it calls by their proved equations (`unfold`);
+- it reads each sum over a map by its generated `iff` (`sums`, `Measure.F_eq`: defined exactly on a
+  well-formed map whose bindings pass the fold's test with defined weights, and then `sumOf`), splits
+  each map the rule matches or builds as `M₁ M₂` into its operands (the sum, the bindings'
+  definedness, the well-formedness), and bounds each sum left over a map (the rest the rule leaves)
+  below by `0`, its weight being nonnegative wherever it is defined (`k2l_measure_weight`: the weight
+  unfolded to its rules' matches, split, each value bounded by the lemmas) (`k2l_measure_sum`);
 - it adds what the author's lemmas say at each call whose value the context knows: a lemma is a K
   simplification rule, stated by `gen` as `Option.bind (f xs) k = rhs` (`mu(app(A, B)) =>
   mu(A) +Int mu(B)`, `mu(C) >=Int 0 => true`), and where `f as = some v` (a rule's premise, or a case
@@ -38,31 +50,43 @@ universe u
 
 variable {α : Type u}
 
-/-- A step from `c` to `c'` lowers the measure `μ`: defined at both, nonnegative at `c'`, smaller
-there than at `c`. -/
+/-- A step from `c` to `c'` lowers the measure `μ`: where it is defined at `c`, it is defined at `c'`,
+nonnegative there and smaller than at `c`. -/
 def Lower (μ : α → Option Int) (c c' : α) : Prop :=
-  ∃ v v', μ c = some v ∧ μ c' = some v' ∧ 0 ≤ v' ∧ v' < v
+  (μ c).isSome → ∃ v v', μ c = some v ∧ μ c' = some v' ∧ 0 ≤ v' ∧ v' < v
 
 /-- The measure as a natural number (`0` where it is undefined or negative). -/
 def nat (μ : α → Option Int) (c : α) : Nat :=
   ((μ c).getD 0).toNat
 
-theorem nat_lt {μ : α → Option Int} {c c' : α} (h : Lower μ c c') : nat μ c' < nat μ c := by
-  obtain ⟨v, v', hv, hv', h0, hlt⟩ := h
+theorem nat_lt {μ : α → Option Int} {c c' : α} (h : Lower μ c c') (hc : (μ c).isSome) :
+    nat μ c' < nat μ c := by
+  obtain ⟨v, v', hv, hv', h0, hlt⟩ := h hc
   simp only [nat, hv, hv', Option.getD_some]
   omega
 
-/-- Every step lowers the measure: no infinite path starts anywhere. -/
+/-- Where the measure is defined, a step keeps it defined. -/
+theorem isSome_preserved {S : α → α → Prop} {μ : α → Option Int}
+    (h : ∀ {c c' : α}, S c c' → Lower μ c c') : Preserved S fun c => (μ c).isSome := by
+  intro c c' hc hs
+  obtain ⟨_, _, _, hv', _⟩ := h hs hc
+  rw [hv']; rfl
+
+/-- Every step lowers the measure: no infinite path starts where it is defined. -/
 theorem terminates {S : α → α → Prop} (μ : α → Option Int)
-    (h : ∀ {c c' : α}, S c c' → Lower μ c c') (c : α) : Paths.Terminates S c :=
-  Ends.terminates_of_measure (nat μ) (fun _ _ hs => nat_lt (h hs)) c
+    (h : ∀ {c c' : α}, S c c' → Lower μ c c') : ∀ c, (μ c).isSome → Paths.Terminates S c :=
+  Ends.terminates_of_measure_on (isSome_preserved h) (nat μ) (fun _ _ hc hs => nat_lt (h hs) hc)
 
 /-- Every step from a configuration satisfying a preserved `H` lowers the measure: no infinite path
-starts where `H` holds. -/
+starts where `H` holds and the measure is defined. -/
 theorem terminates_on {S : α → α → Prop} {H : α → Prop} (hH : Preserved S H)
     (μ : α → Option Int) (h : ∀ {c c' : α}, H c → S c c' → Lower μ c c') :
-    ∀ c, H c → Paths.Terminates S c :=
-  Ends.terminates_of_measure_on hH (nat μ) (fun _ _ hc hs => nat_lt (h hc hs))
+    ∀ c, H c → (μ c).isSome → Paths.Terminates S c := fun c hc hs =>
+  Ends.terminates_of_measure_on (H := fun c => H c ∧ (μ c).isSome)
+    (fun c c' ⟨hc, hs⟩ hst => ⟨hH c c' hc hst, by
+      obtain ⟨_, _, _, hv', _⟩ := h hc hst hs
+      rw [hv']; rfl⟩)
+    (nat μ) (fun _ _ ⟨hc, hs⟩ hst => nat_lt (h hc hst) hs) c ⟨hc, hs⟩
 
 /-- A terminal configuration reachable from `a` is the first one on the way: a configuration with a
 step is not terminal. -/
@@ -94,13 +118,18 @@ def knownCall? (ty : Expr) : MetaM (Option Expr) := do
   return some l
 
 /-- The author's lemma `L : ∀ xs, Option.bind (f xs) k = rhs` at the call `t` (`f as`), when its
-binders are all determined by `t`: the instance's proof. -/
+binders are all determined by `t`, and its instance binders (`[Hooks]`, which a lemma of a
+definition with parameters takes even where `f` does not) by synthesis: the instance's proof. -/
 def lemmaAt (L t : Expr) : MetaM (Option Expr) := do
-  let (xs, _, body) ← forallMetaTelescopeReducing (← inferType L)
+  let (xs, bis, body) ← forallMetaTelescopeReducing (← inferType L)
   let some (_, lhs, _) := body.eq? | return none
   let some x := bindCall? lhs | return none
   unless x.getAppFn == t.getAppFn do return none
   unless ← isDefEq x t do return none
+  for x in xs, bi in bis do
+    if bi.isInstImplicit && !(← x.mvarId!.isAssigned) then
+      let some i ← synthInstance? (← inferType x) | return none
+      unless ← isDefEq x i do return none
   let p ← instantiateMVars (mkAppN L xs)
   if p.hasExprMVar then return none
   return some p
@@ -206,7 +235,8 @@ syntax (name := measureNorm) "k2l_measure_norm" " [" ident,* "]" : tactic
   let us ← stx[2].getSepArgs.mapM fun i => realizeGlobalConstNoOverloadWithInfo i
   liftMetaTactic fun g => g.withContext do
     let mut thms ← ({} : SimpTheorems).addConst ``Option.bind_some
-    for n in [``Option.bind_none, ``Option.bind_fun_some, ``Option.some.injEq] do
+    for n in [``Option.bind_none, ``Option.bind_fun_some, ``Option.some.injEq, ``Option.isSome_some,
+        ``Option.isSome_none, ``Option.getD_some, ``Option.getD_none, ``eq_self_iff_true] do
       thms ← thms.addConst n
     for n in us do
       -- a definition (the measure's projections) is unfolded, a theorem rewrites
@@ -241,13 +271,157 @@ macro "k2l_measure_arith" : tactic => `(tactic| (
   | k2l_int_arith
   | (refine ⟨?_, ?_⟩ <;> k2l_int_arith)))
 
+/-- An identifier as a `simp` argument. -/
+def simpArgOf (i : Ident) : MetaM K2LPreserve.SimpArg := do
+  return ⟨(← `(Lean.Parser.Tactic.simpLemma| $i:ident)).raw⟩
+
+/-- The K functions a weight's fact `h : g k v = some a` applies, each with its rules' matchers
+(`withRules`); for a function with no rule matchers (a recursive one), the function alone. -/
+def weightFuns (ty : Expr) : MetaM (Array Name) := do
+  let env ← getEnv
+  let acc ← IO.mkRef (#[] : Array Name)
+  ty.forEach fun e => do
+    let .const c _ := e.getAppFn | return
+    if (← acc.get).contains c then return
+    if env.contains (c ++ `rule1) then
+      acc.modify (· ++ #[c])
+  let mut fs ← acc.get
+  if fs.isEmpty then
+    if let some (_, l, _) := ty.eq? then
+      if let .const c _ := l.getAppFn then
+        if (env.find? c).any (·.isDefinition) then fs := #[c]
+  let mut out := #[]
+  for c in fs do
+    out := out ++ (← K2LPreserve.withRules c)
+  return out
+
+/-- `k2l_measure_weight [unfold] [lemmas]`: a weight is nonnegative wherever it is defined,
+`∀ k v a, g k v = some a → 0 ≤ a`: the weight unfolded (`unfold`: its definition and the
+projections it reads), the K functions it applies unfolded to their rules' matches and those split
+(`splitHypMatches`, the cases that cannot hold refuted), then in each case the value is a rule's
+right-hand side, bounded by the author's lemmas at the calls it makes and arithmetic. -/
+syntax (name := measureWeight) "k2l_measure_weight" " [" ident,* "]" " [" ident,* "]" : tactic
+
+@[tactic measureWeight] def evalMeasureWeight : Tactic := fun stx => do
+  let us : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
+  let ls : Array Ident := stx[5].getSepArgs.map (⟨·⟩)
+  let hw := mkIdent `k2l_w
+  evalTactic (← `(tactic| intro _ _ _ $hw:ident))
+  let usA ← us.mapM (fun i => (simpArgOf i : TacticM _))
+  evalTactic (← `(tactic| try simp only [$[$usA],*] at $hw:ident))
+  let g ← getMainGoal
+  let fs ← g.withContext do
+    let some d := (← getLCtx).findFromUserName? `k2l_w | return #[]
+    weightFuns (← instantiateMVars d.type)
+  unless fs.isEmpty do
+    let ids := fs.map mkIdent
+    evalTactic (← `(tactic| unfold $[$ids]* at $hw:ident))
+  K2LPreserve.splitHypMatches fun _ => true
+  evalTactic (← `(tactic| all_goals (try subst_vars)))
+  evalTactic (← `(tactic| all_goals (try simp only [Option.some.injEq, reduceCtorEq] at *)))
+  evalTactic (← `(tactic| all_goals (try subst_vars)))
+  evalTactic (← `(tactic| all_goals k2l_measure_facts [$[$ls],*]))
+  evalTactic (← `(tactic| all_goals k2l_measure_arith))
+
+/-- The sums `MapHook.sumOf g m` in `e`, outside binders: their weights and maps. -/
+def sumAtoms (e : Expr) : MetaM (Array (Expr × Expr)) := do
+  let n := (← getConstInfo ``MapHook.sumOf).type.getForallArity
+  let acc ← IO.mkRef (#[] : Array (Expr × Expr))
+  e.forEach fun s => do
+    if s.isAppOfArity ``MapHook.sumOf n && !s.hasLooseBVars then
+      let x := (s.getArg! (n - 2), s.getArg! (n - 1))
+      unless (← acc.get).contains x do acc.modify (·.push x)
+  acc.get
+
+/-- `k2l_measure_sum [sums] [unfold] [lemmas]`: the sums over a map in a rule's obligation (a
+measure that adds a weight per binding, `MeasureSum`). Each fold's call is read by its generated
+`iff` (`sums`: defined exactly where the map is well formed and every binding matches with a defined
+weight, and then `sumOf g m`), so the source's definedness gives every binding's and the target's
+is what is left to show. Each map the rule matches or builds as `M₁ M₂` (`concat M₁ M₂ = some M`)
+splits its sum, its bindings' definedness and well-formedness into the operands', down to the
+elements the rule writes and the rest it leaves; and each sum left over a map (the rest) is
+nonnegative, its weight being so (`k2l_measure_weight`). -/
+syntax (name := measureSum) "k2l_measure_sum" " [" ident,* "]" " [" ident,* "]" " [" ident,* "]" : tactic
+
+@[tactic measureSum] def evalMeasureSum : Tactic := fun stx => do
+  let ss : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
+  let us : Array Ident := stx[5].getSepArgs.map (⟨·⟩)
+  let ls : Array Ident := stx[8].getSepArgs.map (⟨·⟩)
+  if ss.isEmpty then return
+  evalTactic (← `(tactic| try subst_vars))
+  let ssA ← ss.mapM (fun i => (simpArgOf i : TacticM _))
+  -- the folds' calls read as sums, the source's definedness taken apart
+  evalTactic (← `(tactic| try simp only [$[$ssA],*, Option.isSome_iff_exists, exists_and_left,
+    exists_and_right, exists_eq_left, exists_eq_right, exists_eq', exists_eq_left', and_assoc] at *))
+  K2LPreserve.splitAnds
+  -- the maps the rule matches and builds, named, split into their operands
+  let g ← getMainGoal
+  let (g, cs) ← g.withContext do
+    let mut g := g
+    let mut cs : Array Name := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let ty ← instantiateMVars d.type
+      let some (_, l, r) := ty.eq? | continue
+      unless l.isAppOf ``MapHook.concat && r.isAppOfArity ``Option.some 2 do continue
+      let n := Name.mkSimple s!"k2l_cc{cs.size}"
+      g ← g.rename d.fvarId n
+      cs := cs.push n
+    return (g, cs)
+  setGoals [g]
+  let mut args : Array K2LPreserve.SimpArg := #[]
+  for n in cs do
+    let i := mkIdent n
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.sumOf_concat $i:ident)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| MapHook.claimsDef_concat $i:ident)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_of_concat $i:ident))).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_operands_of_concat $i:ident).1)).raw⟩
+    args := args.push ⟨(← `(Lean.Parser.Tactic.simpLemma| eq_true (MapHook.wf_operands_of_concat $i:ident).2)).raw⟩
+  evalTactic (← `(tactic| try simp only [$[$args],*, MapHook.sumOf_element, MapHook.sumOf_unit,
+    MapHook.claimsDef_element, MapHook.claimsDef_unit, Option.getD_some, MapHook.wf_unit,
+    and_true, true_and, and_assoc] at *))
+  K2LPreserve.splitAnds
+  if (← getGoals).isEmpty then return
+  -- each sum left over a map is nonnegative: its weight is, wherever it is defined
+  let g ← getMainGoal
+  let atoms ← g.withContext do
+    let mut a ← sumAtoms (← instantiateMVars (← g.getType))
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do
+        for x in ← sumAtoms (← instantiateMVars d.type) do
+          unless a.contains x do a := a.push x
+    return a
+  let mut weights : Array (Expr × Name) := #[]
+  for (w, m) in atoms do
+    if (← getGoals).isEmpty then return
+    let hn ← match weights.find? (·.1 == w) with
+      | some (_, n) => pure (some n)
+      | none =>
+        let n := Name.mkSimple s!"k2l_wn{weights.size}"
+        let ok ← K2LPreserve.tryRec (do
+          let wt ← (← getMainGoal).withContext (Term.exprToSyntax w)
+          evalTactic (← `(tactic| have $(mkIdent n):ident : ∀ k v a, $wt k v = some a → 0 ≤ a := by
+            k2l_measure_weight [$[$us],*] [$[$ls],*]))
+          pure true) (pure false)
+        weights := weights.push (w, n)
+        pure (if ok then some n else none)
+    let some hn := hn | continue
+    let mt ← (← getMainGoal).withContext (Term.exprToSyntax m)
+    K2LPreserve.tryRec (evalTactic (← `(tactic|
+      have := MapHook.sumOf_nonneg $(mkIdent hn):ident $mt))) (pure ())
+  -- what is left to show, part by part; the parts the source gives are its facts
+  evalTactic (← `(tactic| try and_intros))
+  evalTactic (← `(tactic| all_goals (try assumption)))
+
 /-- `k2l_measure [unfold] [lemmas]`: one rule's obligation `Step.Rel.r (Lower μ)` (module doc). -/
-macro "k2l_measure" " [" us:ident,* "]" " [" ls:ident,* "]" : tactic =>
+macro "k2l_measure" " [" us:ident,* "]" " [" ls:ident,* "]" " [" ss:ident,* "]" : tactic =>
   `(tactic| (
     repeat intro
     k2l_measure_cells
-    all_goals simp only [KPrelude.Measure.Lower] at *
+    all_goals (try simp only [KPrelude.Measure.Lower] at *)
     (try k2l_measure_norm [$us,*])
+    all_goals k2l_measure_sum [$ss,*] [$us,*] [$ls,*]
+    all_goals (try k2l_measure_norm [$us,*])
     all_goals k2l_measure_facts [$ls,*]
     all_goals (try k2l_measure_norm [$us,*])
     all_goals (repeat' (k2l_measure_case <;> (try k2l_measure_norm [$us,*]) <;>

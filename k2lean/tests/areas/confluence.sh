@@ -9,9 +9,10 @@
 # two-layer prototype, the fixture twolayer, a coroutine language run segment by segment under a
 # coordination script, library twolayer; TwoParamConf: its parameterized form, the fixture twoparam,
 # a segment's result a parameter of the definition, library twoparam; TwoParamInst: that parameter
-# from the coroutine language on its own, the fixture corout, library corout; ImpPlusConf: IMP++'s
-# threads joined up to the flush of K's stdout stream, its races refuted at peaks of four programs
-# (demos/ImpPlusConf/witnesses), library impplus). Registry: confluence.py.
+# from the coroutine language on its own, the fixture corout, library corout; TwoParamEnds and
+# TwoParamTx (B's): every segment ends, and every order of a script ends in its run's result;
+# ImpPlusConf: IMP++'s threads joined up to the flush of K's stdout stream, its races refuted at
+# peaks of four programs (demos/ImpPlusConf/witnesses), library impplus). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -45,8 +46,10 @@ gen_confluence() {
     # tasks run the segments of a coroutine language, with the script's well-formedness `wf`
     twolayer) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
     # its parameterized form (tests/fixtures/twoparam): a resume is one step, the segment's register
-    # and code functions with no equations (`class Hooks`), with the same well-formedness `wf`
-    twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
+    # and code functions with no equations (`class Hooks`), with the same well-formedness `wf`; its
+    # measure (the work left, a weight per task summed over <tasks>) is lowered by every rule
+    # (`gen --measure`, INV-17)
+    twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T --measure measure@T) ;;
     # the coroutine language on its own (tests/fixtures/corout), deterministic; its measure (the
     # steps left, `measure` in K) is lowered by every rule (`gen --measure`, INV-15)
     corout) libs_fixture_args "$1"; GEN_ARGS+=(--measure measure@T) ;;
@@ -268,6 +271,13 @@ gate_confluence() {
   if runs demo TwoParamEnds; then
     phase "build TwoParamEnds"
     dbuild TwoParamEnds
+  fi
+  # the transaction statement of the parameterized form (B's): a well-formed script with one run to
+  # no task left ends in that run's configuration in every order (twoparam's measure, generated in
+  # generated/twoparam, with TwoParamConf's `terminal_unique`); built against TwoParamConf's phase
+  if runs demo TwoParamTx; then
+    phase "build TwoParamTx"
+    dbuild TwoParamTx
   fi
   # IMP++ (the soundness area's library impplus): threads, `print`, K's stdout stream at priorities 25
   # and 30 before the language's rules, and the store a map changed at some bindings; up to the

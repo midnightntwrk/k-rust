@@ -388,6 +388,44 @@ def kFunsOnVars (e : Expr) : MetaM (Array Name) := do
     unless (← acc.get).contains c do acc.modify (·.push c)
   acc.get
 
+/-- The K function `c` and the matchers of its rules (`c.rule1`, …): what unfolds a call of it to
+its rules' matches. -/
+def withRules (c : Name) : MetaM (Array Name) := do
+  let env ← getEnv
+  let mut us := #[c]
+  let mut i := 1
+  while env.contains (c ++ Name.mkSimple s!"rule{i}") do
+    us := us.push (c ++ Name.mkSimple s!"rule{i}")
+    i := i + 1
+  return us
+
+/-- In every goal, split the matches of the hypotheses `keep` admits, then those of what each split
+leaves (a match on the scrutinee of a match the split generalized), up to `rounds` times; a case
+that `contradiction` closes is dropped. -/
+def splitHypMatches (keep : LocalDecl → Bool) (rounds : Nat := 8) : TacticM Unit := do
+  for _ in [0:rounds] do
+    let mut out : Array MVarId := #[]
+    let mut progress := false
+    for g in ← getGoals do
+      let r ← g.withContext do
+        for d in (← getLCtx) do
+          if d.isImplementationDetail || !keep d then continue
+          let ty ← instantiateMVars d.type
+          unless ← isProp ty do continue
+          let env ← getEnv
+          unless (ty.find? fun e => (isMatcherAppCore? env e).isSome).isSome do continue
+          if let some gs ← Lean.Meta.splitLocalDecl? g d.fvarId then return some gs
+        return none
+      match r with
+      | some gs =>
+        progress := true
+        for g' in gs do
+          let c ← tryRec (do setGoals [g']; evalTactic (← `(tactic| contradiction)); pure true) (pure false)
+          unless c do out := out.push g'
+      | none => out := out.push g
+    setGoals out.toList
+    unless progress do break
+
 /-- Closer 3b's leaf: the goal `Q' p` under `hp : Q p`, the last two locals, for a binding `p`
 whose test the unfolding set does not decide (it matches on the binding's key: `taken(o(P, M),
 PS)` and an `owise` case). The binding is split into its key and value; each K function the fact
@@ -424,42 +462,16 @@ partial def testLeaf (U : Array SimpArg) : TacticM Unit := do
     let some d := (← getLCtx).findFromUserName? `k2l_hp | return #[]
     kFunsOnVars (← instantiateMVars d.type)
   if fs.isEmpty then return
-  let env ← getEnv
   let mut us : Array Name := #[]
   for c in fs do
-    us := us.push c
-    let mut i := 1
-    while env.contains (c ++ Name.mkSimple s!"rule{i}") do
-      us := us.push (c ++ Name.mkSimple s!"rule{i}")
-      i := i + 1
+    us := us ++ (← withRules c)
   let base ← g.withContext do return (← getLCtx).getFVarIds
   let ua : Array SimpArg ← us.mapM (fun n => simpArgOfName n)
   evalTactic (← `(tactic| simp only [$ua,*] at $hpId:ident ⊢))
   if (← getGoals).isEmpty then return
   -- split the matches of the fact, then of what each split leaves, refuting the cases that hold
   -- no `true`
-  for _ in [0:8] do
-    let mut out : Array MVarId := #[]
-    let mut progress := false
-    for g in ← getGoals do
-      let r ← g.withContext do
-        for d in (← getLCtx) do
-          if d.isImplementationDetail || base.contains d.fvarId && d.userName != `k2l_hp then continue
-          let ty ← instantiateMVars d.type
-          unless ← isProp ty do continue
-          let env ← getEnv
-          unless (ty.find? fun e => (isMatcherAppCore? env e).isSome).isSome do continue
-          if let some gs ← Lean.Meta.splitLocalDecl? g d.fvarId then return some gs
-        return none
-      match r with
-      | some gs =>
-        progress := true
-        for g' in gs do
-          let c ← tryRec (do setGoals [g']; evalTactic (← `(tactic| contradiction)); pure true) (pure false)
-          unless c do out := out.push g'
-      | none => out := out.push g
-    setGoals out.toList
-    unless progress do break
+  splitHypMatches fun d => !base.contains d.fvarId || d.userName == `k2l_hp
   -- the facts the splits left, named; the lookups rewritten; the `if`s of the goal split
   let mut out : Array MVarId := #[]
   for g in ← getGoals do

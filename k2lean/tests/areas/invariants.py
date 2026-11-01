@@ -71,4 +71,7 @@ RECORDS = {
     # corout's measure (the confluence area's library corout, built by its demo TwoParamEnds):
     # every rule lowers it (INV-15)
     "corout-measure": {"tier": "light", "measure": measure_meas("corout", "Corout"), "sources": []},
+    # twoparam's measure (the confluence area's library twoparam, built by its demo TwoParamTx): the
+    # work left, a sum over the <tasks> cell map, lowered by every rule (INV-17)
+    "twoparam-measure": {"tier": "light", "measure": measure_meas("twoparam", "TwoParam"), "sources": []},
 }

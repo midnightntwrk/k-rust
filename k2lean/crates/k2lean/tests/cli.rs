@@ -1691,6 +1691,10 @@ fn measure_states_one_case_per_rule_with_the_authors_lemmas_and_a_listed_case_by
         "theorem «loop-done» : Step.Rel.«loop-done» (KPrelude.Measure.Lower Measure.value) := by k2l_meas"
     ));
     assert!(thms.contains("#k2l_assert_axioms Measure.lower Measure.terminates"));
+    assert!(thms.contains(
+        "theorem Measure.terminates (c : SortGeneratedTopCell) (h : (Measure.value c).isSome) : Paths.Terminates Step c"
+    ));
+    assert!(mac.ends_with("[])"), "{mac}");
     assert!(!thms.contains("import Corout.MeasureHand"));
 
     std::fs::write(d.join("open-measure-cases.txt"), "loop | listed by hand\n").unwrap();
@@ -1720,6 +1724,37 @@ fn measure_states_one_case_per_rule_with_the_authors_lemmas_and_a_listed_case_by
     let o = gen_progress("corout", &d, "Corout", &[]);
     assert!(o.status.success());
     assert!(!d.join("Corout/Measure.lean").exists() && !d.join("Corout/MeasureDefs.lean").exists());
+}
+
+/// A measure that sums a weight over a cell map (`gen --measure` on `twoparam`, the work left of
+/// each task summed over `<tasks>`): the fold is recognized as a sum, and `MeasureDefs.lean` states
+/// its test of a binding (the key read twice: a cell map binds each task under its own `<tid>`), its
+/// weight and its reading as a sum, through projections of its own namespace; `k2l_measure` reads
+/// it through that `iff`, and termination holds where the measure is defined.
+#[test]
+fn measure_reads_a_sum_over_a_cell_map_through_its_iff() {
+    let d = tmp("cli-measure-sum");
+    let o = gen_progress("twoparam", &d, "TwoParam", &["--measure", "measure@T"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("measure: 0 open cases"));
+    let defs = std::fs::read_to_string(d.join("TwoParam/MeasureDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "def Measure.work_test (k : SortTidCell) (v : SortTaskCell) : Prop :=\n  (Measure.content_tid (Measure.cell_tid v)) = (Measure.content_tid k)"
+    ), "{defs}");
+    assert!(defs.contains(
+        "def Measure.work_g (k : SortTidCell) (v : SortTaskCell) : Option Int :=\n  K.«kw(_)_TWOPARAM_Int_K» (Measure.content_k (Measure.cell_k v))"
+    ), "{defs}");
+    assert!(defs.contains("theorem Measure.work_eq (m : SortTaskCellMap) (s : Int) :"));
+    assert!(defs.contains("KPrelude.MapHook.fold_sum (F := fun m => K.«work(_)_TWOPARAM_Int_TasksCell» (SortTasksCell.«<tasks>» m))"));
+    assert!(!defs.contains("Invariant."), "{defs}");
+    let thms = std::fs::read_to_string(d.join("TwoParam/Measure.lean")).unwrap();
+    let mac = thms
+        .lines()
+        .find(|l| l.starts_with("local macro \"k2l_meas\""))
+        .unwrap();
+    assert!(mac.contains("Measure.work_test, Measure.work_g"), "{mac}");
+    assert!(mac.ends_with("[Measure.work_eq])"), "{mac}");
+    assert_eq!(thms.matches(":= by k2l_meas\n").count(), 6);
 }
 
 /// `gen --progress` (design.md §3.9) on the stack machine `vm`: one case per head of `<k>`, each

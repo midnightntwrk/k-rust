@@ -6,16 +6,34 @@
 //! states the facts it needs about the functions it calls as K simplification rules, which `gen`
 //! states as obligations like any other (`Simp.s_…`) and never assumes. This module states, per
 //! rule `r`, that the rule's step lowers the measure: `Step.Rel.r (KPrelude.Measure.Lower
-//! Measure.value)`, its value defined at both ends, nonnegative at the target and below its value at
-//! the source. Each case is proved by `k2l_measure` with the measure's unfolding set (its projections
-//! to the cell, and the proved equations of every function it calls) and the proved author lemmas
-//! about those functions, or, for the cases listed in `open-measure-cases.txt`, by the hand-written
-//! `Measure.hand.r` of `{ns}/MeasureHand.lean`. The measure's definition (its projections and value)
-//! is `{ns}/MeasureDefs.lean`, which both import. `Measure.lower` gathers the cases (`Step.rel_of`) and
-//! `Measure.terminates` is termination from every configuration (`KPrelude.Measure.terminates`).
+//! Measure.value)`, where its value is defined at the source, defined at the target, nonnegative
+//! there and below its value at the source. Each case is proved by `k2l_measure` with the measure's
+//! unfolding set (its projections to the cell, and the proved equations of every function it calls)
+//! and the proved author lemmas about those functions, or, for the cases listed in
+//! `open-measure-cases.txt`, by the hand-written `Measure.hand.r` of `{ns}/MeasureHand.lean`. The
+//! measure's definition (its projections and value) is `{ns}/MeasureDefs.lean`, which both import.
+//! `Measure.lower` gathers the cases (`Step.rel_of`) and `Measure.terminates` is termination from
+//! every configuration where the measure is defined (`KPrelude.Measure.terminates`).
+//!
+//! **Why "where it is defined".** A measure over a cell map (the work left in each task) is a fold
+//! that adds a weight per binding, and its equations read a binding's key twice: a cell map binds
+//! each element under its own id. K's maps hold that by construction; the Lean map type also holds
+//! maps that bind an element under another key, and there the fold is undefined. Such a map is no
+//! configuration a run reaches, but a rule's instance quantifies over every rest of the map it
+//! matches, so "defined at the source" cannot be shown; from a source where it is defined, the
+//! step's target is, and definedness is then preserved, which is all termination needs.
+//!
+//! **Sums over a map.** A function the measure calls that adds a weight per binding of a map
+//! (`F(.Map) => 0`, `F((K |-> V) R) => g(K, V) +Int F(R)`, `MapFold`) has one meaning in K whatever
+//! order the walk takes, since `+Int` is associative and commutative. For each, `MeasureDefs.lean`
+//! states its test of a binding (`Measure.F_test`, what the patterns read twice is equal), its
+//! weight (`Measure.F_g`) and `Measure.F_eq`: the fold is defined exactly on a well-formed map whose
+//! every binding passes the test with a defined weight, and is then `MapHook.sumOf F_g m`
+//! (`KPrelude.MeasureSum`, from the fold's instances). `k2l_measure`'s sum stage reads the fold
+//! through it.
 
 use crate::eqns::Stated;
-use crate::invariants::{Ctx, Spec, closure, find_cell, resolve};
+use crate::invariants::{Ctx, FoldKind, MapFold, Spec, closure, find_cell, map_fold_of, resolve};
 use crate::names;
 use std::collections::BTreeSet;
 
@@ -81,6 +99,7 @@ pub fn emit(
     // the projections from the configuration to the cell, and the measure's value
     let mut defs = String::new();
     let mut unfold: Vec<String> = Vec::new();
+    let mut own: Vec<String> = Vec::new();
     let mut read = "c".to_string();
     let mut proj = |name: String,
                     sort: &str,
@@ -98,6 +117,7 @@ pub fn emit(
             pats.join(" ")
         ));
         *read = format!("{name} {}", paren_read(read));
+        own.push(name.clone());
         unfold.push(name);
     };
     for lv in &path.levels {
@@ -140,12 +160,27 @@ pub fn emit(
     // about them (a simplification rule whose statement applies one of them)
     let proved = |n: &String| cx.stated.contains(n) && !cx.open_eqns.contains(n);
     let mut called: Vec<String> = Vec::new();
+    let mut sums: Vec<MapFold> = Vec::new();
+    let mut projections = std::collections::BTreeMap::new();
+    let mut proj_names: Vec<String> = Vec::new();
     for g in closure(cx.def, cx.eqs, &sym) {
         let Some(gs) = cx.fns.get(&g) else { continue };
         if !gs.lean.starts_with("K.") {
             continue;
         }
         called.push(gs.lean.clone());
+        if cx.recursive.contains(&gs.lean)
+            && let Some(f) = map_fold_of(
+                cx,
+                &g,
+                FoldKind::Sum,
+                "Measure",
+                &mut projections,
+                &mut proj_names,
+            )
+        {
+            sums.push(f);
+        }
         let n = cx.eqs.get(&g).map_or(0, |es| es.len());
         for i in 0..n {
             let e = format!(
@@ -165,6 +200,24 @@ pub fn emit(
         .filter(|s| called.iter().any(|f| s.statement.contains(f.as_str())))
         .map(|s| s.name.clone())
         .collect();
+
+    // the sums over a map: their projections (those the measure's path does not define already),
+    // tests, weights and reading as sums
+    for n in &proj_names {
+        if !own.contains(n) {
+            defs.push_str(&projections[n]);
+            defs.push('\n');
+            unfold.push(n.clone());
+        }
+    }
+    let mut sum_eqs: Vec<String> = Vec::new();
+    for f in &sums {
+        defs.push_str(&sum_defs(f));
+        let b = &f.base;
+        unfold.push(format!("Measure.{b}_test"));
+        unfold.push(format!("Measure.{b}_g"));
+        sum_eqs.push(format!("Measure.{b}_eq"));
+    }
 
     // the cases
     let open: BTreeSet<String> = cx
@@ -188,20 +241,21 @@ namespace {ns}\n\nopen KPrelude\n\n{defs}end {ns}\n",
     t.push('\n');
     t.push_str(&format!(
         "/-! Generated by k2lean (`gen --measure {}@{cell}`); do not edit.\n\n\
-Every rule of `{ns}` lowers the measure `{}` (`Measure.value`): its value is defined at both ends of\n\
-the step, nonnegative at the target and below its value at the source\n\
+Every rule of `{ns}` lowers the measure `{}` (`Measure.value`): where its value is defined at the\n\
+source of a step, it is defined at the target, nonnegative there and below its value at the source\n\
 (`Step.Rel.r (KPrelude.Measure.Lower Measure.value)`). Each case is proved by `k2l_measure` with the\n\
-measure's unfolding set and the author's proved lemmas about the functions it calls (K\n\
-simplification rules), or, for the cases listed in `open-measure-cases.txt`, by the hand-written\n\
-`Measure.hand.r` of `MeasureHand.lean`. So no infinite run starts anywhere\n\
-(`Measure.terminates`). -/\n\n\
+measure's unfolding set, the author's proved lemmas about the functions it calls (K simplification\n\
+rules) and the measure's sums over a map, or, for the cases listed in `open-measure-cases.txt`, by\n\
+the hand-written `Measure.hand.r` of `MeasureHand.lean`. So no infinite run starts where the measure\n\
+is defined (`Measure.terminates`). -/\n\n\
 set_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n\n\
-/-- `k2l_measure` with the measure's unfolding set and the author's lemmas. -/\n\
-local macro \"k2l_meas\" : tactic => `(tactic| k2l_measure [{}] [{}])\n\nnamespace Measure.case\n\n",
+/-- `k2l_measure` with the measure's unfolding set, the author's lemmas and its sums. -/\n\
+local macro \"k2l_meas\" : tactic => `(tactic| k2l_measure [{}] [{}] [{}])\n\nnamespace Measure.case\n\n",
         spec.name,
         names::demangle(&sym),
         unfold.join(", "),
-        lemmas.join(", ")
+        lemmas.join(", "),
+        sum_eqs.join(", ")
     ));
     let mut n_auto = 0;
     for c in cx.ctors {
@@ -229,8 +283,9 @@ theorem Measure.lower {{c c' : {top}}} (h : Step c c') : KPrelude.Measure.Lower 
         t.push_str(&format!("    Measure.case.{}\n", c.lean));
     }
     t.push_str(&format!(
-        "    h\n\n/-- No infinite run starts anywhere: every run ends. -/\n\
-theorem Measure.terminates (c : {top}) : Paths.Terminates Step c :=\n  KPrelude.Measure.terminates Measure.value Measure.lower c\n\n\
+        "    h\n\n/-- No infinite run starts where the measure is defined: every run from there ends. -/\n\
+theorem Measure.terminates (c : {top}) (h : (Measure.value c).isSome) : Paths.Terminates Step c :=\n  \
+KPrelude.Measure.terminates Measure.value Measure.lower c h\n\n\
 #k2l_assert_axioms Measure.lower Measure.terminates\n\nend {ns}\n"
     ));
 
@@ -263,10 +318,11 @@ theorem Measure.terminates (c : {top}) : Paths.Terminates Step c :=\n  KPrelude.
 /-! Hand-written proofs of the cases of the measure listed in `open-measure-cases.txt`.\n\n\
 `k2lean gen` wrote this file once, because it did not exist, and never changes it. Prove each case\n\
 below as the theorem it names (uncomment and complete it); `Measure.lean` uses them by name. The\n\
-generated proofs use `k2l_measure [{}] [{}]`. -/\n\n\
+generated proofs use `k2l_measure [{}] [{}] [{}]`. -/\n\n\
 namespace {ns}\n\nopen KPrelude\n\n{skel}end {ns}\n",
             unfold.join(", "),
-            lemmas.join(", ")
+            lemmas.join(", "),
+            sum_eqs.join(", ")
         )
     });
     Ok(Out {
@@ -275,6 +331,80 @@ namespace {ns}\n\nopen KPrelude\n\n{skel}end {ns}\n",
         open_list: ol,
         hand_skeleton,
     })
+}
+
+/// The definitions and theorems of a sum over a map (`MapFold`): its test and weight of one binding,
+/// its value at the empty map, and its value as the sum of the weights (`Measure.F_sum`, from its
+/// instances by `MapHook.fold_sum`), where it is defined (`Measure.F_isSome`, by
+/// `MapHook.fold_sum_isSome`), and both read together (`Measure.F_eq`). The proofs are those of a
+/// fold of claims (`invariants.rs`) with the weights added rather than the claims concatenated.
+fn sum_defs(f: &MapFold) -> String {
+    let (b, l) = (&f.base, &f.lean);
+    let reads: String = f.reads.iter().map(|r| format!(", {r}")).collect();
+    let insts = format!("{l}.instances, {l}.inst1, {l}.inst2");
+    let cases: Vec<String> = [("k", &f.key_pat), ("v", &f.val_pat)]
+        .iter()
+        .filter_map(|(x, p)| p.as_ref().map(|p| format!("k2l_cases {x} with {p}")))
+        .collect();
+    let cases = if cases.is_empty() {
+        String::new()
+    } else {
+        format!("    {}\n", cases.join(" <;> "))
+    };
+    let (key, val, map, test, part) = (&f.key, &f.val, &f.map, &f.test, &f.part);
+    let unit = f.at("KPrelude.MapHook.unit");
+    let at_m = f.at("m");
+    format!(
+        "/-- The sum `{l}`: what the patterns of one binding `k |-> v` read twice is equal. -/\n\
+def Measure.{b}_test (k : {key}) (v : {val}) : Prop :=\n  {test}\n\n\
+/-- The sum `{l}`: the weight of one binding `k |-> v`. -/\n\
+def Measure.{b}_g (k : {key}) (v : {val}) : Option Int :=\n  {part}\n\n\
+theorem Measure.{b}_unit : {unit} = some 0 := by\n  \
+rw [{l}.eq_instances]\n  simp [{insts}, KPrelude.firstNonempty_singleton]\n\n\
+/-- The sum `{l}`'s value is the sum of every binding's weight, each binding matching the patterns\n\
+with its weight defined (`MapHook.fold_sum`, from its instances). -/\n\
+theorem Measure.{b}_sum (m : {map}) (s : Int) (h : {at_m} = some s) :\n    \
+KPrelude.MapHook.ClaimsDef Measure.{b}_test Measure.{b}_g m ∧ s = KPrelude.MapHook.sumOf Measure.{b}_g m := by\n  \
+refine KPrelude.MapHook.fold_sum (F := fun m => {at_m}) (T := Measure.{b}_test)\n    Measure.{b}_unit ?_ m s h\n  \
+intro m s hu h\n  rw [{l}.eq_instances] at h\n  \
+simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n  \
+split at h\n  · rename_i hw\n    \
+obtain ⟨k, v, hk, hb⟩ := KPrelude.MapHook.mem_of_head?_chooseAll (Option.join_eq_some_iff.1 h)\n    \
+refine ⟨(KPrelude.MapHook.wfb_iff _).1 hw, k, v, ?_⟩\n    repeat' (split at hb)\n    \
+all_goals (simp only [List.mem_singleton, List.not_mem_nil, Option.some.injEq, reduceCtorEq] at hb)\n    \
+all_goals\n      subst hb\n      subst_vars\n      apply Exists.intro; apply Exists.intro\n      \
+refine ⟨hk, ?_, ?_, ?_, ?_⟩\n      · simp_all [Measure.{b}_test{reads}]\n      \
+· simp only [Measure.{b}_g{reads}]; first | assumption | rfl\n      · assumption\n      \
+· first | rfl | (simp only [KPrelude.IntHook.add]; done) | (simp only [KPrelude.IntHook.add]; k2l_int_omega)\n  \
+· simp at h\n\n\
+/-- The sum `{l}` is defined where every binding matches its patterns with a defined weight\n\
+(`MapHook.fold_sum_isSome`, from its instances). -/\n\
+theorem Measure.{b}_isSome (m : {map}) (hw : KPrelude.MapHook.WF m)\n    \
+(hd : KPrelude.MapHook.ClaimsDef Measure.{b}_test Measure.{b}_g m) : ({at_m}).isSome := by\n  \
+refine KPrelude.MapHook.fold_sum_isSome (F := fun m => {at_m}) (T := Measure.{b}_test)\n    \
+(g := Measure.{b}_g) Measure.{b}_unit ?_ m hw hd\n  intro m hu hw h\n  rw [{l}.eq_instances]\n  \
+simp only [{insts}, hu, ite_false, List.nil_append,\n    \
+KPrelude.firstNonempty_singleton, (KPrelude.MapHook.wfb_iff m).2 hw, ite_true]\n  \
+unfold KPrelude.MapHook.chooseAll\n  cases hl : KPrelude.ListIso.toList m with\n  \
+| nil => exact absurd hl (KPrelude.MapHook.toList_ne_nil_of_ne_unit hu)\n  | cons p t =>\n    \
+obtain ⟨⟨ht, hg⟩, hr⟩ := h p.1 p.2 (by rw [hl]; exact List.mem_cons_self ..)\n    \
+obtain ⟨k, v⟩ := p\n    rw [List.flatMap_cons]\n{cases}    all_goals\n      \
+simp only [Measure.{b}_test, Measure.{b}_g{reads}, Option.isSome_iff_exists] at ht hg hr\n      \
+obtain ⟨a, ha⟩ := hg\n      obtain ⟨r, hr'⟩ := hr\n      simp [ht, ha, hr']\n\n\
+/-- The sum `{l}` read as a sum: defined exactly at a well-formed map whose every binding matches\n\
+the patterns with a defined weight, and then the sum of the weights. -/\n\
+theorem Measure.{b}_eq (m : {map}) (s : Int) :\n    {at_m} = some s ↔\n      \
+KPrelude.MapHook.WF m ∧ KPrelude.MapHook.ClaimsDef Measure.{b}_test Measure.{b}_g m ∧\n        \
+s = KPrelude.MapHook.sumOf Measure.{b}_g m := by\n  \
+constructor\n  · intro h\n    refine ⟨?_, Measure.{b}_sum m s h⟩\n    \
+by_cases hu : m = KPrelude.MapHook.unit\n    · subst hu; exact KPrelude.MapHook.wf_unit\n    \
+· rw [{l}.eq_instances] at h\n      \
+simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n      \
+split at h\n      · exact (KPrelude.MapHook.wfb_iff _).1 ‹_›\n      · simp at h\n  \
+· rintro ⟨hw, hd, rfl⟩\n    \
+exact KPrelude.MapHook.fold_sum_eq (fun m s h => Measure.{b}_sum m s h)\n      \
+(fun m hw hd => Measure.{b}_isSome m hw hd) hw hd\n\n"
+    )
 }
 
 /// `e` parenthesized when it is an application.

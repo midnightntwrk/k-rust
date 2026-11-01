@@ -106,4 +106,22 @@ module TWOPARAM
   rule taken(_, _) => false [owise]
   rule below(M, st(N, _, _)) => M <Int N
   rule below(_, _) => false [owise]
+  // The work left, the measure of every run's length (`gen --measure measure@T`): each task weighs
+  // what its `<k>` has yet to do, `1` for nothing (`done` removes it), `2` for an instruction (it
+  // runs, then `done`), `pw(P)` for a program, `3` per instruction (`fork` moves one out) and `2`
+  // (`nil`, then `done`). Every rule lowers the sum by one.
+  syntax Int ::= measure(TCell) [function, total]
+               | work(TasksCell) [function, total]
+               | kw(K) [function, total]
+               | pw(Pgm) [function, total]
+  rule measure(<T> TS:TasksCell _ </T>) => work(TS)
+  rule work(<tasks> .Bag </tasks>) => 0
+  rule work(<tasks> <task> <tid> _ </tid> <n> _ </n> <k> K </k> </task> Ts </tasks>)
+    => kw(K) +Int work(<tasks> Ts </tasks>)
+  rule kw(_:Instr) => 2
+  rule kw(P:Pgm) => pw(P)
+  rule kw(_) => 1 [owise]
+  rule pw(.Pgm) => 2
+  rule pw(_ & P) => 3 +Int pw(P)
+  rule pw(_P) >=Int 0 => true [simplification]
 endmodule
