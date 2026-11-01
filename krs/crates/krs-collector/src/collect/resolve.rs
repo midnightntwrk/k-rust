@@ -581,6 +581,9 @@ struct Resolver<'a> {
     /// The keys of the nodes only a reading the collector did not keep
     /// denotes, whose anchors the descriptor drops.
     discarded: BTreeSet<krs_ir::ProvenanceKey>,
+    /// The applications whose path the host stage read as a set's singleton
+    /// ([`krs_ir::names_set_element`]) and which resolve to something else.
+    misread_elements: BTreeSet<krs_ir::ProvenanceKey>,
 }
 
 impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
@@ -604,13 +607,20 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         &mut self,
         reference: krs_ir::HostApplicationReference,
     ) -> Result<DescriptorApplicationReference, Self::Error> {
-        resolve_application_reference(
+        let resolved = resolve_application_reference(
             &reference,
             self.declarations,
             self.builtins,
             self.allow_builtin_application,
         )
-        .map_err(|error| error.with_reference_key(reference.key))
+        .map_err(|error| error.with_reference_key(reference.key.clone()))?;
+        if krs_ir::names_set_element(reference.target.authored_path())
+            && resolved.application
+                != krs_ir::DescriptorApplicationRef::Set(krs_ir::SetOperation::Item)
+        {
+            self.misread_elements.insert(reference.key);
+        }
+        Ok(resolved)
     }
 
     fn nominal(&mut self, reference: HostTypeReference) -> Result<StableItemId, Self::Error> {
@@ -1389,6 +1399,7 @@ fn carried_keys(
 /// Resolves a host payload, with the keys of the nodes only a reading it
 /// discarded denotes (a readable rule's other reading of a bracketed or
 /// list value), whose anchors the descriptor drops.
+#[cfg(test)]
 pub(super) fn resolve_payload(
     payload: &HostDescriptorPayload,
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
@@ -1397,6 +1408,37 @@ pub(super) fn resolve_payload(
     builtins: Option<&HostBuiltinRegistry>,
     head_targets: &[HeadRuleTarget],
 ) -> Result<(DescriptorPayload, BTreeSet<krs_ir::ProvenanceKey>), CollectionError> {
+    resolve_payload_reading(
+        payload,
+        declarations,
+        cell_fields,
+        context_aliases,
+        builtins,
+        head_targets,
+    )
+    .map(|resolved| (resolved.payload, resolved.discarded))
+}
+
+/// A descriptor payload resolved, with what its resolution tells beyond the payload.
+pub(super) struct ResolvedPayload {
+    pub(super) payload: DescriptorPayload,
+    /// The anchors the descriptor drops ([`Resolver::discarded`]).
+    pub(super) discarded: BTreeSet<krs_ir::ProvenanceKey>,
+    /// Whether an application whose path reads as a set's singleton resolves to something else
+    /// ([`Resolver::misread_elements`]).
+    pub(super) misreads_set_element: bool,
+}
+
+/// [`resolve_payload`], also telling whether a path that reads as a set's singleton resolves to
+/// something else.
+pub(super) fn resolve_payload_reading(
+    payload: &HostDescriptorPayload,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
+    context_aliases: &HashMap<HostItemId, StableItemId>,
+    builtins: Option<&HostBuiltinRegistry>,
+    head_targets: &[HeadRuleTarget],
+) -> Result<ResolvedPayload, CollectionError> {
     let mut map = Resolver {
         declarations,
         cell_fields,
@@ -1407,11 +1449,16 @@ pub(super) fn resolve_payload(
         allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
         parameters: sort_parameters(payload),
         discarded: BTreeSet::new(),
+        misread_elements: BTreeSet::new(),
     };
     let payload = payload
         .clone()
         .try_map_refs(&mut map, &mut resolve_head_rule)?;
-    Ok((payload, map.discarded))
+    Ok(ResolvedPayload {
+        payload,
+        discarded: map.discarded,
+        misreads_set_element: !map.misread_elements.is_empty(),
+    })
 }
 
 /// The sort parameters a parametric production's constructor or grammar
@@ -2003,6 +2050,7 @@ mod tests {
             head_selection: None,
             allow_builtin_application: true,
             discarded: BTreeSet::new(),
+            misread_elements: BTreeSet::new(),
         };
         let error = cell
             .try_map_refs(

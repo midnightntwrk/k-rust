@@ -21135,7 +21135,7 @@ rule [case-TAG]:
 <token>
 <mark> hold ( V1:Stmt ) </mark>
 </token>
-requires V1:Stmt ==K ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) )
+requires ( pair ( _ , _ ) :=K V0:KItem ) andThenBool (V1:Stmt ==K ( #let pair ( _ , V2:KItem ) = V0:KItem #in pair ( 1 , V2:KItem ) ))
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

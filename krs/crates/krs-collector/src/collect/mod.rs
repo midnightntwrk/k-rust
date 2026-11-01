@@ -13,7 +13,8 @@ use crate::{CollectionError, CollectionErrorKind};
 
 use provenance::materialize_descriptor_provenance;
 use resolve::{
-    declared_cell_field_table, declared_type_table, resolve_head_rule_targets, resolve_payload,
+    declared_cell_field_table, declared_type_table, resolve_head_rule_targets,
+    resolve_payload_reading,
 };
 pub use run::run_collector;
 use source::canonicalize_path;
@@ -455,7 +456,7 @@ fn resolve_pending_descriptors(
             }
         };
         let started = timings.now();
-        let payload = resolve_payload(
+        let payload = resolve_payload_reading(
             &pending.host.payload,
             &declarations,
             &cell_fields,
@@ -464,8 +465,12 @@ fn resolve_pending_descriptors(
             &head_targets,
         );
         payload_seconds += Timings::since(started);
-        let (payload, provenance) = match payload.and_then(|(payload, discarded)| {
-            Ok((payload, kept_provenance(&provenance, &discarded)?))
+        let (payload, provenance, misreads) = match payload.and_then(|resolved| {
+            Ok((
+                resolved.payload,
+                kept_provenance(&provenance, &resolved.discarded)?,
+                resolved.misreads_set_element,
+            ))
         }) {
             Ok(value) => value,
             Err(error) => {
@@ -485,7 +490,7 @@ fn resolve_pending_descriptors(
             visibility,
             explicit_symbol,
         ));
-        resolved.push((pending.id, pending.host.cfg, provenance, payload));
+        resolved.push((pending.id, pending.host.cfg, provenance, payload, misreads));
     }
     timings.record("collector.resolve.provenance", provenance_seconds, 0);
     timings.record("collector.resolve.payload", payload_seconds, 0);
@@ -497,9 +502,9 @@ fn resolve_pending_descriptors(
         resolved.sort();
         let resolved = resolved
             .into_iter()
-            .map(|(id, cfg, provenance, payload)| {
+            .map(|(id, cfg, provenance, payload, misreads)| {
                 Descriptor::new_located(id, cfg, provenance, payload)
-                    .map_err(|failure| descriptor_contract_error(*failure))
+                    .map_err(|failure| descriptor_contract_error(*failure, misreads))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let settings = contexts.iter().map(|context| PackageSettings {
@@ -538,7 +543,17 @@ fn kept_provenance(
 
 /// The collection error of a descriptor that fails its contract, located at the innermost node
 /// a term walk failed in, and at the descriptor's item otherwise.
-fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionError {
+///
+/// The host stage reads an application whose path ends in `set::item` as a set's singleton, whose
+/// element is computed and may hold a `let` block, a test or a record update; the descriptor stage
+/// reads it by what it resolves to. Where the descriptor `misreads` such a path (it resolves to a
+/// constructor) and its contract then refuses one of those constructs, the construct stands in a
+/// constructor's field, which the pattern matches as it stands: that is the author's mistake, the
+/// class the position table gives a construct at a matched position.
+fn descriptor_contract_error(
+    failure: krs_ir::DescriptorFailure,
+    misreads: bool,
+) -> CollectionError {
     let krs_ir::DescriptorFailure {
         error,
         at,
@@ -550,7 +565,9 @@ fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionEr
         krs_ir::DescriptorError::State(error) => error.at().cloned(),
         _ => None,
     });
+    let misread = misreads.then(|| misread_set_element(&error)).flatten();
     let (kind, message) = match error {
+        _ if let Some(misread) = misread => misread,
         krs_ir::DescriptorError::Grammar(error) => (
             CollectionErrorKind::ProvenanceMismatch,
             format!("invalid stable grammar descriptor: {error}"),
@@ -571,6 +588,59 @@ fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionEr
     }
     .with_provenance(&provenance)
     .with_item(&id)
+}
+
+/// The author error of a construct the host stage admitted in a set's element whose path resolves
+/// to a constructor ([`descriptor_contract_error`]), if `error` is its refusal.
+fn misread_set_element(error: &krs_ir::DescriptorError) -> Option<(CollectionErrorKind, String)> {
+    use krs_ir::transport::detail::{GrammarTermReason, StateTermReason};
+    use krs_syntax::positions::Class;
+    #[derive(Clone, Copy)]
+    enum Refused {
+        Let,
+        Matches,
+        RecordUpdate,
+    }
+    let refused = match error {
+        krs_ir::DescriptorError::Grammar(krs_ir::GrammarTransportError::InvalidTerm(reason)) => {
+            match reason {
+                GrammarTermReason::LetInPattern => Refused::Let,
+                GrammarTermReason::MatchesInPattern => Refused::Matches,
+                GrammarTermReason::RecordUpdateBase => Refused::RecordUpdate,
+                _ => return None,
+            }
+        }
+        krs_ir::DescriptorError::State(krs_ir::StateTransportError::InvalidTerm(reason)) => {
+            match reason {
+                StateTermReason::LetInPattern => Refused::Let,
+                StateTermReason::MatchesInPattern => Refused::Matches,
+                StateTermReason::RecordUpdateBase => Refused::RecordUpdate,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    let (kind, class) = match refused {
+        Refused::Let => (
+            CollectionErrorKind::LetInMatchedField,
+            Class::LetOutsideTerm,
+        ),
+        Refused::Matches => (
+            CollectionErrorKind::MatchesInMatchedField,
+            Class::MatchesOutsideCondition,
+        ),
+        Refused::RecordUpdate => (
+            CollectionErrorKind::RecordUpdateInMatchedField,
+            Class::RecordUpdateInPattern,
+        ),
+    };
+    Some((
+        kind,
+        format!(
+            "{}; here it stands in a field of an application whose path ends in `set::item`, which the syntax reads as a set's singleton before names are resolved, and which resolves to a constructor of the program, whose field the pattern matches as it stands: spell the builtin singleton `k::builtin::set::item`, or give the constructor a path that does not end in `set::item`",
+            class.summary()
+        ),
+    ))
 }
 
 fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {

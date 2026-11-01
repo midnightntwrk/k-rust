@@ -60,8 +60,11 @@ pub(crate) trait ValidationStage: Stage {
     fn is_set_element(application: &Self::Application) -> bool;
 }
 
-/// Whether `path`, an authored application path, ends in `set::item`.
-fn names_set_element(path: &str) -> bool {
+/// Whether `path`, an authored application path, ends in `set::item`: the spelling the expander
+/// and the host stage read as a set's singleton before names are resolved. The collector refuses
+/// what that reading admitted where the path resolves to anything else.
+#[must_use]
+pub fn names_set_element(path: &str) -> bool {
     let segments = path.split("::").map(str::trim).collect::<Vec<_>>();
     matches!(segments.as_slice(), [.., "set", "item"])
 }

@@ -2206,6 +2206,17 @@ impl StructuredTermBuilder<'_> {
         Ok(lowered)
     }
 
+    /// [`Self::lower_term`], locating an invalid-term error at `term` as [`Self::lower`] does.
+    pub(super) fn lower_term_located(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.lower_term(term, expected_sort, subject)
+            .map_err(|error| self.locate(error, term))
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive lowering over the closed descriptor term sum."

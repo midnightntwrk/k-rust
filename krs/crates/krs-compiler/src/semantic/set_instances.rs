@@ -267,10 +267,35 @@ impl StructuredTermBuilder<'_> {
             | DescriptorTerm::Matches { key, .. } => key.clone(),
             _ => unreachable!("only a construct that computes is guarded"),
         };
-        // Below the construct every position is built.
-        let guards = self.instance_guards.take();
-        let value = self.lower(term, expected_sort, subject);
-        self.instance_guards = guards;
+        let value = if matches!(
+            term,
+            DescriptorTerm::Let { .. } | DescriptorTerm::Matches { .. }
+        ) {
+            // A block or a test is computed as in a key ([`Self::lower_key_local_function`]):
+            // what has no value everywhere below it is guarded ahead of it, a projection with
+            // its sort test and a `let` statement that may not match with its pattern's test,
+            // so its value is computed in the condition only where it has one.
+            let guards = self
+                .instance_guards
+                .as_mut()
+                .expect("a guarded construct stands in a looked-up instance");
+            guards.activate(false);
+            guards.compute(true);
+            let value = self.lower_term_located(term, expected_sort, subject);
+            let guards = self
+                .instance_guards
+                .as_mut()
+                .expect("the instance's guards outlive its construct");
+            guards.compute(false);
+            guards.activate(true);
+            value
+        } else {
+            // Below the construct every position is built.
+            let guards = self.instance_guards.take();
+            let value = self.lower(term, expected_sort, subject);
+            self.instance_guards = guards;
+            value
+        };
         let value = value?;
         let sort = value.sort().clone();
         self.guard_equal(key, sort, value)

@@ -74,6 +74,13 @@ pub enum CollectionErrorKind {
     AmbiguousAnchor,
     /// The macro and shared parser disagreed about the complete anchor set.
     ProvenanceMismatch,
+    /// A `let` block in a field of an application whose path reads as a set's singleton and
+    /// resolves to a constructor, whose field the pattern matches.
+    LetInMatchedField,
+    /// A `k::matches!` there.
+    MatchesInMatchedField,
+    /// A record update there.
+    RecordUpdateInMatchedField,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -227,6 +234,9 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::StaleAnchor => codes::collect::STALE_ANCHOR,
             CollectionErrorKind::AmbiguousAnchor => codes::collect::AMBIGUOUS_ANCHOR,
             CollectionErrorKind::ProvenanceMismatch => codes::collect::PROVENANCE_MISMATCH,
+            CollectionErrorKind::LetInMatchedField => codes::expand::LET_OUTSIDE_TERM,
+            CollectionErrorKind::MatchesInMatchedField => codes::expand::MATCHES_OUTSIDE_CONDITION,
+            CollectionErrorKind::RecordUpdateInMatchedField => codes::syntax::INVALID_RECORD_UPDATE,
         };
         let diagnostic = Diagnostic::error(
             code,
@@ -389,6 +399,18 @@ mod tests {
             (
                 CollectionErrorKind::ProvenanceMismatch,
                 codes::collect::PROVENANCE_MISMATCH,
+            ),
+            (
+                CollectionErrorKind::LetInMatchedField,
+                codes::expand::LET_OUTSIDE_TERM,
+            ),
+            (
+                CollectionErrorKind::MatchesInMatchedField,
+                codes::expand::MATCHES_OUTSIDE_CONDITION,
+            ),
+            (
+                CollectionErrorKind::RecordUpdateInMatchedField,
+                codes::syntax::INVALID_RECORD_UPDATE,
             ),
         ] {
             let error = CollectionError::new(kind, "detail");
