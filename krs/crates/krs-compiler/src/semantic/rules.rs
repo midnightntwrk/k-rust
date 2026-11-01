@@ -2322,7 +2322,7 @@ fn computation_rewrite(
     )?;
     // The computation is the configuration's main cell, where every sentence that names no
     // cell runs (`krs_ir::select_main_cell`); a configuration with several computation cells and
-    // no main cell is refused where it is lowered.
+    // no main cell is refused here with the reason its own lowering gives.
     let computation = match configuration.main_cell() {
         krs_ir::MainCell::Cell(reference) => &reference.cell,
         krs_ir::MainCell::NoComputationCell => {
