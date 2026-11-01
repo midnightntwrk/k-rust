@@ -55,9 +55,9 @@ what = "an optional cell's pattern accepts a leaf spelling (`counter: x`, `count
 risk = "KRS writes the presence pattern `<counter> X </counter>`, which `Some(x)` says: `counter: x` reads as \"whatever the counter holds\", but the rule never applies to an absent counter, silently"
 
 ["NT-13-15"]
-owner = "NT-34"
+owner = "NT-38"
 kind = "feature"
-what = "`concrete(x)` on an equation and a table row is refused, advising bare `concrete`, where the reference lists `concrete(x, ..)` as an equation key: its meaning holds, and no route compiles it (k-rust's frontend, through which the native and the K text route go, takes a restriction on an equation only bare and on every equation of its function)"
+what = "`concrete(x)` on an equation and a table row is refused: a restriction limits where an equation applies, not what it states, so it means what is written wherever no equation ordered after it would apply in its place; but k-rust's frontend, which both the native and the K text route go through, takes a restriction on an equation only when it is bare and on every equation of the function (`check_function_rule_attributes`), so no route compiles it yet"
 
 ["NT-13-3"]
 owner = "NT-33"
