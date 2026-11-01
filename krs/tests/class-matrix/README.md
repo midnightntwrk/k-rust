@@ -398,9 +398,12 @@ the descriptors of the base and its own. A case is judged by
   restriction or a `cfg` that leaves it out), whose run is by design the run without it and fails
   where it applies; a static clause's case (its production is marked for expansion, and no
   definition holds it without the clause; its counter runs show what it expands); and an
-  initializer's (the definition without it has no configuration). `KRS_CLASS_DEPENDS=0` skips the check. On 2026-11-02 it made 15 checks and 80
-  runs in the `runs` shard (54 s of worker time beside K6's 50 s; the shard took 134 s against
-  122 s), and found no conforming run that does not depend on its sentences.
+  initializer's (the definition without it has no configuration). `KRS_CLASS_DEPENDS=0` skips the
+  check. On 2026-11-02 it made 15 checks and 80 runs in the `runs` shard (54 s of worker time
+  beside K6's 50 s; the shard took 134 s against 122 s), 16 checks and 90 runs in `import` (65 s
+  beside K6's 132 s) and 11 checks and 88 runs in `attrs` (38 s beside 160 s), and on samples of
+  `terms` (677 cases, 276 runs) and `notation` (320 cases, 132 runs) about half K6's worker time;
+  it found no conforming run that does not depend on its sentences outside the exemptions.
 
   *The twin check* (`class_matrix::twins`, keyed `twin/<case ID>`). A static clause's result is
   the term a program's expansion writes in place of the clause's production, which then evaluates
