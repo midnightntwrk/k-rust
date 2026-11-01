@@ -1017,3 +1017,58 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         fl(5, false) => fl(5, false) ~> .K"]]
     .assert_eq(&printed);
 }
+
+const FLOAT_RESULT: &str = r#"
+#[k::alias]
+fn pairs(k::term![Al::Pairs(x, y)]: Term<Value>) -> Term<Value> {
+    Data::Pair(x, y)
+}
+
+#[k::constructors(sort = Value, result = KResult)]
+#[rustfmt::skip]
+pub enum Fv {
+    #[k::syntax("num({a})")] Num { a: k::builtin::Float },
+    #[k::syntax("half()")] #[k::alias] Half(),
+}
+
+#[k::alias]
+fn half(k::term![Fv::Half()]: Term<Value>) -> Term<Value> {
+    Fv::Num(1.5)
+}
+"#;
+
+/// A domain value is its value, so an alias whose result holds a float prints backwards on every
+/// state that holds the term it writes (NT-24-2): the state a run reaches spells `1.5` as the
+/// runtime prints it (`0.15000000000000000e1`), not as the clause writes it, and the printer
+/// matches the clause's result by value. `num(1.5)` is that term too, so it prints `half()`; a
+/// state holding another value, `num(2.5)`, prints as it is.
+#[test]
+fn an_alias_whose_result_holds_a_float_prints_backwards_on_the_value_it_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), &format!("{OTHER_CLAUSES}{FLOAT_RESULT}"));
+    let printed = ["half()", "num(1.5)", "num(1.50)", "num(2.5)"]
+        .map(|program| {
+            let file = manifest.with_file_name("program.txt");
+            fs::write(&file, program).unwrap();
+            let (_, stdout, stderr) =
+                krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+            let state = stdout
+                .lines()
+                .skip_while(|line| line.trim() != "<k>")
+                .skip(1)
+                .take_while(|line| line.trim() != "</k>")
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(!state.is_empty(), "{program}: {stdout}\n{stderr}");
+            format!("{program} => {state}")
+        })
+        .join("\n");
+    expect_test::expect![[r"
+        half() => half() ~> .K
+        num(1.5) => half() ~> .K
+        num(1.50) => half() ~> .K
+        num(2.5) => num(0.25000000000000000e1) ~> .K"]]
+    .assert_eq(&printed);
+}

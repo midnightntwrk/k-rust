@@ -1644,6 +1644,7 @@ name = "krs-unparse"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "k-rust-domain",
  "serde_json",
 ]
 

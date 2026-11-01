@@ -230,9 +230,48 @@ fn same_value(data: &PrintData, expanded: &Node, term: &Node) -> bool {
                 .args
                 .iter()
                 .zip(&right.args)
-                .all(|(left, right)| left.key() == right.key());
+                .all(|(left, right)| same_term(data, left, right));
     }
-    expanded.key() == term.key()
+    same_term(data, expanded, term)
+}
+
+/// Whether `left` and `right` are one term: equal keys, but for domain values, which are equal
+/// when they are one value of their sort ([`PrintData::same_domain_value`]): an axiom's `1.5` is
+/// the state's `0.15000000000000000e1`.
+fn same_term(data: &PrintData, left: &Node, right: &Node) -> bool {
+    match (left, right) {
+        (Node::App(left), Node::App(right))
+            if left.sym.name == "\\dv" && right.sym.name == "\\dv" =>
+        {
+            same_domain_value(data, left, right)
+        }
+        (Node::App(left), Node::App(right)) => {
+            left.sym == right.sym
+                && left.sym.formals == right.sym.formals
+                && left.args.len() == right.args.len()
+                && left
+                    .args
+                    .iter()
+                    .zip(&right.args)
+                    .all(|(left, right)| same_term(data, left, right))
+        }
+        _ => left.key() == right.key(),
+    }
+}
+
+/// Whether two `\dv` applications are one value of one sort.
+fn same_domain_value(data: &PrintData, left: &App, right: &App) -> bool {
+    match (
+        left.sym.formals.as_slice(),
+        right.sym.formals.as_slice(),
+        left.args.as_slice(),
+        right.args.as_slice(),
+    ) {
+        ([sort], [other], [Node::Str(left)], [Node::Str(right)]) if sort == other => {
+            data.same_domain_value(sort, left, right)
+        }
+        _ => false,
+    }
 }
 
 /// Whether `node` writes only variables, domain values, conjunctions and symbols' applications.
@@ -306,7 +345,7 @@ fn matches(
     match pattern {
         Node::Var { name, sort, .. } => {
             if let Some(bound) = substitution.get(name) {
-                return bound.key() == subject.key();
+                return same_term(data, bound, subject);
             }
             // A variable binds a term of its sort or a subsort, as expansion binds it.
             if matches!(sort, Sort::Application { .. })
@@ -327,6 +366,10 @@ fn matches(
             let Node::App(subject_app) = subject else {
                 return false;
             };
+            // A domain value matches the same value, however the subject spells it.
+            if pattern_app.sym.name == "\\dv" && subject_app.sym.name == "\\dv" {
+                return same_domain_value(data, pattern_app, subject_app);
+            }
             if subject_app.sym != pattern_app.sym {
                 return mismatched_symbols(data, pattern_app, subject_app, substitution);
             }

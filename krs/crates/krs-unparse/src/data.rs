@@ -132,6 +132,8 @@ pub(crate) struct PrintData {
     pub right_assoc: BTreeMap<String, BTreeSet<String>>,
     /// Sort name (`SortString`) to hook (`STRING.String`).
     pub hooks: BTreeMap<String, String>,
+    /// The sorts declared `hasDomainValues`, by name.
+    pub domain_values: BTreeSet<String>,
     /// Bracket symbols by declared result sort, in declaration order.
     pub brackets: Vec<(Sort, Vec<BracketSymbol>)>,
     pub assoc: BTreeSet<String>,
@@ -287,6 +289,9 @@ impl PrintData {
                     if let Some(hook) = attribute_string(attributes, "hook") {
                         data.hooks.insert(name.clone(), hook);
                     }
+                    if attribute(attributes, "hasDomainValues").is_some() {
+                        data.domain_values.insert(name.clone());
+                    }
                 }
                 Sentence::Axiom { attributes, .. } => data.axiom(attributes),
                 _ => {}
@@ -385,6 +390,40 @@ impl PrintData {
     }
 
     /// `less_than_eq`: `left` is `right` or one of its subsorts.
+    /// Whether the domain values `left` and `right` of `sort` are one value: equal texts, or,
+    /// for a sort whose values have several spellings (an integer, a machine integer, a float:
+    /// `1.5`, `0.15000000000000000e1` and `1.5000000000000000e+00p53x11` are one binary64), the
+    /// same value under its hook (`k_rust_domain::token_value`). A domain value is its value,
+    /// not its text: the state a run reaches and the axiom that built it may spell one value
+    /// differently.
+    pub fn same_domain_value(&self, sort: &Sort, left: &[u8], right: &[u8]) -> bool {
+        if left == right {
+            return true;
+        }
+        let (Sort::Application { name, .. }, Ok(left), Ok(right)) =
+            (sort, std::str::from_utf8(left), std::str::from_utf8(right))
+        else {
+            return false;
+        };
+        let view = DomainSortView::of(sort);
+        let hook = self.hooks.get(name).map(String::as_str);
+        let has_domain_values = self.domain_values.contains(name);
+        // A String or Bytes domain value is its payload already, which `token_value` would read
+        // as a quoted literal; a token sort's value is its text.
+        if !matches!(
+            k_rust_domain::DomainKind::of_declared_sort(&view, has_domain_values, hook),
+            Some(
+                k_rust_domain::DomainKind::Int
+                    | k_rust_domain::DomainKind::Float
+                    | k_rust_domain::DomainKind::MInt(_)
+            )
+        ) {
+            return false;
+        }
+        let value = |text| k_rust_domain::token_value(&view, hook, has_domain_values, text);
+        matches!((value(left), value(right)), (Some(left), Some(right)) if left == right)
+    }
+
     pub fn less_than_eq(&self, left: &Sort, right: &Sort) -> bool {
         left == right
             || self
@@ -423,5 +462,33 @@ impl PrintData {
                 })
             })
             .collect()
+    }
+}
+
+/// A KORE sort as `k_rust_domain` reads one.
+struct DomainSortView {
+    name: String,
+    arguments: Vec<Self>,
+}
+
+impl DomainSortView {
+    /// `sort`'s view; a sort variable is an application of its name, which no domain names.
+    fn of(sort: &Sort) -> Self {
+        match sort {
+            Sort::Application { name, arguments } => Self {
+                name: name.clone(),
+                arguments: arguments.iter().map(Self::of).collect(),
+            },
+            Sort::Variable(name) => Self {
+                name: name.clone(),
+                arguments: Vec::new(),
+            },
+        }
+    }
+}
+
+impl k_rust_domain::DomainSort for DomainSortView {
+    fn as_application(&self) -> Option<(&str, &[Self])> {
+        Some((&self.name, &self.arguments))
     }
 }

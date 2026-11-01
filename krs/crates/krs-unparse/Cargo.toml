@@ -9,6 +9,7 @@ description = "Grammar-directed printing of KORE terms, as K's kprint and kast -
 
 [dependencies]
 k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false }
+k-rust-domain.workspace = true
 
 [lints]
 workspace = true

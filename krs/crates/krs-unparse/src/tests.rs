@@ -318,6 +318,49 @@ fn a_reversal_fires_only_where_the_clause_matches_with_its_literals() {
     assert_eq!(print("Lblg{}(Lbla{}())"), "g ( a )");
 }
 
+/// A domain value is its value, not its text (NT-24-2): an alias whose result holds the float
+/// `1.5` reverses on a state that spells the same binary64 in k-rust's canonical form or the
+/// LLVM runtime's, and on no other value; an integer result likewise matches `01` as `1`. A token
+/// sort's values are their texts, so `07` there is not `7`.
+#[test]
+fn a_reversal_matches_a_domain_value_by_its_value_whatever_its_spelling() {
+    const FLOATS: &str = r#"[]
+module FLOATS
+  sort SortExp{} []
+  sort SortFloat{} [hasDomainValues{}(), hook{}("FLOAT.Float")]
+  sort SortInt{} [hasDomainValues{}(), hook{}("INT.Int")]
+  sort SortTok{} [hasDomainValues{}(), token{}()]
+  symbol Lblhalf{}() : SortExp{} [format{}("half"), terminals{}("1")]
+  symbol Lblseven{}() : SortExp{} [format{}("seven"), terminals{}("1")]
+  symbol Lbltok{}() : SortExp{} [format{}("tok"), terminals{}("1")]
+  symbol Lblnum{}(SortFloat{}) : SortExp{} [format{}("num ( %1 )"), terminals{}("1101")]
+  symbol Lblint{}(SortInt{}) : SortExp{} [format{}("int ( %1 )"), terminals{}("1101")]
+  symbol Lblword{}(SortTok{}) : SortExp{} [format{}("word ( %1 )"), terminals{}("1101")]
+endmodule []
+"#;
+    let macros = [
+        r#"axiom{R} \equals{SortExp{}, R}(Lblhalf{}(), Lblnum{}(\dv{SortFloat{}}("1.5"))) [alias'Kywd'{}()]"#,
+        r#"axiom{R} \equals{SortExp{}, R}(Lblseven{}(), Lblint{}(\dv{SortInt{}}("7"))) [alias'Kywd'{}()]"#,
+        r#"axiom{R} \equals{SortExp{}, R}(Lbltok{}(), Lblword{}(\dv{SortTok{}}("7"))) [alias'Kywd'{}()]"#,
+    ]
+    .join("\n");
+    let unparser = Unparser::from_kore(FLOATS, &macros).expect("synthetic KORE");
+    let print = |term: &str| {
+        unparser
+            .print_kore(&pattern(term), &Options::default())
+            .text
+    };
+    let float = |text: &str| format!("Lblnum{{}}(\\dv{{SortFloat{{}}}}(\"{text}\"))");
+    assert_eq!(print(&float("1.5")), "half");
+    assert_eq!(print(&float("1.5000000000000000e+00p53x11")), "half");
+    assert_eq!(print(&float("0.15000000000000000e1")), "half");
+    assert_ne!(print(&float("2.5")), "half");
+    assert_eq!(print("Lblint{}(\\dv{SortInt{}}(\"07\"))"), "seven");
+    assert_ne!(print("Lblint{}(\\dv{SortInt{}}(\"8\"))"), "seven");
+    assert_ne!(print("Lblword{}(\\dv{SortTok{}}(\"07\"))"), "tok");
+    assert_eq!(print("Lblword{}(\\dv{SortTok{}}(\"7\"))"), "tok");
+}
+
 /// The printer lists each alias clause it reverses with its label and the tokens its subject
 /// writes, each at the position it stands at, printed. Told which clauses to reverse, it reverses
 /// only those: a clause whose label it is not given, or an axiom with no label, prints nothing
