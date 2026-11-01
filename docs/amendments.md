@@ -13,7 +13,10 @@ It lives only in this document, never in an upstream file: a sentence inserted i
 
 A meaning statement rests on one of two grounds, which its entry names:
 
-- evident intent: the text fixes the value, and what it leaves out its own model or words supply, an omission of the wording rather than a freedom it grants, or where its prose and the K text of the same production give the value differently, the K text decides it, since that text is what a backend runs; no sentence leaves the value to the implementation, as `domains.md` does of `Base2String`'s letter case;
+- evident intent: the text fixes the value, and what it leaves out its own model or words supply, an omission of the wording rather than a freedom it grants; no sentence leaves the value to the implementation, as `domains.md` does of `Base2String`'s letter case.
+  The text also fixes a value it states twice: where the operation is defined, a value that the prose and the production's own formal statement of the operation, its `smt-hook`, give differently is the formal statement's.
+  The backend states every term of the symbol to the solver through that `smt-hook`, so an evaluated value other than the `smt-hook`'s would give one term two values, and a term has one.
+  The case decides a value, never a domain: an `smt-hook` constrains its symbol's value only where the symbol is defined ([compatibility.md, Solver decisions over partial operations](compatibility.md#solver-decisions-over-partial-operations)), so a value SMT-LIB gives where the text leaves the operation undefined, as `bvudiv` gives `/uMInt` at a zero divisor, defines nothing;
 - convention: the text fixes the value up to a spelling or representation convention it does not name, every implementation the entry's evidence covers follows that convention, and the entry states the convention as k-rust's choice, which its upstream proposal would make the text's.
 
 A value neither ground gives stays open ([compatibility.md, Implementation-chosen hook values](compatibility.md#implementation-chosen-hook-values)).
@@ -555,7 +558,7 @@ Each entry has these fields:
   k-rust cannot give the term any value but its `smt-hook`'s: the backend states every `^%Int` term to the SMT solver through that `smt-hook` (with the power read as compatibility.md's `^Int` paragraph says), so an evaluator that gave the t-division remainder of a negative power would let the backend derive two different values for one term, the evaluator's and the solver's.
   The prose's sentence is about cost ("but has a better asymptotic complexity") and names the power reduced by `C` to say what is computed faster; reading its `%Int` as `modInt` keeps that and removes the contradiction.
   The reading changes no domain: both remainders are defined exactly where the power is and `C` is not zero (AM-12).
-  So the ground is evident intent in the rule's second case: the prose and the production's K text give the value differently, and the K text decides it; no sentence leaves the value to the implementation.
+  So the ground is evident intent in the rule's case of a value the text states twice: `^%Int` is defined at every such point, where `C` is not zero and the power is an integer (AM-12), and there the prose and the production's `smt-hook` give the value differently, so the value is the `smt-hook`'s; no sentence leaves the value to the implementation.
 - Evidence: `powmod_is_the_euclidean_remainder_of_the_power` in `k-rust-backend`'s [builtin.rs](../crates/k-rust-backend/src/builtin.rs) (`-2 ^%Int 3 5` is 2 and `-1 ^%Int -1 5` is 4, where `%Int` would give -3 and -1; the modulus' sign changes nothing); `kprove_proves_nothing_from_a_power_where_no_integer_is_its_value` in [cli.rs](../crates/k-rust/tests/cli.rs) states such terms to the solver; no reference differential of k-rust's runs `^%Int` at a negative power on the Java or Haskell backend.
 - Upstream proposal:
 
