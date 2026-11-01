@@ -236,6 +236,7 @@ fn a_statement_stored_in_a_map_of_values_is_rejected_and_a_value_is_accepted() {
                 element: "skip".to_owned(),
                 sort: "Stmt".to_owned(),
                 expected: "Value".to_owned(),
+                warnings: Vec::new(),
             }
         );
         assert_eq!(

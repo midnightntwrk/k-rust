@@ -6,7 +6,7 @@
 //!
 //! With `KRS_CHECK_PRINTS=1`, every state `run`, `search` and `prove` print through the definition's grammar is read back, cell by cell ([`Semantics::check_prints`]), and so is the program `parse --output program` prints ([`Semantics::read_back_program`]); a print that does not read back as the state or the program fails the command ([`CommandError::PrintCheck`]), and output that reads back is printed as without the variable.
 //!
-//! Each print is text of the grammar its output is for: a `run` or `search` state is a configuration value's, which a program or a `-c` value reads (a child grouped in K's default bracket is a stated fallback there, a warning); a `prove` leaf is a claim's, which a claim states again, so the default bracket is its own; a `parse --output program` print is a program's.
+//! Each print is text of the grammar its output is for: a `run`, `search` or `prove` state is a configuration value's, which a program or a `-c` value reads (a child grouped in K's default bracket is a stated fallback there, a warning); a `parse --output program` print is a program's.
 
 use std::fmt::Write as _;
 use std::io::{IsTerminal as _, Read};
@@ -16,7 +16,7 @@ use krs_diagnostic::{Code, codes};
 use krs_exec::{
     CompiledStage, ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions,
     REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText,
-    SpecStage, Step, StepOrigin, Term, Verdict, unparse::Grammar,
+    SpecStage, Step, StepOrigin, Term, Verdict,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -364,7 +364,7 @@ fn dispatch(semantics: &mut Semantics, command: &Command) -> Result<CommandOutco
             if request.output == TermOutput::Program {
                 let printed =
                     semantics.unparse_program(request.sort.as_deref(), &program, false)?;
-                let mut prints = PrintCheck::new(request.output, Grammar::Value);
+                let mut prints = PrintCheck::new(request.output);
                 prints.check_program(semantics, request.sort.as_deref(), &program, &printed)?;
                 prints.verdict()?;
                 let mut stderr = String::new();
@@ -378,7 +378,8 @@ fn dispatch(semantics: &mut Semantics, command: &Command) -> Result<CommandOutco
                 TermOutput::Kast | TermOutput::None | TermOutput::Pretty | TermOutput::Program => {
                     semantics.print(&term, PrintStyle::Kast)?
                 }
-            };
+            }
+            .text;
             Ok(outcome(format!("{stdout}\n"), String::new(), 0))
         }
         Command::Run(request) => run(semantics, request),
@@ -470,17 +471,10 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         TermOutput::None => String::new(),
         output => format!(
             "{}\n",
-            print(
-                semantics,
-                &report.state,
-                output,
-                color,
-                Grammar::Value,
-                &mut stderr
-            )?
+            print(semantics, &report.state, output, color, &mut stderr)?
         ),
     };
-    let mut prints = PrintCheck::new(request.output, Grammar::Value);
+    let mut prints = PrintCheck::new(request.output);
     prints.check(semantics, &report.state)?;
     prints.verdict()?;
     let head = main_cell_head(semantics, &report.state, request.output, &mut stderr);
@@ -525,7 +519,7 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
     let mut stderr = log_text(&report.log);
     let mut stdout = String::new();
     let color = request.color.enabled();
-    let mut prints = PrintCheck::new(request.output, Grammar::Value);
+    let mut prints = PrintCheck::new(request.output);
     if request.output == TermOutput::Json {
         stdout = json_line(&json!({"schema": REPORT_SCHEMA, "search": report}))?;
     } else {
@@ -538,7 +532,6 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
                 &solution.state,
                 request.output,
                 color,
-                Grammar::Value,
                 &mut stderr,
             )?;
             let _ = writeln!(stdout, "{text}");
@@ -584,8 +577,8 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
     let mut stdout = String::new();
     let mut warnings = String::new();
     let color = request.color.enabled();
-    // A leaf is what a claim would state again: a claim's text.
-    let mut prints = PrintCheck::new(request.output, Grammar::Claim);
+    // A leaf is a printed state, as a run's and a search's are.
+    let mut prints = PrintCheck::new(request.output);
     if request.output == TermOutput::Json {
         stdout = json_line(&json!({"schema": REPORT_SCHEMA, "prove": reports}))?;
     } else {
@@ -626,14 +619,7 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
             }
             for (index, leaf) in report.leaves.iter().enumerate() {
                 prints.check(semantics, &leaf.state)?;
-                let text = print(
-                    semantics,
-                    &leaf.state,
-                    request.output,
-                    color,
-                    Grammar::Claim,
-                    &mut warnings,
-                )?;
+                let text = print(semantics, &leaf.state, request.output, color, &mut warnings)?;
                 let _ = writeln!(
                     stdout,
                     "  leaf {} ({}, depth {}):\n{text}",
@@ -667,13 +653,11 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
 struct PrintCheck {
     /// Whether the prints are checked: the variable is set and the output is the grammar's.
     enabled: bool,
-    /// The grammar the states' prints are text of.
-    grammar: Grammar,
     failures: Vec<String>,
 }
 
 impl PrintCheck {
-    fn new(output: TermOutput, grammar: Grammar) -> Self {
+    fn new(output: TermOutput) -> Self {
         let requested =
             std::env::var_os("KRS_CHECK_PRINTS").as_deref() == Some(std::ffi::OsStr::new("1"));
         Self {
@@ -682,7 +666,6 @@ impl PrintCheck {
                     output,
                     TermOutput::Pretty | TermOutput::Program | TermOutput::None
                 ),
-            grammar,
             failures: Vec::new(),
         }
     }
@@ -690,7 +673,7 @@ impl PrintCheck {
     /// Read every cell of `state`, a state the command prints, back ([`Semantics::check_prints`]).
     fn check(&mut self, semantics: &mut Semantics, state: &Term) -> Result<(), Failure> {
         if self.enabled {
-            for (_, read) in semantics.check_prints(state, self.grammar)? {
+            for (_, read) in semantics.check_prints(state)? {
                 if let ReadBack::Fails(failure) = read {
                     self.failures.push(failure);
                 }
@@ -756,8 +739,9 @@ fn status_word(word: &str, smt: bool) -> String {
 /// The item is printed in the notation the result itself is printed in, so the line names the same term
 /// the reader sees above it: grammar-directed text for `pretty` and for `none` (which prints no
 /// result, and whose reader gets the default notation), KAST for `kast` and `json`, KORE for
-/// `kore`. Under `none` the grammar-directed print's warnings go to `stderr`; otherwise the print
-/// of the whole result has reported them.
+/// `kore`. The grammar-directed print's warnings go to `stderr`, each the print of the whole result
+/// has not reported already: the item printed alone has no parent position, and can fall back
+/// where the whole print did not.
 fn main_cell_head(
     semantics: &Semantics,
     state: &Term,
@@ -771,8 +755,13 @@ fn main_cell_head(
         TermOutput::Pretty | TermOutput::Program | TermOutput::None => {
             semantics.unparse_computation_head(state).map(|head| {
                 head.map(|printed| {
-                    if output == TermOutput::None {
-                        write_warnings(stderr, &printed);
+                    // The head printed alone can say what the whole print did not: its own
+                    // warnings are written, each the whole print has not written already.
+                    for warning in &printed.warnings {
+                        let line = format!("warning: {warning}\n");
+                        if !stderr.contains(&line) {
+                            stderr.push_str(&line);
+                        }
                     }
                     printed.text
                 })
@@ -790,19 +779,17 @@ fn main_cell_head(
     }
 }
 
-/// Print a result term, a pretty print as text of `grammar`; a pretty print's warnings go to
-/// `stderr`.
+/// Print a result term; a pretty print's warnings go to `stderr`.
 fn print(
     semantics: &Semantics,
     term: &Term,
     output: TermOutput,
     color: bool,
-    grammar: Grammar,
     stderr: &mut String,
 ) -> Result<String, Failure> {
     let style = match output {
         TermOutput::Pretty | TermOutput::Program => {
-            let printed = semantics.unparse_for(term, color, grammar);
+            let printed = semantics.unparse(term, color);
             write_warnings(stderr, &printed);
             return Ok(printed.text);
         }
@@ -810,7 +797,7 @@ fn print(
         TermOutput::Json => PrintStyle::Json,
         TermOutput::Kast | TermOutput::None => PrintStyle::Kast,
     };
-    Ok(semantics.print(term, style)?)
+    Ok(semantics.print(term, style)?.text)
 }
 
 /// One `warning:` line per problem that degraded a grammar-directed print.

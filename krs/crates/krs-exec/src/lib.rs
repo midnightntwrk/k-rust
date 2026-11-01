@@ -240,6 +240,9 @@ pub struct ElementSortMismatch {
     pub sort: String,
     /// The declared element sort it is not at most.
     pub expected: String,
+    /// What the prints of the position and the part say of themselves
+    /// ([`krs_unparse::Warning`]), each once.
+    pub warnings: Vec<String>,
 }
 
 impl fmt::Display for ElementSortMismatch {
@@ -252,11 +255,16 @@ impl fmt::Display for ElementSortMismatch {
             element,
             sort,
             expected,
+            warnings,
         } = self;
         write!(
             formatter,
             "configuration variable `${variable}`, declared `{declared}`: {position} is `{element}` of sort {sort}, which is not a subsort of {expected}"
-        )
+        )?;
+        for warning in warnings {
+            write!(formatter, " (as printed: {warning})")?;
+        }
+        Ok(())
     }
 }
 
@@ -816,10 +824,15 @@ impl Semantics {
 
     /// Parse program text as [`Self::parse`] does and print it through the program grammar, as `kast --output program` does.
     ///
-    /// Macros print as parsed, and the main module's aliases are reversed. Where a child needs a
-    /// bracket the definition does not declare (an alias reversed into a production that binds
-    /// tighter than the child), it is printed bare and the print says so
-    /// ([`krs_unparse::Warning::Ungrouped`]); [`Self::read_back_program`] reads a print back.
+    /// Macros print as parsed, and the main module's aliases are reversed where the print reads
+    /// back: a reversal can put a child under a production that binds tighter than the child,
+    /// where no bracket the definition declares groups it. So the print through the aliases is
+    /// read back ([`Self::read_back_program`]'s rule); where it does not read back as the
+    /// program, the program prints unreversed, which the parser read without such a bracket.
+    /// Where neither print reads back, the unreversed print is printed with what it says of
+    /// itself (a child printed bare, [`krs_unparse::Warning::Ungrouped`]). A print that reads
+    /// back says nothing of a bracket it lacks: the bracket algorithm can ask for one the text
+    /// does not need.
     ///
     /// # Errors
     ///
@@ -830,15 +843,101 @@ impl Semantics {
         input: &ProgramInput,
         color: bool,
     ) -> Result<Printed, ExecError> {
+        let (presented, expanded) = self.program_forms(sort, input)?;
+        let print = |printer: &krs_unparse::Unparser, reverse_aliases: bool, color: bool| {
+            printer.print_kore(
+                &presented,
+                &krs_unparse::Options {
+                    reverse_aliases,
+                    ..krs_unparse::Options::new(krs_unparse::Mode::Program).with_color(color)
+                },
+            )
+        };
+        let reversed = print(&self.unparser, true, false);
+        let unreversed = print(&self.unparser, false, false);
+        let (reverse_aliases, printed) =
+            self.program_print(sort, &presented, &expanded, reversed, unreversed)?;
+        // The prints are judged without colour, which no grammar reads.
+        if !color {
+            return Ok(printed);
+        }
+        Ok(Printed {
+            warnings: printed.warnings,
+            ..print(&self.unparser, reverse_aliases, true)
+        })
+    }
+
+    /// [`Self::unparse_program`], printed by `printer` (such as one that reverses only some of
+    /// the definition's aliases) and without colour.
+    ///
+    /// # Errors
+    ///
+    /// Fails exactly when [`Self::parse`] fails.
+    pub fn unparse_program_by(
+        &mut self,
+        printer: &krs_unparse::Unparser,
+        sort: Option<&str>,
+        input: &ProgramInput,
+    ) -> Result<Printed, ExecError> {
+        let (presented, expanded) = self.program_forms(sort, input)?;
+        let options = krs_unparse::Options::new(krs_unparse::Mode::Program);
+        let reversed = printer.print_kore(&presented, &options);
+        let unreversed = printer.print_kore(
+            &presented,
+            &krs_unparse::Options {
+                reverse_aliases: false,
+                ..options
+            },
+        );
+        self.program_print(sort, &presented, &expanded, reversed, unreversed)
+            .map(|(_, printed)| printed)
+    }
+
+    /// Of `reversed` and `unreversed`, the prints of the program `presented` at `sort` whose
+    /// expansion is `expanded`, the one [`Self::unparse_program`] prints, beside whether it is
+    /// `reversed`. Where the program holds a part no program text writes (a user list's
+    /// terminator), no print reads back, and the print through the aliases is printed.
+    fn program_print(
+        &mut self,
+        sort: Option<&str>,
+        presented: &Pattern,
+        expanded: &Pattern,
+        reversed: Printed,
+        unreversed: Printed,
+    ) -> Result<(bool, Printed), ExecError> {
+        if self.unwritten_program_part(presented)?.is_some() {
+            return Ok((true, reversed));
+        }
+        let reads = |semantics: &mut Self, printed: &Printed| {
+            semantics.program_read_back(sort, expanded, printed) == ReadBack::Reads
+        };
+        let without_ungrouped = |mut printed: Printed| {
+            printed
+                .warnings
+                .retain(|warning| !matches!(warning, krs_unparse::Warning::Ungrouped(_)));
+            printed
+        };
+        if reads(self, &reversed) {
+            return Ok((true, without_ungrouped(reversed)));
+        }
+        if reversed.text != unreversed.text && reads(self, &unreversed) {
+            return Ok((false, without_ungrouped(unreversed)));
+        }
+        Ok((false, unreversed))
+    }
+
+    /// The two KORE forms of one reading of the program `input` at `sort` (by default `$PGM`'s):
+    /// as parsed, which [`Self::unparse_program`] prints, and expanded
+    /// ([`configuration::Configuration::parse_program_forms`]).
+    pub(crate) fn program_forms(
+        &mut self,
+        sort: Option<&str>,
+        input: &ProgramInput,
+    ) -> Result<(Pattern, Pattern), ExecError> {
         let sort = self.program_sort(sort)?;
-        let kore = self
-            .configuration
-            .parse_program_presented_kore(&sort, &input.text)
-            .map_err(|error| parse_error(input, &sort, error.as_ref()))?;
-        Ok(self.unparser.print_kore(
-            &kore,
-            &krs_unparse::Options::new(krs_unparse::Mode::Program).with_color(color),
-        ))
+        self.configuration
+            .parse_program_forms(&sort, &input.text)
+            .map_err(|error| parse_error(input, &sort, error.as_ref()))
     }
 
     fn program_sort(&self, sort: Option<&str>) -> Result<KastSort, ExecError> {
@@ -970,25 +1069,36 @@ impl Semantics {
             })
             .collect::<Vec<_>>();
         bindings.sort_by(|left, right| left.0.cmp(&right.0));
+        // The prints' warnings are the mismatch's: what a printed part says it is not.
+        let warnings = std::cell::RefCell::new(Vec::<String>::new());
         let print = |pattern: &Pattern| {
-            self.unparser
-                .print_kore(
-                    pattern,
-                    &krs_unparse::Options::new(krs_unparse::Mode::Pretty),
-                )
-                .text
+            let printed = self.unparser.print_kore(
+                pattern,
+                &krs_unparse::Options::new(krs_unparse::Mode::Pretty),
+            );
+            let mut warnings = warnings.borrow_mut();
+            for warning in printed.warnings {
+                let warning = warning.to_string();
+                if !warnings.contains(&warning) {
+                    warnings.push(warning);
+                }
+            }
+            printed.text
         };
         for (variable, value) in bindings {
             if let Some(mismatch) = self.cell_types.check(&self.values, &variable, value) {
+                let position = cell_types::describe(&mismatch.path, print);
+                let element = print(mismatch.element);
                 return Err(ExecError::CollectionElementSort(Box::new(
                     ElementSortMismatch {
                         variable,
                         parameter: mismatch.parameter,
                         declared: mismatch.declared,
-                        position: cell_types::describe(&mismatch.path, print),
-                        element: print(mismatch.element),
+                        position,
+                        element,
                         sort: mismatch.sort,
                         expected: mismatch.expected,
+                        warnings: warnings.take(),
                     },
                 )));
             }
@@ -1215,39 +1325,36 @@ impl Semantics {
         Ok(Term::new(kore, kast))
     }
 
-    /// Render a term.
+    /// Render a term. Only a [`PrintStyle::Pretty`] print can carry warnings (what
+    /// [`Self::unparse`] says of it).
     ///
     /// # Errors
     ///
     /// Returns [`ExecError::Result`] when the term cannot be encoded.
-    pub fn print(&self, term: &Term, style: PrintStyle) -> Result<String, ExecError> {
-        Ok(match style {
+    pub fn print(&self, term: &Term, style: PrintStyle) -> Result<Printed, ExecError> {
+        let text = match style {
             PrintStyle::Kast => Printer::new().print_term(term.kast()),
             PrintStyle::Json => kast_json::to_string(term.kast())
                 .map_err(|error| ExecError::Result(error.to_string()))?,
             PrintStyle::Kore => term.kore().to_string(),
-            PrintStyle::Pretty => self.unparse(term, false).text,
+            PrintStyle::Pretty => return Ok(self.unparse(term, false)),
+        };
+        Ok(Printed {
+            text,
+            warnings: Vec::new(),
+            grouped: Vec::new(),
         })
     }
 
     /// Print a term through the definition's grammar, as `krun --output pretty` prints a configuration (KF-017).
     ///
     /// The text has no trailing newline; [`Printed::warnings`] lists the problems that degraded it (labels printed as KAST, invalid colour lists).
-    /// It is the text of a configuration value, as `krs run` and `krs search` print a state ([`krs_unparse::Grammar::Value`]).
+    /// It is the text of a configuration value, as `krs run`, `krs search` and `krs prove` print a state: a child grouped in K's default bracket `( .. )` where the definition declares no bracket is a stated fallback ([`krs_unparse::Warning::Grouped`]).
     #[must_use]
     pub fn unparse(&self, term: &Term, color: bool) -> Printed {
-        self.unparse_for(term, color, krs_unparse::Grammar::Value)
-    }
-
-    /// Print a term as [`Self::unparse`] does, as text of `grammar`: a `krs prove` leaf is a
-    /// claim's ([`krs_unparse::Grammar::Claim`]).
-    #[must_use]
-    pub fn unparse_for(&self, term: &Term, color: bool, grammar: krs_unparse::Grammar) -> Printed {
         self.unparser.print_kore(
             term.kore(),
-            &krs_unparse::Options::new(krs_unparse::Mode::Pretty)
-                .with_color(color)
-                .for_grammar(grammar),
+            &krs_unparse::Options::new(krs_unparse::Mode::Pretty).with_color(color),
         )
     }
 

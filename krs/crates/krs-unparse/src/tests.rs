@@ -125,7 +125,17 @@ impl Fixture {
 
     fn print(&self, pattern: &Pattern, options: Options) -> String {
         let printed = self.unparser.print_kore(pattern, &options);
-        assert_eq!(printed.warnings, Vec::new(), "no warnings");
+        // A golden is K's text, which groups a child in its default bracket where the definition
+        // declares none; that a value's print says so is
+        // `program_mode_prints_a_bracketless_sort_bare`'s.
+        assert!(
+            printed
+                .warnings
+                .iter()
+                .all(|warning| matches!(warning, Warning::Grouped(_))),
+            "no warnings: {:?}",
+            printed.warnings
+        );
         format!("{}\n", printed.text)
     }
 }
@@ -146,9 +156,7 @@ fn on_large_stack(body: impl FnOnce() + Send + 'static) {
 
 fn check_definition(name: &str) {
     let mut fixture = Fixture::compile(name);
-    // The goldens are compared as text; that a configuration value's print states the default
-    // bracket it groups in is `program_mode_prints_a_bracketless_sort_bare`'s.
-    let pretty = Options::new(Mode::Pretty).for_grammar(Grammar::Claim);
+    let pretty = Options::new(Mode::Pretty);
     // `kast --output program` prints an authored format's colour codes `%c` and `%r` as the
     // letters `c` and `r`, which no grammar reads as the program; KRS prints nothing for them.
     assert_eq!(
@@ -227,13 +235,6 @@ fn program_mode_prints_a_bracketless_sort_bare() {
         // value's print says so.
         assert_eq!(pretty.grouped, ["Tm"]);
         assert_eq!(pretty.warnings, [Warning::Grouped(vec!["Tm".to_owned()])]);
-        // A claim's grammar reads the default bracket.
-        let claim = fixture.unparser.print_kore(
-            &state,
-            &Options::new(Mode::Pretty).for_grammar(Grammar::Claim),
-        );
-        assert_eq!((claim.text, claim.grouped), (pretty.text, pretty.grouped));
-        assert_eq!(claim.warnings, []);
         // `kast --output program` adds no parentheses where the sort has no bracket production,
         // and says that the text is no program for the term.
         let printed = fixture

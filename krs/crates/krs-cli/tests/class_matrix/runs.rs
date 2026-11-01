@@ -203,6 +203,7 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
     match verdict(run, &report, &observed) {
         Ran::Conforms(status) => {
             printed_reads_back(semantics, &report.state, own, &run.forward_only)
+                .or_else(|| program_reads_back(semantics, &run.program, own))
                 .map_or(Ran::Conforms(status), Ran::Deviates)
         }
         deviates @ Ran::Deviates(_) => deviates,
@@ -240,7 +241,7 @@ fn printed_reads_back(
                 .any(|name| symbol.strip_prefix("Lblcmd") == Some(name.as_str()))
         });
     let options = unparse::Options::new(unparse::Mode::Pretty);
-    for cell in semantics.printed_cells(&case, state, unparse::Grammar::Value) {
+    for cell in semantics.printed_cells(&case, state) {
         let expected = stated.print_kore(cell.content, &options);
         if expected.text != cell.printed.text {
             return Some(format!(
@@ -262,6 +263,35 @@ fn printed_reads_back(
         }
     }
     None
+}
+
+/// Whether the case's program, as `krs parse --output program` prints it with the case's printer
+/// ([`case_printer`], [`Semantics::unparse_program_by`]), reads back as the program
+/// ([`Semantics::read_back_program`]): so every production shape the generated cases write
+/// (prefix, postfix, mixfix, infix under each priority and associativity, through the aliases
+/// the case reverses) is printed and read back with the program grammar. `None` when it reads
+/// back, or where its print states that it cannot; otherwise the deviation.
+fn program_reads_back(
+    semantics: &mut Semantics,
+    program: &str,
+    own: Option<&str>,
+) -> Option<String> {
+    let case = case_printer(semantics.unparser(), own);
+    let input = ProgramInput {
+        name: "program".to_owned(),
+        text: program.to_owned(),
+    };
+    let read = semantics
+        .unparse_program_by(&case, None, &input)
+        .and_then(|printed| semantics.read_back_program(None, &input, &printed));
+    match read {
+        Ok(ReadBack::Reads | ReadBack::Skipped(_)) => None,
+        Ok(ReadBack::Fails(deviation)) => Some(deviation),
+        Err(error) => Some(format!(
+            "the program does not print as program text: {}",
+            first_line(&error.to_string())
+        )),
+    }
 }
 
 /// The printer of the case whose command is `own` alone: the definition's, without the aliases

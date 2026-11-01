@@ -1,7 +1,9 @@
 //! A print groups a child that priority or associativity forbids bare with the definition's own
-//! bracket, and where the definition declares none says that its text is no program for the
-//! term. A program never needs such a bracket as parsed (the parser read it bare), but printing
-//! reverses aliases, which can move a child under a production that binds tighter than it.
+//! bracket. A program never needs such a bracket as parsed (the parser read it bare), but
+//! printing reverses aliases, which can move a child under a production that binds tighter than
+//! it; where the definition declares no bracket that takes it, a reversal that cannot read back
+//! is not done, and the term prints unreversed. Only a term no text of the definition writes (a
+//! rule built it) is printed with a stated fallback.
 //!
 //! One package generated from a table of relations: for each relation a precedence or an
 //! associativity declares (`a` over `b`, `left`, `right`, `non_assoc`), infix alias productions
@@ -88,11 +90,29 @@ fn library() -> String {
     }
     source.push_str(
         r#"
+/// Infix productions of `Pn` that are no aliases: a rule can build `X(Y(1, 2), 3)`, which no
+/// text writes.
+#[k::constructors(sort = Pn, result = KResult)]
+#[k::precedence((X) > (Y))]
+#[rustfmt::skip]
+pub enum PnBuilt {
+    #[k::syntax("{l} x {r}")] X { l: Pn, r: Pn },
+    #[k::syntax("{l} y {r}")] Y { l: Pn, r: Pn },
+}
+
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Program {
     #[k::syntax("pb({x})")] PbStmt { x: Pb },
     #[k::syntax("pn({x})")] PnStmt { x: Pn },
+    #[k::syntax("build")] Build {},
+}
+
+k::rules! {
+    for Stmt;
+    use Program::*;
+
+    build: Build {} => PnStmt(PnBuilt::X(PnBuilt::Y(1, 2), 3));
 }
 
 #[k::configuration]
@@ -188,15 +208,16 @@ fn warnings(stderr: &str) -> Vec<&str> {
         .collect()
 }
 
-const UNGROUPED: &str = "warning: priority, associativity or a sort requires a bracket around a child of sort `Pn`, and the definition declares no bracket that takes it: printed bare, which a program reads as another term or none";
-const GROUPED: &str = "warning: priority, associativity or a sort requires a bracket around a child of sort `Pn`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which a rule or a claim reads and neither a program nor a configuration value does";
+const GROUPED: &str = "warning: priority, associativity or a sort requires a bracket around a child of sort `Pn`, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads";
 
 /// Each pair, in each family: with a bracket, both commands group the child in it and the print
-/// reads back; without one, `krs parse --output program` prints the child bare and `krs run` in
-/// K's default bracket, and each says that the text is no program, or no value, for the term. A
-/// pair that needs no grouping prints bare and silent in both.
+/// reads back; without one, the print through the aliases would need a bracket no production
+/// declares, so both commands print the call forms the program wrote, which read back, and say
+/// nothing. A pair that needs no grouping prints through the aliases in both. A term no text
+/// writes, which a rule built, is printed grouped in K's default bracket and says so; its other
+/// parts are still read back.
 #[test]
-fn a_child_that_needs_a_bracket_is_grouped_by_the_definitions_or_the_print_says_it_is_not() {
+fn a_child_that_needs_a_bracket_is_grouped_by_the_definitions_or_printed_unreversed() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(&temporary.path().join("brackets"));
@@ -206,7 +227,8 @@ fn a_child_that_needs_a_bracket_is_grouped_by_the_definitions_or_the_print_says_
     for (written, grouped) in PAIRS {
         let needs = grouped.contains('(');
         for family in ["pb", "pn"] {
-            let text = format!("{family}({})\n", written.replace('F', family));
+            let call = written.replace('F', family);
+            let text = format!("{family}({call})\n");
             fs::write(&program, &text).unwrap();
             let (parsed, printed, parse_stderr) =
                 krs(target.path(), &manifest, "parse", Some(&program));
@@ -218,38 +240,32 @@ fn a_child_that_needs_a_bracket_is_grouped_by_the_definitions_or_the_print_says_
                 .map(str::trim)
                 .find(|line| line.ends_with("~> .K"))
                 .unwrap_or_else(|| panic!("{text}{state}"));
-            let (program_text, state_text, program_warnings, state_warnings) =
-                if family == "pb" || !needs {
-                    (grouped.to_owned(), grouped.to_owned(), vec![], vec![])
-                } else {
-                    (
-                        grouped.replace(['(', ')'], ""),
-                        grouped.replace('(', "( ").replace(')', " )"),
-                        vec![UNGROUPED],
-                        vec![GROUPED],
-                    )
-                };
+            let expected = if family == "pb" || !needs {
+                grouped
+            } else {
+                &call
+            };
             assert_eq!(
                 (printed.trim_end(), warnings(&parse_stderr)),
-                (
-                    format!("{family}({program_text})").as_str(),
-                    program_warnings
-                ),
+                (format!("{family}({expected})").as_str(), vec![]),
                 "{text}"
             );
             assert_eq!(
                 (state, warnings(&run_stderr)),
-                (
-                    format!("{family}({state_text}) ~> .K").as_str(),
-                    state_warnings
-                ),
+                (format!("{family}({expected}) ~> .K").as_str(), vec![]),
                 "{text}"
             );
         }
     }
-    // A leaf is what a claim would state again: a claim reads K's default bracket.
+    fs::write(&program, "build\n").unwrap();
+    let (ran, state, stderr) = krs(target.path(), &manifest, "run", Some(&program));
+    assert!(ran, "{state}{stderr}");
+    assert!(state.contains("pn(( 1 y 2 ) x 3) ~> .K"), "{state}");
+    assert_eq!(warnings(&stderr), [GROUPED], "{stderr}");
+    // A leaf is a printed state, as a run's is: the print through the aliases would group a
+    // child in K's default bracket, so the leaf prints unreversed.
     let (proven, leaves, stderr) = krs(target.path(), &manifest, "prove", None);
     assert!(!proven, "{leaves}");
-    assert!(leaves.contains("pn(( 1 b 2 ) a 3) ~> .K"), "{leaves}");
+    assert!(leaves.contains("pn(pna(pnb(1, 2), 3)) ~> .K"), "{leaves}");
     assert_eq!(warnings(&stderr), Vec::<&str>::new(), "{stderr}");
 }

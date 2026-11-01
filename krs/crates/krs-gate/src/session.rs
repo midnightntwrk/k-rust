@@ -460,7 +460,7 @@ impl Session {
             // fails the request.
             if std::env::var_os("KRS_CHECK_PRINTS").as_deref() == Some(std::ffi::OsStr::new("1")) {
                 let failures = semantics
-                    .check_prints(&report.state, krs_exec::unparse::Grammar::Value)?
+                    .check_prints(&report.state)?
                     .into_iter()
                     .filter_map(|(_, read)| match read {
                         krs_exec::ReadBack::Fails(failure) => Some(failure),

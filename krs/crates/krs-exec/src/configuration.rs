@@ -634,27 +634,50 @@ impl Configuration {
         Ok(parser.parse_for_presentation(sort, source)?)
     }
 
-    /// Parse program text at `sort` and lower it to KORE with its macros as parsed: the term `kast --output program` prints.
+    /// Parse program text at `sort` once, and lower the one reading both ways: with its macros
+    /// as parsed, the term `kast --output program` prints, and expanded, as
+    /// [`Self::parse_program_kore`] does, the value the program is. A print of the first is read
+    /// back as the second, so both come from one parse.
     ///
     /// # Errors
     ///
     /// Returns an error when the text does not parse or cannot be lowered.
-    pub fn parse_program_presented_kore(
+    pub fn parse_program_forms(
         &mut self,
         sort: &KastSort,
         source: &str,
-    ) -> Result<Pattern, Box<dyn Error>> {
-        let presented = self.parse_program(sort, source)?;
+    ) -> Result<(Pattern, Pattern), Box<dyn Error>> {
+        let parser_module = self.syntax_module.clone();
+        let parse_sort = if sort.is_builtin(BuiltinSort::K) {
+            KastSort::builtin(BuiltinSort::KItem)
+        } else {
+            sort.clone()
+        };
+        let parser = self.parser(&parser_module)?;
+        let program = parser.parse(&parse_sort, source)?;
+        let presented = parser.present(program.clone());
         let resolved = self.grammar.program.resolved();
         let injector = SortInjector::new(resolved, &self.main_module)?;
-        let value_sort = injector.term_sort(presented.term(), Some(sort))?;
-        let value = injector.inject(presented.term(), &value_sort)?;
-        Ok(term_to_kore_from_resolved_with_token_module(
+        let presented_sort = injector.term_sort(presented.term(), Some(sort))?;
+        let presented = injector.inject(presented.term(), &presented_sort)?;
+        let presented = term_to_kore_from_resolved_with_token_module(
             resolved,
             &self.main_module,
             &self.syntax_module,
+            &presented,
+        )?;
+        let value =
+            self.macro_definition
+                .expand_program(&self.main_module, program, &parse_sort)?;
+        let value_sort = injector.term_sort(value.term(), Some(value.position()))?;
+        let value = injector.inject(value.term(), &value_sort)?;
+        let expanded = term_to_kore_from_resolved_with_token_module(
+            resolved,
+            &self.main_module,
+            &parser_module,
             &value,
-        )?)
+        )?;
+        Ok((presented, expanded))
     }
 
     /// Parse program text at `sort` and lower it to KORE through the configuration pipeline, as `kast --output kore` does.
