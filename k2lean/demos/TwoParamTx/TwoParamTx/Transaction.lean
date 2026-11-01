@@ -16,9 +16,10 @@ layer computes (`TwoParam.Hooks`, a parameter). It composes four results by name
   (`TwoParamConf.terminal_unique`);
 - the given run reaches a configuration with no task left, which has no step (`terminal_of_noTasks`).
 
-`wf` is a hypothesis: a run to no task left implies it (a creation, a resume and a spend each run
-once, since `<procs>` keeps its keys, a count only grows and an output is written once), but that is
-a fact about the run's history, not about one configuration (SND-19).
+`no_stuck` is what this says of every configuration such a script reaches: one that does not step
+has no task left, in any order. `wf` is a hypothesis, a static fact about a concrete script (no
+claim named twice); the run is one too, which a concrete script has only for a concrete lower layer
+(`TwoLayerTx.transaction_run` computes it in the combined form).
 -/
 
 namespace TwoParamTx
@@ -77,6 +78,14 @@ theorem transaction {P : TwoParam.SortPgm} {r : TwoParam.SortGeneratedTopCell}
   ⟨terminal_of_noTasks hn, Ends.every_of (TwoParam.Measure.terminates _ (defined P)) fun _ hb hbt =>
     TwoParamConf.terminal_unique (invariant_init hwf) hb hbt hr (terminal_of_noTasks hn)⟩
 
-#k2l_assert_axioms terminal_of_noTasks defined invariant_init transaction
+/-- **No stuck state.** For a script as in `transaction`, every configuration reached from its start
+that does not step has no task left, whatever the lower layer computes. -/
+theorem no_stuck {P : TwoParam.SortPgm} {r : TwoParam.SortGeneratedTopCell}
+    (hwf : TwoParam.Invariant.wf (TwoParam.init P)) (hr : Star TwoParam.Step (TwoParam.init P) r)
+    (hn : NoTasks r) {e : TwoParam.SortGeneratedTopCell} (he : Star TwoParam.Step (TwoParam.init P) e)
+    (ht : Terminal TwoParam.Step e) : NoTasks e :=
+  TwoParamConf.terminal_unique (invariant_init hwf) he ht hr (terminal_of_noTasks hn) ▸ hn
+
+#k2l_assert_axioms terminal_of_noTasks defined invariant_init transaction no_stuck
 
 end TwoParamTx

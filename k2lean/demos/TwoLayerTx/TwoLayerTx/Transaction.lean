@@ -1,5 +1,6 @@
 import TwoConf.Legal.Slots
 import TwoLayer.Measure
+import TwoLayer.Adequacy
 
 /-!
 # The transaction statement of the combined form (`docs/direction.md` §8 step 4)
@@ -15,7 +16,11 @@ rules of their own, interleaved with the other tasks'. It composes three results
 - every terminal configuration reached under `wf` is the same one (`TwoConf.Legal.terminal_unique`);
 - the given run reaches a configuration with no task left, which has no step (`terminal_of_noTasks`).
 
-`wf` is a hypothesis, as in `TwoParamTx` (SND-19).
+`no_stuck` is what this says of every configuration such a script reaches: one that does not step
+has no task left, in any order. For a concrete script, both hypotheses are computed: `wf` is a
+static fact about the script, and the run is the library's executable `run` (`run_sound`), so
+`transaction_run` takes only its result (`TwoLayerTx/Example.lean`). By `no_stuck`, if the script
+can finish at all, the order `run` takes finishes too.
 -/
 
 namespace TwoLayerTx
@@ -66,6 +71,22 @@ theorem transaction {P : TwoLayer.SortPgm} {r : TwoLayer.SortGeneratedTopCell}
   ⟨terminal_of_noTasks hn, Ends.every_of (TwoLayer.Measure.terminates _ (defined P)) fun _ hb hbt =>
     TwoConf.Legal.terminal_unique hwf hb hbt hr (terminal_of_noTasks hn)⟩
 
-#k2l_assert_axioms terminal_of_noTasks defined transaction
+/-- **No stuck state.** For a script as in `transaction`, every configuration reached from its start
+that does not step has no task left. -/
+theorem no_stuck {P : TwoLayer.SortPgm} {r : TwoLayer.SortGeneratedTopCell}
+    (hwf : TwoLayer.Invariant (TwoLayer.init P)) (hr : Star TwoLayer.Step (TwoLayer.init P) r)
+    (hn : NoTasks r) {e : TwoLayer.SortGeneratedTopCell} (he : Star TwoLayer.Step (TwoLayer.init P) e)
+    (ht : Terminal TwoLayer.Step e) : NoTasks e :=
+  TwoConf.Legal.terminal_unique hwf he ht hr (terminal_of_noTasks hn) ▸ hn
+
+/-- `transaction` with the run computed: the library's `run` from the script's start, which takes
+only `Step`s (`TwoLayer.run_sound`). -/
+theorem transaction_run {P : TwoLayer.SortPgm} (fuel : Nat)
+    (hwf : TwoLayer.Invariant (TwoLayer.init P)) (hn : NoTasks (TwoLayer.run fuel (TwoLayer.init P)).config) :
+    Terminal TwoLayer.Step (TwoLayer.run fuel (TwoLayer.init P)).config ∧
+      Ends.Every TwoLayer.Step (TwoLayer.init P) (· = (TwoLayer.run fuel (TwoLayer.init P)).config) :=
+  transaction hwf (Star.of_stepsN (TwoLayer.run_sound fuel _)) hn
+
+#k2l_assert_axioms terminal_of_noTasks defined transaction no_stuck transaction_run
 
 end TwoLayerTx
