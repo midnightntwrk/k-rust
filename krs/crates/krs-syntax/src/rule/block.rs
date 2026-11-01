@@ -1319,6 +1319,7 @@ impl RuleBlock {
             }
             input.parse::<Token![=>]>()?;
             let result: Expr = input.call(crate::term::parse_term_expression)?;
+            let result_tokens = quote!(#result);
             // The clause's item below may hold a placeholder result, so the
             // fields of the pattern's bit templates are written into the
             // clause's own result here.
@@ -1334,9 +1335,14 @@ impl RuleBlock {
 
             let mut narrowings = Vec::new();
             let mut extras = Vec::new();
+            let mut conditions = TokenStream::new();
             if input.peek(Token![where]) {
                 input.parse::<Token![where]>()?;
                 layout.conditions = Some(condition_token_range(input)?);
+                let fork = input.fork();
+                while !fork.is_empty() && !fork.peek(Token![;]) {
+                    conditions.extend([fork.parse::<proc_macro2::TokenTree>()?]);
+                }
                 loop {
                     let first = input.call(Ident::parse_any)?;
                     match first.unraw().to_string().as_str() {
@@ -1398,6 +1404,17 @@ impl RuleBlock {
             )?;
             let rule = RuleItem::from_readable_item(item, signs)?;
             let mut bindings = rule.parameter.pattern.bindings().to_vec();
+            // Each `have m[k] -> let _` binds a value of its own.
+            let mut wildcards = super::machine::MapValueWildcards::new(
+                [quote!(#pattern), result_tokens, conditions],
+                &narrowings,
+            );
+            for extra in &mut extras {
+                if let TermTableExtra::Have(have) = extra {
+                    have.value = wildcards.binder(&have.value);
+                }
+            }
+            let narrowings = wildcards.narrowings(&narrowings);
             for extra in &extras {
                 let introduced = extra.introduced_binding();
                 if bindings

@@ -1,6 +1,7 @@
 //! Readable map reads whose key is a pattern, end to end: a key name the
 //! subject binds nowhere else matches the key of any entry, so the rule
-//! applies once per entry; `_` reads any entry, and a value `_` any value;
+//! applies once per entry; `_` reads any entry, and a value `_` (also
+//! `have m[k] -> let _`) any value;
 //! the `have` clause, whose
 //! `let` marks what it introduces, rejects a key bound nowhere.
 
@@ -332,6 +333,130 @@ fn search_reaches_one_state_per_entry() {
             "{program}:\n{stderr}"
         );
     }
+}
+
+/// A language whose sort rules read two map cells with `have .. -> let _`.
+const HAVE_WILDCARDS: &str = r#"
+use k::builtin::{Id, Int, KSequence, Map, map};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Skip, Get, Typed))]
+pub enum StmtSyntax {
+    #[k::syntax("skip")]
+    Skip(),
+    #[k::syntax("get {x}")]
+    Get { x: Id },
+    #[k::syntax("typed {x}")]
+    Typed { x: Id },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map<Id, Value>,
+    #[k::cell]
+    pub other: Map<Id, Value>,
+    #[k::cell]
+    pub raw: Map,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "ENV")] env: Map<Id, Value>,
+        #[k::config_var(name = "OTHER")] other: Map<Id, Value>,
+    ) -> Self {
+        Self {
+            k: k::k![pgm],
+            env,
+            other,
+            raw: map::empty(),
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use StmtSyntax::*;
+
+    both: Get(x) => Skip() where have env[x -> let _], have other[x -> let _];
+    typed: Typed(x) => Skip() where have env[x -> let _], have raw[x -> let _], _: Value;
+}
+"#;
+
+/// Each `have m[k] -> let _` binds a value of its own, as a record read's
+/// value `_` does: two of them read entries of different values, and
+/// `_: S` narrows each. `krs expand` writes them as fresh binders, which emit
+/// the same K.
+#[test]
+fn two_have_wildcards_are_two_binders() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "map-read-have-wild", HAVE_WILDCARDS);
+    let (definition, _) = emit(target.path(), &manifest, &temporary.path().join("emitted"));
+    let rules = ["both", "typed"].map(|label| (label, sentence(&definition, label)));
+    assert_eq!(
+        rules,
+        [
+            (
+                "both",
+                "<k> get X:Id => skip ... </k> <env> X:Id |-> V5F:Value ... </env> <other> X:Id |-> V5F31:Value ... </other>".to_owned(),
+            ),
+            (
+                "typed",
+                "<k> typed X:Id => skip ... </k> <env> X:Id |-> V5F:Value ... </env> <raw> X:Id |-> V5F31:Value ... </raw>".to_owned(),
+            ),
+        ]
+    );
+
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let printed = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        printed.contains("map![x -> value, rest0 @ ..]")
+            && printed.contains("map![x -> _1, rest1 @ ..]"),
+        "{expanded}"
+    );
+    let pasted = package(temporary.path(), "map-read-have-wild-expanded", &expanded);
+    let (pasted, _) = emit(target.path(), &pasted, &temporary.path().join("pasted"));
+    for (label, body) in &rules {
+        let framed = sentence(&pasted, label)
+            .replace(" ~> Tail:K", "")
+            .replace(" Rest0:Map", " ...")
+            .replace(" Rest1:Map", " ...")
+            .replace("|-> Value:", "|-> V5F:");
+        assert_eq!(&framed.replace(" </k>", " ... </k>"), body, "{label}");
+    }
+
+    // One binder read twice would need equal values; `x` maps to 1 and 2.
+    let path = temporary.path().join("get.pgm");
+    fs::write(&path, "get x").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[
+            path.to_str().unwrap(),
+            "-c",
+            "ENV=x |-> 1",
+            "-c",
+            "OTHER=x |-> 2",
+            "--output",
+            "kast",
+        ],
+    );
+    assert!(success, "{stderr}");
+    assert!(stdout.contains("`<k>`(stmtSyntaxSkip(.KList))"), "{stdout}");
 }
 
 /// `have` marks what it introduces with `let`, so its key names a binding of

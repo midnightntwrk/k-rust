@@ -1447,7 +1447,8 @@ impl BracketAlternative {
     }
 }
 
-/// The binders of a clause's map values `_`.
+/// The binders of a clause's map values `_`, read by a record read
+/// `{ x -> _, .. }` or a `have m[x -> let _]`.
 ///
 /// A map value `_` binds nothing: it matches whatever the entry maps to, at
 /// the sort a narrowing `_: S` writes, or the cell's value sort. A fresh
@@ -1455,16 +1456,16 @@ impl BracketAlternative {
 /// binder of its own: the first keeps the spelling `_`, which no other
 /// binder has, and each later one takes `_1`, `_2`, .. , skipping every
 /// identifier the clause spells. A narrowing `_: S` narrows each of them.
-struct MapValueWildcards {
+pub(super) struct MapValueWildcards {
     spelled: std::collections::BTreeSet<String>,
     fresh: Vec<Ident>,
     first: bool,
 }
 
 impl MapValueWildcards {
-    fn new(
-        pattern_record: &TokenTree,
-        result_record: &TokenTree,
+    /// The wildcards of a clause whose tokens are `tokens`.
+    pub(super) fn new(
+        tokens: impl IntoIterator<Item = TokenStream>,
         narrowings: &[RuleNarrowing],
     ) -> Self {
         fn identifiers(tokens: TokenStream, spelled: &mut std::collections::BTreeSet<String>) {
@@ -1479,8 +1480,9 @@ impl MapValueWildcards {
             }
         }
         let mut spelled = std::collections::BTreeSet::new();
-        identifiers(pattern_record.to_token_stream(), &mut spelled);
-        identifiers(result_record.to_token_stream(), &mut spelled);
+        for tokens in tokens {
+            identifiers(tokens, &mut spelled);
+        }
         spelled.extend(
             narrowings
                 .iter()
@@ -1495,7 +1497,7 @@ impl MapValueWildcards {
 
     /// The binder of a map value: `value` itself unless it is a `_` after
     /// the first.
-    fn binder(&mut self, value: &Ident) -> Ident {
+    pub(super) fn binder(&mut self, value: &Ident) -> Ident {
         if value != "_" {
             return value.clone();
         }
@@ -1517,7 +1519,7 @@ impl MapValueWildcards {
     }
 
     /// `narrowings` with a narrowing `_: S` repeated for each later `_`.
-    fn narrowings(&self, narrowings: &[RuleNarrowing]) -> Vec<RuleNarrowing> {
+    pub(super) fn narrowings(&self, narrowings: &[RuleNarrowing]) -> Vec<RuleNarrowing> {
         let mut all = narrowings.to_vec();
         if let Some(wildcard) = narrowings.iter().find(|narrowing| narrowing.binding == "_") {
             all.extend(
@@ -1575,7 +1577,13 @@ fn assemble_machine_clause(
     let mut extra_bindings = Vec::new();
     let mut state_bindings: Vec<Ident> = Vec::new();
     let mut map_values = Vec::new();
-    let mut wildcards = MapValueWildcards::new(pattern_record, result_record, narrowings);
+    let mut wildcards = MapValueWildcards::new(
+        [
+            pattern_record.to_token_stream(),
+            result_record.to_token_stream(),
+        ],
+        narrowings,
+    );
     for (cell, pattern) in subject_cells {
         match pattern {
             MachinePatternCell::KItems(pattern) => {
