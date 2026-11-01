@@ -570,15 +570,18 @@ def prog_compare(m, base, F, N, P, lower):
         if de is not None and db is not None:
             dnow, dwas = set(de["open"]), set(db["open"])
             drn, drw = set(de["refuted"]), set(db["refuted"])
+            # a rule moves only down the lattice open -> unproved -> refuted (or out of the list, proved)
+            duw = set(db.get("unproved", []))
             if sorted(dnow - dwas):
                 bad.append(f"prog.{d}: newly open rules (definedness): {', '.join(sorted(dnow - dwas))}")
-            if sorted(drn - drw - dwas):
-                bad.append(f"prog.{d}: newly refuted rules that were not open: {', '.join(sorted(drn - drw - dwas))}")
+            if sorted(drn - drw - dwas - duw):
+                bad.append(f"prog.{d}: newly refuted rules that were neither open nor unproved: "
+                           f"{', '.join(sorted(drn - drw - dwas - duw))}")
             if sorted(drw - drn):
                 bad.append(f"prog.{d}: refuted rules no longer refuted: {', '.join(sorted(drw - drn))}")
             if de["auto"] < db["auto"]:
                 bad.append(f"prog.{d}: rules proved defined by def_close {db['auto']} -> {de['auto']} (of {de['rules']})")
-            unew = sorted(set(de.get("unproved", [])) - set(db.get("unproved", [])) - dwas)
+            unew = sorted(set(de.get("unproved", [])) - duw - dwas)
             if unew:
                 bad.append(f"prog.{d}: newly unproved rules that were not open: {', '.join(unew)}")
         elif de is not None:
