@@ -40,8 +40,11 @@ Every step is `apply`, `by_cases` or `cases`, so the tactic cannot prove a false
 blocked on a call of an opaque function (`typeOf G e`) or on a variable that a `match` reads below
 a constructor (a freezer's `K` argument). `k2l_case_stuck` splits the innermost such variable (by
 `reduceMatcher?`, then the stuck term's major premise, as `getStuckMVar?` finds a metavariable) or
-the call (`cases h : call`); the generated stuck closer alternates it with `simp`, after
-`k2l_refute_computed` (a `Bool` side condition that computes to the other literal).
+the call (`cases h : call`). Where nothing in the hypotheses is blocked, the invariant or the
+ending may be a call whose own definition matches on a variable of the configuration (`kOk(K)`
+reading `K` as one item, the rest of `<k>` a variable): that variable is split (`stuckCallVar?`).
+The generated stuck closer alternates the split with `simp`, after `k2l_refute_computed` (a `Bool`
+side condition that computes to the other literal).
 
 With `<k>` in a cell map (SND-14), a case is about one element `e`, matched as
 `concat (element k e) rest = some m`, the same shape as a rule's premise, so the rule's own match
@@ -687,6 +690,35 @@ partial def blocked? (e : Expr) : MetaM (Option Expr) := do
   | .lam _ _ b _ => blocked? b
   | _ => return none
 
+/-- The variable that a call's computation waits on: the call unfolded, its `match` stuck on a
+variable, or on another call, followed the same way (`fuel` calls deep). -/
+partial def callVar? (d : Expr) (fuel : Nat) : MetaM (Option Expr) := do
+  if fuel == 0 then return none
+  let some d' ← unfoldDefinition? d | return none
+  let d' ← whnfCore d'
+  let .const n _ := d'.getAppFn | return none
+  unless (← getMatcherInfo? n).isSome do return ← stuckFVar? d'
+  match ← reduceMatcher? d' with
+  | .stuck s =>
+    if let some v ← stuckFVar? s then return some v
+    let s := s.consumeMData
+    if s.isApp && s.getAppFn.isConst && !s.hasLooseBVars && !s.hasMVar then callVar? s (fuel - 1)
+    else return none
+  | _ => return none
+
+/-- A variable of a K sort that a call in `e` waits on, innermost first: the invariant or the ending
+stated as a call that matches on the configuration (`kOk(K)` matching `K` as one item), whose
+`match` is inside the function's definition rather than in the hypothesis. -/
+partial def stuckCallVar? (e : Expr) : MetaM (Option Expr) := do
+  let e := e.consumeMData
+  unless e.isApp do return none
+  for a in e.getAppArgs do
+    if let some v ← stuckCallVar? a then return some v
+  if e.getAppFn.isConst && !e.hasLooseBVars && !e.hasMVar then
+    if let some v ← tryCatchRuntimeEx (callVar? e 4) (fun _ => pure none) then
+      if ← Soundness.isFamily (← inferType v) then return some v
+  return none
+
 /-- The closer's split (the module documentation, *closing*): on the innermost blocked computation
 of a hypothesis, the variable it is stuck on (`cases`, substituted), or the call that blocks it
 (`cases h : call`, rewritten everywhere). Each step removes a variable or decides a call, so a
@@ -728,6 +760,14 @@ elab "k2l_case_stuck" : tactic => withMainContext do
           pure (r.map (·.2))
         if let some g' := g' then out := out ++ [g']
       setGoals out
+      return
+  -- none: a call whose own definition waits on a variable of a K sort (tried only here, so that
+  -- every split above is chosen as before)
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    if let some x ← stuckCallVar? (← instantiateMVars d.type) then
+      Soundness.casesVar x
+      evalTactic (← `(tactic| all_goals k2l_norm_idx))
       return
   throwError "k2l_case_stuck: no blocked discriminant"
 

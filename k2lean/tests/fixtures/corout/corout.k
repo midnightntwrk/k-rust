@@ -3,7 +3,9 @@
 // parameter. A configuration is the code left and the register. Nothing steps at `yield` or at the
 // code's end: those are where a segment ends, and the upper layer takes over there. `loop(M, B)`
 // runs B M times. The measure `measure` (`k2lean gen --measure measure@T`, direction.md §5) is the
-// steps left, which every rule lowers, so every segment ends.
+// steps left, which every rule lowers, so every segment ends. Where code is on `<k>` (`kOk`), a
+// configuration with no step is a segment end (`segEnd`: `gen --progress`), so a segment ends only
+// at a `yield` or at the code's end.
 requires "domains.md"
 
 module COROUT-SYNTAX
@@ -43,6 +45,16 @@ module COROUT
   rule mu(loop(M, { B }) ; C) => 1 +Int maxInt(M, 0) *Int (mu(B) +Int 1) +Int mu(C)
   rule mu(app(A, B)) => mu(A) +Int mu(B) [simplification]
   rule mu(_C) >=Int 0 => true [simplification]
+
+  // Code on `<k>` (the invariant of `gen --invariant kOk@k`), and where a segment ends: a `yield`
+  // or the code's end (the acceptable endings of `gen --progress --ending segEnd@k`).
+  syntax Bool ::= kOk(K) [function, total]
+                | segEnd(K) [function, total]
+  rule kOk(_:Stmts) => true
+  rule kOk(_) => false [owise]
+  rule segEnd(yield ; _) => true
+  rule segEnd(.Stmts) => true
+  rule segEnd(_) => false [owise]
 
   syntax Int ::= measure(TCell) [function, total]
   rule measure(<T> <k> C:Stmts </k> _ </T>) => mu(C)

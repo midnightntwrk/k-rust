@@ -53,8 +53,11 @@ gen_confluence() {
     # weight per task summed over <tasks>) is lowered by every rule (`gen --measure`, INV-17)
     twoparam) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T --invariant valsOk@T --measure measure@T) ;;
     # the coroutine language on its own (tests/fixtures/corout), deterministic; its measure (the
-    # steps left, `measure` in K) is lowered by every rule (`gen --measure`, INV-15)
-    corout) libs_fixture_args "$1"; GEN_ARGS+=(--measure measure@T) ;;
+    # steps left, `measure` in K) is lowered by every rule (`gen --measure`, INV-15); where code is
+    # on <k> (`kOk`), a configuration with no rule that applies is a segment end, a `yield` or the
+    # code's end (`segEnd`; `gen --progress`, SND-19), so a segment never stops elsewhere
+    corout) libs_fixture_args "$1"
+      GEN_ARGS+=(--measure measure@T --invariant kOk@k --progress --ending segEnd@k) ;;
     *) return 1 ;;
   esac
   return 0

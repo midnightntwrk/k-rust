@@ -8,8 +8,9 @@
 # with priorities, tests/fixtures/vmpri, library vmpri; coroutines in a
 # cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
 # tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand; a coordination
-# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; and each
-# typed language under its runtime typing, kimp in demos/ImpTypes, EXPR in demos/ExprTypes and IMP++
+# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; the
+# two-layer prototype's coroutine language, tests/fixtures/corout, the confluence area's library
+# corout, which stops only at a segment end; and each typed language under its runtime typing, kimp in demos/ImpTypes, EXPR in demos/ExprTypes and IMP++
 # in demos/ImpPlusTypes, whose generated Soundness.lean derives type soundness from it).
 # Registry: soundness.py.
 
@@ -258,6 +259,15 @@ gate_soundness() {
   # under a kind 2 invariant: a coordination script's tasks wait on shared cells, so the rank reads the
   # script (`--rank`); `resume` is proved by hand
   runs prog handoff && prog_handoff
+  # the two-layer prototype's coroutine language (the confluence area's library corout, whose gen
+  # line states the invariant `kOk` and the ending `segEnd`): code on `<k>` stops only at a `yield`
+  # or at the code's end (SND-19), which TwoParamEnds reads (`ends_segEnd`)
+  if runs prog corout; then
+    phase "lib corout"
+    lib_open corout
+    prog_reset corout
+    if genlib corout; then progcases corout Corout; else bad "gen corout" "$L/gen-corout.log"; fi
+  fi
   phase "diff soundness"
   diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck vmpri coro corojoin
 }
