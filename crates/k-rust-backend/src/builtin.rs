@@ -798,6 +798,11 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<ChosenValue> {
 /// recurse without end on KEVM's hex parse of a symbolic digest (`\ceil(findString(Keccak256(B),
 /// "0x", 0))`, `kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work` in
 /// k-rust's `cli.rs`), so their definedness on a symbolic argument stays undecided, as before.
+/// The listed `Bytes2String` reaches the same recursion in that shape at a partial symbol
+/// (`\ceil(findString(B2S(B), "0x", 0))`): the simplification stops for want of stack
+/// (`kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_exhausts_its_stack`), a refusal
+/// GAP ticket K9 removes with the recursion; a definition that declares it `total`, as
+/// `domains.md` does, does not ask this list.
 ///
 /// `String2Bytes` is not among them: AM-1 gives it a value only on the code points up to 255, so
 /// at a partial symbol its definedness on a symbolic string is unknown. Neither are the BN128

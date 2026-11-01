@@ -2872,6 +2872,65 @@ fn kore_simplify_in(root: &Path, definition: &Path, pattern: &str) -> String {
 /// withheld digest with the first fault fixed. With both fixed the counts are 10,824 and 22,185.
 #[test]
 fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
+    let (root, compiled) = hex_parse_definition();
+    let keccak = "LblKeccak256'LParUndsRParUnds'HEXS'Unds'String'Unds'Bytes{}";
+    let literal = format!(
+        r#"{keccak}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{{}}(\dv{{SortString{{}}}}("execute()")))"#
+    );
+    for (name, digest) in [
+        ("symbolic", format!("{keccak}(VarB:SortBytes{{}})")),
+        ("literal", literal),
+    ] {
+        let (simplified, discharges) = hex_parse(&root, &compiled, name, &digest);
+        // The parse of the symbolic digest stays unevaluated; that of the literal's digest is
+        // its 32 bytes.
+        assert_eq!(
+            simplified.contains("LblparseHexBytesAux{}"),
+            name == "symbolic",
+            "{name}: {simplified}"
+        );
+        if name == "literal" {
+            assert!(
+                !simplified.contains("Lbl") && simplified.contains(r"\dv{SortBytes{}}"),
+                "{simplified}"
+            );
+        }
+        assert!(
+            discharges <= 50_000,
+            "{name}: {discharges} definedness discharges"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The same parse of a partial `Bytes2String` of a symbolic `B` (`B2S` of
+/// `fixtures/hex-parse-unread.k`, hooked `BYTES.bytes2string` and not declared `total`) is
+/// refused today: the predicate simplifier exhausts its native stack and its segment budget.
+/// `builtin::defined_on_every_argument` lists that hook (AM-1 gives it a value on every byte
+/// sequence), and the listing reaches the same unbounded recursion that keeps the digests off
+/// that list (`\ceil(findString(Keccak256(B), "0x", 0))`, GAP ticket K9), here on
+/// `\ceil(findString(B2S(B), "0x", 0))`. A definition that declares the conversion `total`, as
+/// `domains.md` does, never asks the list. This pins the refusal, a stop and not an abort, until
+/// K9 fixes the recursion; the fix turns it into the bounded parse of the digest case above.
+#[test]
+fn kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_exhausts_its_stack() {
+    let (root, compiled) = hex_parse_definition();
+    let (output, _) = hex_parse_output(
+        &root,
+        &compiled,
+        "partial-b2s",
+        "LblB2S'LParUndsRParUnds'HEXS'Unds'String'Unds'Bytes{}(VarB:SortBytes{})",
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("simplification exhausted its native stack"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `fixtures/hex-parse-unread.k` compiled: the fixture root and the compiled directory.
+fn hex_parse_definition() -> (PathBuf, PathBuf) {
     let (root, _) = fixture();
     let source = root.join("hex-parse-unread.k");
     fs::write(&source, include_str!("fixtures/hex-parse-unread.k")).unwrap();
@@ -2888,61 +2947,53 @@ fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
         ],
         &compiled,
     );
-    let keccak = "LblKeccak256'LParUndsRParUnds'HEXS'Unds'String'Unds'Bytes{}";
-    let literal = format!(
-        r#"{keccak}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{{}}(\dv{{SortString{{}}}}("execute()")))"#
+    (root, compiled)
+}
+
+/// `krust kore-simplify` of `#parseByteStack(digest)` in the compiled hex-parse definition: its
+/// output and the path of its `--trace-aggregate` document.
+fn hex_parse_output(
+    root: &Path,
+    compiled: &Path,
+    name: &str,
+    digest: &str,
+) -> (std::process::Output, PathBuf) {
+    let pattern = root.join(format!("{name}.kore"));
+    fs::write(&pattern, format!("LblparseByteStack{{}}({digest})")).unwrap();
+    let aggregate = root.join(format!("{name}.json"));
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kore-simplify")
+        .arg(compiled.join("definition.kore"))
+        .args(["--module", "HEXS", "--pattern"])
+        .arg(&pattern)
+        .arg("--trace-aggregate")
+        .arg(&aggregate)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    (output, aggregate)
+}
+
+/// The simplified pattern of [`hex_parse_output`], asserting success, and the definedness
+/// discharges it counted.
+fn hex_parse(root: &Path, compiled: &Path, name: &str, digest: &str) -> (String, u64) {
+    let (output, aggregate) = hex_parse_output(root, compiled, name, digest);
+    assert!(
+        output.status.success(),
+        "{name}: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    for (name, digest) in [
-        ("symbolic", format!("{keccak}(VarB:SortBytes{{}})")),
-        ("literal", literal),
-    ] {
-        let pattern = root.join(format!("{name}.kore"));
-        fs::write(&pattern, format!("LblparseByteStack{{}}({digest})")).unwrap();
-        let aggregate = root.join(format!("{name}.json"));
-        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .arg("kore-simplify")
-            .arg(compiled.join("definition.kore"))
-            .args(["--module", "HEXS", "--pattern"])
-            .arg(&pattern)
-            .arg("--trace-aggregate")
-            .arg(&aggregate)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{name}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let simplified = String::from_utf8(output.stdout).unwrap();
-        // The parse of the symbolic digest stays unevaluated; that of the literal's digest is
-        // its 32 bytes.
-        assert_eq!(
-            simplified.contains("LblparseHexBytesAux{}"),
-            name == "symbolic",
-            "{name}: {simplified}"
-        );
-        if name == "literal" {
-            assert!(
-                !simplified.contains("Lbl") && simplified.contains(r"\dv{SortBytes{}}"),
-                "{simplified}"
-            );
-        }
-        let document: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&aggregate).unwrap()).unwrap();
-        let discharges = document["algorithms"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|entry| entry["id"] == "backend.definedness.discharge")
-            .and_then(|entry| entry["count"].as_u64())
-            .expect("the aggregate records definedness discharges");
-        assert!(
-            discharges <= 50_000,
-            "{name}: {discharges} definedness discharges"
-        );
-    }
-    fs::remove_dir_all(root).unwrap();
+    let simplified = String::from_utf8(output.stdout).unwrap();
+    let document: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&aggregate).unwrap()).unwrap();
+    let discharges = document["algorithms"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "backend.definedness.discharge")
+        .and_then(|entry| entry["count"].as_u64())
+        .expect("the aggregate records definedness discharges");
+    (simplified, discharges)
 }
 
 /// A sort named `SortInt` declared without the hook `INT.Int` is still the integers, as the SMT

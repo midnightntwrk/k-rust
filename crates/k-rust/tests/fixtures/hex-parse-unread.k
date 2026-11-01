@@ -1,7 +1,8 @@
 // KEVM's hex parsing (serialization.md, `#parseByteStack` and what it calls) with the INT
 // lemmas it meets, over a digest whose argument no evaluation reads, a symbolic `B`, and over the
 // digest of the spelling of `String2Bytes("execute()")`, the shape `#abiCallData` reaches,
-// which the amendments AM-1 and AM-2 determine.
+// which the amendments AM-1 and AM-2 determine, and over a partial `Bytes2String` of a symbolic
+// `B` (`B2S`), which AM-1 gives a value on every argument.
 module HEXS
   imports STRING
   imports BYTES
@@ -9,6 +10,7 @@ module HEXS
   imports INT-SYMBOLIC
   imports BOOL
   syntax String ::= Keccak256(Bytes) [function, hook(KRYPTO.keccak256)]
+                  | B2S(Bytes) [function, hook(BYTES.bytes2string)]
 
   syntax String ::= #alignHexString ( String ) [symbol(#alignHexString), function, total]
   rule #alignHexString(S) => S             requires         lengthString(S) modInt 2 ==Int 0
