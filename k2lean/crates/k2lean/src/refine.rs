@@ -24,8 +24,15 @@
 //! (`find_splits`: `A`'s `a1` then `a2` against `B`'s `b`, no side conditions) gives `X` (one
 //! constructor, `A` after `a1` against `B` after `b`), `X_inv`, `μ` (1 there), `ν = 0`, `R`, and
 //! the parts that need `X`'s constructor: `fwd_tr a1`, `fwd_x a2`, `bwd_tr b`, and `bwd_x r` for
-//! each step of `B` at `X` (`A` takes `a2`, then `r`'s counterpart). The output module states and proves `bisim : StutterBisim A.Step B.Step (Stutter.Rel tr X)
-//! μ ν` and the transfer of runs to terminal states in both directions.
+//! each step of `B` at `X` (`A` takes `a2`, `X_next`, then `r`'s counterpart). The output module
+//! states and proves `bisim : StutterBisim A.Step B.Step (Stutter.Rel tr X) μ ν` and the transfer
+//! of runs to terminal states in both directions.
+//!
+//! With priority ranks (both definitions with one list of priorities), a step of a rank `i > 0`
+//! carries `hpri`, and its counterpart's step needs the same of the other definition: `relate
+//! --per-rule` states it as a premise of `fwd.r` and `bwd.r`, and this module discharges it rule
+//! by rule (`emit_priorities`: `pri_fwd.r`, `pri_bwd.r`, and `pri_mid` for the split's second
+//! step, which `X` carries).
 
 use crate::ir::{self, P};
 use crate::lower::L;
@@ -222,8 +229,11 @@ fn render_dot(t: &L, ns: &str, var: &dyn Fn(&str) -> String) -> String {
         L::Raw(r) => r.clone(),
         L::Typed(e, ty) => format!("({} : {ns}.{ty})", render_dot(e, ns, var)),
         L::App(h, xs) => {
+            // the dot form takes one name: a constructor of a sort's own part (`SortKItem.Own.c`)
+            // is qualified
+            let atomic = |c: &str| c.split('«').next().is_some_and(|p| !p.contains('.'));
             let head = match h.split_once('.') {
-                Some((sort, c)) if sort.starts_with("Sort") && !sort.contains('«') => {
+                Some((sort, c)) if sort.starts_with("Sort") && !sort.contains('«') && atomic(c) => {
                     format!(".{c}")
                 }
                 _ => format!("{ns}.{h}"),
@@ -296,6 +306,48 @@ fn find_splits(
     out
 }
 
+/// Whether `a` and `b` may be instances of one term, every variable of either taken as anything
+/// (an over-approximation: a raw term, a builtin value or a function's result, is taken as
+/// anything too).
+fn may_unify(a: &L, b: &L) -> bool {
+    match (a, b) {
+        (L::Var(_), _) | (_, L::Var(_)) | (L::Raw(_), _) | (_, L::Raw(_)) => true,
+        (L::App(h1, a1), L::App(h2, a2)) => {
+            h1 == h2 && a1.len() == a2.len() && a1.iter().zip(a2).all(|(x, y)| may_unify(x, y))
+        }
+        (L::Typed(e1, _), _) => may_unify(e1, b),
+        (_, L::Typed(e2, _)) => may_unify(a, e2),
+    }
+}
+
+/// The constructor applications of `t` and the occurrences of each variable; `None` when `t`
+/// holds a raw term (a value whose size is not that of a constructor term).
+fn size_profile(t: &L, apps: &mut usize, vars: &mut BTreeMap<String, usize>) -> Option<()> {
+    match t {
+        L::Var(v) => *vars.entry(v.clone()).or_default() += 1,
+        L::App(_, xs) => {
+            *apps += 1;
+            for x in xs {
+                size_profile(x, apps, vars)?;
+            }
+        }
+        L::Typed(e, _) => size_profile(e, apps, vars)?,
+        L::Raw(_) => return None,
+    }
+    Some(())
+}
+
+/// Whether every instance of `r` is smaller (`sizeOf`) than the instance of `l` it rewrites:
+/// fewer constructor applications, and no variable more often than in `l`.
+fn shrinks(l: &L, r: &L) -> bool {
+    let (mut al, mut ar) = (0, 0);
+    let (mut vl, mut vr) = (BTreeMap::new(), BTreeMap::new());
+    if size_profile(l, &mut al, &mut vl).is_none() || size_profile(r, &mut ar, &mut vr).is_none() {
+        return false;
+    }
+    ar < al && vr.iter().all(|(v, n)| vl.get(v).is_some_and(|m| n <= m))
+}
+
 /// The translation of `A`'s variable `v` of sort `t`: itself on a builtin sort.
 fn tr_var(builtin: &BTreeSet<String>, t: &str, v: &str) -> String {
     if builtin.contains(t) {
@@ -305,10 +357,15 @@ fn tr_var(builtin: &BTreeSet<String>, t: &str, v: &str) -> String {
     }
 }
 
-/// `X`, `X_inv` and the measures of a split (`--hand-module none`): `X` relates `A`'s state
-/// after `a1` to `B`'s after `b`, its `B` side a pattern of `B`'s constructors over variables
+/// `X`, `X_inv`, `X_next` and the measures of a split (`--hand-module none`): `X` relates `A`'s
+/// state after `a1` to `B`'s after `b`, its `B` side a pattern of `B`'s constructors over variables
 /// each the translation of `A`'s (`cases` on `X` never inverts a translation); `μ` is 1 there,
-/// where `A` stutters, and `ν` is 0.
+/// where `A` stutters, and `ν` is 0. When `a2`'s result may be an intermediate state again (`a2`
+/// rewrites to a continuation, which may start with the intermediate construct), `μ` is the
+/// state's size there instead (`sizeOf`), which `a2` decreases when it removes constructors and
+/// copies no variable (`shrinks`; else the split is refused); the result says which. With priorities, `a2`'s step needs that no rule of a rank
+/// before `a2`'s applies at the intermediate state (`mid`, that rank when it is not 0), which `X`
+/// carries from where the state was reached (`hp`), so that `X_next` completes the step.
 #[allow(clippy::too_many_arguments)]
 fn emit_split(
     o: &mut String,
@@ -323,7 +380,8 @@ fn emit_split(
     x: &str,
     mu: &str,
     nu: &str,
-) {
+    mid: Option<usize>,
+) -> bool {
     let (a1, a2, b) = (&ra[sp.a1], &ra[sp.a2], &rb[sp.b]);
     let (_, rhs_a1) = sides(a1);
     let (_, rhs_b) = sides(b);
@@ -363,6 +421,9 @@ fn emit_split(
     for (v, t) in vars {
         binders.push(format!("(h_{v} : {v}' = {})", tr_var(builtin, t, v)));
     }
+    if let Some(k) = mid {
+        binders.push(format!("(hp : ∀ j, j < {k} → ¬ {na}.App j ({a_side}))"));
+    }
     writeln!(
         o,
         "/-- `{na}` after `{an}`, `{nb}` after `{bn}`: `{na}` completes the step by `{a2n}`. -/\ninductive {x} : {na}.{top} → {nb}.{top} → Prop where\n  | split {} :\n      {x} ({a_side})\n        ({b_side})\n",
@@ -380,12 +441,263 @@ fn emit_split(
         exs.join(" ")
     )
     .unwrap();
-    let pat = render_dot(&rhs_a1, na, &|_| "_".to_string());
+    // `A` completes its step from a state `X` relates: `a2`'s step, to the translation of `B`'s
+    let fields = vec!["_"; 3 * vars.len()].join(" ");
+    let hp = if mid.is_some() { " hp" } else { "" };
+    let n2 = rules::ctor_args(&a2.step).len();
     writeln!(
         o,
-        "/-- `{na}`'s measure: 1 after `{an}`, where it stutters. -/\ndef {mu} : {na}.{top} → Nat\n  | {pat} => 1\n  | _ => 0\n\n/-- `{nb}` never stutters. -/\ndef {nu} (_ : {nb}.{top}) : Nat := 0\n\n/-- The relation: `d` is the translation of `c`, or `{x}` relates them. -/\nabbrev R := Stutter.Rel {tr} {x}\n"
+        "/-- From a state `{x}` relates, `{na}` completes its step by `{a2n}`, to a state whose translation\nis `{nb}`'s. -/\ntheorem {x}_next {{c : {na}.{top}}} {{d : {nb}.{top}}} (h : {x} c d) :\n    ∃ c', {na}.Step c c' ∧ d = {tr} c' := by\n  cases h with\n  | split {fields}{hp} => subst_vars; exact ⟨_, {na}.Step.{} {}{hp}, rfl⟩\n",
+        a2.lean,
+        vec!["_"; n2].join(" ")
     )
     .unwrap();
+    let pat = render_dot(&rhs_a1, na, &|_| "_".to_string());
+    // `a2`'s result over `a1`'s variables, and whether it may be intermediate again
+    let (la2, rhs_a2) = sides(a2);
+    let mut sig = BTreeMap::new();
+    match_l(&la2, &rhs_a1, &mut sig);
+    let again = may_unify(&rhs_a1, &subst_bounded(&rhs_a2, &sig, 0));
+    if again && !shrinks(&la2, &rhs_a2) {
+        fail(&format!(
+            "--hand-module none: `{a2n}` may lead to an intermediate state of the split again, and does not decrease the state's size: no measure is generated"
+        ));
+    }
+    if again {
+        writeln!(
+            o,
+            "/-- `{na}`'s measure: the state's size after `{an}`, where it stutters (`{a2n}` may lead to such a state\nagain, a smaller one); a measure for the proofs, with no code. -/\nnoncomputable def {mu} (c : {na}.{top}) : Nat :=\n  match c with\n  | {pat} => sizeOf c\n  | _ => 0\n\ntheorem {mu}_le (c : {na}.{top}) : {mu} c ≤ sizeOf c := by\n  unfold {mu}; split <;> omega\n"
+        )
+        .unwrap();
+    } else {
+        writeln!(
+            o,
+            "/-- `{na}`'s measure: 1 after `{an}`, where it stutters. -/\ndef {mu} : {na}.{top} → Nat\n  | {pat} => 1\n  | _ => 0\n"
+        )
+        .unwrap();
+    }
+    writeln!(
+        o,
+        "/-- `{nb}` never stutters. -/\ndef {nu} (_ : {nb}.{top}) : Nat := 0\n\n/-- The relation: `d` is the translation of `c`, or `{x}` relates them. -/\nabbrev R := Stutter.Rel {tr} {x}\n"
+    )
+    .unwrap();
+    again
+}
+
+/// What the priority lemmas read: the two definitions' rules and constructors, the
+/// correspondence, the split, the open list, the ranks, and the names of the module.
+struct Pri<'a> {
+    ra: &'a [Rule],
+    rb: &'a [Rule],
+    ca: &'a [preserves::Ctor],
+    cb: &'a [preserves::Ctor],
+    pairs: &'a BTreeMap<String, String>,
+    split: Option<&'a Split>,
+    open: &'a BTreeSet<(String, String)>,
+    rank: &'a dyn Fn(&Rule) -> usize,
+    na: &'a str,
+    nb: &'a str,
+    top: &'a str,
+    tr: &'a str,
+}
+
+/// The priority lemmas written: per rule of `A` whose forward part at a translation is generated
+/// (`pri_fwd.r`), per rule of `B` likewise (`pri_bwd.r`), whether the split's second step has
+/// one (`pri_mid`), and the names for the axiom guard.
+#[derive(Default)]
+struct Pris {
+    fwd: BTreeSet<usize>,
+    bwd: BTreeSet<usize>,
+    mid: bool,
+    names: Vec<String>,
+}
+
+/// The priority hypotheses that the generated parts pass to the other side's steps
+/// (`docs/design.md`, section 3.5, "Priorities"). A step of a rule of rank `i > 0` holds where no
+/// rule of a rank before `i` applies (`hpri`); its counterpart's step needs the same of the other
+/// definition, at the related state, which holds rule by rule: casing on which rule would apply
+/// there, one of a rank `≥ i` is excluded by the rank, one with a counterpart applies on this side
+/// too (`appbwd.q`, `appfwd.q`, the arms of `relate`'s `app_bwd` and `app_fwd`), against `hpri`,
+/// and so does the split's `b` (through `a1`, the same left-hand side) and `a1` (through `b`);
+/// `a2`'s left-hand side, the intermediate state, clashes with every translation of a paired
+/// rule's. Any other rule without a counterpart of a rank before `i` is refused.
+///
+/// - `pri_fwd.r` (`A`'s rule `r`): `∀ j, j < i → ∀ d, tr lhs = d → ¬ B.App j d`, under `r`'s binders
+///   and its `hpri`;
+/// - `pri_bwd.r` (`B`'s rule `r`): `∀ c, tr c = lhs → ∀ j, j < i → ¬ A.App j c`;
+/// - `pri_mid`: at the split's intermediate state (`a1`'s right-hand side), no rule of a rank before
+///   `a2`'s applies, from `a1`'s `hpri` at its left-hand side: a rule that applies at the
+///   intermediate state applies at the start (it reads the changed cells by variables, as K's
+///   stream rules read `<k>`), or clashes with the intermediate state.
+fn emit_priorities(o: &mut String, p: &Pri) -> Pris {
+    let mut out = Pris::default();
+    let (na, nb, tr, top) = (p.na, p.nb, p.tr, p.top);
+    let paired_b: BTreeSet<&String> = p.pairs.values().collect();
+    let generated_part =
+        |kind: &str, r: &Rule| !p.open.contains(&(kind.to_string(), rules::display_name(r)));
+    let fwd: Vec<usize> = (0..p.ra.len())
+        .filter(|&i| {
+            let r = &p.ra[i];
+            (p.rank)(r) > 0
+                && generated_part("fwd_tr", r)
+                && (p.pairs.contains_key(&rules::display_name(r))
+                    || p.split.is_some_and(|s| s.a1 == i))
+        })
+        .collect();
+    let bwd: Vec<usize> = (0..p.rb.len())
+        .filter(|&j| {
+            let r = &p.rb[j];
+            (p.rank)(r) > 0
+                && (paired_b.contains(&rules::display_name(r)) || p.split.is_some_and(|s| s.b == j))
+        })
+        .collect();
+    let mid = p.split.filter(|s| (p.rank)(&p.ra[s.a2]) > 0);
+    if fwd.is_empty() && bwd.is_empty() && mid.is_none() {
+        return out;
+    }
+    writeln!(o, "/-! ## Priorities: where no rule of a rank before a step's applies on one side, none applies on the other -/\n").unwrap();
+    let binders = |rel: &crate::render::Rel| -> String {
+        rel.binders
+            .iter()
+            .map(|(x, t)| format!(" ({x} : {t})"))
+            .chain(rel.hyps.iter().map(|(h, q)| format!(" ({h} : {q})")))
+            .collect()
+    };
+    let fail_unpaired = |q: &Rule, r: &Rule| -> ! {
+        fail(&format!(
+            "rule {} has no counterpart and is of a rank before {}'s: whether it applies at the related state is not generated (priority ranks, docs/design.md section 3.5)",
+            rules::display_name(q),
+            rules::display_name(r)
+        ))
+    };
+    // the matches of the split's rules at the other side's translation (`b` is `a1`'s left-hand
+    // side, with the same rank)
+    if let Some(sp) = p.split {
+        let lowest = |r: &Rule| (p.rank)(r);
+        let needs_bwd = fwd
+            .iter()
+            .any(|&i| lowest(&p.rb[sp.b]) < (p.rank)(&p.ra[i]));
+        let needs_fwd = bwd
+            .iter()
+            .any(|&j| lowest(&p.ra[sp.a1]) < (p.rank)(&p.rb[j]));
+        let (a1, b) = (&p.ra[sp.a1], &p.rb[sp.b]);
+        let k = (p.rank)(b);
+        if needs_bwd {
+            writeln!(
+                o,
+                "open {nb} in\n/-- A match of `{}` at a translation is a match of `{}`, its left-hand side. -/\ntheorem split_appbwd {{c : {na}.{top}}}{}\n    (hd : {tr} c = {}) : {na}.App {k} c := by\n  k2l_inv\n  all_goals apply {na}.App.{}\n",
+                rules::display_name(b),
+                rules::display_name(a1),
+                binders(&b.app),
+                b.app.index.render_arg(),
+                a1.lean
+            )
+            .unwrap();
+            out.names.push("split_appbwd".into());
+        }
+        if needs_fwd {
+            writeln!(
+                o,
+                "open {na} in\n/-- A match of `{}` translates to a match of `{}`, its left-hand side. -/\ntheorem split_appfwd{} :\n    {nb}.App {k} ({tr} {}) := by\n  apply {nb}.App.{}\n",
+                rules::display_name(a1),
+                rules::display_name(b),
+                binders(&a1.app),
+                a1.app.index.render_arg(),
+                b.lean
+            )
+            .unwrap();
+            out.names.push("split_appfwd".into());
+        }
+    }
+    if let Some(sp) = mid {
+        let (a1, a2) = (&p.ra[sp.a1], &p.ra[sp.a2]);
+        let k2 = (p.rank)(a2);
+        // a rule of a rank before `a2`'s that applies at the intermediate state, rebuilt at the start
+        let rebuild: Vec<String> =
+            p.ra.iter()
+                .filter(|q| (p.rank)(q) < k2)
+                .map(|q| format!("(apply {na}.App.{} <;> assumption)", q.lean))
+                .collect();
+        let frame = if rebuild.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " | exact hpri _ (by omega) (by first | {})",
+                rebuild.join(" | ")
+            )
+        };
+        writeln!(
+            o,
+            "/-- No rule of a rank before `{}`'s applies at the state `{}` leads to, where none of a rank before\n`{}`'s applies at its start. -/\ntheorem pri_mid : {na}.Step.Rel.{} (fun _ c' => ∀ j, j < {k2} → ¬ {na}.App j c') := by\n  intro {} j hj ha\n  cases ha <;> first | exact absurd hj (by decide){frame}\n",
+            rules::display_name(a2),
+            rules::display_name(a1),
+            rules::display_name(a1),
+            p.ca[sp.a1].lean,
+            p.ca[sp.a1].args.join(" ")
+        )
+        .unwrap();
+        out.names.push("pri_mid".into());
+        out.mid = true;
+    }
+    for &i in &fwd {
+        let r = &p.ra[i];
+        let k = (p.rank)(r);
+        let mut arms = String::new();
+        for (j, q) in p.rb.iter().enumerate() {
+            let qargs = rules::ctor_args(&q.app).join(" ");
+            let arm = if (p.rank)(q) >= k {
+                "exact absurd hj (by decide)".to_string()
+            } else if paired_b.contains(&rules::display_name(q)) {
+                format!("exact hpri _ hj (appbwd.{} {qargs} hd)", q.lean)
+            } else if p.split.is_some_and(|s| s.b == j) {
+                format!("exact hpri _ hj (split_appbwd {qargs} hd)")
+            } else {
+                fail_unpaired(q, r)
+            };
+            writeln!(arms, "  | {} {qargs} => {arm}", q.lean).unwrap();
+        }
+        writeln!(
+            o,
+            "theorem pri_fwd.{} : {na}.Step.Rel.{} (fun c _ => ∀ j, j < {k} → ∀ d, {tr} c = d → ¬ {nb}.App j d) := by\n  intro {} j hj d hd hb\n  cases hb with\n{arms}",
+            p.ca[i].lean,
+            p.ca[i].lean,
+            p.ca[i].args.join(" ")
+        )
+        .unwrap();
+        out.names.push(format!("pri_fwd.{}", p.ca[i].lean));
+        out.fwd.insert(i);
+    }
+    for &j in &bwd {
+        let r = &p.rb[j];
+        let k = (p.rank)(r);
+        let mut arms = String::new();
+        for (i, q) in p.ra.iter().enumerate() {
+            let qargs = rules::ctor_args(&q.app).join(" ");
+            let arm = if (p.rank)(q) >= k {
+                "exact absurd hj (by decide)".to_string()
+            } else if p.pairs.contains_key(&rules::display_name(q)) {
+                format!("exact hpri _ hj (hd ▸ appfwd.{} {qargs})", q.lean)
+            } else if p.split.is_some_and(|s| s.a1 == i) {
+                format!("exact hpri _ hj (hd ▸ split_appfwd {qargs})")
+            } else if p.split.is_some_and(|s| s.a2 == i) {
+                "cases hd".to_string()
+            } else {
+                fail_unpaired(q, r)
+            };
+            writeln!(arms, "  | {} {qargs} => {arm}", q.lean).unwrap();
+        }
+        writeln!(
+            o,
+            "theorem pri_bwd.{} : {nb}.Step.Rel.{} (fun d _ => ∀ c, {tr} c = d → ∀ j, j < {k} → ¬ {na}.App j c) := by\n  intro {} c hd j hj ha\n  cases ha with\n{arms}",
+            p.cb[j].lean,
+            p.cb[j].lean,
+            p.cb[j].args.join(" ")
+        )
+        .unwrap();
+        out.names.push(format!("pri_bwd.{}", p.cb[j].lean));
+        out.bwd.insert(j);
+    }
+    out
 }
 
 pub fn main(args: &[String]) {
@@ -405,9 +717,23 @@ pub fn main(args: &[String]) {
     let (na, nb, ns) = (get("name-a"), get("name-b"), get("ns"));
     let (ra, pa, top, builtin) = load_rules(&get("kore-a"));
     let (rb, pb, top_b, _) = load_rules(&get("kore-b"));
-    if pa.is_some() || pb.is_some() {
-        fail("definitions with priority ranks are not supported");
+    // with priorities, a step of rank `i` carries that no rule of a rank before `i` applies
+    // (`hpri`); a rank names the same place on both sides, so the two definitions have one list
+    // of priorities
+    if pa != pb {
+        fail(&format!(
+            "the two definitions' priority ranks differ ({:?}, {:?})",
+            pa.unwrap_or_default(),
+            pb.unwrap_or_default()
+        ));
     }
+    let prios = pa;
+    let rank = |r: &Rule| {
+        prios
+            .as_ref()
+            .and_then(|ps| ps.iter().position(|p| *p == r.priority))
+            .unwrap_or(0)
+    };
     if top != top_b {
         fail(&format!("the top sorts differ ({top}, {top_b})"));
     }
@@ -420,8 +746,8 @@ pub fn main(args: &[String]) {
     let x = opt.get("extra").cloned().unwrap_or("X".into());
     let mu = opt.get("measure-a").cloned().unwrap_or("μ".into());
     let nu = opt.get("measure-b").cloned().unwrap_or("ν".into());
-    let ca = preserves::ctors(&ra, None);
-    let cb = preserves::ctors(&rb, None);
+    let ca = preserves::ctors(&ra, prios.as_deref());
+    let cb = preserves::ctors(&rb, prios.as_deref());
     let names_a: BTreeSet<String> = ra.iter().map(rules::display_name).collect();
     let names_b: BTreeSet<String> = rb.iter().map(rules::display_name).collect();
     let paired_b: BTreeSet<&String> = pairs.values().collect();
@@ -437,7 +763,16 @@ pub fn main(args: &[String]) {
                 ss.len()
             ));
         }
-        Some(ss.remove(0))
+        let sp = ss.remove(0);
+        // `b`'s priority hypothesis is `a1`'s, and `a2`'s at the intermediate state follows from
+        // `a1`'s at its start (`pri_mid`), which covers the ranks before `a1`'s
+        let (k1, k2, kb) = (rank(&ra[sp.a1]), rank(&ra[sp.a2]), rank(&rb[sp.b]));
+        if k1 != kb || k2 > k1 {
+            fail(&format!(
+                "--hand-module none: the split's rules are of ranks {k1} and {k2} against {kb}; generated for one rank, or a second step of a rank before the first's"
+            ));
+        }
+        Some(sp)
     } else {
         None
     };
@@ -482,11 +817,45 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
     )
     .unwrap();
     writeln!(o, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
+    // whether `μ` is the state's size (`emit_split`)
+    let mut sized = false;
     if let Some(sp) = &split {
-        emit_split(
-            &mut o, sp, &ra, &rb, &builtin, &na, &nb, &top, &tr, &x, &mu, &nu,
+        let k2 = rank(&ra[sp.a2]);
+        sized = emit_split(
+            &mut o,
+            sp,
+            &ra,
+            &rb,
+            &builtin,
+            &na,
+            &nb,
+            &top,
+            &tr,
+            &x,
+            &mu,
+            &nu,
+            (k2 > 0).then_some(k2),
         );
     }
+    // the priority hypotheses of the other side's steps, per rule whose generated part takes
+    // one (design.md, section 3.5, "Priorities")
+    let pri = emit_priorities(
+        &mut o,
+        &Pri {
+            ra: &ra,
+            rb: &rb,
+            ca: &ca,
+            cb: &cb,
+            pairs: &pairs,
+            split: split.as_ref(),
+            open: &open,
+            rank: &rank,
+            na: &na,
+            nb: &nb,
+            top: &top,
+            tr: &tr,
+        },
+    );
     let mut guard = vec![];
     let mut counts: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
     let mut hand_cases = vec![];
@@ -519,8 +888,24 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
     let mut split_fwd_x: Option<(usize, String)> = None;
     let mut split_bwd_tr: Option<(usize, String)> = None;
     let mut split_bwd_x: BTreeMap<usize, String> = BTreeMap::new();
+    // the other side's priority hypothesis, for a step of a rule of rank `> 0`: `fwd.r`'s premise
+    // (`B`'s at the translation), `bwd.r`'s (`A`'s at the state translated)
+    let pri_f = |i: usize, args: &str| {
+        if pri.fwd.contains(&i) {
+            format!(" (fun j hj => pri_fwd.{} {args} j hj _ rfl)", ca[i].lean)
+        } else {
+            String::new()
+        }
+    };
+    let pri_b = |j: usize, args: &str, c: &str, e: &str| {
+        if pri.bwd.contains(&j) {
+            format!(" (pri_bwd.{} {args} {c} {e})", cb[j].lean)
+        } else {
+            String::new()
+        }
+    };
     if let Some(sp) = &split {
-        let (a1, a2, b) = (&ra[sp.a1], &ra[sp.a2], &rb[sp.b]);
+        let (a1, b) = (&ra[sp.a1], &rb[sp.b]);
         let inv: BTreeMap<&String, &String> = sp.rho.iter().map(|(k, v)| (v, k)).collect();
         let ty_a: BTreeMap<&String, &String> =
             a1.step.binders.iter().map(|(n, t)| (n, t)).collect();
@@ -532,12 +917,19 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
             })
             .collect();
         let n = a1.step.binders.len();
+        let a1args = ca[sp.a1].args.join(" ");
+        let hp = if pri.mid {
+            format!(" (pri_mid {a1args})")
+        } else {
+            String::new()
+        };
         split_fwd_tr = Some((
             sp.a1,
             format!(
-                "exact Or.inl ⟨_, .single ({nb}.Step.{} {}), Or.inr ({x}.split {} {})⟩",
+                "exact Or.inl ⟨_, .single ({nb}.Step.{} {}{}), Or.inr ({x}.split {} {}{hp})⟩",
                 cb[sp.b].lean,
                 bargs.join(" "),
+                pri_f(sp.a1, &a1args),
                 under(2 * n),
                 vec!["rfl"; n].join(" ")
             ),
@@ -545,59 +937,76 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
         split_fwd_x = Some((
             sp.a2,
             format!(
-                "intro d hX; cases hX <;> first | done | contradiction | (simp_all; done) | (subst_vars; exact Or.inr ⟨Or.inl rfl, by simp [{mu}]⟩)"
+                "intro d hX; cases hX <;> first | done | contradiction | (simp_all; done) | (subst_vars; exact Or.inr ⟨Or.inl rfl, {}⟩)",
+                if sized {
+                    format!("Nat.lt_of_le_of_lt ({mu}_le _) (by simp [{mu}]; omega)")
+                } else {
+                    format!("by simp [{mu}]")
+                }
             ),
         ));
-        let (n1, n2) = (
-            rules::ctor_args(&a1.step).len(),
-            rules::ctor_args(&a2.step).len(),
-        );
+        // `B`'s step against `A`'s two from a translation (`split_bwd`): `a1` where no rule of a
+        // rank before `b`'s applies in `A` (`pri_bwd.b`), then `a2` at the intermediate state
+        // (`pri_mid`); at a translation, and at a state `X` relates once `A` has completed its
+        // step there (`X_next`), since `b`'s left-hand side may match `B`'s side of `X`
+        let n1 = rules::ctor_args(&a1.step).len();
+        let (have, hp1, hp2) = if pri.bwd.contains(&sp.b) {
+            (
+                format!(
+                    " have hp := pri_bwd.{} {} c hd;",
+                    cb[sp.b].lean,
+                    cb[sp.b].args.join(" ")
+                ),
+                " hp".to_string(),
+                if pri.mid {
+                    format!(" (pri_mid {} hp)", under(n1))
+                } else {
+                    String::new()
+                },
+            )
+        } else {
+            (String::new(), String::new(), String::new())
+        };
+        let bargs_all = cb[sp.b].args.join(" ");
+        writeln!(
+            o,
+            "/-- `{}` of `{nb}` from a translation is `{}` then `{}` of `{na}`. -/\ntheorem split_bwd : {nb}.Step.Rel.{} (fun d d' => ∀ c, {tr} c = d → ∃ c', Relation.TransGen {na}.Step c c' ∧ d' = {tr} c') := by\n  intro {bargs_all} c hd;{have} k2l_inv; exact ⟨_, .tail (.single ({na}.Step.{} {}{hp1})) ({na}.Step.{} {}{hp2}), rfl⟩\n",
+            rules::display_name(b),
+            rules::display_name(a1),
+            rules::display_name(&ra[sp.a2]),
+            cb[sp.b].lean,
+            ca[sp.a1].lean,
+            under(n1),
+            ca[sp.a2].lean,
+            under(rules::ctor_args(&ra[sp.a2].step).len())
+        )
+        .unwrap();
+        guard.push("split_bwd".into());
         split_bwd_tr = Some((
             sp.b,
             format!(
-                "intro c hd; have hd := hd.symm; k2l_inv; exact Or.inl ⟨_, .tail (.single ({na}.Step.{} {})) ({na}.Step.{} {}), Or.inl rfl⟩",
-                ca[sp.a1].lean,
-                under(n1),
-                ca[sp.a2].lean,
-                under(n2)
+                "intro c hd; obtain ⟨c', hc', e⟩ := split_bwd {bargs_all} c hd.symm; exact Or.inl ⟨c', hc', Or.inl e⟩"
             ),
         ));
-        let a_of: BTreeMap<&String, usize> = pairs
-            .iter()
-            .filter_map(|(an, bn)| {
-                ra.iter()
-                    .position(|r| &rules::display_name(r) == an)
-                    .map(|i| (bn, i))
-            })
-            .collect();
+        split_bwd_x.insert(
+            sp.b,
+            format!(
+                "intro c hX; first | (cases hX <;> first | done | contradiction | (simp_all; done)) | (obtain ⟨c₁, h₁, e⟩ := {x}_next hX; obtain ⟨c₂, h₂, e₂⟩ := split_bwd {bargs_all} c₁ e.symm; exact Or.inl ⟨c₂, .trans (.single h₁) h₂, Or.inl e₂⟩)"
+            ),
+        );
+        // a paired step of `B` at a state `X` relates: `A` completes its step (`X_next`), then
+        // takes the counterpart from the translation (`bwd.r`)
         for (j, r) in rb.iter().enumerate() {
-            let Some(&i) = a_of.get(&rules::display_name(r)) else {
+            if !paired_b.contains(&rules::display_name(r)) {
                 continue;
-            };
-            let pr = &ra[i];
-            let pargs: Vec<&str> = pr
-                .step
-                .binders
-                .iter()
-                .map(|_| "_")
-                .chain(pr.step.hyps.iter().map(|_| "?_"))
-                .collect();
-            let closers: Vec<String> = r
-                .step
-                .hyps
-                .iter()
-                .map(|(h, _)| format!(" | (simpa only [k2l_rel] using {h})"))
-                .collect();
+            }
+            let args = cb[j].args.join(" ");
             split_bwd_x.insert(
                 j,
                 format!(
-                    "intro c hX; first | (cases hX <;> first | done | contradiction | (simp_all; done)) | (obtain ⟨{}, rfl, hd⟩ := {x}_inv hX; k2l_injections; k2l_inv; refine Or.inl ⟨_, .tail (.single ({na}.Step.{} {})) ({na}.Step.{} {}), Or.inl ?_⟩ <;> first | rfl | assumption | (simp only [k2l_rel]; done){})",
-                    vec!["_"; n].join(", "),
-                    ca[sp.a2].lean,
-                    under(n2),
-                    ca[i].lean,
-                    pargs.join(" "),
-                    closers.join("")
+                    "intro c hX; first | (cases hX <;> first | done | contradiction | (simp_all; done)) | (obtain ⟨c₁, h₁, e⟩ := {x}_next hX; obtain ⟨c₂, h₂, e₂⟩ := bwd.{} {args} c₁ e.symm{}; exact Or.inl ⟨c₂, .tail (.single h₁) h₂, Or.inl e₂⟩)",
+                    cb[j].lean,
+                    pri_b(j, &args, "c₁", "e.symm")
                 ),
             );
         }
@@ -605,13 +1014,13 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
     writeln!(o, "/-! ## Forward: the steps of `{na}` -/\n").unwrap();
     for (idx, (r, c)) in ra.iter().zip(&ca).enumerate() {
         let name = rules::display_name(r);
-        let args = rules::ctor_args(&r.step);
+        let args = &c.args;
         writeln!(
             o,
             "theorem stutter_fwd.{} : {na}.Step.Rel.{} (Stutter.FwdQ {tr} {nb}.Step {x} {mu}) := by\n{}  apply Stutter.fwdQ_of",
             c.lean,
             c.lean,
-            intro(&args)
+            intro(args)
         )
         .unwrap();
         let sep = if args.is_empty() { "" } else { " " };
@@ -619,9 +1028,10 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
             .contains_key(&name)
             .then(|| {
                 format!(
-                    "exact Or.inl ⟨_, .single (fwd.{}{sep}{}), Or.inl rfl⟩",
+                    "exact Or.inl ⟨_, .single (fwd.{}{sep}{}{}), Or.inl rfl⟩",
                     c.lean,
-                    args.join(" ")
+                    args.join(" "),
+                    pri_f(idx, &args.join(" "))
                 )
             })
             .or_else(|| {
@@ -630,25 +1040,25 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
                     .filter(|(i, _)| *i == idx)
                     .map(|(_, t)| t.clone())
             });
-        part(&mut o, "fwd_tr", (&name, &c.lean), &args, tr_auto);
+        part(&mut o, "fwd_tr", (&name, &c.lean), args, tr_auto);
         let x_auto = match &split_fwd_x {
             Some((i, t)) if *i == idx => t.clone(),
             _ => refute.to_string(),
         };
-        part(&mut o, "fwd_x", (&name, &c.lean), &args, Some(x_auto));
+        part(&mut o, "fwd_x", (&name, &c.lean), args, Some(x_auto));
         writeln!(o).unwrap();
         guard.push(format!("stutter_fwd.{}", c.lean));
     }
     writeln!(o, "/-! ## Backward: the steps of `{nb}` -/\n").unwrap();
     for (idx, (r, c)) in rb.iter().zip(&cb).enumerate() {
         let name = rules::display_name(r);
-        let args = rules::ctor_args(&r.step);
+        let args = &c.args;
         writeln!(
             o,
             "theorem stutter_bwd.{} : {nb}.Step.Rel.{} (Stutter.BwdQ {tr} {na}.Step {x} {nu}) := by\n{}  apply Stutter.bwdQ_of",
             c.lean,
             c.lean,
-            intro(&args)
+            intro(args)
         )
         .unwrap();
         let sep = if args.is_empty() { "" } else { " " };
@@ -656,17 +1066,18 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
             .contains(&name)
             .then(|| {
                 format!(
-                    "intro c hd\n    obtain ⟨c', hc', e⟩ := bwd.{}{sep}{} c hd.symm\n    exact Or.inl ⟨c', .single hc', Or.inl e⟩",
+                    "intro c hd\n    obtain ⟨c', hc', e⟩ := bwd.{}{sep}{} c hd.symm{}\n    exact Or.inl ⟨c', .single hc', Or.inl e⟩",
                     c.lean,
-                    args.join(" ")
+                    args.join(" "),
+                    pri_b(idx, &args.join(" "), "c", "hd.symm")
                 )
             })
             .or_else(|| split_bwd_tr.as_ref().filter(|(i, _)| *i == idx).map(|(_, t)| t.clone()));
-        part(&mut o, "bwd_tr", (&name, &c.lean), &args, tr_auto);
+        part(&mut o, "bwd_tr", (&name, &c.lean), args, tr_auto);
         let x_auto = split_bwd_x.get(&idx).cloned().unwrap_or_else(|| {
             "intro c hX; cases hX <;> first | done | contradiction | (simp_all; done)".to_string()
         });
-        part(&mut o, "bwd_x", (&name, &c.lean), &args, Some(x_auto));
+        part(&mut o, "bwd_x", (&name, &c.lean), args, Some(x_auto));
         writeln!(o).unwrap();
         guard.push(format!("stutter_bwd.{}", c.lean));
     }
@@ -696,7 +1107,29 @@ theorem run_fwd {{c c' : {ta}}} (h : Star {na}.Step c c') (ht : Terminal {na}.St
 theorem run_bwd {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht : Terminal {nb}.Step d') :\n    ∃ c', Star {na}.Step c c' ∧ Terminal {na}.Step c' ∧ Stutter.Rel {tr} {x} c' d' :=\n  bisim.symm.terminal_run (Or.inl rfl) h ht\n"
     )
     .unwrap();
+    guard.extend(pri.names.iter().cloned());
+    if split.is_some() {
+        guard.push(format!("{x}_next"));
+    }
     guard.extend(["bisim".into(), "run_fwd".into(), "run_bwd".into()]);
+    // a generated `X` never relates a terminal state of `A` (`X_next`), so two runs to terminal
+    // states end in translations of each other
+    if split.is_some() {
+        writeln!(
+            o,
+            "/-- `{x}` never relates a terminal state of `{na}`, which completes its step from there (`{x}_next`). -/\n\
+theorem not_terminal_of_{x} {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ¬ Terminal {na}.Step c :=\n  fun ht => let ⟨_, hc, _⟩ := {x}_next h; ht _ hc\n\n\
+/-- A run of `{na}` to a terminal state and the run of `{nb}` from the translation of its start to a\nterminal state end in translations of each other. -/\n\
+theorem run_terminal {{c c' : {ta}}} (h : Star {na}.Step c c') (ht : Terminal {na}.Step c') :\n    ∃ d', Star {nb}.Step ({tr} c) d' ∧ Terminal {nb}.Step d' ∧ d' = {tr} c' := by\n  obtain ⟨d', hd, htd, hr | hx⟩ := run_fwd h ht\n  · exact ⟨d', hd, htd, hr⟩\n  · exact absurd ht (not_terminal_of_{x} hx)\n\n\
+theorem run_terminal_back {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht : Terminal {nb}.Step d') :\n    ∃ c', Star {na}.Step c c' ∧ Terminal {na}.Step c' ∧ d' = {tr} c' := by\n  obtain ⟨c', hc, htc, hr | hx⟩ := run_bwd h ht\n  · exact ⟨c', hc, htc, hr⟩\n  · exact absurd htc (not_terminal_of_{x} hx)\n"
+        )
+        .unwrap();
+        guard.extend([
+            format!("not_terminal_of_{x}"),
+            "run_terminal".into(),
+            "run_terminal_back".into(),
+        ]);
+    }
     writeln!(o, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
     write_file(&get("out"), &o);
     let total: (usize, usize) = counts
@@ -713,6 +1146,17 @@ theorem run_bwd {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht 
     );
     for (k, (a, h)) in &counts {
         writeln!(rep, "{k} = {{ automatic = {a}, hand = {h} }}").unwrap();
+    }
+    if prios.is_some() {
+        writeln!(
+            rep,
+            "\n[priorities]\nranks = {}\nfwd = {}\nbwd = {}\nmid = {}",
+            prios.as_ref().map_or(0, |ps| ps.len()),
+            pri.fwd.len(),
+            pri.bwd.len(),
+            pri.mid
+        )
+        .unwrap();
     }
     writeln!(rep, "\n[hand]\ncases = {hand_cases:?}").unwrap();
     if let Some(p) = opt.get("report") {
@@ -797,6 +1241,35 @@ mod tests {
             &rhs_a1,
             &mut BTreeMap::new()
         ));
+    }
+
+    /// `vmpop`'s split at the level of terms: `pop-done` rewrites `#pop ~> K` to `K`, which may be
+    /// `#pop ~> K'` again (a variable unifies with anything), and removes constructors without
+    /// copying a variable; kimp's `if-else` leads to the two-armed form, never the one-armed again.
+    #[test]
+    fn a_split_whose_second_step_may_lead_to_its_intermediate_state_shrinks() {
+        let k = |item: L, rest: L| app("SortK.kseq", vec![item, rest]);
+        let pop = app("SortKItem.Own.«#pop»", vec![]);
+        let st = |kk: L, s: L| app("T", vec![app("K", vec![kk]), app("S", vec![s])]);
+        let cons = |x: L, s: L| app("SortStack.«_:_»", vec![x, s]);
+        // a1's right-hand side, a2's sides
+        let mid = st(k(pop.clone(), v("K")), cons(v("G"), v("S")));
+        let after = st(v("K"), v("S"));
+        assert!(may_unify(&mid, &after));
+        assert!(shrinks(&mid, &after));
+        // a copied variable, a raw term, or as many constructors do not shrink
+        assert!(!shrinks(
+            &mid,
+            &st(k(pop.clone(), v("K")), cons(v("G"), v("G")))
+        ));
+        assert!(!shrinks(&mid, &st(v("K"), L::Raw("(f S)".into()))));
+        assert!(!shrinks(&mid, &st(k(pop, v("K")), cons(v("G"), v("S")))));
+        let one = app("SortStmt.«if(_)_»", vec![v("C"), v("S")]);
+        let two = app(
+            "SortStmt.«if(_)_else_»",
+            vec![v("C"), v("S"), app("SortStmt.«{}»", vec![])],
+        );
+        assert!(!may_unify(&k(one, v("K")), &k(two, v("K"))));
     }
 
     #[test]

@@ -17,4 +17,7 @@ DEMOS = {
     "ImpUnroll": {"tier": "light", "sources": ["generated/kunroll",
                                                "demos/ImpUnroll/ImpUnroll/Tr.lean", "demos/ImpUnroll/ImpUnroll/Refine.lean",
                                                "demos/ImpUnroll/correspondence.toml", "demos/ImpUnroll/refine.toml"]},
+    "VmPopRefine": {"tier": "light", "sources": ["generated/vmpop", "generated/vmpop1",
+                                                 "demos/VmPopRefine/VmPopRefine/Tr.lean", "demos/VmPopRefine/VmPopRefine/Refine.lean",
+                                                 "demos/VmPopRefine/correspondence.toml", "demos/VmPopRefine/refine.toml"]},
 }

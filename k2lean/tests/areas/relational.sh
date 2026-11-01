@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The relational area: `relate` (ImpRel, ImpMut with the mutant library kmut, the fixture
 # self-relations PeanoRel, CellMapRel and PickRel, SimpleRel outside the gate) and `refine` (ImpUnroll, with
-# the library kunroll). Registry: relational.py.
+# the library kunroll; VmPopRefine, with priority ranks, libraries vmpop and vmpop1). Registry: relational.py.
 
 kore_relational() {
   case $1 in
@@ -24,7 +24,7 @@ name_relational() {
   case $1 in
     kmut) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;;
-    pick) echo Pick ;; pickb) echo PickB ;;
+    pick) echo Pick ;; pickb) echo PickB ;; vmpop) echo KVmPop ;; vmpop1) echo KVmPop1 ;;
     *) return 1 ;;
   esac
 }
@@ -42,13 +42,16 @@ gen_relational() {
     # the generator's fixtures peano, cellmap and pick, each generated twice under two namespaces:
     # the two sides of the self-relations demos/PeanoRel, demos/CellMapRel and demos/PickRel
     peano|peanob|cellmap|cellmapb|pick|pickb) libs_fixture_args "$1" ;;
+    # the fixtures vmpop (`pop` in two steps) and vmpop1 (in one), the two sides of the stuttering
+    # bisimulation demos/VmPopRefine, with vmpri's priority ranks
+    vmpop|vmpop1) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
 }
 
-# ImpRel: `Bisim.lean`, kimp to KRS IMP; ImpMut: `Tr.lean`, kimp to its mutant; ImpUnroll: the
-# per-rule lemmas that `refine` reads; SimpleRel: `Bisim.lean`, SIMPLE to its variant; PeanoRel,
+# ImpRel: `Bisim.lean`, kimp to KRS IMP; ImpMut: `Tr.lean`, kimp to its mutant; ImpUnroll and
+# VmPopRefine: the per-rule lemmas that `refine` reads; SimpleRel: `Bisim.lean`, SIMPLE to its variant; PeanoRel,
 # CellMapRel, PickRel: `Bisim.lean`, a fixture to itself (libraries peano and peanob, cellmap and
 # cellmapb, pick and pickb)
 relate_relational() {
@@ -56,6 +59,7 @@ relate_relational() {
     ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
+    VmPopRefine) na=KVmPop ka=$(libs_fixture vmpop) nb=KVmPop1 kd=$(libs_fixture vmpop1) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
     CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
@@ -66,7 +70,8 @@ relate_relational() {
 
 # libs_refine NS: the generated module of the stuttering-bisimulation demo NS and its report
 # `NS/refine.toml` (ImpUnroll: kimp against tests/kimp-unroll.py's variant, with no hand module, `X`
-# generated from the split of `while`; needs libs_relate NS first, whose `--per-rule` lemmas and
+# generated from the split of `while`; VmPopRefine: the fixture vmpop against vmpop1, `X` from the
+# split of `pop`, with priority ranks; needs libs_relate NS first, whose `--per-rule` lemmas and
 # report it reads).
 libs_refine() {
   case $1 in
@@ -74,6 +79,10 @@ libs_refine() {
         --kore-b "$(kore_dir kimp-unroll)/definition.kore" --name-b KUnroll --ns ImpUnroll \
         --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --hand-module none \
         --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
+    VmPopRefine) "$G" refine --kore-a "$(libs_fixture vmpop)/definition.kore" --name-a KVmPop \
+        --kore-b "$(libs_fixture vmpop1)/definition.kore" --name-b KVmPop1 --ns VmPopRefine \
+        --correspondence "$DEMOS/VmPopRefine/correspondence.toml" --hand-module none \
+        --out "$DEMOS/VmPopRefine/VmPopRefine/Refine.lean" --report "$DEMOS/VmPopRefine/refine.toml" ;;
     *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -111,6 +120,15 @@ gate_relational() {
     rel ImpUnroll
     scaffold refine-ImpUnroll libs_refine ImpUnroll
     dbuild ImpUnroll
+  fi
+  # the same with priority ranks (vmpri's three): the fixture vmpop, whose `pop` takes two steps,
+  # against vmpop1, which takes one; the libraries built as far as the demo needs (Preserves)
+  if runs demo VmPopRefine; then
+    phase "scaffold VmPopRefine"
+    for d in vmpop vmpop1; do partlib "$d" "$(libs_name "$d").Preserves"; done
+    rel VmPopRefine
+    scaffold refine-VmPopRefine libs_refine VmPopRefine
+    dbuild VmPopRefine
   fi
   phase "diff relational"
   diffs kmut

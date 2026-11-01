@@ -61,6 +61,9 @@ lake-manifest.json
 /demos/ImpUnroll/ImpUnroll/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Refine.lean
 /demos/ImpUnroll/refine.toml
+/demos/VmPopRefine/VmPopRefine/Tr.lean
+/demos/VmPopRefine/VmPopRefine/Refine.lean
+/demos/VmPopRefine/refine.toml
 /demos/RaceConf/RaceConf/Views.lean
 /demos/RaceConf/RaceConf/Slots.lean
 /demos/RaceConf/RaceConf/Pairs/

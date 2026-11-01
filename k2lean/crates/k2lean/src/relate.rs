@@ -864,8 +864,27 @@ pub fn main(args: &[String]) {
     }
     // whether the translation keeps every constructor's position (design.md, §3.2)
     let per_rule = per_rule && !bisim;
+    // with priorities, a rank names the same rules' place on both sides (`hpri` of a step reads
+    // the ranks before its own), so the two definitions have one list of priorities and a pair
+    // is of one rank
     if per_rule && (a.ranked || b.ranked) {
-        fail("--per-rule does not support priority ranks");
+        if a.ranked != b.ranked || a.prios != b.prios {
+            fail(&format!(
+                "--per-rule: the two definitions' priority ranks differ ({:?}, {:?})",
+                a.prios, b.prios
+            ));
+        }
+        let bad: Vec<String> = pairs
+            .iter()
+            .filter(|(i, j)| a.rank(&a.rules[*i]) != b.rank(&b.rules[*j]))
+            .map(|(i, _)| rules::display_name(&a.rules[*i]))
+            .collect();
+        if !bad.is_empty() {
+            fail(&format!(
+                "--per-rule: paired rules of different priority ranks: {}",
+                bad.join(", ")
+            ));
+        }
     }
     let ordered = if bisim || per_rule {
         positions_kept(&a, &b, &sm, &covered)
@@ -2946,7 +2965,15 @@ fn fwd_ctor(
 /// per-rule principle for relations (`Step.Rel.r`, `Preserves.lean`): `fwd.r`, a step of `A` by
 /// `r` is translated to a step of `B` by its counterpart, and `bwd.r`, a step of `B` by `r` from a
 /// translation is the translation of a step of `A`. They are the arms of `forward` and
-/// `backward`, proved alike (no priority ranks).
+/// `backward`, proved alike.
+///
+/// With priority ranks, a step of a rank `i > 0` also needs the other side's priority hypothesis,
+/// that no rule of a rank before `i` applies there. Which rules apply depends on the rules without
+/// a counterpart, which these lemmas do not see, so it is a premise of the relation (`fwd.r`:
+/// `(∀ j, j < i → ¬ B.App j (tr c)) → B.Step (tr c) (tr c')`; `bwd.r` likewise for `A`), discharged
+/// by `refine` rule by rule. For that, each pair of a rank before the last also gets its arms of
+/// `app_bwd` and `app_fwd` as lemmas: `appbwd.r` (a match of `B`'s rule at a translation is a
+/// match of `A`'s) and `appfwd.r` (a match of `A`'s rule translates to one of `B`'s).
 fn emit_per_rule(
     o: &mut String,
     a: &Side,
@@ -2957,6 +2984,7 @@ fn emit_per_rule(
     bwd_hyps: &dyn Fn(&mut String, &Rule, &crate::render::Rel),
 ) {
     let (na, nb) = (&a.ns, &b.ns);
+    let top = rules::top_sort(&a.def).unwrap_or_else(|e| fail(&e));
     let intro = |xs: Vec<String>| {
         if xs.is_empty() {
             String::new()
@@ -2964,6 +2992,9 @@ fn emit_per_rule(
             format!("    intro {}\n", xs.join(" "))
         }
     };
+    // the rank of a rule whose steps carry `hpri` (none of rank 0, or without ranks)
+    let pri = |side: &Side, r: &Rule| Some(side.rank(r)).filter(|i| side.ranked && *i > 0);
+    let last = a.prios.len().saturating_sub(1);
     let mut names = Vec::new();
     writeln!(
         o,
@@ -2972,13 +3003,42 @@ fn emit_per_rule(
     .unwrap();
     for (i, j) in pairs {
         let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
+        let mut xs = rules::ctor_args(&ra.step);
+        let (q, pre) = match pri(a, ra) {
+            Some(k) => {
+                xs.push("hpri".into());
+                (
+                    format!(
+                        "(fun c c' => (∀ j, j < {k} → ¬ {nb}.App j ({trt} c)) → {nb}.Step ({trt} c) ({trt} c'))"
+                    ),
+                    format!(
+                        "    show (∀ j, j < {k} → ¬ {nb}.App j _) → {nb}.Step _ _\n    push_tr\n    intro hpri'\n"
+                    ),
+                )
+            }
+            None => (
+                format!("(fun c c' => {nb}.Step ({trt} c) ({trt} c'))"),
+                format!("    show {nb}.Step _ _\n    push_tr\n"),
+            ),
+        };
+        let close = if pri(b, rb).is_some() {
+            "first | exact hpri' | hyp_fwd"
+        } else {
+            "hyp_fwd"
+        };
         writeln!(
             o,
-            "theorem fwd.{} : {na}.Step.Rel.{} (fun c c' => {nb}.Step ({trt} c) ({trt} c')) := by\n{}    show {nb}.Step _ _\n    push_tr\n    {}\n    all_goals hyp_fwd\n",
+            "theorem fwd.{} : {na}.Step.Rel.{} {q} := by\n{}{pre}    {}\n    all_goals {close}\n",
             ra.lean,
             ra.lean,
-            intro(rules::ctor_args(&ra.step)),
-            fwd_ctor(&a.m, &format!("{nb}.Step.{}", rb.lean), &ra.step, &rb.step, false)
+            intro(xs),
+            fwd_ctor(
+                &a.m,
+                &format!("{nb}.Step.{}", rb.lean),
+                &ra.step,
+                &rb.step,
+                pri(b, rb).is_some()
+            )
         )
         .unwrap();
         names.push(format!("fwd.{}", ra.lean));
@@ -2987,10 +3047,24 @@ fn emit_per_rule(
     for (j, rb) in b.rules.iter().enumerate() {
         let Some(i) = back_of.get(&j) else { continue };
         let mut xs = rules::ctor_args(&rb.step);
+        let k = pri(b, rb);
+        if k.is_some() {
+            xs.push("hpri".into());
+        }
         xs.extend(["c".to_string(), "hd".to_string()]);
+        let (prem, close) = match k {
+            Some(k) => {
+                xs.push("hpri'".into());
+                (
+                    format!("(∀ j, j < {k} → ¬ {na}.App j c) → "),
+                    "first | exact hpri' | hyp_bwd",
+                )
+            }
+            None => (String::new(), "hyp_bwd"),
+        };
         writeln!(
             o,
-            "theorem bwd.{} : {nb}.Step.Rel.{} (fun d d' => ∀ c, {trt} c = d → ∃ c', {na}.Step c c' ∧ d' = {trt} c') := by\n{}    k2l_inv",
+            "theorem bwd.{} : {nb}.Step.Rel.{} (fun d d' => ∀ c, {trt} c = d → {prem}∃ c', {na}.Step c c' ∧ d' = {trt} c') := by\n{}    k2l_inv",
             rb.lean,
             rb.lean,
             intro(xs)
@@ -2999,11 +3073,57 @@ fn emit_per_rule(
         bwd_hyps(o, rb, &rb.step);
         writeln!(
             o,
-            "    all_goals exact ⟨_, by apply {na}.Step.{} <;> hyp_bwd, by fin_bwd⟩\n",
+            "    all_goals exact ⟨_, by apply {na}.Step.{} <;> {close}, by fin_bwd⟩\n",
             a.rules[*i].lean
         )
         .unwrap();
         names.push(format!("bwd.{}", rb.lean));
+    }
+    // the arms of `app_bwd` and `app_fwd` of the pairs whose rank some step's `hpri` reads
+    let low: Vec<&(usize, usize)> = pairs
+        .iter()
+        .filter(|(i, _)| a.ranked && a.rank(&a.rules[*i]) < last)
+        .collect();
+    if !low.is_empty() {
+        writeln!(o, "/-! ## Where a rule applies: a match of a rule with a counterpart, of a rank some step's priority hypothesis reads, is a match of its counterpart -/\n").unwrap();
+    }
+    for (i, j) in low {
+        let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
+        let k = a.rank(ra);
+        let binders = |rel: &crate::render::Rel| -> String {
+            rel.binders
+                .iter()
+                .map(|(x, t)| format!(" ({x} : {t})"))
+                .chain(rel.hyps.iter().map(|(h, p)| format!(" ({h} : {p})")))
+                .collect()
+        };
+        writeln!(
+            o,
+            "open {na} in\ntheorem appfwd.{}{} :\n    {nb}.App {k} ({trt} {}) := by\n    push_tr\n    {}\n    all_goals hyp_fwd\n",
+            ra.lean,
+            binders(&ra.app),
+            ra.app.index.render_arg(),
+            fwd_ctor(&a.m, &format!("{nb}.App.{}", rb.lean), &ra.app, &rb.app, false)
+        )
+        .unwrap();
+        let mut body = String::from("    k2l_inv\n");
+        bwd_hyps(&mut body, rb, &rb.app);
+        writeln!(
+            body,
+            "    all_goals (apply {na}.App.{} <;> hyp_bwd)",
+            ra.lean
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "open {nb} in\ntheorem appbwd.{} {{c : {na}.{top}}}{}\n    (hd : {trt} c = {}) : {na}.App {k} c := by\n{body}",
+            rb.lean,
+            binders(&rb.app),
+            rb.app.index.render_arg()
+        )
+        .unwrap();
+        names.push(format!("appfwd.{}", ra.lean));
+        names.push(format!("appbwd.{}", rb.lean));
     }
     writeln!(o, "#k2l_assert_axioms {}\n", names.join(" ")).unwrap();
 }

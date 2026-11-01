@@ -866,6 +866,180 @@ fn relate_pairs_a_symbol_of_the_same_name_only_at_the_same_sorts() {
     );
 }
 
+/// `relate --per-rule` and `refine` with priority ranks, on the fixtures `vmpop` (`pop` in two steps,
+/// `pop-start` then `pop-done`) and `vmpop1` (in one), with `vmpri`'s three ranks: a per-rule lemma
+/// of a rank above 0 takes the other side's priority hypothesis as a premise, and `refine`
+/// discharges it rule by rule. The `owise` rule `pop-underflow` (rank 2) overlaps `pop` (rank 1):
+/// `B`'s `pop` at a translation is `A`'s `pop-start` (`split_appbwd`), `A`'s `pop-start` is `B`'s
+/// `pop` (`split_appfwd`). `pop-done` rewrites to its continuation, which may be `#pop` again, so
+/// the measure is the state's size there. Definitions with other priorities are refused.
+#[test]
+fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
+    let d = tmp("cli-refine-vmpop");
+    let fx = |n: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures")
+            .join(n)
+    };
+    let run = |args: &[&std::ffi::OsStr]| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let (ka, kb) = (
+        fx("vmpop").join("definition.kore"),
+        fx("vmpop1").join("definition.kore"),
+    );
+    let (sa, sb) = (
+        fx("vmpop").join("syntaxDefinition.kore"),
+        fx("vmpop1").join("syntaxDefinition.kore"),
+    );
+    let (tr, corr) = (d.join("Tr.lean"), d.join("correspondence.toml"));
+    let o = run(&[
+        "relate".as_ref(),
+        "--kore-a".as_ref(),
+        ka.as_os_str(),
+        "--syntax-a".as_ref(),
+        sa.as_os_str(),
+        "--name-a".as_ref(),
+        "A".as_ref(),
+        "--kore-b".as_ref(),
+        kb.as_os_str(),
+        "--syntax-b".as_ref(),
+        sb.as_os_str(),
+        "--name-b".as_ref(),
+        "B".as_ref(),
+        "--ns".as_ref(),
+        "R".as_ref(),
+        "--per-rule".as_ref(),
+        "true".as_ref(),
+        "--out".as_ref(),
+        tr.as_os_str(),
+        "--report".as_ref(),
+        corr.as_os_str(),
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let t = std::fs::read_to_string(&tr).unwrap();
+    for want in [
+        "theorem fwd.«pop-underflow» : A.Step.Rel.«pop-underflow» (fun c c' => (∀ j, j < 2 → ¬ B.App j (tr_SortGeneratedTopCell c)) → B.Step (tr_SortGeneratedTopCell c) (tr_SortGeneratedTopCell c'))",
+        "theorem bwd.«pop-underflow» : B.Step.Rel.«pop-underflow» (fun d d' => ∀ c, tr_SortGeneratedTopCell c = d → (∀ j, j < 2 → ¬ A.App j c) → ∃ c', A.Step c c' ∧ d' = tr_SortGeneratedTopCell c')",
+        "theorem appfwd.seq ",
+        "theorem appbwd.seq ",
+    ] {
+        assert!(t.contains(want), "missing `{want}`");
+    }
+    // a rank-0 rule's lemmas are as without ranks, and no rule of the last rank gets arm lemmas
+    assert!(t.contains("theorem fwd.«add-underflow0» : A.Step.Rel.«add-underflow0» (fun c c' => B.Step (tr_SortGeneratedTopCell c) (tr_SortGeneratedTopCell c'))"));
+    assert!(!t.contains("theorem appfwd.«pop-underflow»"));
+    let (refine, report) = (d.join("Refine.lean"), d.join("refine.toml"));
+    let o = run(&[
+        "refine".as_ref(),
+        "--kore-a".as_ref(),
+        ka.as_os_str(),
+        "--name-a".as_ref(),
+        "A".as_ref(),
+        "--kore-b".as_ref(),
+        kb.as_os_str(),
+        "--name-b".as_ref(),
+        "B".as_ref(),
+        "--ns".as_ref(),
+        "R".as_ref(),
+        "--correspondence".as_ref(),
+        corr.as_os_str(),
+        "--hand-module".as_ref(),
+        "none".as_ref(),
+        "--out".as_ref(),
+        refine.as_os_str(),
+        "--report".as_ref(),
+        report.as_os_str(),
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    for want in [
+        "theorem pri_fwd.«pop-underflow» : A.Step.Rel.«pop-underflow» (fun c _ => ∀ j, j < 2 → ∀ d, tr_SortGeneratedTopCell c = d → ¬ B.App j d)",
+        "  | pop DotVar2 Gen0 S DotVar0 => exact hpri _ hj (split_appbwd DotVar2 Gen0 S DotVar0 hd)",
+        "  | seq I P DotVar2 DotVar1 DotVar0 => exact hpri _ hj (appbwd.seq I P DotVar2 DotVar1 DotVar0 hd)",
+        "  | «pop-underflow» DotVar2 DotVar1 DotVar0 => exact absurd hj (by decide)",
+        "theorem pri_bwd.«pop-underflow» : B.Step.Rel.«pop-underflow» (fun d _ => ∀ c, tr_SortGeneratedTopCell c = d → ∀ j, j < 2 → ¬ A.App j c)",
+        "exact hpri _ hj (hd ▸ split_appfwd ",
+        "theorem pri_mid : A.Step.Rel.«pop-start» (fun _ c' => ∀ j, j < 1 → ¬ A.App j c')",
+        "(hp : ∀ j, j < 1 → ¬ A.App j (",
+        "theorem X_next ",
+        "theorem split_bwd : B.Step.Rel.pop ",
+        "noncomputable def μ (c : A.SortGeneratedTopCell) : Nat :=",
+        "theorem run_terminal ",
+    ] {
+        assert!(r.contains(want), "missing `{want}`");
+    }
+    let rep = std::fs::read_to_string(&report).unwrap();
+    assert!(rep.contains("hand = 0\n"), "{rep}");
+    assert!(
+        rep.contains("[priorities]\nranks = 3\nfwd = 11\nbwd = 11\nmid = true\n"),
+        "{rep}"
+    );
+    // other priorities: `vm` has none, `vmpop` three
+    let vm = fx("vm").join("definition.kore");
+    let o = run(&[
+        "refine".as_ref(),
+        "--kore-a".as_ref(),
+        ka.as_os_str(),
+        "--name-a".as_ref(),
+        "A".as_ref(),
+        "--kore-b".as_ref(),
+        vm.as_os_str(),
+        "--name-b".as_ref(),
+        "B".as_ref(),
+        "--ns".as_ref(),
+        "R".as_ref(),
+        "--correspondence".as_ref(),
+        corr.as_os_str(),
+        "--out".as_ref(),
+        refine.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("refine: the two definitions' priority ranks differ ([40, 50, 200], [])"),
+        "{err}"
+    );
+    // `vm` and `vmpri` pair by concrete syntax; `pop-underflow` differs, so not every rule pairs
+    let vmpri = fx("vmpri").join("definition.kore");
+    let (svm, svmpri) = (
+        fx("vm").join("syntaxDefinition.kore"),
+        fx("vmpri").join("syntaxDefinition.kore"),
+    );
+    let o = run(&[
+        "relate".as_ref(),
+        "--kore-a".as_ref(),
+        vm.as_os_str(),
+        "--syntax-a".as_ref(),
+        svm.as_os_str(),
+        "--name-a".as_ref(),
+        "A".as_ref(),
+        "--kore-b".as_ref(),
+        vmpri.as_os_str(),
+        "--syntax-b".as_ref(),
+        svmpri.as_os_str(),
+        "--name-b".as_ref(),
+        "B".as_ref(),
+        "--ns".as_ref(),
+        "R".as_ref(),
+        "--per-rule".as_ref(),
+        "true".as_ref(),
+        "--out".as_ref(),
+        tr.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains(
+            "relate: --per-rule: the two definitions' priority ranks differ ([50], [40, 50, 200])"
+        ),
+        "{err}"
+    );
+}
+
 /// `confluence --report-only` on the `threadend` fixture: the end of a thread (its `<k>` empty) is
 /// matched at the key `<id> _ </id>`, the step of a thread at a variable key; taken as one binding
 /// (the classifier's same-binding mode), the two keys unify and the two `<k>` cells clash, so the
