@@ -20668,7 +20668,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/rule/guard/let-pattern/-1"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
-requires ( #let -1 = V0:KItem #in true ) [label(case-TAG)]
+requires ( -1 :=K V0:KItem ) andThenBool ( #let -1 = V0:KItem #in true ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
