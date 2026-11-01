@@ -2,7 +2,8 @@
 // lemmas it meets, over a digest whose argument no evaluation reads, a symbolic `B`, and over the
 // digest of the spelling of `String2Bytes("execute()")`, the shape `#abiCallData` reaches,
 // which the amendments AM-1 and AM-2 determine, and over a partial `Bytes2String` of a symbolic
-// `B` (`B2S`), which AM-1 gives a value on every argument.
+// `B` (`B2S`), which AM-1 gives a value on every argument and k-rust does not list as defined
+// until GAP ticket K9.
 module HEXS
   imports STRING
   imports BYTES

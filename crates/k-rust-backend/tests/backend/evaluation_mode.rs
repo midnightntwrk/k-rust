@@ -494,13 +494,15 @@ endmodule []"#;
 
 /// GAP A1 fix round 1: outside an execution, the `\ceil` of a hook whose text gives it a value
 /// on every argument of its sorts is true on symbolic arguments, at a partial symbol too:
-/// `isValidPoint` of every point term (`krypto.md`:100 with AM-3) and `Bytes2String` of every
-/// byte sequence (AM-1). `String2Bytes` at a partial symbol stays undecided: AM-1 gives it a
-/// value only on code points up to 255. A `total` symbol is defined by its declaration. Undecided
-/// too: a digest declared over a `String`, which no text describes, the BN128 sum, described on
-/// points only, and, not yet stated though their text gives every byte string a value, the
-/// digests (`builtin::defined_on_every_argument`). Before the fix round `isValidPoint` and the
-/// byte conversions had lost the `defined` flag of their former classes: each was undecided.
+/// `isValidPoint` of every point term (`krypto.md`:100 with AM-3). `String2Bytes` at a partial
+/// symbol stays undecided: AM-1 gives it a value only on code points up to 255. A `total` symbol
+/// is defined by its declaration. Undecided too: a digest declared over a `String`, which no text
+/// describes, the BN128 sum, described on points only, and, not stated until GAP ticket K9
+/// though their text gives every byte string a value, the digests and `Bytes2String` (AM-1) at a
+/// partial symbol (`builtin::defined_on_every_argument`; the GAP Phase 2 fix round took
+/// `Bytes2String` off that list, where it sent KEVM's hex parse into the K9 recursion). Before
+/// the A1 fix round `isValidPoint` and the byte conversions had lost the `defined` flag of their
+/// former classes: each was undecided.
 #[test]
 fn a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_arguments() {
     let syntax = parse_definition(SYMBOLIC_DEFINEDNESS).expect("the fixture parses");
@@ -509,7 +511,6 @@ fn a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_argumen
         "pvalid{}(P:SortG1Point{})",
         r#"pvalid{}(g1{}(X:SortInt{}, \dv{SortInt{}}("2")))"#,
         "pvalid2{}(Q:SortG2Point{})",
-        "pb2s{}(B:SortBytes{})",
         "ts2b{}(S:SortString{})",
         "tb2s{}(B:SortBytes{})",
     ];
@@ -522,6 +523,7 @@ fn a_hook_whose_text_gives_every_argument_a_value_is_defined_on_symbolic_argumen
     }
     for source in [
         "ps2b{}(S:SortString{})",
+        "pb2s{}(B:SortBytes{})",
         "skec{}(S:SortString{})",
         "padd{}(P:SortG1Point{}, P:SortG1Point{})",
         "pkec{}(B:SortBytes{})",

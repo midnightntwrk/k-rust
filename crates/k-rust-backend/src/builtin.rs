@@ -789,22 +789,18 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<ChosenValue> {
 /// - `isValidPoint` of G1 and of G2 "validates that it actually falls on the respective elliptic
 ///   curve" (:100), a `Bool` for every point term, false off the curve AM-3 names. A `Bool`
 ///   result; any argument sort, every term of which is a point or not.
-/// - `Bytes2String` reads each byte as the code point of its value (AM-1 of
-///   `docs/amendments.md`), a string for every byte sequence. A `Bytes` argument and a `String`
-///   result.
 ///
 /// The digests, hex and raw, are given a value on every byte string by their text too
-/// (`krypto.md`:26-30, :47), but are not listed yet: stating it makes the predicate simplifier
-/// recurse without end on KEVM's hex parse of a symbolic digest (`\ceil(findString(Keccak256(B),
-/// "0x", 0))`, `kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work` in
-/// k-rust's `cli.rs`), so their definedness on a symbolic argument stays undecided, as before.
-/// The listed `Bytes2String` reaches the same recursion in that shape at a partial symbol
-/// (`\ceil(findString(B2S(B), "0x", 0))`): the simplification stops for want of stack
-/// (`kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_exhausts_its_stack`), a refusal
-/// GAP ticket K9 removes with the recursion; a definition that declares it `total`, as
-/// `domains.md` does, does not ask this list.
+/// (`krypto.md`:26-30, :47), and so is `Bytes2String` (AM-1 of `docs/amendments.md`), but none
+/// is listed until GAP ticket K9: stating it makes the predicate simplifier recurse without end
+/// on KEVM's hex parse of a symbolic argument (`\ceil(findString(Keccak256(B), "0x", 0))`, and
+/// with `Bytes2String` at a partial symbol `\ceil(findString(B2S(B), "0x", 0))`, which exhausted
+/// the native stack while it was listed), so their definedness on a symbolic argument at a
+/// partial symbol stays undecided (`kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work`
+/// and `kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_work` in
+/// k-rust's `cli.rs`). `domains.md` declares `Bytes2String` `total`, which needs no listing.
 ///
-/// `String2Bytes` is not among them: AM-1 gives it a value only on the code points up to 255, so
+/// `String2Bytes` is not among them either: AM-1 gives it a value only on the code points up to 255, so
 /// at a partial symbol its definedness on a symbolic string is unknown. Neither are the BN128
 /// sum, product and pairing, described on points only, nor the ECDSA hooks, described on their
 /// documented inputs only. The simplifier reads this where an application's `\ceil` is left
@@ -817,12 +813,7 @@ pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &T
         return false;
     };
     let kind = |sort: &Sort| definition.domain_kind(sort);
-    let from_bytes = |result: DomainKind| {
-        matches!(symbol.argument_sorts.as_slice(), [argument] if kind(argument) == Some(DomainKind::Bytes))
-            && kind(&symbol.result_sort) == Some(result)
-    };
     match hook {
-        "BYTES.bytes2string" => from_bytes(DomainKind::String),
         "KRYPTO.bn128valid" | "KRYPTO.bn128g2valid" => {
             symbol.argument_sorts.len() == 1 && kind(&symbol.result_sort) == Some(DomainKind::Bool)
         }

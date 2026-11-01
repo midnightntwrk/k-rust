@@ -7,12 +7,12 @@
 // without a console leaves unevaluated.
 // GAP K1: `nan`, `mz` and `mx` build their zero as `Int2Float(N *Int N, 53, 11) -Float
 // Int2Float(N, 53, 11)`, +0.0 at N = 1 (`fp.sub` of 1.0 and 1.0 under roundNearestTiesToEven,
-// domains.md 1572) and 2.0 at N = 2, where they converted `Int2Float(0, 53, 11)`, whose sign no
-// text fixes (k-rust marks it `float-rounding`): the probe reads the element it read (+0.0, the
-// conversion's pick) through no open value but its own class, the control a nonzero value as before.
-// `i2f` converts to binary32 (`float-rounding` where the format does not hold N, or N is 0) and `rt`
-// takes a square root (`float-rounding` where it is not exact, `outside-domain` for a negative
-// radicand). The hooks of K1's other classes have no rule here: `hex-case`, `byte-encoding` and
+// domains.md 1572) and 2.0 at N = 2, where they converted `Int2Float(0, 53, 11)`, which K1 marked
+// `float-rounding` and k-rust's AM-5 determines as +0.0 since GAP A2: the probe reads the zero
+// through no open value but its own class, the control a nonzero value as before.
+// `i2f` converts to binary32 and `rt` takes a square root; since GAP A2 both are determined where
+// K1 marked them `float-rounding` (AM-4 and AM-5: an integer the format does not hold, 0, an
+// inexact root), and `rt` of a negative radicand keeps its `outside-domain` mark. The hooks of K1's other classes have no rule here: `hex-case`, `byte-encoding` and
 // `curve` are no k-rust classes since GAP A1 (AM-1 to AM-3 determine their values), ECDSA's
 // `outside-domain` is, and all of these hooks are still on the census (until kink27 GK-1), which
 // would exclude this definition as a whole.

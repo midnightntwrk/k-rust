@@ -2904,28 +2904,24 @@ fn kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work() {
 }
 
 /// The same parse of a partial `Bytes2String` of a symbolic `B` (`B2S` of
-/// `fixtures/hex-parse-unread.k`, hooked `BYTES.bytes2string` and not declared `total`) is
-/// refused today: the predicate simplifier exhausts its native stack and its segment budget.
-/// `builtin::defined_on_every_argument` lists that hook (AM-1 gives it a value on every byte
-/// sequence), and the listing reaches the same unbounded recursion that keeps the digests off
-/// that list (`\ceil(findString(Keccak256(B), "0x", 0))`, GAP ticket K9), here on
-/// `\ceil(findString(B2S(B), "0x", 0))`. A definition that declares the conversion `total`, as
-/// `domains.md` does, never asks the list. This pins the refusal, a stop and not an abort, until
-/// K9 fixes the recursion; the fix turns it into the bounded parse of the digest case above.
+/// `fixtures/hex-parse-unread.k`, hooked `BYTES.bytes2string` and not declared `total`) ends with
+/// a bounded amount of work and keeps the parse unevaluated. AM-1 gives the conversion a value on
+/// every byte sequence, but `builtin::defined_on_every_argument` does not state it until GAP
+/// ticket K9 fixes the predicate simplifier's recursion on `\ceil(findString(B2S(B), "0x", 0))`,
+/// which the digests meet too: listing it made this simplification exhaust its native stack.
+/// So the conversion's definedness on a symbolic argument at a partial symbol is undecided, as
+/// `String2Bytes`'s is; `domains.md` declares both `total`, which needs no listing.
 #[test]
-fn kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_exhausts_its_stack() {
+fn kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_work() {
     let (root, compiled) = hex_parse_definition();
-    let (output, _) = hex_parse_output(
+    let (simplified, discharges) = hex_parse(
         &root,
         &compiled,
         "partial-b2s",
         "LblB2S'LParUndsRParUnds'HEXS'Unds'String'Unds'Bytes{}(VarB:SortBytes{})",
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !output.status.success() && stderr.contains("simplification exhausted its native stack"),
-        "{stderr}"
-    );
+    assert!(simplified.contains("LblparseHexBytesAux{}"), "{simplified}");
+    assert!(discharges <= 50_000, "{discharges} definedness discharges");
     fs::remove_dir_all(root).unwrap();
 }
 
