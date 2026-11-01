@@ -179,6 +179,14 @@ open = ["Progress.case.«Instr.resume(_,_,_)»"]
 refuted = []
 guarded = 8
 
+[prog.corout]
+tier = "light"
+cases = 26
+auto = 26
+open = []
+refuted = []
+guarded = 8
+
 [prog.imptypes]
 tier = "light"
 cases = 63

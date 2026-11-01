@@ -1089,17 +1089,17 @@ preserve = []
 
 [demo.TwoParamEnds]
 tier = "light"
-guarded = 46
+guarded = 58
 preserve = []
 
 [demo.TwoParamTx]
 tier = "light"
-guarded = 43
+guarded = 44
 preserve = []
 
 [demo.TwoLayerTx]
 tier = "light"
-guarded = 94
+guarded = 100
 preserve = []
 
 [demo.ImpPlusConf]
@@ -1376,18 +1376,23 @@ preserve = []
 "generated/corout/Corout/Determinism/L1.lean" = { tier = "light", sha256 = "458be47783ba95f29a20f57a6790f9a99479f6948ff704c46da08d67453c7b1d" }
 "generated/corout/Corout/Determinism/Pre.lean" = { tier = "light", sha256 = "f9115d7f0de2b42716895088e2a8cc93b0bd48f94669c89a8aa0f5bc0c8a9793" }
 "generated/corout/Corout/EqBase.lean" = { tier = "light", sha256 = "969ffb084b8f4c643f0a725088b1ed22d37c6e47fded3d61e27d857560f8e443" }
-"generated/corout/Corout/Equations.lean" = { tier = "light", sha256 = "cc1f4622f7df16ae632dc3432bf0cb8df8ee6e5f231e77a4b35863c4b4c9cf17" }
-"generated/corout/Corout/Functions.lean" = { tier = "light", sha256 = "65af37efdf4943ba71744c46a27e4f5cd62b02cb4d4cb6d41090d95c58b5362a" }
+"generated/corout/Corout/Equations.lean" = { tier = "light", sha256 = "06b1c49a7aa0ffd2636c4b93bbd47648d4b4744129a6ca151b1cf1689e34a316" }
+"generated/corout/Corout/Functions.lean" = { tier = "light", sha256 = "5b8f9b6eb872d11e0efa6fe9cf05be14a51e8b2019a61bdc610d340b6928cd97" }
 "generated/corout/Corout/Init.lean" = { tier = "light", sha256 = "8e8f2d31f3610f6b125ac90082b3bdd0ebd6207ffc95152dbed8fe36b93fb91b" }
-"generated/corout/Corout/Measure.lean" = { tier = "light", sha256 = "9a204887ff254a7acaa39091533bf2b08865abd8323af311593e4abf8d95e465" }
+"generated/corout/Corout/InvariantDefs.lean" = { tier = "light", sha256 = "ccaeaab64f38b8d6b81c3e4ae29a0ddd8b65b062db230b2c6f0ed431c9bdb780" }
+"generated/corout/Corout/Invariants.lean" = { tier = "light", sha256 = "10a76c354d6982b04d47f791eacd5e0f4586094a14102a7b4d5bd94faf00a06d" }
+"generated/corout/Corout/Measure.lean" = { tier = "light", sha256 = "fee7e1456ecaf072d9b5533189a0916ba44a6de33341a27c2e2c4b36601e69f4" }
 "generated/corout/Corout/MeasureDefs.lean" = { tier = "light", sha256 = "5b9833e56a57a8266c65d53a012577450b64f2c3f447f214535b38506fd7bdd2" }
-"generated/corout/Corout/Preserves.lean" = { tier = "light", sha256 = "d2f92c488020cb1b938b7492a26c7fb5a39bbaec85b43f11be19d7e5b276db94" }
-"generated/corout/Corout/Rules.lean" = { tier = "light", sha256 = "8ef54ba47eebfe8e38eb9c10457b02e090bbc03a8ef3c728818dcb44938ad535" }
+"generated/corout/Corout/Preserves.lean" = { tier = "light", sha256 = "c2363927a2d5e74849051dc34cddb686b157edfbc8b71ccf543011e44ca483f3" }
+"generated/corout/Corout/Progress.lean" = { tier = "light", sha256 = "5b419db179114020fc63d30d86c7c93d6242ee4cfa1443448bbb156383e4e7f6" }
+"generated/corout/Corout/ProgressDefs.lean" = { tier = "light", sha256 = "e02220900b4b6a691938a62aeca93f04786cf030e1c4079dd84f642dd83cc020" }
+"generated/corout/Corout/Rules.lean" = { tier = "light", sha256 = "51f730948e852bb167a93d92d691d51da5e08ad466bbd1eb19af3624127d9667" }
 "generated/corout/Corout/Terms.lean" = { tier = "light", sha256 = "096a45d3476881a4db45438d393b5524eff575c01cb939fbd982f2cf1acc9284" }
 "generated/corout/CoroutBench/Main.lean" = { tier = "light", sha256 = "f82964a1880cce0f22d71a889e563edb04dda9f65c2817b46294e76b1b76b996" }
-"generated/corout/CoroutTest/Axioms.lean" = { tier = "light", sha256 = "e8cf019c805b27360fc8a2a4ed8211d277c86534114f9b1bbebff0c1337f77e7" }
+"generated/corout/CoroutTest/Axioms.lean" = { tier = "light", sha256 = "a8ddfce4230462a7978949aa9c6b6f3e018f8aedaf7e7259dda531b444c87045" }
 "generated/corout/CoroutTest/DetAxioms.lean" = { tier = "light", sha256 = "582cf246dad793dd23902878bbcc980d3b207ef690212e7046e439cd24b3ee0c" }
 "generated/corout/CoroutTest/Main.lean" = { tier = "light", sha256 = "a86cc829ba10cf5f5146f98bb3d934d6c5771c76afbb29095d24176673df8523" }
+"generated/corout/invariant-unfold.txt" = { tier = "light", sha256 = "94530da2f87784e5c0c373fcabbc769d6ad95a803c71c2ca431a1196b19d26bb" }
 "generated/corout/lakefile.lean" = { tier = "light", sha256 = "25e322afad370884f5a9c203f5242e8245c4a815286f63bd01655b807bca8d26" }
 "generated/corout/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/drf/Drf.lean" = { tier = "light", sha256 = "86614fa19a31a71943757ed7d9432dabb9c000928af4e20050cfb5ee653bd5da" }
