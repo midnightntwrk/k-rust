@@ -35,6 +35,11 @@
 //! write `panic: MESSAGE`, or `krs expand panicked: MESSAGE`. A panic is a KRS bug by the same
 //! rule. K2's other sign of a bug, "internal error" in a message's text, is not in the signature
 //! `pending.toml` records, so it cannot be computed from the entry; K2 fails on it as a violation.
+//! A K2 red is also *Rust syntax* where its deviation names `krs::syntax::rust-syntax` and the
+//! table names no class of that code for its case: the error of the layer below the table, a Rust
+//! parser's, reached the author where the construct has a class of its own ([`RUST_SYNTAX`]). It
+//! is a diagnostic or an over-refusal like any other, and the tag keeps the whole family one count
+//! in a summary (finding NT-2-6).
 //!
 //! **What a finding's kind may hold** ([`Red::admits`]). An under-refusal is the red that matters
 //! most for soundness: KRS writes K for a spelling the language gives no meaning, and a user who
@@ -367,8 +372,12 @@ impl RedKind {
     }
 }
 
+/// The code of a Rust parser's error that KRS forwards: the answer only where a class names it.
+pub const RUST_SYNTAX: &str = "krs::syntax::rust-syntax";
+
 /// The computed kind of one red: its [`RedKind`], whether its deviation names an internal code,
-/// and whether it records a panic.
+/// whether it records a panic, and whether it is a Rust parser's error where the table names
+/// another class.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Red {
     /// What the red is.
@@ -377,6 +386,9 @@ pub struct Red {
     pub internal: bool,
     /// Whether its deviation records a panic ([`panicked`]).
     pub panicked: bool,
+    /// Whether it is a K2 red whose deviation names [`RUST_SYNTAX`] where the table's class for
+    /// the case has another code, or the table accepts it.
+    pub rust_syntax: bool,
 }
 
 impl Red {
@@ -409,10 +421,14 @@ impl Red {
             },
         };
         let internal = codes(deviation).any(|code| code_kind(code) == Some(CodeKind::Internal));
+        let rust_syntax = matches!(kind, RedKind::Diagnostic | RedKind::OverRefusal)
+            && codes(deviation).any(|code| code == RUST_SYNTAX)
+            && !matches!(expected, Some(Expected::Refuse { class, .. }) if class.code == RUST_SYNTAX);
         Self {
             kind,
             internal,
             panicked: panicked(deviation),
+            rust_syntax,
         }
     }
 
@@ -465,6 +481,9 @@ impl fmt::Display for Red {
         }
         if self.panicked {
             formatter.write_str("+panic")?;
+        }
+        if self.rust_syntax {
+            formatter.write_str("+rust-syntax")?;
         }
         Ok(())
     }

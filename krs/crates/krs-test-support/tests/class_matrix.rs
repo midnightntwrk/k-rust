@@ -804,6 +804,7 @@ fn the_kind_of_a_red_is_computed_from_its_entry() {
                 kind,
                 internal: is_internal,
                 panicked: is_panic,
+                rust_syntax: false,
             },
             "{key}: {deviation}"
         );
@@ -820,6 +821,48 @@ fn the_kind_of_a_red_is_computed_from_its_entry() {
     assert!(!red("k7/terms/a", "d", &accept).admits(FindingKind::Diagnostic));
     assert!(red("k7/terms/a", "d", &accept).admits(FindingKind::Generator));
     assert!(red("k8/terms/a", "d", &refuse).admits(FindingKind::Diagnostic));
+}
+
+/// A K2 red that is a Rust parser's error, where the table's class for the case has another code
+/// or the table accepts it, is tagged `+rust-syntax`, so the family is one count in a summary; a
+/// class whose code is the parser's, and another test's red, are not.
+#[test]
+fn a_rust_parse_error_where_a_class_stands_is_tagged() {
+    let (class, accepted) = expectations();
+    let refuse = Expected::Refuse {
+        name: "wrong-shape",
+        class: &class,
+        at: At::Spelling,
+    };
+    let parser_class = MistakeClass {
+        code: "krs::syntax::rust-syntax".to_owned(),
+        ..class.clone()
+    };
+    let refuse_by_parser = Expected::Refuse {
+        name: "map-read-in-result",
+        class: &parser_class,
+        at: At::Spelling,
+    };
+    let accept = Expected::Accept(&accepted);
+    let red = |key: &str, expected: &Expected<'_>| {
+        Red::of(
+            key,
+            "krs::syntax::rust-syntax @ spelling",
+            Some(expected),
+            registry_kind,
+        )
+    };
+    assert_eq!(
+        red("terms/a", &refuse).to_string(),
+        "diagnostic+rust-syntax"
+    );
+    assert_eq!(
+        red("terms/a", &accept).to_string(),
+        "over-refusal+rust-syntax"
+    );
+    assert_eq!(red("terms/a", &refuse_by_parser).to_string(), "diagnostic");
+    assert_eq!(red("k8/terms/a", &refuse).to_string(), "k8");
+    assert!(red("terms/a", &refuse).admits(FindingKind::Diagnostic));
 }
 
 /// A red that records a panic is a bug in every test: K2's signature writes it as its part
@@ -869,6 +912,7 @@ fn a_panic_is_a_bug_and_an_undecided_case_the_generators() {
                 kind,
                 internal: false,
                 panicked: true,
+                rust_syntax: false,
             },
             "{key}: {deviation}"
         );
