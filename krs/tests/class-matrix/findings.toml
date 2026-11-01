@@ -246,7 +246,7 @@ kind = "feature"
 what = "a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up"
 
 ["NT-35-1"]
-owner = "NT-29"
+owner = "NT-36"
 kind = "bug"
 what = "the run printer reverses an alias whose subject writes a builtin collection constructor (`SetItem`), so the printed `<k>` head is no program text"
 
