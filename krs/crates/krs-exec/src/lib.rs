@@ -19,6 +19,7 @@ mod cell_types;
 mod claims;
 mod configuration;
 mod console;
+mod decided;
 mod origin;
 mod read_back;
 mod report;
@@ -1160,13 +1161,24 @@ impl Semantics {
         let ExecutionResult {
             leaves,
             implementation_chosen_values,
+            unsupported_hooks,
             ..
         } = self.backend.execute(request)?;
-        let path = one_path(leaves, self.values.as_ref());
-        let OnePath { leaf, valueless } = match path {
+        // A hook the backend left unevaluated may leave an equation's condition open, so no
+        // application is decided to have no value ([`decided`]).
+        let decides = unsupported_hooks.is_empty();
+        let path = one_path(leaves, self.heads(decides));
+        let OnePath {
+            mut leaf,
+            valueless,
+            held,
+        } = match path {
             Ok(path) => path,
             Err(error) => return Err(self.path_error(error)),
         };
+        if held && leaf.depth > 0 {
+            leaf = self.before_valueless(state, leaf, decides)?;
+        }
         if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
             check_final_state(&mut self.backend, &leaf.state, "the run ended stuck")?;
         }
@@ -1204,6 +1216,48 @@ impl Semantics {
         })
     }
 
+    /// The heads a run's reading asks about ([`valueless::Heads`]): the definition's, or, where
+    /// `decides` is false, heads of which no application is decided to have no value.
+    fn heads(&self, decides: bool) -> &dyn valueless::Heads {
+        if decides {
+            self.values.as_ref()
+        } else {
+            &valueless::Undecided
+        }
+    }
+
+    /// The end of a run whose path reached, after `leaf.depth` steps, a state with no value
+    /// ([`one_path`]): the step into it reached no state, so the run is undefined after the
+    /// steps before it, at the last state with a value, as where the backend finds a step's
+    /// result undefined. The run is followed again to each earlier depth until a state with a
+    /// value is found, or the first state, which then has none.
+    fn before_valueless(
+        &mut self,
+        state: &State,
+        mut leaf: ExecutionLeaf,
+        decides: bool,
+    ) -> Result<ExecutionLeaf, ExecError> {
+        let mut depth = leaf.depth;
+        while depth > 0 {
+            depth -= 1;
+            let mut request = ExecuteRequest::new(state.0.clone());
+            request.strategy = ExecutionStrategy::Any;
+            request.max_depth = Some(depth);
+            let leaves = self.backend.execute(request)?.leaves;
+            let earlier = match one_path(leaves, self.heads(decides)) {
+                Ok(earlier) => earlier,
+                Err(error) => return Err(self.path_error(error)),
+            };
+            let mut earlier_leaf = earlier.leaf;
+            earlier_leaf.reason = HaltReasonOutput::Vacuous;
+            leaf = earlier_leaf;
+            if !earlier.held {
+                break;
+            }
+        }
+        Ok(leaf)
+    }
+
     /// The error of a run whose leaves are no one path ([`one_path`]).
     fn path_error(&self, error: PathError) -> ExecError {
         match error {
@@ -1227,7 +1281,7 @@ impl Semantics {
                             format!("{printed}, which holds a value the run has not fixed")
                         } else {
                             format!(
-                                "{printed}, which may have a value the definition leaves open (no equation evaluates it, and it is not a partial function defined by its equations alone)"
+                                "{printed}, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition"
                             )
                         }
                     })
@@ -1751,13 +1805,14 @@ fn check_ends() -> bool {
 /// The run is undefined only when every leaf is.
 ///
 /// A defined leaf's condition and configuration are read with every term [`valueless`] shows has
-/// no value (a ground application of a partial function defined by its equations alone, which
-/// the backend left unevaluated):
+/// no value (a ground application of a partial function defined by its equations alone, each
+/// decided at values ([`decided`]), which the backend left unevaluated):
 /// - A leaf whose condition gives such a term a value denotes no state: where the backend split
 ///   a step on a rule's condition over it, the leaf where the condition holds is no state, and
 ///   the leaf where it does not is the path, its condition printed where it holds a term the
 ///   reading does not decide. Where every leaf is no state, the run is undefined at the first.
-/// - A path whose configuration holds such a term has no value: the run is undefined there.
+/// - A path whose configuration holds such a term has no value: the run is undefined there
+///   (`Semantics::run` reports it at the last state with a value, `Semantics::before_valueless`).
 ///   Otherwise, where its condition read one, the rule whose condition read it did not apply,
 ///   and the run ends as the leaf does.
 ///
@@ -1780,6 +1835,7 @@ fn one_path(
             .map(|leaf| OnePath {
                 leaf,
                 valueless: Vec::new(),
+                held: false,
             })
             .ok_or(PathError::None);
     }
@@ -1824,6 +1880,7 @@ fn one_path(
             return Ok(OnePath {
                 leaf,
                 valueless: read,
+                held: true,
             });
         }
         Err(kept) if over.is_empty() => {
@@ -1852,6 +1909,7 @@ fn one_path(
         return Ok(OnePath {
             leaf,
             valueless: read,
+            held: false,
         });
     }
     let held = held.into_iter().cloned().collect();
@@ -1859,6 +1917,7 @@ fn one_path(
     Ok(OnePath {
         leaf,
         valueless: held,
+        held: true,
     })
 }
 
@@ -1868,6 +1927,9 @@ fn one_path(
 struct OnePath {
     leaf: ExecutionLeaf,
     valueless: Vec<Pattern>,
+    /// Whether the leaf's state has no value: it holds such a term, or its condition gives one a
+    /// value; the run is then undefined.
+    held: bool,
 }
 
 /// Why a run's leaves are no one path ([`one_path`]).

@@ -65,11 +65,6 @@ kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
 
-["NT-43-2"]
-owner = "NT-42"
-kind = "bug"
-what = "K7's run of a sentence whose result builds an application of a partial function that no equation defines (`Size(x)`, `Size` partial with no equation) continues with the application in its state as if it were a value, ending at its depth bound, and one whose computed key is such an application reports two defined states; by KRS's meaning the term has no value, so the sentence's next state is undefined (NT-37 D3) and a key with no value looks nothing up: NT-42-2's class (a ground state that holds a valueless application of a partial function is no value) on K7's in-process route"
-
 ["S0-14"]
 owner = "S5"
 kind = "bug"

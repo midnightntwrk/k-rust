@@ -3896,6 +3896,12 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     if slot.form == "simplification" && matches!(case.k7, K7::Run(_)) {
         case.removed = Removed::Unchanged(super::SIMPLIFICATION_TWIN);
     }
+    if matches!(slot.form, "equation" | "table")
+        && slot.side == Side::Result
+        && matches!(&case.k7, K7::Run(run) if run.status == super::k7::Status::UndefinedResult)
+    {
+        case.removed = Removed::Unchanged(super::EQUATION_WITHOUT_VALUE);
+    }
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.
     case.unkeyed = slot.side == Side::Subject && slot.path.is_empty();

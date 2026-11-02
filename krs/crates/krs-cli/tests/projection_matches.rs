@@ -365,15 +365,15 @@ fn a_match_over_a_projection_is_stated_on_the_operand_after_its_test() {
         let (_, stderr) = run(target.path(), &manifest, temporary.path(), program);
         ends.push(format!("{program}: {}", status(&stderr)));
     }
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         pick true: krs run: undefined after 0 steps; <k> starts with `flag krsLocal_DIGEST ( true )`
-        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it
 
         keep true: krs run: undefined after 0 steps; <k> starts with `held krsLocal_DIGEST ( true )`
-        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it
 
         keep 1: krs run: stuck after 0 steps; <k> starts with `held true`
-    "]].assert_eq(&ends.join("\n"));
+    "#]].assert_eq(&ends.join("\n"));
 
     // The same programs on Java K's LLVM backend, from the emitted definition, which its
     // frontend reads (it refused `:=K {A}:>Int`).
@@ -445,19 +445,86 @@ fn a_match_over_a_projection_in_a_result_or_an_ensures_is_read_by_every_frontend
         let (_, stderr) = run(target.path(), &manifest, temporary.path(), program);
         ends.push(format!("{program}: {}", status(&stderr)));
     }
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         res 1: krs run: stuck after 2 steps; <k> is empty
 
-        res true: krs run: undefined after 1 step; <k> starts with `flag krsLocal_DIGEST ( true )`
-        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+        res true: krs run: undefined after 0 steps; <k> starts with `res true`
+        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it
 
         ens 1: krs run: stuck after 1 step; <k> is empty
 
         ens true: krs run: undefined after 0 steps; <k> starts with `ens true`
 
-        measure 1: krs run: undefined after 1 step; <k> starts with `count size ( 1 )`
-        note: `size ( 1 )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
-    "]].assert_eq(&ends.join("\n"));
+        measure 1: krs run: undefined after 0 steps; <k> starts with `measure 1`
+        note: `size ( 1 )` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it
+    "#]].assert_eq(&ends.join("\n"));
+}
+
+/// Two partial functions, each with one equation: `decided`'s condition reads `a` alone, so at
+/// `2` it is false, no equation applies, and `decided(2)` has no value; `open`'s reads the total
+/// `Opaque`, which no equation defines, so at `2` whether it holds is open, and `open(2)` may have
+/// a value.
+const CONDITION_OPEN: &str = r#"
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("decided {a}")]
+    Decided { a: Int },
+    #[k::syntax("open {a}")]
+    Open { a: Int },
+}
+
+#[k::function(total, internal)]
+pub fn Opaque(a: Term<Int>) -> Term<Int>;
+
+#[k::function(partial, internal)]
+pub fn Exact(a: Term<Int>) -> Term<Bool>;
+
+#[k::function(partial, internal)]
+pub fn Unsure(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(a == 1)]
+fn exact_one(Exact(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::equation]
+#[k::requires(Opaque(a) == 1)]
+fn unsure_one(Unsure(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::requires(Exact(a))]
+    decided: { k: [Decided(a), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(Unsure(a))]
+    open: { k: [Open(a), ..], acc: _ } => { k: [..], acc: 1 };
+}
+"#;
+
+/// An application counts as having no value only where every equation of its head is decided at
+/// it: `decided 2`'s condition reads `exact(2)`, which no equation applies to, so the rule does not
+/// apply; `open 2`'s reads `unsure(2)`, left because its equation's condition is open, so the run
+/// splits on it and names it.
+#[test]
+fn an_application_whose_equation_s_condition_is_open_may_have_a_value() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "projection-open", CONDITION_OPEN);
+    let mut ends = Vec::new();
+    for program in ["decided 1", "decided 2", "open 2"] {
+        let (success, _, stderr) =
+            command(target.path(), &manifest, temporary.path(), "run", program);
+        ends.push(format!("{program} ({success}): {}", status(&stderr).trim()));
+    }
+    expect_test::expect![[r#"
+        decided 1 (true): krs run: stuck after 1 step; <k> is empty
+        decided 2 (true): krs run: stuck after 0 steps; <k> starts with `decided 2`
+        note: a rule's condition reads `exact ( 2 )`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply
+        open 2 (false): error[krs::exec::undecided]: the run reaches 2 states, under conditions over `unsure ( 2 )`, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition"#]].assert_eq(&ends.join("\n"));
 }
 
 /// A split over a term that may have a value is the definition's: an existential's value, which
@@ -494,9 +561,9 @@ fn a_run_names_a_split_over_a_term_that_may_have_a_value() {
             stderr.lines().last().unwrap_or_default()
         ));
     }
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         projection-exists: error[krs::exec::undecided]: the run reaches 2 states, under conditions over `hVar?V-b0:Int`, which holds a value the run has not fixed; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition
         projection-exists search: krs search: 2 solutions
-        projection-total: error[krs::exec::undecided]: the run reaches 2 states, under conditions over `opaque ( 1 )`, which may have a value the definition leaves open (no equation evaluates it, and it is not a partial function defined by its equations alone); the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition
-        projection-total search: krs search: 2 solutions"]].assert_eq(&ends.join("\n"));
+        projection-total: error[krs::exec::undecided]: the run reaches 2 states, under conditions over `opaque ( 1 )`, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition
+        projection-total search: krs search: 2 solutions"#]].assert_eq(&ends.join("\n"));
 }

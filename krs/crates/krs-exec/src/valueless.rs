@@ -29,6 +29,21 @@ pub(crate) trait Heads {
     fn is_data(&self, symbol: &str) -> bool;
 }
 
+/// Heads of which no application is decided to have no value: a run that met a hook the backend
+/// did not evaluate reads its leaves with these, since the hook may leave an equation's
+/// condition open.
+pub(crate) struct Undecided;
+
+impl Heads for Undecided {
+    fn is_equational_partial(&self, _: &str) -> bool {
+        false
+    }
+
+    fn is_data(&self, _: &str) -> bool {
+        false
+    }
+}
+
 /// Whether `pattern` is a value: a domain value, or data over values.
 pub(crate) fn is_value(pattern: &Pattern, heads: &dyn Heads) -> bool {
     match pattern {

@@ -551,27 +551,16 @@ fn run(program: &Ground, steps: u64, items: Vec<Ground>, status: Status) -> Run 
 }
 
 /// A run of `program` in which the case's sentence must not apply: the base's step, if any,
-/// stays (an equation's call leaves `Probe` unevaluated), and the case's is not taken.
-fn unapplied(form: Form, program: &Ground, cmd: &Command) -> Run {
+/// stays, and the case's is not taken. An equation's call leaves `Probe`'s application, to which
+/// no equation of the partial `Probe` applies, so it has no value, and neither has the call's
+/// result: the run ends undefined before the call's step ([`Status::UndefinedResult`]).
+fn unapplied(form: Form, program: &Ground, _: &Command) -> Run {
     match form.name {
-        "equation" | "table" => {
-            let Ground::Ctor { fields, .. } = program else {
-                unreachable!("an equation's program is `call(..)`")
-            };
-            let argument = fields[1].clone();
-            Run {
-                applies: false,
-                ..run(
-                    program,
-                    1,
-                    vec![hold(Ground::unevaluated(
-                        "probe",
-                        vec![command(cmd, Vec::new()), argument],
-                    ))],
-                    Status::Value,
-                )
-            }
-        }
+        "equation" | "table" => Run {
+            applies: false,
+            cells: Vec::new(),
+            ..run(program, 0, Vec::new(), Status::UndefinedResult)
+        },
         _ => Run {
             depth: 1,
             applies: false,

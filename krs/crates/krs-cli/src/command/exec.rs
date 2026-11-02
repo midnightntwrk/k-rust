@@ -498,7 +498,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             let _ = if report.halt == Halt::Undefined {
                 writeln!(
                     stderr,
-                    "note: `{printed}` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none"
+                    "note: `{printed}` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it"
                 )
             } else {
                 writeln!(

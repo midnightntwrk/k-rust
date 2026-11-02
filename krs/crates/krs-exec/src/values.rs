@@ -581,7 +581,7 @@ struct BackendSymbols {
     free_constructors: HashSet<String>,
     /// The partial functions whose definition is their equations alone: declared `function`,
     /// not `total`, with no hook, `smt-hook` or `smtlib`, and evaluated by the definition's
-    /// equations ([`crate::valueless`]).
+    /// equations, each of which is decided at values ([`crate::decided`], [`crate::valueless`]).
     equational_partial: HashSet<String>,
     /// The builtin collections' unit, element and concatenation symbols.
     collection_builders: HashSet<String>,
@@ -679,6 +679,7 @@ impl BackendSymbols {
                 *target = Some(name);
             }
         }
+        let equational_partial = crate::decided::decided_at_values(backend, &equational_partial);
         Self {
             known,
             free_constructors,
