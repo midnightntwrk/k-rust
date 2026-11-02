@@ -11,8 +11,9 @@ use k_rust::{
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, check_final_state,
-    config_variables, log_lines, one_path, result_sort_hooks, search_backend, term,
+    ConfigVariable, ExecError, Halt, OnePath, PathError, SearchMode, SearchOptions,
+    check_final_state, config_variables, log_lines, one_path, result_sort_hooks, search_backend,
+    term, valueless,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -429,13 +430,21 @@ fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
         [HaltReasonOutput::Stuck, HaltReasonOutput::Trivial]
     );
 
-    let leaf = one_path(split, &|_| false).unwrap().leaf;
-    assert_eq!(Halt::from_backend(leaf.reason), Halt::Stuck);
-    assert_eq!(leaf.depth, 1);
+    let path = one_path(split.clone(), &Named::default()).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(path.leaf.depth, 1);
     assert_eq!(
-        term(&leaf.state, &hooks).unwrap().kore().to_string(),
+        term(&path.leaf.state, &hooks).unwrap().kore().to_string(),
         "wrap{}(undef{}())"
     );
+    assert!(path.valueless.is_empty());
+
+    // `undef` is partial and has no equation, so `undef()` has no value, and neither has the
+    // state that holds it: the run is undefined there, and names the term.
+    let path = one_path(split, &Named::partial(&["undef"])).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.leaf.depth, 1);
+    assert_eq!(path.valueless, [pattern("undef{}()")]);
 }
 
 #[test]
@@ -443,23 +452,19 @@ fn a_run_is_undefined_only_when_every_leaf_is() {
     let mut backend = partial_backend();
     let leaf = one_path(
         leaves(&mut backend, "empty{}()", ExecutionStrategy::Any),
-        &|_| false,
+        &Named::default(),
     )
     .unwrap()
     .leaf;
     assert_eq!(Halt::from_backend(leaf.reason), Halt::Undefined);
 
+    // Two leaves under no condition break a run's contract: the internal error stays.
     let mut backend = branching_backend();
-    let Err(error) = one_path(
+    let error = one_path(
         leaves(&mut backend, "initial{}()", ExecutionStrategy::All),
-        &|_| false,
-    ) else {
-        panic!("two unconditional leaves are no one path");
-    };
-    assert_eq!(
-        error.to_string(),
-        "a run must end in exactly one state; the backend returned 2 defined states"
+        &Named::default(),
     );
+    assert!(matches!(error, Err(PathError::Several(2))), "{error:?}");
 }
 
 #[test]
@@ -544,54 +549,159 @@ endmodule
     );
 }
 
-/// The two leaves the backend returns where a rule's condition reads `f(true)`, an application no
-/// equation evaluates (finding NT-37-2): the rule applied where `f(true)` is defined and `true`,
-/// and the state left where it is not `true`.
-#[test]
-fn a_condition_over_a_term_with_no_value_does_not_hold() {
-    use super::valueless::{Reading, read};
-    let applied = parse_pattern(
-        r#"\and{SortState{}}(done{}(), \ceil{SortBool{}, SortState{}}(f{}(\dv{SortBool{}}("true"))), \equals{SortBool{}, SortState{}}(\dv{SortBool{}}("true"), f{}(\dv{SortBool{}}("true"))))"#,
-    )
-    .unwrap();
-    assert_eq!(read(&applied), Reading::Fails);
-    let left = parse_pattern(
-        r#"\and{SortState{}}(flag{}(f{}(\dv{SortBool{}}("true"))), \not{SortState{}}(\equals{SortBool{}, SortState{}}(\dv{SortBool{}}("true"), f{}(\dv{SortBool{}}("true")))))"#,
-    )
-    .unwrap();
-    let configuration = parse_pattern(r#"flag{}(f{}(\dv{SortBool{}}("true")))"#).unwrap();
-    let undecided = parse_pattern(r#"f{}(\dv{SortBool{}}("true"))"#).unwrap();
-    assert_eq!(
-        read(&left),
-        Reading::Holds {
-            configuration: &configuration,
-            undecided: vec![&undecided],
-        }
-    );
-    // Two terms neither of which is a value: their equality is not read.
-    let open = parse_pattern(
-        r"\and{SortState{}}(done{}(), \equals{SortBool{}, SortState{}}(f{}(), g{}()))",
-    )
-    .unwrap();
-    assert_eq!(read(&open), Reading::Open);
+/// Heads named by hand: the partial functions defined by their equations alone, and the data.
+#[derive(Default)]
+struct Named {
+    partial: Vec<&'static str>,
 }
 
-/// The function applications a state holds that a condition read are the state's terms with no
-/// value; a state that holds none of them has its value, and the condition's rule did not apply.
+impl Named {
+    fn partial(partial: &[&'static str]) -> Self {
+        Self {
+            partial: partial.to_vec(),
+        }
+    }
+}
+
+impl valueless::Heads for Named {
+    fn is_equational_partial(&self, symbol: &str) -> bool {
+        self.partial.contains(&symbol)
+    }
+
+    fn is_data(&self, symbol: &str) -> bool {
+        matches!(
+            symbol,
+            "inj" | "flag" | "done" | "test" | "acc" | "state" | "go"
+        )
+    }
+}
+
+fn pattern(text: &str) -> k_rust::kore::ast::Pattern {
+    parse_pattern(text).unwrap()
+}
+
+/// A defined leaf at `depth` holding `state`, from a run of the partial backend.
+fn leaf(state: &str, depth: u64) -> ExecutionLeaf {
+    let mut backend = partial_backend();
+    let mut leaf = leaves(&mut backend, "initial{}()", ExecutionStrategy::Any)
+        .into_iter()
+        .find(|leaf| leaf.reason == HaltReasonOutput::Stuck)
+        .expect("a stuck leaf");
+    leaf.state = k_rust::kore::json::to_value(&pattern(state)).unwrap();
+    leaf.depth = depth;
+    leaf.trace.clear();
+    leaf
+}
+
+fn state(path: &OnePath) -> String {
+    super::kore_pattern(&path.leaf.state).unwrap().to_string()
+}
+
+const F_TRUE: &str = r#"f{}(\dv{SortBool{}}("true"))"#;
+
+/// The two leaves the backend returns where a rule's condition reads `f(true)`, the application
+/// of a partial function defined by its equations alone, none of which applies at `true`
+/// (finding NT-37-2): the rule applied where `f(true)` is defined and `true`, and the state left
+/// where it is not `true`.
+fn split_over(term: &str, held: &str) -> Vec<ExecutionLeaf> {
+    vec![
+        leaf(
+            &format!(
+                r#"\and{{SortState{{}}}}(done{{}}(), \ceil{{SortBool{{}}, SortState{{}}}}({term}), \equals{{SortBool{{}}, SortState{{}}}}(\dv{{SortBool{{}}}}("true"), {term}))"#
+            ),
+            1,
+        ),
+        leaf(
+            &format!(
+                r#"\and{{SortState{{}}}}({held}, \not{{SortState{{}}}}(\equals{{SortBool{{}}, SortState{{}}}}(\dv{{SortBool{{}}}}("true"), {term})))"#
+            ),
+            0,
+        ),
+    ]
+}
+
+/// A condition over a term with no value does not hold: the leaf where it holds is no state, and
+/// the state the other leaf is holds the term, so it has none; the run is undefined there, with
+/// any number of leaves (finding NT-42-2: one leaf).
 #[test]
-fn a_state_holding_a_term_a_condition_read_unevaluated_has_no_value() {
-    use super::valueless::read_applications;
-    let is_function = |symbol: &str| matches!(symbol, "f" | "g");
-    let read = [parse_pattern(r#"g{}(f{}(\dv{SortBool{}}("true")))"#).unwrap()];
-    let mut out = Vec::new();
-    let holding = parse_pattern(r#"flag{}(f{}(\dv{SortBool{}}("true")))"#).unwrap();
-    read_applications(&holding, &read, &is_function, &mut out);
-    assert_eq!(
-        out,
-        [parse_pattern(r#"f{}(\dv{SortBool{}}("true"))"#).unwrap()]
+fn a_state_holding_a_term_with_no_value_has_none() {
+    let heads = Named::partial(&["f"]);
+    let held = format!("flag{{}}({F_TRUE})");
+    let path = one_path(split_over(F_TRUE, &held), &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.leaf.depth, 0);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+    // The condition the reading decided holds: the state is its configuration.
+    assert_eq!(state(&path), held);
+
+    let path = one_path(vec![leaf(&held, 0)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+
+    // A state whose condition gives the term a value is no state: alone, the run is undefined.
+    let applied = split_over(F_TRUE, &held).remove(0);
+    let path = one_path(vec![applied], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+}
+
+/// Where the condition built the term with no value and the state does not hold it, the rule
+/// whose condition read it did not apply: the run ends as the other leaf does, naming the term.
+#[test]
+fn a_condition_over_a_term_with_no_value_does_not_hold() {
+    let heads = Named::partial(&["f"]);
+    let path = one_path(split_over(F_TRUE, "go{}()"), &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(path.leaf.depth, 0);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+    assert_eq!(state(&path), "go{}()");
+}
+
+/// A term the backend left unevaluated that may have a value is no witness: a symbolic value
+/// (an existential's `?V`), or a function that is not partial (`total`) or is hooked. A split
+/// over it is the definition's, and the run names it rather than choosing a state.
+#[test]
+fn a_split_over_a_term_that_may_have_a_value_is_undecided() {
+    let symbolic = r"VarV:SortInt{}";
+    for (term, heads) in [
+        (symbolic, Named::partial(&["f"])),
+        (r#"opaque{}(\dv{SortInt{}}("1"))"#, Named::partial(&["f"])),
+        // `f` applied to a symbolic argument: its equations' matching is not decided.
+        (r"f{}(VarV:SortInt{})", Named::partial(&["f"])),
+    ] {
+        let held = format!("test{{}}({term})");
+        let Err(PathError::Undecided { states, over }) = one_path(split_over(term, &held), &heads)
+        else {
+            panic!("a split over `{term}` is no one path");
+        };
+        assert_eq!(states, 2);
+        assert_eq!(over, [pattern(term)]);
+    }
+    let error = one_path(split_over(symbolic, "test{}()"), &Named::default());
+    assert!(matches!(error, Err(PathError::Undecided { .. })));
+}
+
+/// Where the leaves that are no state leave one whose condition the reading does not decide,
+/// that leaf is the path, and its state keeps its condition.
+#[test]
+fn a_kept_leaf_keeps_the_condition_the_reading_does_not_decide() {
+    let heads = Named::partial(&["f"]);
+    let mut leaves = split_over(F_TRUE, "go{}()");
+    let open = format!(
+        r#"\and{{SortState{{}}}}(go{{}}(), \not{{SortState{{}}}}(\equals{{SortBool{{}}, SortState{{}}}}(\dv{{SortBool{{}}}}("true"), {F_TRUE})), \equals{{SortInt{{}}, SortState{{}}}}(VarV:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
     );
-    out.clear();
-    let other = parse_pattern(r#"flag{}(h{}(\dv{SortBool{}}("true")))"#).unwrap();
-    read_applications(&other, &read, &is_function, &mut out);
-    assert!(out.is_empty());
+    leaves[1] = leaf(&open, 0);
+    let path = one_path(leaves, &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(state(&path), pattern(&open).to_string());
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+
+    // One leaf whose condition reads a term with a value the backend left (`#Ceil(b ; c)` under
+    // a withdrawn equation head) is printed as it is.
+    let residual =
+        r"\and{SortState{}}(go{}(), \ceil{SortState{}, SortState{}}(seq{}(go{}(), go{}())))";
+    let path = one_path(vec![leaf(residual, 1)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(state(&path), pattern(residual).to_string());
+    assert!(path.valueless.is_empty());
 }

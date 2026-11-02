@@ -498,12 +498,12 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             let _ = if report.halt == Halt::Undefined {
                 writeln!(
                     stderr,
-                    "note: `{printed}` has no value: no equation evaluates it, and a rule's condition reads it, so the state holding it has none"
+                    "note: `{printed}` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none"
                 )
             } else {
                 writeln!(
                     stderr,
-                    "note: a rule's condition reads `{printed}`, which no equation evaluates: it has no value, so the rule does not apply"
+                    "note: a rule's condition reads `{printed}`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply"
                 )
             };
         }
@@ -896,6 +896,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,
+        ExecError::Undecided(_) => codes::exec::UNDECIDED,
     }
 }
 

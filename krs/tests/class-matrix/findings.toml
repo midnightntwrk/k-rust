@@ -65,11 +65,6 @@ kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
 
-["NT-42-2"]
-owner = "NT-42"
-kind = "bug"
-what = "a static result whose lifted `k::matches!` has no value is an application of the lifted function that no equation evaluates, which the backend does not decide has no value: `krs run` reports the state holding it (`when(krsLocal(go))`) as built, where the same test at a rule's result keeps its projection and the run is undefined; a run whose state holds such an application states a value it does not have"
-
 ["NT-43-2"]
 owner = "NT-42"
 kind = "bug"
