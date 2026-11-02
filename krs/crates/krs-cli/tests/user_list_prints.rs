@@ -223,7 +223,7 @@ fn warnings(stderr: &str) -> Vec<&str> {
 /// The warning for an empty list of sort `sort` that no text writes where it stands.
 fn empty_list(sort: &str) -> String {
     format!(
-        "warning: an empty list of sort `{sort}` stands where no text writes it: a program writes an empty list as no text, which does not read back as it there (beside other text, as a list's one element, or where another list reads no text too), and writes no empty `NeList`; printed as its terminator, which neither a program nor a configuration value reads"
+        "warning: an empty list of sort `{sort}` stands where no text writes it: a program writes an empty list, and the end of a list after its last element, as no text, which does not read back as the term there (beside other text, where the text has another reading, or before text that would continue the list), and writes no empty `NeList`; printed as its terminator, which neither a program nor a configuration value reads"
     )
 }
 
@@ -427,4 +427,176 @@ fn a_strict_lists_evaluated_tail_prints_and_reads_back_through_its_overloads() {
         heads.contains("g(tick, f(), tick) 1: tick , f() , tick ~> "),
         "{heads}"
     );
+}
+
+/// The shapes where no text, or a list's end without its terminator, reads back as another term
+/// too: `f()` is also a production of its own (`CallNone`); a list of `W`, a production that
+/// writes only its `Ints`, reads no text as `[]` and as `[[]]`; `juxt 1 2 3` splits two
+/// juxtaposed lists either way; `Seq` holds two unrelated lists, each read from no text; a map's
+/// value is a `KItem`, which every list is. Beside them, the shapes that read back: two empty
+/// `W`s between their separator, a `NeList` whose one element is an empty list, a cell whose
+/// production the program grammar lacks (a `Map` field), read with the main module's grammar.
+const SHAPES: &str = r#"use k::builtin::{Int, KSequence, Map};
+use k::KResult;
+
+k::sorts! {
+    Stmt: KResult;
+    W: KResult;
+    Seq;
+    Frame: KResult;
+    impl Seq for Ints;
+    impl Seq for Gaps;
+}
+
+#[k::syntax_list(separator = ",")]
+pub enum Ints {
+    Cons { head: Int, tail: Ints },
+    Nil(),
+}
+
+#[k::syntax_list(separator = "")]
+pub enum Gaps {
+    Cons { head: Int, tail: Gaps },
+    Nil(),
+}
+
+#[k::syntax_list(separator = ";", non_empty)]
+pub enum Bands {
+    Cons { head: Ints, tail: Bands },
+    Nil(),
+}
+
+#[k::constructors(sort = W, result = KResult)]
+#[rustfmt::skip]
+pub enum Wrapper {
+    #[k::syntax("{items}")] Wrap { items: Ints },
+}
+
+#[k::syntax_list(separator = ";")]
+pub enum Ws {
+    Cons { head: W, tail: Ws },
+    Nil(),
+}
+
+#[k::constructors(sort = Frame, result = KResult)]
+#[rustfmt::skip]
+pub enum Frames {
+    #[k::syntax("frame({items}, {env})")] Framed { items: Ints, env: Map },
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Program {
+    #[k::syntax("f({args})")] Call { args: Ints },
+    #[k::syntax("f()")] CallNone(),
+    #[k::syntax("ws({items})")] WsStmt { items: Ws },
+    #[k::syntax("juxt {a} {b}")] Juxt { a: Gaps, b: Gaps },
+    #[k::syntax("seq({s})")] SeqStmt { s: Seq },
+    #[k::syntax("bands({items})")] BandsStmt { items: Bands },
+    #[k::syntax("make({n})")] Make { n: Int },
+    #[k::syntax("done")] Done(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub frame: Frame,
+    #[k::cell]
+    pub m: Map,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            frame: Frames::Framed(Ints::Cons(1, Ints::Nil()), k::map![]),
+            m: k::map![],
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use Program::*;
+
+    alternative: Make(1) => Call(Ints::Nil());
+    wrapped_one: Make(2) => WsStmt(Ws::Cons(Wrapper::Wrap(Ints::Nil()), Ws::Nil()));
+    wrapped_two: Make(3) => WsStmt(Ws::Cons(Wrapper::Wrap(Ints::Nil()), Ws::Cons(Wrapper::Wrap(Ints::Nil()), Ws::Nil())));
+    juxtaposed: Make(4) => Juxt(Gaps::Cons(1, Gaps::Nil()), Gaps::Cons(2, Gaps::Cons(3, Gaps::Nil())));
+    two_lists: Make(5) => SeqStmt(Ints::Nil());
+    one_band: Make(6) => BandsStmt(Bands::Cons(Ints::Nil(), Bands::Nil()));
+}
+
+k::rules! {
+    for Machine;
+    use Program::*;
+
+    main_grammar: { k: [Make(7), ..], frame: _ } => { k: [Done(), ..], frame: Frames::Framed(Ints::Nil(), k::map![]) };
+    collection: { k: [Make(8), ..], m: _ } => { k: [Done(), ..], m: k::map![1 -> Ints::Nil()] };
+}
+"#;
+
+/// Each term a rule builds, as `krs run` prints the cell it is in (spaces collapsed), and the
+/// sort of the empty list no text writes where it stands, if any; every other print reads back
+/// (`KRS_CHECK_PRINTS`).
+const SHAPED: [(&str, &str, &str, Option<&str>); 9] = [
+    // `f()` is `CallNone`'s text too.
+    ("make(1)", "k", "f(.Ints) ~> .K", Some("Ints")),
+    // No text in `ws(..)` reads as `[]` and as `[wrap([])]`.
+    ("make(2)", "k", "ws(.Ints) ~> .K", Some("Ints")),
+    ("make(3)", "k", "ws( ; ) ~> .K", None),
+    // `1 2 3` splits either way; the second list ends at the end of the text.
+    ("make(4)", "k", "juxt 1 .Gaps 2 3 ~> .K", Some("Gaps")),
+    // `Seq` reads no text as `Ints`'s terminator and as `Gaps`'s.
+    ("make(5)", "k", "seq(.Ints) ~> .K", Some("Ints")),
+    // A `NeList` reads no text only as its one empty element.
+    ("make(6)", "k", "bands() ~> .K", None),
+    // After the separator, a `Map` is no element: the list ends there. The cell holds a `Map`
+    // field, which only the main module's grammar writes.
+    ("make(6)", "frame", "frame(1, .Map)", None),
+    ("make(7)", "frame", "frame(, .Map)", None),
+    // A map's value is a `KItem`.
+    ("make(8)", "m", "1 |-> .Ints", Some("Ints")),
+];
+
+/// The content of the cell `cell` in `state`, a printed configuration, its spaces collapsed.
+fn cell_text(state: &str, cell: &str) -> String {
+    let content = state
+        .split(&format!("<{cell}>"))
+        .nth(1)
+        .and_then(|rest| rest.split(&format!("</{cell}>")).next())
+        .unwrap_or_else(|| panic!("{state}"));
+    content.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// An empty list prints as no text only where no other reading of that text competes, and a
+/// list's last element stands alone only where nothing after it continues the list; elsewhere
+/// the print keeps K's terminator and says so, its other parts reading back.
+#[test]
+fn an_empty_list_prints_as_no_text_only_where_no_other_reading_competes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        &temporary.path().join("shapes"),
+        SHAPES,
+        "ORG-KRS-USER-LIST-SHAPES",
+    );
+    let program = temporary.path().join("program.txt");
+    for (written, cell, printed, unwritten) in SHAPED {
+        fs::write(&program, format!("{written}\n")).unwrap();
+        let (ran, state, stderr) = krs(target.path(), &manifest, "run", Some(&program), &[]);
+        assert!(ran, "{written}: {state}{stderr}");
+        let expected = unwritten.map(empty_list).into_iter().collect::<Vec<_>>();
+        assert_eq!(
+            (cell_text(&state, cell), warnings(&stderr)),
+            (
+                printed.to_owned(),
+                expected.iter().map(String::as_str).collect::<Vec<_>>()
+            ),
+            "{written}"
+        );
+    }
 }

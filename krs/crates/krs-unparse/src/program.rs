@@ -38,11 +38,12 @@ impl ProgramProduction {
 }
 
 /// The user lists of `definition` ([`crate::user_list`]): each sort whose `userList` productions
-/// are one cons `Elem "sep" Sort` and one terminator, by the cons's KORE symbol name. A list of
-/// another shape (a parametric one, or a left-recursive `NeList`) is left out, and prints in K's
-/// spelling.
+/// are one cons `Elem "sep" Sort` and one terminator, by the cons's KORE symbol name, as the
+/// program parser reads them. A list of another shape (a parametric one, or a left-recursive
+/// `NeList`), which the parser reads by its productions as written, prints in K's spelling; its
+/// cons is recorded too, since a one-element list of it is its element's text.
 pub(crate) fn user_lists(definition: &Definition) -> crate::user_list::UserLists {
-    type Productions<'d> = (Vec<&'d Sentence>, Vec<&'d Sentence>);
+    type Productions<'d> = (Vec<&'d Sentence>, Vec<&'d Sentence>, bool);
     let mut by_sort = BTreeMap::<String, Productions<'_>>::new();
     for module in &definition.modules {
         for sentence in &module.local_sentences {
@@ -56,8 +57,7 @@ pub(crate) fn user_lists(definition: &Definition) -> crate::user_list::UserLists
             else {
                 continue;
             };
-            if !parameters.is_empty()
-                || attributes.get("userList").is_none()
+            if attributes.get("userList").is_none()
                 || attributes.get("userListTerminator").is_some()
             {
                 continue;
@@ -66,7 +66,8 @@ pub(crate) fn user_lists(definition: &Definition) -> crate::user_list::UserLists
                 .iter()
                 .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
                 .count();
-            let (conses, terminators) = by_sort.entry(sort.name.clone()).or_default();
+            let (conses, terminators, parametric) = by_sort.entry(sort.name.clone()).or_default();
+            *parametric |= !parameters.is_empty();
             match nonterminals {
                 2 => conses.push(sentence),
                 0 => terminators.push(sentence),
@@ -75,7 +76,27 @@ pub(crate) fn user_lists(definition: &Definition) -> crate::user_list::UserLists
         }
     }
     let mut lists = crate::user_list::UserLists::default();
-    for (sort, (conses, terminators)) in by_sort {
+    for (sort, (conses, terminators, parametric)) in by_sort {
+        for cons in &conses {
+            if let Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } = &**cons
+            {
+                let separator = items
+                    .iter()
+                    .find_map(|item| match item {
+                        ProductionItem::Terminal(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                lists.insert_other(encode_kore_label(label).name, separator);
+            }
+        }
+        if parametric {
+            continue;
+        }
         let (
             [
                 Sentence::Production {
@@ -109,7 +130,7 @@ pub(crate) fn user_lists(definition: &Definition) -> crate::user_list::UserLists
         lists.insert(
             encode_kore_label(cons).name,
             encode_kore_label(terminator).name,
-            !separator.is_empty(),
+            separator,
             attributes.get_str("userList") == Some("+"),
         );
     }

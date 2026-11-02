@@ -56,6 +56,7 @@ use krs_k_rust::{
     NativeDefinition, SentenceProvenance, compile_definition_with_context_timed,
     compile_spec_definition_with_context_timed,
 };
+use krs_unparse::ListSpelling;
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
@@ -521,6 +522,14 @@ impl From<BackendError> for ExecError {
     }
 }
 
+/// The prints [`Semantics::unparse_program`] chooses among, by whether they reverse aliases and
+/// how they spell user lists: through the aliases, unreversed, and unreversed in K's spelling.
+const PROGRAM_PRINTS: [(bool, ListSpelling); 3] = [
+    (true, ListSpelling::Program),
+    (false, ListSpelling::Program),
+    (false, ListSpelling::K),
+];
+
 /// One compiled definition, ready to parse, configure, run, search, and prove.
 pub struct Semantics {
     backend: Backend,
@@ -856,25 +865,30 @@ impl Semantics {
         color: bool,
     ) -> Result<Printed, ExecError> {
         let (presented, expanded) = self.program_forms(sort, input)?;
-        let print = |printer: &krs_unparse::Unparser, reverse_aliases: bool, color: bool| {
+        let print = |printer: &krs_unparse::Unparser,
+                     reverse_aliases: bool,
+                     list_spelling: ListSpelling,
+                     color: bool| {
             printer.print_kore(
                 &presented,
                 &krs_unparse::Options {
                     reverse_aliases,
+                    list_spelling,
                     ..krs_unparse::Options::new(krs_unparse::Mode::Program).with_color(color)
                 },
             )
         };
-        let reversed = print(&self.unparser, true, false);
-        let unreversed = print(&self.unparser, false, false);
-        let (reverse_aliases, printed) = self.program_print(sort, &expanded, reversed, unreversed);
+        let prints = PROGRAM_PRINTS.map(|(reverse_aliases, list_spelling)| {
+            print(&self.unparser, reverse_aliases, list_spelling, false)
+        });
+        let (reverse_aliases, list_spelling, printed) = self.program_print(sort, &expanded, prints);
         // The prints are judged without colour, which no grammar reads.
         if !color {
             return Ok(printed);
         }
         Ok(Printed {
             warnings: printed.warnings,
-            ..print(&self.unparser, reverse_aliases, true)
+            ..print(&self.unparser, reverse_aliases, list_spelling, true)
         })
     }
 
@@ -891,28 +905,33 @@ impl Semantics {
         input: &ProgramInput,
     ) -> Result<Printed, ExecError> {
         let (presented, expanded) = self.program_forms(sort, input)?;
-        let options = krs_unparse::Options::new(krs_unparse::Mode::Program);
-        let reversed = printer.print_kore(&presented, &options);
-        let unreversed = printer.print_kore(
-            &presented,
-            &krs_unparse::Options {
-                reverse_aliases: false,
-                ..options
-            },
-        );
-        Ok(self.program_print(sort, &expanded, reversed, unreversed).1)
+        let prints = PROGRAM_PRINTS.map(|(reverse_aliases, list_spelling)| {
+            printer.print_kore(
+                &presented,
+                &krs_unparse::Options {
+                    reverse_aliases,
+                    list_spelling,
+                    ..krs_unparse::Options::new(krs_unparse::Mode::Program)
+                },
+            )
+        });
+        Ok(self.program_print(sort, &expanded, prints).2)
     }
 
-    /// Of `reversed` and `unreversed`, the prints of a program at `sort` whose expansion is
-    /// `expanded`, the one [`Self::unparse_program`] prints, beside whether it is
-    /// `reversed`.
+    /// Of `[reversed, unreversed, stated]`, the prints of a program at `sort` whose expansion is
+    /// `expanded` ([`PROGRAM_PRINTS`]), the one [`Self::unparse_program`] prints, beside whether
+    /// it reverses aliases and how it spells user lists: `reversed` where it reads back, else
+    /// `unreversed` where it reads back. Where neither does, and `unreversed` spells its lists
+    /// without a stated fallback, `stated`, which says so ([`krs_unparse::Warning::EmptyList`]):
+    /// the program spelling of a list is judged on the grammar before the text exists, and is
+    /// no program text where the grammar reads that text otherwise. Else `unreversed`, with what
+    /// it says of itself.
     fn program_print(
         &mut self,
         sort: Option<&str>,
         expanded: &Pattern,
-        reversed: Printed,
-        unreversed: Printed,
-    ) -> (bool, Printed) {
+        [reversed, unreversed, stated]: [Printed; 3],
+    ) -> (bool, ListSpelling, Printed) {
         let reads = |semantics: &mut Self, printed: &Printed| {
             semantics.program_read_back(sort, expanded, printed) == ReadBack::Reads
         };
@@ -923,12 +942,19 @@ impl Semantics {
             printed
         };
         if reads(self, &reversed) {
-            return (true, without_ungrouped(reversed));
+            return (true, ListSpelling::Program, without_ungrouped(reversed));
         }
         if reversed.text != unreversed.text && reads(self, &unreversed) {
-            return (false, without_ungrouped(unreversed));
+            return (false, ListSpelling::Program, without_ungrouped(unreversed));
         }
-        (false, unreversed)
+        let states_lists = unreversed
+            .warnings
+            .iter()
+            .any(|warning| matches!(warning, krs_unparse::Warning::EmptyList(_)));
+        if !states_lists && stated.text != unreversed.text {
+            return (false, ListSpelling::K, stated);
+        }
+        (false, ListSpelling::Program, unreversed)
     }
 
     /// The two KORE forms of one reading of the program `input` at `sort` (by default `$PGM`'s):

@@ -862,3 +862,234 @@ fn an_instance_is_judged_where_reversal_prints_it() {
         )
     );
 }
+
+/// How `term`, a KORE pattern over `lists.k`, prints in [`Mode::Pretty`] (`spelled` lists or
+/// K's spelling), its spaces collapsed, beside the sorts of the empty lists it says no text
+/// writes where they stand.
+fn spelled_list(unparser: &Unparser, term: &str, spelled: bool) -> (String, Vec<String>) {
+    let printed = unparser.print_kore(
+        &pattern(term),
+        &Options {
+            list_spelling: if spelled {
+                ListSpelling::Program
+            } else {
+                ListSpelling::K
+            },
+            ..Options::new(Mode::Pretty)
+        },
+    );
+    let mut unwritten = Vec::new();
+    for warning in printed.warnings {
+        match warning {
+            Warning::EmptyList(sorts) => unwritten = sorts,
+            other => panic!("{term}: {other}"),
+        }
+    }
+    (
+        printed
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        unwritten,
+    )
+}
+
+const ONE: &str = r#"\dv{SortInt{}}("1")"#;
+const TWO: &str = r#"\dv{SortInt{}}("2")"#;
+const THREE: &str = r#"\dv{SortInt{}}("3")"#;
+const INTS_NIL: &str = "LblintsNil{}()";
+
+/// The `Ints` list of `items`, in KORE.
+fn ints(items: &[&str]) -> String {
+    items.iter().rev().fold(INTS_NIL.to_owned(), |tail, item| {
+        format!("LblintsCons{{}}({item}, {tail})")
+    })
+}
+
+/// The `Gaps` list of `items`, in KORE.
+fn gaps(items: &[&str]) -> String {
+    items
+        .iter()
+        .rev()
+        .fold("LblgapsNil{}()".to_owned(), |tail, item| {
+            format!("LblgapsCons{{}}({item}, {tail})")
+        })
+}
+
+/// Each `(term, text, sorts)`: `term`, over `lists.k`, prints as `text` (spaces collapsed), and
+/// says no text writes the empty lists of `sorts` where they stand.
+fn check_spellings(cases: Vec<(String, &'static str, Vec<String>)>) {
+    on_large_stack(move || {
+        let fixture = Fixture::compile("lists");
+        for (term, text, unwritten) in cases {
+            assert_eq!(
+                spelled_list(&fixture.unparser, &term, true),
+                (text.to_owned(), unwritten),
+                "{term}"
+            );
+        }
+        // K's spelling, as a caller whose print did not read back asks for it, stated.
+        assert_eq!(
+            spelled_list(
+                &fixture.unparser,
+                &format!("Lblints{{}}({})", ints(&[ONE])),
+                false
+            ),
+            ("ints ( 1 , .Ints )".to_owned(), vec!["Ints".to_owned()])
+        );
+    });
+}
+
+/// An empty list of `lists.k` prints as no text only where nothing else reads that text: not
+/// beside another list's text, nor where another production writes the same text (`f()`), nor
+/// as the one element of a list through a production that writes only its argument, nor where
+/// two lists below one sort, or every list (a collection's `KItem`), read it. The greater
+/// overload's terminator is one reading with its more specific overload's. A `NeList` whose
+/// elements can be empty reads no text as its one empty element.
+#[test]
+fn an_empty_list_is_no_text_only_where_nothing_else_reads_it() {
+    let stated = |sort: &str| vec![sort.to_owned()];
+    check_spellings(vec![
+        (format!("Lblints{{}}({INTS_NIL})"), "ints ( )", vec![]),
+        // A cell's content alone, at its own sort.
+        (INTS_NIL.to_owned(), "", vec![]),
+        (
+            format!("Lblcall{{}}({INTS_NIL})"),
+            "f ( .Ints )",
+            stated("Ints"),
+        ),
+        (format!("Lblcall{{}}({})", ints(&[ONE])), "f ( 1 )", vec![]),
+        (
+            format!("Lbltwo{{}}({INTS_NIL}, {})", ints(&[ONE])),
+            "two .Ints 1",
+            stated("Ints"),
+        ),
+        (
+            format!("Lblrows{{}}(LblrowsCons{{}}({INTS_NIL}, LblrowsNil{{}}()))"),
+            "rows ( .Ints )",
+            stated("Ints"),
+        ),
+        (
+            "Lblrows{}(LblrowsNil{}())".to_owned(),
+            "rows ( .Rows )",
+            stated("Rows"),
+        ),
+        (
+            format!(
+                "Lblrows{{}}(LblrowsCons{{}}({INTS_NIL}, LblrowsCons{{}}({}, LblrowsNil{{}}())))",
+                ints(&[ONE])
+            ),
+            "rows ( ; 1 )",
+            vec![],
+        ),
+        (
+            format!(
+                "Lblrows{{}}(LblrowsCons{{}}({}, LblrowsCons{{}}({INTS_NIL}, LblrowsNil{{}}())))",
+                ints(&[ONE])
+            ),
+            "rows ( 1 ; )",
+            vec![],
+        ),
+        (
+            format!("Lblbands{{}}(LblbandsCons{{}}({INTS_NIL}, LblbandsNil{{}}()))"),
+            "bands ( )",
+            vec![],
+        ),
+        (
+            format!(
+                "Lblbands{{}}(LblbandsCons{{}}({INTS_NIL}, LblbandsCons{{}}({INTS_NIL}, LblbandsNil{{}}())))"
+            ),
+            "bands ( ; )",
+            vec![],
+        ),
+        (
+            "Lblalts{}(LblaltsNil{}())".to_owned(),
+            "alts ( .Alts )",
+            stated("Alts"),
+        ),
+        (
+            format!("Lblws{{}}(LblwsCons{{}}(Lblwrap{{}}({INTS_NIL}), LblwsNil{{}}()))"),
+            "ws ( .Ints )",
+            stated("Ints"),
+        ),
+        (
+            format!(
+                "Lblws{{}}(LblwsCons{{}}(Lblwrap{{}}({INTS_NIL}), LblwsCons{{}}(Lblwrap{{}}({INTS_NIL}), LblwsNil{{}}())))"
+            ),
+            "ws ( ; )",
+            vec![],
+        ),
+        (
+            format!("Lblseq{{}}(inj{{SortInts{{}}, SortSeq{{}}}}({INTS_NIL}))"),
+            "seq ( .Ints )",
+            stated("Ints"),
+        ),
+        ("Lblexps{}(LblexpsNil{}())".to_owned(), "exps ( )", vec![]),
+        (
+            "Lblexps{}(inj{SortVals{}, SortExps{}}(LblvalsNil{}()))".to_owned(),
+            "exps ( )",
+            vec![],
+        ),
+        (
+            format!(
+                "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({ONE}), inj{{SortInts{{}}, SortKItem{{}}}}({INTS_NIL}))"
+            ),
+            "1 |-> .Ints",
+            stated("Ints"),
+        ),
+    ]);
+}
+
+/// A list of `lists.k` prints its last element alone, without its terminator, except where the
+/// text after it would continue it: its own separator before another `Ints`, or, for a
+/// juxtaposed list, another argument's text.
+#[test]
+fn a_list_ends_without_its_terminator_only_where_nothing_continues_it() {
+    let stated = |sort: &str| vec![sort.to_owned()];
+    check_spellings(vec![
+        (
+            format!("Lblints{{}}({})", ints(&[ONE])),
+            "ints ( 1 )",
+            vec![],
+        ),
+        (
+            format!("Lblints{{}}({})", ints(&[ONE, TWO])),
+            "ints ( 1 , 2 )",
+            vec![],
+        ),
+        (
+            format!("Lbltwo{{}}({}, {})", ints(&[ONE]), ints(&[TWO])),
+            "two 1 2",
+            vec![],
+        ),
+        (
+            format!("Lblpair{{}}({}, {})", ints(&[ONE]), ints(&[TWO])),
+            "pair ( 1 , .Ints , 2 )",
+            stated("Ints"),
+        ),
+        (
+            format!("Lblcnt{{}}({}, {TWO})", ints(&[ONE])),
+            "cnt ( 1 , 2 )",
+            vec![],
+        ),
+        (
+            format!("Lblgaps{{}}({})", gaps(&[ONE, TWO])),
+            "gaps ( 1 2 )",
+            vec![],
+        ),
+        (
+            format!("Lbljuxt{{}}({}, {})", gaps(&[ONE]), gaps(&[TWO, THREE])),
+            "juxt 1 .Gaps 2 3",
+            stated("Gaps"),
+        ),
+        (
+            format!(
+                "Lblseq{{}}(inj{{SortGaps{{}}, SortSeq{{}}}}({}))",
+                gaps(&[ONE])
+            ),
+            "seq ( 1 )",
+            vec![],
+        ),
+    ]);
+}
