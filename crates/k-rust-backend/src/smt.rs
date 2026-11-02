@@ -419,6 +419,8 @@ pub struct TranslationState {
     /// relates the decided instance to: alone, it constrains a function nothing else reads.
     pending_domain_links: Vec<(String, SExpr)>,
     undecided_domain_heads: BTreeSet<String>,
+    /// Terms a plan admission found free of term-level `\and`s (`functional::admit_conditions`).
+    conjunction_free: rustc_hash::FxHashSet<Term>,
     dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
     bound_variables: Vec<(Variable, String)>,
     counter: usize,
@@ -481,6 +483,7 @@ impl TranslationState {
             stated_defined: Vec::new(),
             pending_domain_links: Vec::new(),
             undecided_domain_heads: BTreeSet::new(),
+            conjunction_free: rustc_hash::FxHashSet::default(),
             dependent_mappings: BTreeMap::new(),
             bound_variables: Vec::new(),
             counter: 1,

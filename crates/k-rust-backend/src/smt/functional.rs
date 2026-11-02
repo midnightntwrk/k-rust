@@ -613,7 +613,7 @@ pub(super) fn domain_plan(
     term: &Term,
     remaining: &mut usize,
 ) -> crate::stop::Stoppable<Option<std::sync::Arc<[Predicate]>>> {
-    use crate::definedness::{apply_ceil_equation, request_definedness};
+    use crate::definedness::apply_ceil_equation;
     crate::stop::check()?;
     if let Some(plan) = state.domains.get(term) {
         return Ok(Some(plan.clone()));
@@ -633,11 +633,14 @@ pub(super) fn domain_plan(
                             == SymbolType::Function(FunctionType::Partial)
                         {
                             match apply_ceil_equation(definition, term) {
+                                // The condition as stated: the translation reads each of its
+                                // atoms with its operands' domains, so it needs no
+                                // definedness-explicit form, whose conversion walks the shared
+                                // argument terms as trees.
                                 Some(conditions)
                                     if admit_conditions(state, &conditions, remaining) =>
                                 {
-                                    request_definedness(definition, conditions)
-                                        .unwrap_or_else(|_| vec![Predicate::Ceil(term.clone())])
+                                    conditions
                                 }
                                 Some(_) => vec![Predicate::Ceil(term.clone())],
                                 // No ceil theory states it: the hook's own reading, which the
@@ -705,9 +708,9 @@ pub(super) fn domain_plan(
 /// `R => (\ceil(term) <=> q)` for each instance `\ceil(term) = q requires R`
 /// (`definedness::conditional_ceil_lemmas`). Each is an axiom of the definition, so it holds in
 /// every model in which the domain function is the application's definedness, and the domain
-/// itself stays exact. Their predicates are stated definedness-explicit, as a plan's conditions
-/// are, and admitted under the same bound; an instance that is not is left out, which only
-/// weakens what the query knows.
+/// itself stays exact. Their predicates are stated as written, as a plan's conditions are, since
+/// the translation reads each atom with its operands' domains, and admitted under the same
+/// bound; an instance that is not is left out, which only weakens what the query knows.
 #[cfg(any(feature = "z3", test))]
 fn domain_lemmas(
     definition: &crate::definition::BackendDefinition,
@@ -715,7 +718,6 @@ fn domain_lemmas(
     term: &Term,
     remaining: &mut usize,
 ) {
-    use crate::definedness::request_definedness;
     let mut lemmas = Vec::new();
     for (requires, condition) in crate::definedness::conditional_ceil_lemmas(definition, term) {
         if !admit_conditions(state, &requires, remaining)
@@ -723,12 +725,6 @@ fn domain_lemmas(
         {
             continue;
         }
-        let (Ok(requires), Ok(condition)) = (
-            request_definedness(definition, requires),
-            request_definedness(definition, condition),
-        ) else {
-            continue;
-        };
         let conjunction = |mut predicates: Vec<Predicate>| match predicates.len() {
             0 => Predicate::True,
             1 => predicates.pop().expect("one predicate"),
@@ -747,8 +743,37 @@ fn domain_lemmas(
     }
 }
 
-/// Bound the tree work of canonical condition conversion before asking it to traverse a
-/// shared value DAG. Opaque domain atoms need no value walk; value atoms must be pure.
+/// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
+/// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
+/// atom reads a term-level `\and`, whose definedness is more than its operands' (the
+/// translation refuses a non-Boolean one). One unit of `remaining` per predicate node and term
+/// read; the terms are not walked as trees.
+/// Whether `term` holds a term-level `\and`. Each distinct node is read once per query: the
+/// nodes of a walk that found none are recorded (`TranslationState::conjunction_free`), and one
+/// unit of `remaining` is charged per node read; `true` when the budget runs out, which refuses
+/// the plan.
+#[cfg(any(feature = "z3", test))]
+fn holds_term_conjunction(
+    state: &mut TranslationState,
+    term: &Term,
+    remaining: &mut usize,
+) -> bool {
+    let mut seen = FxHashSet::default();
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if state.conjunction_free.contains(term) || !seen.insert(term.clone()) {
+            continue;
+        }
+        if *remaining == 0 || matches!(term.kind(), TermKind::And(..)) {
+            return true;
+        }
+        *remaining -= 1;
+        pending.extend(crate::deferred::children(term));
+    }
+    state.conjunction_free.extend(seen);
+    false
+}
+
 #[cfg(any(feature = "z3", test))]
 fn admit_conditions(
     state: &mut TranslationState,
@@ -773,14 +798,9 @@ fn admit_conditions(
         *remaining -= 1;
         match node {
             Pending::Term(term) => {
-                if !state.eligible_operand(term) {
+                if !state.eligible_operand(term) || holds_term_conjunction(state, term, remaining) {
                     return false;
                 }
-                let children = crate::deferred::children(term);
-                if children.len() > *remaining {
-                    return false;
-                }
-                pending.extend(children.into_iter().map(Pending::Term));
             }
             Pending::Predicate(predicate) => match predicate {
                 Predicate::Term(t) => pending.push(Pending::Term(t)),

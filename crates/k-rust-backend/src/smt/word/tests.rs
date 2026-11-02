@@ -555,6 +555,36 @@ fn a_query_over_a_shared_partial_dag_stays_linear() {
     }
 }
 
+/// GAP K15: a ceil equation's condition over a shared argument is read as stated, with its
+/// atoms' domains stated by the translation, so its admission reads the argument's DAG, not its
+/// tree. `\ceil(Z div d)` with `d` a 16-level diamond of `add` (2^16 paths) is `d =/=Int 0`, valid where
+/// `d` is not 0; before, the definedness-explicit conversion of the condition walked `d` as a tree,
+/// over the preparation budget, and the domain stayed opaque.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_condition_over_a_shared_argument_is_read_on_its_dag() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let d = definition();
+    let mut diamond = binary(&d, "add", var("X"), var("Y"));
+    for _ in 0..16 {
+        diamond = binary(&d, "add", diamond.clone(), diamond);
+    }
+    let known = [Predicate::Not(Arc::new(Predicate::Equals(
+        diamond.clone(),
+        int(0),
+    )))];
+    let checked = Predicate::Ceil(binary(&d, "div", var("Z"), diamond));
+    let built = query(&d, &known, std::slice::from_ref(&checked));
+    let bytes = built.base().len() + built.checked().to_string().len();
+    assert!(bytes < 100_000, "shared query bytes: {bytes}");
+    assert_eq!(
+        Z3Solver::new(&d)
+            .unwrap()
+            .check_predicates(&known, &Substitution::new(), &[checked]),
+        Ok(Ok(Validity::Valid))
+    );
+}
+
 #[cfg(feature = "z3")]
 #[test]
 fn original_definedness_atoms_remain_separate_from_word_value_plans() {
