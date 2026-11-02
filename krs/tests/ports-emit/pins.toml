@@ -35,8 +35,12 @@ text_sha256 = "69a0663c9c0105e5d335689867db6acc4310bfa326e35adef55bdd851f1213e2"
 source_map_sha256 = "4888e51634b000743c956d65937802e24015e13264fa984e6e56967e121eddb8"
 
 [macro_output.imp."tests/imp/expanded-definition/src/lib.rs"]
-text_sha256 = "9837a05d096eb546f6249ed8e3b5e0bea62164cfb33c57a6dcc394879ae4f578"
-source_map_sha256 = "365a0b0890ac9b29010babb0749b5f1a89e02416f6f0d4e14da861fcc33f1c5f"
+text_sha256 = "a9fed310ab5d2ae6c5c7802a5ddd77c0adbed7fffdfb672ece0d37fca2498ba9"
+source_map_sha256 = "fb4361d667218b859488bd5a795f5756a7ae892b9ef9b369aaa208f7635cdbf1"
+
+[macro_output.imp."tests/imp/expanded-definition/src/static_adjunct.rs"]
+text_sha256 = "022ca528c2f6832070c0fc072d7c7831a30568091a96aa251254d12e4dcaa17d"
+source_map_sha256 = "a808d91b775d05f7d0570c38cc06a2eb12f6a31f140e8b35d0f3aa39275432cd"
 
 [macro_output.kevm]
 
