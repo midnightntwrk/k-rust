@@ -62,6 +62,14 @@ DEMOS = {
                                                  "demos/JobsSubConf/JobsSubConf/Slots.lean",
                                                  "demos/JobsSubConf/confluence.toml"],
                     "slots": {"prefixes": ["join.", "equiv."]}},
+    # jobs run when not yet in <done> (tests/jobs-remove.py, mode seen): the rule reads the relaxed
+    # cell, its lemma generic through the permutation, the slot of two runs by hand
+    "JobsSeenConf": {"tier": "light", "sources": ["generated/jobsseen",
+                                                  "demos/JobsSeenConf/JobsSeenConf/Views.lean",
+                                                  "demos/JobsSeenConf/JobsSeenConf/Slots.lean",
+                                                  "demos/JobsSeenConf/confluence.toml"],
+                     "slots": {"prefixes": ["join.", "equiv."],
+                               "list": "demos/JobsSeenConf/open-joins.txt"}},
     # utxo with cells its processes write and no rule reads (tests/utxo-relaxed.py), by process
     # modulo the equivalence: creations and spends at two keys of the ledger commute (relaxed cells
     # in the views' classes)

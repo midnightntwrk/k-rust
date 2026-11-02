@@ -1,0 +1,1 @@
+join.open.run.run | hand  # two runs at two jobs: each job still not in <done> after the other (JobsSeenConf.Hand)

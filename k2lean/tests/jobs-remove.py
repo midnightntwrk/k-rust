@@ -5,15 +5,17 @@
 usage: jobs-remove.py JOBS_K OUT_K MODE
 
 Writes tests/fixtures/jobs/jobs.k with the map losing bindings, so that two steps each remove a
-different binding of it:
+different binding of it, or with the log read:
 - `remove`: `run` removes the job it runs (`J:Int |-> false => .Map`) instead of marking it;
 - `drop`: `run` marks the job as the fixture does, and a rule `drop` removes a job that has run
   (`_:Int |-> true => .Map`), so a removal meets an update at another binding;
 - `submit`: `run` removes the job it runs, as in `remove`, and rules `even` and `odd` insert a job
   numbered by a counter of their own (`<evens>`, `<odds>`; keys `2 *Int N` and `2 *Int N +Int 1`),
-  so a removal meets an insertion, and an insertion one at another key.
+  so a removal meets an insertion, and an insertion one at another key;
+- `seen`: the map is only read, and a job runs when it is not yet in `<done>`
+  (`requires notBool (J in D)`), so `run` reads the cell `--equiv done=perm` relaxes.
 The other cells are the fixture's, so `--equiv done=perm` reads them unchanged (`demos/JobsRmConf`,
-`demos/JobsDropConf`, `demos/JobsSubConf`, `docs/design.md`, section 3.6). The script fails if the file does not
+`demos/JobsDropConf`, `demos/JobsSubConf`, `demos/JobsSeenConf`, `docs/design.md`, section 3.6). The script fails if the file does not
 contain exactly the text it rewrites.
 """
 import sys
@@ -44,6 +46,14 @@ edits = {
             "       <jobs> ... .Map => 2 *Int N |-> false ... </jobs> [label(even)]\n"
             "  rule <odds> N => N +Int 1 </odds>\n"
             "       <jobs> ... .Map => 2 *Int N +Int 1 |-> false ... </jobs> [label(odd)]\n",
+        ),
+    ],
+    "seen": [
+        (run, "  rule <jobs> ... J:Int |-> _ ... </jobs>\n"),
+        (
+            "       <done> ... (.List => ListItem(J)) </done> [label(run)]\n",
+            "       <done> D => D ListItem(J) </done>\n"
+            "    requires notBool (J in D) [label(run)]\n",
         ),
     ],
 }

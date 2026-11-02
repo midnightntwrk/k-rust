@@ -118,6 +118,9 @@ lake-manifest.json
 /demos/JobsDropConf/confluence.toml
 /demos/JobsSubConf/JobsSubConf/
 /demos/JobsSubConf/confluence.toml
+/demos/JobsSeenConf/JobsSeenConf/Views.lean
+/demos/JobsSeenConf/JobsSeenConf/Slots.lean
+/demos/JobsSeenConf/confluence.toml
 /demos/UtxoRelConf/UtxoRelConf/Views.lean
 /demos/UtxoRelConf/UtxoRelConf/Slots.lean
 /demos/UtxoRelConf/confluence.toml
