@@ -1165,7 +1165,7 @@
       "ispair-int": []
     }
   },
-  "known_wrong_outputs": {
+  "trivial_instances": {
     "krs-rule-forms-anywhere-stutter": {
       "stutter": "exit 0: <k> wrap(p(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(p(go, b))`",
       "stutter-long": "exit 0: <k> wrap(r(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(r(go, b))`"

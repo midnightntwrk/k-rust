@@ -42,9 +42,9 @@
 //!
 //! The extra cases ([`super::super::attributes::EXTRAS`]) run their slot's plan where the
 //! sentence applies as without them, and the unapplied run where it does not (a condition before
-//! the marker or a second condition that fails, `#[cfg(any())]`); an anywhere rule that rewrites
-//! what it wrote runs without end ([`Status::Endless`]); a sentence about the solver's function
-//! has no driver. A pair the oracle refuses ([`super::super::attributes::TOGETHER`]) is not run.
+//! the marker or a second condition that fails, `#[cfg(any())]`); an anywhere rule whose instance
+//! at what it wrote is `t = t` runs the anywhere plan, what it wrote the value; a sentence about
+//! the solver's function has no driver. A pair the oracle refuses ([`super::super::attributes::TOGETHER`]) is not run.
 //!
 //! **K7's dependency check** runs a case's plan and counter run again on the case without its
 //! attribute ([`without_attribute`]), the sentence and its sibling kept: some run must end
@@ -455,8 +455,8 @@ fn result_use(form: Form, attribute: Attribute) -> Option<String> {
 /// included: the slot's `x => Cmd::Go()` writes a command its left image matches again, a rewrite
 /// that never ends, so the case rewrites `1`, which `Cmd::Go()` is not, and shows what one
 /// application does. The slot's own rewrite is the extra case `anywhere on what it writes`
-/// (`attributes::EXTRAS`), whose run has no end: k-rust's ends it after one application, stuck
-/// at a term the rule still matches (NT-41-1).
+/// (`attributes::EXTRAS`): its instance at `Cmd::Go()` is `t = t`, so the command it writes is
+/// the value, and its counter run at `2` would be rewritten too.
 fn rewrite_once(form: Form) -> Option<String> {
     if form.name != "local-rule" {
         return None;
@@ -846,19 +846,12 @@ fn extra_plan(
             None,
             Removed::Changes,
         ),
-        // An anywhere rule that rewrites what it wrote: below `hold(..)`, its application at `1`
-        // writes a command it matches again, so the rewriting has no end.
-        Effect::Endless => (
-            K7::Run(Run {
-                cells: Vec::new(),
-                depth: 1,
-                ..run(
-                    &hold(program_at(form, cmd, int(1))),
-                    0,
-                    Vec::new(),
-                    Status::Endless,
-                )
-            }),
+        // An anywhere rule whose subject matches what it wrote: below `hold(..)`, its application
+        // at `1` writes the command, and its instance there is `t = t`, which gives the command
+        // no other value, so the anywhere plan's value is the run's. The counter run is left out:
+        // the slot's subject matches the command at `2` too.
+        Effect::Fixed => (
+            anywhere_plan(form, cmd).0,
             None,
             // Without `anywhere` the rule rewrites only where its subject heads the
             // computation, never below `hold(..)`, so the run ends at once.

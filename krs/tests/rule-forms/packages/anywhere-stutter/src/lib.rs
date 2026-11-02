@@ -5,12 +5,12 @@
 //! apart) write `go` where their subject has any first argument, so their
 //! result is a term their subject matches again, with the rule's instance
 //! there `t = t`. `swap_ab` and `swap_ba` rewrite into each other, a
-//! two-cycle. The gate pins what k-rust's run reports for each (NT-41-1): it
-//! ends the one-rule rewrites after one application, stuck (known wrong
-//! outputs, under the ruling NT-41-1 is owned for), and it refuses the
-//! two-cycle as an evaluation that reaches a term again, `--depth`
-//! notwithstanding, since `--depth` bounds rewrite steps and an anywhere rule
-//! is applied as an equation.
+//! two-cycle. The gate pins what k-rust's run reports for each: it ends the
+//! one-rule rewrites after one application, stuck at the term whose instance is
+//! `t = t`, which states nothing more of it, so the term is the value; and it
+//! refuses the two-cycle as an evaluation that reaches a term again, which no
+//! orientation leaves in place, `--depth` notwithstanding, since `--depth`
+//! bounds rewrite steps and an anywhere rule is applied as an equation.
 
 use k::Term;
 use k::builtin::KSequence;

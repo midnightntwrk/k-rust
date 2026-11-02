@@ -30,11 +30,12 @@ the outcomes must agree:
 - `anywhere-stutter`: anywhere rules whose result their own subject matches
   again, single-body and long form, and two that rewrite into each other.
   k-rust applies an anywhere rule as an equation, so `--depth` does not count
-  its applications. The one-rule runs end after one application, stuck at a
-  term whose instance of the rule is `t = t` (pinned as known wrong outputs
-  under NT-41-1's ruling, natively only); the two-cycle reaches `q(a, a)`
-  again after two equation steps, which k-rust refuses as an evaluation
-  without end (`evaluation_cycles`), `--depth 5` notwithstanding;
+  its applications. The one-rule runs end after one application, at a term
+  whose instance of the rule is `t = t`, which states nothing more of it, so
+  the term is the value and no transition applies (`trivial_instances`,
+  natively only); the two-cycle reaches `q(a, a)` again after two equation
+  steps, which k-rust refuses as an evaluation without end
+  (`evaluation_cycles`), `--depth 5` notwithstanding;
 - `casts`: typed binder parameters on rule fns. `_e: Exp` narrows the
   `Phrase` argument of `isExpression`, whose `owise` equation declares no
   binders, so `isExpression(1)` and `isExpression(1 + 2)` are `true` and
@@ -204,8 +205,8 @@ ANYWHERE_REFUSAL = (
 )
 
 ANYWHERE_STUTTER = Fixture(MANIFEST, "krs-rule-forms-anywhere-stutter")
-# `stutter` and `stutter-long` report one stuck after one application, at a
-# term whose instance of the rule is `t = t` (known wrong outputs, NT-41-1);
+# `stutter` and `stutter-long` end stuck after one application, at a term
+# whose instance of the rule is `t = t`: the term is the value;
 # `two-cycle` is refused as an evaluation that reaches a term again (the
 # evaluation of `q(a, a)` has no end), under `--depth 5`, which bounds rewrite
 # steps only.
@@ -460,7 +461,7 @@ def verify_anywhere(harness: FixtureGate, pins: Ledger) -> None:
 
 
 def verify_anywhere_stutter(harness: FixtureGate, pins: Ledger, workspace: Path) -> None:
-    """Pin k-rust's runs of anywhere rules that rewrite what they wrote (NT-41-1)."""
+    """Pin k-rust's runs of anywhere rules that rewrite what they wrote (NT-38)."""
 
     harness.check(ANYWHERE_STUTTER)
     harness.expand(ANYWHERE_STUTTER)
@@ -492,7 +493,7 @@ def verify_anywhere_stutter(harness: FixtureGate, pins: Ledger, workspace: Path)
         output = " ".join([*process.stdout.split(), *report])
         observed[name] = f"exit {process.returncode}: {output}"
     cycles = {name: observed.pop(name) for name in ("two-cycle",)}
-    pins.expect(("known_wrong_outputs", ANYWHERE_STUTTER.package), observed)
+    pins.expect(("trivial_instances", ANYWHERE_STUTTER.package), observed)
     pins.expect(("evaluation_cycles", ANYWHERE_STUTTER.package), cycles)
 
 
@@ -768,7 +769,7 @@ def main() -> int:
         print("PASS anywhere: drop-a at any depth on both routes, reassociation a pinned k-rust divergence, Java Haskell refused before kompile")
 
         verify_anywhere_stutter(harness, pins, workspace)
-        print("PASS anywhere-stutter: one-rule stutters pinned as known wrong outputs, the two-cycle refused as an evaluation cycle (NT-41-1)")
+        print("PASS anywhere-stutter: one-rule stutters end at their value, the two-cycle refused as an evaluation cycle (NT-38)")
 
         verify_fresh(harness)
         print("PASS fresh: !L:Loc and !T:Int share the generated counter natively and on Java LLVM")

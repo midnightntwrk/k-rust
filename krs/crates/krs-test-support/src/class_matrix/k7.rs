@@ -402,11 +402,6 @@ pub enum Status {
     /// A static clause's counter run: its subject does not match the program, so the program's
     /// expansion leaves the case's production unexpanded, which `krs run` refuses to execute.
     Unexpanded,
-    /// The sentence applies again to what it wrote, without end (an `anywhere` rule whose result
-    /// its subject matches): the run reaches no final state. It ends only at its step bound or
-    /// its time limit; a run that reports a final state reports a state at which the sentence
-    /// still applies.
-    Endless,
     /// The construct a condition or a key computes has no value at the run's input, so the
     /// sentence does not apply: the run takes the steps before the sentence's and ends stuck
     /// there, as no rule applies, not at an undefined state, which would be a sentence that
@@ -428,7 +423,6 @@ impl Status {
             Self::Value => "value",
             Self::Liveness => "liveness",
             Self::Unexpanded => "unexpanded",
-            Self::Endless => "endless",
             Self::Undefined => "undefined",
             Self::UndefinedResult => "undefined result",
         }

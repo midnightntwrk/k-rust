@@ -64,10 +64,10 @@ owner = "S6"
 kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
-["NT-41-1"]
+["NT-38-1"]
 owner = "NT-38"
 kind = "bug"
-what = "an `anywhere` rule whose result its own subject matches again: k-rust applies it once and reports the run stuck at a term the rule still matches, whose instance of the rule there is `t = t`; read as a transition the run has no end, read as the equation k-rust compiles that term is the value (NT-38 proposes the second; the ruling is open). Two anywhere rules that rewrite into each other are now refused as an evaluation cycle (the rule-forms gate pins both)"
+what = "an anywhere head's application whose instance of its rule is `t = t` (`x => Cmd::Go()` at `Cmd::Go()`) is the value, but `krs run` reads it back as an unreduced call (`cmdTAG(Cmd::Go(), 0)`), not the constructor application it is: krs-exec decodes an anywhere head's application as data only where k-rust's instance-normality scan finds no equation that applies to it, and that scan counts the trivial instance as one that does"
 
 ["NT-43-2"]
 owner = "NT-42"
