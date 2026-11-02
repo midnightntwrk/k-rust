@@ -105,6 +105,10 @@ lake-manifest.json
 /demos/JobsConf/JobsConf/
 /demos/JobsConf/confluence.toml
 /demos/JobsConf/equiv.toml
+/demos/RaceLogOwConf/RaceLogOwConf/
+/demos/RaceLogOwConf/confluence.toml
+/demos/JobsOwConf/JobsOwConf/
+/demos/JobsOwConf/confluence.toml
 /demos/TwoParamOkConf/TwoParamOkConf/Views.lean
 /demos/TwoParamOkConf/TwoParamOkConf/Slots.lean
 /demos/TwoParamOkConf/confluence.toml

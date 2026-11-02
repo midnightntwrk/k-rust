@@ -17,7 +17,10 @@
 //! conditions contradict as arithmetic, `k2l_arith_omega`) or are one instance (`k2l_det`); or they act at two
 //! bindings of a cell map matched at a free key and commute (`MapHook.concat_element_same_or_comm`),
 //! or one updates a binding and the other inserts a fresh one (`concat_element_comm_insert`), or
-//! each applies after the other unchanged; the two final states are closed by `k2l_join_eq`
+//! each applies after the other unchanged; without `--threads`, of two priority ranks, the later
+//! rule's premise refutes the pair, and a step of a later rank taken after the other step owes its
+//! premise there (`k2l_pri_back`: a rule of an earlier rank that applies after the step applies
+//! before it); the two final states are closed by `k2l_join_eq`
 //! (equal up to the commutativity of integer addition). The slots listed `NAME | hand` in
 //! `--open-joins` are the hand module's (`hand.NAME`), those listed alone are open (premises of
 //! `terminal_unique`).
@@ -153,7 +156,7 @@ fn map_role(r: &Rule) -> MapRole {
             continue;
         };
         if lhs_hyps.contains(h) {
-            if in_lhs.contains(&x) && free_key(r, h, p) {
+            if in_lhs.contains(&x) && free_key_up_to_conds(r, h, p) {
                 matches.push((h.clone(), rest, x));
             }
         } else if in_rhs.contains(&x) {
@@ -185,17 +188,34 @@ fn map_role(r: &Rule) -> MapRole {
 /// they stand, joined by `k2l_join_eq`.
 fn commute_alts(
     name: &str,
+    prios: Option<&[i64]>,
     r1: &Rule,
     r2: &Rule,
     roles: (&MapRole, &MapRole),
     sfx: &str,
 ) -> Vec<String> {
     let refl = "Or.inl rfl";
-    // a step of `r` with the hypotheses `named` (constructor binder := value)
-    let ctor = |r: &Rule, named: &[(String, String)]| {
+    // a step of `r` with the hypotheses `named` (constructor binder := value), after the other
+    // step; of a rank after the first, it owes its priority premise there, from the one at the
+    // configuration before (`hp`), through the other step's update of a map (`k2l_pri_back`)
+    let ctor = |r: &Rule, named: &[(String, String)], second: bool| {
         let mut s = format!("{name}.Step.{}", r.lean);
         for (b, v) in named {
             write!(s, " ({b} := {v})").unwrap();
+        }
+        if prios.is_some_and(|ps| crate::multi::rank_of(r, ps) > 0) {
+            // `r2` after `r1` (`second`) or `r1` after `r2`, whose binders are suffixed
+            let (hp, other, osfx) = if second {
+                (format!("hpri{sfx}"), roles.0, "")
+            } else {
+                ("hpri".to_string(), roles.1, sfx)
+            };
+            match other {
+                MapRole::Update { hm, hr } => {
+                    write!(s, " (hpri := by k2l_pri_back {hp} {hm}{osfx} {hr}{osfx})").unwrap()
+                }
+                _ => write!(s, " (hpri := by k2l_pri_back {hp})").unwrap(),
+            }
         }
         s.push_str(" ..");
         format!("Or.inr ({s})")
@@ -233,8 +253,8 @@ fn commute_alts(
                 sf(hm2),
                 sf(hr2),
                 sf(hr2),
-                ctor(r2, &s2),
-                ctor(r1, &s1)
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
             ));
         }
         (MapRole::Update { hm, hr }, MapRole::Insert { hr: hr2 }) => {
@@ -243,8 +263,8 @@ fn commute_alts(
             alts.push(format!(
                 "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {hm} {hr} {}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
                 sf(hr2),
-                ctor(r2, &s2),
-                ctor(r1, &s1)
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
             ));
         }
         (MapRole::Insert { hr }, MapRole::Update { hm: hm2, hr: hr2 }) => {
@@ -254,16 +274,16 @@ fn commute_alts(
                 "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {} {} {hr}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
                 sf(hm2),
                 sf(hr2),
-                ctor(r2, &s2),
-                ctor(r1, &s1)
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
             ));
         }
         _ => {}
     }
     alts.push(format!(
         "exact ⟨_, _, {}, {}, by k2l_join_eq⟩",
-        ctor(r2, &hyps2),
-        ctor(r1, &hyps1)
+        ctor(r2, &hyps2, true),
+        ctor(r1, &hyps1, false)
     ));
     alts
 }
@@ -272,14 +292,23 @@ fn commute_alts(
 /// side's index or in another left-hand-side hypothesis (a key bound elsewhere, such as a store
 /// location read off `<k>`, makes the match unique).
 fn free_key(r: &Rule, h: &str, p: &str) -> bool {
-    key_bound_only_by(r, h, p, None)
+    key_bound_only_by(r, h, p, None, true)
+}
+
+/// Whether the key of a map hypothesis is free up to side conditions: as `free_key`, but a
+/// requires (`hreq`) does not count. A side condition on the key constrains the binding the match
+/// chooses and binds nothing, so two steps at two keys may still commute (plain mode's updates,
+/// `map_role`); each step's side condition is its own after the other, or the attempt fails.
+fn free_key_up_to_conds(r: &Rule, h: &str, p: &str) -> bool {
+    key_bound_only_by(r, h, p, None, false)
 }
 
 /// Whether the key of a map hypothesis `h` is bound by `h` and, if given, by the hypothesis
 /// `outer` only: the second binding of a two-binding match whose key the first binding names (a
 /// message to a named process, `resume(Q)` at one binding and `<pid> Q` at the other), still a
-/// binding of the thread map, matched in the first binding's rest.
-fn key_bound_only_by(r: &Rule, h: &str, p: &str, outer: Option<&str>) -> bool {
+/// binding of the thread map, matched in the first binding's rest. With `conds` false the
+/// requires do not count (`free_key_up_to_conds`).
+fn key_bound_only_by(r: &Rule, h: &str, p: &str, outer: Option<&str>, conds: bool) -> bool {
     let Some(rest) = p.strip_prefix(MAP_HYP) else {
         return false;
     };
@@ -319,7 +348,7 @@ fn key_bound_only_by(r: &Rule, h: &str, p: &str, outer: Option<&str>) -> bool {
     }
     let mut elsewhere = r.step.index.render();
     for (h2, p2) in &r.app.hyps {
-        if h2 != h && Some(h2.as_str()) != outer {
+        if h2 != h && Some(h2.as_str()) != outer && (conds || !h2.starts_with("hreq")) {
             elsewhere.push(' ');
             elsewhere.push_str(p2);
         }
@@ -433,7 +462,7 @@ fn view_role(r: &Rule, role: &MapRole, threads: &str) -> Option<VRole> {
     // a second binding matched in the rest
     let inner: Vec<_> = lhs_maps
         .iter()
-        .filter(|(h, p, _, x2)| x2 == rest && key_bound_only_by(r, h, p, Some(hm.as_str())))
+        .filter(|(h, p, _, x2)| x2 == rest && key_bound_only_by(r, h, p, Some(hm.as_str()), true))
         .collect();
     let (hms, base) = match inner.as_slice() {
         [] => (vec![(*hm).clone()], rest.clone()),
@@ -1424,11 +1453,6 @@ pub fn main(args: &[String]) {
     // cells are compared by equality, and nothing decides `≠` of configurations (the peaks)
     let eqv = opt.get("equiv").map(|s| equiv::parse(s, &lib, &name));
     if let Some(e) = &eqv {
-        if lib.prios.len() > 1 {
-            fail(
-                "--equiv: the definition has priorities: that a rule of a rank before applies at one of two related configurations only when at the other is not shown yet",
-            );
-        }
         if let Some(o) = &obs {
             e.check_obs(o);
         }
@@ -1525,6 +1549,13 @@ pub fn main(args: &[String]) {
         out = under_invariant(&out, &name, inv);
     }
     if let Some(e) = &eqv {
+        // the steps compressed up to the flush are joined up to `ObsEq`, a second equivalence
+        // that `Equiv` is not composed with yet
+        if out.contains("\nimport KPrelude.Flush\n") {
+            fail(
+                "--equiv: the steps are compressed up to the flush of the rules of the ranks before (`FStep`), joined up to `ObsEq`; with --equiv as well is not supported",
+            );
+        }
         out = equiv::views(&out, e, &lib, &name);
     }
     write_file(&get("out"), &out);
@@ -3857,9 +3888,15 @@ def SameThreadJoins : Prop :=
         };
         let ctors = crate::preserves::ctors(rs, lib.ranked.then_some(&lib.prios[..]));
         let mut o = String::new();
+        // with ranks, a step after another owes its priority premise there (`k2l_pri_back`)
+        let pri = if lib.prios.len() > 1 {
+            "import KPrelude.OtherRun\n"
+        } else {
+            ""
+        };
         writeln!(
             o,
-            "import {name}.Preserves\nimport KPrelude.Scaffold\nimport KPrelude.Tactic\n"
+            "import {name}.Preserves\nimport KPrelude.Scaffold\n{pri}import KPrelude.Tactic\n"
         )
         .unwrap();
         writeln!(o, "/-! Generated by `k2lean confluence`; do not edit.\n\nNo cell map holds the threads (no `--threads`), so every rule is global: the joins of every ordered\npair of rules are the premise `OpenJoins`, one slot per pair. -/\n").unwrap();
@@ -4547,7 +4584,37 @@ def SameThreadJoins : Prop :=
                     pat(&a2, "e"),
                     kres_alt("         ")
                 );
-                for a in super::commute_alts(name, &rs[i], &rs[j], (&roles[i], &roles[j]), &sfx) {
+                // of two ranks (plain mode; with `--threads` the classifier separates them): the
+                // rule of the later one owes that the other does not apply there, and it does
+                let (ri, rj) = (
+                    crate::multi::rank_of(&rs[i], &lib.prios),
+                    crate::multi::rank_of(&rs[j], &lib.prios),
+                );
+                if ri != rj && !*threads {
+                    let (lo, rlo, s_lo, s_hi) = if ri < rj {
+                        (&rs[i], ri, "", sfx.as_str())
+                    } else {
+                        (&rs[j], rj, sfx.as_str(), "")
+                    };
+                    let named: String = lo
+                        .app
+                        .hyps
+                        .iter()
+                        .map(|(h, _)| format!(" ({h} := {h}{s_lo})"))
+                        .collect();
+                    write!(
+                        p,
+                        "\n    | exact absurd ({name}.App.{}{named} ..) (hpri{s_hi} {rlo} (by decide))",
+                        lo.lean
+                    )
+                    .unwrap();
+                }
+                // the priority premises after the other step in plain mode only: with
+                // `--threads` the views carry the ranks (`Local`, the flush)
+                let prios = (!*threads).then_some(&lib.prios[..]);
+                for a in
+                    super::commute_alts(name, prios, &rs[i], &rs[j], (&roles[i], &roles[j]), &sfx)
+                {
                     write!(p, "\n    | {a}").unwrap();
                 }
                 if so.inv.is_some() {

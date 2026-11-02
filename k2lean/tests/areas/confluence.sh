@@ -19,7 +19,26 @@
 # ImpPlusConf: IMP++'s threads joined up to the flush of K's stdout stream, its races refuted at
 # peaks of four programs (demos/ImpPlusConf/witnesses), library impplus; RaceLogConf: modulo an
 # equivalence the author states, the fixture racelog, workers logging their steps, library racelog;
-# JobsConf: the same without threads, the fixture jobs, library jobs). Registry: confluence.py.
+# JobsConf: the same without threads, the fixture jobs, library jobs; with priority ranks,
+# RaceLogOwConf and JobsOwConf: the same modulo the equivalence over the fixtures with an `owise`
+# rule, tests/racelog-owise.py and tests/jobs-owise.py, libraries racelogow and jobsow). Registry:
+# confluence.py.
+
+kore_confluence() {
+  case $1 in
+    # the fixture racelog with a spawn of no work skipped by an `owise` rule (tests/racelog-owise.py,
+    # priority 200 after the default 50)
+    racelog-owise) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/racelog-owise.py" "$FIXTURES/racelog/racelog.k" "$2.src/racelog.k" || return 2
+      f=$2.src/racelog.k m=RACELOG s=RACELOG-SYNTAX inc=$2.src ;;
+    # the fixture jobs with a job that is not positive run last by an `owise` rule
+    # (tests/jobs-owise.py)
+    jobs-owise) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/jobs-owise.py" "$FIXTURES/jobs/jobs.k" "$2.src/jobs.k" || return 2
+      f=$2.src/jobs.k m=JOBS s=JOBS-SYNTAX inc=$2.src ;;
+    *) return 1 ;;
+  esac
+}
 
 name_confluence() {
   case $1 in
@@ -33,6 +52,8 @@ name_confluence() {
     corout) echo Corout ;;
     racelog) echo RaceLog ;;
     jobs) echo Jobs ;;
+    racelogow) echo RaceLogOw ;;
+    jobsow) echo JobsOw ;;
     *) return 1 ;;
   esac
 }
@@ -77,6 +98,12 @@ gen_confluence() {
     # a map of jobs run in any order, each logged (tests/fixtures/jobs), for `confluence --equiv`
     # without threads
     jobs) libs_fixture_args "$1" ;;
+    # the same two with an `owise` rule, two priority ranks (tests/racelog-owise.py,
+    # tests/jobs-owise.py), for `confluence --equiv` with priorities
+    racelogow) GEN_ARGS=(--kore "$(kore_dir racelog-owise)/definition.kore" --runtime "$(kore_dir racelog-owise)/runtime.json"
+            --out "$o" --name RaceLogOw --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    jobsow) GEN_ARGS=(--kore "$(kore_dir jobs-owise)/definition.kore" --runtime "$(kore_dir jobs-owise)/runtime.json"
+            --out "$o" --name JobsOw --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
   return 0
@@ -231,6 +258,16 @@ libs_confluence() {
         --obs total --equiv done=perm --views-module JobsConf.Equiv.Views \
         --slots "$DEMOS/JobsConf/JobsConf/Equiv/Slots.lean" \
         --out "$DEMOS/JobsConf/JobsConf/Equiv/Views.lean" --report "$DEMOS/JobsConf/equiv.toml" ;;
+    # the same two with an `owise` rule, modulo the same equivalences: a step of the later rank owes
+    # at the related configuration, and after another step, that no rule of the earlier applies
+    RaceLogOwConf) "$G" confluence --kore "$(kore_dir racelog-owise)/definition.kore" --name RaceLogOw --ns RaceLogOwConf \
+        --threads workers --obs acc --equiv log=perm,last=any --views-module RaceLogOwConf.Views \
+        --slots "$DEMOS/RaceLogOwConf/RaceLogOwConf/Slots.lean" \
+        --out "$DEMOS/RaceLogOwConf/RaceLogOwConf/Views.lean" --report "$DEMOS/RaceLogOwConf/confluence.toml" ;;
+    JobsOwConf) "$G" confluence --kore "$(kore_dir jobs-owise)/definition.kore" --name JobsOw --ns JobsOwConf \
+        --obs total --equiv done=perm --views-module JobsOwConf.Views \
+        --slots "$DEMOS/JobsOwConf/JobsOwConf/Slots.lean" \
+        --out "$DEMOS/JobsOwConf/JobsOwConf/Views.lean" --report "$DEMOS/JobsOwConf/confluence.toml" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -414,6 +451,19 @@ gate_confluence() {
     partlib jobs Jobs.Adequacy
     scaffold confluence-JobsConf libs_confluence JobsConf
     dbuild_slots JobsConf
+  fi
+  # with priority ranks: the same two over the fixtures with an `owise` rule, every slot and every
+  # rule's lemma generic, the priority premises at the related configuration (`k2l_pri_other`) and
+  # after the other step (`k2l_pri_back`); a pair of two ranks refuted by the later's premise
+  if runs demo RaceLogOwConf; then
+    phase "scaffold RaceLogOwConf"
+    kc racelog-owise && partlib racelogow RaceLogOw.Adequacy &&
+      scaffold confluence-RaceLogOwConf libs_confluence RaceLogOwConf && dbuild_slots RaceLogOwConf
+  fi
+  if runs demo JobsOwConf; then
+    phase "scaffold JobsOwConf"
+    kc jobs-owise && partlib jobsow JobsOw.Adequacy &&
+      scaffold confluence-JobsOwConf libs_confluence JobsOwConf && dbuild_slots JobsOwConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;

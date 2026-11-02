@@ -31,6 +31,18 @@ DEMOS = {
                                               "demos/JobsConf/confluence.toml", "demos/JobsConf/equiv.toml"],
                  "slots": {"prefixes": ["join.", "Equiv.join.", "Equiv.equiv."],
                            "list": "demos/JobsConf/open-joins.txt"}},
+    # the same two with an `owise` rule (two priority ranks), modulo the same equivalences: every
+    # slot and every rule's lemma generic (`confluence --equiv` with priorities)
+    "RaceLogOwConf": {"tier": "light", "sources": ["generated/racelogow",
+                                                   "demos/RaceLogOwConf/RaceLogOwConf/Views.lean",
+                                                   "demos/RaceLogOwConf/RaceLogOwConf/Slots.lean",
+                                                   "demos/RaceLogOwConf/confluence.toml"],
+                      "slots": {"prefixes": ["join.", "equiv."]}},
+    "JobsOwConf": {"tier": "light", "sources": ["generated/jobsow",
+                                                "demos/JobsOwConf/JobsOwConf/Views.lean",
+                                                "demos/JobsOwConf/JobsOwConf/Slots.lean",
+                                                "demos/JobsOwConf/confluence.toml"],
+                   "slots": {"prefixes": ["join.", "equiv."]}},
     # SIMPLE's steps of two threads joined generically, the joins they leave as slots, those the
     # generic attempts do not prove open (`confluence --threads threads --slots`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean",

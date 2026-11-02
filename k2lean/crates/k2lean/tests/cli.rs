@@ -1451,7 +1451,7 @@ fn confluence_slots_with_and_without_threads() {
 /// when the rule reads no relaxed cell), so it is a `StepEquiv`; the joins are modulo `Equiv`,
 /// closed by `k2l_equiv_close`; the observation follows by `obs_of_equiv`. Refused: a relation on
 /// a cell that is not a leaf, `perm` of a cell that is not a list, an observed relaxed cell, a rule
-/// that reads a relaxed cell, priorities, witnesses without an observation.
+/// that reads a relaxed cell, witnesses without an observation; priorities are not refused.
 #[test]
 fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
     let d = tmp("cli-confluence-equiv");
@@ -1572,11 +1572,19 @@ fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
             vec!["--threads", "workers", "--equiv", "next=any"],
             "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  spawn: a hypothesis of its step (a side condition, or a match of a map or a list) reads <next>",
         ),
+        // with priority ranks the rules are checked as any others (CNF-36): `vmpri`'s and
+        // `counter`'s read the cells relaxed here
         (
             "vmpri",
             "VmPri",
             vec!["--equiv", "k=any"],
-            "--equiv: the definition has priorities",
+            "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  add-underflow0: it matches <k> by a pattern (it reads it)",
+        ),
+        (
+            "counter",
+            "Counter",
+            vec!["--equiv", "env=any"],
+            "  incr: a hypothesis of its step (a side condition, or a match of a map or a list) reads <env>",
         ),
     ] {
         let o = run(fixture, name, &extra);
@@ -1585,6 +1593,7 @@ fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
             "{msg}\n{}",
             err(&o)
         );
+        assert!(!err(&o).contains("priorities"), "{}", err(&o));
     }
     std::fs::write(d.join("open.txt"), "join.open.work.work\n").unwrap();
     let mut extra = vec![

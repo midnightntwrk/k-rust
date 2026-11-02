@@ -8,7 +8,10 @@
 //! (`equiv.sim.r`): the rule applies at a related configuration, and the two results are related.
 //! That holds generically when the rule reads no relaxed cell (its left-hand side has a variable
 //! there, used nowhere else) and, for `perm`, rebuilds the list from that variable by the list
-//! hooks; a rule that does not is refused by name. The views' and slots' statements are then
+//! hooks; a rule that does not is refused by name. With priority ranks, a rule of a later rank owes
+//! at the related configuration that no rule of an earlier rank applies there: such a rule reads
+//! no relaxed cell either, so it would apply at the first configuration too (`k2l_pri_other`,
+//! `KPrelude/OtherRun.lean`). The views' and slots' statements are then
 //! moved onto `Equiv` (`apply`): the joins are modulo `Equiv`, the theorem is `Equiv n₁ n₂`, and the
 //! observation's corollary follows by `obs_of_equiv`.
 
@@ -522,7 +525,13 @@ impl Equiv {
         let mut sims = vec![];
         for r in &lib.rules {
             let l = &r.lean;
-            let args = rules::ctor_args(&r.step);
+            let mut args = rules::ctor_args(&r.step);
+            // a rule of a later rank owes, at `b`, that no rule of a rank before applies: such a
+            // rule reads no relaxed cell (`check`), so it would apply at `a` too (`k2l_pri_other`)
+            let ranked = crate::multi::rank_of(r, &lib.prios) > 0;
+            if ranked {
+                args.push("hpri".into());
+            }
             let mut d = String::new();
             for (b, t) in &r.step.binders {
                 if let Some(n) = nodes.iter().find(|n| n.sort == *t) {
@@ -534,6 +543,7 @@ impl Equiv {
                 .hyps
                 .iter()
                 .map(|(h, _)| format!(" ({h} := {h})"))
+                .chain(ranked.then(|| " (hpri := by k2l_pri_other)".to_string()))
                 .collect();
             writeln!(
                 o,
@@ -637,7 +647,13 @@ pub(crate) fn views(o: &str, e: &Equiv, lib: &Lib, name: &str) -> String {
         .find("import KPrelude.Scaffold\n")
         .map(|k| k + "import KPrelude.Scaffold\n".len())
         .unwrap_or(0);
-    o.insert_str(k, "import KPrelude.Equiv\n");
+    // with ranks, `equiv.sim.r`'s priority premise at `b` (`k2l_pri_other`)
+    let pri = if lib.prios.len() > 1 && !o.contains("import KPrelude.OtherRun\n") {
+        "import KPrelude.OtherRun\n"
+    } else {
+        ""
+    };
+    o.insert_str(k, &format!("import KPrelude.Equiv\n{pri}"));
     o
 }
 
