@@ -3044,13 +3044,19 @@ fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
     assert_eq!(result, [defined, first, second]);
 }
 
-/// A conjunct `\ceil(t)` keeps stating the definedness of a partial `t` beside a sibling
-/// equality `t = c`. Rewritten through that equality it would become `\ceil(c)`, which holds,
-/// and leave the definedness of `t` to the equality alone; the solver may later decide the
-/// equality valid with `t`'s SMT reading, which is exact only where `t` is defined, and drop it.
-/// An equality among the known predicates, which the caller keeps, still discharges it.
+/// A conjunct `\ceil(t)` beside a sibling equality `t = c`, `c` defined, is discharged through
+/// it: the equality holds only where `t` denotes an element, so `\ceil(t) /\ t = c` is
+/// `t = c`, and the conjunction simplifies to the equality alone. An equality among the known
+/// predicates discharges it too.
+///
+/// fb8d4d58a kept the `\ceil` (it simplified a `\ceil` conjunct under the known equalities
+/// only), because the solver then read `t = c` through `t`'s total reading, exact only where `t`
+/// is defined. Since GAP K15 the solver reads the equality with `t`'s domain, so the residual
+/// is decided as K does without the `\ceil`
+/// (`a_ceil_conjunct_beside_a_sibling_equality_is_not_decided_valid`); GAP K18 removed the
+/// rule.
 #[test]
-fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
+fn a_ceil_conjunct_is_discharged_through_a_sibling_equality() {
     let definition = definition(
         r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
            symbol p{}(SortInt{}) : SortInt{} [function{}()]"#,
@@ -3071,10 +3077,7 @@ fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
     };
 
     let siblings = simplified(&[defined.clone(), equality.clone()], &[]);
-    assert!(
-        siblings.contains(&defined) && siblings.contains(&equality),
-        "{siblings:?}"
-    );
+    assert_eq!(siblings, std::slice::from_ref(&equality));
     assert!(
         simplified(&[defined], &[equality]).is_empty(),
         "a known equality discharges the ceil"
@@ -3131,7 +3134,8 @@ fn sibling_equality_definition() -> BackendDefinition {
     )
 }
 
-/// GAP K11: the rule of `a_ceil_conjunct_is_not_discharged_through_a_sibling_equality` holds
+/// GAP K11: fb8d4d58a's rule (a top-level `\ceil` conjunct not discharged through a sibling
+/// equality, removed by GAP K18) held
 /// for a `\ceil` whose expansion has members besides it, at each of its two places. The
 /// expansion of `\ceil(ff(gg(p(X))))` beside `p(X) = 0` keeps `\ceil(gg(p(X)))` (the sibling
 /// states `p(X)` defined, so `\ceil(p(X))` is dropped: the atom still states it), and the
@@ -4949,6 +4953,10 @@ fn written_predicate_definition() -> BackendDefinition {
 /// in both disjuncts, hence a conjunct of the whole subject, which states the definedness of the
 /// operands the lemma consumes and is conjoined to the result. The written disjunction alone is
 /// not strict in `sf(Y)`, whose definedness is open, so the lemma is not used on it.
+///
+/// The result's `\ceil` is `\ceil(sf(c))`: it is simplified beside the result's binding
+/// `Y = c`, and `Y` is an element variable, so under `Y = c` the `\ceil` of `sf(Y)` is that of
+/// `sf(c)`, an equivalence.
 #[test]
 fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_aside() {
     let definition = written_predicate_definition();
@@ -4983,7 +4991,13 @@ fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_asid
         other => vec![other.clone()],
     };
     assert_eq!(conjuncts.len(), 2, "{result:?}");
-    assert!(conjuncts.contains(&defined), "{result:?}");
+    assert!(
+        conjuncts.contains(&Predicate::Ceil(term(
+            &definition,
+            r#"sf{}(\dv{SortS{}}("c"))"#
+        ))),
+        "{result:?}"
+    );
     assert!(
         conjuncts.contains(&Predicate::Equals(y.clone(), c.clone()))
             || conjuncts.contains(&Predicate::Equals(c, y)),
