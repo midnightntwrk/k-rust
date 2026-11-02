@@ -9,7 +9,7 @@ use crate::definition::AttributeKey;
 use crate::definition::{
     DefinitionViews, LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
     ResolvedDefinition, SortCatalog, SortHead, StructuralCheckOptions,
-    compute_disambiguation_subsorts, compute_overloads, match_rule_label,
+    compute_disambiguation_subsorts, compute_overloads,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term};
@@ -394,49 +394,18 @@ pub(super) fn check_function_rule_attributes_with_views(
 ) -> Vec<Diagnostic> {
     let definition = views.definition();
     let module = definition.main_module_id();
-    let productions = views.production_catalog(module);
     let rules = definition.rule_catalog(module);
     let mut diagnostics = Vec::new();
 
-    // Invariant: `diagnostics` holds the attribute-policy errors of the rules of every entry of `productions.function_labels()` before `function`; each iteration consumes one label and scans all of `rules.rules()`, O(|function labels| * |rules|).
-    for function in productions.function_labels() {
-        let function_rules = rules
-            .rules()
-            .filter(|(_, rule)| LabelHead::from(&match_rule_label(rule)) == *function)
-            .map(|(_, rule)| rule)
-            .collect::<Vec<_>>();
-        let all_concrete = function_rules.iter().all(|rule| {
-            has_no_arg(rule, AttributeKey::Concrete)
-                || rule.attributes().has(AttributeKey::Simplification)
-        });
-        let all_symbolic = function_rules.iter().all(|rule| {
-            has_no_arg(rule, AttributeKey::Symbolic)
-                || rule.attributes().has(AttributeKey::Simplification)
-        });
-        for rule in function_rules {
-            let attributes = rule.attributes();
-            if attributes.has(AttributeKey::Concrete)
-                && !all_concrete
-                && !attributes.has(AttributeKey::Simplification)
-            {
-                diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::InconsistentFunctionRuleAttributes,
-                    "Found concrete attribute without simplification attribute on function with one or more non-concrete rules.",
-                    rule,
-                ));
-            }
-            if attributes.has(AttributeKey::Symbolic)
-                && !all_symbolic
-                && !attributes.has(AttributeKey::Simplification)
-            {
-                diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::InconsistentFunctionRuleAttributes,
-                    "Found symbolic attribute without simplification attribute on function with one or more non-symbolic rules.",
-                    rule,
-                ));
-            }
-        }
-    }
+    // A `concrete` or `symbolic` attribute on a function's equation, bare or naming some of its
+    // variables, chooses where the evaluator uses the equation, not what it states: the equation
+    // still holds where its binding is set aside, and the evaluator keeps such an application
+    // unevaluated rather than letting an equation of a lower priority group (an `owise` one, or
+    // one at a later priority) apply in its place, since that equation's premise excludes the
+    // instances the set-aside one states (docs/compatibility.md, "Anywhere rules", the
+    // evaluator's instances). So a restriction on one equation of a function and not on
+    // another, or on some of its variables only, gives no equation a value it does not state, and
+    // is not refused. What no term can satisfy is still refused, below.
 
     // A pattern is concrete when it has no variables or unevaluated functions and symbolic
     // otherwise, so no term satisfies a variable both attributes name. Checked once on every rule
@@ -485,10 +454,6 @@ fn main_module_closure(definition: &ResolvedDefinition) -> BTreeSet<ModuleId> {
         .collect::<BTreeSet<_>>();
     modules.insert(definition.main_module_id());
     modules
-}
-
-fn has_no_arg(rule: &Sentence, attribute: AttributeKey) -> bool {
-    rule.attributes().string(attribute) == Some("")
 }
 
 /// The variables a `concrete` or `symbolic` attribute restricts.

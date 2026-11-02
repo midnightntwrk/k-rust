@@ -1,7 +1,7 @@
 theorem obligations : Obligations G (Rel G) (SyncR G) (Left G) (Right G) where
-  init P@BINDERS@ hP := by
+  init P@BINDERS@ hP@PREMS@ := by
     refine Or.inr (Or.inl ⟨_, false, ⟨?_, by simp⟩, CK_base G _ false, CK_base G _ false,
-      lowEq_refl (good_init P@ARGS1@), rfl, rfl⟩)
+      @INITSTORE@, rfl, rfl⟩)
     simp only [@NA@.init, kOf, lk_kseq, litem_false, litem0_inj_@SS@]
     simp [show @SEC@ G P = some true from hP]
   final := by

@@ -109,6 +109,10 @@ lake-manifest.json
 /demos/RaceLogOwConf/confluence.toml
 /demos/JobsOwConf/JobsOwConf/
 /demos/JobsOwConf/confluence.toml
+/demos/JobsRmConf/JobsRmConf/
+/demos/JobsRmConf/confluence.toml
+/demos/JobsDropConf/JobsDropConf/
+/demos/JobsDropConf/confluence.toml
 /demos/TwoParamOkConf/TwoParamOkConf/Views.lean
 /demos/TwoParamOkConf/TwoParamOkConf/Slots.lean
 /demos/TwoParamOkConf/confluence.toml
@@ -162,6 +166,13 @@ lake-manifest.json
 /demos/ContractObsNI/ContractObsNI/Stack.lean
 /demos/ContractObsNI/ContractObsNI/Proof.lean
 /demos/ContractObsNI/noninterference.toml
+/demos/ContractEnvNI/ContractEnvNI/Tr.lean
+/demos/ContractEnvNI/ContractEnvNI/NI.lean
+/demos/ContractEnvNI/ContractEnvNI/Spec.lean
+/demos/ContractEnvNI/ContractEnvNI/Levels.lean
+/demos/ContractEnvNI/ContractEnvNI/Stack.lean
+/demos/ContractEnvNI/ContractEnvNI/Proof.lean
+/demos/ContractEnvNI/noninterference.toml
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean

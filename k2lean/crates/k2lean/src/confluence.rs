@@ -143,10 +143,17 @@ enum MapRole {
     Insert {
         hr: String,
     },
+    /// `hm : (K ↦ V) R = some m` on the left and the cell's content `R` on the right: a removal of
+    /// one binding (`map_role` with `removals`).
+    Remove {
+        hm: String,
+    },
     None,
 }
 
-fn map_role(r: &Rule) -> MapRole {
+/// How `r` uses a cell map matched at a free key. With `removals`, a match whose rest is the
+/// cell's content on the right is a removal; else it has no role (the views', `--threads`).
+fn map_role(r: &Rule, removals: bool) -> MapRole {
     let lhs_hyps: BTreeSet<&String> = r.app.hyps.iter().map(|(h, _)| h).collect();
     // only maps that are a cell's whole content: the free-key cell maps of the configuration,
     // not maps matched inside a binding (an environment, a store at a bound key)
@@ -174,6 +181,7 @@ fn map_role(r: &Rule) -> MapRole {
                 hm: hm.clone(),
                 hr: hr.clone(),
             },
+            [] if removals && in_rhs.contains(rest) => MapRole::Remove { hm: hm.clone() },
             _ => MapRole::None,
         };
     }
@@ -187,8 +195,8 @@ fn map_role(r: &Rule) -> MapRole {
 
 /// The commuting attempts at two steps by `r1` and `r2` from one configuration, their instances
 /// unified (the binders of `r2` suffixed `sfx`): two updates of one map (at one key one instance,
-/// at two each step after the other), an update and an insertion, and each step after the other as
-/// they stand, joined by `k2l_join_eq`.
+/// at two each step after the other), an update and an insertion, a removal and a removal or an
+/// update, and each step after the other as they stand, joined by `k2l_join_eq`.
 fn commute_alts(
     name: &str,
     prios: Option<&[i64]>,
@@ -246,6 +254,10 @@ fn commute_alts(
         .map(|(x, _)| (x.clone(), format!("{x}{sfx}")))
         .collect();
     let sf = |x: &String| format!("{x}{sfx}");
+    // a removal's attempts at one binding: the two instances agree, or their values clash
+    let same = format!(
+        "cases hk <;> cases hv <;> cases hR <;> first | exact ⟨_, _, {refl}, {refl}, rfl⟩ | (exfalso; simp_all) | omega"
+    );
     let mut alts = vec![];
     match roles {
         (MapRole::Update { hm, hr }, MapRole::Update { hm: hm2, hr: hr2 }) => {
@@ -277,6 +289,37 @@ fn commute_alts(
                 "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {} {} {hr}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
                 sf(hm2),
                 sf(hr2),
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
+            ));
+        }
+        (MapRole::Remove { hm }, MapRole::Remove { hm: hm2 }) => {
+            let s2 = replace(&hyps2, &[(hm2, "a₁".into())]);
+            let s1 = replace(&hyps1, &[(hm, "a₂".into())]);
+            alts.push(format!(
+                "(rcases MapHook.concat_element_same_or_comm_remove {hm} {} with ⟨hk, hv, hR⟩ | ⟨R', a₁, a₂⟩\n       · {same}\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hm2),
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
+            ));
+        }
+        (MapRole::Remove { hm }, MapRole::Update { hm: hm2, hr: hr2 }) => {
+            let s2 = replace(&hyps2, &[(hm2, "a₁".into()), (hr2, "a₂".into())]);
+            let s1 = replace(&hyps1, &[(hm, "a₃".into())]);
+            alts.push(format!(
+                "(rcases MapHook.concat_element_same_or_comm_remove_update {hm} {} {} with ⟨hk, hv, hR⟩ | ⟨R₁₂, m', a₁, a₂, a₃⟩\n       · {same}\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hm2),
+                sf(hr2),
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
+            ));
+        }
+        (MapRole::Update { hm, hr }, MapRole::Remove { hm: hm2 }) => {
+            let s2 = replace(&hyps2, &[(hm2, "a₃".into())]);
+            let s1 = replace(&hyps1, &[(hm, "a₁".into()), (hr, "a₂".into())]);
+            alts.push(format!(
+                "(rcases MapHook.concat_element_same_or_comm_remove_update {} {hm} {hr} with ⟨hk, hv, hR⟩ | ⟨R₁₂, m', a₁, a₂, a₃⟩\n       · {same}\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hm2),
                 ctor(r2, &s2, true),
                 ctor(r1, &s1, false)
             ));
@@ -1251,7 +1294,7 @@ pub fn main(args: &[String]) {
     let rank = |r: &Rule| lib.prios.iter().position(|p| *p == r.priority).unwrap_or(0);
     // the classes of the unordered pairs, two free-key matches taken as one binding
     let same = crate::pairs::classify_same_rank(&lib.def, &lib.m, rs, &rank, true);
-    let roles: Vec<MapRole> = rs.iter().map(map_role).collect();
+    let roles: Vec<MapRole> = rs.iter().map(|r| map_role(r, false)).collect();
     let feet: Vec<_> = rs.iter().map(footprint).collect();
     let maps: Vec<BTreeSet<String>> = rs.iter().map(map_cells).collect();
     // the report
@@ -1533,6 +1576,9 @@ pub fn main(args: &[String]) {
                     "--slots is required without --threads (every ordered pair of rules is a slot)",
                 );
             };
+            // a step that removes a binding commutes with one at another binding (plain mode's
+            // attempts; the views' classes take a removal as before)
+            let roles: Vec<MapRole> = rs.iter().map(|r| map_role(r, true)).collect();
             let (out, premises, slots) =
                 views::emit_plain(&lib, &name, &ns, obs.as_deref(), &roles, so);
             let summary = format!("{n} rules, {} ordered pairs as slots", n * n);

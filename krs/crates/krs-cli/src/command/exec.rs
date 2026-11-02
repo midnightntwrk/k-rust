@@ -459,6 +459,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         RunOptions {
             depth: request.depth,
             trace: request.trace,
+            ..RunOptions::default()
         },
     )?;
     let mut stderr = log_text(&report.log);

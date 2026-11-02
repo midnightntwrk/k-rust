@@ -301,6 +301,24 @@ fn the_route_table_refuses_direct_console_writes_without_console_state() {
 }
 
 #[test]
+fn the_route_table_refuses_partial_equation_restrictions_only_on_the_java_frontend_routes() {
+    for route in crate::Route::ALL {
+        assert_eq!(
+            matches!(
+                crate::route_capability("PartialEquationRestriction", route),
+                CapabilityAvailability::Unavailable(_)
+            ),
+            matches!(
+                route,
+                crate::Route::JavaLlvmReference | crate::Route::JavaHaskellReference
+            ),
+            "PartialEquationRestriction on {}",
+            route.name()
+        );
+    }
+}
+
+#[test]
 fn the_registry_plugin_hooks_are_the_namespaces_each_backend_admits() {
     let plugin: std::collections::BTreeSet<_> = krs_ir::hook_registry::HOOK_REGISTRY
         .iter()

@@ -662,6 +662,40 @@ fn helpers_over(
     helpers
 }
 
+/// The rule language a configuration's terms are read in beside the module's own syntax: the
+/// sort helpers of `view` ([`helper_productions`]) and the constructs `#fun`, `#let`, `:=K` and
+/// `:/=K` ([`k_rule_productions`]), each where no production of `view` has its label, marked as
+/// the rule grammar marks them. A cell's initial value is a term, as a rule's right-hand side
+/// is, so it may compute with them as a rule does; compilation lowers them in the initializer
+/// rules the configuration generates as it lowers them in written rules.
+pub(super) fn configuration_rule_language(view: &[&Sentence]) -> Vec<Sentence> {
+    let mut added = helper_productions(view, &generated_helper_attributes());
+    let labels = view
+        .iter()
+        .copied()
+        .chain(&added)
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
+        })
+        .collect::<BTreeSet<_>>();
+    added.extend(k_rule_productions(&labels));
+    added
+}
+
 /// The marker of the syntax the rule grammar adds to a module's own.
 fn generated_helper_attributes() -> Attributes {
     let mut attributes = Attributes::default();

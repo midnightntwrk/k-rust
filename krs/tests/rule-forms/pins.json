@@ -13,7 +13,7 @@
     "krs-rule-forms-contexts": "c50732ffc14df3fd201ab48fbabcdaa173ce6af2d081c5b3b80aa525df10120b",
     "krs-rule-forms-contexts-lvalue": "6f20ce814890248a7332fe96b0acfd6980fe9f636f226ec810093164e636993b",
     "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42",
-    "krs-rule-forms-anywhere-stutter": "a85ea6dab5860c19d4c63d09e049999d16ad94cde47449e6b651f92515922917"
+    "krs-rule-forms-anywhere-stutter": "aac9399c946c8950324409b99999f58944dfea56e977540d0a36f1c3a48f4598"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -1165,11 +1165,15 @@
       "ispair-int": []
     }
   },
-  "known_wrong_outputs": {
+  "trivial_instances": {
     "krs-rule-forms-anywhere-stutter": {
       "stutter": "exit 0: <k> wrap(p(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(p(go, b))`",
-      "stutter-long": "exit 0: <k> wrap(r(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(r(go, b))`",
-      "two-cycle": "no end within 20 s"
+      "stutter-long": "exit 0: <k> wrap(r(go, b)) ~> .K </k> krs run: stuck after 0 steps; <k> starts with `wrap(r(go, b))`"
+    }
+  },
+  "evaluation_cycles": {
+    "krs-rule-forms-anywhere-stutter": {
+      "two-cycle": "exit 1: initGeneratedTopCell ( $PGM |-> #KConfigValue ( q(a, a) ~> .K ) ) krs run: simplification-error after 0 steps"
     }
   }
 }

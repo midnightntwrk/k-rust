@@ -346,6 +346,11 @@ impl Accumulated {
         }
     }
 
+    /// The number of log writes absorbed (`IO.logString` effects).
+    pub(super) fn logged(&self) -> usize {
+        self.effects.len()
+    }
+
     /// The `\top` equation `rule_id` applied to an operand of a term-level `\and`, with its open
     /// binding obligations ([`ResultConditions::top_equation`]).
     pub(super) fn top_equation(&mut self, rule_id: String, obligations: Vec<Predicate>) {

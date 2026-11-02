@@ -7,7 +7,9 @@
 # observed by equality and no disclosure cell, ImpOutNI: kimp with `print` to a plain cell,
 # tests/kimp-print.py, its checker tests/imp-sec-print.py, libraries kimpoutni and impsecp, and
 # ContractObsNI: the fixture contract with a checker that releases nothing,
-# tests/contractsec-norelease.py, library contractsecnr). Registry: noninterference.py.
+# tests/contractsec-norelease.py, library contractsecnr; with a related store input beside the
+# disclosure cell, ContractEnvNI: the fixture contract with `<env> $ENV:Map </env>`,
+# tests/contract-env.py, library contractenv). Registry: noninterference.py.
 
 kore_noninterference() {
   case $1 in
@@ -37,6 +39,10 @@ kore_noninterference() {
     contractsec-norelease) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/contractsec-norelease.py" "$FIXTURES/contractsec/contractsec.k" "$2.src/contractsec.k" || return 2
       f=$2.src/contractsec.k m=CONTRACTSEC s=CONTRACTSEC-SYNTAX inc=$FIXTURES/contract ;;
+    # the fixture contract with its store an input (tests/contract-env.py)
+    contract-env) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/contract-env.py" "$FIXTURES/contract/contract.k" "$2.src/contract.k" || return 2
+      f=$2.src/contract.k m=CONTRACT s=CONTRACT-SYNTAX inc=$2.src ;;
     *) return 1 ;;
   esac
 }
@@ -52,6 +58,7 @@ name_noninterference() {
     kimpoutni) echo KImpOutNI ;;
     impsecp) echo KImpSecP ;;
     contractsecnr) echo ContractSecNR ;;
+    contractenv) echo ContractEnv ;;
     *) return 1 ;;
   esac
 }
@@ -85,6 +92,9 @@ gen_noninterference() {
             --runtime "$(kore_dir contractsec-norelease)/runtime.json"
             --out "$o" --name ContractSecNR --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --extra-fns "lev,sec,conf,quiet") ;;
+    contractenv) GEN_ARGS=(--kore "$(kore_dir contract-env)/definition.kore" --runtime "$(kore_dir contract-env)/runtime.json"
+            --out "$o" --name ContractEnv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant storeOk@env) ;;
     *) return 1 ;;
   esac
   return 0
@@ -101,6 +111,8 @@ relate_noninterference() {
       extra=(--roots "SortStmt,SortExpr") ;;
     ImpOutNI) na=KImpOutNI ka=$(kore_dir imp-out-ni) nb=KImpSecP kd=$(kore_dir imp-sec-print) extra=(--roots "SortStmt,SortExpr") ;;
     ContractObsNI) na=Contract ka=$(libs_fixture contract) nb=ContractSecNR kd=$(kore_dir contractsec-norelease)
+      extra=(--roots "SortStmt,SortExpr") ;;
+    ContractEnvNI) na=ContractEnv ka=$(kore_dir contract-env) nb=ContractSec kd=$(libs_fixture contractsec)
       extra=(--roots "SortStmt,SortExpr") ;;
     *) return 1 ;;
   esac
@@ -159,6 +171,16 @@ libs_noninterference() {
         --checker-kore "$(kore_dir contractsec-norelease)/definition.kore" --checker-name ContractSecNR \
         --lev lev --sec sec --conf conf --quiet quiet \
         --open "$DEMOS/ContractObsNI/open.txt" --out-dir "$DEMOS/ContractObsNI/ContractObsNI" ;;
+    # a related store input beside the disclosure cell (design.md, section 3.7): the fixture
+    # contract with its store an input, the stores related and observed by `lowEq G`
+    ContractEnvNI) "$G" noninterference --kore "$(kore_dir contract-env)/definition.kore" --name ContractEnv \
+        --ns ContractEnvNI --store-cell env --program-sort SortStmt --params "(G : ContractSec.SortMap)" \
+        --store-ok storeOk --inputs "ENV=lowEq G,LEDGER=public,WIT=private" \
+        --observe "env=lowEq G,ledger,transcript" --disclosed disclosed \
+        --out "$DEMOS/ContractEnvNI/ContractEnvNI/NI.lean" --report "$DEMOS/ContractEnvNI/noninterference.toml" \
+        --checker-kore "$(libs_fixture contractsec)/definition.kore" --checker-name ContractSec \
+        --lev lev --sec sec --conf conf --quiet quiet \
+        --open "$DEMOS/ContractEnvNI/open.txt" --out-dir "$DEMOS/ContractEnvNI/ContractEnvNI" ;;
     *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -215,5 +237,14 @@ gate_noninterference() {
     rel ContractObsNI
     scaffold noninterference-ContractObsNI libs_noninterference ContractObsNI
     dbuild ContractObsNI
+  fi
+  # a related store input beside the disclosure cell (section 3.7): the fixture contract with its
+  # store an input (tests/contract-env.py, library contractenv), the fixture checker contractsec
+  if runs demo ContractEnvNI; then
+    phase "scaffold ContractEnvNI"
+    kc contract-env && partlib contractenv ContractEnv && partlib contractsec ContractSec.Functions
+    rel ContractEnvNI
+    scaffold noninterference-ContractEnvNI libs_noninterference ContractEnvNI
+    dbuild ContractEnvNI
   fi
 }

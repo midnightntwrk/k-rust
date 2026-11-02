@@ -344,6 +344,10 @@ impl Display for SimplificationError {
                 formatter,
                 "simplification reached its limit of {limit} iterations on a predicate"
             ),
+            Self::EvaluationCycle { steps, .. } => write!(
+                formatter,
+                "the evaluation of a term reached it again after {steps} equation steps, so it has no end"
+            ),
             Self::InvalidBuiltinResultSymbol { hook, symbol } => write!(
                 formatter,
                 "the result of hook {hook} is the symbol {symbol}, which the definition does not declare as a constant"
@@ -366,6 +370,11 @@ impl Display for AtSort<'_, SimplificationError> {
             SimplificationError::IterationLimit { limit, term } => write!(
                 formatter,
                 "simplification reached its limit of {limit} iterations on\n{}",
+                pretty_term(term)
+            ),
+            SimplificationError::EvaluationCycle { steps, term } => write!(
+                formatter,
+                "the evaluation of a term reached it again after {steps} equation steps, so it has no end:\n{}",
                 pretty_term(term)
             ),
             SimplificationError::PredicateIterationLimit { limit, predicate } => write!(

@@ -10,8 +10,14 @@
 //! matches. Both rest on equation selection, on the equation matcher and on the scan that
 //! enumerates the selected equations; this module checks that consequence without any of them.
 //!
+//! An equation whose right-hand side, under the bindings of its sure match, is the term itself
+//! is not counted: its instance there is `t = t`, which states nothing more of the term, so the
+//! term is a normal form although the left-hand side matches it (the scan excludes such an
+//! equation too, `BackendDefinition::gives_subject_back`). The comparison reads the right-hand
+//! side the way the matcher reads a pattern, with every variable already bound.
+//!
 //! [`assert_no_equation_matches`] panics when some term equation's left-hand side surely matches
-//! the term at its root. The equations are read from a catalog built once per definition from
+//! the term at its root and its right-hand side there is not surely the term. The equations are read from a catalog built once per definition from
 //! every left-hand side of the function and simplification theories, under every index key, and
 //! the term conjuncts of every predicate-simplification left-hand side, indexed by root symbol
 //! here rather than through `rule::term_index`. "Surely matches" is decided by a syntactic matcher
@@ -204,7 +210,79 @@ impl Catalog {
                     .conjuncts
                     .iter()
                     .all(|conjunct| surely_matches(conjunct, term, &mut bindings))
+                    && !entry.gives_back(term, &bindings)
             })
+    }
+}
+
+impl Entry {
+    /// Whether the entry's equation, matched to `term` with `bindings`, surely gives `term` back:
+    /// a term equation that ensures nothing, whose right-hand side is `term` under `bindings`.
+    fn gives_back(&self, term: &Term, bindings: &[(&Variable, &Term)]) -> bool {
+        let (Equation::Function(rule) | Equation::Simplification(rule)) = &self.equation else {
+            return false;
+        };
+        let crate::rule::RuleRhs::Term(result) = &rule.rhs else {
+            return false;
+        };
+        rule.ensures.is_empty() && surely_is(result, term, bindings)
+    }
+}
+
+/// Whether `result` with its variables replaced by their `bindings` is surely `subject`: the
+/// variables are bound to equal subterms, and every other node is the same node. A collection,
+/// or a variable `bindings` does not hold, answers "not surely".
+#[deny(clippy::wildcard_enum_match_arm)]
+fn surely_is(result: &Term, subject: &Term, bindings: &[(&Variable, &Term)]) -> bool {
+    match result.kind() {
+        TermKind::Variable(variable) => bindings
+            .iter()
+            .find(|(bound, _)| *bound == variable)
+            .is_some_and(|(_, bound)| *bound == subject),
+        TermKind::DomainValue { .. } => result == subject,
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } => {
+            let TermKind::Application {
+                symbol: subject_symbol,
+                sort_arguments: subject_sort_arguments,
+                arguments: subject_arguments,
+            } = subject.kind()
+            else {
+                return false;
+            };
+            symbol.name == subject_symbol.name
+                && sort_arguments == subject_sort_arguments
+                && arguments.len() == subject_arguments.len()
+                && arguments
+                    .iter()
+                    .zip(subject_arguments)
+                    .all(|(argument, subject_argument)| {
+                        surely_is(argument, subject_argument, bindings)
+                    })
+        }
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } => {
+            let TermKind::Injection {
+                source: subject_source,
+                target: subject_target,
+                term: subject_term,
+            } = subject.kind()
+            else {
+                return false;
+            };
+            source == subject_source
+                && target == subject_target
+                && surely_is(term, subject_term, bindings)
+        }
+        TermKind::And(..) | TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
+            false
+        }
     }
 }
 

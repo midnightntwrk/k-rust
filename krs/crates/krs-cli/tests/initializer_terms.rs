@@ -1611,40 +1611,73 @@ fn kore_initial_cells(kore: &str, names: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// The values no function computes compile to one KORE term on both routes: the native initial
-/// values of the cells of `cells` that compute nothing, which the text route (`definition`
-/// without the computed cells, NT-29-1) compiles alike. The whole `definition` does not load on
-/// the text route, until NT-29-1 is fixed.
-fn uncomputed_cells_agree(definition: &str, native_kore: &str, cells: &[CastCell]) -> Vec<String> {
-    let uncomputed = cells
+/// The cells of `cells` start alike on both routes: the values no function computes compile to
+/// one KORE term (the native initial values against the text route's, `definition` as k-rust's
+/// text frontend compiles it), and the computed ones (`#let`, `:=K`, a sort predicate) evaluate,
+/// by k-rust's backend, to one value in each compiled definition (`$V` bound to `unit`). Returns
+/// the native uncomputed values, then each computed cell's value.
+fn initial_cells_agree(definition: &str, native_kore: &str, cells: &[CastCell]) -> Vec<String> {
+    let (computed, uncomputed): (Vec<_>, Vec<_>) = cells
         .iter()
-        .filter(|cell| cell.computes.is_none())
-        .map(|cell| cell.name.as_str())
+        .map(|cell| (cell.computes.is_some(), cell.name.as_str()))
+        .partition(|(computes, _)| *computes);
+    let computed = computed
+        .into_iter()
+        .map(|(_, name)| name)
         .collect::<Vec<_>>();
-    let readable = definition
-        .lines()
-        .filter(|line| {
-            !cells.iter().any(|cell| {
-                cell.computes.is_some()
-                    && line.trim_start().starts_with(&format!("<{}> ", cell.name))
-            })
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let text_kore = text_route_kore(&readable).unwrap_or_else(|error| panic!("{error}"));
-    let native = kore_initial_cells(native_kore, &uncomputed);
+    let uncomputed = uncomputed
+        .into_iter()
+        .map(|(_, name)| name)
+        .collect::<Vec<_>>();
+    let text_kore = text_route_kore(definition).unwrap_or_else(|error| panic!("{error}"));
+    let mut native = kore_initial_cells(native_kore, &uncomputed);
     assert_eq!(
         native,
         kore_initial_cells(&text_kore, &uncomputed),
         "{}",
         configuration(definition)
     );
-    let unread = text_route_kore(definition).expect_err(
-        "the text frontend reads a computed configuration value (NT-29-1 fixed): compare those \
-         cells too",
+    let values = evaluated_initial_cells(native_kore, &computed);
+    assert_eq!(
+        values,
+        evaluated_initial_cells(&text_kore, &computed),
+        "{}",
+        configuration(definition)
     );
-    assert!(unread.contains("could not parse configuration"), "{unread}");
+    native.extend(values);
     native
+}
+
+/// The value each leaf cell `<name>` of `names` starts with in the KORE definition `kore`: its
+/// initializer `init<Name>Cell` applied to the configuration variables `$V = unit`, evaluated by
+/// k-rust's backend, as `name: <cell>`.
+fn evaluated_initial_cells(kore: &str, names: &[&str]) -> Vec<String> {
+    use k_rust::k_rust_backend::definition::BackendDefinition;
+    use k_rust::k_rust_backend::externalize;
+    use k_rust::k_rust_backend::simplify::{SimplificationOptions, simplify};
+    use k_rust::kore::parser::{parse_definition, parse_pattern};
+
+    let syntax = parse_definition(kore).expect("the compiled KORE parses");
+    let main = &syntax.modules.last().expect("a main module").name;
+    let definition = BackendDefinition::internalize(&syntax, main).expect("the KORE internalizes");
+    let variables = r#"Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")), Lbl'Hash'KConfigValue{}(kseq{}(inj{SortValue{}, SortKItem{}}(LblvalUnit{}()), dotk{}())))"#;
+    names
+        .iter()
+        .map(|name| {
+            let init = format!(
+                "Lblinit{}Cell{{}}({variables})",
+                name[..1].to_uppercase() + &name[1..]
+            );
+            let term = definition
+                .admit_unverified(&parse_pattern(&init).expect("the application parses"), &[])
+                .internalize_term()
+                .unwrap_or_else(|error| panic!("{init}: {error}"));
+            let value = simplify(&definition, &term, SimplificationOptions::default())
+                .unwrap_or_else(|_| panic!("{init}: the evaluation stopped"))
+                .unwrap_or_else(|error| panic!("{init}: {error}"));
+            format!("{name}: {}", externalize::term(&value.term))
+        })
+        .collect()
 }
 
 /// The values the initializer computes: the native run of the package `manifest` starts each
@@ -1743,12 +1776,16 @@ fn turbofishes_above_the_solved_instance(target: &Path, root: &Path) -> Vec<Stri
 ///   (k-rust's text frontend) and natively (`krs build`, which `krs run` runs).
 /// - A computed value starts its cell, on the native route, with the value it computes: a `let`
 ///   block's is the plain value's, the test's and the predicate's the Bool of `v = unit`. The text
-///   frontend does not read `#let`, `:=K` or a sort predicate in a configuration (NT-29-1), so
-///   these cells are left out of its definition, and the whole definition is checked to fail.
+///   frontend reads `#let`, `:=K` and a sort predicate in a configuration as in a rule, and each
+///   such initializer evaluates to the same value in both compiled definitions.
 /// - A turbofish above the instance the arguments solve, at a cell's root or in a rule's result
 ///   (no head, so no strict cast fixes it), would hold another term on each route: it is refused
 ///   (`parametric-instance`) at each such pair.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One pinned table of every cast cell's value on both routes and every refused turbofish."
+)]
 fn a_cast_initial_value_is_the_same_value_on_both_routes() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
@@ -1768,7 +1805,7 @@ fn a_cast_initial_value_is_the_same_value_on_both_routes() {
     );
     assert!(success, "{stderr}");
     let native_kore = fs::read_to_string(output.join("definition.kore")).unwrap();
-    let native = uncomputed_cells_agree(&definition, &native_kore, &cells);
+    let native = initial_cells_agree(&definition, &native_kore, &cells);
     computed_cells_start_with_their_values(target.path(), &manifest, &cells);
     let refused = turbofishes_above_the_solved_instance(target.path(), temporary.path());
     expect_test::expect![[r#"
@@ -1840,6 +1877,20 @@ fn a_cast_initial_value_is_the_same_value_on_both_routes() {
         pboolkitem: inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true"))
         vkitem:  inj{SortValue{}, SortKItem{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) 
         wvkitem:  inj{SortValue{}, SortKItem{}}( Lblwrap{SortValue{}}( Lblproject'Coln'Value{}( Lbl'Hash'unboxKConfigValue{}( LblMap'Coln'lookup{}( VarInit:SortMap{}, inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")) ) ) ) ) ) 
+        lintvalue: Lbl'-LT-'lintvalue'-GT-'{}(inj{SortInt{}, SortValue{}}(\dv{SortInt{}}("1")))
+        lvaluevalue: Lbl'-LT-'lvaluevalue'-GT-'{}(LblvalUnit{}())
+        lintstmt: Lbl'-LT-'lintstmt'-GT-'{}(inj{SortInt{}, SortStmt{}}(\dv{SortInt{}}("1")))
+        lvaluestmt: Lbl'-LT-'lvaluestmt'-GT-'{}(inj{SortValue{}, SortStmt{}}(LblvalUnit{}()))
+        lstmtstmt: Lbl'-LT-'lstmtstmt'-GT-'{}(LblcmdGo{}())
+        lboolbool: Lbl'-LT-'lboolbool'-GT-'{}(\dv{SortBool{}}("true"))
+        mbool: Lbl'-LT-'mbool'-GT-'{}(\dv{SortBool{}}("true"))
+        ibool: Lbl'-LT-'ibool'-GT-'{}(\dv{SortBool{}}("false"))
+        lintkitem: Lbl'-LT-'lintkitem'-GT-'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))
+        lvaluekitem: Lbl'-LT-'lvaluekitem'-GT-'{}(inj{SortValue{}, SortKItem{}}(LblvalUnit{}()))
+        lstmtkitem: Lbl'-LT-'lstmtkitem'-GT-'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()))
+        lboolkitem: Lbl'-LT-'lboolkitem'-GT-'{}(inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true")))
+        mkitem: Lbl'-LT-'mkitem'-GT-'{}(inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true")))
+        ikitem: Lbl'-LT-'ikitem'-GT-'{}(inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false")))
         Value-in-Stmt: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Value, not the turbofish's Stmt; the turbofish of a term that is not an equation or rule head must name the instance K solves
         Value-in-KItem: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Value, not the turbofish's KItem; the turbofish of a term that is not an equation or rule head must name the instance K solves
         Stmt-in-KItem: error[krs::analysis::parametric-instance]: K and k-rust solve the sort parameter `S` of this `Wrap` from its arguments and position as Stmt, not the turbofish's KItem; the turbofish of a term that is not an equation or rule head must name the instance K solves

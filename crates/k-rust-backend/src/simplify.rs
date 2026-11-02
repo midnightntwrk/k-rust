@@ -9,7 +9,7 @@
 //!
 //! [[cost]]
 //! mode = "one term lineage"
-//! bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
+//! bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, the stack guard, and the recurrence watch, which ends a lineage whose determined steps reach a term again (EvaluationCycle) at one term comparison per step"
 //!
 //! [[cost]]
 //! mode = "the items of a map, set or list of n items (simplify_children)"
@@ -381,6 +381,15 @@ pub enum SimplificationError {
     },
     IterationLimit {
         limit: usize,
+        term: Term,
+    },
+    /// The evaluation of a term reached `term` again after `steps` equation steps, each a
+    /// determined step on a ground application that charges no budget, with nothing read or
+    /// written and no attempt open between: each step is a function of the term it rewrites, so
+    /// the evaluation repeats those steps without end and the term has no normal form to give
+    /// (`Lineage::root_step`).
+    EvaluationCycle {
+        steps: usize,
         term: Term,
     },
     PredicateIterationLimit {
@@ -2361,6 +2370,7 @@ fn record_rule_condition_failure(rule: &RuleAttributes, failure: SimplificationE
         | SimplificationError::Builtin(..)
         | SimplificationError::UnstatedDefinedness { .. }
         | SimplificationError::DisjunctiveResult { .. }
+        | SimplificationError::EvaluationCycle { .. }
         | SimplificationError::InvalidBuiltinResultSymbol { .. }) => {
             diagnostic::emit(BackendDiagnostic::RuleConditionFailed {
                 rule_id: rule.unique_id.clone(),
@@ -6461,6 +6471,7 @@ fn simplify_on_stack(
         checks: claims_checked_in(definition),
         total_step: None,
         accumulated: Accumulated::default(),
+        recurrence: Recurrence::default(),
     };
     // Each round simplifies the children then the root; the rounds end on a fixed point, an
     // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` grows only when
@@ -6561,6 +6572,90 @@ struct Lineage {
     /// result, whose arguments were defined when it fired (`ContradictedTotal`).
     total_step: Option<TotalStep>,
     accumulated: Accumulated,
+    /// The determined steps of this lineage, watched for a term they reach twice.
+    recurrence: Recurrence,
+}
+
+/// Brent's cycle detection over the terms a lineage's determined root steps give.
+///
+/// A determined step ([`RootStep::DeterminedFunctionStep`]) rewrites a ground application by an
+/// unconditional equation and charges no budget, so where neither an `Unspecified` attempt nor a
+/// retry is open, and nothing is read from or written to the console or the log, a round is a
+/// function of its term: the same term gives the same next term. A lineage that reaches a term
+/// it reached before, with the budget, the console and the log where they were, then repeats
+/// those rounds without end. The detection keeps one such state and compares each new one with
+/// it, saving the new one after 1, 2, 4, .. steps, so it finds any recurrence within twice its
+/// length after it is entered, at the cost of one term comparison per step. Any other round
+/// starts the watch over.
+///
+/// A recurrence of one step is a fixed point, not a cycle: the round's root step gave back the
+/// term the round started from, whose children evaluate to the round's subject, so the
+/// equation's instance at the subject is an instance `t = t` up to the evaluation of its
+/// arguments, which gives `t` no other value, and the subject is the value (as where the result
+/// is the subject itself). A recurrence of two or more steps has no term the steps leave in
+/// place, so no value to give: `EvaluationCycle`.
+///
+/// A log write is output, as a console write is: a recurrence that writes either on each lap
+/// differs in what it has written, and is not one ([`Reached`]). Rounds after an `Unspecified`
+/// step stay unwatched while its frame is open, so a recurrence there runs until a deadline.
+#[derive(Default)]
+struct Recurrence {
+    /// The state saved.
+    saved: Option<Reached>,
+    /// The steps since `saved` was saved.
+    steps: usize,
+    /// The steps after which the next term is saved instead of `saved`.
+    power: usize,
+}
+
+/// What a determined round of a lineage reached: its term, the budget left, the console's
+/// position and the number of log writes of the lineage after it ([`Recurrence`]).
+struct Reached {
+    term: Term,
+    remaining: usize,
+    output: Output,
+}
+
+/// What a lineage has read and written: the console's position (input read, output written),
+/// where there is a console, and the log writes ([`Accumulated::logged`]). Each only grows while a
+/// recurrence is watched, so equal positions mean nothing was read or written between.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Output {
+    console: Option<(usize, usize)>,
+    logged: usize,
+}
+
+impl Recurrence {
+    /// Records `term`, the result of a determined round, with the budget left and what the
+    /// lineage has read and written after it: the number of steps since it was last reached, if
+    /// this lineage reached it before in the watch.
+    fn reached(&mut self, term: &Term, remaining: usize, output: Output) -> Option<usize> {
+        self.steps += 1;
+        if let Some(saved) = &self.saved
+            && saved.remaining == remaining
+            && saved.output == output
+            && (saved.term.ptr_eq(term) || saved.term == *term)
+        {
+            return Some(self.steps);
+        }
+        if self.saved.is_none() || self.steps == self.power {
+            self.saved = Some(Reached {
+                term: term.clone(),
+                remaining,
+                output,
+            });
+            self.power = self.power.max(1) * 2;
+            self.steps = 0;
+        }
+        None
+    }
+
+    /// A round that is not a function of its term alone: the watch starts over.
+    fn restart(&mut self) {
+        self.saved = None;
+        self.steps = 0;
+        self.power = 0;
+    }
 }
 
 impl Lineage {
@@ -6590,6 +6685,7 @@ impl Lineage {
         } else {
             crate::path_facts::Marker::default()
         };
+        let retrying = retried.is_some();
         let (root, root_step, root_equation, unspecified) = simplify_root(
             definition,
             &children.term,
@@ -6602,6 +6698,7 @@ impl Lineage {
             retried,
         )?;
         let children = self.accumulated.absorb(children);
+        let opened = unspecified.is_some();
         let mut before_step = unspecified.as_ref().map(|_| self.accumulated.mark());
         // The root step's own result conjoins `\bottom` and nothing says where: an applied
         // equation's `#Bottom` right-hand side or refuted `ensures` (`FoundBottom`).
@@ -6734,6 +6831,29 @@ impl Lineage {
         }
         if charged {
             *remaining -= 1;
+        }
+        if charged || opened || retrying || !self.frames.is_empty() {
+            self.recurrence.restart();
+        } else if let Some(steps) = self.recurrence.reached(
+            &root.term,
+            *remaining,
+            Output {
+                console: execution
+                    .as_deref()
+                    .map(ExecutionEvaluationContext::observable_position),
+                logged: self.accumulated.logged(),
+            },
+        ) {
+            // One step back to the term the round started from: the round's subject is the
+            // value (`Recurrence`).
+            if steps == 1 {
+                return Ok(ControlFlow::Break(children.term));
+            }
+            return Err(SimplificationError::EvaluationCycle {
+                steps,
+                term: root.term,
+            }
+            .into());
         }
         Ok(ControlFlow::Continue(root.term))
     }
@@ -10933,6 +11053,172 @@ mod tests {
         assert_eq!(result.term, input);
         assert!(result.applied_rules.is_empty());
         assert!(!result.term.attributes().evaluated);
+    }
+
+    /// Anywhere equations `q(a, Y) = q(b, Y)`, `q(b, Y) = q(a, Y)`, `p(X) = p(a)`, the
+    /// three-cycle `r(a) = r(b)`, `r(b) = r(c)`, `r(c) = r(a)`, and `w(X) = w(id(X))` with the
+    /// function `id(X) = X`.
+    const REWRITING_BACK: &str = r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol b{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol c{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+                symbol p{}(SortS{}) : SortS{} [anywhere{}(), functional{}()]
+                symbol q{}(SortS{}, SortS{}) : SortS{} [anywhere{}(), functional{}()]
+                symbol r{}(SortS{}) : SortS{} [anywhere{}(), functional{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, a{}()), \and{R}(\in{SortS{}, R}(Y:SortS{}, Z:SortS{}), \top{R}()))),
+                    \equals{SortS{}, R}(q{}(X:SortS{}, Y:SortS{}), \and{SortS{}}(q{}(b{}(), Z:SortS{}), \top{SortS{}}()))
+                ) [label{}("ab"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, b{}()), \and{R}(\in{SortS{}, R}(Y:SortS{}, Z:SortS{}), \top{R}()))),
+                    \equals{SortS{}, R}(q{}(X:SortS{}, Y:SortS{}), \and{SortS{}}(q{}(a{}(), Z:SortS{}), \top{SortS{}}()))
+                ) [label{}("ba"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, Z:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(p{}(X:SortS{}), \and{SortS{}}(p{}(a{}()), \top{SortS{}}()))
+                ) [label{}("stutter"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, a{}()), \top{R}())),
+                    \equals{SortS{}, R}(r{}(X:SortS{}), \and{SortS{}}(r{}(b{}()), \top{SortS{}}()))
+                ) [label{}("r-ab"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, b{}()), \top{R}())),
+                    \equals{SortS{}, R}(r{}(X:SortS{}), \and{SortS{}}(r{}(c{}()), \top{SortS{}}()))
+                ) [label{}("r-bc"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, c{}()), \top{R}())),
+                    \equals{SortS{}, R}(r{}(X:SortS{}), \and{SortS{}}(r{}(a{}()), \top{SortS{}}()))
+                ) [label{}("r-ca"), anywhere{}()]
+                symbol w{}(SortS{}) : SortS{} [anywhere{}(), functional{}()]
+                symbol id{}(SortS{}) : SortS{} [function{}(), functional{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, Z:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(w{}(X:SortS{}), \and{SortS{}}(w{}(id{}(Z:SortS{})), \top{SortS{}}()))
+                ) [label{}("w-id"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, Z:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(id{}(X:SortS{}), \and{SortS{}}(Z:SortS{}, \top{SortS{}}()))
+                ) [label{}("id")]
+            endmodule []"#;
+
+    /// Ground equation steps that reach a term again repeat without end, so the term has no
+    /// normal form and its evaluation is refused, naming the term reached again and the length of
+    /// the cycle: `q(a, c)` reaches `q(b, c)` again after two steps, and `r(a)` reaches itself
+    /// after three. An equation whose instance is `t = t` gives `t` no other value and ends the
+    /// evaluation there: `p(b)` is `p(a)`. So does one whose instance is `t = t` once the result's
+    /// arguments are evaluated, a recurrence of one step: `w(a) = w(id(a))`, and `id(a)` is `a`,
+    /// so `w(a)` is the value.
+    #[test]
+    fn ground_equation_steps_that_reach_a_term_again_are_refused_as_a_cycle() {
+        let definition = BackendDefinition::internalize(
+            &parse_definition(REWRITING_BACK).expect("the definition should parse"),
+            "MAIN",
+        )
+        .expect("the definition should internalize");
+        let cycle = |source: &str| match unstopped(simplify(
+            &definition,
+            &term(&definition, source),
+            SimplificationOptions::default(),
+        )) {
+            Err(SimplificationError::EvaluationCycle { steps, term }) => (steps, term),
+            other => panic!("{source}: {other:?}"),
+        };
+        assert_eq!(
+            cycle("q{}(a{}(), c{}())"),
+            (2, term(&definition, "q{}(b{}(), c{}())"))
+        );
+        assert_eq!(cycle("r{}(a{}())"), (3, term(&definition, "r{}(a{}())")));
+        let stutter = unstopped(simplify(
+            &definition,
+            &term(&definition, "p{}(b{}())"),
+            SimplificationOptions::default(),
+        ))
+        .expect("an equation whose instance is `t = t` ends the evaluation");
+        assert_eq!(stutter.term, term(&definition, "p{}(a{}())"));
+        let up_to_arguments = unstopped(simplify(
+            &definition,
+            &term(&definition, "w{}(a{}())"),
+            SimplificationOptions::default(),
+        ))
+        .expect("an instance `t = t` up to its arguments' evaluation ends the evaluation");
+        assert_eq!(up_to_arguments.term, term(&definition, "w{}(a{}())"));
+    }
+
+    /// A log write is output: equation steps that reach a term again but write the log on each
+    /// lap are not one state repeated, so they are not refused as a cycle, and only a deadline
+    /// ends them (`lg(a, K) = lg(b, log("x"))`, `lg(b, K) = lg(a, log("x"))`).
+    #[test]
+    fn steps_that_write_the_log_on_each_lap_are_not_refused_as_a_cycle() {
+        let definition = BackendDefinition::internalize(
+            &parse_definition(
+                r#"[]
+            module MAIN
+                sort SortK{} []
+                sort SortString{} [hasDomainValues{}()]
+                symbol a{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+                symbol b{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                hooked-symbol log{}(SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+                symbol lg{}(SortK{}, SortK{}) : SortK{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X:SortK{}, a{}()), \and{R}(\in{SortK{}, R}(Y:SortK{}, Z:SortK{}), \top{R}()))),
+                    \equals{SortK{}, R}(lg{}(X:SortK{}, Y:SortK{}), \and{SortK{}}(lg{}(b{}(), log{}(\dv{SortString{}}("x"))), \top{SortK{}}()))
+                ) [label{}("lg-ab")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X:SortK{}, b{}()), \and{R}(\in{SortK{}, R}(Y:SortK{}, Z:SortK{}), \top{R}()))),
+                    \equals{SortK{}, R}(lg{}(X:SortK{}, Y:SortK{}), \and{SortK{}}(lg{}(a{}(), log{}(\dv{SortString{}}("x"))), \top{SortK{}}()))
+                ) [label{}("lg-ba")]
+            endmodule []"#,
+            )
+            .expect("the definition should parse"),
+            "MAIN",
+        )
+        .expect("the definition should internalize");
+        let mode = crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_millis(200));
+        let deadline = crate::stop::arm_deadline(
+            std::time::Instant::now() + std::time::Duration::from_millis(200),
+            mode,
+        );
+        let result = simplify(
+            &definition,
+            &term(&definition, "lg{}(a{}(), dotk{}())"),
+            SimplificationOptions::default(),
+        );
+        drop(deadline);
+        match result {
+            Err(stop) => assert_eq!(stop.into_cause(), StopCause::Deadline(mode)),
+            Ok(other) => panic!("only the deadline ends a lap that writes the log: {other:?}"),
+        }
+    }
+
+    /// Steps on a symbolic application charge the budget, which ends their cycle: the watch reads
+    /// only a lineage whose steps are each a function of the term, and `q(a, Y)` ends at the
+    /// iteration limit, not as a cycle.
+    #[test]
+    fn steps_that_charge_the_budget_end_at_the_iteration_limit_not_as_a_cycle() {
+        let definition = BackendDefinition::internalize(
+            &parse_definition(REWRITING_BACK).expect("the definition should parse"),
+            "MAIN",
+        )
+        .expect("the definition should internalize");
+        let result = unstopped(simplify(
+            &definition,
+            &term(&definition, "q{}(a{}(), Y:SortS{})"),
+            SimplificationOptions {
+                max_iterations: 7,
+                budget: BudgetPolicy::Fail,
+            },
+        ));
+        assert!(
+            matches!(
+                result,
+                Err(SimplificationError::IterationLimit { limit: 7, .. })
+            ),
+            "{result:?}"
+        );
     }
 
     /// A value recorded with what its evaluation read: one computed with the console after

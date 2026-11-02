@@ -560,8 +560,10 @@ pub enum Effect {
     Applies,
     /// The sentence does not apply: a condition fails, or the sentence is configured out.
     Unapplied,
-    /// The sentence applies again to what it wrote, without end: the run reaches no final state.
-    Endless,
+    /// The sentence applies, and its instance at what it wrote is `t = t`: what it wrote is the
+    /// value (an `anywhere` rule whose result its own subject matches, with nothing more to
+    /// write there).
+    Fixed,
 }
 
 /// An attribute case beyond the axis's product: a placement or a combination of attributes, on
@@ -602,9 +604,9 @@ const REQUIRES_TWICE: &str = "#[k::requires(k::is!(Int, x))]\n#[k::requires(k::i
 /// - `#[doc]` and `#[cfg(..)]` on a clause: documentation, and a configuration that holds
 ///   (`all()`) or does not (`any()`), which keeps the clause out of the definition;
 /// - `anywhere` on a single-body rule whose subject's right image its left image matches again
-///   (the slot's `x => Cmd::Go()`): the rule rewrites what it wrote, wherever it occurs, so the
-///   rewriting has no end, and a run reaches no final state (K7 shows a run that ends as stuck at
-///   a term the rule still matches, NT-41-1).
+///   (the slot's `x => Cmd::Go()`): the rule is an equation, applied wherever its subject occurs,
+///   and its instance at what it wrote is `t = t`, which states nothing more of that term, so
+///   what it wrote is the value, built before any step.
 pub const EXTRAS: [Extra; 21] = [
     extra(
         "desugar",
@@ -730,7 +732,7 @@ pub const EXTRAS: [Extra; 21] = [
         "local-rule",
         "anywhere on what it writes",
         Written::Key("anywhere"),
-        Effect::Endless,
+        Effect::Fixed,
     ),
 ];
 

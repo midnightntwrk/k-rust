@@ -43,6 +43,18 @@ DEMOS = {
                                                 "demos/JobsOwConf/JobsOwConf/Slots.lean",
                                                 "demos/JobsOwConf/confluence.toml"],
                    "slots": {"prefixes": ["join.", "equiv."]}},
+    # jobs whose steps remove bindings of the map (tests/jobs-remove.py): two removals, or a removal
+    # and an update, at two bindings commute
+    "JobsRmConf": {"tier": "light", "sources": ["generated/jobsrm",
+                                                "demos/JobsRmConf/JobsRmConf/Views.lean",
+                                                "demos/JobsRmConf/JobsRmConf/Slots.lean",
+                                                "demos/JobsRmConf/confluence.toml"],
+                   "slots": {"prefixes": ["join.", "equiv."]}},
+    "JobsDropConf": {"tier": "light", "sources": ["generated/jobsdrop",
+                                                  "demos/JobsDropConf/JobsDropConf/Views.lean",
+                                                  "demos/JobsDropConf/JobsDropConf/Slots.lean",
+                                                  "demos/JobsDropConf/confluence.toml"],
+                     "slots": {"prefixes": ["join.", "equiv."]}},
     # SIMPLE's steps of two threads joined generically, the joins they leave as slots, those the
     # generic attempts do not prove open (`confluence --threads threads --slots`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean",

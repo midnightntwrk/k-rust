@@ -162,6 +162,22 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     let report = json(&search);
     assert_eq!(report["search"]["complete"], true);
     assert_eq!(report["search"]["solutions"].as_array().unwrap().len(), 1);
+    // `=>*` reports every reachable state, the start a rule leaves among them, so only the
+    // final states of `=>!` are checked to end where no rule applies (`KRS_CHECK_ENDS`).
+    let every = krs(
+        target.path(),
+        &manifest,
+        "search",
+        &["--mode", "all", "--output", "json"],
+    );
+    assert_eq!(every.status.code(), Some(0), "{}", stderr(&every));
+    assert_eq!(
+        json(&every)["search"]["solutions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
 
     let no_claims = krs(target.path(), &manifest, "prove", &[]);
     assert_eq!(no_claims.status.code(), Some(1));

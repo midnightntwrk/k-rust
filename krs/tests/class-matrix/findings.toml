@@ -54,11 +54,6 @@ kind = "bug"
 what = "an optional cell's pattern accepts a leaf spelling (`counter: x`, `counter: 0`) as present (decision D5: require `Some(..)`/`None`)"
 risk = "KRS writes the presence pattern `<counter> X </counter>`, which `Some(x)` says: `counter: x` reads as \"whatever the counter holds\", but the rule never applies to an absent counter, silently"
 
-["NT-13-15"]
-owner = "NT-38"
-kind = "feature"
-what = "`concrete(x)` on an equation and a table row is refused: a restriction limits where an equation applies, not what it states, so it means what is written wherever no equation ordered after it would apply in its place; but k-rust's frontend, which both the native and the K text route go through, takes a restriction on an equation only when it is bare and on every equation of the function (`check_function_rule_attributes`), so no route compiles it yet"
-
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"
@@ -68,11 +63,6 @@ what = "a constant's whole value that rustc cannot parse gets no KRS answer, and
 owner = "S6"
 kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
-
-["NT-41-1"]
-owner = "NT-38"
-kind = "bug"
-what = "an `anywhere` rule whose result its own subject matches again rewrites without end, so no state of a run of it is final; k-rust applies it once and reports the run stuck at a term the rule still matches, a false statement about the state, and runs two anywhere rules that rewrite into each other without end, so a `--depth` bound does not end the run (k-rust engine follow-up; the rule-forms gate pins both)"
 
 ["NT-43-2"]
 owner = "NT-42"

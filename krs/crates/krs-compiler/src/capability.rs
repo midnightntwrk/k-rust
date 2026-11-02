@@ -49,6 +49,11 @@ pub enum CapabilityFeature {
     /// A direct console write, `io::write` or `io::putc` (K's `#write` and
     /// `#putc`), which only a backend with console state performs.
     ConsoleWriteHook,
+    /// A function's equation restricted by `concrete` or `symbolic` where
+    /// not every equation of the function is restricted by the bare key:
+    /// the key names some binders only (`concrete(x)`), or another equation
+    /// of the function lacks it ([`partial_restrictions`]).
+    PartialEquationRestriction,
 }
 
 impl CapabilityFeature {
@@ -63,6 +68,7 @@ impl CapabilityFeature {
         Self::ParametricConstructorSchema,
         Self::UserAlgebraicMatching,
         Self::ConsoleWriteHook,
+        Self::PartialEquationRestriction,
     ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
@@ -78,6 +84,7 @@ impl CapabilityFeature {
             Self::ParametricConstructorSchema => "ParametricConstructorSchema",
             Self::UserAlgebraicMatching => "UserAlgebraicMatching",
             Self::ConsoleWriteHook => "ConsoleWriteHook",
+            Self::PartialEquationRestriction => "PartialEquationRestriction",
         }
     }
 
@@ -94,6 +101,9 @@ impl CapabilityFeature {
             Self::ParametricConstructorSchema => "parametric constructors",
             Self::UserAlgebraicMatching => "productions matched modulo user axioms",
             Self::ConsoleWriteHook => "direct console writes (`io::write`, `io::putc`)",
+            Self::PartialEquationRestriction => {
+                "equations restricted by `concrete` or `symbolic` on some binders only, or beside equations of their function the bare key does not restrict"
+            }
         }
     }
 }
@@ -401,7 +411,66 @@ pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequi
             }
         }
     }
+    requirements.extend(partial_restrictions(definition, &production_names));
     requirements.sort();
+    requirements
+}
+
+/// The [`CapabilityFeature::PartialEquationRestriction`] requirements of a
+/// definition: for each function and each of `concrete` and `symbolic`, every
+/// equation the key restricts, where the key names some binders only on one
+/// of them or some equation of the function lacks it. A requirement names
+/// the function. A simplification states no definition, and is not read.
+fn partial_restrictions(
+    definition: &DefinitionIr,
+    production_names: &std::collections::BTreeMap<krs_ir_levels::SymbolId, String>,
+) -> Vec<CapabilityRequirement> {
+    type KeyOf = fn(&krs_ir_levels::IrMatchRestriction) -> Option<&krs_ir_levels::IrRestriction>;
+    let mut functions = std::collections::BTreeMap::<_, Vec<&RuleSentence>>::new();
+    for module in definition.modules() {
+        for sentence in module.sentences() {
+            if let DefinitionSentence::Rule(rule) = sentence
+                && rule.kind() == SentenceKind::Equation
+                && let RuleBodyRef::Term(rewrite) = rule.relational_body()
+                && let DefinitionTermKind::Application {
+                    application: ApplicationRef::Declared(symbol),
+                    ..
+                } = rewrite.from().kind()
+            {
+                functions.entry(symbol).or_default().push(rule);
+            }
+        }
+    }
+    let mut requirements = Vec::new();
+    for (function, equations) in functions {
+        for key in [
+            krs_ir_levels::IrMatchRestriction::concrete as KeyOf,
+            krs_ir_levels::IrMatchRestriction::symbolic as KeyOf,
+        ] {
+            let restriction = |rule: &RuleSentence| rule.restriction().and_then(key).cloned();
+            let restricted = equations
+                .iter()
+                .filter(|rule| restriction(rule).is_some())
+                .collect::<Vec<_>>();
+            if restricted.is_empty()
+                || equations
+                    .iter()
+                    .all(|rule| restriction(rule).is_some_and(|key| key.is_bare()))
+            {
+                continue;
+            }
+            for rule in restricted {
+                requirements.push(CapabilityRequirement {
+                    feature: CapabilityFeature::PartialEquationRestriction,
+                    symbol: production_names
+                        .get(function)
+                        .cloned()
+                        .unwrap_or_else(|| rule.label().emitted_name().to_owned()),
+                    origin: rule.origin().key().clone(),
+                });
+            }
+        }
+    }
     requirements
 }
 

@@ -58,4 +58,16 @@ DEMOS = {
                                                    "demos/ContractObsNI/ContractObsNI/Proof.lean",
                                                    "demos/ContractObsNI/correspondence.toml",
                                                    "demos/ContractObsNI/noninterference.toml"]},
+    # a related store input beside the disclosure cell (NI-8(b)): the fixture contract with its
+    # store an input
+    "ContractEnvNI": {"tier": "light", "sources": ["generated/contractenv",
+                                                   "generated/contractsec",
+                                                   "demos/ContractEnvNI/ContractEnvNI/Tr.lean",
+                                                   "demos/ContractEnvNI/ContractEnvNI/NI.lean",
+                                                   "demos/ContractEnvNI/ContractEnvNI/Spec.lean",
+                                                   "demos/ContractEnvNI/ContractEnvNI/Levels.lean",
+                                                   "demos/ContractEnvNI/ContractEnvNI/Stack.lean",
+                                                   "demos/ContractEnvNI/ContractEnvNI/Proof.lean",
+                                                   "demos/ContractEnvNI/correspondence.toml",
+                                                   "demos/ContractEnvNI/noninterference.toml"]},
 }

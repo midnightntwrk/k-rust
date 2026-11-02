@@ -1446,6 +1446,44 @@ fn confluence_slots_with_and_without_threads() {
     );
 }
 
+/// Without `--threads`, a rule that removes a binding of a map matched at a free key (the
+/// fixture pick's `drop`, `<m> (_ |-> V => .Map) ...`) has a removal's attempt: two removals are
+/// of one binding or commute (`concat_element_same_or_comm_remove`), each taken again at the
+/// other's result.
+#[test]
+fn confluence_plain_commutes_two_removals_at_two_bindings() {
+    let d = tmp("cli-confluence-remove");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/pick/definition.kore");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args(["--name", "Pick", "--ns", "PickConf"])
+        .arg("--slots")
+        .arg(d.join("Slots.lean"))
+        .arg("--out")
+        .arg(d.join("Views.lean"))
+        .arg("--report")
+        .arg(d.join("c.toml"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    for x in [
+        "    | (rcases MapHook.concat_element_same_or_comm_remove hm hm_r with ⟨hk, hv, hR⟩ | ⟨R', a₁, a₂⟩\n       · cases hk <;> cases hv <;> cases hR <;> first | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩ | (exfalso; simp_all) | omega\n",
+        "       · exact ⟨_, _, Or.inr (Pick.Step.drop (hm := a₁) (hreq := hreq_r) ..), Or.inr (Pick.Step.drop (hm := a₂) (hreq := hreq) ..), by k2l_join_eq⟩)\n",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    // only `drop` removes: no other slot has the attempt
+    assert_eq!(
+        m.matches("concat_element_same_or_comm_remove").count(),
+        1,
+        "{m}"
+    );
+}
+
 /// `confluence --equiv CELL=REL,…`: the theorem modulo an equivalence the author states, per leaf
 /// cell. `Equiv` compares the other cells by equality; each rule keeps it (`equiv.sim.r`, generic
 /// when the rule reads no relaxed cell), so it is a `StepEquiv`; the joins are modulo `Equiv`,
@@ -3170,6 +3208,89 @@ fn noninterference_observes_cells_by_equality_without_a_disclosure_cell() {
     let o = run("LEDGER=public,WIT=lowEq G", "ledger");
     assert!(
         !o.status.success() && err(&o).contains("only the store <env>'s input is related"),
+        "{}",
+        err(&o)
+    );
+}
+
+/// `noninterference --disclosed` with the statement's inputs (design.md §3.7, NI-8(b)): the inputs'
+/// refusals are the form without a disclosure cell's (an input related outside the store, an
+/// observed cell holding a private input); a related store input itself is taken
+/// (demos/ContractEnvNI, over a definition whose store is an input).
+#[test]
+fn noninterference_disclosed_refuses_inputs_as_the_other_forms() {
+    let d = tmp("cli-noninterference-disclosed-inputs");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    std::fs::write(d.join("open.txt"), "").unwrap();
+    let run = |inputs: &str, observe: &str, disclosed: &str| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("noninterference")
+            .arg("--kore")
+            .arg(fx.join("contract/definition.kore"))
+            .args([
+                "--name",
+                "Contract",
+                "--ns",
+                "CD",
+                "--store-cell",
+                "env",
+                "--program-sort",
+                "SortStmt",
+                "--params",
+                "(G : ContractSec.SortMap)",
+                "--store-ok",
+                "storeOk",
+                "--checker-name",
+                "ContractSec",
+                "--lev",
+                "lev",
+                "--sec",
+                "sec",
+                "--conf",
+                "conf",
+                "--quiet",
+                "quiet",
+                "--inputs",
+                inputs,
+                "--observe",
+                observe,
+                "--disclosed",
+                disclosed,
+            ])
+            .arg("--checker-kore")
+            .arg(fx.join("contractsec/definition.kore"))
+            .arg("--open")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("NI.lean"))
+            .arg("--report")
+            .arg(d.join("ni.toml"))
+            .arg("--out-dir")
+            .arg(&d)
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let o = run(
+        "LEDGER=lowEq G,WIT=private",
+        "ledger,transcript",
+        "disclosed",
+    );
+    assert!(
+        !o.status.success()
+            && err(&o).contains(
+                "$LEDGER is related by `lowEq G`; only the store <env>'s input is related"
+            ),
+        "{}",
+        err(&o)
+    );
+    let o = run(
+        "LEDGER=public,WIT=private",
+        "ledger,transcript,wit",
+        "disclosed",
+    );
+    assert!(
+        !o.status.success() && err(&o).contains("--observe: <wit> holds the private input $WIT"),
         "{}",
         err(&o)
     );

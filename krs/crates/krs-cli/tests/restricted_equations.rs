@@ -3,10 +3,9 @@
 //! A restriction says when an equation is used, not what it states: an equation restricted to
 //! ground arguments still holds on symbolic ones, where it is only not applied. So no equation of
 //! the function may apply where the restriction skips it: an equation ordered after a `concrete`
-//! one must be bare `concrete` too, and none may be ordered after a `symbolic` one. Both the
-//! native and the K text route compile through k-rust's frontend, which takes a restriction on an
-//! equation only bare and only on every equation of its function, so KRS refuses the other
-//! restrictions too, saying that no route compiles them.
+//! one must be bare `concrete` too, and none may be ordered after a `symbolic` one. A restriction
+//! on some binders only, or on some equations only, is accepted, and the native and the K text
+//! route compile it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -161,8 +160,7 @@ fn text_route(definition: &str) -> Result<String, String> {
 /// Bare `concrete` on every equation of `h`, the `owise` one after the other included: both
 /// routes compile it and honour it. A ground `go(5)` runs to 6, the claim over a symbolic `I`
 /// is not proved, since `h(I)` is left as it is, and the K text route compiles the emitted K,
-/// whose `concrete` it reads. The same K with a listed `concrete(X)` is refused by the text
-/// route, which is why KRS refuses that form.
+/// whose `concrete` it reads, and the same K with a listed `concrete(X)` on one equation only.
 #[test]
 fn bare_concrete_on_every_equation_is_compiled_and_honoured_on_both_routes() {
     let target = shared_fixture_target();
@@ -194,18 +192,78 @@ fn bare_concrete_on_every_equation_is_compiled_and_honoured_on_both_routes() {
         &["--output", emitted.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
+    assert_eq!(restriction_requirements(&emitted), Vec::<String>::new());
     let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
     assert!(k.contains("[owise, concrete, label("), "{k}");
     text_route(&k).unwrap_or_else(|error| panic!("{error}\n{k}"));
     let listed = k.replacen("[owise, concrete, label(", "[owise, concrete(X), label(", 1);
-    // Each `concrete` equation of the function is refused.
-    let refused = text_route(&listed).unwrap_err();
-    assert_eq!(
-        refused.lines().collect::<Vec<_>>(),
-        ["Found concrete attribute without simplification attribute on function with one or more non-concrete rules.";
-            2],
-        "{refused}"
+    text_route(&listed).unwrap_or_else(|error| panic!("{error}\n{listed}"));
+}
+
+/// `h`'s one equation restricted to a ground `x` by `concrete(x)`: `krs check` accepts it, a
+/// ground `go(5)` runs to 6, and the claim over a symbolic `I` is not proved, since `h(I)` is
+/// left as it is; the K text route compiles the emitted `concrete(X)`.
+#[test]
+fn a_listed_restriction_is_compiled_and_honoured_on_both_routes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let listed = CONCRETE
+        .replacen(
+            "#[k::equation(concrete)]\nfn h_zero(k::term![H(0)]: Term<Int>) -> Term<Int> {\n    1\n}\n",
+            "",
+            1,
+        )
+        .replacen("#[k::equation(owise, concrete)]", "#[k::equation(concrete(x))]", 1);
+    assert!(
+        listed.contains("concrete(x)") && !listed.contains("h_zero"),
+        "{listed}"
     );
+    let manifest = package(temporary.path(), &listed);
+    let file = manifest.with_file_name("program.txt");
+    fs::write(&file, "go(5)").unwrap();
+    let (_, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+    assert!(
+        stdout
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains("<k> 6 ~> .K </k>"),
+        "{stdout}\n{stderr}"
+    );
+    let (proved, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
+    assert!(!proved, "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("ORG-KRS-RESTRICTED-SPEC.go-symbolic: failed"),
+        "{stdout}\n{stderr}"
+    );
+    let emitted = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", emitted.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    // The Java frontend's routes take a restriction on an equation only bare and on every
+    // equation of its function: the requirement names the function, and those routes refuse it.
+    assert_eq!(restriction_requirements(&emitted), ["h"]);
+    let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
+    assert!(k.contains("[concrete(X"), "{k}");
+    text_route(&k).unwrap_or_else(|error| panic!("{error}\n{k}"));
+}
+
+/// The symbols of the `PartialEquationRestriction` requirements `symbols.json` in `emitted`
+/// records.
+fn restriction_requirements(emitted: &Path) -> Vec<String> {
+    let symbols: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(emitted.join("symbols.json")).unwrap()).unwrap();
+    symbols["capability_requirements"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["feature"] == "PartialEquationRestriction")
+        .map(|row| row["symbol"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 /// `krs check`'s first error.
@@ -225,10 +283,9 @@ fn first_error(source: &str) -> String {
 /// An equation ordered after a restricted one, which would apply where the restriction skips
 /// it, is refused at the restriction: after a `symbolic` one, whatever its own restriction; after
 /// a `concrete` one, unless it is bare `concrete` (the verification-surface fixture
-/// `restriction-equation-inconsistent`). A listed restriction holds its meaning, and is refused
-/// as no route compiles it.
+/// `restriction-equation-inconsistent`).
 #[test]
-fn a_restriction_another_equation_would_contradict_or_no_route_compiles_is_refused() {
+fn a_restriction_another_equation_would_contradict_is_refused() {
     let symbolic = r"
 #[k::equation(symbolic)]
 fn h_zero(k::term![H(x)]: Term<Int>) -> Term<Int> {
@@ -243,15 +300,5 @@ fn h_other(k::term![H(x)]: Term<Int>) -> Term<Int> {
     assert_eq!(
         first_error(symbolic),
         "error[krs::analysis::invalid-match-restriction]: equation `h_zero` is `symbolic`, so it is skipped where a binder it restricts is ground, though it still holds there; equation `h_other`, ordered after it (`owise`), applies wherever `h_zero` does not, so there it would give the function a value `h_zero` need not agree with: give the equations one order, or make `h_zero` a #[k::simplification]"
-    );
-    let listed = r"
-#[k::equation(concrete(x))]
-fn h_listed(k::term![H(x)]: Term<Int>) -> Term<Int> {
-    int::add(x, 1)
-}
-";
-    assert_eq!(
-        first_error(listed),
-        "error[krs::analysis::invalid-match-restriction]: equation `h_listed` restricts only some binders with `concrete(..)`, which holds its meaning, but no route compiles it: the native and the K text route compile through k-rust's frontend, which takes `concrete` on an equation only bare, and only when every equation of its function is bare `concrete`; write bare `concrete`, or make it a #[k::simplification]"
     );
 }
