@@ -84,8 +84,10 @@
 pub mod advice;
 pub mod attributes;
 mod cells;
+pub mod cells_oracle;
 mod config_drivers;
 pub use config_drivers::{Extent, Part, Reading};
+pub mod entry_cases;
 pub mod entry_points;
 pub mod findings;
 pub mod invariants;
@@ -618,6 +620,13 @@ impl Case {
             .as_ref()
             .map(|term| oracle::expected(term.position, &term.nodes))
             .or_else(|| self.attribute.map(attributes::Pair::expected))
+    }
+
+    /// The case's cell entry as the cells oracle reads it ([`cells_oracle`]), `None` for a case
+    /// of no cell-entry slot.
+    #[must_use]
+    pub fn cell_entry(&self) -> Option<cells_oracle::EntryCase> {
+        entry_cases::entry_case(self)
     }
 
     /// Whether the case replaces its base's initializer.

@@ -29,6 +29,17 @@
 # 4. otherwise the case is accepted, and its accept entry records its K. An accept entry of a
 #    refused term case is a table error.
 #
+# How a cell entry's outcome is decided (design S5, the principles P0-P7): in four steps, each
+# answered by the first layer that can know it: the form (what the spelling and its side alone
+# refuse: `_` in a result or an initializer, `None` or a rest in an initializer), the kind (the
+# entry's marks against the cell's declared layers, outermost first), the pairing of the two sides
+# (rests, absence, an entry that constrains nothing), and the sort (the lattice). The rule-level
+# classes (`always-enabled-rule`, `rule-changes-no-cell`, `unused-configuration-variable`,
+# `main-cell-not-k`) judge the whole sentence after its entries are admitted. The cells oracle
+# (`class_matrix::cells_oracle`) states the first three from the principles; `tests/cells_oracle.rs`
+# checks every cell-entry row against it, and `[cell-exception."GLOB"]` lists the rows that depart
+# from it, each with the principle it departs by.
+#
 # How a case's outcome is decided, from what its construct means in its slot:
 # - A spelling that belongs to one kind of cell (`Some`/`None`, an instance list, map notation,
 #   brackets) written on a cell of another kind is that kind's mistake (`presence-on-plain-cell`,
@@ -47,6 +58,11 @@
 [class.absence-test-without-creation]
 code = "krs::analysis::optional-presence"
 doc = "a subject tests an optional cell's absence (`None`) and the result does not create it: K tests absence only by creating the cell"
+advice = "none"
+
+[class.always-enabled-rule]
+code = "krs::analysis::always-enabled-rule"
+doc = "a rule whose every subject entry constrains nothing (`_`, `[..]`), with no condition: it matches every configuration, so execution never ends (Q1); judged on the whole rule"
 advice = "none"
 
 [class.alias-at-subject-root]
@@ -137,7 +153,7 @@ advice = "none"
 
 [class.cell-wrapper]
 code = "krs::analysis::cell-wrapper"
-doc = "an entry whose wrapper is not its cell's: `KCell(..)`/`k::k![..]`/brackets for the computation cell, `Cell(..)` for a leaf, none for a group, used on another kind of cell"
+doc = "an entry whose wrapper is not its cell's: `KCell(..)`/`k::k![..]`/brackets for the computation cell, `Cell(..)` for a leaf, none for a group, used on another kind of cell, an optional cell or a collection included, where no layer has that wrapper; or a value where the computation's or a `cells!` leaf's wrapper is missing"
 advice = "none"
 
 [class.claim-only-term]
@@ -157,7 +173,13 @@ advice = "none"
 
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
-doc = "a `*` collection written as one value (a binder, `_`, a literal, a record, `Some`/`None`, a wrapper) instead of an instance list"
+doc = "a `*` collection written as one value (a binder, `_`, a literal, a record) instead of an instance list, or an entry naming a cell below a `*` ancestor, where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
+advice = "none"
+
+[class.continuation-in-readable]
+code = "krs::syntax::continuation-in-readable"
+proposed = true
+doc = "a readable entry that captures or drops the computation's continuation (a named rest, `k: [x, rest @ ..]`, or a splice): a readable rule never does (Q3); `cells!` writes it with `KCell(.., rest @ ..)`"
 advice = "none"
 
 [class.computation-back-item]
@@ -376,8 +398,9 @@ doc = "a matching-logic predicate as an operand of an object constructor or func
 advice = "none"
 
 [class.no-effect-entry]
-code = "krs::syntax::rust-syntax"
-doc = "a subject entry that matches any content of a cell the result leaves out (`_`, `[..]`), so the rule is the same without it"
+code = "krs::analysis::no-effect-entry"
+proposed = true
+doc = "a lint, never a refusal (Q1): a subject entry that matches every content its cell allows and binds nothing (`_`, `[..]`, `Cell(_)`, a group record whose children do), on a cell the result leaves out, so the rule is the same without it"
 advice = "none"
 
 [class.nondet-on-function]
@@ -412,7 +435,7 @@ advice = "none"
 
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
-doc = "an optional (`?`) cell written without `Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`): a binder, `_`, a literal, a record, a wrapper or a template"
+doc = "an optional (`?`) cell written without `Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`): a binder, `_`, a literal, a record, a wrapper of the underlying kind or a template; or an entry naming a cell below a `?` ancestor, which would silently require it present: write it inside `Some(G { child: .., .. })` (S1 b)"
 advice = "cells/result/counter/Some(k::configuration::Cell(x))"
 
 [class.order-on-unordered-sentence]
@@ -439,6 +462,12 @@ advice = "none"
 code = "krs::syntax::invalid-cell-attribute"
 doc = "`initial` on an optional (`?`) cell, whose initializer already says whether it starts present: `Some(value)` present, `k::absent!(template)` absent (decision NT-12-6)"
 advice = "init/counter/Some(0)"
+
+[class.record-missing-children]
+code = "krs::analysis::record-missing-children"
+proposed = true
+doc = "a group record at a configuration position that names some of its children and no `..`: write `..` to leave the others unconstrained (L4)"
+advice = "none"
 
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
@@ -512,6 +541,11 @@ code = "krs::syntax::invalid-local-rewrite"
 doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
 advice = "none"
 
+[class.rule-changes-no-cell]
+code = "krs::analysis::rule-changes-no-cell"
+doc = "a rule that writes no cell; judged on the whole rule"
+advice = "none"
+
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal, a collection's unit, element or concatenation, or a collection literal that writes entries (`map![k -> v]`, `set![a, b]`, the collection it builds, whatever calls KRS builds it with; NT-28) at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify; the update or the union is written as its call"
@@ -577,6 +611,11 @@ code = "krs::syntax::unknown-argument"
 doc = "a key the marker does not take, where no more specific mistake is made: a claim's key elsewhere than on a claim, `heat` or `cool` elsewhere than on a transition, a label on a sentence no label names, a misspelled key, a second name (a context alias is named by its `name`), and any sentence key on a declaration's marker (an initializer's, a constant's, a function shorthand's)"
 advice = "none"
 
+[class.unmatched-optional-result]
+code = "krs::analysis::optional-presence"
+doc = "a result writing an optional (`?`) cell the subject does not match, whose presence the rule does not know (Q1, P5): match it with `Some(..)` or `None`"
+advice = "none"
+
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"
 doc = "an initializer parameter (configuration variable) that no cell reads (X2)"
@@ -610,6 +649,13 @@ match = 'cells/result/frame/x'
 class = "binder-sort"
 at = "spelling"
 
+# Q2: one instance of an ordered collection is a value, its front instance; the command's `Int`
+# binder `x` is no `Job` cell
+[[refuse]]
+match = '{claim,readable}/result/job/[x\, ..]'
+class = "binder-sort"
+at = "spelling"
+
 [[refuse]]
 match = 'cells/result/{env,stack}/k::configuration::Cell(x)'
 class = "binder-sort"
@@ -621,11 +667,6 @@ class = "binder-sort"
 at = "spelling"
 
 # bracket-reading
-[[refuse]]
-match = '{claim,readable}/{result,subject}/job/[x\, ..]'
-class = "bracket-reading"
-at = "entry"
-
 [[refuse]]
 match = '{claim,readable}/{result,subject}/{counter,env,frame,pc}/{[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[],[x\, ..]}'
 class = "bracket-reading"
@@ -643,7 +684,7 @@ class = "bracket-reading"
 at = "spelling"
 
 [[refuse]]
-match = 'init/{env,frame,job,pc}/{[0],[],[pgm]}'
+match = 'init/{counter,env,frame,job,pc}/{[0],[],[pgm]}'
 class = "bracket-reading"
 at = "spelling"
 
@@ -689,7 +730,24 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/{result,subject}/k/{0,Frame \{ ret: x \},_,x}'
+match = '{claim,readable}/{result,subject}/k/{0,Frame \{ ret: x \},x}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/k/_'
+class = "cell-wrapper"
+at = "entry"
+
+# (A), decision P3 (b) in every form: a `cells!` wrapper of a layer the cell's stack has nowhere, on
+# an optional cell or a collection, is the wrapper's mistake, not the missing presence or instances
+[[refuse]]
+match = 'cells/{result,subject}/counter/{k::configuration::KCell(),k::configuration::KCell(x),k::configuration::KCell(x\, ..)}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{result,subject}/job/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::configuration::KCell(x\, ..)}'
 class = "cell-wrapper"
 at = "entry"
 
@@ -711,17 +769,17 @@ at = "spelling"
 
 # collection-without-instances
 [[refuse]]
-match = 'cells/result/job/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/{result,subject}/job/{_,k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/job/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x\, ..),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = '{claim,readable}/{result,subject}/job/{0,Frame \{ ret: x \},x}'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/{result,subject}/job/{0,Frame \{ ret: x \},_,x}'
+match = '{claim,readable}/subject/job/_'
 class = "collection-without-instances"
 at = "entry"
 
@@ -877,21 +935,13 @@ match = '{claim,readable}/subject/typed/map/{1,Go(),Unit()}'
 class = "map-read-value-binder"
 at = "spelling"
 
-# no-effect-entry
+# always-enabled-rule (Q1): a rule whose every subject entry constrains nothing matches every
+# configuration; its entry is admitted, with the lint `no-effect-entry`, which the rule's refusal
+# makes moot
 [[refuse]]
-match = '{claim,readable}/subject/stack/{[..],_}'
-class = "no-effect-entry"
-at = "entry"
-
-[[refuse]]
-match = '{claim,readable}/subject/{env,frame,pc}/_'
-class = "no-effect-entry"
-at = "entry"
-
-[[refuse]]
-match = '{claim,readable}/subject/{job,k}/[..]'
-class = "no-effect-entry"
-at = "entry"
+match = 'readable/subject/k/[..]'
+class = "always-enabled-rule"
+at = "item"
 
 # main-cell-not-k
 [[refuse]]
@@ -912,22 +962,27 @@ at = "spelling"
 
 # optional-without-presence
 [[refuse]]
-match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/counter/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x\, ..),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/subject/counter/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'init/counter/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},[0],[],[pgm],k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
+match = 'init/counter/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/{result,subject}/counter/{0,Frame \{ ret: x \},_,x}'
+match = '{claim,readable}/{result,subject}/counter/{0,Frame \{ ret: x \},x}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/counter/_'
 class = "optional-without-presence"
 at = "entry"
 
@@ -970,6 +1025,12 @@ class = "record-update-base"
 at = "spelling"
 
 # rest-mismatch
+# D2: a result after a subject's anonymous `..` writes `..` to keep it, or names it to drop it
+[[refuse]]
+match = 'cells-run/result/env/k::configuration::Cell(k::map![5 -> old\, x -> y])'
+class = "rest-mismatch"
+at = "entry"
+
 [[refuse]]
 match = '{claim,readable}/result/stack/{[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[x\, ..]}'
 class = "rest-mismatch"
@@ -1024,7 +1085,7 @@ at = "item"
 
 # wildcard-outside-pattern
 [[refuse]]
-match = '{claim,readable}/result/{env,frame,pc,stack}/_'
+match = '{claim,readable}/result/{counter,env,frame,job,k,pc,stack}/_'
 class = "wildcard-outside-pattern"
 at = "spelling"
 
@@ -1598,6 +1659,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells/subject/env/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -1625,6 +1687,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells/subject/frame/_"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -1690,6 +1753,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells/subject/pc/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -1717,6 +1781,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells/subject/stack/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -2107,6 +2172,9 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."claim/subject/env/_"]
+lint = "no-effect-entry"
+
 [accept."claim/subject/env/x"]
 k = """
 claim [case-TAG]:
@@ -2134,6 +2202,9 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."claim/subject/frame/_"]
+lint = "no-effect-entry"
+
 [accept."claim/subject/frame/x"]
 k = """
 claim [case-TAG]:
@@ -2142,6 +2213,9 @@ V0:FrameCell
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."claim/subject/job/[..]"]
+lint = "no-effect-entry"
 
 [accept."claim/subject/job/[Job { payload: x, .. }, ..]"]
 k = """
@@ -2159,6 +2233,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."claim/subject/job/[]"]
+
+[accept."claim/subject/job/[x, ..]"]
+
+[accept."claim/subject/k/[..]"]
+lint = "no-effect-entry"
 
 [accept."claim/subject/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -2190,6 +2269,9 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."claim/subject/pc/_"]
+lint = "no-effect-entry"
+
 [accept."claim/subject/pc/x"]
 k = """
 claim [case-TAG]:
@@ -2207,6 +2289,9 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."claim/subject/stack/[..]"]
+lint = "no-effect-entry"
 
 [accept."claim/subject/stack/[Job { payload: x, .. }, ..]"]
 k = """
@@ -2234,6 +2319,9 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."claim/subject/stack/_"]
+lint = "no-effect-entry"
 
 [accept."claim/subject/stack/x"]
 k = """
@@ -3275,6 +3363,30 @@ configuration
 </slots>
 """
 
+[accept."readable-run/subject/env/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells-run/subject/env/k::configuration::Cell(_)"]
+
+[accept."readable-run/subject/frame/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells-run/subject/frame/_"]
+
+[accept."readable-run/subject/job/[..]"]
+lint = "no-effect-entry"
+
+[accept."readable-run/subject/job/[x, ..]"]
+
+[accept."readable-run/subject/pc/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells-run/subject/pc/k::configuration::Cell(_)"]
+
+[accept."readable-run/subject/stack/[..]"]
+lint = "no-effect-entry"
+
+[accept."readable-run/subject/stack/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells-run/subject/stack/k::configuration::Cell(_)"]
+
 [accept."readable/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -3654,6 +3766,10 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["cells/subject/counter/Some(k::configuration::Cell(x))"]
 
+[accept."readable/subject/env/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells/subject/env/k::configuration::Cell(_)"]
+
 [accept."readable/subject/env/x"]
 k = """
 rule [case-TAG]:
@@ -3684,6 +3800,10 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["cells/subject/frame/k::fragment![crate::Frame { ret: x }]"]
 
+[accept."readable/subject/frame/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells/subject/frame/_"]
+
 [accept."readable/subject/frame/x"]
 k = """
 rule [case-TAG]:
@@ -3693,6 +3813,9 @@ V0:FrameCell
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["cells/subject/frame/x"]
+
+[accept."readable/subject/job/[..]"]
+lint = "no-effect-entry"
 
 [accept."readable/subject/job/[Job { payload: x, .. }, ..]"]
 k = """
@@ -3711,6 +3834,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]"]
 
 [accept."readable/subject/job/[]"]
+
+[accept."readable/subject/job/[x, ..]"]
 
 [accept."readable/subject/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -3745,6 +3870,10 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["cells/subject/pc/k::configuration::Cell(0)"]
 
+[accept."readable/subject/pc/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells/subject/pc/k::configuration::Cell(_)"]
+
 [accept."readable/subject/pc/x"]
 k = """
 rule [case-TAG]:
@@ -3763,6 +3892,9 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."readable/subject/stack/[..]"]
+lint = "no-effect-entry"
 
 [accept."readable/subject/stack/[Job { payload: x, .. }, ..]"]
 k = """
@@ -3791,6 +3923,10 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 same_k_as = ["cells/subject/stack/k::configuration::Cell([x, ..])"]
+
+[accept."readable/subject/stack/_"]
+lint = "no-effect-entry"
+same_k_as = ["cells/subject/stack/k::configuration::Cell(_)"]
 
 [accept."readable/subject/stack/x"]
 k = """
@@ -4171,15 +4307,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."cells-run/result/env/k::configuration::Cell(k::map![5 -> old, x -> y])"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-<env> 5 |-> V2:Int V3:Map => V3:Map [ 5 <- V2:Int ] [ V0:Int <- V1:Int ] </env>
-
-syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept."cells-run/result/env/k::configuration::Cell(k::map![x -> 3, y -> 4, ..rest])"]
 k = """
 rule [case-TAG]:
@@ -4325,6 +4452,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells-run/subject/env/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -4352,6 +4480,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells-run/subject/frame/_"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -4417,6 +4546,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells-run/subject/pc/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -4444,6 +4574,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."cells-run/subject/stack/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
@@ -4896,3 +5027,26 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+# Cell-entry exceptions: the cell-entry rows that depart from the cells oracle
+# (`class_matrix::cells_oracle`), each with the principle it departs by: `E1` (the computation is
+# matched from its front), `E3` (no `..pgm` in an initializer's `k!`), or `C-lim: REASON`, a stated
+# limitation refusing a spelling the principles give a meaning to. Check 1 of `tests/cells_oracle.rs`
+# fails on a disagreement no entry names, and on an entry that names no disagreement (stale). A run
+# case is named through its twin.
+[cell-exception]
+
+[cell-exception.'{claim,readable}/{result,subject}/k/[..\, Job \{ payload: 0\, .. \}]']
+principle = "E1"
+
+[cell-exception.'{claim,readable}/{result,subject}/job/[..\, Job \{ payload: 0\, .. \}]']
+principle = "C-lim: a List collection's back instance is not matched in place (boundaries.mdx:98)"
+
+[cell-exception.'{claim,readable}/result/env/\{ y -> x\, .. \}']
+principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`"
+
+[cell-exception.'init/k/k::k![Cmd::Go()\, ..pgm]']
+principle = "E3"
+
+[cell-exception.'{claim,readable}/subject/typed/map/{1,Go(),Unit()}']
+principle = "C-lim: a readable map read's value is a fresh binder; P5 gives a constant value its meaning (the entry maps to it)"

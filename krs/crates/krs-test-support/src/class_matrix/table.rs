@@ -80,6 +80,7 @@ use std::ops::Range;
 use krs_diagnostic::codes::CodeKind;
 use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
+use super::invariants::{Observed, Severity};
 use super::oracle::{Class as OracleClass, Outcome, Stage};
 use super::{Case, Family, Placed};
 
@@ -197,6 +198,20 @@ pub struct Accepted {
     pub k: Option<String>,
     /// Other accepted cases that must emit the same normalized K.
     pub same_k_as: Vec<String>,
+    /// The lint class the case owes (a warning `krs check` reports, the program accepted), or
+    /// `None` for a case accepted without one.
+    pub lint: Option<String>,
+}
+
+/// A cell-entry case whose row departs from the cells oracle's outcome
+/// ([`super::cells_oracle`]), with the principle it departs by: `E1`, `E3`, or `C-lim: REASON`, a
+/// stated limitation that refuses a spelling the principles give a meaning to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CellException {
+    /// The glob over case IDs (a run case is matched through its twin, as by a refusal rule).
+    pub pattern: String,
+    /// The principle: `E1`, `E3` or `C-lim: REASON`.
+    pub principle: String,
 }
 
 /// The parsed table.
@@ -208,6 +223,8 @@ pub struct Table {
     pub refuse: Vec<RefuseRule>,
     /// The accepted cases by ID.
     pub accept: BTreeMap<String, Accepted>,
+    /// The cell-entry exceptions, in table order.
+    pub cell_exceptions: Vec<CellException>,
 }
 
 /// What the table expects of one case.
@@ -427,6 +444,25 @@ pub struct Resolution<'t> {
 }
 
 impl Table {
+    /// The lint class `accepted` owes and `observed` did not report: no warning with the class's
+    /// code inside `entry`. `None` where the case owes no lint, or reported it, or was refused.
+    #[must_use]
+    pub fn missing_lint<'a>(
+        &self,
+        accepted: &'a Accepted,
+        observed: &Observed,
+        entry: &Range<usize>,
+    ) -> Option<&'a str> {
+        let lint = accepted.lint.as_deref()?;
+        let code = self.classes.get(lint).map(|class| class.code.as_str());
+        let reported = observed.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Warning
+                && diagnostic.code.as_deref() == code
+                && diagnostic.located_inside(entry)
+        });
+        (!observed.refused() && !reported).then_some(lint)
+    }
+
     /// Parse the table's text.
     ///
     /// # Errors
@@ -443,15 +479,30 @@ impl Table {
                 "class" => table.classes = parse_classes(item, &mut errors),
                 "refuse" => table.refuse = parse_rules(item, &mut errors),
                 "accept" => table.accept = parse_accepts(item, &mut errors),
+                "cell-exception" => table.cell_exceptions = parse_exceptions(item, &mut errors),
                 other => errors.push(schema(format!("unknown part {other:?}"))),
             }
         }
-        for rule in &table.refuse {
-            if let Err(reason) = Glob::parse(&rule.pattern) {
+        for pattern in table.refuse.iter().map(|rule| &rule.pattern).chain(
+            table
+                .cell_exceptions
+                .iter()
+                .map(|exception| &exception.pattern),
+        ) {
+            if let Err(reason) = Glob::parse(pattern) {
                 errors.push(TableError::Glob {
-                    pattern: rule.pattern.clone(),
+                    pattern: pattern.clone(),
                     reason,
                 });
+            }
+        }
+        for (id, accepted) in &table.accept {
+            if let Some(lint) = &accepted.lint
+                && !table.classes.contains_key(lint)
+            {
+                errors.push(schema(format!(
+                    "accept.{id:?} owes the lint {lint:?}, which is no declared class"
+                )));
             }
         }
         if errors.is_empty() {
@@ -483,7 +534,10 @@ impl Table {
         }
         match Self::parse(term_accepts) {
             Ok(terms) => {
-                if !terms.classes.is_empty() || !terms.refuse.is_empty() {
+                if !terms.classes.is_empty()
+                    || !terms.refuse.is_empty()
+                    || !terms.cell_exceptions.is_empty()
+                {
                     errors.push(schema(format!(
                         "{TERM_ACCEPTS_FILE} holds parts other than accept entries"
                     )));
@@ -1060,7 +1114,7 @@ fn parse_accepts(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
         let Some(accepted) = table_of(item, &owner, errors) else {
             continue;
         };
-        let fields = fields(accepted, &owner, &[], &["k", "same_k_as"], errors);
+        let fields = fields(accepted, &owner, &[], &["k", "same_k_as", "lint"], errors);
         accepts.insert(
             id.to_owned(),
             Accepted {
@@ -1068,10 +1122,32 @@ fn parse_accepts(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
                     .contains_key("k")
                     .then(|| string(fields.get("k"), &owner, "k", errors)),
                 same_k_as: strings(fields.get("same_k_as"), &owner, "same_k_as", errors),
+                lint: fields
+                    .contains_key("lint")
+                    .then(|| string(fields.get("lint"), &owner, "lint", errors)),
             },
         );
     }
     accepts
+}
+
+fn parse_exceptions(item: &Item, errors: &mut Vec<TableError>) -> Vec<CellException> {
+    let mut exceptions = Vec::new();
+    let Some(table) = table_of(item, "[cell-exception]", errors) else {
+        return exceptions;
+    };
+    for (pattern, item) in table {
+        let owner = format!("cell-exception.{pattern:?}");
+        let Some(exception) = table_of(item, &owner, errors) else {
+            continue;
+        };
+        let fields = fields(exception, &owner, &["principle"], &[], errors);
+        exceptions.push(CellException {
+            pattern: pattern.to_owned(),
+            principle: string(fields.get("principle"), &owner, "principle", errors),
+        });
+    }
+    exceptions
 }
 
 /// A parsed glob over case IDs.

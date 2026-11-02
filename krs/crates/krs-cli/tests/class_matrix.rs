@@ -73,7 +73,9 @@ use krs_compiler::testing::SortJudges;
 use krs_test_support::class_matrix::advice::{
     Corpus, Followed, Reading, UNCHECKED, judge, read, unchecked_drift,
 };
-use krs_test_support::class_matrix::findings::{FINDINGS_FILE, Findings, Red, Summary, audit};
+use krs_test_support::class_matrix::findings::{
+    FINDINGS_FILE, Findings, LINT_MISSING, Red, Summary, audit,
+};
 use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
 };
@@ -357,6 +359,13 @@ fn table_miss(
 ) -> Option<String> {
     match expected {
         Expected::Accept(_) if observed.refused() => Some("the table accepts the case".to_owned()),
+        Expected::Accept(accepted)
+            if let Some(lint) = spec().table.missing_lint(accepted, observed, &placed.entry) =>
+        {
+            Some(format!(
+                "the table expects the lint {lint}, a warning inside the entry"
+            ))
+        }
         Expected::Accept(accepted) => match (accepted.k.as_deref(), k) {
             (Some(recorded), Some(k)) if recorded != k => Some(format!(
                 "the case emits other K than the table records, {}: re-record its K where the \
@@ -417,7 +426,17 @@ fn k2_signature(
         }
         _ => false,
     };
-    if moved {
+    let lint = match resolution.expected.get(&judged.id) {
+        Some(Expected::Accept(accepted)) => {
+            spec()
+                .table
+                .missing_lint(accepted, &judged.observed, &placed.entry)
+        }
+        _ => None,
+    };
+    if let Some(lint) = lint {
+        format!("{LINT_MISSING}{lint}")
+    } else if moved {
         "accepted, with other K than recorded".to_owned()
     } else {
         signature(&judged.observed, placed)

@@ -330,6 +330,8 @@ pub enum RedKind {
     OtherK,
     /// K2: refused, where the table refuses, but not as the class says (code, site, count).
     Diagnostic,
+    /// K2: accepted, where the table accepts with a lint, without the lint's warning.
+    LintMissing,
     /// K2: a case the table does not decide, which is a table error of its own.
     Uncovered,
     /// K1, after lowering.
@@ -350,6 +352,11 @@ pub enum RedKind {
     K8,
 }
 
+/// How the harness's K2 signature begins for a case the table accepts with a lint
+/// (`expected.toml`'s `lint`) that was accepted without the lint's warning: the program is right,
+/// its warning is missing, so any finding kind may hold it.
+pub const LINT_MISSING: &str = "accepted, without the lint ";
+
 impl RedKind {
     /// The kind's name, as the harness prints it.
     #[must_use]
@@ -359,6 +366,7 @@ impl RedKind {
             Self::OverRefusal => "over-refusal",
             Self::OtherK => "other-k",
             Self::Diagnostic => "diagnostic",
+            Self::LintMissing => "lint-missing",
             Self::Uncovered => "uncovered",
             Self::K1 => "k1",
             Self::K3 => "k3",
@@ -414,6 +422,9 @@ impl Red {
                 Some(Expected::Refuse { .. }) if accepted => RedKind::UnderRefusal,
                 Some(Expected::Refuse { .. }) => RedKind::Diagnostic,
                 Some(Expected::Accept(_)) if accepted => RedKind::OtherK,
+                Some(Expected::Accept(_)) if deviation.starts_with(LINT_MISSING) => {
+                    RedKind::LintMissing
+                }
                 Some(Expected::Accept(_)) => RedKind::OverRefusal,
             },
         };
@@ -442,7 +453,7 @@ impl Red {
         match self.kind {
             _ if self.is_bug() => kind == FindingKind::Bug,
             RedKind::Uncovered => kind == FindingKind::Generator,
-            RedKind::Diagnostic | RedKind::K5 | RedKind::K8 => true,
+            RedKind::Diagnostic | RedKind::LintMissing | RedKind::K5 | RedKind::K8 => true,
             RedKind::OverRefusal
             | RedKind::OtherK
             | RedKind::K1

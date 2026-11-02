@@ -805,6 +805,13 @@ fn the_kind_of_a_red_is_computed_from_its_entry() {
         ("terms/a", internal, &accept, RedKind::OverRefusal, coded),
         ("terms/a", "accepted", &accept, RedKind::OtherK, none),
         (
+            "terms/a",
+            "accepted, without the lint no-effect-entry",
+            &accept,
+            RedKind::LintMissing,
+            none,
+        ),
+        (
             "k3/terms/a",
             "printed surface refused: krs::emit::unsupported-shape @ unlocated",
             &accept,
@@ -986,6 +993,7 @@ fn expectations() -> (MistakeClass, Accepted) {
         Accepted {
             k: None,
             same_k_as: Vec::new(),
+            lint: None,
         },
     )
 }
@@ -1441,7 +1449,7 @@ fn the_findings_registry_follows_its_schema() {
 }
 
 /// A run family's case is judged as its twin, the machine-base case of the same slot and spelling,
-/// is (`table::twin`): the table expects the same of both, accepted with the same `same_k_as` pairs
+/// is (`table::twin`): the table expects the same of both, accepted with the same lint and `same_k_as` pairs
 /// between twins and the same K (the sentences the case adds, its command written `TAG`, so the run
 /// base's driver commands and Set collection change no twin's K), or refused with the same class
 /// at the same site.
@@ -1456,8 +1464,9 @@ fn every_run_case_is_expected_what_its_twin_is() {
     let resolution = table.resolve_cases(&cases, registry_kind);
     let shape = |expected: &Expected<'_>| match expected {
         Expected::Accept(accepted) => format!(
-            "accepted, K {:?}, same K as {:?}",
+            "accepted, K {:?}, lint {:?}, same K as {:?}",
             accepted.k,
+            accepted.lint,
             accepted
                 .same_k_as
                 .iter()
