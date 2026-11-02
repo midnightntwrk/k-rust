@@ -2572,32 +2572,6 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling"
 # NT-5-1 (K8): the advice check on cases pending above under NT-5-1, whose refusal it reads.
 
 
-# NT-13-15 (K2, K8): `concrete(x)` on an equation and a table row is refused, advising bare
-# `concrete`, where the reference (boundaries.mdx, "Concrete, symbolic, and SMT lemmas") lists
-# `concrete(x, ..)` as a key `#[k::equation(..)]` takes. The meaning holds (the case's function
-# has no equation ordered after it, so no other equation applies where the restriction skips it),
-# but no route compiles it: both the native and the K text route go through k-rust's frontend,
-# whose rule-attribute check takes `concrete` on an equation only bare and on every equation of
-# its function (NT-33 fixer's probe: `krs check` and the text route of the emitted `definition.k`
-# both refuse "Found concrete attribute without simplification attribute on function with one or
-# more non-concrete rules"). Probe: `#[k::equation(concrete(x))] fn f(k::term![Probe(Cmd::C(), x)]: Term<Int>) -> Term<Int> { 0 }`.
-
-["attrs/equation/concrete(x)"]
-finding = "NT-13-15"
-deviation = "krs::analysis::invalid-match-restriction @ spelling"
-
-["attrs/table/concrete(x)"]
-finding = "NT-13-15"
-deviation = "krs::analysis::invalid-match-restriction @ spelling"
-
-["k8/attrs/equation/concrete(x)"]
-finding = "NT-13-15"
-deviation = "refused where the table accepts, advising `concrete`"
-
-["k8/attrs/table/concrete(x)"]
-finding = "NT-13-15"
-deviation = "refused where the table accepts, advising `concrete`"
-
 # NT-13-16 (K3): a `k::rules!` clause or a `k::equations!` row under `#[cfg(any())]`, a
 # configuration that does not hold, is accepted and left out of the definition (K7: the sentence
 # does not apply), but `krs expand` of the package fails with the internal

@@ -2504,8 +2504,10 @@ fn duplicate_klabels_are_scoped_to_the_main_import_closure() {
     assert!(diagnostics[0].message.contains("dup"));
 }
 
+/// A bare `concrete` equation beside an unrestricted one of the same function: the restriction
+/// chooses where the evaluator uses the equation, so it is not refused.
 #[test]
-fn function_rules_must_consistently_use_concrete_or_symbolic() {
+fn a_concrete_equation_beside_an_unrestricted_one_is_not_refused() {
     let function = production(Some("f"), "Int", &[], attrs(&[("function", json!(""))]));
     let concrete = Sentence::Rule {
         body: rewrite(Term::apply("f", Vec::new()), token("0")),
@@ -2532,12 +2534,7 @@ fn function_rules_must_consistently_use_concrete_or_symbolic() {
     .unwrap();
     let diagnostics = check_function_rule_attributes(&resolved);
 
-    assert_eq!(diagnostics.len(), 1);
-    assert_eq!(
-        diagnostics[0].code,
-        DiagnosticCode::InconsistentFunctionRuleAttributes
-    );
-    assert!(diagnostics[0].message.contains("non-concrete rules"));
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
 #[test]
@@ -2612,15 +2609,15 @@ fn function_rule_policy_covers_symbolic_conflicts_and_consistent_sets() {
     .unwrap();
     let diagnostics = check_function_rule_attributes(&resolved);
 
-    assert_eq!(diagnostics.len(), 2);
-    assert!(
+    // Only the rule that is both bare `concrete` and bare `symbolic`, which no term satisfies:
+    // a `symbolic` equation beside an unrestricted one is not refused.
+    assert_eq!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("non-symbolic rules"))
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>(),
+        ["Rule cannot be both concrete and symbolic in the same variable."]
     );
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.message == "Rule cannot be both concrete and symbolic in the same variable."
-    }));
 }
 
 #[test]
@@ -2731,6 +2728,30 @@ fn a_bare_attribute_overlaps_every_variable_the_other_attribute_names() {
     );
 }
 
+/// A restriction chooses where the evaluator uses an equation, not what it states, so a function
+/// may restrict some of its equations and not others, and a restriction may name some variables
+/// only: `concrete(X)` on one equation beside an unrestricted one, and bare `symbolic` on one
+/// beside an `owise` one, are not refused.
+#[test]
+fn a_restriction_on_some_equations_of_a_function_or_some_variables_is_accepted() {
+    let function = production(
+        Some("mixedF"),
+        "Int",
+        &[],
+        attrs(&[("function", json!(""))]),
+    );
+    let lhs = || Term::apply("mixedF", Vec::new());
+    let listed = concrete_symbolic_rule(lhs(), &[("concrete", json!("X"))]);
+    let plain = concrete_symbolic_rule(lhs(), &[]);
+    let bare_symbolic = concrete_symbolic_rule(lhs(), &[("symbolic", json!(""))]);
+    let owise = concrete_symbolic_rule(lhs(), &[("owise", json!(""))]);
+
+    assert_eq!(
+        function_rule_attribute_messages(vec![function, listed, plain, bare_symbolic, owise]),
+        Vec::<String>::new()
+    );
+}
+
 #[test]
 fn concrete_and_symbolic_overlaps_on_function_rules_are_reported_once() {
     let function = production(
@@ -2769,8 +2790,6 @@ fn concrete_and_symbolic_overlaps_on_function_rules_are_reported_once() {
     assert_eq!(
         messages,
         [
-            "Found concrete attribute without simplification attribute on function with one or more non-concrete rules.",
-            "Found symbolic attribute without simplification attribute on function with one or more non-symbolic rules.",
             "Rule cannot be both concrete and symbolic in the same variable.",
             "Rule cannot be both concrete and symbolic in the same variable: [X]",
             "Rule cannot be both concrete and symbolic in the same variable: [X]",

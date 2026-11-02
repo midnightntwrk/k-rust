@@ -183,17 +183,10 @@ fn check_disjoint(
 ///
 /// Equations of one order are one definition, which must agree where several
 /// apply, so they never contradict one another's restriction. A
-/// simplification states no definition, and is exempt.
-///
-/// Beyond that, the definition's routes carry a restriction on a function's
-/// equation only in one form: both the native route and the K text route
-/// compile through k-rust's frontend, whose rule-attribute check
-/// (`check_function_rule_attributes` in `k-rust`'s
-/// `definition/checks/labels.rs`) accepts `concrete` or `symbolic` on an
-/// equation only when every equation of its function is bare `concrete` (or
-/// bare `symbolic`). A listed restriction, or a restricted equation beside an
-/// unrestricted one, holds its meaning but is refused here, at its key, since
-/// no route compiles it.
+/// simplification states no definition, and is exempt. A restriction on some
+/// binders only, or on one equation beside unrestricted ones of the same
+/// order, is accepted: it skips the equation where it does not hold, and no
+/// equation applies in its place there.
 pub(super) fn check_equation_restrictions(
     modules: &[SemanticModule],
 ) -> Result<(), DescriptorLoweringError> {
@@ -206,7 +199,7 @@ pub(super) fn check_equation_restrictions(
             functions.entry(function).or_default().push(rule);
         }
     }
-    for (function, equations) in functions {
+    for equations in functions.values() {
         for (name, key) in [
             ("concrete", IrMatchRestriction::concrete as KeyOf),
             ("symbolic", IrMatchRestriction::symbolic as KeyOf),
@@ -231,34 +224,6 @@ pub(super) fn check_equation_restrictions(
                         restriction.origin(),
                     ));
                 }
-            }
-            let Some((first, first_key)) = restricted.first() else {
-                continue;
-            };
-            if let Some((rule, listed)) = restricted.iter().find(|(_, key)| !key.is_bare()) {
-                return Err(invalid(
-                    rule.id(),
-                    format!(
-                        "equation `{}` restricts only some binders with `{name}(..)`, which holds its meaning, but no route compiles it: the native and the K text route compile through k-rust's frontend, which takes `{name}` on an equation only bare, and only when every equation of its function is bare `{name}`; write bare `{name}`, or make it a #[k::simplification]",
-                        rule.id().item_name()
-                    ),
-                    listed.origin(),
-                ));
-            }
-            if let Some(other) = equations
-                .iter()
-                .find(|rule| rule.restriction().and_then(key).is_none())
-            {
-                return Err(invalid(
-                    first.id(),
-                    format!(
-                        "equation `{}` is `{name}`, but equation `{}` of the same function `{}` is not, which holds its meaning, but no route compiles it: the native and the K text route compile through k-rust's frontend, which takes `{name}` on an equation only when every equation of its function is bare `{name}`; mark them all `{name}`, or make the restricted one a #[k::simplification]",
-                        first.id().item_name(),
-                        other.id().item_name(),
-                        production_display_name(function),
-                    ),
-                    first_key.origin(),
-                ));
             }
         }
     }

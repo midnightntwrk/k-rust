@@ -526,6 +526,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."attrs/equation/concrete(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [concrete(V0), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept.'attrs/equation/label = "named-TAG"']
 k = """
@@ -1333,6 +1338,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."attrs/table/concrete(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [concrete(V0), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."attrs/table/doc"]
 k = """
