@@ -1278,20 +1278,14 @@ impl Driver<'_> {
                 )
             }
             ("equation", "guard") => {
-                let run = self.guarded(
-                    &call(one()),
-                    1,
-                    vec![k(vec![hold(int(0))])],
-                    Vec::new(),
-                )?;
+                let run = self.guarded(&call(one()), 1, vec![k(vec![hold(int(0))])], Vec::new())?;
                 // An equation that does not apply, its condition false or with no value, leaves
                 // `Probe`'s application, which no other equation of the partial `Probe` gives a
                 // value: the call's result has none ([`unapplied_equation`]).
                 Ok(match run {
-                    K7::Run(run) if !run.applies => unapplied_equation(K7::Run(Run {
-                        steps: 1,
-                        ..run
-                    })),
+                    K7::Run(run) if !run.applies => {
+                        unapplied_equation(K7::Run(Run { steps: 1, ..run }))
+                    }
                     other => other,
                 })
             }

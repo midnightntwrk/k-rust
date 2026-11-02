@@ -3827,6 +3827,23 @@ fn root_value(spelling: &Spelling) -> &'static str {
     }
 }
 
+/// What a run of a case of `slot` with plan `plan` shows without the case's sentence, where the
+/// form says it is the same ([`Removed::Unchanged`]): a simplification's runs are its lemma's
+/// twin, and an equation whose result has no value leaves its application with none, as no
+/// equation does.
+fn removed_unchanged(slot: &Slot, plan: &K7) -> Option<Removed> {
+    let K7::Run(run) = plan else {
+        return None;
+    };
+    if slot.form == "simplification" {
+        return Some(Removed::Unchanged(super::SIMPLIFICATION_TWIN));
+    }
+    (matches!(slot.form, "equation" | "table")
+        && slot.side == Side::Result
+        && run.status == super::k7::Status::UndefinedResult)
+        .then_some(Removed::Unchanged(super::EQUATION_WITHOUT_VALUE))
+}
+
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let construct = spelling.text(slot.at.form);
     let imported = family == Family::Import;
@@ -3918,14 +3935,8 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     {
         case.removed = Removed::Unchanged(super::BUILT_UNSTATED);
     }
-    if slot.form == "simplification" && matches!(case.k7, K7::Run(_)) {
-        case.removed = Removed::Unchanged(super::SIMPLIFICATION_TWIN);
-    }
-    if matches!(slot.form, "equation" | "table")
-        && slot.side == Side::Result
-        && matches!(&case.k7, K7::Run(run) if run.status == super::k7::Status::UndefinedResult)
-    {
-        case.removed = Removed::Unchanged(super::EQUATION_WITHOUT_VALUE);
+    if let Some(removed) = removed_unchanged(slot, &case.k7) {
+        case.removed = removed;
     }
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.
