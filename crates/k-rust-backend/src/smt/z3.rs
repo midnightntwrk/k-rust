@@ -45,13 +45,17 @@
 //! name = "bounded sufficient proof attempt and Z3 satisfiability check"
 //! sites = ["measured_check", "Z3Solver::solve_uncached", "Z3Solver::solve_model", "Z3Solver::check_predicates_inner", "Z3Solver::prove_with_observation_aliases"]
 //! variable = "R = Z3 resource-limit units consumed by one check"
-//! counters = ["SmtSolverRuns", "SmtRlimitCount"]
+//! counters = ["SmtSolverRuns", "SmtRlimitCount", "SmtOpaqueAtomDomains"]
 //! span = "per call"
 //! invariant = "the rlimit delta is read around each check from the cumulative statistics of its context"
 //!
 //! [[cost]]
 //! mode = "solver check"
 //! bound = "O(R) solver work as reported by Z3"
+//!
+//! [[cost]]
+//! mode = "atom domains in the translation"
+//! bound = "Each atom's operands carry their domains (GAP K15): a ceil_free operand costs one stored-bit read and adds nothing; any other is read through the per-node domain memo of its predicate's lexical scope, one let per distinct non-ceil_free node per scope, each of size 1 + arity + its own condition (a domain-function application, an opaque atom, or a ceil-equation instance over argument references). An operand stated defined by a sibling ceil conjunct, a known ceil, or as a child within its parent's domain adds nothing. Preparation plans each distinct node once within its 16384-work budget. A quantifier's body has its own scope, so a closed operand's domain is repeated once per binder scope, as its value is. Decided-domain links to a head's domain function are asserted only when the query reads that function as an undecided domain."
 //!
 //! [[cost]]
 //! mode = "positive map-context sufficient proof"
@@ -2780,6 +2784,15 @@ mod tests {
     /// The solver decides nothing about `^Int` or `^%Int` from a value where no integer is the
     /// power (a negative exponent of a base other than 1 and -1), and still decides what holds for
     /// the integer powers.
+    ///
+    /// GAP K15 re-pinned it. The definition now states AM-12's domains of `^Int` and `^%Int`
+    /// (`INT-SYMBOLIC-KORE`, docs/amendments.md); without them `\ceil(pow(2, B))` is unknown for
+    /// every `B`, and `0 <Int pow(pow(2, B), 2)` was valid only through the total reading of a
+    /// term that may denote nothing. With them, each power the first loop reads is undefined
+    /// under its known predicates (a negative exponent of 2 or 3, or of 2 at -1), so each atom
+    /// over it is `\bottom = v`, false in every K valuation: `Refuted`, which the solver now
+    /// answers through the domain, never through the fractional value of `^`. Before, it
+    /// answered `Contingent`, which no K valuation supports: none satisfies the atom.
     #[test]
     fn decides_nothing_from_a_power_where_no_integer_is_its_value() {
         let syntax = parse_definition(
@@ -2793,6 +2806,30 @@ mod tests {
                     [function{}(), hook{}("INT.powmod"), smt-hook{}("(mod (^ #1 #2) #3)")]
                 hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+                hooked-symbol le{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.le"), smt-hook{}("<=")]
+                hooked-symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                hooked-symbol ne{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                hooked-symbol bor{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.or"), smt-hook{}("or")]
+                axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+                    \ceil{SortInt{}, Q}(pow{}(I1:SortInt{}, I2:SortInt{})),
+                    \and{Q}(\equals{SortBool{}, Q}(
+                        bor{}(le{}(\dv{SortInt{}}("0"), I2:SortInt{}),
+                          bor{}(eq{}(I1:SortInt{}, \dv{SortInt{}}("1")),
+                            eq{}(I1:SortInt{}, \dv{SortInt{}}("-1")))),
+                        \dv{SortBool{}}("true")), \top{Q}()))) [simplification{}()]
+                axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+                    \ceil{SortInt{}, Q}(powmod{}(I1:SortInt{}, I2:SortInt{}, I3:SortInt{})),
+                    \and{Q}(\equals{SortBool{}, Q}(
+                        ne{}(I3:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
+                      \and{Q}(\equals{SortBool{}, Q}(
+                        bor{}(le{}(\dv{SortInt{}}("0"), I2:SortInt{}),
+                          bor{}(eq{}(I1:SortInt{}, \dv{SortInt{}}("1")),
+                            eq{}(I1:SortInt{}, \dv{SortInt{}}("-1")))),
+                        \dv{SortBool{}}("true")), \top{Q}())))) [simplification{}()]
             endmodule []"#,
         )
         .expect("definition should parse");
@@ -2851,7 +2888,7 @@ mod tests {
         ] {
             assert_eq!(
                 validity(&known, checked.clone()),
-                Ok(Ok(Validity::Contingent)),
+                Ok(Ok(Validity::Refuted)),
                 "{checked:?} under {known:?}"
             );
         }
@@ -2965,6 +3002,58 @@ mod tests {
                 "{checked:?}"
             );
         }
+    }
+
+    /// GAP K15: the solver reads an atom over a partial term as K does wherever the term is
+    /// undefined too. `half` is partial, with the `smt-hook` SMT-LIB's `div`, which has a value
+    /// at 1 where the definition leaves `half(1)` open. `half(1) = 0` is `\bottom` where
+    /// `half(1)` is undefined, so it is not valid (Z3 read it as `div 1 2 = 0` and found it
+    /// valid), its negation is not refuted, and it contradicts `\not \ceil(half(1))`; two
+    /// undefined terms are equal, `\bottom = \bottom` being `\top`.
+    #[test]
+    fn an_atom_over_a_partial_term_is_decided_only_where_the_term_is_defined() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let half = |argument: &str| term(&definition, &format!("half{{}}({argument})"));
+        let one = r#"\dv{SortInt{}}("1")"#;
+        let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+        let equality = Predicate::Equals(half(one), zero);
+        let undefined =
+            |argument: &str| Predicate::Not(std::sync::Arc::new(Predicate::Ceil(half(argument))));
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), std::slice::from_ref(&equality)),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[],
+                &Substitution::new(),
+                &[Predicate::Not(std::sync::Arc::new(equality.clone()))]
+            ),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(
+            solver.is_sat(&[equality, undefined(one)], &Substitution::new()),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[undefined("X:SortInt{}"), undefined("Y:SortInt{}")],
+                &Substitution::new(),
+                &[Predicate::Equals(half("X:SortInt{}"), half("Y:SortInt{}"))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
     }
 
     /// GAP K15: a conditional ceil equation `\ceil(I divInt J) = \top requires J =/=Int 0` is an

@@ -7,6 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use super::{SExpr, TranslationError, TranslationState};
 use crate::{
     rule::Predicate,
@@ -15,8 +17,10 @@ use crate::{
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SharedDomains {
-    values: BTreeMap<Term, SExpr>,
-    active: BTreeSet<Term>,
+    /// The domain of each node read in this scope: one name per node, however many parents
+    /// and atoms share it. Keyed by the term's stored hash, with a pointer comparison first.
+    values: FxHashMap<Term, SExpr>,
+    active: FxHashSet<Term>,
     reentrant: BTreeMap<Term, SExpr>,
     pub(super) bindings: Vec<(String, SExpr)>,
 }
@@ -226,7 +230,20 @@ impl TranslationState {
         result
     }
 
+    /// The domain of `term`: the SMT statement of `\ceil(term)`, memoized per node in the
+    /// predicate's domain scope. A domain is exact in both polarities, so its own atoms carry
+    /// their domains even inside a predicate read as a reading alone
+    /// (`TranslationState::translate_predicate_reading`).
     pub(super) fn translate_domain(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        let outside = std::mem::replace(&mut self.atom_readings, false);
+        let outside_defined = std::mem::take(&mut self.stated_defined);
+        let result = self.translate_domain_node(term);
+        self.atom_readings = outside;
+        self.stated_defined = outside_defined;
+        result
+    }
+
+    fn translate_domain_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         if self.congruence.is_some() && term.attributes().ceil_free() {
             // Eliminating a domain must not turn an uninterpreted input carrier into
             // an exact model query merely because its variable no longer needs a value.
@@ -249,6 +266,7 @@ impl TranslationState {
         let observation = self.observations.get(term).cloned();
         let supplies_value = observation.is_some() || self.observation_demands.contains_key(term);
         if plan.is_none() && summary.is_none() && observation.is_none() {
+            self.opaque_domain_reads += 1;
             return Ok(self.abstract_predicate(&original));
         }
         let scope = self
@@ -263,6 +281,7 @@ impl TranslationState {
         // graph remains conservative rather than acquiring an invented total domain.
         let reentrant = scope.active.contains(term);
         if scope.active.len() >= 128 || reentrant {
+            self.opaque_domain_reads += 1;
             let reference = self.abstract_predicate(&original);
             if reentrant {
                 self.shared_domains
@@ -276,6 +295,16 @@ impl TranslationState {
         scope.active.insert(term.clone());
         let resolved = summary.is_none()
             && (observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original)));
+        // The domain is the head's own condition conjoined with every non-`ceil_free` child's
+        // domain (`domain_plan`, `observation_domain`), so within that condition a child may be
+        // read as defined: `φ /\ D(c)` is `φ[D(c) := true] /\ D(c)`. An atom over a child there
+        // then states no second copy of the child's domain, which inside a quantifier of the
+        // condition (a sort projection's `\exists V. X = inj(V)`) would be a copy per binder
+        // scope (`TranslationState::stated_defined`).
+        self.stated_defined = crate::deferred::children(term)
+            .into_iter()
+            .cloned()
+            .collect();
         let result = (|| {
             #[cfg(any(feature = "z3", test))]
             if let Some(reading) = summary {
@@ -288,7 +317,12 @@ impl TranslationState {
                 let mut parts = Vec::new();
                 for predicate in plan.iter() {
                     if *predicate == original {
-                        parts.push(self.translate_domain_head(term)?);
+                        self.opaque_domain_reads += 1;
+                        let head = self.translate_domain_head(term)?;
+                        if let Some(name) = domain_function_name(&head) {
+                            self.undecided_domain_heads.insert(name);
+                        }
+                        parts.push(head);
                     } else {
                         parts.push(self.translate_predicate(predicate)?);
                     }
@@ -301,6 +335,7 @@ impl TranslationState {
             };
             Ok(value)
         })();
+        self.stated_defined.clear();
         let scope = self.shared_domains.as_mut().expect("active domain scope");
         scope.active.remove(term);
         let value = result?;
@@ -357,10 +392,14 @@ impl TranslationState {
                     } else {
                         SExpr::application("and", argument_domains)
                     },
-                    SExpr::application("=", vec![head, reference.clone()]),
+                    SExpr::application("=", vec![head.clone(), reference.clone()]),
                 ],
             );
-            self.record_source_fact(fact)?;
+            let fact = self.close_source_fact(fact)?;
+            match domain_function_name(&head) {
+                Some(name) => self.pending_domain_links.push((name, fact)),
+                None => self.domain_facts.push(fact),
+            }
         }
         // The conditional ceil equations at the application, facts beside its domain function
         // (`domain_lemmas`). Each reads the completed domain through the memo.
@@ -453,6 +492,18 @@ impl TranslationState {
     }
 }
 
+/// The name of the domain function a head-domain reading applies (`translate_domain_head`).
+fn domain_function_name(head: &SExpr) -> Option<String> {
+    match head {
+        SExpr::Atom(name) if name.starts_with("SMT-") => Some(name.clone()),
+        SExpr::List(items) => match items.first() {
+            Some(SExpr::Atom(name)) if name.starts_with("SMT-") => Some(name.clone()),
+            _ => None,
+        },
+        SExpr::Atom(_) => None,
+    }
+}
+
 /// Derive source predicates before translation, with no query names or caller facts in them.
 /// An unsupported operand or exhausted construction budget keeps its previous opaque reading.
 #[cfg(any(feature = "z3", test))]
@@ -479,7 +530,7 @@ pub(super) fn prepare(
     let mut candidates = Vec::new();
     // Substituted terms can contribute domains reached from a checked partial application.
     candidates.extend(substitution.values().cloned());
-    let mut seen = BTreeSet::new();
+    let mut seen = FxHashSet::default();
     while !predicates.is_empty() || !candidates.is_empty() {
         stop::check()?;
         if remaining == 0 {
@@ -489,6 +540,15 @@ pub(super) fn prepare(
         if let Some(predicate) = predicates.pop() {
             match predicate {
                 Predicate::Ceil(term) | Predicate::Defined(term) => candidates.push(term),
+                // An atom's operands: the translation states their domains beside it.
+                Predicate::Term(term) if !term.attributes().ceil_free() => candidates.push(term),
+                Predicate::Equals(left, right) => {
+                    for side in [left, right] {
+                        if !side.attributes().ceil_free() {
+                            candidates.push(side);
+                        }
+                    }
+                }
                 Predicate::Not(p) | Predicate::Exists(_, p) | Predicate::Forall(_, p) => {
                     predicates.push((*p).clone());
                 }
@@ -504,7 +564,6 @@ pub(super) fn prepare(
                 Predicate::True
                 | Predicate::False
                 | Predicate::Term(_)
-                | Predicate::Equals(..)
                 | Predicate::Floor(_)
                 | Predicate::In(..)
                 | Predicate::Absent(_) => {}

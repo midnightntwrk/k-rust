@@ -1037,6 +1037,15 @@ mod tests {
         );
     }
 
+    /// The zero-length reconstruction `size(L) = 0 => L = .List` is read for a list value, and
+    /// gives `partial()` no domain of its own: its definedness is known only through the atoms
+    /// over it. GAP K15 re-pinned the second half. `size(partial()) = 0` is `\bottom` where
+    /// `partial()` is undefined (`size` is strict, and `\bottom` equals no element), so
+    /// `\not \ceil(partial()) /\ size(partial()) = 0` holds in no K valuation: `Unsat` is its K
+    /// answer. The `Sat` this test pinned before came from an interpretation in which the size
+    /// of the SMT value of `partial()` was 0 although `partial()` denotes nothing, which is no K
+    /// valuation. For the same reason `size(partial()) = 0` states `partial()` defined, and only
+    /// that atom does: `\ceil(partial())` is not valid without it.
     #[cfg(feature = "z3")]
     #[test]
     fn zero_length_reconstruction_keeps_the_original_opaque_head_domain() {
@@ -1066,20 +1075,32 @@ mod tests {
             Validity::Valid
         );
         let partial = term(&definition, "partial{}()");
+        let empty_size = Predicate::Equals(ops.size(partial.clone()).unwrap(), Term::int(0));
         let known = [
             Predicate::Not(Arc::new(Predicate::Ceil(partial.clone()))),
-            Predicate::Equals(ops.size(partial.clone()).unwrap(), Term::int(0)),
+            empty_size.clone(),
         ];
         assert_eq!(
             solver
                 .is_sat(&known, &Substitution::new())
                 .unwrap()
                 .unwrap(),
-            Satisfiability::Sat
+            Satisfiability::Unsat
+        );
+        assert_eq!(
+            solver
+                .check_predicates(
+                    &[empty_size],
+                    &Substitution::new(),
+                    &[Predicate::Ceil(partial.clone())]
+                )
+                .unwrap()
+                .unwrap(),
+            Validity::Valid
         );
         assert_ne!(
             solver
-                .check_predicates(&known, &Substitution::new(), &[Predicate::Ceil(partial)])
+                .check_predicates(&[], &Substitution::new(), &[Predicate::Ceil(partial)])
                 .unwrap()
                 .unwrap(),
             Validity::Valid

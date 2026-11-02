@@ -24,23 +24,54 @@ fn definition_source() -> String {
       hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
     "#,
     );
-    for (name, hook, smt) in [
-        ("add", "INT.add", Some("+")),
-        ("sub", "INT.sub", Some("-")),
-        ("mul", "INT.mul", Some("*")),
-        ("and", "INT.and", None),
-        ("or", "INT.or", None),
-        ("xor", "INT.xor", None),
-        ("shl", "INT.shl", None),
-        ("shr", "INT.shr", None),
-        ("div", "INT.ediv", Some("div")),
-        ("mod", "INT.emod", Some("mod")),
-        ("tdiv", "INT.tdiv", None),
-        ("tmod", "INT.tmod", None),
+    // The totality and the domains `domains.md` states for these hooks (with AM-10 for
+    // `bitRangeInt`): the solver reads an atom over a partial term only where its domain is
+    // known (GAP K15), and these tests are about the word readings of defined terms.
+    for (name, hook, smt, total) in [
+        ("add", "INT.add", Some("+"), true),
+        ("sub", "INT.sub", Some("-"), true),
+        ("mul", "INT.mul", Some("*"), true),
+        ("and", "INT.and", None, true),
+        ("or", "INT.or", None, true),
+        ("xor", "INT.xor", None, true),
+        ("shl", "INT.shl", None, false),
+        ("shr", "INT.shr", None, false),
+        ("div", "INT.ediv", Some("div"), false),
+        ("mod", "INT.emod", Some("mod"), false),
+        ("tdiv", "INT.tdiv", None, false),
+        ("tmod", "INT.tmod", None, false),
     ] {
-        source.push_str(&format!(r#"hooked-symbol {name}{{}}(SortInt{{}},SortInt{{}}):SortInt{{}} [function{{}}(), hook{{}}("{hook}"){smt}]
-        "#, smt=smt.map_or(String::new(), |s|format!(r#", smt-hook{{}}("{s}")"#))));
+        source.push_str(&format!(r#"hooked-symbol {name}{{}}(SortInt{{}},SortInt{{}}):SortInt{{}} [function{{}}(), hook{{}}("{hook}"){smt}{total}]
+        "#, smt=smt.map_or(String::new(), |s|format!(r#", smt-hook{{}}("{s}")"#)), total=if total { ", total{}()" } else { "" }));
     }
+    let condition =
+        |test: &str| format!(r#"\equals{{SortBool{{}}, Q}}({test}, \dv{{SortBool{{}}}}("true"))"#);
+    let nonzero = condition(r#"ne{}(I2:SortInt{}, \dv{SortInt{}}("0"))"#);
+    let nonnegative = condition(r#"le{}(\dv{SortInt{}}("0"), I2:SortInt{})"#);
+    for (name, stated) in [
+        ("div", nonzero.clone()),
+        ("mod", nonzero.clone()),
+        ("tdiv", nonzero.clone()),
+        ("tmod", nonzero),
+        ("shl", nonnegative.clone()),
+        ("shr", nonnegative),
+    ] {
+        source.push_str(&format!(
+            r#"axiom{{Q}} \implies{{Q}}(\top{{Q}}(), \equals{{Q, Q}}(
+              \ceil{{SortInt{{}}, Q}}({name}{{}}(I1:SortInt{{}}, I2:SortInt{{}})),
+              \and{{Q}}({stated}, \top{{Q}}()))) [simplification{{}}()]
+            "#
+        ));
+    }
+    source.push_str(&format!(
+        r#"axiom{{Q}} \implies{{Q}}(\top{{Q}}(), \equals{{Q, Q}}(
+          \ceil{{SortInt{{}}, Q}}(bits{{}}(I:SortInt{{}}, I1:SortInt{{}}, I2:SortInt{{}})),
+          \and{{Q}}({}, \and{{Q}}({}, \top{{Q}}())))) [simplification{{}}()]
+        hooked-symbol ne{{}}(SortInt{{}},SortInt{{}}):SortBool{{}} [function{{}}(),total{{}}(),hook{{}}("INT.ne"),smt-hook{{}}("distinct")]
+        "#,
+        condition(r#"le{}(\dv{SortInt{}}("0"), I1:SortInt{})"#),
+        condition(r#"le{}(\dv{SortInt{}}("0"), I2:SortInt{})"#),
+    ));
     source.push_str(r#"hooked-symbol lt{}(SortInt{},SortInt{}):SortBool{} [function{}(),total{}(),hook{}("INT.lt"),smt-hook{}("<")]
       hooked-symbol le{}(SortInt{},SortInt{}):SortBool{} [function{}(),total{}(),hook{}("INT.le"),smt-hook{}("<=")]
       hooked-symbol bor{}(SortBool{},SortBool{}):SortBool{} [function{}(),total{}(),hook{}("BOOL.or"),smt-hook{}("or")]

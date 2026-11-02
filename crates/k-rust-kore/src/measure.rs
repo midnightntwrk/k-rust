@@ -20,7 +20,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 22;
+pub const COUNTER_SCHEMA_VERSION: u64 = 23;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -566,6 +566,10 @@ pub enum Counter {
     SmtTypedCacheMisses,
     /// Queries entering definition-aware preparation, including fresh model queries.
     SmtPreparedQueries,
+    /// Operands of solver atoms whose domain reads an opaque domain (a head's domain function
+    /// or an opaque `\ceil` atom) where it is first translated in a query: an atom over such an
+    /// operand is decided only where that domain is known.
+    SmtOpaqueAtomDomains,
     /// SMT queries that ran a solver instance.
     SmtSolverRuns,
     /// Z3 resource-limit units consumed by solver checks.
@@ -620,7 +624,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 102;
+    pub const COUNT: usize = 103;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -703,6 +707,7 @@ impl Counter {
         Counter::SmtTypedCacheHits,
         Counter::SmtTypedCacheMisses,
         Counter::SmtPreparedQueries,
+        Counter::SmtOpaqueAtomDomains,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
         Counter::Allocations,
@@ -812,6 +817,7 @@ impl Counter {
             Counter::SmtTypedCacheHits => "smt.typed_cache_hits",
             Counter::SmtTypedCacheMisses => "smt.typed_cache_misses",
             Counter::SmtPreparedQueries => "smt.prepared_queries",
+            Counter::SmtOpaqueAtomDomains => "smt.opaque_atom_domains",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",
             Counter::Allocations => "allocation.count",

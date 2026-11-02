@@ -3362,6 +3362,64 @@ fn a_function_equation_in_a_ceil_keeps_its_bound_term_obligation_beside_a_siblin
     assert_keeps_half_definedness(&definition, function_equation_route(&definition));
 }
 
+/// GAP K15: the two routes the K11-K14 review found, at which the simplifier still leaves the
+/// definedness of `half(1)` to an equality alone, which K15 closes at the solver instead. Route
+/// 5: `pvalid` (`KRYPTO.bn128valid`) is defined wherever its argument is and `g1` is a
+/// constructor, so `\ceil(pvalid(g1(half(1), 0)))` states exactly `\ceil(half(1))`, which the
+/// sibling `half(1) = 0` implies: the arm returns `\top` and leaves `half(1) = 0`. Route 6:
+/// `\ceil(0 /\ half(1))` is `\ceil(0) /\ 0 = half(1)`, an ML equivalence. Both are K
+/// equivalences; neither form is valid, since each is `\bottom` where `half(1)` is undefined, and
+/// Z3, reading `half` as `div` without its domain, decided both valid.
+fn review_route_definition() -> BackendDefinition {
+    definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           sort SortG1Point{} []
+           symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+           symbol g1{}(SortInt{}, SortInt{}) : SortG1Point{} [constructor{}()]
+           hooked-symbol pvalid{}(SortG1Point{}) : SortBool{}
+             [function{}(), hook{}("KRYPTO.bn128valid")]"#,
+    )
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn the_review_routes_to_an_equality_alone_are_not_decided_valid() {
+    let definition = review_route_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let half = r#"half{}(\dv{SortInt{}}("1"))"#;
+    let zero = r#"\dv{SortInt{}}("0")"#;
+    let mut valid = Vec::new();
+    for predicate in [
+        Predicate::And(
+            vec![
+                Predicate::Ceil(term(
+                    &definition,
+                    &format!("pvalid{{}}(g1{{}}({half}, {zero}))"),
+                )),
+                Predicate::Equals(term(&definition, half), term(&definition, zero)),
+            ]
+            .into(),
+        ),
+        Predicate::Ceil(term(
+            &definition,
+            &format!(r#"\and{{SortInt{{}}}}({zero}, {half})"#),
+        )),
+    ] {
+        let decided = simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .unwrap();
+        if decided == Predicate::True {
+            valid.push(predicate);
+        }
+    }
+    assert!(valid.is_empty(), "decided valid: {valid:?}");
+}
+
 /// Every application is strict, so a known predicate that states a term defined (a Boolean term
 /// read as `true = P`, an equality with a defined side, a `\ceil`) states every subterm of it
 /// defined, under partial symbols too, and a `\ceil` conjunct over one holds. A negated known

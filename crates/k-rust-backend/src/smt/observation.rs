@@ -133,10 +133,12 @@ impl TranslationState {
         let value = match reading.as_ref() {
             Reading::Leaf(term) => self.translate_term(term)?,
             Reading::Missing => fallback.clone(),
+            // The value is read only under the observed term's domain, which holds its source
+            // operands' (`translate_observation`); the test is read as at its introduction.
             Reading::If { test, yes, no } => SExpr::application(
                 "ite",
                 vec![
-                    self.translate_predicate(test)?,
+                    self.translate_predicate_reading(test)?,
                     self.observation_value(yes, fallback, memo)?,
                     self.observation_value(no, fallback, memo)?,
                 ],

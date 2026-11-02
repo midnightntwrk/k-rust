@@ -1332,6 +1332,20 @@ symbol = "Counter::SimplifyRounds"
 
 [[node]]
 kind = "observation"
+id = "SmtOpaqueAtomDomains"
+provenance = "table"
+area = "smt"
+name = "SmtOpaqueAtomDomains"
+table = "Counter::ALL"
+registry_name = "smt.opaque_atom_domains"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtOpaqueAtomDomains"
+
+[[node]]
+kind = "observation"
 id = "SmtPreparedQueries"
 provenance = "table"
 area = "smt"
@@ -4712,9 +4726,23 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "Z3Solver::prove_with_observation_aliases"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt.rs"
+symbol = "TranslationState::operand_domain"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt.rs"
+symbol = "TranslationState::atom_with_domains"
+
 [[node.cost]]
 mode = "solver check"
 bound = "O(R) solver work as reported by Z3"
+
+[[node.cost]]
+mode = "atom domains in the translation"
+bound = "Each atom's operands carry their domains (GAP K15): a ceil_free operand costs one stored-bit read and adds nothing; any other is read through the per-node domain memo of its predicate's lexical scope, one let per distinct non-ceil_free node per scope, each of size 1 + arity + its own condition (a domain-function application, an opaque atom, or a ceil-equation instance over argument references). An operand stated defined by a sibling ceil conjunct, a known ceil, or as a child within its parent's domain adds nothing. Preparation plans each distinct node once within its 16384-work budget. A quantifier's body has its own scope, so a closed operand's domain is repeated once per binder scope, as its value is. Decided-domain links to a head's domain function are asserted only when the query reads that function as an undecided domain."
 
 [[node.cost]]
 mode = "positive map-context sufficient proof"
@@ -12216,6 +12244,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.smt.cache"
 to = "SmtTypedCacheMisses"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.check"
+to = "SmtOpaqueAtomDomains"
 provenance = "declared"
 
 [[edge]]

@@ -965,6 +965,7 @@ pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &T
 /// them (`smt::functional::domain_plan`), is the application's `\ceil` on defined arguments.
 /// An evaluation applies no equation of the definition: it is one hook evaluation on literal
 /// arguments, which ends. A failure of the evaluator leaves the definedness open.
+#[cfg(any(feature = "z3", test))]
 pub(crate) fn hook_domain(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<bool>> {
     if defined_on_every_argument(definition, term)
         || implementation_chosen(term).is_some_and(|chosen| chosen.defined)
