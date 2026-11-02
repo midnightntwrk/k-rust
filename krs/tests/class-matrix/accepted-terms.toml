@@ -32879,6 +32879,27 @@ rule cTAG ( V0:KItem , _ ) => hold ( .Map [ V0:KItem <- 1 ] ) [label(case-TAG)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/rule/result/matches-subject/1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( _ :=K 1 ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/matches-subject/k::project!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( _ :=K {V0:KItem}:>Int ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/matches-subject/x"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( _ :=K V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."terms/rule/subject/set-element/k::map![x -> 1]"]
 same_k_as = ["notation/rule/subject/set-element/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """

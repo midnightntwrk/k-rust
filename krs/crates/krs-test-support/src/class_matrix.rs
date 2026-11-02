@@ -952,10 +952,18 @@ pub fn run_readings(case: &Case) -> Option<Result<Vec<Reading>, &'static str>> {
 #[must_use]
 pub fn twins<'c>(cases: impl IntoIterator<Item = &'c Case>) -> Vec<(&'c Case, &'c Case)> {
     let cases = cases.into_iter().collect::<Vec<_>>();
+    // The same construct at the same openings: a construct an opener holds pairs only with the
+    // same opener's, by the constructs the hole holds.
     let key = |case: &Case| {
         let term = case.term.as_ref()?;
-        (term.position.slot == positions::Slot::Result)
-            .then(|| (case.family, term.path.clone(), case.construct.clone()))
+        (term.position.slot == positions::Slot::Result).then(|| {
+            (
+                case.family,
+                term.path.clone(),
+                case.construct.clone(),
+                format!("{:?}", term.nodes),
+            )
+        })
     };
     let rules = cases
         .iter()

@@ -118,8 +118,8 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // fn's `List` subject (NT-18); and the 4 spellings a desugar's subject holds beside a
             // second clause of its production (NT-22: two names that overlap it, two terms that do
             // not); and the 2 Bool spellings a desugar's result holds below `Cmd::When`, whose
-            // rule's condition reads it, and the 3 subjects of `k::matches!(HOLE, _)` there and in
-            // a rule's guard (NT-42).
+            // rule's condition reads it, and the 3 subjects of `k::matches!(HOLE, _)` there, in a
+            // rule's guard and at a rule's result, the static result's twin (NT-42).
             (
                 Family::Terms,
                 106 * 51
@@ -136,7 +136,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 1
                     + 4
                     + 2
-                    + 2 * 3,
+                    + 3 * 3,
             ),
             // 95 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
             // subject beside a second clause one too) × 2 bare variants.

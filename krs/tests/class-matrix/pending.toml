@@ -3361,3 +3361,12 @@ deviation = "ended depth-bound after 1 steps, where the sentence's result has no
 ["k7/terms/desugar/result-guarded/matches-subject/k::project!(Int, x)"]
 finding = "NT-37-2"
 deviation = "counter-witness `c2b88b53e(go, 0)`: failed: a run must end in exactly one state; the backend returned 2 defined states"
+
+# NT-42-2 (twin): a static result's lifted `k::matches!` over `k::project!(Int, x)` has no
+# equation that applies where `x` is `go`, an application the backend does not decide has no
+# value, so `krs run` prints the state holding it as a built term; the same test at a rule's
+# result keeps the projection, which the backend decides has none.
+
+["twin/terms/desugar/result-guarded/matches-subject/k::project!(Int, x)"]
+finding = "NT-42-2"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: builds inj{SortBool{}, SortKItem{}}(LblkrsLocal'Unds'2e2a3c5a8ef0c976f128829b{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()))); its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: has no value"

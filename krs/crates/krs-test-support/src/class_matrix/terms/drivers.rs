@@ -609,7 +609,11 @@ impl Driver<'_> {
             // has none; an x-counter's `x` is a value, which a reading that ignored the hole's
             // meaning would test in its place.
             Some("matches-subject") => {
-                if self.x_counter {
+                // Where a condition reads the test, an x-counter's value decides whether the
+                // sentence applies; a result's test decides nothing.
+                if self.x_counter
+                    && (self.slot.side == Side::Guard || self.slot.position == "result-guarded")
+                {
                     self.read_witness.set(true);
                 }
                 match spelling {

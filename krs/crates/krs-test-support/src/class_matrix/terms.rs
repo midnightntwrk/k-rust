@@ -2159,6 +2159,14 @@ const RULE_SUBJECT: &str = concat!(
 
 const ALIAS_SUBJECT: &str = "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
+/// A `#[k::rule]` fn's result: the command's application becomes `Cmd::Hold(HOLE)`.
+const RULE_RESULT: &str = concat!(
+    "#[k::rule(label = \"case-TAG\")]\n",
+    "fn case_TAG(k::term![Cmd::NAME(x, _)",
+    "]: Term<Stmt>) -> Term<Stmt> {\n",
+    "    Cmd::Hold(HOLE)\n}\n"
+);
+
 /// A desugar clause's result below `Cmd::When`, which the base's `when` rule reads in its
 /// condition ([`STATIC_GUARDED_HOLDS`]).
 fn static_guarded() -> Slot {
@@ -2347,12 +2355,7 @@ fn slots() -> Vec<Slot> {
             "result",
             Side::Result,
             (RuleFn, Part::Result, &[Argument]),
-            concat!(
-                "#[k::rule(label = \"case-TAG\")]\n",
-                "fn case_TAG(k::term![Cmd::NAME(x, _)",
-                "]: Term<Stmt>) -> Term<Stmt> {\n",
-                "    Cmd::Hold(HOLE)\n}\n"
-            ),
+            RULE_RESULT,
         )
         .parsed_by_rustc(),
         slot(
@@ -3636,6 +3639,18 @@ fn openers() -> Vec<Slot> {
         matches_pattern(&evaluated),
         matches_subject(&guard),
         matches_subject(&static_guarded()),
+        // The static result's twin: the same test at a rule's result, which is not tested and
+        // keeps the projection.
+        matches_subject(
+            &slot(
+                "rule",
+                "result",
+                Side::Result,
+                (RuleFn, Part::Result, &[Argument]),
+                RULE_RESULT,
+            )
+            .parsed_by_rustc(),
+        ),
         local.open(
             "rewrite-left",
             "k::rewrite!(HOLE => Cmd::Go())",
