@@ -98,6 +98,28 @@ preserve = []
 "join.open.run.last" = { status = "generic", id = "60bb7649d3f66a47" }
 "join.open.run.run" = { status = "generic", id = "1a1822b909d68545" }
 
+[demo.JobsRmConf]
+tier = "light"
+guarded = 13
+preserve = []
+
+[demo.JobsRmConf.slots]
+"equiv.sim.run" = { status = "generic", id = "f7d84267dc8f95f9" }
+"join.open.run.run" = { status = "generic", id = "57ffecd827c0b2c6" }
+
+[demo.JobsDropConf]
+tier = "light"
+guarded = 17
+preserve = []
+
+[demo.JobsDropConf.slots]
+"equiv.sim.drop" = { status = "generic", id = "0d7b055660a17744" }
+"equiv.sim.run" = { status = "generic", id = "44366fba7dcff133" }
+"join.open.drop.drop" = { status = "generic", id = "21740398829d1f76" }
+"join.open.drop.run" = { status = "generic", id = "1d20a1eb0d7d189f" }
+"join.open.run.drop" = { status = "generic", id = "fa06bf0fcc05d0c5" }
+"join.open.run.run" = { status = "generic", id = "b5beb73f130f45d4" }
+
 [demo.SimpleConf]
 tier = "heavy"
 guarded = 754
@@ -1563,9 +1585,15 @@ preserve = []
 "demos/JobsConf/JobsConf/Views.lean" = { tier = "light", sha256 = "f57c5fcc6ce36d19486c7b4e2981e52a9e38500804739f1b1654e74e51906340" }
 "demos/JobsConf/confluence.toml" = { tier = "light", sha256 = "2d20b48d6d8b5ca620dc49ce57c5dbec712ff08a002bfc1065e16e031c8fbae6" }
 "demos/JobsConf/equiv.toml" = { tier = "light", sha256 = "2b9550966441fa9ccd637237d2b0144a63f0b5ca874dbd1901057c95c55c7b05" }
+"demos/JobsDropConf/JobsDropConf/Slots.lean" = { tier = "light", sha256 = "58ccf736434d887bdd436e9d5d405bd3201732e4fb7e7b64f3221a22765fc2da" }
+"demos/JobsDropConf/JobsDropConf/Views.lean" = { tier = "light", sha256 = "663f94cbd0e1b28902617b96773d72f4a3ca95076a84cc3eebca33f486d0dffb" }
+"demos/JobsDropConf/confluence.toml" = { tier = "light", sha256 = "a517c947bfc6b563af2127649a4a20fe9779bda6bb2cff37299051c3c3e82b5c" }
 "demos/JobsOwConf/JobsOwConf/Slots.lean" = { tier = "light", sha256 = "1a07ab92442700aa506f27430a5fda9d83b0a96b89649b4a2f3b23903afc31ab" }
 "demos/JobsOwConf/JobsOwConf/Views.lean" = { tier = "light", sha256 = "8fa16d295839d54d575baf549891cf0c0d2c3accef383ec0d1be8cc2467c33d9" }
 "demos/JobsOwConf/confluence.toml" = { tier = "light", sha256 = "33802c538046eeb5af067928a8c2756e6c560a11c25211687e4b5c2618bcb180" }
+"demos/JobsRmConf/JobsRmConf/Slots.lean" = { tier = "light", sha256 = "11dbf58bd44279438039dd3523866ce3bb7b5df8897d9e1e28753767841a87ed" }
+"demos/JobsRmConf/JobsRmConf/Views.lean" = { tier = "light", sha256 = "e4d72210041eec22315f43220a30d6162197b0aeaf42b856b00d48e3664fc187" }
+"demos/JobsRmConf/confluence.toml" = { tier = "light", sha256 = "4baeea3639ea182a26c413ac858ea6f64cca80623c64f409898296190bb5b542" }
 "demos/RaceConf/RaceConf/Pairs/Slots.lean" = { tier = "light", sha256 = "fa46db221ea59fcd2420d1cd76fb0db192f5ede4f0d1541c5766690efcea8494" }
 "demos/RaceConf/RaceConf/Pairs/Views.lean" = { tier = "light", sha256 = "354f75fa3c5b5d2711a67dd2b534440b7d10eb36189f7d020cb907b31723ac97" }
 "demos/RaceConf/RaceConf/Slots.lean" = { tier = "light", sha256 = "a5100360df4061d63db7551013e5674d991543c7cdc9ca4642b9006cbe7f523b" }
@@ -1704,6 +1732,22 @@ preserve = []
 "generated/jobs/JobsTest/Main.lean" = { tier = "light", sha256 = "842a138c2a89acedf9c821e4728219f384c3adf24885b28939141579c681a3c9" }
 "generated/jobs/lakefile.lean" = { tier = "light", sha256 = "07195ba78eb8fb178ea8649b80ec55b6d43919959b10b668aae540c8c4997291" }
 "generated/jobs/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/jobsdrop/JobsDrop.lean" = { tier = "light", sha256 = "37d27f886504bea571b325d03e385fadf860b385b159c4463a3fe9f56e7c0a42" }
+"generated/jobsdrop/JobsDrop/Adequacy.lean" = { tier = "light", sha256 = "26986cb0950c215f3594ebbcdedba8727061121e5f077e3d9351f30004598990" }
+"generated/jobsdrop/JobsDrop/Determinism.lean" = { tier = "light", sha256 = "7e0d93a89b2f48df26d10607d22994ff915cfd77ccaa298d661f05295f031604" }
+"generated/jobsdrop/JobsDrop/EqBase.lean" = { tier = "light", sha256 = "9b067e77e8767bf953290bd7eae27c2fcfad23f9925fa76e28de78e38abd4be5" }
+"generated/jobsdrop/JobsDrop/Equations.lean" = { tier = "light", sha256 = "243a87b2d10bd4bc7941b88db662846691dad330950500652870274f2094595a" }
+"generated/jobsdrop/JobsDrop/Functions.lean" = { tier = "light", sha256 = "ad2ed4ae85d914b40dd75c32a8f40f7b753290589330ee0c2b98690edc5f7125" }
+"generated/jobsdrop/JobsDrop/Init.lean" = { tier = "light", sha256 = "2799c5bf931eb0cfbe4590cc60d5ac4811eb2fdc8cd23716c18b35779cc376bc" }
+"generated/jobsdrop/JobsDrop/Preserves.lean" = { tier = "light", sha256 = "a983c4c9e1c11adee1dfb65a665f543d9cdfa7d163e899d190c3c8f5827b9cbb" }
+"generated/jobsdrop/JobsDrop/Rules.lean" = { tier = "light", sha256 = "524534a659714c44562148674becfd389c4efd6181a0e10d40b5ea90ce162632" }
+"generated/jobsdrop/JobsDrop/Terms.lean" = { tier = "light", sha256 = "5adc2c840b9a67fbe16a85a2bcce2612d2bb35b0675dc2da3847ace9c4e5cde3" }
+"generated/jobsdrop/JobsDropBench/Main.lean" = { tier = "light", sha256 = "b025d100515857e14a4a2106099872f5e854dcbe0a19fbcdf1e9080bf3f3b1f4" }
+"generated/jobsdrop/JobsDropBench/Programs.lean" = { tier = "light", sha256 = "6c99023bd792ea450cede14a62bf267a480f11c4c1903bc313c212d4b17bf574" }
+"generated/jobsdrop/JobsDropTest/Axioms.lean" = { tier = "light", sha256 = "16608a96738021a107efab2b9abef584286306c45619d51456d004654449487d" }
+"generated/jobsdrop/JobsDropTest/Main.lean" = { tier = "light", sha256 = "34deb63a41b67d6934d6a45edcf6baef7aca7ac8f1449e247d2a49d7b7606843" }
+"generated/jobsdrop/lakefile.lean" = { tier = "light", sha256 = "256f549c07c24b3b870b9c778a1611a4ca4199f855ddc05b6c09d9a93f637458" }
+"generated/jobsdrop/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/jobsow/JobsOw.lean" = { tier = "light", sha256 = "fec292f6527e0e337fe59deaa09aa9fa9cb006b84a45307785208ba243ae24fe" }
 "generated/jobsow/JobsOw/Adequacy.lean" = { tier = "light", sha256 = "ea0f8fc5e9cac9c1be226e77f44b82346d632cd46a2869d82ea7d3488484eb3c" }
 "generated/jobsow/JobsOw/Determinism.lean" = { tier = "light", sha256 = "3a87947601558bcf75236edaca5e7198629cdb9fcedd77fd1628be9e8161af12" }
@@ -1720,6 +1764,22 @@ preserve = []
 "generated/jobsow/JobsOwTest/Main.lean" = { tier = "light", sha256 = "2efcca4cd25c00598fc2c45e3497f32d0df116ad84f478e063f62ee156840b1b" }
 "generated/jobsow/lakefile.lean" = { tier = "light", sha256 = "622eaea6cd4b8acc58996679ab25da40a80f42bd281d7cf532f92bc64c7a0ed7" }
 "generated/jobsow/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/jobsrm/JobsRm.lean" = { tier = "light", sha256 = "f3e8e2fd259729cd627516d9bc435f3bb89a82c5717b2173999b4fd86f8d74b3" }
+"generated/jobsrm/JobsRm/Adequacy.lean" = { tier = "light", sha256 = "ba7f3f6c4bc11cf68fec7d892b71cf79590183c1b61a2ef545cf4c66753c404a" }
+"generated/jobsrm/JobsRm/Determinism.lean" = { tier = "light", sha256 = "4a43d4c729357c04626c26389a44a58d8302b115f30cd032b9f00d9076bd2485" }
+"generated/jobsrm/JobsRm/EqBase.lean" = { tier = "light", sha256 = "ce3609195fa44c86ecd8987ae689e09c66000665ca0e09df0f9627ca6d385993" }
+"generated/jobsrm/JobsRm/Equations.lean" = { tier = "light", sha256 = "20d1a2f66e018b769e3a0a4d78df538afcec8afb44ccfa27e0d2234208dbe839" }
+"generated/jobsrm/JobsRm/Functions.lean" = { tier = "light", sha256 = "246a1a9368e633fe3305a883fa2e54f0d1ee2d14784f01fc8f613d4c0926ac6f" }
+"generated/jobsrm/JobsRm/Init.lean" = { tier = "light", sha256 = "3772d8ae9813aaf3698443de1f9b4026a7e0d6bde4d8bf2e4224c034172904a0" }
+"generated/jobsrm/JobsRm/Preserves.lean" = { tier = "light", sha256 = "cd7b8e707c21838f180f3d2da75cc4335013b1849457d4808d9b9d86a19be690" }
+"generated/jobsrm/JobsRm/Rules.lean" = { tier = "light", sha256 = "6ebec0ac2327b8f274b19888e7746aa0d7cac24dedaf0bb1379bc8c3c8531ada" }
+"generated/jobsrm/JobsRm/Terms.lean" = { tier = "light", sha256 = "7e493f6376ce7329600a14f3d288d13045ed2d1c0ec681180f0c3768144a6fd5" }
+"generated/jobsrm/JobsRmBench/Main.lean" = { tier = "light", sha256 = "2313bc6d06f2af77e3a68d0e3ec639dc31b7588396adca2871023a6cc989420d" }
+"generated/jobsrm/JobsRmBench/Programs.lean" = { tier = "light", sha256 = "132ec665b386b67699c44a6ba1a92af386236511f7fe1d56d92f34a15141cfd7" }
+"generated/jobsrm/JobsRmTest/Axioms.lean" = { tier = "light", sha256 = "5914b86e34e1961548ee67d730305022ae192d2b3f86f12a84423bd9f9dc1015" }
+"generated/jobsrm/JobsRmTest/Main.lean" = { tier = "light", sha256 = "e6cfde7549872feb6bf9ae3fcafd0b54e9d7c3596b485adca8a6f5e1100b88db" }
+"generated/jobsrm/lakefile.lean" = { tier = "light", sha256 = "298a97b41fb4a87d1532857508d5954e43321fb5db02b60fe9bdc2d49bcda97a" }
+"generated/jobsrm/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/race/Race.lean" = { tier = "light", sha256 = "ab36117730ae402e6cceac6b36bffc4b5abc5081b70dbc04aa7582c237a60292" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
