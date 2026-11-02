@@ -26,9 +26,7 @@ use crate::{
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     stop::{PreludeSignal, Stoppable},
     substitution::Substitution,
-    term::{
-        FunctionType, HeadRole, Name, Sort, SortNode, Symbol, SymbolType, Term, TermKind, Variable,
-    },
+    term::{HeadRole, Name, Sort, SortNode, Term, TermKind, Variable},
 };
 
 #[cfg(feature = "z3")]
@@ -226,9 +224,16 @@ impl<'a> SExprParser<'a> {
 /// translation states each atom with the domains of its operands (`atom_with_domains`): an atom
 /// over an undefined term denotes in SMT what it denotes in K, whatever the form of the
 /// predicates, and `Unsat` refutes them (docs/compatibility.md, "Solver decisions over partial
-/// operations"). A domain the definition does not decide is a domain function or an opaque atom,
-/// which a model may set true where the term is undefined, so the translation stays
-/// `Approximate` for the purpose of reading a model.
+/// operations"). The partial function itself costs no exactness (GAP K29): every model of a
+/// translation whose domain reads are closed formulas over hooked operations gives each atom
+/// its K meaning at the model's values of the free variables, since the `smt-hook` is exact
+/// where the term is defined and the atom reads it nowhere else; so restricted to those
+/// variables, the model is a K valuation of the predicates. A domain the definition does not
+/// decide is a domain function or an opaque atom, which a model may set true where the term is
+/// undefined, so each such read is `Approximate` (`functional::translate_domain`), as are an
+/// atom read without its operands' domains (`atom_readings`), an observation's value, a
+/// summary whose body is, and a power with a symbolic exponent, whose value outside the cases
+/// that fix it is the uninterpreted `KRUST-POWER`.
 /// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
 /// with a symbolic exponent is read only where an integer is its value, and there by its value's
 /// cases (`guard_powers`), and that a hook is
@@ -1154,13 +1159,16 @@ impl TranslationState {
                     self.write_foreign_text();
                     self.translate_application(name, arguments, Exactness::Approximate)
                 }
+                // A hook is trusted to be exact where its symbol is defined, and a partial
+                // symbol's value is read only under its domain (`atom_with_domains`), so the
+                // application is exact; a domain read that is not a closed formula over hooked
+                // operations approximates where it is read (`functional::translate_domain`).
                 Some(SmtType::Hook(SExpr::Atom(name))) if name != POWER => {
                     self.write_foreign_text();
-                    self.translate_application(name, arguments, symbol_exactness(symbol))
+                    self.translate_application(name, arguments, Exactness::Exact)
                 }
                 Some(SmtType::Hook(expression)) => {
                     self.write_foreign_text();
-                    self.approximate(symbol_exactness(symbol));
                     let template = match expression {
                         SExpr::Atom(name) => SExpr::application(
                             name.clone(),
@@ -1176,8 +1184,13 @@ impl TranslationState {
                         .collect::<Result<Vec<_>, _>>()?;
                     let (template, powers) = guard_powers(&template, &arguments);
                     if !powers.is_empty() {
-                        // The power's value outside the integers, and where no case of the
-                        // operands fixes it, is an uninterpreted function.
+                        // The power's value where no case of the operands fixes it is
+                        // `KRUST-POWER`, an uninterpreted function the query's facts constrain
+                        // only by bounds and ratios, not at a point: a model may give
+                        // `2 ^Int E` at `E = 100` a value other than `2^100`, which is no K
+                        // valuation, whatever the power's domain says. (Its value outside the
+                        // integers is read only where the power is undefined, never under its
+                        // domain.)
                         self.approximate(Exactness::Approximate);
                     }
                     for (base, exponent) in powers {
@@ -1558,6 +1571,16 @@ impl TranslationState {
         reading: SExpr,
     ) -> Result<SExpr, TranslationError> {
         if self.atom_readings {
+            // The reading alone states the operands' relation where they are undefined too,
+            // where an `smt-hook` gives a value K does not. Its users read it only under those
+            // operands' domains, but the reading itself does not show it, so a query that holds
+            // one over an operand that owes a domain is approximate (GAP K29).
+            if operands
+                .iter()
+                .any(|operand| !operand.attributes().ceil_free())
+            {
+                self.approximate(Exactness::Approximate);
+            }
             return Ok(reading);
         }
         let mut domains = Vec::with_capacity(operands.len());
@@ -2473,19 +2496,6 @@ fn stated_definedness(conjunction: &[Predicate], stated: &mut Vec<Term>) {
             | Predicate::Forall(..)
             | Predicate::Absent(_) => {}
         }
-    }
-}
-
-/// `Approximate` for a symbol whose SMT operation does not denote it exactly: an `smtlib`
-/// symbol is an uninterpreted function, and a partial function is a total SMT operation that
-/// has a value where the function has none.
-fn symbol_exactness(symbol: &Symbol) -> Exactness {
-    let uninterpreted = matches!(symbol.attributes.smt, Some(SmtType::Lib(_)));
-    let partial = symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial);
-    if uninterpreted || partial {
-        Exactness::Approximate
-    } else {
-        Exactness::Exact
     }
 }
 
@@ -4673,6 +4683,9 @@ mod tests {
         );
     }
 
+    /// A partial operation is approximate here because no definition states its domain, which
+    /// is then an opaque atom; under a ceil equation it is exact (GAP K29,
+    /// `a_query_whose_partial_symbols_have_closed_domains_is_exact` in smt/z3.rs).
     #[test]
     fn exactness_rejects_abstracted_terms_predicates_and_partial_operations() {
         let int = Sort::simple("SortInt");

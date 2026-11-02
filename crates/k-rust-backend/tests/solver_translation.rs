@@ -7,8 +7,9 @@
 //! the definition where the claim is false: `Valid` by a valuation where the known predicates
 //! hold and the checked one does not; `Refuted` and `Unsat` by one where all of them hold;
 //! `InconsistentGroundTruth` by one where the known predicates hold. A `Sat` answer claims only
-//! that a valuation exists, and is checked only where the solver gives one (`model_of`'s model
-//! of an exact query), by evaluating the original predicates at it. `Contingent` and `Unknown`
+//! that a valuation exists, and is checked only where the solver gives one (`model_of`'s model,
+//! which it gives only of a query whose translation is exact), by evaluating the original
+//! predicates at it. `Contingent` and `Unknown`
 //! claim nothing and are only counted; so is a `Contingent` answer every domain valuation
 //! decides one way, a completeness statistic that never fails.
 //!
@@ -34,10 +35,7 @@ use k_rust_backend::{
     model::model_of,
     rule::Predicate,
     simplify::{SimplificationOptions, simplify_predicate_with_solver},
-    smt::{
-        Exactness, ModelResult, NoSolver, Satisfiability, SmtSolver, Validity, Z3Options, Z3Solver,
-        translation_exactness,
-    },
+    smt::{ModelResult, NoSolver, Satisfiability, SmtSolver, Validity, Z3Options, Z3Solver},
     substitution::Substitution,
     term::{Term, TermKind},
 };
@@ -63,6 +61,7 @@ struct Stats {
     errors_sat: Cell<usize>,
     unsat: Cell<usize>,
     sat: Cell<usize>,
+    /// `model_of` answers that are `Sat` (a model, checked) or `Unsat` (checked).
     exact: Cell<usize>,
     models_checked: Cell<usize>,
     /// `Contingent` where every domain valuation of the known predicates makes the checked one
@@ -81,7 +80,7 @@ impl fmt::Display for Stats {
             f,
             "check_predicates: {} Valid, {} Refuted, {} InconsistentGroundTruth, {} Contingent \
              ({} of them decided on the domain), {} Unknown, {} errors; is_sat: {} Unsat, {} Sat, \
-             {} Unknown, {} errors; {} exact queries, {} models checked; {} cases with no domain valuation of known",
+             {} Unknown, {} errors; {} decided model queries, {} models checked; {} cases with no domain valuation of known",
             self.valid.get(),
             self.refuted.get(),
             self.inconsistent.get(),
@@ -265,7 +264,10 @@ fn check_case(
         Err(_) => bump(&stats.errors_sat),
     }
 
-    // A model is a K valuation only of an exact translation; check it where there is one.
+    // A model is a K valuation only of an exact translation, and `model_of` gives one only
+    // there: it reads the exactness of the query it poses, with the definition's domains, and
+    // answers `Unknown` for an approximate one. Every model it gives is checked, and so is every
+    // `Unsat`, the simplifier's or the solver's.
     if let Some((var, term)) = &case.binding {
         all.push(Predicate::Equals(
             backend.term(&IntT::Var(*var).kore()),
@@ -274,14 +276,14 @@ fn check_case(
     }
     // A model of a query over `pf` or `g` may give them values none of the evaluator's models
     // gives, so it is checked only over symbols whose model is unique.
-    if !free.open && translation_exactness(&all) == Exactness::Exact {
-        bump(&stats.exact);
+    if !free.open {
         let conjunction = Predicate::And(Arc::from(all));
         let model = model_of(&backend.definition, &conjunction, solver).map_err(|stop| {
             TestCaseError::fail(format!("case: {case}\nmodel_of stopped: {stop:?}"))
         })?;
         match model {
             Ok(ModelResult::Sat(model)) => {
+                bump(&stats.exact);
                 bump(&stats.models_checked);
                 let (env, bound, bool) = model_env(backend, &model);
                 let mut rest = free.clone();
@@ -305,6 +307,7 @@ fn check_case(
                 }
             }
             Ok(ModelResult::Unsat) => {
+                bump(&stats.exact);
                 if let Some(env) = find(&|k, c| k == Truth::True && c == Truth::True) {
                     return Err(failure(case, &free, "model_of: Unsat", env));
                 }

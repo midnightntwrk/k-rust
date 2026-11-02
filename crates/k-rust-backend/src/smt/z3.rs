@@ -3365,6 +3365,63 @@ mod tests {
         );
     }
 
+    /// GAP K29: a query over a partial symbol whose domain the definition states as a closed
+    /// formula is exact, so its model is a K valuation. `half(X) = 3` is read as
+    /// `D(half(X)) ∧ div(X, 2) = 3` with `D(half(X))` the ceil equation's `even(X) = true`, so
+    /// every model has `X = 6`: `X = 7`, where `div` is 3 too, is refuted by the domain, and
+    /// `get-model` gives `X = 6`. Without a ceil equation the domain is a domain function a model
+    /// may set true where `half2(X)` is undefined, and the query stays approximate.
+    #[test]
+    fn a_query_whose_partial_symbols_have_closed_domains_is_exact() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol even{}(SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}("(= (mod #1 2) 0)")]
+                symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+                symbol half2{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+                axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+                    \ceil{SortInt{}, Q}(half{}(X:SortInt{})),
+                    \and{Q}(\equals{SortBool{}, Q}(even{}(X:SortInt{}), \dv{SortBool{}}("true")), \top{Q}())))
+                    [simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortInt"), value);
+        let three = Predicate::Equals(term(&definition, "half{}(X:SortInt{})"), int("3"));
+        assert_eq!(
+            solver.is_sat(std::slice::from_ref(&three), &Substitution::new()),
+            Ok(Ok(Satisfiability::Sat))
+        );
+        let not_six = Predicate::Not(std::sync::Arc::new(Predicate::Equals(
+            crate::term::Term::variable(x()),
+            int("6"),
+        )));
+        assert_eq!(
+            solver.is_sat(&[three.clone(), not_six], &Substitution::new()),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+        assert_eq!(
+            solver.get_model(&ModelQuery::for_solver_tests(
+                std::slice::from_ref(&three),
+                &Substitution::new()
+            )),
+            Ok(Ok(ModelResult::Sat(Substitution::from([(x(), int("6"))]))))
+        );
+        let opaque = Predicate::Equals(term(&definition, "half2{}(X:SortInt{})"), int("3"));
+        assert_eq!(
+            solver.get_model(&ModelQuery::for_solver_tests(
+                &[opaque],
+                &Substitution::new()
+            )),
+            Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
+        );
+    }
+
     /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
     /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
     /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so

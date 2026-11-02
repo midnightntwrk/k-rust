@@ -995,8 +995,26 @@ endmodule
         );
     }
 
+    /// The value the model `model` gives the variable `name`, from its substitution's
+    /// equalities.
+    fn model_value(model: &k_rust::backend::ModelResultOutput, name: &str) -> Option<String> {
+        let substitution = model.substitution.as_ref()?;
+        let term = &substitution["term"];
+        let equalities = match term["tag"].as_str() {
+            Some("And") => term["patterns"].as_array()?.clone(),
+            _ => vec![term.clone()],
+        };
+        equalities
+            .iter()
+            .find(|equality| equality["first"]["name"] == name)
+            .and_then(|equality| equality["second"]["value"].as_str().map(str::to_owned))
+    }
+
+    /// The negated atoms hold exactly where `Y = 0`. `X /Int Y`'s domain is the closed
+    /// `Y =/=Int 0` of `INT`'s ceil equation, so the query is exact (GAP K29) and its model
+    /// is a K valuation: `get-model` gives one with `Y = 0`.
     #[test]
-    fn get_model_of_a_negated_partial_atom_is_unknown() {
+    fn get_model_of_a_negated_partial_atom_gives_its_undefined_instance() {
         let mut backend = backend();
         if !backend.capabilities().smt {
             return;
@@ -1008,7 +1026,12 @@ endmodule
             let model = backend
                 .get_model(PatternRequest::new(parse(&pattern)))
                 .unwrap();
-            assert_eq!(model.satisfiable, "unknown", "{case}: {model:?}");
+            assert_eq!(model.satisfiable, "sat", "{case}: {model:?}");
+            assert_eq!(
+                model_value(&model, "Y").as_deref(),
+                Some("0"),
+                "{case}: {model:?}"
+            );
         }
     }
 
@@ -1153,10 +1176,14 @@ endmodule
             "{}",
             print(&simplified)
         );
+        // The negated equality holds exactly where `Z` is nonzero and `Y` is 0, and the query
+        // is exact (GAP K29): its model is such an instance.
         let model = backend
             .get_model(PatternRequest::new(parse(&pattern)))
             .unwrap();
-        assert_eq!(model.satisfiable, "unknown", "{model:?}");
+        assert_eq!(model.satisfiable, "sat", "{model:?}");
+        assert_eq!(model_value(&model, "Y").as_deref(), Some("0"), "{model:?}");
+        assert_ne!(model_value(&model, "Z").as_deref(), Some("0"), "{model:?}");
         // Under a disjunction: the instances where `Z` is 1 and `Y` is 0 lie outside `Y = 5`.
         let five = equals(Y, &int(5));
         let disjunction = and(
