@@ -24,6 +24,7 @@
 //! (injections compose: `inj{S, G}(t)` is `inj{L, G}(inj{S, L}(t))`), by the definition's
 //! `subsort` axioms; an injection of an injection is one injection.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::k_rust_backend::definition::PendingAxiom;
@@ -106,50 +107,144 @@ impl Overloads {
 
     /// `pattern` with every application the overload axioms rewrite replaced, inside out and
     /// again on what they write, by the more specific overload the axiom states; where several
-    /// axioms of one symbol match, the first in a fixed order.
-    pub(crate) fn normalize(&self, pattern: &Pattern) -> Pattern {
+    /// axioms of one symbol match, the first in a fixed order. Without an overload axiom,
+    /// `pattern` itself.
+    ///
+    /// A `\left-assoc{}`/`\right-assoc{}` application (an abbreviation of nested binary
+    /// applications, which only the KORE text and JSON readers build; neither a backend state
+    /// nor a parser's reading holds one) is not rewritten at its own symbol, only inside its
+    /// arguments: a comparison of two terms that differ there by an axiom then fails, so that
+    /// a print it judges is never taken for the term without the axioms saying so.
+    pub(crate) fn normalize<'p>(&self, pattern: &'p Pattern) -> Cow<'p, Pattern> {
         if self.axioms.is_empty() {
-            return pattern.clone();
+            return Cow::Borrowed(pattern);
         }
-        self.rewrite(pattern)
+        Cow::Owned(self.rewrite(pattern.clone()))
     }
 
-    fn rewrite(&self, pattern: &Pattern) -> Pattern {
+    /// `pattern`, normal below its root, rewritten at its root and inside out below: each
+    /// argument first, then the application. The values an axiom binds are normal already, so
+    /// only the application the axiom writes is rewritten again ([`Self::write`]); every part of
+    /// the term is moved, not copied.
+    fn rewrite(&self, mut pattern: Pattern) -> Pattern {
+        match &mut pattern {
+            Pattern::Application { symbol, arguments } => {
+                let arguments = std::mem::take(arguments)
+                    .into_iter()
+                    .map(|argument| self.rewrite(argument))
+                    .collect();
+                self.at_root(std::mem::replace(symbol, placeholder_symbol()), arguments)
+            }
+            Pattern::AssociativeApplication { arguments, .. } => {
+                let rewritten = std::mem::take(arguments)
+                    .into_iter()
+                    .map(|argument| self.rewrite(argument))
+                    .collect();
+                *arguments = rewritten;
+                pattern
+            }
+            _ => pattern,
+        }
+    }
+
+    /// The application of `symbol` to `arguments`, each normal, rewritten by the first axiom
+    /// that matches it, and again on what the axiom writes, until none matches.
+    fn at_root(&self, symbol: Symbol, mut arguments: Vec<Pattern>) -> Pattern {
+        if symbol.name == "inj" {
+            return injection(&symbol, arguments);
+        }
+        for (left, right) in self.axioms.get(&symbol.name).into_iter().flatten() {
+            let Pattern::Application {
+                symbol: wanted,
+                arguments: patterns,
+            } = left
+            else {
+                continue;
+            };
+            let mut bound = BTreeMap::new();
+            if *wanted != symbol
+                || patterns.len() != arguments.len()
+                || !patterns.iter().zip(&arguments).enumerate().all(
+                    |(index, (pattern, argument))| {
+                        self.matches(pattern, argument, vec![index], &mut bound)
+                    },
+                )
+            {
+                continue;
+            }
+            let bound = bound
+                .into_iter()
+                .map(|(variable, binding)| (variable, binding.path, binding.injection))
+                .collect::<Vec<_>>();
+            let mut values = BTreeMap::new();
+            for (variable, path, injected) in bound {
+                let mut value = take(&mut arguments, &path);
+                if let Some(symbol) = injected {
+                    value = injection(&symbol, vec![value]);
+                }
+                values.insert(variable, value);
+            }
+            let mut uses = BTreeMap::new();
+            count_variables(right, &mut uses);
+            return self.write(right, &mut values, &mut uses);
+        }
+        Pattern::Application { symbol, arguments }
+    }
+
+    /// `pattern`, an overload axiom's right side, with its variables replaced by `values`, which
+    /// are normal, and each application it writes rewritten at its root ([`Self::at_root`]).
+    /// `uses` counts the occurrences of each variable still to write: a value is copied for
+    /// each but the last.
+    fn write(
+        &self,
+        pattern: &Pattern,
+        values: &mut BTreeMap<Variable, Pattern>,
+        uses: &mut BTreeMap<Variable, usize>,
+    ) -> Pattern {
         match pattern {
+            Pattern::Variable(variable) => {
+                let left = uses.get_mut(variable).map_or(0, |uses| {
+                    *uses -= 1;
+                    *uses
+                });
+                let value = if left > 0 {
+                    values.get(variable).cloned()
+                } else {
+                    values.remove(variable)
+                };
+                value.unwrap_or_else(|| pattern.clone())
+            }
             Pattern::Application { symbol, arguments } => {
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.rewrite(argument))
-                    .collect::<Vec<_>>();
-                if symbol.name == "inj" {
-                    return injection(symbol, arguments);
-                }
-                let application = Pattern::Application {
-                    symbol: symbol.clone(),
-                    arguments,
-                };
-                for (left, right) in self.axioms.get(&symbol.name).into_iter().flatten() {
-                    let mut bound = BTreeMap::new();
-                    if self.matches(left, &application, &mut bound) {
-                        return self.rewrite(&instantiate(right, &bound));
-                    }
-                }
-                application
+                    .map(|argument| self.write(argument, values, uses))
+                    .collect();
+                self.at_root(symbol.clone(), arguments)
             }
             other => other.clone(),
         }
     }
 
-    /// Whether `term` is an instance of `pattern`, an overload axiom's left side, binding its
-    /// variables in `bound`.
-    fn matches(
+    /// Whether `term`, standing at `path` among the arguments of an application, is an instance
+    /// of `pattern`, an argument of an overload axiom's left side, binding its variables in
+    /// `bound` to where their values stand.
+    fn matches<'t>(
         &self,
         pattern: &Pattern,
-        term: &Pattern,
-        bound: &mut BTreeMap<Variable, Pattern>,
+        term: &'t Pattern,
+        path: Vec<usize>,
+        bound: &mut BTreeMap<Variable, Binding<'t>>,
     ) -> bool {
         match (pattern, term) {
-            (Pattern::Variable(variable), term) => bind(bound, variable, term.clone()),
+            (Pattern::Variable(variable), term) => bind(
+                bound,
+                variable,
+                Binding {
+                    path,
+                    term,
+                    injection: None,
+                },
+            ),
             (
                 Pattern::Application {
                     symbol: injected,
@@ -173,17 +268,27 @@ impl Overloads {
                 if symbol.name != "inj" || target != greater {
                     return false;
                 }
-                if sort == lesser {
-                    bind(bound, variable, argument.clone())
+                let injection = if sort == lesser {
+                    None
                 } else if self.is_below(sort, lesser) {
-                    let symbol = Symbol {
+                    Some(Symbol {
                         name: "inj".to_owned(),
                         sort_parameters: vec![sort.clone(), lesser.clone()],
-                    };
-                    bind(bound, variable, injection(&symbol, vec![argument.clone()]))
+                    })
                 } else {
-                    false
-                }
+                    return false;
+                };
+                let mut path = path;
+                path.push(0);
+                bind(
+                    bound,
+                    variable,
+                    Binding {
+                        path,
+                        term: argument,
+                        injection,
+                    },
+                )
             }
             (
                 Pattern::Application {
@@ -194,10 +299,13 @@ impl Overloads {
             ) => {
                 wanted == symbol
                     && patterns.len() == arguments.len()
-                    && patterns
-                        .iter()
-                        .zip(arguments)
-                        .all(|(pattern, argument)| self.matches(pattern, argument, bound))
+                    && patterns.iter().zip(arguments).enumerate().all(
+                        |(index, (pattern, argument))| {
+                            let mut path = path.clone();
+                            path.push(index);
+                            self.matches(pattern, argument, path, bound)
+                        },
+                    )
             }
             (pattern, term) => pattern == term,
         }
@@ -216,37 +324,64 @@ fn attribute_name(attribute: &Pattern) -> Option<&str> {
     }
 }
 
-/// Bind `variable` to `term`, or check a binding it already has.
-fn bind(bound: &mut BTreeMap<Variable, Pattern>, variable: &Variable, term: Pattern) -> bool {
+/// Where a variable's value stands in the term an axiom matched: the path to it among the
+/// application's arguments, the value, and the injection it is taken under (`inj{S, L}` where
+/// the axiom's `inj{L, G}` matched an `inj{S, G}`).
+struct Binding<'t> {
+    path: Vec<usize>,
+    term: &'t Pattern,
+    injection: Option<Symbol>,
+}
+
+/// Bind `variable` as `binding` says, or check a binding it already has: the same value under
+/// the same injection.
+fn bind<'t>(
+    bound: &mut BTreeMap<Variable, Binding<'t>>,
+    variable: &Variable,
+    binding: Binding<'t>,
+) -> bool {
     if let Some(known) = bound.get(variable) {
-        return *known == term;
+        return known.term == binding.term && known.injection == binding.injection;
     }
-    bound.insert(variable.clone(), term);
+    bound.insert(variable.clone(), binding);
     true
 }
 
-/// `pattern`, a right side of an overload axiom, with its variables replaced by `bound`.
-fn instantiate(pattern: &Pattern, bound: &BTreeMap<Variable, Pattern>) -> Pattern {
+/// The subterm at `path` among `arguments`, moved out; what is left there is never read again.
+fn take(arguments: &mut [Pattern], path: &[usize]) -> Pattern {
+    let mut slot = &mut arguments[path[0]];
+    for &index in &path[1..] {
+        let Pattern::Application { arguments, .. } = slot else {
+            unreachable!("a path the match took")
+        };
+        slot = &mut arguments[index];
+    }
+    std::mem::replace(
+        slot,
+        Pattern::Top {
+            sort: Sort::Variable(String::new()),
+        },
+    )
+}
+
+/// A symbol to leave behind where one is moved out of a pattern that is not read again.
+const fn placeholder_symbol() -> Symbol {
+    Symbol {
+        name: String::new(),
+        sort_parameters: Vec::new(),
+    }
+}
+
+/// Count each variable's occurrences in `pattern` into `uses`.
+fn count_variables(pattern: &Pattern, uses: &mut BTreeMap<Variable, usize>) {
     match pattern {
-        Pattern::Variable(variable) => bound
-            .get(variable)
-            .cloned()
-            .unwrap_or_else(|| pattern.clone()),
-        Pattern::Application { symbol, arguments } => {
-            let arguments = arguments
-                .iter()
-                .map(|argument| instantiate(argument, bound))
-                .collect();
-            if symbol.name == "inj" {
-                injection(symbol, arguments)
-            } else {
-                Pattern::Application {
-                    symbol: symbol.clone(),
-                    arguments,
-                }
+        Pattern::Variable(variable) => *uses.entry(variable.clone()).or_default() += 1,
+        Pattern::Application { arguments, .. } => {
+            for argument in arguments {
+                count_variables(argument, uses);
             }
         }
-        other => other.clone(),
+        _ => {}
     }
 }
 
@@ -347,5 +482,28 @@ pub(crate) mod tests {
                 .unwrap()
                 .to_string(),
         );
+    }
+
+    /// A `\left-assoc` application is rewritten inside its arguments, never at its own symbol;
+    /// without an overload axiom, a term is compared as it is, uncopied.
+    #[test]
+    fn an_associative_application_is_rewritten_inside_its_arguments_only() {
+        let overloads = vals_overloads();
+        assert_eq!(
+            normal(
+                &overloads,
+                r"\left-assoc{}(expsCons{}(inj{SortInt{}, SortExp{}}(one{}()), expsNil{}()))"
+            ),
+            parse_pattern(
+                r"\left-assoc{}(expsCons{}(inj{SortInt{}, SortExp{}}(one{}()), inj{SortVals{}, SortExps{}}(valsNil{}())))"
+            )
+            .unwrap()
+            .to_string(),
+        );
+        let term = parse_pattern(r"expsCons{}(tick{}(), expsNil{}())").unwrap();
+        assert!(matches!(
+            Overloads::default().normalize(&term),
+            std::borrow::Cow::Borrowed(_)
+        ));
     }
 }

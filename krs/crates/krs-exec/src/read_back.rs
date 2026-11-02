@@ -448,9 +448,10 @@ impl Semantics {
     /// Whether one of `read`, the readings of `cell`'s print, is the term the state holds,
     /// value for value: with every instance and, where `typed`, every token's sort.
     fn compare(&self, cell: &PrintedCell<'_>, read: &[Pattern], typed: bool) -> ReadBack {
+        let held = held_shape(&self.values, cell.content, typed);
         if read
             .iter()
-            .any(|reading| reads_as(&self.values, cell.content, reading, typed))
+            .any(|reading| reads_as(&self.values, &held, reading, typed))
         {
             return ReadBack::Reads;
         }
@@ -599,13 +600,18 @@ fn injected_sort(item: &Pattern) -> Option<String> {
     }
 }
 
-/// Whether `reading`, a print's reading, is `held`, the term the state holds, value for value
-/// ([`Shape`]): with every instance and, where `typed`, every token's sort, modulo the
-/// definition's overload axioms, by which both are rewritten first ([`crate::overloads`]).
-fn reads_as(index: &ValueIndex, held: &Pattern, reading: &Pattern, typed: bool) -> bool {
-    let overloads = index.overloads();
-    shape(index, &overloads.normalize(held), typed)
-        == shape(index, &overloads.normalize(reading), typed)
+/// The shape of `held`, a term the state holds, as [`reads_as`] compares it: rewritten by the
+/// definition's overload axioms first, once for all the readings of its print.
+fn held_shape(index: &ValueIndex, held: &Pattern, typed: bool) -> Shape {
+    shape(index, &index.overloads().normalize(held), typed)
+}
+
+/// Whether `reading`, a print's reading, is the term whose shape is `held` ([`held_shape`]),
+/// value for value ([`Shape`]): with every instance and, where `typed`, every token's sort,
+/// modulo the definition's overload axioms, by which both are rewritten first
+/// ([`crate::overloads`]).
+fn reads_as(index: &ValueIndex, held: &Shape, reading: &Pattern, typed: bool) -> bool {
+    *held == shape(index, &index.overloads().normalize(reading), typed)
 }
 
 /// A term as two prints of it are compared, each rewritten by the definition's overload axioms
@@ -728,7 +734,7 @@ fn opaque_shape(index: &ValueIndex, pattern: &Pattern, typed: bool) -> Shape {
 mod tests {
     use k_rust::kore::parser::parse_pattern;
 
-    use super::reads_as;
+    use super::{held_shape, reads_as};
     use crate::overloads::tests::VALS;
     use crate::values::index_of;
 
@@ -741,7 +747,7 @@ mod tests {
         let reads = |held: &str, reading: &str| {
             reads_as(
                 &index,
-                &parse_pattern(held).unwrap(),
+                &held_shape(&index, &parse_pattern(held).unwrap(), true),
                 &parse_pattern(reading).unwrap(),
                 true,
             )
