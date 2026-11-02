@@ -4,9 +4,9 @@
 //! ([`krs_ir::cell_kind::EntryKind`]: the layers of the cell's marked ancestors, its path, and
 //! the cell's own layers, kept apart):
 //!
-//! 1. **form**: what the spelling and its side alone refuse: `_` outside a pattern, a named rest
-//!    `name @ ..` in a result, `None` or an anonymous rest in an initializer's value, an anonymous
-//!    rest in a map literal outside a `cells!` pattern;
+//! 1. **form**: what the spelling and its side alone refuse: `_`, `name @ P` and a named rest
+//!    `name @ ..` outside a pattern, `None` or an anonymous rest in an initializer's value, an
+//!    anonymous rest in a map literal outside a `cells!` pattern;
 //! 2. **path**: an entry naming a cell below a `?` or `*` ancestor is refused for the outermost
 //!    such ancestor, whatever it spells: the ancestor's presence and the instance it means are
 //!    written at the ancestor's level (S1 (b));
@@ -16,7 +16,7 @@
 //!    has a mark, gives the missing layer's refusal.
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, a
-//! result's group record with a bare `..` over a group the subject matches, a result over a
+//! result's group record with a bare `..` for a group that exists, a result over a
 //! cell the subject does not match (Q1's overwrite, where it means one configuration), an
 //! absence test, and the lint of a subject entry that constrains nothing.
 //!
@@ -60,8 +60,9 @@ pub enum EntrySide {
 pub enum Refusal {
     /// `_` outside a pattern.
     WildcardOutsidePattern,
-    /// A named rest, `name @ ..`, in a result: `name @ P` names what a pattern matched. A result
-    /// writes `..` to keep the subject's anonymous rest and `..name` to put a named one back.
+    /// `name @ P` or a named rest `name @ ..` outside a pattern (a result or an initializer):
+    /// it names what a pattern matched. A result writes `..` to keep the subject's anonymous rest
+    /// and `..name` to put a named one back; an initializer updates with `..base`.
     AliasOutsidePattern,
     /// `None` in an initializer.
     NoneInInitializer,
@@ -104,8 +105,9 @@ pub enum Refusal {
     AbsenceTestWithoutCreation,
     /// A result rest that is not its subject's.
     RestMismatch,
-    /// A result's group record with a bare `..` over a group the subject matches: a bare `..`
-    /// in a result is Rust's default fields, which only a created instance has (its template).
+    /// A result's group record with a bare `..` for a group that exists, matched or overwritten:
+    /// a bare `..` in a result is Rust's default fields, which only a created instance has (its
+    /// template).
     OpenRecordOutsidePattern,
     /// A readable computation's rest before an item: the computation is matched from its
     /// front (the class matrix's E1).
@@ -324,16 +326,18 @@ impl Admission<'_> {
         match spelling {
             EntrySpelling::Wild if !pattern => return Err(Refusal::WildcardOutsidePattern),
             EntrySpelling::Missing if initializer => return Err(Refusal::NoneInInitializer),
-            // `name @ P` stands in a pattern only, and a rest is no exception: a result keeps the
-            // subject's anonymous rest with `..` and puts a named one back with `..name`; the
-            // subject drops a rest by naming it `_rest @ ..` and not putting it back.
-            _ if self.side == EntrySide::Result
-                && matches!(
-                    sequence(spelling)
-                        .and_then(|seq| seq.rest.as_ref().map(|(rest, _)| rest))
-                        .or_else(|| map_entries(spelling).and_then(|map| map.rest.as_ref())),
-                    Some(EntryRest::Named(_))
-                ) =>
+            // `name @ P` stands in a pattern only, at any depth, and a rest is no exception: a
+            // result keeps the subject's anonymous rest with `..` and puts a named one back with
+            // `..name`; the subject drops a rest by naming it `_rest @ ..` and not putting it
+            // back. An initializer is a result with no subject: nothing in it is a pattern.
+            _ if !pattern
+                && (matches!(spelling, EntrySpelling::Alias(..))
+                    || matches!(
+                        sequence(spelling)
+                            .and_then(|seq| seq.rest.as_ref().map(|(rest, _)| rest))
+                            .or_else(|| map_entries(spelling).and_then(|map| map.rest.as_ref())),
+                        Some(EntryRest::Named(_))
+                    )) =>
             {
                 return Err(Refusal::AliasOutsidePattern);
             }
@@ -653,14 +657,15 @@ fn binds(spelling: &EntrySpelling) -> bool {
     }
 }
 
-/// Whether a result `spelling` over the matched subject `subject` writes a group record with a
-/// bare `..` for a group that exists: the cell's own group, or the one inside a `?` cell the
-/// subject matches present, and their group children. A collection's instance record is a
-/// created instance's, and a `?` cell over a subject `None` is created, so neither is.
-fn open_record_over_match(
+/// Whether a result `spelling` writes a group record with a bare `..` for a group that exists:
+/// the cell's own group, which the subject matches or the result overwrites (`subject` `None`),
+/// or the one inside a `?` cell the subject matches present, and their group children. A
+/// collection's instance record is a created instance's, and a `?` cell over a subject `None`
+/// is created, so neither is. A result holds no alias (step 1).
+fn open_record_on_existing(
     stack: &[Layer],
     spelling: &EntrySpelling,
-    subject: &EntrySpelling,
+    subject: Option<&EntrySpelling>,
 ) -> bool {
     fn existing(stack: &[Layer], spelling: &EntrySpelling) -> bool {
         let (Some(Layer::Group(group)), EntrySpelling::Record(record)) = (stack.first(), spelling)
@@ -681,10 +686,12 @@ fn open_record_over_match(
             other => other,
         }
     }
-    match (stack.first(), unaliased(spelling), unaliased(subject)) {
-        (Some(Layer::Optional), EntrySpelling::Present(content), EntrySpelling::Present(_)) => {
-            existing(&stack[1..], content)
-        }
+    match (stack.first(), spelling, subject.map(unaliased)) {
+        (
+            Some(Layer::Optional),
+            EntrySpelling::Present(content),
+            Some(EntrySpelling::Present(_)),
+        ) => existing(&stack[1..], content),
         (Some(Layer::Group(_)), spelling, _) => existing(stack, spelling),
         _ => false,
     }
@@ -695,11 +702,12 @@ fn open_record_over_match(
 /// (`written` false) owes [`Lint::NoEffectEntry`]. On a result, `other` is the subject's entry
 /// of the same cell, `None` where the subject does not match the cell:
 ///
+/// - a group record with a bare `..` for a group that exists (the cell's own, matched or
+///   overwritten, or the one inside a `?` cell the subject matches present) is
+///   [`Refusal::OpenRecordOutsidePattern`], since a bare `..` in a result is Rust's default
+///   fields, which only a created instance has;
 /// - over a matched cell, `None` removes the cell with all its content, so it pairs no rest;
-///   a group record with a bare `..` for a group that exists (the cell's own, or the one inside
-///   a `?` cell the subject matches present) is [`Refusal::OpenRecordOutsidePattern`], since a
-///   bare `..` in a result is Rust's default fields, which only a created instance has; and its
-///   rest is its subject's: a subject's `..` is kept by a result `..` only (P6);
+///   and its rest is its subject's: a subject's `..` is kept by a result `..` only (P6);
 /// - over an unmatched cell, the result is Q1's overwrite, which means one configuration only
 ///   where the cell's presence is known and no rest is kept: a `?` cell is
 ///   [`Refusal::UnmatchedOptionalResult`]; a readable computation's continuation, which the
@@ -735,6 +743,9 @@ pub fn pair(
                     Some(Layer::Computation) if form.is_readable() => {
                         Err(Refusal::ContinuationInReadable)
                     }
+                    _ if open_record_on_existing(stack, spelling, None) => {
+                        Err(Refusal::OpenRecordOutsidePattern)
+                    }
                     _ if anonymous(root(spelling)) => Err(Refusal::RestMismatch),
                     _ => Ok(None),
                 };
@@ -742,7 +753,7 @@ pub fn pair(
             if *spelling == EntrySpelling::Missing {
                 return Ok(None);
             }
-            if open_record_over_match(stack, spelling, subject) {
+            if open_record_on_existing(stack, spelling, Some(subject)) {
                 return Err(Refusal::OpenRecordOutsidePattern);
             }
             if anonymous(root(spelling)) != anonymous(root(subject)) {
@@ -1078,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group_only() {
+    fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
         let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
         let refused = Err(Refusal::OpenRecordOutsidePattern);
         let group = [frame()];
@@ -1127,6 +1138,123 @@ mod tests {
             judge(readable, EntrySide::Subject, &group, "Frame { ret: x, .. }"),
             Ok(())
         );
+    }
+
+    #[test]
+    fn a_result_group_record_with_a_bare_rest_is_refused_over_an_overwritten_group() {
+        let readable = EntryForm::Readable;
+        let group = [frame()];
+        // Q1's overwrite: the group exists already, so it has no default fields (P6).
+        assert_eq!(
+            result(readable, &group, "Frame { ret: x, .. }", None),
+            Err(Refusal::OpenRecordOutsidePattern)
+        );
+        assert_eq!(
+            result(readable, &group, "Frame { ret: x, aux: 0 }", None),
+            Ok(None)
+        );
+        // A `?` cell the subject does not match is refused for its presence first.
+        assert_eq!(
+            result(
+                readable,
+                &[Layer::Optional, frame()],
+                "Some(Frame { ret: x, .. })",
+                None
+            ),
+            Err(Refusal::UnmatchedOptionalResult)
+        );
+        // A created `?` cell, over a subject `None`, takes its template's fields.
+        assert_eq!(
+            result(
+                readable,
+                &[Layer::Optional, frame()],
+                "Some(Frame { ret: x, .. })",
+                Some("None")
+            ),
+            Ok(None)
+        );
+        // A created instance's record does too.
+        assert_eq!(
+            result(
+                readable,
+                &[Layer::Instances(Order::Set), frame()],
+                "{ Frame { ret: x, .. } }",
+                None
+            ),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn an_alias_in_a_result_is_refused_at_the_form_at_any_depth() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let refused = Err(Refusal::AliasOutsidePattern);
+        let int = [Layer::Leaf(Notation::Plain)];
+        for (form, stack, text) in [
+            (readable, vec![Layer::Leaf(Notation::Plain)], "x @ 1"),
+            (readable, vec![Layer::Leaf(Notation::List)], "[x @ 1, ..]"),
+            (
+                readable,
+                vec![Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "Some(x @ 1)",
+            ),
+            (readable, vec![frame()], "Frame { ret: x @ 1, aux: 0 }"),
+            (
+                cells,
+                vec![Layer::Leaf(Notation::Plain)],
+                "k::configuration::Cell(x @ 1)",
+            ),
+            (
+                cells,
+                vec![Layer::Instances(Order::List), frame()],
+                "[f @ k::fragment![crate::Frame { ret: x, aux: 0 }], ..]",
+            ),
+        ] {
+            assert_eq!(
+                judge(form, EntrySide::Result, &stack, text),
+                refused,
+                "{text}"
+            );
+        }
+        // Step 1 comes before the path (P4).
+        assert_eq!(
+            below(
+                readable,
+                EntrySide::Result,
+                &[Layer::Optional],
+                &int,
+                "x @ 1"
+            ),
+            refused
+        );
+        // A subject names what it matches.
+        assert_eq!(judge(readable, EntrySide::Subject, &int, "x @ 1"), Ok(()));
+    }
+
+    #[test]
+    fn an_alias_or_a_named_rest_in_an_initializer_is_refused_at_the_form() {
+        let init = EntryForm::Initializer;
+        let side = EntrySide::Initializer;
+        let refused = Err(Refusal::AliasOutsidePattern);
+        let variables = ["pgm".to_owned()];
+        let reading = EntryReading::new(init, &variables);
+        let admitted = |stack: &[Layer], text: &str| {
+            let spelling = reading.value(text.parse().expect("lexes")).expect("reads");
+            admit(init, side, &[], stack, &spelling, &|_| false).map(|_| ())
+        };
+        let list = [Layer::Leaf(Notation::List)];
+        assert_eq!(admitted(&list, "[0, r @ ..]"), refused);
+        assert_eq!(
+            admitted(&[Layer::Computation], "k::k![Cmd::Go(), r @ ..]"),
+            refused
+        );
+        assert_eq!(
+            admitted(&[Layer::Leaf(Notation::Map)], "k::map![0 -> 1, r @ ..]"),
+            refused
+        );
+        assert_eq!(admitted(&[Layer::Leaf(Notation::Plain)], "x @ 0"), refused);
+        // `..base` is an initializer's update (P5).
+        assert_eq!(admitted(&list, "[0, ..base]"), Ok(()));
     }
 
     #[test]

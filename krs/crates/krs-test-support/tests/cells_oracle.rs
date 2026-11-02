@@ -1980,6 +1980,127 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
     ]);
 }
 
+/// Ruling 1 on F3: a result over a group the subject does not match overwrites a group that
+/// exists already, so a bare `..` there has no default fields to give (P6); only a created
+/// instance, or a `?` cell created over a subject `None`, has its template's.
+#[test]
+fn a_result_group_record_with_a_bare_rest_is_refused_over_an_overwritten_group() {
+    let refused = Outcome::Refuse("open-record-outside-pattern");
+    let group = [group_g()];
+    let optional = [Layer::Optional, group_g()];
+    let set = [Layer::Instances(Order::Set), group_g()];
+    probes_agree(&[
+        (
+            result_probe(Form::Readable, &group, "G { a: x, .. }", None),
+            refused,
+        ),
+        (
+            result_probe(Form::Claim, &group, "G { a: x, .. }", None),
+            refused,
+        ),
+        (
+            result_probe(Form::Readable, &group, "G { a: x, b: 0 }", None),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &optional, "Some(G { a: x, .. })", None),
+            Outcome::Refuse("unmatched-optional-result"),
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &optional,
+                "Some(G { a: x, .. })",
+                Some("None"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &set, "{ G { a: x, .. } }", None),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// Ruling 3 on F2: `name @ P` names what a pattern matched, so a result holds none, at any depth
+/// (§2.3 step 1), before the path is judged.
+#[test]
+fn an_alias_in_a_result_is_refused_at_the_form() {
+    let refused = Outcome::Refuse("alias-outside-pattern");
+    let int = int();
+    let list = [Layer::Leaf(Notation::List)];
+    let optional = [Layer::Optional, Layer::Leaf(Notation::Plain)];
+    let group = [group_g()];
+    let instances = [Layer::Instances(Order::List), group_g()];
+    let mut below = result_probe(Form::Readable, &int, "x @ 1", None);
+    below.path = &[Layer::Optional];
+    probes_agree(&[
+        (
+            result_probe(Form::Readable, &int, "x @ 1", Some("old")),
+            refused,
+        ),
+        (
+            result_probe(Form::Claim, &list, "[x @ 1, ..]", Some("[y, ..]")),
+            refused,
+        ),
+        (
+            result_probe(Form::Readable, &optional, "Some(x @ 1)", Some("Some(old)")),
+            refused,
+        ),
+        (
+            result_probe(Form::Readable, &group, "G { a: x @ 1, b: 0 }", None),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &int,
+                "k::configuration::Cell(x @ 1)",
+                Some("k::configuration::Cell(old)"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &instances,
+                "[f @ k::fragment![crate::G { a: x, b: 0 }], ..]",
+                Some("[k::fragment![crate::G { a: y, .. }], ..]"),
+            ),
+            refused,
+        ),
+        (below, refused),
+    ]);
+}
+
+/// Ruling 4 on F2: an initializer is a result with no subject (P5), so nothing in it is a
+/// pattern: a named rest and `name @ P` are refused at the form, and `..base` updates.
+#[test]
+fn an_alias_or_a_named_rest_in_an_initializer_is_refused_at_the_form() {
+    let refused = Outcome::Refuse("alias-outside-pattern");
+    let probe = |stack, text| Probe {
+        form: Form::Init,
+        side: Side::Initializer,
+        path: &[],
+        stack,
+        text,
+        other: None,
+        written: false,
+        bound: &["pgm"],
+    };
+    let list = [Layer::Leaf(Notation::List)];
+    let map = [Layer::Leaf(Notation::Map)];
+    let computation = [Layer::Computation];
+    let int = int();
+    probes_agree(&[
+        (probe(&list, "[0, r @ ..]"), refused),
+        (probe(&computation, "k::k![Cmd::Go(), r @ ..]"), refused),
+        (probe(&map, "k::map![0 -> 1, r @ ..]"), refused),
+        (probe(&int, "x @ 0"), refused),
+        (probe(&list, "[0, ..base]"), Outcome::After),
+    ]);
+}
+
 /// Where the sweep of [`outcome`] is kept, checked in so that a change to `outcome` shows as a
 /// diff (`KRS_CELLS_SWEEP_RECORD=1` rewrites it).
 const SWEEP_FILE: &str = "cells-outcome-sweep.tsv";

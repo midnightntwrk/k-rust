@@ -174,7 +174,7 @@ result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	
 result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort
 result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	sort	sort
 result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort
-result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	rmc
+result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	rmc
 result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp
 result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	owp	owp
@@ -345,7 +345,7 @@ result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	
 result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort
 result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	sort	sort
 result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort
-result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	rmc
+result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	rmc
 result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp
 result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	owp	owp

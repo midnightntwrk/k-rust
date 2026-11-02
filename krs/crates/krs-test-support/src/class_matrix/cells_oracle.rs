@@ -11,8 +11,8 @@
 //!
 //! [`outcome`] answers steps 1–3 of the design's §2.3 for one entry:
 //!
-//! 1. **form**: what the spelling and its side alone refuse (`_` in a result or an initializer,
-//!    a named rest `name @ ..` in a result, `None` or an anonymous rest in an initializer, an
+//! 1. **form**: what the spelling and its side alone refuse (`_`, `name @ P` and a named rest
+//!    `name @ ..` in a result or an initializer, `None` or an anonymous rest in an initializer, an
 //!    anonymous rest in a map literal outside a `cells!` pattern);
 //! 2. **kind**: first the path (S1 (b)): an entry naming a cell below a `?` or `*` ancestor is
 //!    refused for the outermost such ancestor, whatever it spells, since the ancestor's presence
@@ -24,7 +24,8 @@
 //!    class;
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
 //!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
-//!    record over a matched group (P6: Rust's default fields, which a matched group lacks).
+//!    record for a group that exists, matched or overwritten (P6: Rust's default fields, which
+//!    only a created instance has).
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -736,11 +737,13 @@ impl Judge<'_> {
                 return refuse("none-in-initializer", Step::Form, depth);
             }
             // §2.3 step 1: `name @ P` names what a pattern matched, so it stands in a pattern
-            // only, and a rest is no exception. A result keeps the subject's anonymous rest with
-            // `..` and puts a named one back with `..name` (P6); the subject drops a rest by
-            // naming it `_rest @ ..` and not putting it back.
-            _ if self.side == Side::Result
-                && matches!(sequence(spelling), Some((_, Some(Rest::Named(_))))) =>
+            // only, at any depth, and a rest is no exception. A result keeps the subject's
+            // anonymous rest with `..` and puts a named one back with `..name` (P6); the subject
+            // drops a rest by naming it `_rest @ ..` and not putting it back. An initializer is a
+            // result with no subject (P5): nothing in it is a pattern, and `..base` updates.
+            _ if matches!(self.side, Side::Result | Side::Initializer)
+                && (matches!(spelling, Spelling::Alias(..))
+                    || matches!(sequence(spelling), Some((_, Some(Rest::Named(_)))))) =>
             {
                 return refuse("alias-outside-pattern", Step::Form, depth);
             }
@@ -958,6 +961,10 @@ impl Judge<'_> {
                         Some(Layer::Computation) if readable => {
                             refuse("continuation-in-readable", Step::Pairing, 0).map(|()| None)
                         }
+                        // P6: the overwritten group exists already, so it has no default fields.
+                        _ if open_record_on_existing(stack, spelling, None) => {
+                            refuse("open-record-outside-pattern", Step::Pairing, 0).map(|()| None)
+                        }
                         _ if root(spelling) == Root::Rest(Rest::Anon) => {
                             refuse("rest-mismatch", Step::Pairing, 0).map(|()| None)
                         }
@@ -971,7 +978,7 @@ impl Judge<'_> {
                 }
                 // P6: a bare `..` in a result is Rust's default fields, which only a created
                 // instance has (its template); a matched group has none.
-                if open_record_over_match(stack, spelling, other) {
+                if open_record_on_existing(stack, spelling, Some(other)) {
                     refuse("open-record-outside-pattern", Step::Pairing, 0)?;
                 }
                 // P6: a result rest is the subject's rest of the same cell, and a subject's
@@ -988,11 +995,12 @@ impl Judge<'_> {
     }
 }
 
-/// Whether a result `spelling` over the matched subject `other` writes a group record with a
-/// bare `..` for a group that exists: the cell's own group, or the group inside a `?` cell the
-/// subject matches present, and their group children. A collection's instance record is a
-/// created instance's, and a `?` cell over a subject `None` is created, so neither is.
-fn open_record_over_match(stack: &[Layer], spelling: &Spelling, other: &Spelling) -> bool {
+/// Whether a result `spelling` writes a group record with a bare `..` for a group that exists:
+/// the cell's own group, which the subject matches or the result overwrites (`other` `None`),
+/// or the group inside a `?` cell the subject matches present, and their group children. A
+/// collection's instance record is a created instance's, and a `?` cell over a subject `None`
+/// is created, so neither is. A result holds no alias (step 1).
+fn open_record_on_existing(stack: &[Layer], spelling: &Spelling, other: Option<&Spelling>) -> bool {
     fn existing(stack: &[Layer], spelling: &Spelling) -> bool {
         let (Some(Layer::Group(group)), Spelling::Record(record)) = (stack.first(), spelling)
         else {
@@ -1010,8 +1018,8 @@ fn open_record_over_match(stack: &[Layer], spelling: &Spelling, other: &Spelling
             other => other,
         }
     }
-    match (stack.first(), unaliased(spelling), unaliased(other)) {
-        (Some(Layer::Optional), Spelling::Present(inner), Spelling::Present(_)) => {
+    match (stack.first(), spelling, other.map(unaliased)) {
+        (Some(Layer::Optional), Spelling::Present(inner), Some(Spelling::Present(_))) => {
             existing(&stack[1..], inner)
         }
         (Some(Layer::Group(_)), spelling, _) => existing(stack, spelling),
