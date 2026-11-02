@@ -110,20 +110,33 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
     let mut backend = branching_backend();
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.strategy = ExecutionStrategy::Any;
-    let end = one_path(backend.execute(request).unwrap().leaves).unwrap();
+    let end = one_path(backend.execute(request).unwrap().leaves, &Named::default())
+        .unwrap()
+        .leaf;
     assert_eq!(end.reason, HaltReasonOutput::Stuck);
-    check_final_state(&mut backend, &end.state, "the run ended stuck").unwrap();
+    check_final_state(
+        &mut backend,
+        &Named::default(),
+        &end.state,
+        "the run ended stuck",
+    )
+    .unwrap();
 
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.max_depth = Some(0);
-    let start = one_path(backend.execute(request).unwrap().leaves).unwrap();
+    let start = one_path(backend.execute(request).unwrap().leaves, &Named::default())
+        .unwrap()
+        .leaf;
     let reported = ExecutionLeaf {
         reason: HaltReasonOutput::Stuck,
         ..start
     };
-    let Err(ExecError::Result(message)) =
-        check_final_state(&mut backend, &reported.state, "the run ended stuck")
-    else {
+    let Err(ExecError::Result(message)) = check_final_state(
+        &mut backend,
+        &Named::default(),
+        &reported.state,
+        "the run ended stuck",
+    ) else {
         panic!("a state two rules leave is no stuck end");
     };
     assert!(

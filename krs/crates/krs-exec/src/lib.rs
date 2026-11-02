@@ -1180,7 +1180,13 @@ impl Semantics {
             leaf = self.before_valueless(state, leaf, decides)?;
         }
         if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
-            check_final_state(&mut self.backend, &leaf.state, "the run ended stuck")?;
+            // The definition's heads, borrowed beside the backend ([`Self::heads`]).
+            let heads: &dyn valueless::Heads = if decides {
+                self.values.as_ref()
+            } else {
+                &valueless::Undecided
+            };
+            check_final_state(&mut self.backend, heads, &leaf.state, "the run ended stuck")?;
         }
         let valueless = valueless
             .into_iter()
@@ -1337,6 +1343,7 @@ impl Semantics {
                 if options.depth.is_none_or(|bound| solution.depth < bound) {
                     check_final_state(
                         &mut self.backend,
+                        &valueless::Undecided,
                         &solution.state,
                         "the search found a final state",
                     )?;
@@ -1759,8 +1766,16 @@ fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
 /// trying every rule, must take none and give back that state: a step, a successor, or another
 /// state means the report states what does not hold of the state. The cost is one
 /// simplification and one rule attempt per state checked.
+///
+/// The step's leaves are read with `heads` as a run reads its own ([`one_path`]): a rule whose
+/// condition reads a term with no value does not apply, so the leaf where the backend took it
+/// under that condition is no state, and the leaf where it did not is the state, its
+/// configuration where the reading decided its condition holds. A run reads with the
+/// definition's heads; a search, which prints the backend's states with their conditions, with
+/// [`valueless::Undecided`], under which every leaf is read as returned.
 fn check_final_state(
     backend: &mut Backend,
+    heads: &dyn valueless::Heads,
     state: &serde_json::Value,
     what: &str,
 ) -> Result<(), ExecError> {
@@ -1772,9 +1787,27 @@ fn check_final_state(
     request.strategy = ExecutionStrategy::All;
     request.max_depth = Some(1);
     let again = backend.execute(request)?.leaves;
+    let mut states = Vec::new();
+    for end in &again {
+        let pattern = kore_pattern(&end.state)?;
+        let split = valueless::split(&pattern);
+        let mut read = Vec::new();
+        match valueless::read(&split.predicates, heads, &mut read) {
+            valueless::Reading::Fails => {}
+            reading => {
+                let decided = reading == valueless::Reading::Holds && !read.is_empty();
+                let reached = match split.configuration {
+                    Some(configuration) if decided => kore_json::to_value(configuration)
+                        .map_err(|error| ExecError::Result(error.to_string()))?,
+                    _ => end.state.clone(),
+                };
+                states.push((end, reached));
+            }
+        }
+    }
     let holds = matches!(
-        again.as_slice(),
-        [end] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && end.state == *state
+        states.as_slice(),
+        [(end, reached)] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && reached == state
     );
     if holds {
         return Ok(());
