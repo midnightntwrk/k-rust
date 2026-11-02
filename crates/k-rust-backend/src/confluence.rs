@@ -2015,18 +2015,24 @@ pub(crate) fn recording_overlaps<R>(run: impl FnOnce() -> R) -> (R, Vec<Recorded
 /// ([`budgeted`]). The simplifier polls at every round of a term's simplification, at every
 /// predicate simplification and in the loops of hooks, so the budget bounds the rounds, ground
 /// function steps included, that one simplification may take; one that needs more decides
-/// nothing. Any fixed number makes the verdict a function of the definition; the number is a
-/// choice between the cost of a load and the conditions it decides.
+/// nothing. A walk a round makes over its whole term without polling, the path condition's
+/// search for and replacement of the terms a sibling equality states equal to a value, is
+/// charged to the budget by the nodes it visits (`stop::charge`), so that the budget bounds the
+/// simplification's work also where each round walks a term that grows per round: a budget of
+/// `n` then bounds the rounds of such a term to about `√(2n)`, where polls alone would let them
+/// walk about `n²/2` nodes. Any fixed number makes the verdict a function of the definition; the
+/// number is a choice between the cost of a load and the conditions it decides.
 ///
 /// Measured on 2026-10-15 (release build, `KINK-06/3`): no condition of the 205 compiled
 /// definitions of the conformance corpus, of the definitions of the light reference gates (the
 /// compile corpus, the execution, RPC and proof cases, IMP and its verification module), of
-/// `tests/fixtures`, or of this crate's own tests takes more than 29 polls. A ground step of a
-/// recursive function such as `slow(N) = slow(N -Int 1) requires N >Int 0` takes 14 polls, and
-/// on that workload a release build makes about 2.0 million polls a second on a 32-CPU
-/// workstation at half load. The budget is about two seconds of that workload, far above the
-/// corpus. The time a poll stands for depends on the site: a traversal that polls at every node
-/// of a term reaches the budget sooner, and a heavy hook that polls rarely later.
+/// `tests/fixtures`, or of this crate's own tests takes more than 29 polls (counted before the
+/// walks were charged, which adds the nodes they visit). A ground step of a recursive function
+/// such as `slow(N) = slow(N -Int 1) requires N >Int 0` takes 14 polls, and on that workload a
+/// release build makes about 2.0 million polls a second on a 32-CPU workstation at half load.
+/// The budget is about two seconds of that workload, far above the corpus. The time a poll
+/// stands for depends on the site: a traversal that polls or is charged at every node of a term
+/// reaches the budget sooner, and a heavy hook that polls rarely later.
 const CONDITION_POLLS: u64 = 4_000_000;
 
 /// Run `work`, a simplification inside the check, under the budget of [`CONDITION_POLLS`] polls,

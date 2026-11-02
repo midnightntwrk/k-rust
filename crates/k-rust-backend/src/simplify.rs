@@ -6513,16 +6513,23 @@ fn is_scalar_domain_value(term: &Term) -> bool {
 /// The walk keeps its pending work on the heap: the terms the simplifier builds can be deeper
 /// than the native stack (a ground chain of a function whose evaluation does not end grows one
 /// level per step), and the stack guard bounds only the simplifier's own recursion.
+///
+/// The walk does not poll; it charges the nodes it enters to the poll budget in force, if any
+/// (`stop::charge`). A round of a term's simplification polls once and walks the whole term, so
+/// without the charge the rounds of a term that grows per round would do work quadratic in the
+/// polls they spend.
 fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
     // `None`: the term is still to be entered; `Some(count)`: its `count` children are rebuilt
     // on top of `rebuilt`.
     let mut pending = vec![(term.clone(), None::<usize>)];
     let mut rebuilt = Vec::<Term>::new();
+    let mut entered = 0_u64;
     // Invariant: `rebuilt` holds, in order, the rebuilt children of every exit frame on
     // `pending` that has finished entering them; each term is entered and exited once.
     while let Some((current, state)) = pending.pop() {
         match state {
             None => {
+                entered += 1;
                 let mut children = Vec::new();
                 let _ = current.try_map_children(|child| {
                     children.push(child.clone());
@@ -6551,14 +6558,21 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
             }
         }
     }
+    stop::charge(entered);
     rebuilt.pop().expect("the walk rebuilds the root")
 }
 
+/// Whether some subterm occurrence of `term` equals an original of `replacements`. Like
+/// [`replace_terms_bottom_up`], the walk charges the occurrences it examines to the poll budget
+/// in force, if any (`stop::charge`).
 fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]) -> bool {
     let mut pending = vec![term];
+    let mut examined = 0_u64;
     // Invariant: no popped subterm equals an original in `replacements`, and `pending` holds unexamined subterm occurrences of `term`; each pop pushes only its direct children, so each occurrence is popped at most once.
     while let Some(term) = pending.pop() {
+        examined += 1;
         if replacements.iter().any(|(original, _)| original == term) {
+            stop::charge(examined);
             return true;
         }
         match term.kind() {
@@ -6583,6 +6597,7 @@ fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]
             TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
         }
     }
+    stop::charge(examined);
     false
 }
 

@@ -481,6 +481,57 @@ fn a_condition_whose_evaluation_does_not_end_does_not_keep_a_definition_from_loa
     });
 }
 
+/// The definition of [`a_condition_whose_evaluation_does_not_end_does_not_keep_a_definition_from_loading`],
+/// with the second equation conditional too (`h(X) = mk(2) requires X ==K c`), so that the
+/// condition that evaluates without end is simplified beside the sibling equality
+/// `(X ==K c) = true`. A sibling equality with a value side is a replacement of the path
+/// condition, which the simplifier looks for in the whole term at every round of the term's
+/// simplification; the term grows by one `k` per round. The check's poll budget still ends that
+/// simplification after a bounded amount of work, because each such walk is charged to the budget
+/// by the nodes it visits.
+#[test]
+fn a_condition_that_does_not_end_beside_a_sibling_equality_does_not_keep_a_definition_from_loading()
+{
+    use language::{app, cons, int, var};
+    on_large_stack(|| {
+        let definition = Definition::new(&["A"])
+            .constructor("c", &[], "A")
+            .constructor("k", &["A"], "A")
+            .total_function("pf", &["A"], "A")
+            .equation(
+                app("pf", vec![var("VarY", "A")]),
+                app("pf", vec![app("k", vec![var("VarY", "A")])]),
+            )
+            .head("h", &["A"], "S")
+            .conditional(
+                app("h", vec![var("VarX", "A")]),
+                app("mk", vec![int(1)]),
+                Some(app("eqA", vec![app("pf", vec![cons("c")]), cons("c")])),
+            )
+            .conditional(
+                app("h", vec![var("VarX", "A")]),
+                app("mk", vec![int(2)]),
+                Some(app("eqA", vec![var("VarX", "A"), cons("c")])),
+            );
+        let started = std::time::Instant::now();
+        let backend = checks::backend(&definition).expect("the definition loads");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "loading took {:?}",
+            started.elapsed()
+        );
+        assert!(
+            backend
+                .value_claims()
+                .tainted_symbols()
+                .iter()
+                .any(|symbol| symbol.as_ref() == "h"),
+            "{:?}",
+            backend.value_claims().unjoined()
+        );
+    });
+}
+
 /// Random definitions in the axiom-instance harness's default run.
 const AXIOM_CASES: u64 = 24;
 
