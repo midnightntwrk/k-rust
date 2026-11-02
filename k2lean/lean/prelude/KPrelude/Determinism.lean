@@ -1045,12 +1045,45 @@ elab "k2l_lits" : tactic => do
 /-- `k2l_eval [f, …]`: a requires that evaluates to `false` under the other rule's match.
 Refute it by `cases` on an equation hypothesis; otherwise replace projected variables by
 injections and evaluate with the injection algebra, the Boolean connectives and the definitions
-`f, …` (the functions the two requires call), then refute. -/
+`f, …` (the functions the two requires call), then refute. Where that does not close it, the
+call may be stuck on a variable (`isKResult` of a `V:Value` whose subsorts, not `Value`, are the
+results): case-split one candidate and evaluate every case (`k2l_eval_split`). -/
 syntax "k2l_eval" (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
+
+/-- `k2l_eval1 [f, …]`: `k2l_eval` without the case split. -/
+syntax "k2l_eval1" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+/-- `k2l_eval_split [f, …]`: case-split one variable that a Boolean or partial condition tests,
+then close every case by `k2l_eval1 [f, …]`. -/
+syntax "k2l_eval_split" " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
 macro_rules
   | `(tactic| k2l_eval) => `(tactic| k2l_eval [])
   | `(tactic| k2l_eval [$xs,*]) => `(tactic| first
+    | k2l_eval1 [$xs,*]
+    | k2l_guard (k2l_eval_split [$xs,*]))
+
+open Lean Meta Elab Tactic in
+elab_rules : tactic
+  | `(tactic| k2l_eval_split [$xs,*]) => do
+    let close ← `(tactic| k2l_eval1 [$xs,*])
+    let closeIn (g : MVarId) : TacticM Bool := do
+      setGoals [g]
+      try (do evalTactic close; return (← getUnsolvedGoals).isEmpty) catch _ => pure false
+    for x in (← k2lSplitCandidates) do
+      let s ← saveState
+      let ok ← try
+          let gs ← k2lCasesEnum (← getMainGoal) x
+          gs.allM closeIn
+        catch _ => pure false
+      if ok then
+        setGoals []
+        return
+      s.restore
+    throwError "k2l_eval_split: no variable whose cases all evaluate"
+
+macro_rules
+  | `(tactic| k2l_eval1 [$xs,*]) => `(tactic| first
     | k2l_guard k2l_refute_eqs
     | k2l_guard (k2l_eval_binds; k2l_refute_eqs)
     | k2l_guard (k2l_eval_binds; k2l_lits)
