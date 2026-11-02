@@ -1446,6 +1446,44 @@ fn confluence_slots_with_and_without_threads() {
     );
 }
 
+/// Without `--threads`, a rule that removes a binding of a map matched at a free key (the
+/// fixture pick's `drop`, `<m> (_ |-> V => .Map) ...`) has a removal's attempt: two removals are
+/// of one binding or commute (`concat_element_same_or_comm_remove`), each taken again at the
+/// other's result.
+#[test]
+fn confluence_plain_commutes_two_removals_at_two_bindings() {
+    let d = tmp("cli-confluence-remove");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/pick/definition.kore");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args(["--name", "Pick", "--ns", "PickConf"])
+        .arg("--slots")
+        .arg(d.join("Slots.lean"))
+        .arg("--out")
+        .arg(d.join("Views.lean"))
+        .arg("--report")
+        .arg(d.join("c.toml"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    for x in [
+        "    | (rcases MapHook.concat_element_same_or_comm_remove hm hm_r with ⟨hk, hv, hR⟩ | ⟨R', a₁, a₂⟩\n       · cases hk <;> cases hv <;> cases hR <;> first | exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩ | (exfalso; simp_all) | omega\n",
+        "       · exact ⟨_, _, Or.inr (Pick.Step.drop (hm := a₁) (hreq := hreq_r) ..), Or.inr (Pick.Step.drop (hm := a₂) (hreq := hreq) ..), by k2l_join_eq⟩)\n",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    // only `drop` removes: no other slot has the attempt
+    assert_eq!(
+        m.matches("concat_element_same_or_comm_remove").count(),
+        1,
+        "{m}"
+    );
+}
+
 /// `confluence --equiv CELL=REL,…`: the theorem modulo an equivalence the author states, per leaf
 /// cell. `Equiv` compares the other cells by equality; each rule keeps it (`equiv.sim.r`, generic
 /// when the rule reads no relaxed cell), so it is a `StepEquiv`; the joins are modulo `Equiv`,

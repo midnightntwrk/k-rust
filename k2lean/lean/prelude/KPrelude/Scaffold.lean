@@ -711,6 +711,70 @@ theorem concat_element_comm_insert {k₁ k₂ : K} {v₁ w₁ w₂ : V} {R₁ m 
     rw [lookup_update_ne _ _ j₁, lookup_remove_ne j₁ w₂', lookup_update_ne _ _ j₂,
       lookup_update_ne _ _ j₁, lookup_update_ne _ _ j₂, lookup_update_ne _ _ j₁]
 
+/-- Two removals of bindings of one map are of one binding, or they commute. Removing `k₁` turns
+`m = (k₁ ↦ v₁) R₁` into `R₁`, removing `k₂ ≠ k₁` turns `m = (k₂ ↦ v₂) R₂` into `R₂`: each still
+matches after the other, and both orders give one map `R'`. -/
+theorem concat_element_same_or_comm_remove {k₁ k₂ : K} {v₁ v₂ : V} {R₁ R₂ m : M}
+    (h₁ : concat (element k₁ v₁) R₁ = some m) (h₂ : concat (element k₂ v₂) R₂ = some m) :
+    (k₁ = k₂ ∧ v₁ = v₂ ∧ R₁ = R₂) ∨
+    ∃ R', concat (element k₂ v₂) R' = some R₁ ∧ concat (element k₁ v₁) R' = some R₂ := by
+  by_cases hk : k₁ = k₂
+  · subst hk
+    exact Or.inl ⟨rfl, concat_element_unique h₁ h₂⟩
+  refine Or.inr ?_
+  have hne' : k₂ ≠ k₁ := fun h => hk h.symm
+  obtain ⟨wR₁, n₁, rfl⟩ := concat_element_iff.1 h₁
+  obtain ⟨wR₂, n₂, e⟩ := concat_element_iff.1 h₂
+  have l₂ : lookup R₁ k₂ = some v₂ := by
+    rw [← lookup_update_ne R₁ v₁ hne', e, lookup_update_self]
+  refine ⟨remove R₁ k₂, concat_element_remove wR₁ l₂,
+    concat_element_iff.2 ⟨wf_remove wR₁, by rw [lookup_remove_ne hk wR₁, n₁], ?_⟩⟩
+  refine ext wR₂ (wf_update (wf_remove wR₁)) (fun j => ?_)
+  by_cases j₁ : j = k₁
+  · subst j₁
+    rw [lookup_update_self, ← lookup_update_ne R₂ v₂ hk, ← e, lookup_update_self]
+  by_cases j₂ : j = k₂
+  · subst j₂
+    rw [n₂, lookup_update_ne _ _ j₁, lookup_remove_self _ wR₁]
+  rw [lookup_update_ne _ _ j₁, lookup_remove_ne j₂ wR₁, ← lookup_update_ne R₂ v₂ j₂, ← e,
+    lookup_update_ne _ _ j₁]
+
+/-- The removal of a binding and a step at a binding of one map are at one binding, or they
+commute. Removing `k₁` turns `m = (k₁ ↦ v₁) R₁` into `R₁`, the step at `k₂ ≠ k₁` turns
+`m = (k₂ ↦ v₂) R₂` into `m₂ = (k₂ ↦ w₂) R₂`: the step still matches `R₁` (at a rest `R₁₂`), the
+removal still matches `m₂`, and both orders give one map `m'`. -/
+theorem concat_element_same_or_comm_remove_update {k₁ k₂ : K} {v₁ v₂ w₂ : V} {R₁ R₂ m m₂ : M}
+    (h₁ : concat (element k₁ v₁) R₁ = some m) (h₂ : concat (element k₂ v₂) R₂ = some m)
+    (r₂ : concat (element k₂ w₂) R₂ = some m₂) :
+    (k₁ = k₂ ∧ v₁ = v₂ ∧ R₁ = R₂) ∨
+    ∃ R₁₂ m', concat (element k₂ v₂) R₁₂ = some R₁ ∧ concat (element k₂ w₂) R₁₂ = some m' ∧
+      concat (element k₁ v₁) m' = some m₂ := by
+  by_cases hk : k₁ = k₂
+  · subst hk
+    exact Or.inl ⟨rfl, concat_element_unique h₁ h₂⟩
+  refine Or.inr ?_
+  have hne' : k₂ ≠ k₁ := fun h => hk h.symm
+  obtain ⟨wR₁, n₁, rfl⟩ := concat_element_iff.1 h₁
+  obtain ⟨wR₂, n₂, e⟩ := concat_element_iff.1 h₂
+  obtain ⟨-, -, rfl⟩ := concat_element_iff.1 r₂
+  have l₂ : lookup R₁ k₂ = some v₂ := by
+    rw [← lookup_update_ne R₁ v₁ hne', e, lookup_update_self]
+  have wr : WF (remove R₁ k₂) := wf_remove wR₁
+  refine ⟨remove R₁ k₂, update (remove R₁ k₂) k₂ w₂, concat_element_remove wR₁ l₂,
+    concat_element_iff.2 ⟨wr, lookup_remove_self k₂ wR₁, rfl⟩,
+    concat_element_iff.2 ⟨wf_update wr, ?_, ?_⟩⟩
+  · rw [lookup_update_ne _ _ hk, lookup_remove_ne hk wR₁, n₁]
+  · refine ext (wf_update wR₂) (wf_update (wf_update wr)) (fun j => ?_)
+    by_cases j₁ : j = k₁
+    · subst j₁
+      rw [lookup_update_self, lookup_update_ne _ _ hk, ← lookup_update_ne R₂ v₂ hk, ← e,
+        lookup_update_self]
+    by_cases j₂ : j = k₂
+    · subst j₂
+      rw [lookup_update_self, lookup_update_ne _ _ j₁, lookup_update_self]
+    rw [lookup_update_ne _ _ j₂, lookup_update_ne _ _ j₁, lookup_update_ne _ _ j₂,
+      lookup_remove_ne j₂ wR₁, ← lookup_update_ne R₂ v₂ j₂, ← e, lookup_update_ne _ _ j₁]
+
 theorem concat_toList {a b m : M} (h : concat a b = some m) :
     SAL.concat (toList a) (toList b) = some (toList m) := by
   unfold concat at h

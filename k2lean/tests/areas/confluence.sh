@@ -21,8 +21,9 @@
 # equivalence the author states, the fixture racelog, workers logging their steps, library racelog;
 # JobsConf: the same without threads, the fixture jobs, library jobs; with priority ranks,
 # RaceLogOwConf and JobsOwConf: the same modulo the equivalence over the fixtures with an `owise`
-# rule, tests/racelog-owise.py and tests/jobs-owise.py, libraries racelogow and jobsow). Registry:
-# confluence.py.
+# rule, tests/racelog-owise.py and tests/jobs-owise.py, libraries racelogow and jobsow; JobsRmConf and
+# JobsDropConf: jobs whose steps remove bindings of the map, tests/jobs-remove.py, libraries jobsrm
+# and jobsdrop). Registry: confluence.py.
 
 kore_confluence() {
   case $1 in
@@ -35,6 +36,11 @@ kore_confluence() {
     # (tests/jobs-owise.py)
     jobs-owise) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/jobs-owise.py" "$FIXTURES/jobs/jobs.k" "$2.src/jobs.k" || return 2
+      f=$2.src/jobs.k m=JOBS s=JOBS-SYNTAX inc=$2.src ;;
+    # the fixture jobs with each job removed when it runs, or dropped once it has run
+    # (tests/jobs-remove.py)
+    jobs-remove | jobs-drop) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/jobs-remove.py" "$FIXTURES/jobs/jobs.k" "$2.src/jobs.k" "${1#jobs-}" || return 2
       f=$2.src/jobs.k m=JOBS s=JOBS-SYNTAX inc=$2.src ;;
     *) return 1 ;;
   esac
@@ -54,6 +60,8 @@ name_confluence() {
     jobs) echo Jobs ;;
     racelogow) echo RaceLogOw ;;
     jobsow) echo JobsOw ;;
+    jobsrm) echo JobsRm ;;
+    jobsdrop) echo JobsDrop ;;
     *) return 1 ;;
   esac
 }
@@ -104,6 +112,12 @@ gen_confluence() {
             --out "$o" --name RaceLogOw --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     jobsow) GEN_ARGS=(--kore "$(kore_dir jobs-owise)/definition.kore" --runtime "$(kore_dir jobs-owise)/runtime.json"
             --out "$o" --name JobsOw --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    # jobs whose steps remove bindings of the map (tests/jobs-remove.py), for `confluence --equiv`
+    # without threads
+    jobsrm) GEN_ARGS=(--kore "$(kore_dir jobs-remove)/definition.kore" --runtime "$(kore_dir jobs-remove)/runtime.json"
+            --out "$o" --name JobsRm --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    jobsdrop) GEN_ARGS=(--kore "$(kore_dir jobs-drop)/definition.kore" --runtime "$(kore_dir jobs-drop)/runtime.json"
+            --out "$o" --name JobsDrop --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
   return 0
@@ -270,6 +284,16 @@ libs_confluence() {
         --obs total --equiv done=perm --views-module JobsOwConf.Views \
         --slots "$DEMOS/JobsOwConf/JobsOwConf/Slots.lean" \
         --out "$DEMOS/JobsOwConf/JobsOwConf/Views.lean" --report "$DEMOS/JobsOwConf/confluence.toml" ;;
+    # jobs whose steps remove bindings of the map, modulo the same equivalence: two removals, or a
+    # removal and an update, at two bindings commute
+    JobsRmConf) "$G" confluence --kore "$(kore_dir jobs-remove)/definition.kore" --name JobsRm --ns JobsRmConf \
+        --obs total --equiv done=perm --views-module JobsRmConf.Views \
+        --slots "$DEMOS/JobsRmConf/JobsRmConf/Slots.lean" \
+        --out "$DEMOS/JobsRmConf/JobsRmConf/Views.lean" --report "$DEMOS/JobsRmConf/confluence.toml" ;;
+    JobsDropConf) "$G" confluence --kore "$(kore_dir jobs-drop)/definition.kore" --name JobsDrop --ns JobsDropConf \
+        --obs total --equiv done=perm --views-module JobsDropConf.Views \
+        --slots "$DEMOS/JobsDropConf/JobsDropConf/Slots.lean" \
+        --out "$DEMOS/JobsDropConf/JobsDropConf/Views.lean" --report "$DEMOS/JobsDropConf/confluence.toml" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -466,6 +490,19 @@ gate_confluence() {
     phase "scaffold JobsOwConf"
     kc jobs-owise && partlib jobsow JobsOw.Adequacy &&
       scaffold confluence-JobsOwConf libs_confluence JobsOwConf && dbuild_slots JobsOwConf
+  fi
+  # removals: jobs whose steps remove bindings of the map, every slot generic, two removals and a
+  # removal beside an update at two bindings commuting (`concat_element_same_or_comm_remove`,
+  # `concat_element_same_or_comm_remove_update`)
+  if runs demo JobsRmConf; then
+    phase "scaffold JobsRmConf"
+    kc jobs-remove && partlib jobsrm JobsRm.Adequacy &&
+      scaffold confluence-JobsRmConf libs_confluence JobsRmConf && dbuild_slots JobsRmConf
+  fi
+  if runs demo JobsDropConf; then
+    phase "scaffold JobsDropConf"
+    kc jobs-drop && partlib jobsdrop JobsDrop.Adequacy &&
+      scaffold confluence-JobsDropConf libs_confluence JobsDropConf && dbuild_slots JobsDropConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;
