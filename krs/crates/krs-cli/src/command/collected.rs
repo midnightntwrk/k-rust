@@ -150,7 +150,8 @@ impl CollectedDefinition {
         let mut measurement = Measurement::disabled();
         let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
         let warnings = definition_warnings(&prepared);
-        let outcome = expand(&prepared, &self.plan).map_err(|error| error.warned(warnings))?;
+        let outcome =
+            expand(&prepared, &self.plan, None).map_err(|error| error.warned(warnings))?;
         Ok(String::from_utf8_lossy(outcome.stdout()).into_owned())
     }
 }

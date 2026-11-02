@@ -33,7 +33,8 @@ Usage:
 Commands:
   check                     Judge the definition as emit-k, build, and the run commands do;
                             write nothing
-  expand                    Render the selected Rust reference surface
+  expand                    Print the selected Rust reference surface: the one changed module
+                            file on stdout, or with --output each changed file at its path
   emit-k                    Emit canonical K and shared artifacts
   build                     Compile native backend artifacts
   parse                     Parse a program with the definition's grammar (kast)
@@ -51,7 +52,8 @@ Options:
   --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
   --backend llvm|haskell     Native target dialect (default: llvm); with check, judge only
                              that backend's route (default: every route)
-  --output DIRECTORY         Required for emit-k and build
+  --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
+                             directory for the changed module files, whose paths stdout lists
   --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, kore, none (run)
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
   --depth N                  At most N rewrite steps
@@ -687,14 +689,11 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
             }
             exec_command(kind, exec, output)?
         }
-        CommandKind::Check | CommandKind::Expand if output.is_some() => {
-            return Err(usage(format!(
-                "--output does not apply to {}",
-                kind.as_str()
-            )));
+        CommandKind::Check if output.is_some() => {
+            return Err(usage("--output does not apply to check"));
         }
         CommandKind::Check => Command::Check { backend, partition },
-        CommandKind::Expand => Command::Expand,
+        CommandKind::Expand => Command::Expand { output },
         CommandKind::EmitK => Command::EmitK {
             output: output.ok_or_else(|| usage("missing --output"))?,
         },
@@ -1085,7 +1084,22 @@ mod tests {
         assert_eq!(request.root.package, PackageSelector::Id("exact-id".into()));
 
         let (request, _) = run(&["expand", "--package", "imp", "--definition", "main"]);
-        assert_eq!(request.command, Command::Expand);
+        assert_eq!(request.command, Command::Expand { output: None });
+        let (request, _) = run(&[
+            "expand",
+            "--package",
+            "imp",
+            "--definition",
+            "main",
+            "--output",
+            "printed",
+        ]);
+        assert_eq!(
+            request.command,
+            Command::Expand {
+                output: Some(PathBuf::from("printed"))
+            }
+        );
     }
 
     #[test]
@@ -1162,14 +1176,12 @@ mod tests {
                 .contains("invalid cfg key")
             );
         }
-        for command in ["check", "expand"] {
-            assert!(
-                error(&[
-                    command, base[0], base[1], base[2], base[3], "--output", "out"
-                ])
-                .contains(&format!("--output does not apply to {command}"))
-            );
-        }
+        assert!(
+            error(&[
+                "check", base[0], base[1], base[2], base[3], "--output", "out"
+            ])
+            .contains("--output does not apply to check")
+        );
         for command in ["emit-k", "build"] {
             assert!(
                 error(&[command, base[0], base[1], base[2], base[3]]).contains("missing --output")

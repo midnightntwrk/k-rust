@@ -5,7 +5,6 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +14,7 @@ use krs_ir::{
     DescriptorIndex, DescriptorPayload, DescriptorStage, DescriptorTerm,
     ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, ListNotation, OriginFrame, PackageId,
     ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap,
-    Sha256Digest, SourceFileId, SourceMapKey, StableItemId, Stage, TermMapOperation,
+    SourceFileId, SourceMapKey, StableItemId, Stage, TermMapOperation,
 };
 use krs_ir_levels::{
     IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm, SemanticTheory,
@@ -23,143 +22,149 @@ use krs_ir_levels::{
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
-use sha2::{Digest, Sha256};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 
-/// Expands the one authored Rust module that defines a package's
-/// descriptors.
+mod modules;
+
+use modules::ModuleTree;
+
+/// One printed module file of a package.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpandedFile {
+    /// The file's normalized `/`-separated path relative to the package root.
+    pub path: String,
+    /// The printed file.
+    pub text: String,
+}
+
+/// A package's printed source: the module files expansion changes, each printed at its own path
+/// with the crate's module structure kept, and the crate root printed whether or not it changes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageExpansion {
+    /// The module files whose printed items differ from the authored ones, in path order.
+    pub changed: Vec<ExpandedFile>,
+    /// The crate root, printed.
+    pub root: ExpandedFile,
+}
+
+/// Expands every module file of a package's library crate.
 ///
-/// The source is the authored file of the package's head rules,
-/// or of all its descriptors when it has none.
-/// Every selected descriptor must come from one file and one Rust module,
-/// and the file under the manifest directory must still have its collected
-/// content digest.
+/// The files are the crate's module tree, read from `crate_root` (the library target's root
+/// file) as rustc reads it ([`ModuleTree::read`]). Each file is printed at its own path, so a
+/// path an item resolves, `#[path]` and `include!` included, resolves in the printed file as in
+/// the authored one; only the readable forms are replaced by their long forms. A file every
+/// readable form of which is already long is printed unchanged and left out of
+/// [`PackageExpansion::changed`].
+///
+/// Every authored file a descriptor of the package names must be one of the tree's files and
+/// still have its collected content digest.
 /// `facade` is the package's facade scope before file and inline-module bindings, and
 /// `crates` the crate name its source gives each dependency package it names
 /// ([`expand_reference_source_naming`]).
 ///
 /// # Errors
 ///
-/// Returns a typed failure when the selection is empty or ambiguous,
-/// the source cannot be read, has changed since collection, or is not UTF-8,
-/// or when [`expand_reference_source`] rejects it.
+/// Returns a typed failure when a descriptor's file is not in the module tree, a file cannot be
+/// read, has changed since collection, or is not UTF-8, or when a file's expansion fails as
+/// [`expand_reference_source`]'s does.
 pub fn expand_package_reference_source(
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
     package: &PackageId,
     crates: &BTreeMap<PackageId, String>,
     manifest_path: &Path,
+    crate_root: &Path,
     facade: &FacadeScope,
-) -> Result<String, ReferenceExpansionError> {
-    let (source, module_path) = read_package_source(bundle, package, manifest_path)
-        .map_err(ReferenceExpansionError::Source)?;
-    expand_reference_source_naming(
-        &source,
+) -> Result<PackageExpansion, ReferenceExpansionError> {
+    let source_error = ReferenceExpansionError::Source;
+    let package_root = manifest_path.parent().ok_or_else(|| {
+        source_error(ReferenceSourceError::ManifestDirectory(
+            manifest_path.to_path_buf(),
+        ))
+    })?;
+    let in_package = bundle
+        .descriptors()
+        .iter()
+        .filter(|descriptor| descriptor.id().package() == package)
+        .collect::<Vec<_>>();
+    let holds = |module: &[String]| {
+        in_package
+            .iter()
+            .any(|descriptor| descriptor.id().module_path().starts_with(module))
+    };
+    let tree = ModuleTree::read(crate_root, package_root, &holds)?;
+    let mut unreached = BTreeSet::new();
+    for file in in_package.iter().copied().filter_map(authored_source_file) {
+        let walked = tree
+            .files
+            .iter()
+            .find(|walked| walked.relative.as_deref() == Some(file.package_relative_path()));
+        match walked {
+            None => {
+                unreached.insert(file.clone());
+            }
+            Some(walked) if walked.digest != *file.content_sha256() => {
+                return Err(source_error(ReferenceSourceError::Changed(
+                    walked.path.clone(),
+                )));
+            }
+            Some(_) => {}
+        }
+    }
+    if !unreached.is_empty() {
+        return Err(source_error(ReferenceSourceError::Selection(
+            unreached.into_iter().collect(),
+        )));
+    }
+    let authored = authored_paths(tree.files.iter().map(|file| &file.parsed), crates);
+    let none = WrittenPaths::default();
+    let expansion = Expansion::new(
         facade,
-        package,
-        crates,
-        module_path,
+        PathScope {
+            package,
+            crates,
+            authored: &authored,
+            written: &none,
+            at: None,
+            module: &[],
+            tree: Some(&tree),
+        },
         bundle,
         semantic,
-    )
-}
-
-fn read_package_source<'bundle>(
-    bundle: &'bundle DescriptorBundle,
-    package: &PackageId,
-    manifest_path: &Path,
-) -> Result<(String, &'bundle [String]), ReferenceSourceError> {
-    let in_package = || {
-        bundle
-            .descriptors()
-            .iter()
-            .filter(|descriptor| descriptor.id().package() == package)
-    };
-    let head_rules = in_package()
-        .filter(|descriptor| matches!(descriptor.payload(), DescriptorPayload::HeadRule(_)))
-        .collect::<Vec<_>>();
-    let candidates = if head_rules.is_empty() {
-        in_package().collect()
-    } else {
-        head_rules
-    };
-    let mut sources = BTreeMap::<&SourceFileId, BTreeSet<&[String]>>::new();
-    for descriptor in candidates {
-        if let Some(file) = authored_source_file(descriptor) {
-            sources
-                .entry(file)
-                .or_default()
-                .insert(descriptor.id().module_path());
+    );
+    let mut changed = Vec::new();
+    let mut root = None;
+    for file in &tree.files {
+        let (text, file_changed) = expansion.file(
+            &file.source,
+            file.parsed.clone(),
+            file.relative.as_deref(),
+            &file.module_path,
+        )?;
+        let printed = || match &file.relative {
+            Some(path) => Ok(ExpandedFile {
+                path: path.clone(),
+                text: text.clone(),
+            }),
+            None => Err(source_error(ReferenceSourceError::OutsidePackage(
+                file.path.clone(),
+            ))),
+        };
+        if file_changed {
+            changed.push(printed()?);
+        }
+        if file.module_path.is_empty() && root.is_none() {
+            root = Some(printed()?);
         }
     }
-    // An author spec module (KF-041) is an inline `mod` whose attribute
-    // consumes its items: they are rendered with the module, unchanged.
-    let spec_paths = in_package()
-        .filter(|descriptor| {
-            matches!(
-                descriptor.payload(),
-                DescriptorPayload::Grammar(grammar)
-                    if matches!(grammar.as_ref(), krs_ir::GrammarDescriptor::SpecModule { .. })
-            )
-        })
-        .map(|descriptor| descriptor.id().module_path())
-        .collect::<Vec<_>>();
-    for paths in sources.values_mut() {
-        let outside = paths
-            .iter()
-            .copied()
-            .filter(|path| !spec_paths.iter().any(|spec| path.starts_with(spec)))
-            .collect::<BTreeSet<_>>();
-        if outside.is_empty() {
-            let parents = paths
-                .iter()
-                .filter_map(|path| {
-                    spec_paths
-                        .iter()
-                        .find(|spec| path.starts_with(spec))
-                        .map(|spec| &spec[..spec.len().saturating_sub(1)])
-                })
-                .collect::<BTreeSet<_>>();
-            if parents.len() == 1 {
-                *paths = parents;
-            }
-        } else {
-            *paths = outside;
-        }
-    }
-    let [(file, module_paths)] = sources.iter().collect::<Vec<_>>()[..] else {
-        return Err(ReferenceSourceError::Selection(
-            sources.into_keys().cloned().collect(),
-        ));
-    };
-    let [module_path] = module_paths.iter().copied().collect::<Vec<_>>()[..] else {
-        return Err(ReferenceSourceError::Modules {
-            file: Box::new((*file).clone()),
-            module_paths: module_paths.iter().map(|path| path.to_vec()).collect(),
-        });
-    };
-    let manifest_directory = manifest_path
-        .parent()
-        .ok_or_else(|| ReferenceSourceError::ManifestDirectory(manifest_path.to_path_buf()))?;
-    let path = manifest_directory.join(file.package_relative_path());
-    let source = match fs::read(&path) {
-        Ok(source) => source,
-        Err(error) => return Err(ReferenceSourceError::Read { path, error }),
-    };
-    if Sha256Digest::from_bytes(Sha256::digest(&source).into()) != *file.content_sha256() {
-        return Err(ReferenceSourceError::Changed(path));
-    }
-    let source = match String::from_utf8(source) {
-        Ok(source) => source,
-        Err(error) => {
-            return Err(ReferenceSourceError::Encoding {
-                path,
-                error: error.utf8_error(),
-            });
-        }
-    };
-    Ok((source, module_path))
+    changed.sort_by(|left, right| left.path.cmp(&right.path));
+    let root = root.ok_or_else(|| {
+        source_error(ReferenceSourceError::OutsidePackage(
+            crate_root.to_path_buf(),
+        ))
+    })?;
+    Ok(PackageExpansion { changed, root })
 }
 
 fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
@@ -224,10 +229,6 @@ pub fn expand_reference_source(
 /// # Errors
 ///
 /// As [`expand_reference_source`].
-#[expect(
-    clippy::too_many_lines,
-    reason = "The source-order traversal keeps projected items deterministic."
-)]
 pub fn expand_reference_source_naming(
     source: &str,
     facade: &FacadeScope,
@@ -237,128 +238,433 @@ pub fn expand_reference_source_naming(
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
-    let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
-    let authored = authored_paths(&file, crates);
-    let module_uses = Bindings::of_items(&file.items);
+    let file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
+    let authored = authored_paths(std::iter::once(&file), crates);
     let none = WrittenPaths::default();
-    let package = PathScope {
-        package,
-        crates,
-        authored: &authored,
-        written: &none,
-        at: None,
-    };
-    let descriptor_index = DescriptorIndex::new(bundle);
-    let macro_entries = reference_macro_entries(&file, facade);
-    let semantic_rules = semantic
-        .modules()
-        .iter()
-        .flat_map(krs_ir_levels::SemanticModule::rules)
-        .map(|rule| (rule.id(), rule))
-        .collect::<BTreeMap<_, _>>();
-    let lines = krs_ir::LineIndex::new(source);
-    let mut rendered_names = BTreeSet::new();
-    let mut needs_map_macro = false;
-    let mut items = Vec::new();
-    for (index, mut item) in std::mem::take(&mut file.items).into_iter().enumerate() {
-        if let Some(long_form) = materialize_function_shorthand(&item)? {
-            for mut long_item in long_form {
-                if let syn::Item::Fn(item_fn) = &mut long_item
-                    && requires_holds_equality(item_fn)
-                {
-                    restate_requires(
-                        item_fn,
-                        package,
-                        module_path,
-                        bundle,
-                        &descriptor_index,
-                        &semantic_rules,
-                    )?;
+    let expansion = Expansion::new(
+        facade,
+        PathScope {
+            package,
+            crates,
+            authored: &authored,
+            written: &none,
+            at: None,
+            module: &[],
+            tree: None,
+        },
+        bundle,
+        semantic,
+    );
+    Ok(expansion.file(source, file, None, module_path)?.0)
+}
+
+/// What the expansion of a package's files shares.
+struct Expansion<'a> {
+    facade: &'a FacadeScope,
+    package: PathScope<'a>,
+    bundle: &'a DescriptorBundle,
+    descriptor_index: DescriptorIndex<'a>,
+    semantic_rules: BTreeMap<&'a StableItemId, &'a SemanticRule>,
+    /// The module paths of the package's descriptors.
+    descriptor_modules: BTreeSet<&'a [String]>,
+    /// The module paths of the package's author spec modules (KF-041): inline `mod`s whose
+    /// attribute consumes their items, which are printed with the module, unchanged.
+    spec_modules: Vec<&'a [String]>,
+}
+
+/// The modules of a file whose printing marks more than their expanded items.
+#[derive(Default)]
+struct Touched {
+    /// The modules whose items changed.
+    changed: BTreeSet<Vec<String>>,
+    /// The modules whose printed rules write `map![..]`.
+    maps: BTreeSet<Vec<String>>,
+}
+
+/// One file being expanded.
+struct SourceFile<'a> {
+    source: &'a str,
+    lines: krs_ir::LineIndex,
+    /// The file's package-relative path, which the descriptors of its clauses name; `None` where
+    /// the file is not known (a lone source), so that any descriptor's file matches.
+    relative: Option<&'a str>,
+    /// The readable macro of each item that is one, by the indices of the inline modules that
+    /// hold it and its own.
+    entries: BTreeMap<Vec<usize>, FunctionMacro>,
+}
+
+impl<'a> Expansion<'a> {
+    fn new(
+        facade: &'a FacadeScope,
+        package: PathScope<'a>,
+        bundle: &'a DescriptorBundle,
+        semantic: &'a SemanticTheory,
+    ) -> Self {
+        let in_package = || {
+            bundle
+                .descriptors()
+                .iter()
+                .filter(|descriptor| descriptor.id().package() == package.package)
+        };
+        Self {
+            facade,
+            package,
+            bundle,
+            descriptor_index: DescriptorIndex::new(bundle),
+            semantic_rules: semantic
+                .modules()
+                .iter()
+                .flat_map(krs_ir_levels::SemanticModule::rules)
+                .map(|rule| (rule.id(), rule))
+                .collect(),
+            descriptor_modules: in_package()
+                .map(|descriptor| descriptor.id().module_path())
+                .collect(),
+            spec_modules: in_package()
+                .filter(|descriptor| {
+                    matches!(
+                        descriptor.payload(),
+                        DescriptorPayload::Grammar(grammar)
+                            if matches!(grammar.as_ref(), krs_ir::GrammarDescriptor::SpecModule { .. })
+                    )
+                })
+                .map(|descriptor| descriptor.id().module_path())
+                .collect(),
+        }
+    }
+
+    /// Whether the inline module `module` is expanded: it holds a descriptor of the package, at
+    /// or below it, and is no author spec module. Any other inline module is printed as written.
+    fn expands(&self, module: &[String]) -> bool {
+        self.descriptor_modules
+            .iter()
+            .any(|path| path.starts_with(module))
+            && !self
+                .spec_modules
+                .iter()
+                .any(|spec| module.starts_with(spec))
+    }
+
+    /// `file`, the module `module_path`'s file, printed, and whether its items changed.
+    fn file(
+        &self,
+        source: &str,
+        mut file: syn::File,
+        relative: Option<&str>,
+        module_path: &[String],
+    ) -> Result<(String, bool), ReferenceExpansionError> {
+        let authored = file
+            .items
+            .iter()
+            .map(ToTokens::to_token_stream)
+            .collect::<TokenStream>();
+        let context = SourceFile {
+            source,
+            lines: krs_ir::LineIndex::new(source),
+            relative,
+            entries: reference_macro_entries(&file, self.facade),
+        };
+        let mut touched = Touched::default();
+        let mut items = self.items(
+            &context,
+            std::mem::take(&mut file.items),
+            module_path,
+            &[],
+            &mut touched,
+        )?;
+        let changed = items
+            .iter()
+            .map(ToTokens::to_token_stream)
+            .collect::<TokenStream>()
+            .to_string()
+            != authored.to_string();
+        // The file's own `use` items are always marked, as they were when a file was printed
+        // whole; an inline module's only where its items changed.
+        touched.changed.insert(module_path.to_vec());
+        self.decorate(&mut items, module_path, &touched);
+        file.items = items;
+        let mut output = String::from(
+            "// @generated by `krs expand`; deterministic layer-2 reference surface.\n\n",
+        );
+        output.push_str(&unparse_keeping_attribute_operators(file));
+        Ok((output, changed))
+    }
+
+    /// The `use` items of a changed module allow being unused, since a long form may no
+    /// longer use what a readable form did; a module whose printed rules write `map![..]`
+    /// imports `k::map`.
+    fn decorate(&self, items: &mut Vec<syn::Item>, module_path: &[String], touched: &Touched) {
+        let changed = touched.changed.contains(module_path);
+        for item in items.iter_mut() {
+            match item {
+                syn::Item::Use(item_use) if changed => item_use
+                    .attrs
+                    .push(syn::parse_quote!(#[allow(unused_imports)])),
+                syn::Item::Mod(syn::ItemMod {
+                    ident,
+                    content: Some((_, inner)),
+                    ..
+                }) => {
+                    let mut path = module_path.to_vec();
+                    path.push(ident.unraw().to_string());
+                    if self.expands(&path) {
+                        self.decorate(inner, &path, touched);
+                    }
                 }
-                items.push(long_item);
+                _ => {}
             }
-            continue;
         }
-        if let syn::Item::Use(item_use) = &mut item {
-            item_use
-                .attrs
-                .push(syn::parse_quote!(#[allow(unused_imports)]));
+        if !touched.maps.contains(module_path) {
+            return;
         }
-        // A rule or equation fn whose subject holds `k::bits!` templates
-        // is written as its long form, its condition restated from the
-        // descriptor as a table row's is.
-        // So is a fn whose `requires` holds `==`, which the printer would
-        // not write back as Rust (see [`requires_holds_equality`]).
-        if let syn::Item::Fn(item_fn) = &mut item
-            && (krs_syntax::desugar_bit_templates(item_fn)
-                .map_err(ReferenceExpansionError::KrsSyntax)?
-                .is_some()
-                || requires_holds_equality(item_fn))
-        {
-            restate_requires(
-                item_fn,
-                package,
-                module_path,
-                bundle,
-                &descriptor_index,
-                &semantic_rules,
-            )?;
+        let map_use: syn::ItemUse = syn::parse_quote!(
+            #[allow(unused_imports)]
+            use k::map;
+        );
+        let map_key = map_use.tree.to_token_stream().to_string();
+        if contains_use_tree(items, &map_key) {
+            return;
         }
-        if let syn::Item::Struct(item_struct) = &mut item {
-            materialize_configuration_wrappers(item_struct)?;
-            materialize_constructor_flags(item_struct);
-            materialize_function_syntax(item_struct)?;
-        }
-        let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
-            materialize_syntax_list(item_enum, package, module_path, bundle, &descriptor_index)?;
-            materialize_enum_productions(
-                item_enum,
-                package,
-                module_path,
-                bundle,
-                &descriptor_index,
-            )?
-        } else {
-            Vec::new()
+        let insertion = items
+            .iter()
+            .position(|item| {
+                !matches!(item, syn::Item::Use(item_use) if item_use.tree.to_token_stream().to_string() < map_key)
+            })
+            .unwrap_or(items.len());
+        items.insert(insertion, syn::Item::Use(map_use));
+    }
+
+    /// The items of the module `module_path`, `chain` the indices of the inline modules of the
+    /// file that hold them, with each readable form replaced by its long form. Each inline module
+    /// whose items change, and each module whose printed rules write `map![..]`, is recorded in
+    /// `touched`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The source-order traversal keeps projected items deterministic."
+    )]
+    fn items(
+        &self,
+        file: &SourceFile<'_>,
+        authored: Vec<syn::Item>,
+        module_path: &[String],
+        chain: &[usize],
+        touched: &mut Touched,
+    ) -> Result<Vec<syn::Item>, ReferenceExpansionError> {
+        let package = PathScope {
+            module: module_path,
+            ..self.package
         };
-        if let syn::Item::Impl(item_impl) = &mut item {
-            materialize_initializers(item_impl)?;
-        }
-        let syn::Item::Macro(invocation) = &item else {
-            items.push(item);
-            items.extend(trailing_enum_grammar);
-            continue;
-        };
-        let entry = macro_entries.get(&index);
-        if matches!(
-            entry,
-            Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
-        ) {
-            items.extend(materialize_readable_sorts(invocation)?);
-            continue;
-        }
-        if entry == Some(&FunctionMacro::Equations) {
-            let table = krs_syntax::EquationTable::parse_tokens(invocation.mac.tokens.clone())
-                .map_err(ReferenceExpansionError::KrsSyntax)?;
-            for row in table.rows() {
-                let name = row.label().unraw().to_string();
-                let authored = authored_bytes(&lines, row.source_range());
+        let bundle = self.bundle;
+        let descriptor_index = &self.descriptor_index;
+        let semantic_rules = &self.semantic_rules;
+        let source = file.source;
+        let module_uses = Bindings::of_items(&authored);
+        let mut rendered_names = BTreeSet::new();
+        let mut needs_map_macro = false;
+        let mut items = Vec::new();
+        for (index, mut item) in authored.into_iter().enumerate() {
+            if let syn::Item::Mod(module) = &mut item
+                && let Some((_, inner)) = &mut module.content
+            {
+                let mut path = module_path.to_vec();
+                path.push(module.ident.unraw().to_string());
+                if self.expands(&path) {
+                    let mut chain = chain.to_vec();
+                    chain.push(index);
+                    let authored = inner
+                        .iter()
+                        .map(ToTokens::to_token_stream)
+                        .collect::<TokenStream>()
+                        .to_string();
+                    *inner = self.items(file, std::mem::take(inner), &path, &chain, touched)?;
+                    if inner
+                        .iter()
+                        .map(ToTokens::to_token_stream)
+                        .collect::<TokenStream>()
+                        .to_string()
+                        != authored
+                    {
+                        touched.changed.insert(path);
+                    }
+                }
+                items.push(item);
+                continue;
+            }
+            if let Some(long_form) = materialize_function_shorthand(&item)? {
+                for mut long_item in long_form {
+                    if let syn::Item::Fn(item_fn) = &mut long_item
+                        && requires_holds_equality(item_fn)
+                    {
+                        restate_requires(
+                            item_fn,
+                            package,
+                            module_path,
+                            bundle,
+                            descriptor_index,
+                            semantic_rules,
+                        )?;
+                    }
+                    items.push(long_item);
+                }
+                continue;
+            }
+            // A rule or equation fn whose subject holds `k::bits!` templates
+            // is written as its long form, its condition restated from the
+            // descriptor as a table row's is.
+            // So is a fn whose `requires` holds `==`, which the printer would
+            // not write back as Rust (see [`requires_holds_equality`]).
+            if let syn::Item::Fn(item_fn) = &mut item
+                && (krs_syntax::desugar_bit_templates(item_fn)
+                    .map_err(ReferenceExpansionError::KrsSyntax)?
+                    .is_some()
+                    || requires_holds_equality(item_fn))
+            {
+                restate_requires(
+                    item_fn,
+                    package,
+                    module_path,
+                    bundle,
+                    descriptor_index,
+                    semantic_rules,
+                )?;
+            }
+            if let syn::Item::Struct(item_struct) = &mut item {
+                materialize_configuration_wrappers(item_struct)?;
+                materialize_constructor_flags(item_struct);
+                materialize_function_syntax(item_struct)?;
+            }
+            let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
+                materialize_syntax_list(item_enum, package, module_path, bundle, descriptor_index)?;
+                materialize_enum_productions(
+                    item_enum,
+                    package,
+                    module_path,
+                    bundle,
+                    descriptor_index,
+                )?
+            } else {
+                Vec::new()
+            };
+            if let syn::Item::Impl(item_impl) = &mut item {
+                materialize_initializers(item_impl)?;
+            }
+            let syn::Item::Macro(invocation) = &item else {
+                items.push(item);
+                items.extend(trailing_enum_grammar);
+                continue;
+            };
+            let mut key = chain.to_vec();
+            key.push(index);
+            let entry = file.entries.get(&key);
+            if matches!(
+                entry,
+                Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
+            ) {
+                items.extend(materialize_readable_sorts(invocation)?);
+                continue;
+            }
+            if entry == Some(&FunctionMacro::Equations) {
+                let table = krs_syntax::EquationTable::parse_tokens(invocation.mac.tokens.clone())
+                    .map_err(ReferenceExpansionError::KrsSyntax)?;
+                for row in table.rows() {
+                    let name = row.label().unraw().to_string();
+                    let authored = authored_bytes(&file.lines, row.source_range());
+                    let descriptors = descriptor_index
+                        .values()
+                        .filter_map(|descriptor| match descriptor.payload() {
+                            krs_ir::DescriptorPayload::StructuredRule(rule)
+                                if descriptor.id().package() == package.package
+                                    && descriptor.id().module_path() == module_path
+                                    && descriptor.id().item_name() == name
+                                    && descriptor.id().item_kind()
+                                        == krs_ir::ItemKind::Equation
+                                    && originates_in(
+                                        descriptor,
+                                        file.relative,
+                                        authored.as_ref(),
+                                    ) =>
+                            {
+                                Some((descriptor, rule.as_ref()))
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if descriptors.is_empty() && configured_out(&row.rule().item().attrs) {
+                        continue;
+                    }
+                    let [(descriptor, rule)] = descriptors.as_slice() else {
+                        return Err(ReferenceExpansionError::RuleCoverage {
+                            name,
+                            found: descriptors.len(),
+                        });
+                    };
+                    let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
+                        ReferenceExpansionError::MissingSemanticRule(Box::new(
+                            descriptor.id().clone(),
+                        ))
+                    })?;
+                    let written = WrittenPaths::of(
+                        descriptor,
+                        ReferencedItems::of_equation(rule),
+                        source,
+                        Some(&Bindings::of_uses(table.imports())),
+                        &module_uses,
+                    );
+                    // A record update is written in full, as its fields (F5).
+                    let rule = crate::semantic::structured_rule_long_form(descriptor, rule, bundle)
+                        .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
+                        .try_map_refs(&mut OperatorCalls::new(
+                            descriptor,
+                            semantic_rule,
+                            semantic_rules,
+                        ))?;
+                    items.push(syn::Item::Fn(render_equation_row(
+                        row,
+                        &rule,
+                        package.writing(&written),
+                        bundle,
+                    )?));
+                    if !rendered_names.insert(name.clone()) {
+                        return Err(ReferenceExpansionError::DuplicateRule(name));
+                    }
+                }
+                continue;
+            }
+            // A claim block's clauses are readable records too, whose
+            // descriptors are claims (F7).
+            let (block, kind) = match entry {
+                Some(FunctionMacro::Rules) => (
+                    krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
+                        .map_err(ReferenceExpansionError::KrsSyntax)?,
+                    krs_ir::ItemKind::Rule,
+                ),
+                Some(FunctionMacro::Claims) => (
+                    krs_syntax::ClaimBlock::parse_tokens(invocation.mac.tokens.clone())
+                        .map_err(ReferenceExpansionError::KrsSyntax)?
+                        .block()
+                        .clone(),
+                    krs_ir::ItemKind::Claim,
+                ),
+                _ => {
+                    items.push(item);
+                    items.extend(trailing_enum_grammar);
+                    continue;
+                }
+            };
+            for clause in block.clauses() {
+                let name = clause.rule().item().sig.ident.unraw().to_string();
+                let authored = authored_bytes(&file.lines, clause.source_range());
                 let descriptors = descriptor_index
-                    .values()
-                    .filter_map(|descriptor| match descriptor.payload() {
-                        krs_ir::DescriptorPayload::StructuredRule(rule)
-                            if descriptor.id().package() == package.package
-                                && descriptor.id().module_path() == module_path
-                                && descriptor.id().item_name() == name
-                                && descriptor.id().item_kind() == krs_ir::ItemKind::Equation
-                                && originates_in(descriptor, authored.as_ref()) =>
-                        {
-                            Some((descriptor, rule.as_ref()))
-                        }
-                        _ => None,
+                    .head_rules()
+                    .filter(|(descriptor, _)| {
+                        descriptor.id().package() == package.package
+                            && descriptor.id().module_path() == module_path
+                            && descriptor.id().item_name() == name
+                            && descriptor.id().item_kind() == kind
+                            && originates_in(descriptor, file.relative, authored.as_ref())
                     })
                     .collect::<Vec<_>>();
-                if descriptors.is_empty() && configured_out(&row.rule().item().attrs) {
+                if descriptors.is_empty() && configured_out(&clause.rule().item().attrs) {
                     continue;
                 }
                 let [(descriptor, rule)] = descriptors.as_slice() else {
@@ -367,27 +673,29 @@ pub fn expand_reference_source_naming(
                         found: descriptors.len(),
                     });
                 };
+                needs_map_macro |= !rule.extras.is_empty();
                 let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
                     ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
                 })?;
                 let written = WrittenPaths::of(
                     descriptor,
-                    ReferencedItems::of_equation(rule),
+                    ReferencedItems::of_head_rule(rule),
                     source,
-                    Some(&Bindings::of_uses(table.imports())),
+                    Some(&Bindings::of_uses(block.imports())),
                     &module_uses,
                 );
                 // A record update is written in full, as its fields (F5).
-                let rule = crate::semantic::structured_rule_long_form(descriptor, rule, bundle)
+                let rule = crate::semantic::head_rule_long_form(descriptor, rule, bundle)
                     .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
                     .try_map_refs(&mut OperatorCalls::new(
                         descriptor,
                         semantic_rule,
-                        &semantic_rules,
+                        semantic_rules,
                     ))?;
-                items.push(syn::Item::Fn(render_equation_row(
-                    row,
+                items.push(syn::Item::Fn(render_rule(
+                    clause,
                     &rule,
+                    semantic_rule,
                     package.writing(&written),
                     bundle,
                 )?));
@@ -395,107 +703,17 @@ pub fn expand_reference_source_naming(
                     return Err(ReferenceExpansionError::DuplicateRule(name));
                 }
             }
-            continue;
         }
-        // A claim block's clauses are readable records too, whose
-        // descriptors are claims (F7).
-        let (block, kind) = match entry {
-            Some(FunctionMacro::Rules) => (
-                krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
-                    .map_err(ReferenceExpansionError::KrsSyntax)?,
-                krs_ir::ItemKind::Rule,
-            ),
-            Some(FunctionMacro::Claims) => (
-                krs_syntax::ClaimBlock::parse_tokens(invocation.mac.tokens.clone())
-                    .map_err(ReferenceExpansionError::KrsSyntax)?
-                    .block()
-                    .clone(),
-                krs_ir::ItemKind::Claim,
-            ),
-            _ => {
-                items.push(item);
-                items.extend(trailing_enum_grammar);
-                continue;
-            }
-        };
-        for clause in block.clauses() {
-            let name = clause.rule().item().sig.ident.unraw().to_string();
-            let authored = authored_bytes(&lines, clause.source_range());
-            let descriptors = descriptor_index
-                .head_rules()
-                .filter(|(descriptor, _)| {
-                    descriptor.id().package() == package.package
-                        && descriptor.id().module_path() == module_path
-                        && descriptor.id().item_name() == name
-                        && descriptor.id().item_kind() == kind
-                        && originates_in(descriptor, authored.as_ref())
-                })
-                .collect::<Vec<_>>();
-            if descriptors.is_empty() && configured_out(&clause.rule().item().attrs) {
-                continue;
-            }
-            let [(descriptor, rule)] = descriptors.as_slice() else {
-                return Err(ReferenceExpansionError::RuleCoverage {
-                    name,
-                    found: descriptors.len(),
-                });
-            };
-            needs_map_macro |= !rule.extras.is_empty();
-            let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
-                ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
-            })?;
-            let written = WrittenPaths::of(
-                descriptor,
-                ReferencedItems::of_head_rule(rule),
-                source,
-                Some(&Bindings::of_uses(block.imports())),
-                &module_uses,
-            );
-            // A record update is written in full, as its fields (F5).
-            let rule = crate::semantic::head_rule_long_form(descriptor, rule, bundle)
-                .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
-                .try_map_refs(&mut OperatorCalls::new(
-                    descriptor,
-                    semantic_rule,
-                    &semantic_rules,
-                ))?;
-            items.push(syn::Item::Fn(render_rule(
-                clause,
-                &rule,
-                semantic_rule,
-                package.writing(&written),
-                bundle,
-            )?));
-            if !rendered_names.insert(name.clone()) {
-                return Err(ReferenceExpansionError::DuplicateRule(name));
+        if needs_map_macro {
+            touched.maps.insert(module_path.to_vec());
+        }
+        for item in &mut items {
+            if !matches!(item, syn::Item::Mod(_)) {
+                rename_hidden_binders(item)?;
             }
         }
+        Ok(items)
     }
-    if needs_map_macro {
-        let map_use: syn::ItemUse = syn::parse_quote!(
-            #[allow(unused_imports)]
-            use k::map;
-        );
-        let map_key = map_use.tree.to_token_stream().to_string();
-        let already_imported = contains_use_tree(&items, &map_key);
-        if !already_imported {
-            let insertion = items
-                .iter()
-                .position(|item| {
-                    !matches!(item, syn::Item::Use(item_use) if item_use.tree.to_token_stream().to_string() < map_key)
-                })
-                .unwrap_or(items.len());
-            items.insert(insertion, syn::Item::Use(map_use));
-        }
-    }
-    for item in &mut items {
-        rename_hidden_binders(item)?;
-    }
-    file.items = items;
-    let mut output =
-        String::from("// @generated by `krs expand`; deterministic layer-2 reference surface.\n\n");
-    output.push_str(&unparse_keeping_attribute_operators(file));
-    Ok(output)
 }
 
 /// The byte range of the source that `range` spans, measured as the
@@ -511,17 +729,25 @@ fn authored_bytes(
 }
 
 /// Whether `descriptor`'s authored origin lies in `authored`, the bytes of a
-/// readable clause or table row.
+/// readable clause or table row of the file `file` (package-relative; any file where `None`).
 ///
 /// A clause's descriptor is the one that originates in the clause, not one of
 /// its name: two blocks may each hold a clause of one name under exclusive
-/// `cfg`s, and only the clause whose `cfg` holds has a descriptor.
-fn originates_in(descriptor: &Descriptor, authored: Option<&std::ops::Range<usize>>) -> bool {
+/// `cfg`s, and only the clause whose `cfg` holds has a descriptor. A file the
+/// module tree reads twice (`#[path]`) holds the same bytes in two modules,
+/// and the same bytes of two files are two clauses.
+fn originates_in(
+    descriptor: &Descriptor,
+    file: Option<&str>,
+    authored: Option<&std::ops::Range<usize>>,
+) -> bool {
     let (Some(authored), Some(origin)) = (authored, descriptor.origin().exact_authored_range())
     else {
         return false;
     };
-    authored.start <= origin.start_byte as usize && origin.end_byte as usize <= authored.end
+    file.is_none_or(|file| origin.file.package_relative_path() == file)
+        && authored.start <= origin.start_byte as usize
+        && origin.end_byte as usize <= authored.end
 }
 
 /// Whether a readable clause or table row in which no collected sentence
@@ -666,24 +892,39 @@ fn protect_attribute_operators(tokens: TokenStream, arguments: &mut Vec<String>)
 fn reference_macro_entries(
     file: &syn::File,
     facade: &FacadeScope,
-) -> BTreeMap<usize, FunctionMacro> {
-    let item_indices = file
-        .items
-        .iter()
-        .enumerate()
-        .map(|(index, item)| (std::ptr::from_ref(item), index))
-        .collect::<BTreeMap<_, _>>();
+) -> BTreeMap<Vec<usize>, FunctionMacro> {
+    /// Each item's indices, those of the inline modules that hold it and its own, by address.
+    fn index(
+        items: &[syn::Item],
+        chain: &mut Vec<usize>,
+        found: &mut BTreeMap<*const syn::Item, Vec<usize>>,
+    ) {
+        for (at, item) in items.iter().enumerate() {
+            chain.push(at);
+            found.insert(std::ptr::from_ref(item), chain.clone());
+            if let syn::Item::Mod(syn::ItemMod {
+                content: Some((_, inner)),
+                ..
+            }) = item
+            {
+                index(inner, chain, found);
+            }
+            chain.pop();
+        }
+    }
+    let mut item_indices = BTreeMap::new();
+    index(&file.items, &mut Vec::new(), &mut item_indices);
     let discovered = surface::invocations(file, facade);
     surface::item_owners(&discovered)
         .into_iter()
         .filter_map(|(item, invocation)| {
-            if !matches!(&invocation.scope, Scope::Module(modules) if modules.is_empty()) {
+            if !matches!(&invocation.scope, Scope::Module(_)) {
                 return None;
             }
             let InvocationKind::Function { entry, .. } = &invocation.kind else {
                 return None;
             };
-            Some((item_indices[&item], *entry))
+            Some((item_indices.get(&item)?.clone(), *entry))
         })
         .collect()
 }
@@ -1548,12 +1789,15 @@ fn materialize_reference_strictness(
     } else {
         authored_result.clone()
     };
+    // The context alias a strictness names decides which context its heating uses, so the long
+    // form names it too.
+    let using = strictness.using().map(|alias| quote!(using = #alias,));
     output.attrs[*index] = match strictness.kind() {
         krs_syntax::StrictnessKind::Strict => {
-            syn::parse_quote!(#[k::strict(sequence = [#(#fields),*], result = #result)])
+            syn::parse_quote!(#[k::strict(#using sequence = [#(#fields),*], result = #result)])
         }
         krs_syntax::StrictnessKind::SeqStrict => {
-            syn::parse_quote!(#[k::seqstrict(sequence = [#(#fields),*], result = #result)])
+            syn::parse_quote!(#[k::seqstrict(#using sequence = [#(#fields),*], result = #result)])
         }
     };
     Ok(())
@@ -3225,6 +3469,12 @@ fn render_local_path(
     suffix: &[Ident],
 ) -> Result<syn::Path, ReferenceExpansionError> {
     let mut path: syn::Path = if id.package() == package.package {
+        if !package.reaches(id.module_path()) {
+            return Err(ReferenceExpansionError::PrivateModule {
+                item: Box::new(id.clone()),
+                from: crate_module_path(package.module),
+            });
+        }
         let mut path: syn::Path = syn::parse_quote!(crate);
         for segment in id.module_path() {
             path.segments
@@ -3301,17 +3551,27 @@ fn dependency_path(
     })
 }
 
-/// The paths `file` writes to an item of a crate `crates` names, by crate name and item name:
-/// each path, from the crate name, that ends in that item, through a `use` (before its `as`) or
-/// in any tokens, a macro's included, since a readable clause is a macro's.
+/// The paths `files`, the module files of one crate, write to an item of a crate `crates` names,
+/// by crate name and item name: each path, from the crate name, that ends in that item, through a
+/// `use` (before its `as`) or in any tokens, a macro's included, since a readable clause is a
+/// macro's.
+///
+/// Every file of the crate counts: another crate's items are visible alike from all the modules
+/// of the crate, so a path that compiles in one module compiles in each. An item under `#[cfg]`
+/// does not count, since its condition may not have held, and then rustc resolved none of its
+/// paths.
 ///
 /// A path from a name that a `use` or an `extern crate` of the same module gives a path from a
 /// crate name (`use dep as d;`, `use dep::m as mm;`) is that path: `d::Item` is `dep::Item`,
 /// which the extern prelude names wherever the source stands. A module's `use` reaches only the
 /// module's own items, not the modules it declares, so a rename applies to the paths of its
 /// module alone ([`renamed_crates`]).
-fn authored_paths(
-    file: &syn::File,
+#[expect(
+    clippy::too_many_lines,
+    reason = "The path collectors share one scope of crate names and renames."
+)]
+fn authored_paths<'f>(
+    files: impl IntoIterator<Item = &'f syn::File>,
     crates: &BTreeMap<PackageId, String>,
 ) -> BTreeMap<(String, String), BTreeSet<Vec<String>>> {
     type Paths = BTreeMap<(String, String), BTreeSet<Vec<String>>>;
@@ -3398,6 +3658,12 @@ fn authored_paths(
             renamed: renamed_crates(items, crates),
         };
         for item in items {
+            if item_attributes(item)
+                .iter()
+                .any(|attribute| attribute.path().is_ident("cfg"))
+            {
+                continue;
+            }
             match item {
                 syn::Item::Mod(syn::ItemMod {
                     content: Some((_, items)),
@@ -3414,9 +3680,41 @@ fn authored_paths(
     let crate_names = crates.values().collect::<BTreeSet<_>>();
     let mut paths = BTreeMap::new();
     if !crate_names.is_empty() {
-        module(&file.items, &crate_names, &mut paths);
+        for file in files {
+            module(&file.items, &crate_names, &mut paths);
+        }
     }
     paths
+}
+
+/// The path of the module `module` from `crate`.
+fn crate_module_path(module: &[String]) -> String {
+    std::iter::once("crate")
+        .chain(module.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
+/// The outer attributes of `item`.
+fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
+    match item {
+        syn::Item::Const(item) => &item.attrs,
+        syn::Item::Enum(item) => &item.attrs,
+        syn::Item::ExternCrate(item) => &item.attrs,
+        syn::Item::Fn(item) => &item.attrs,
+        syn::Item::ForeignMod(item) => &item.attrs,
+        syn::Item::Impl(item) => &item.attrs,
+        syn::Item::Macro(item) => &item.attrs,
+        syn::Item::Mod(item) => &item.attrs,
+        syn::Item::Static(item) => &item.attrs,
+        syn::Item::Struct(item) => &item.attrs,
+        syn::Item::Trait(item) => &item.attrs,
+        syn::Item::TraitAlias(item) => &item.attrs,
+        syn::Item::Type(item) => &item.attrs,
+        syn::Item::Union(item) => &item.attrs,
+        syn::Item::Use(item) => &item.attrs,
+        _ => &[],
+    }
 }
 
 /// The names a `use` or an `extern crate` among `items` (one module's) gives a path from one of
@@ -4352,6 +4650,11 @@ struct PathScope<'a> {
     /// The key of the reference being printed, whose own path is printed where the clause
     /// writes one there.
     at: Option<&'a krs_ir::ProvenanceKey>,
+    /// The module the long form stands in.
+    module: &'a [String],
+    /// The crate's module tree, which says from where each of its modules is visible; `None`
+    /// for a lone source, whose modules are all taken to be visible.
+    tree: Option<&'a ModuleTree>,
 }
 
 impl<'a> PathScope<'a> {
@@ -4378,29 +4681,43 @@ impl<'a> PathScope<'a> {
         }
     }
 
-    /// The path the clause writes to `id`, another package's item ([`WrittenPaths::get`]).
+    /// The path the clause writes to `id` ([`WrittenPaths::get`]), where `id` is another
+    /// package's item or one of this package whose `crate::` path does not reach it from the
+    /// printed module ([`PathScope::reaches`]).
     fn written_path(self, id: &StableItemId) -> Option<&'a syn::Path> {
-        if id.package() == self.package {
+        if id.package() == self.package && self.reaches(id.module_path()) {
             return None;
         }
         self.written.get(id, self.at)
+    }
+
+    /// Whether `crate::m1::..::mk`, the path of this package's module `module`, names it from
+    /// the module the long form stands in: each module on it is visible there
+    /// ([`ModuleTree::reaches`]).
+    fn reaches(self, module: &[String]) -> bool {
+        self.tree
+            .is_none_or(|tree| tree.reaches(module, self.module))
     }
 }
 
 /// Failure to select or reread the one authored source of a package.
 #[derive(Debug)]
 pub enum ReferenceSourceError {
-    /// The package's selected descriptors did not come from exactly one
-    /// authored source file.
+    /// Descriptors of the package come from authored files that the crate's module tree does
+    /// not reach as module files (such as a file `include!` reads), so no printed file holds
+    /// their forms.
     Selection(Vec<SourceFileId>),
-    /// The selected source file holds descriptors from more than one Rust
-    /// module.
-    Modules {
-        /// Selected authored source file.
-        file: Box<SourceFileId>,
-        /// Module paths of its descriptors, in canonical order.
-        module_paths: Vec<Vec<String>>,
+    /// A module file of the crate is chosen by a `cfg_attr(.., path = ..)`, which the source
+    /// alone does not resolve.
+    ConditionalModulePath {
+        /// The file declaring the module.
+        file: PathBuf,
+        /// The module's path from the crate root.
+        module: String,
     },
+    /// A module file of the crate lies outside the package directory, where no printed file
+    /// can stand.
+    OutsidePackage(PathBuf),
     /// The package manifest path has no parent directory.
     ManifestDirectory(PathBuf),
     /// The selected source file could not be read.
@@ -4425,7 +4742,8 @@ impl ToDiagnostic for ReferenceSourceError {
     fn to_diagnostic(&self) -> Diagnostic {
         let code = match self {
             Self::Selection(_) => codes::reference::SOURCE_SELECTION,
-            Self::Modules { .. } => codes::reference::SOURCE_MODULES,
+            Self::ConditionalModulePath { .. } => codes::reference::SOURCE_MODULE_PATH,
+            Self::OutsidePackage(_) => codes::reference::SOURCE_OUTSIDE_PACKAGE,
             Self::ManifestDirectory(_) => codes::reference::SOURCE_MANIFEST_DIRECTORY,
             Self::Read { .. } => codes::reference::SOURCE_READ,
             Self::Changed(_) => codes::reference::SOURCE_CHANGED,
@@ -4439,33 +4757,26 @@ impl fmt::Display for ReferenceSourceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Selection(files) => {
-                write!(
-                    formatter,
-                    "expand requires one readable root source file; found {}",
-                    files.len()
-                )?;
-                if !files.is_empty() {
-                    let paths = files
-                        .iter()
-                        .map(SourceFileId::package_relative_path)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    write!(formatter, ": {paths}")?;
-                }
-                Ok(())
-            }
-            Self::Modules { file, module_paths } => {
-                let paths = module_paths
+                let paths = files
                     .iter()
-                    .map(|path| path.join("::"))
+                    .map(SourceFileId::package_relative_path)
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(
                     formatter,
-                    "expand source `{}` contains descriptors from multiple Rust modules: {paths}",
-                    file.package_relative_path()
+                    "expand prints the crate's module files, and descriptors come from files its module tree does not reach as modules (such as a file `include!` reads): {paths}; declare their items in a module file"
                 )
             }
+            Self::ConditionalModulePath { file, module } => write!(
+                formatter,
+                "expand cannot tell which file the module `{module}` declared in `{}` is: a `cfg_attr` may give its path; declare it with a plain `#[path]`, or as two modules under `#[cfg]`",
+                file.display()
+            ),
+            Self::OutsidePackage(path) => write!(
+                formatter,
+                "expand prints each changed module file at its path in the package, and `{}` is outside the package directory",
+                path.display()
+            ),
             Self::ManifestDirectory(path) => write!(
                 formatter,
                 "manifest has no parent directory: `{}`",
@@ -4494,7 +4805,8 @@ impl Error for ReferenceSourceError {
             Self::Read { error, .. } => Some(error),
             Self::Encoding { error, .. } => Some(error),
             Self::Selection(_)
-            | Self::Modules { .. }
+            | Self::ConditionalModulePath { .. }
+            | Self::OutsidePackage(_)
             | Self::ManifestDirectory(_)
             | Self::Changed(_) => None,
         }
@@ -4573,6 +4885,15 @@ pub enum ReferenceExpansionError {
         /// Its declaring path from the crate name.
         declared: String,
     },
+    /// An item of the printed package in a module that is not visible from the module the long
+    /// form stands in, to which the printed clause writes no path the long form can print
+    /// ([`WrittenPaths`]).
+    PrivateModule {
+        /// The item.
+        item: Box<StableItemId>,
+        /// The module the long form stands in, as a path from `crate`.
+        from: String,
+    },
     /// One application mixed positional and named arguments.
     MixedApplicationArguments,
     /// A builtin operation unexpectedly used named arguments.
@@ -4638,6 +4959,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::MissingBindingSort { .. } => codes::reference::MISSING_BINDING_SORT,
             Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
             Self::DependencyPath { .. } => codes::reference::DEPENDENCY_PATH,
+            Self::PrivateModule { .. } => codes::reference::PRIVATE_MODULE,
             Self::MixedApplicationArguments => codes::reference::MIXED_APPLICATION_ARGUMENTS,
             Self::NamedBuiltinApplication => codes::reference::NAMED_BUILTIN_APPLICATION,
             Self::MissingDeclaration(_) => codes::reference::MISSING_DECLARATION,
@@ -4712,6 +5034,11 @@ impl fmt::Display for ReferenceExpansionError {
                 formatter,
                 "cannot print a path to {item}: the clause writes no path to it that the long form can print (a path of one name that no one `use` of the module binds, or a path a glob of the block may reach), and `{declared}` passes through modules whose publicity the collected declarations do not record; name it in the clause by a path that compiles there, such as its public re-export"
             ),
+            Self::PrivateModule { item, from } => write!(
+                formatter,
+                "cannot print a path to {item} in `{from}`: a module on `{}` is private to a module that does not contain `{from}`, and the clause writes no path to the item there that the long form can print; make the module visible there (`pub(crate) mod`), or name the item in the clause by a path that compiles there, such as a re-export (a binder's sort by `where x: PATH`)",
+                crate_module_path(item.module_path()),
+            ),
             Self::MixedApplicationArguments => {
                 formatter.write_str("application mixes positional and named arguments")
             }
@@ -4770,6 +5097,7 @@ impl Error for ReferenceExpansionError {
             | Self::MissingBindingSort { .. }
             | Self::ExternalDeclaration(_)
             | Self::DependencyPath { .. }
+            | Self::PrivateModule { .. }
             | Self::MixedApplicationArguments
             | Self::NamedBuiltinApplication
             | Self::MissingDeclaration(_)
@@ -4791,9 +5119,9 @@ impl Error for ReferenceExpansionError {
 mod tests {
     use super::{
         Bindings, PathScope, ReferenceExpansionError, WrittenPaths, authored_paths, configured_out,
-        contains_use_tree, fresh_ident, read_package_source, rename_hidden_tokens,
-        render_declared_path, render_reference_token_term_type, render_sort_marker, render_term,
-        rust_ident, written_path,
+        contains_use_tree, fresh_ident, rename_hidden_tokens, render_declared_path,
+        render_reference_token_term_type, render_sort_marker, render_term, rust_ident,
+        written_path,
     };
     use krs_diagnostic::{ToDiagnostic, codes};
     use krs_ir::{
@@ -4815,8 +5143,8 @@ mod tests {
         assert_eq!(
             entries,
             std::collections::BTreeMap::from([
-                (3, krs_syntax::surface::FunctionMacro::Sorts),
-                (4, krs_syntax::surface::FunctionMacro::Rules),
+                (vec![3], krs_syntax::surface::FunctionMacro::Sorts),
+                (vec![4], krs_syntax::surface::FunctionMacro::Rules),
             ]),
         );
     }
@@ -4841,17 +5169,19 @@ mod tests {
     }
 
     #[test]
-    fn package_without_authored_descriptors_has_no_source_to_expand() {
-        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
-        let error = read_package_source(
-            &DescriptorBundle::new(Vec::new()).unwrap(),
-            &package,
-            std::path::Path::new("Cargo.toml"),
+    fn readable_macros_of_inline_modules_are_found_by_their_module_indices() {
+        let facade = krs_syntax::surface::FacadeScope::new(["k".to_owned()].into());
+        let file = syn::parse_file(
+            "mod a { use x::y; k::rules! {} mod b { k::sorts! { A; } } }\nfn f() { k::rules! {} }\nk::equations! {}\n",
         )
-        .unwrap_err();
+        .unwrap();
         assert_eq!(
-            error.to_string(),
-            "expand requires one readable root source file; found 0"
+            super::reference_macro_entries(&file, &facade),
+            std::collections::BTreeMap::from([
+                (vec![0, 1], krs_syntax::surface::FunctionMacro::Rules),
+                (vec![0, 2, 0], krs_syntax::surface::FunctionMacro::Sorts),
+                (vec![2], krs_syntax::surface::FunctionMacro::Equations),
+            ]),
         );
     }
 
@@ -5008,6 +5338,8 @@ mod tests {
             authored: &AUTHORED,
             written: Box::leak(Box::default()),
             at: None,
+            module: &[],
+            tree: None,
         }
     }
 
@@ -5053,6 +5385,8 @@ mod tests {
             authored: &BTreeMap::new(),
             written: &written,
             at: None,
+            module: &[],
+            tree: None,
         };
         assert_eq!(
             render_sort_marker(&sort(&dependency, "Exp"), scope)
@@ -5089,13 +5423,15 @@ mod tests {
         let written = WrittenPaths::default();
         let printed = |source: &str, id: &StableItemId| {
             let file = syn::parse_file(source).unwrap();
-            let authored = authored_paths(&file, &crates);
+            let authored = authored_paths(std::iter::once(&file), &crates);
             let scope = PathScope {
                 package: &package,
                 crates: &crates,
                 authored: &authored,
                 written: &written,
                 at: None,
+                module: &[],
+                tree: None,
             };
             render_declared_path(id, scope).map(|path| path.to_string().replace(' ', ""))
         };

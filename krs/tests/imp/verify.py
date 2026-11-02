@@ -50,6 +50,12 @@ PINS_PATH = HERE / "pins.json"
 CORPUS_PATH = HERE / "corpus.json"
 RUST_MANIFEST = HERE / "rust-definition/Cargo.toml"
 EXPANSION_GOLDEN = HERE / "goldens/imp.expanded.rs"
+EXPANSION_GOLDENS = {
+    "src/imp.rs": EXPANSION_GOLDEN,
+    "src/static_adjunct.rs": HERE / "goldens/static_adjunct.expanded.rs",
+}
+"""The module files `krs expand --output` changes, by package-relative path, beside the reviewed
+golden of each printed file; every other file of the package prints as authored."""
 EXPANDED_MANIFEST = HERE / "expanded-definition/Cargo.toml"
 EXPANDED_SOURCE = HERE / "expanded-definition/src/imp.rs"
 PROBE_MANIFEST = HERE / "oracle/artifact-probe/Cargo.toml"
@@ -524,15 +530,23 @@ def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
         raise GateError(f"KRS check summary differs: {compact(check)}")
 
-    expands = [
-        run(krs_invocation(krs).argv("expand"), timeout=300, environment=env).stdout
-        for _ in range(2)
-    ]
+    # The package's readable forms are in two module files, so `krs expand` writes each printed
+    # file at its path under `--output` and lists the paths on stdout.
+    expands = []
+    for _ in range(2):
+        output = Path(tempfile.mkdtemp(prefix="expand-", dir=context.workspace))
+        listed = run(
+            krs_invocation(krs).argv("expand", "--output", output), timeout=300, environment=env,
+        ).stdout.splitlines()
+        expands.append({path: output.joinpath(path).read_text(encoding="utf-8") for path in listed})
     if expands[0] != expands[1]:
         raise GateError("repeated KRS expansion differs byte-for-byte")
+    if list(expands[0]) != list(EXPANSION_GOLDENS):
+        raise GateError(f"KRS expansion changes {list(expands[0])}, not {list(EXPANSION_GOLDENS)}")
+    for path, golden_path in EXPANSION_GOLDENS.items():
+        if expands[0][path] != golden_path.read_text(encoding="utf-8"):
+            raise GateError(f"live KRS expansion of {path} differs from goldens/{golden_path.name}")
     golden = EXPANSION_GOLDEN.read_text(encoding="utf-8")
-    if expands[0] != golden:
-        raise GateError("live KRS expansion differs from goldens/imp.expanded.rs")
     if EXPANDED_SOURCE.read_text(encoding="utf-8") != golden:
         raise GateError("replacement crate source differs from the reviewed expansion golden")
 
