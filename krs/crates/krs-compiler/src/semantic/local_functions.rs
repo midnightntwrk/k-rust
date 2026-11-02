@@ -75,11 +75,11 @@ fn is_host(rule: &SemanticRule) -> bool {
 }
 
 fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLoweringError> {
-    if !module
-        .rules()
-        .iter()
-        .any(|rule| holds_local_function(rule) || keys_hold_local_function(rule))
-    {
+    if !module.rules().iter().any(|rule| {
+        holds_local_function(rule)
+            || keys_hold_local_function(rule)
+            || results_hold_projected_test(rule)
+    }) {
         return Ok(module);
     }
     if module.is_spec()
@@ -94,7 +94,9 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
     let mut rules = Vec::with_capacity(module.rules().len());
     for rule in module.rules() {
         let host = holds_local_function(rule);
-        if !host && !keys_hold_local_function(rule) {
+        let keys = keys_hold_local_function(rule);
+        let results = results_hold_projected_test(rule);
+        if !host && !keys && !results {
             rules.push(rule.clone());
             continue;
         }
@@ -104,16 +106,28 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
         } else {
             // A pattern term is told by its node's source-map key, which names that node alone
             // in the sentence, so a term `try_map_terms` hands over is the pattern's however it
-            // reaches the mapper.
+            // reaches the mapper; so is a condition's.
             let patterns = pattern_terms(rule)
                 .into_iter()
                 .map(|pattern| pattern.origin().key().clone())
                 .collect::<BTreeSet<_>>();
+            let conditions = condition_terms(rule)
+                .into_iter()
+                .map(|condition| condition.origin().key().clone())
+                .collect::<BTreeSet<_>>();
             rule.try_map_terms(&mut |term| {
-                if patterns.contains(term.origin().key()) {
-                    lifter.pattern(term)
-                } else {
+                let key = term.origin().key();
+                if conditions.contains(key) {
                     Ok(term.clone())
+                } else if patterns.contains(key) {
+                    let term = if keys {
+                        lifter.pattern(term)?
+                    } else {
+                        term.clone()
+                    };
+                    lifter.built_in_pattern(&term)
+                } else {
+                    lifter.projected_tests(term)
                 }
             })?
         };
@@ -233,6 +247,86 @@ fn pattern_holds_local_function(term: &SemanticTerm) -> bool {
     }
 }
 
+/// Whether `rule`, no host, builds a `k::matches!` whose subject is a sort projection outside its
+/// conditions: in a result, or a rewrite's right side inside its pattern.
+///
+/// `k::matches!(k::project!(S, t), P)` has no value where `t` is not an `S`, and is `t`'s match
+/// against `P` where it is. In a condition the projection's test comes first and the match is
+/// stated on `t` (`definedness::guard_conditions`); a result is not tested (where it has no
+/// value, the rule's result has none), and `P :=K {t}:>S` writes a projection as `:=K`'s operand,
+/// which is outside the K a frontend reads. So KRS lifts the test into a function of its own, as
+/// for a host sentence: its equations' conditions are conditions, where the projection is tested
+/// and the match stated on `t`, so the function is the test's value where `t` is an `S`, and has
+/// none where it is not, which no equation of it gives.
+fn results_hold_projected_test(rule: &SemanticRule) -> bool {
+    if is_host(rule) {
+        return false;
+    }
+    let conditions = condition_terms(rule)
+        .into_iter()
+        .map(|condition| condition.origin().key().clone())
+        .collect::<BTreeSet<_>>();
+    let patterns = pattern_terms(rule)
+        .into_iter()
+        .map(|pattern| pattern.origin().key().clone())
+        .collect::<BTreeSet<_>>();
+    let mut found = false;
+    let _ = rule.try_map_terms(&mut |term| {
+        let key = term.origin().key();
+        found = found
+            || if conditions.contains(key) {
+                false
+            } else if patterns.contains(key) {
+                built_in_pattern_holds_projected_test(term)
+            } else {
+                holds_projected_test(term)
+            };
+        Ok::<_, std::convert::Infallible>(term.clone())
+    });
+    found
+}
+
+/// The terms of `rule`'s conditions, `requires` and `ensures`.
+fn condition_terms(rule: &SemanticRule) -> Vec<&SemanticTerm> {
+    [rule.requires(), rule.ensures()]
+        .into_iter()
+        .flatten()
+        .flat_map(krs_ir_levels::IrCondition::terms)
+        .collect()
+}
+
+/// Whether `term` is a `k::matches!` whose subject is a sort projection.
+fn is_projected_test(term: &SemanticTerm) -> bool {
+    matches!(
+        term.kind(),
+        IrTermKind::Matches { subject, .. }
+            if matches!(
+                subject.kind(),
+                IrTermKind::Application {
+                    application: ApplicationRef::Generated(
+                        krs_ir::GeneratedOperation::SortProjection(_)
+                    ),
+                    ..
+                }
+            )
+    )
+}
+
+fn holds_projected_test(term: &SemanticTerm) -> bool {
+    is_projected_test(term) || term.children().into_iter().any(holds_projected_test)
+}
+
+/// Whether `term`, a pattern, holds a `k::matches!` over a projection in a rewrite's right side.
+fn built_in_pattern_holds_projected_test(term: &SemanticTerm) -> bool {
+    match term.kind() {
+        IrTermKind::Rewrite { to, .. } => holds_projected_test(to),
+        _ => term
+            .children()
+            .into_iter()
+            .any(built_in_pattern_holds_projected_test),
+    }
+}
+
 fn is_or_holds_local_function(term: &SemanticTerm) -> bool {
     matches!(
         term.kind(),
@@ -304,6 +398,36 @@ impl<'r> Lifter<'r> {
         match term.kind() {
             IrTermKind::Matches { .. } => self.lift_test(term),
             _ => map_children(term, &mut |child| self.tests(child)),
+        }
+    }
+
+    /// `term`, built, with every `k::matches!` over a sort projection in it replaced by its lifted
+    /// function's application ([`results_hold_projected_test`]).
+    fn projected_tests(
+        &mut self,
+        term: &SemanticTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if is_projected_test(term) {
+            return self.lift_test(term);
+        }
+        map_children(term, &mut |child| self.projected_tests(child))
+    }
+
+    /// `term`, a pattern, with [`Self::projected_tests`] applied to the right side of each of its
+    /// rewrites, which is built.
+    fn built_in_pattern(
+        &mut self,
+        term: &SemanticTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        match term.kind() {
+            IrTermKind::Rewrite { from, to } => SemanticTerm::rewrite(
+                term.origin().clone(),
+                term.sort().clone(),
+                (**from).clone(),
+                self.projected_tests(to)?,
+            )
+            .map_err(|error| shape(&error)),
+            _ => map_children(term, &mut |child| self.built_in_pattern(child)),
         }
     }
 

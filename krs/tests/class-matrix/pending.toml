@@ -3352,11 +3352,3 @@ deviation = "ended depth-bound after 1 steps, where the sentence's result has no
 finding = "NT-43-2"
 deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
 # the run does not show what the case's sentence denotes
-
-# NT-42-1: a rule's result keeps `P :=K {t}:>S` for `k::matches!(k::project!(S, t), P)`, which
-# the reference frontend refuses ("no productions for project:S"); the K recorded is the lifted
-# function's, which every frontend reads.
-
-["terms/rule/result/matches-subject/k::project!(Int, x)"]
-finding = "NT-42-1"
-deviation = "accepted, with other K than recorded"

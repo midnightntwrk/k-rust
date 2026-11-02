@@ -12,7 +12,3 @@
 # A refusal is evidence about the K text, to reason about from what the sentence means; it is not a
 # rule. The pins make each one owned: the script fails on a refusal no pin lists and on a pinned
 # case the frontend now accepts, so a fix removes its pin.
-
-["terms/rule/result/matches-subject/k::project!(Int, x)"]
-finding = "NT-42-1"
-refusal = "Could not find productions for KApply with label project:Int"

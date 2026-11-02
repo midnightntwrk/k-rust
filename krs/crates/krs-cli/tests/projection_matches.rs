@@ -2,14 +2,22 @@
 //! no value where `t` is not an `S` (NT-42, finding NT-37-1). In a condition the projection's test
 //! comes first (NT-37), and the match is then stated on `t` itself, which the test makes the
 //! projection's value: `isInt(A) andThenBool ( 1 :=K A )`, with no projection as `:=K`'s operand,
-//! which Java K's frontend refuses. Each rule applies where `a` is an `Int` that matches, and not
-//! where it is an `Int` that does not or no `Int` at all (where `!k::matches!(..)` has no value
-//! either), on k-rust and on Java K's LLVM backend.
+//! which Java K's frontend refuses. That holds in every condition position: a conjunct, a `let`'s
+//! value, and an `ensures`. Each rule applies where `a` is an `Int` that matches, and not where it
+//! is an `Int` that does not or no `Int` at all (where `!k::matches!(..)` has no value either), on
+//! k-rust and on Java K's LLVM backend.
 //!
-//! A static clause's result that holds such a test, where it has no value, is a state the
-//! program reaches with no value (finding NT-37-2): a rule's condition that reads it does not
-//! hold, and `krs run` reports the run undefined there, naming the term, as it does for a rule's
-//! result with the projection, which keeps it (a result is not tested).
+//! A result is not tested: where it has no value, the rule's result has none. There the test is
+//! lifted into a function of its own (finding NT-42-1), whose equations' conditions are tested and
+//! stated on `t`, so it has no value where `t` is no `Int`, and no projection stands as `:=K`'s
+//! operand anywhere in the emitted K.
+//!
+//! A term has no value only where it is a ground application of a partial function defined by its
+//! equations alone that the backend left unevaluated (findings NT-37-2 and NT-42-2): a state that
+//! holds one has no value, so `krs run` reports the run undefined there, naming the term, with any
+//! number of leaves, and a rule's condition that reads one does not hold. A split over a term that
+//! may have a value (an existential's, or a `total` function's with no equation) is the
+//! definition's: `krs run` names it as an error, and `krs search` prints both states.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,7 +60,7 @@ impl Machine {
 /// Conditions and a static clause's result over the projection.
 const CONDITIONS: &str = r#"
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence((Yes, Not, Any, Pick, Flag))]
+#[k::precedence((Yes, Not, Any, Lett, Pick, Flag, Keep, Held))]
 pub enum StmtSyntax {
     #[k::syntax("yes {a}")]
     Yes { a: Arg },
@@ -60,16 +68,29 @@ pub enum StmtSyntax {
     Not { a: Arg },
     #[k::syntax("any {a}")]
     Any { a: Arg },
+    #[k::syntax("lett {a}")]
+    Lett { a: Arg },
     #[k::syntax("pick {a}")]
     #[k::desugar]
     Pick { a: Arg },
     #[k::syntax("flag {b}")]
     Flag { b: Bool },
+    #[k::syntax("keep {a}")]
+    #[k::desugar]
+    Keep { a: Arg },
+    #[k::syntax("held {b}")]
+    Held { b: Bool },
 }
 
 #[k::desugar]
 fn pick(k::term![StmtSyntax::Pick(a)]: Term<Stmt>) -> Term<Stmt> {
     StmtSyntax::Flag(k::matches!(k::project!(Int, a), 1))
+}
+
+/// No rule reads `held`'s test: a run of `keep a` ends in one state, holding it.
+#[k::desugar]
+fn keep(k::term![StmtSyntax::Keep(a)]: Term<Stmt>) -> Term<Stmt> {
+    StmtSyntax::Held(k::matches!(k::project!(Int, a), 1))
 }
 
 k::rules! {
@@ -82,22 +103,34 @@ k::rules! {
     not: { k: [Not(a), ..], acc: _ } => { k: [..], acc: 1 };
     #[k::requires(k::matches!(k::project!(Int, a), _))]
     any: { k: [Any(a), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires({ let b = k::matches!(k::project!(Int, a), 1); b })]
+    lett: { k: [Lett(a), ..], acc: _ } => { k: [..], acc: 1 };
     #[k::requires(b)]
     flag: { k: [Flag(b), ..], acc: _ } => { k: [..], acc: 1 };
 }
 "#;
 
-/// A rule's result over the projection, which keeps it: the result has no value where `a` is
-/// not an `Int`.
+/// A rule's result over the projection, which has no value where `a` is not an `Int`; an
+/// `ensures` over it; and a rule's result that applies a partial function with no equation.
 const RESULT: &str = r#"
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence((Res, Flag))]
+#[k::precedence((Res, Flag, Ens, Measure, Count))]
 pub enum StmtSyntax {
     #[k::syntax("res {a}")]
     Res { a: Arg },
     #[k::syntax("flag {b}")]
     Flag { b: Bool },
+    #[k::syntax("ens {a}")]
+    Ens { a: Arg },
+    #[k::syntax("measure {a}")]
+    Measure { a: Arg },
+    #[k::syntax("count {n}")]
+    Count { n: Int },
 }
+
+/// Partial, and no equation defines it: no application of it has a value.
+#[k::function(partial, internal)]
+pub fn Size(a: Term<Arg>) -> Term<Int>;
 
 k::rules! {
     for Machine;
@@ -106,6 +139,52 @@ k::rules! {
     res: { k: [Res(a), ..] } => { k: [Flag(k::matches!(k::project!(Int, a), 1)), ..] };
     #[k::requires(b)]
     flag: { k: [Flag(b), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(true)]
+    #[k::ensures(k::matches!(k::project!(Int, a), 1))]
+    ens: { k: [Ens(a), ..], acc: _ } => { k: [..], acc: 1 };
+    measure: { k: [Measure(a), ..] } => { k: [Count(Size(a)), ..] };
+}
+"#;
+
+/// A rule whose condition reads an existential's value: a run of `go` splits on it.
+const EXISTS: &str = r#"
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("go")]
+    Go {},
+    #[k::syntax("test {a}")]
+    Test { a: Int },
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::exists(v: Int)]
+    go: { k: [Go(), ..] } => { k: [Test(v), ..] };
+    #[k::requires(a == 1)]
+    test: { k: [Test(a), ..], acc: _ } => { k: [..], acc: 1 };
+}
+"#;
+
+/// A rule whose condition reads a `total` function no equation defines: it has a value at `1`,
+/// which the definition does not say, so a run of `test 1` splits on it.
+const TOTAL: &str = r#"
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("test {a}")]
+    Test { a: Int },
+}
+
+#[k::function(total, internal)]
+pub fn Opaque(a: Term<Int>) -> Term<Int>;
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::requires(Opaque(a) == 1)]
+    test: { k: [Test(a), ..], acc: _ } => { k: [..], acc: 1 };
 }
 "#;
 
@@ -121,6 +200,9 @@ const PROGRAMS: &[(&str, Option<&str>)] = &[
     ("not true", None),
     ("any 3", Some("1")),
     ("any true", None),
+    ("lett 1", Some("1")),
+    ("lett 2", None),
+    ("lett true", None),
     ("pick 1", Some("1")),
     ("pick 2", None),
 ];
@@ -194,11 +276,42 @@ fn matches_lines(definition: &str) -> Vec<String> {
 
 /// `krs run` of `program`: its status line and notes, after the printed state.
 fn run(target: &Path, manifest: &Path, directory: &Path, program: &str) -> (String, String) {
-    let path = directory.join("program.pgm");
-    fs::write(&path, program).unwrap();
-    let (success, stdout, stderr) = krs(target, manifest, "run", &[path.to_str().unwrap()]);
+    let (success, stdout, stderr) = command(target, manifest, directory, "run", program);
     assert!(success, "krs run {program}:\n{stdout}\n{stderr}");
     (stdout, stderr)
+}
+
+/// `krs COMMAND` of `program`.
+fn command(
+    target: &Path,
+    manifest: &Path,
+    directory: &Path,
+    command: &str,
+    program: &str,
+) -> (bool, String, String) {
+    let path = directory.join("program.pgm");
+    fs::write(&path, program).unwrap();
+    krs(target, manifest, command, &[path.to_str().unwrap()])
+}
+
+/// The lines of `stderr` from the status line on, with each lifted function's digest written
+/// `DIGEST`.
+fn status(stderr: &str) -> String {
+    let from = stderr.find("krs run:").unwrap_or(0);
+    digests(&stderr[from..])
+}
+
+/// `text` with each `krsLocal_` digest written `DIGEST`.
+fn digests(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("krsLocal_") {
+        out.push_str(&rest[..at]);
+        out.push_str("krsLocal_DIGEST");
+        rest = rest[at + "krsLocal_".len()..].trim_start_matches(|c: char| c.is_ascii_hexdigit());
+    }
+    out.push_str(rest);
+    out
 }
 
 #[test]
@@ -222,6 +335,9 @@ fn a_match_over_a_projection_is_stated_on_the_operand_after_its_test() {
             "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
             "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
+            "requires isInt(A:Arg) andThenBool ( #let B:Bool = ( 1 :=K A:Arg ) #in B:Bool )",
+            "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
+            "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
         ]
     "#]]
     .assert_debug_eq(&matches_lines(&definition));
@@ -242,17 +358,22 @@ fn a_match_over_a_projection_is_stated_on_the_operand_after_its_test() {
         );
     }
     // The static result has no value at `pick true`: the run is undefined at the state holding
-    // it, which `flag`'s condition reads, and the note names the term.
-    let (_, stderr) = run(target.path(), &manifest, temporary.path(), "pick true");
-    let lines = stderr.lines().collect::<Vec<_>>();
-    assert!(
-        lines.iter().any(|line| line
-            .starts_with("krs run: undefined after 0 steps; <k> starts with `flag krsLocal_"))
-            && lines
-                .iter()
-                .any(|line| line.starts_with("note: `krsLocal_") && line.contains("has no value")),
-        "krs run pick true:\n{stderr}"
-    );
+    // it, which `flag`'s condition reads, and the note names the term. At `keep true` no rule
+    // reads it, and the one state the run ends in holds it, so it has no value either.
+    let mut ends = Vec::new();
+    for program in ["pick true", "keep true", "keep 1"] {
+        let (_, stderr) = run(target.path(), &manifest, temporary.path(), program);
+        ends.push(format!("{program}: {}", status(&stderr)));
+    }
+    expect_test::expect![[r"
+        pick true: krs run: undefined after 0 steps; <k> starts with `flag krsLocal_DIGEST ( true )`
+        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+
+        keep true: krs run: undefined after 0 steps; <k> starts with `held krsLocal_DIGEST ( true )`
+        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+
+        keep 1: krs run: stuck after 0 steps; <k> starts with `held true`
+    "]].assert_eq(&ends.join("\n"));
 
     // The same programs on Java K's LLVM backend, from the emitted definition, which its
     // frontend reads (it refused `:=K {A}:>Int`).
@@ -283,7 +404,7 @@ fn a_match_over_a_projection_is_stated_on_the_operand_after_its_test() {
 }
 
 #[test]
-fn a_match_over_a_projection_in_a_result_keeps_the_projection() {
+fn a_match_over_a_projection_in_a_result_or_an_ensures_is_read_by_every_frontend() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(temporary.path(), "projection-result", RESULT);
@@ -296,20 +417,86 @@ fn a_match_over_a_projection_in_a_result_keeps_the_projection() {
     );
     assert!(success, "{stderr}");
     let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let lines = definition
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains(":=K") || line.contains("krsLocal_") || line.contains("res "))
+        .map(|line| digests(line.split(" [label(").next().unwrap_or(line)))
+        .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
-            "<k> res A:Arg => flag ( 1 :=K {A:Arg}:>Int ) ... </k>",
+            "syntax Bool ::= \"krsLocal_DIGEST\" \"(\" Arg \")\" [symbol(krsLocal_DIGEST), function]",
+            "requires true",
+            "ensures isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
+            "requires B:Bool",
+            "rule krsLocal_DIGEST ( A:Arg ) => true",
+            "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
+            "rule krsLocal_DIGEST ( A:Arg ) => false",
+            "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
+            "<k> res A:Arg => flag krsLocal_DIGEST ( A:Arg ) ... </k>",
         ]
-    "#]]
-    .assert_debug_eq(&matches_lines(&definition));
-    let (_, stderr) = run(target.path(), &manifest, temporary.path(), "res 1");
-    assert!(
-        stderr.contains("krs run: stuck after 2 steps; <k> is empty"),
-        "krs run res 1:\n{stderr}"
-    );
-    let (_, stderr) = run(target.path(), &manifest, temporary.path(), "res true");
-    assert!(
-        stderr.contains("krs run: undefined after 0 steps; <k> starts with `res true`"),
-        "krs run res true:\n{stderr}"
-    );
+    "#]].assert_debug_eq(&lines);
+    assert!(!definition.contains(":=K {"), "{definition}");
+    // Java K's frontend reads the emitted definition (it refused `:=K {A}:>Int`).
+    drop(kompile_reference(&definition, "ORG-KRS-PROJMATCH", "ORG-KRS-PROJMATCH-SYNTAX").run());
+
+    let mut ends = Vec::new();
+    for program in ["res 1", "res true", "ens 1", "ens true", "measure 1"] {
+        let (_, stderr) = run(target.path(), &manifest, temporary.path(), program);
+        ends.push(format!("{program}: {}", status(&stderr)));
+    }
+    expect_test::expect![[r"
+        res 1: krs run: stuck after 2 steps; <k> is empty
+
+        res true: krs run: undefined after 1 step; <k> starts with `flag krsLocal_DIGEST ( true )`
+        note: `krsLocal_DIGEST ( true )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+
+        ens 1: krs run: stuck after 1 step; <k> is empty
+
+        ens true: krs run: undefined after 0 steps; <k> starts with `ens true`
+
+        measure 1: krs run: undefined after 1 step; <k> starts with `count size ( 1 )`
+        note: `size ( 1 )` has no value: its function is partial and defined by its equations alone, and none applies there, so the state holding it has none
+    "]].assert_eq(&ends.join("\n"));
+}
+
+/// A split over a term that may have a value is the definition's: an existential's value, which
+/// the run has not fixed, and a `total` function's application, which has a value no equation
+/// names. `krs run` names the term as an error rather than choosing a state, and `krs search`
+/// prints both states, each under its condition.
+#[test]
+fn a_run_names_a_split_over_a_term_that_may_have_a_value() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut ends = Vec::new();
+    for (name, library, program) in [
+        ("projection-exists", EXISTS, "go"),
+        ("projection-total", TOTAL, "test 1"),
+    ] {
+        let manifest = package(temporary.path(), name, library);
+        let (success, _, stderr) =
+            command(target.path(), &manifest, temporary.path(), "run", program);
+        assert!(!success, "krs run {program} of {name}:\n{stderr}");
+        ends.push(format!("{name}: {}", stderr.trim()));
+        let (success, stdout, stderr) = command(
+            target.path(),
+            &manifest,
+            temporary.path(),
+            "search",
+            program,
+        );
+        assert!(
+            success,
+            "krs search {program} of {name}:\n{stdout}\n{stderr}"
+        );
+        ends.push(format!(
+            "{name} search: {}",
+            stderr.lines().last().unwrap_or_default()
+        ));
+    }
+    expect_test::expect![[r"
+        projection-exists: error[krs::exec::undecided]: the run reaches 2 states, under conditions over `hVar?V-b0:Int`, which holds a value the run has not fixed; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition
+        projection-exists search: krs search: 2 solutions
+        projection-total: error[krs::exec::undecided]: the run reaches 2 states, under conditions over `opaque ( 1 )`, which may have a value the definition leaves open (no equation evaluates it, and it is not a partial function defined by its equations alone); the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition
+        projection-total search: krs search: 2 solutions"]].assert_eq(&ends.join("\n"));
 }

@@ -100,15 +100,30 @@ pub fn guard_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
     warnings
 }
 
-/// Whether `rule` has a Bool condition, which may evaluate a partial construct.
+/// Whether `rule` has a Bool condition, which may evaluate a partial construct, or an `ensures`
+/// that holds a `k::matches!` over a projection ([`restated_ensures`]).
 fn needs_guards(rule: &SemanticRule) -> bool {
-    matches!(rule.requires(), Some(SemanticCondition::Bool(_)))
+    matches!(rule.requires(), Some(SemanticCondition::Bool(_))) || restated_ensures(rule).is_some()
+}
+
+/// The `ensures` of `rule`, where it is Bool and holds a `k::matches!` over a projection.
+///
+/// An `ensures` is not tested: one with no value is `ensures false`. A `k::matches!` over a
+/// projection there is stated on the projection's operand as in a condition, after the
+/// projection's test, which is `false` exactly where the projection has no value, so the
+/// `ensures` means what it did, with no projection as `:=K`'s operand.
+fn restated_ensures(rule: &SemanticRule) -> Option<&SemanticRuleCondition> {
+    match rule.ensures() {
+        Some(SemanticCondition::Bool(condition))
+            if definedness::matched_on_operands(condition.term()) != *condition.term() =>
+        {
+            Some(condition)
+        }
+        _ => None,
+    }
 }
 
 fn guard_rule(rule: &SemanticRule, sorts: &Sorts) -> Result<SemanticRule, DescriptorLoweringError> {
-    let Some(SemanticCondition::Bool(condition)) = rule.requires() else {
-        return Ok(rule.clone());
-    };
     let mut guards = Guards {
         rule,
         sorts,
@@ -122,14 +137,40 @@ fn guard_rule(rule: &SemanticRule, sorts: &Sorts) -> Result<SemanticRule, Descri
         wildcards: Vec::new(),
         restated: false,
     };
-    let term = guards.guard_point(condition.term(), &[])?;
+    let requires = match rule.requires() {
+        Some(SemanticCondition::Bool(condition)) => {
+            Some((condition, guards.guard_point(condition.term(), &[])?))
+        }
+        _ => None,
+    };
+    // The `ensures` is evaluated where the condition holds: its conjuncts are established.
+    let established = requires
+        .as_ref()
+        .map(|(_, term)| conjuncts(term))
+        .unwrap_or_default();
+    let ensures = restated_ensures(rule)
+        .map(|condition| {
+            guards
+                .guard_point(condition.term(), &established)
+                .map(|term| (condition, term))
+        })
+        .transpose()?;
     if guards.tests == 0 && !guards.restated {
         return Ok(rule.clone());
     }
     let mut variables = rule.variables().to_vec();
     variables.extend(guards.wildcards);
-    rule.clone()
-        .with_variables(variables)
+    let mut guarded = rule.clone().with_variables(variables);
+    if let Some((condition, term)) = ensures {
+        guarded = guarded.with_ensures(Some(SemanticCondition::Bool(SemanticRuleCondition::new(
+            condition.origin().clone(),
+            term,
+        ))));
+    }
+    let Some((condition, term)) = requires else {
+        return Ok(guarded);
+    };
+    guarded
         .with_requires(Some(SemanticCondition::Bool(SemanticRuleCondition::new(
             condition.origin().clone(),
             term,
@@ -206,9 +247,12 @@ impl Guards<'_, '_> {
             let mut inside = established.to_vec();
             inside.extend(tests.iter().cloned());
             let body = self.guard_point(body, &inside)?;
+            // The value's projections are tested before it, as a conjunct's are.
+            let matched = definedness::matched_on_operands(value);
+            self.restated |= matched != **value;
             let rebuilt = term.with_kind(IrTermKind::Let {
                 pattern: pattern.clone(),
-                value: value.clone(),
+                value: Box::new(matched),
                 body: Box::new(body),
                 binds: binds.clone(),
             });
