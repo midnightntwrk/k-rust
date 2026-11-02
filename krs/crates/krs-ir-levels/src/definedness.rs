@@ -1560,6 +1560,53 @@ pub fn substituted(term: &SemanticTerm, name: &SemanticId, value: &SemanticTerm)
     map_children(term, &mut |child| substituted(child, name, value))
 }
 
+/// `term`, a conjunct of a condition whose tests stand before it, with each `k::matches!` whose
+/// subject is a sort projection stated on the projection's operand.
+///
+/// `k::matches!(k::project!(S, t), P)` means that `t` is an `S` whose value matches `P`. The
+/// projection's test `isS(t)` stands before the conjunct, so where the conjunct is evaluated
+/// the projection is `t` itself: a cast changes no value. `:=K` matches a term of any sort, so
+/// `P :=K t` is well formed with `t` at its own sort and states the same test, with no
+/// projection as its operand. A result is not tested, and keeps the projection, which has no
+/// value where `t` is not an `S`.
+#[must_use]
+pub fn matched_on_operands(term: &SemanticTerm) -> SemanticTerm {
+    let term = match term.kind() {
+        IrTermKind::Matches {
+            subject,
+            pattern,
+            binds,
+        } if projected_operand(subject).is_some() => {
+            let mut operand = &**subject;
+            while let Some(inner) = projected_operand(operand) {
+                operand = inner;
+            }
+            term.with_kind(IrTermKind::Matches {
+                subject: Box::new(operand.clone()),
+                pattern: pattern.clone(),
+                binds: binds.clone(),
+            })
+        }
+        _ => term.clone(),
+    };
+    map_children(&term, &mut matched_on_operands)
+}
+
+/// The operand of `term`, where `term` is a sort projection.
+fn projected_operand(term: &SemanticTerm) -> Option<&SemanticTerm> {
+    match term.kind() {
+        IrTermKind::Application {
+            application: ApplicationRef::Generated(GeneratedOperation::SortProjection(_)),
+            arguments,
+            ..
+        } => match arguments.as_slice() {
+            [operand] => Some(operand),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// `term` with each child replaced by `map`'s image of it, in [`SemanticTerm::children`]'s
 /// order.
 fn map_children(

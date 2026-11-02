@@ -7156,10 +7156,10 @@ k = """
 rule cTAG ( V0:KItem , _ ) => when ( krsLocal_DIGEST ( V0:KItem ) ) [label(krsRule_DIGEST)]
 
 rule krsLocal_DIGEST ( V0:KItem ) => false
-requires isInt(V0:KItem) andThenBool (notBool ( _ :=K {V0:KItem}:>Int )) [label(krsRule_DIGEST)]
+requires isInt(V0:KItem) andThenBool (notBool ( _ :=K V0:KItem )) [label(krsRule_DIGEST)]
 
 rule krsLocal_DIGEST ( V0:KItem ) => true
-requires isInt(V0:KItem) andThenBool ( _ :=K {V0:KItem}:>Int ) [label(krsRule_DIGEST)]
+requires isInt(V0:KItem) andThenBool ( _ :=K V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
 
@@ -14011,7 +14011,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/rule/guard/matches-subject/k::project!(Int, x)"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
-requires isInt(V0:KItem) andThenBool ( _ :=K {V0:KItem}:>Int ) [label(case-TAG)]
+requires isInt(V0:KItem) andThenBool ( _ :=K V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

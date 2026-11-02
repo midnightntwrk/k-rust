@@ -11,6 +11,9 @@
 //! list of `KItem`s is `requires 0 <Int size(L) andThenBool isBool(L [ 0 ]) andThenBool {L [ 0
 //! ]}:>Bool`. Where the tests hold the construct has its value and the condition is the
 //! author's; where one fails the condition is `false`, as the author's would have no value. A
+//! `k::matches!` over a projection is then stated on the projection's operand, which its test
+//! makes the projection's value: `k::matches!(k::project!(Int, a), 1)` is `isInt(A) andThenBool
+//! ( 1 :=K A )`, with no projection as `:=K`'s operand. A
 //! user function's application is not tested: its equations state where it has a value, and
 //! guarding a partial one is the author's.
 //!
@@ -117,9 +120,10 @@ fn guard_rule(rule: &SemanticRule, sorts: &Sorts) -> Result<SemanticRule, Descri
             .max()
             .map_or(0, |ordinal| ordinal + 1),
         wildcards: Vec::new(),
+        restated: false,
     };
     let term = guards.guard_point(condition.term(), &[])?;
-    if guards.tests == 0 {
+    if guards.tests == 0 && !guards.restated {
         return Ok(rule.clone());
     }
     let mut variables = rule.variables().to_vec();
@@ -152,6 +156,8 @@ struct Guards<'r, 's> {
     tests: usize,
     wildcard_offset: usize,
     wildcards: Vec<SemanticVariable>,
+    /// Whether a `k::matches!` over a projection was stated on its operand.
+    restated: bool,
 }
 
 impl Guards<'_, '_> {
@@ -209,7 +215,13 @@ impl Guards<'_, '_> {
             return Ok(conjoin(tests, rebuilt));
         }
         self.collect(term, true, established, &BTreeSet::new(), &mut tests)?;
-        Ok(conjoin(tests, term.clone()))
+        // Each projection `term` evaluates is tested before it, so a `k::matches!` over one is
+        // stated on its operand ([`definedness::matched_on_operands`]).
+        let matched = definedness::matched_on_operands(term);
+        if matched != *term {
+            self.restated = true;
+        }
+        Ok(conjoin(tests, matched))
     }
 
     /// Adds to `tests` the test of every construct `term` evaluates, operands first, that
