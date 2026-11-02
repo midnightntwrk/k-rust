@@ -1279,13 +1279,13 @@ preserve = []
 "join.same.«resume-lit».«resume-oid»" = { status = "generic", id = "cea9475c42edca83" }
 "join.same.«resume-oid».«resume-lit»" = { status = "generic", id = "a0817fc4aa7233dd" }
 "join.same.«resume-oid».«resume-oid»" = { status = "generic", id = "749cf01bfaf0a715" }
-"witness.«lit-and-oid».legal" = { status = "hand", id = "98936b05421c2696" }
+"witness.«lit-and-oid».legal" = { status = "generic", id = "98936b05421c2696" }
 "witness.«lit-and-oid».refutes" = { status = "generic", id = "e78c18ad8d198a97" }
-"witness.«two-news».legal" = { status = "hand", id = "9921aafec64d8357" }
+"witness.«two-news».legal" = { status = "generic", id = "9921aafec64d8357" }
 "witness.«two-news».refutes" = { status = "generic", id = "ac6cd1d5a89ed209" }
-"witness.«two-resumes».legal" = { status = "hand", id = "34a9f231beada4b2" }
+"witness.«two-resumes».legal" = { status = "generic", id = "34a9f231beada4b2" }
 "witness.«two-resumes».refutes" = { status = "generic", id = "01b97405a05a1a0b" }
-"witness.«two-spends».legal" = { status = "hand", id = "c4e663df9731251e" }
+"witness.«two-spends».legal" = { status = "generic", id = "c4e663df9731251e" }
 "witness.«two-spends».refutes" = { status = "generic", id = "132987a6d85aa801" }
 
 [demo.TwoParamInst]
@@ -1591,15 +1591,15 @@ preserve = []
 "demos/TwoConf/legal.toml" = { tier = "light", sha256 = "dad753eab52935b4c1f666c76e30da7959a506e83de0aedce235ef542aab304a" }
 "demos/TwoOutConf/TwoOutConf/Slots.lean" = { tier = "light", sha256 = "0ecfec4eb38c9f5180883c5d425e2f8788474261c04199b1073ff928759778a6" }
 "demos/TwoOutConf/TwoOutConf/Views.lean" = { tier = "light", sha256 = "cda349e8cf5d0e9e40e430c2451c75ce7459cdd4d9ad6d791b41d7b332f68efa" }
-"demos/TwoOutConf/confluence.toml" = { tier = "light", sha256 = "4af0974f936e931aea513245529818393288b1552a83a3b4aeee3ebd70ff50fe" }
+"demos/TwoOutConf/confluence.toml" = { tier = "light", sha256 = "ed950b22c2d47ce081f6b3fa20f3c471a4b479d4c783325253651394f0f84f91" }
 "demos/TwoParamConf/TwoParamConf/Slots.lean" = { tier = "light", sha256 = "18d9440534769ec1a075845fb837f3b2a79c725feaf24f02a92b5fac7248dd30" }
 "demos/TwoParamConf/TwoParamConf/Views.lean" = { tier = "light", sha256 = "78cc9d245b3ff7e6bfbbd7755524799962b34536b64ae55209bef99b35ea82c8" }
 "demos/TwoParamConf/confluence.toml" = { tier = "light", sha256 = "3224c55f28595379934965460c07cbfea8cf2861a552c3c8b79346fc5f8ea312" }
 "demos/TwoParamInst/TwoParamInst/Back.lean" = { tier = "light", sha256 = "921ffa739b9db85ac800dba3982c7bd5a1a62e61e1e1297498c76b04604313b4" }
 "demos/TwoParamInst/TwoParamInst/Tr.lean" = { tier = "light", sha256 = "3b847a0feba23a204851cba9765ea950bca8615dd97e25690aed807d6f7db2d5" }
-"demos/TwoParamOkConf/TwoParamOkConf/Slots.lean" = { tier = "light", sha256 = "8830527952229a6149b5ff9c5078299246e6db2ca969cc3c08396ac134162449" }
-"demos/TwoParamOkConf/TwoParamOkConf/Views.lean" = { tier = "light", sha256 = "f33872d87587e84212a0f8f69262d55e369fa1c34622689b40f1790efcbf43cf" }
-"demos/TwoParamOkConf/confluence.toml" = { tier = "light", sha256 = "c13ab4baeec4282893edb1e732ba4c50eec45b8d04bcef570d710bddfa303170" }
+"demos/TwoParamOkConf/TwoParamOkConf/Slots.lean" = { tier = "light", sha256 = "7a08f65b250469915243f49255af19ecc7dca88f2875225c16c6893872c1a0de" }
+"demos/TwoParamOkConf/TwoParamOkConf/Views.lean" = { tier = "light", sha256 = "490521a8c8f5c5fc9774d5decc1a4fe3f4b65a5c023206bc127b8a66913a9dcf" }
+"demos/TwoParamOkConf/confluence.toml" = { tier = "light", sha256 = "d6412cde6000e352b9cc34b25b1ea0770058ef8180adadf3fd74989324766fcf" }
 "demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "91e59af29ba4c006e51198c4be011fd0e26b454cbe604ecbe96478872d210f43" }
 "demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "20f7bb57a07adfecbbe05e37cfa8b187fc6e1a5856f2e08ceffcd0a53c234ca8" }
 "demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "f1caa6876267d02167a7fd07453dc85c2cecf824061ceb0013b4538ed75ff671" }
