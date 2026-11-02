@@ -264,7 +264,9 @@ the descriptors of the base and its own. A case is judged by
   `Wk`'s, in `ProbeK(Cmd::NAME(), x) => Wk(HOLE)`, so that the run ends with `hold(wrap(v))`, a
   value (`Size` has no equation, so `size(v)` would name none); a simplification rewrites `Zero`,
   whose equation makes it 0, to 0 or to `Kz(HOLE)`, which is 0 too, so that it states a true
-  equation at `Int`; a context heats the
+  equation at `Int`, under the condition where a spelling with no value at some `x` has one; one
+  whose root is the hole states `HOLE => 0` under `false` and `ProbeK(Cmd::NAME(), x) => HOLE`
+  (NT-43; `terms.rs` module docs, "Simplification equations", argue each); a context heats the
   token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
   which the run's parse expands, and its result read in the expansion; an initializer, of the
   term family or of the configuration families' `init` (the machine and typed bases, with `$PGM`

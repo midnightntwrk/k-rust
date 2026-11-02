@@ -2678,7 +2678,7 @@ fn slots() -> Vec<Slot> {
             Side::Subject,
             (Simplification, Part::Subject, &[FunctionArgument]),
             concat!(
-                "#[k::simplification]\nDOMAINfn case_TAG(k::term![Zero(Cmd::NAME(), HOLE)",
+                "#[k::simplification]\nfn case_TAG(k::term![Zero(Cmd::NAME(), HOLE)",
                 "]: Term<Int>) -> Term<Int> {\n",
                 "    0\n}\n"
             ),
@@ -2710,7 +2710,7 @@ fn slots() -> Vec<Slot> {
             Side::Result,
             (Simplification, Part::Result, &[FunctionArgument]),
             concat!(
-                "#[k::simplification]\nDOMAINfn case_TAG(k::term![Zero(Cmd::NAME(), x)",
+                "#[k::simplification]\nfn case_TAG(k::term![Zero(Cmd::NAME(), x)",
                 "]: Term<Int>) -> Term<Int> {\n",
                 "    Kz(HOLE)\n}\n"
             ),
@@ -3667,15 +3667,17 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
         drivers::plan(slot, spelling, &command),
     );
     let counters = drivers::counter_plans(slot, spelling, &command);
-    let template = slot
-        .template
-        .replace(
-            "DOMAIN",
-            &spelling
-                .domain
-                .map(|domain| format!("#[k::requires({domain})]\n"))
-                .unwrap_or_default(),
-        )
+    // A simplification over a spelling with no value at some `x` states its equation where the
+    // spelling has one ([module docs](self), "Simplification equations").
+    let template = match (slot.form, slot.position, spelling.domain) {
+        ("simplification", "subject" | "result", Some(domain)) => slot.template.replacen(
+            "#[k::simplification]\n",
+            &format!("#[k::simplification]\n#[k::requires({domain})]\n"),
+            1,
+        ),
+        _ => slot.template.clone(),
+    };
+    let template = template
         .replace("TAG", &tag)
         .replace("DRIVE", &command.drive().to_string())
         .replace(
