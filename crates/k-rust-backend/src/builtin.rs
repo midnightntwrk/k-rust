@@ -915,8 +915,8 @@ pub fn open_applications(
 /// pairing, described on points only, nor the ECDSA hooks, described on their documented inputs
 /// only. The simplifier reads this where an application's `\ceil` is left opaque by its ceil
 /// theory, and where a parent's expansion would state that `\ceil` beside the parent's again
-/// (`simplify`'s `defined_where_its_arguments_are`), as it reads [`ChosenValue::defined`]. Before
-/// GAP ticket K9 the digests and `Bytes2String` were not listed: the second reading was missing,
+/// (`simplify`'s `defined_where_its_arguments_are`, through [`hook_definedness`]), as it reads
+/// [`ChosenValue::defined`]. Before GAP ticket K9 the digests and `Bytes2String` were not listed: the second reading was missing,
 /// and KEVM's hex parse of a symbolic argument (`\ceil(findString(Keccak256(B), "0x", 0))`)
 /// recurred without end (`kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work`
 /// and `kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_work` in
@@ -948,58 +948,99 @@ pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &T
     }
 }
 
+/// k-rust's reading of the definedness of a hooked application: what its hook decides of it
+/// without the definition's equations ([`hook_definedness`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HookDefinedness {
+    /// Defined wherever its arguments are.
+    Defined,
+    /// `\bottom` in every model.
+    Undefined,
+    /// The hook leaves it open.
+    Unknown,
+}
+
 /// The definedness of `term`, an application of a partial hooked symbol that no ceil theory
-/// states, as far as its hook decides it without the definition's equations: `Some(true)` where
-/// it is defined wherever its arguments are, `Some(false)` where it is `\bottom` in every model,
-/// `None` where the hook leaves it open.
+/// states, as far as its hook decides it without the definition's equations. Each answer is the
+/// application's `\ceil` on defined arguments, so the simplifier
+/// (`simplify`'s `defined_where_its_arguments_are`) and the solver's domain of the application
+/// ([`hook_domain`], read by `smt::functional::domain_plan`) read this one judgement and cannot
+/// judge one term differently.
 ///
-/// Defined: the hook's text gives every argument of its sorts a value
-/// ([`defined_on_every_argument`]); the value is one the definition leaves to the
+/// [`Defined`](HookDefinedness::Defined): the hook's text gives every argument of its sorts a
+/// value ([`defined_on_every_argument`]); the value is one the definition leaves to the
 /// implementation and its class gives it one ([`implementation_chosen`], `defined`); or the
-/// arguments are constructor-like and the evaluator gives a value, a result above a size bound
-/// (`ResultTooLarge`, reported only where the hook has a value), or one of several values the
-/// definition admits (`Unspecified` with `defined`). Undefined: the arguments are
-/// constructor-like and the evaluator answers [`Undefinedness::Stated`], `\bottom` in every model.
-/// These are the simplifier's judgements (`simplify`'s `defined_where_its_arguments_are`, with
-/// the evaluator's stated `\bottom`), so the solver's domain of the application, which reads
-/// them (`smt::functional::domain_plan`), is the application's `\ceil` on defined arguments.
-/// An evaluation applies no equation of the definition: it is one hook evaluation on literal
-/// arguments, which ends. A failure of the evaluator leaves the definedness open.
-#[cfg(any(feature = "z3", test))]
-pub(crate) fn hook_domain(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<bool>> {
+/// evaluator's verdict says so ([`evaluated_definedness`]). [`Undefined`](HookDefinedness::Undefined)
+/// and every other answer: the evaluator's verdict. The two readings of the hook's text come
+/// first, since only the third evaluates the hook. A failure of the evaluator is returned: the
+/// simplifier reports it, the solver reads it as an open definedness.
+pub(crate) fn hook_definedness(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Result<HookDefinedness, BuiltinError>> {
     if defined_on_every_argument(definition, term)
         || implementation_chosen(term).is_some_and(|chosen| chosen.defined)
     {
-        return Ok(Some(true));
+        return Ok(Ok(HookDefinedness::Defined));
     }
+    evaluated_definedness(definition, term)
+}
+
+/// The definedness of `term`, a hooked application on constructor-like arguments that term
+/// simplification left unevaluated, by its evaluator's verdict, which does not depend on the
+/// evaluation mode. [`Defined`](HookDefinedness::Defined): the evaluator gives a value (left
+/// unevaluated outside an execution where only an execution chooses it, `crate::evaluation`), a
+/// result above a result size bound (`ResultTooLarge`, reported only where the hook has a value),
+/// or one of several values the definition admits (`Unspecified` with `defined`), so its `\ceil`
+/// holds although its value is not computed. [`Undefined`](HookDefinedness::Undefined): the
+/// evaluator answers [`Undefinedness::Stated`], `\bottom` in every model.
+/// [`Unknown`](HookDefinedness::Unknown): any other term or outcome, the `\bottom` outside the
+/// inputs a description covers ([`Undefinedness::Undescribed`]) included. An evaluation applies
+/// no equation of the definition: it is one hook evaluation on literal arguments, which ends.
+pub(crate) fn evaluated_definedness(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Result<HookDefinedness, BuiltinError>> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
     else {
-        return Ok(None);
+        return Ok(Ok(HookDefinedness::Unknown));
     };
     if symbol.attributes.hook.is_none()
         || !arguments
             .iter()
             .all(|argument| argument.attributes().constructor_like)
     {
-        return Ok(None);
+        return Ok(Ok(HookDefinedness::Unknown));
     }
     // Only the application's own definedness is read, which a value the definition leaves open
     // has in every model: the evaluation marks no path (`crate::path_facts`).
     Ok(
-        match crate::path_facts::suspend(|| evaluate_in_definition(term, definition))? {
-            Ok(
+        crate::path_facts::suspend(|| evaluate_in_definition(term, definition))?.map(|result| {
+            match result {
                 BuiltinResult::Value(_)
                 | BuiltinResult::Unsupported(
                     UnsupportedHookReason::ResultTooLarge { .. }
                     | UnsupportedHookReason::Unspecified { defined: true, .. },
-                ),
-            ) => Some(true),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated)) => Some(false),
-            Ok(_) | Err(_) => None,
-        },
+                ) => HookDefinedness::Defined,
+                BuiltinResult::Bottom(Undefinedness::Stated) => HookDefinedness::Undefined,
+                _ => HookDefinedness::Unknown,
+            }
+        }),
     )
+}
+
+/// [`hook_definedness`] as the solver reads it: `Some(true)` where `term` is defined wherever its
+/// arguments are, `Some(false)` where it is `\bottom` in every model, `None` where the hook
+/// leaves it open or its evaluator fails.
+#[cfg(any(feature = "z3", test))]
+pub(crate) fn hook_domain(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<bool>> {
+    Ok(match hook_definedness(definition, term)? {
+        Ok(HookDefinedness::Defined) => Some(true),
+        Ok(HookDefinedness::Undefined) => Some(false),
+        Ok(HookDefinedness::Unknown) | Err(_) => None,
+    })
 }
 
 /// Evaluate a hook candidate with buffered execution state available.

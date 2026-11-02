@@ -482,7 +482,16 @@ pub fn check() -> Result<(), Stop> {
 /// node of a term the computation builds: charged by the nodes it visits, the walk counts as the
 /// polls a traversal polling at each node would make. Without that, a loop that polls once per
 /// round while each round walks a term growing by one node per round spends a budget of `n`
-/// polls on about `n²/2` nodes, and the budget no longer bounds the computation's work.
+/// polls on about `n²/2` nodes, and the budget no longer bounds the computation's work. A walk
+/// charges after it ends, so the budget bounds the work to the budget plus one walk; the walks
+/// the simplifier charges (its path condition's, `simplify::replace_terms_bottom_up` and
+/// `simplify::term_contains_replacement_original`) visit each distinct node of a term once, so
+/// one walk is bounded by the term's DAG size.
+///
+/// Every budget counts the charged work: the load-time check's (`confluence::budgeted`) and a
+/// request-time record's ([`off_the_clock`], `coverage::isolated`). A run's step has no poll
+/// budget, so its verdicts are unchanged by a charge; a record ends sooner than when only its
+/// polls were counted, which is its budget bounding its work.
 pub(crate) fn charge(work: u64) {
     REGISTRY.with(|registry| {
         if let Some(budget) = &registry.borrow().polls {
@@ -845,7 +854,8 @@ pub(crate) fn time_off_the_clock() -> std::time::Duration {
 /// deadline is restored moved later by the time it took, and that time is added to
 /// [`time_off_the_clock`], which a step's moving-average measurement leaves out. So the step
 /// meets its deadline at the same point of its own work as without `action`. The budget bounds
-/// `action`'s work instead, as a function of the work alone. A cancellation of the request and a
+/// `action`'s work instead, as a function of the work alone: its polls and the nodes of the walks
+/// charged in their place ([`charge`]). A cancellation of the request and a
 /// failed solver prelude stay visible inside it: such a stop ends the run at its next poll in
 /// any case. Restored on every exit.
 ///

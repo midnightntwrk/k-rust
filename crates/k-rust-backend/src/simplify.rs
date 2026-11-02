@@ -34,6 +34,10 @@
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
 //! bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
+//!
+//! [[cost]]
+//! mode = "path condition replacements"
+//! bound = "per round of a term the path condition may change, when it holds a replacement (a sibling equality with a value side): one containment walk (term_contains_replacement_original) and one rebuilding walk (replace_terms_bottom_up) of the term, each visiting a node once however many times the term holds it, so O(DAG size of the term) with one hash lookup per node; each walk charges its nodes to the poll budget in force (stop::charge). Run verdicts are unchanged by the charge, since a run's step has no poll budget; request-time records (coverage::isolated, under stop::off_the_clock's budget) and the load-time check are bounded by the same work measure"
 //! ```
 //!
 //! ```toml algorithm
@@ -67,7 +71,7 @@
 //!
 //! [[cost]]
 //! mode = "opaque \\ceil or absence expansion (expansion_obligations)"
-//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
+//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then builtin::evaluated_definedness evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
 //!
 //! [[cost]]
 //! mode = "further pass of a \\ceil or absence atom's arm (settled)"
@@ -126,7 +130,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     builtin::{
-        BuiltinEffect, BuiltinError, BuiltinResult, UnsupportedHookReason,
+        BuiltinEffect, BuiltinError, BuiltinResult, HookDefinedness, UnsupportedHookReason,
         evaluate_in_definition as evaluate_builtin,
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
@@ -941,19 +945,18 @@ fn expansion_obligations(
 }
 
 /// Whether the application `term`, a partial one whose `\ceil` no ceil theory states, is defined
-/// wherever its arguments are, by k-rust's reading of its hook: a listing only an execution
-/// evaluates is defined exactly when its collection is (`defined_uncomputed`); an application
-/// whose value the definition leaves to the implementation is when its class says the
-/// description gives it one (`ChosenValue::defined`); and a hook whose text gives every argument
-/// of its sorts a value is (`builtin::defined_on_every_argument`).
+/// wherever its arguments are, by k-rust's reading of its hook
+/// ([`crate::builtin::hook_definedness`], which the solver's domain of the application reads
+/// too). A failure of the hook's evaluator is reported.
 fn defined_where_its_arguments_are(
     definition: &BackendDefinition,
     term: &Term,
 ) -> SimplifyResult<bool> {
-    // The two readings of the hook's text first: `defined_uncomputed` may evaluate the hook.
-    Ok(crate::builtin::defined_on_every_argument(definition, term)
-        || crate::builtin::implementation_chosen(term).is_some_and(|chosen| chosen.defined)
-        || defined_uncomputed(definition, term)?)
+    Ok(matches!(
+        crate::builtin::hook_definedness(definition, term)?
+            .map_err(SimplificationError::Builtin)?,
+        HookDefinedness::Defined
+    ))
 }
 
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
@@ -3914,40 +3917,6 @@ fn normalize_injection_equality(
     }
 }
 
-/// Whether `term`, a hooked application on constructor-like arguments that term simplification
-/// left unevaluated, is defined by its evaluator's verdict, so that its `\ceil` holds although
-/// its value is not computed: the evaluator gives a value (left unevaluated outside an execution
-/// where only an execution chooses it, `crate::evaluation`), a result above a result size bound
-/// (`ResultTooLarge`, reported only where the hook has a value), or one of several values the
-/// definition admits (`Unspecified` with `defined`). The verdict does not depend on the
-/// evaluation mode. `false` for any other term or outcome.
-fn defined_uncomputed(definition: &BackendDefinition, term: &Term) -> SimplifyResult<bool> {
-    let TermKind::Application {
-        symbol, arguments, ..
-    } = term.kind()
-    else {
-        return Ok(false);
-    };
-    if symbol.attributes.hook.is_none()
-        || !arguments
-            .iter()
-            .all(|argument| argument.attributes().constructor_like)
-    {
-        return Ok(false);
-    }
-    // Only the application's own definedness is read, which a value the definition leaves open
-    // has in every model: the evaluation marks no path (`crate::path_facts`).
-    Ok(matches!(
-        crate::path_facts::suspend(|| evaluate_builtin(term, definition))?
-            .map_err(SimplificationError::Builtin)?,
-        BuiltinResult::Value(_)
-            | BuiltinResult::Unsupported(
-                UnsupportedHookReason::ResultTooLarge { .. }
-                    | UnsupportedHookReason::Unspecified { defined: true, .. }
-            )
-    ))
-}
-
 /// Whether the backend leaves an application of the hooked `symbol` on constructor-like
 /// arguments, which neither its evaluator nor an equation reduced, unevaluated with the
 /// `UnsupportedHookUnevaluated` warning and refuses it only where a run uses its value
@@ -4055,7 +4024,7 @@ fn uncomputed_refusal(
 /// carried and so never reaches this check.
 ///
 /// The `\ceil` of such an application is not a use of its value: it holds (an evaluator reports
-/// a size bound only where the hook is defined, `defined_uncomputed`, and the other kind is
+/// a size bound only where the hook is defined, `builtin::evaluated_definedness`, and the other kind is
 /// `total`), and term simplification leaves it as the obligation of a discarded partial subterm
 /// (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
 ///
@@ -4118,7 +4087,11 @@ fn push_predicate_terms(
         Predicate::Ceil(term) => {
             let total = matches!(term.kind(), TermKind::Application { symbol, .. }
                 if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total));
-            if !total && !defined_uncomputed(definition, term)? {
+            if !total
+                && crate::builtin::evaluated_definedness(definition, term)?
+                    .map_err(SimplificationError::Builtin)?
+                    != HookDefinedness::Defined
+            {
                 pending.push(term.clone());
             }
         }
@@ -6772,27 +6745,48 @@ fn is_scalar_domain_value(term: &Term) -> bool {
     )
 }
 
-/// `term` with each subterm equal to an original of `replacements` replaced, children first.
+/// `term` with each subterm equal to an original of `replacements` replaced, children first: a
+/// subterm equal to several originals takes the replacement listed first.
 ///
 /// The walk keeps its pending work on the heap: the terms the simplifier builds can be deeper
 /// than the native stack (a ground chain of a function whose evaluation does not end grows one
 /// level per step), and the stack guard bounds only the simplifier's own recursion.
 ///
-/// The walk does not poll; it charges the nodes it enters to the poll budget in force, if any
-/// (`stop::charge`). A round of a term's simplification polls once and walks the whole term, so
-/// without the charge the rounds of a term that grows per round would do work quadratic in the
-/// polls they spend.
+/// A node is rebuilt once, however many times `term` holds it: the rebuilt node is kept by the
+/// node's identity, and a later occurrence takes it. So the work is bounded by the number of
+/// distinct nodes of `term` (its DAG size), not by its occurrences, which a term with shared
+/// subterms can hold exponentially many of, and the result shares what `term` shares.
+///
+/// The walk does not poll; it charges the nodes it enters, each once, to the poll budget in
+/// force, if any (`stop::charge`). A round of a term's simplification polls once and walks the
+/// whole term, so without the charge the rounds of a term that grows per round would do work
+/// quadratic in the polls they spend.
 fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
+    let mut replacement_of = FxHashMap::<&Term, &Term>::default();
+    for (original, replacement) in replacements {
+        replacement_of.entry(original).or_insert(replacement);
+    }
+    // The rebuilt node of each node entered, by the node's address: every node is a subterm of
+    // `term`, which the caller holds for the walk, so no address is reused while the map lives.
+    let mut rebuilt_nodes = FxHashMap::<usize, Term>::default();
+    let address = |term: &Term| std::ptr::from_ref(term.kind()) as usize;
     // `None`: the term is still to be entered; `Some(count)`: its `count` children are rebuilt
     // on top of `rebuilt`.
     let mut pending = vec![(term.clone(), None::<usize>)];
     let mut rebuilt = Vec::<Term>::new();
     let mut entered = 0_u64;
     // Invariant: `rebuilt` holds, in order, the rebuilt children of every exit frame on
-    // `pending` that has finished entering them; each term is entered and exited once.
+    // `pending` that has finished entering them; each distinct node is entered and exited once.
+    // A node popped to be entered again was exited before: its exit frame would otherwise still
+    // be on `pending` below it, and every frame above that exit frame is a descendant's, so the
+    // node would be its own descendant.
     while let Some((current, state)) = pending.pop() {
         match state {
             None => {
+                if let Some(node) = rebuilt_nodes.get(&address(&current)) {
+                    rebuilt.push(node.clone());
+                    continue;
+                }
                 entered += 1;
                 let mut children = Vec::new();
                 let _ = current.try_map_children(|child| {
@@ -6811,14 +6805,11 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
                         )
                     })
                     .expect("an infallible term transformation cannot fail");
-                rebuilt.push(
-                    replacements
-                        .iter()
-                        .find_map(|(original, replacement)| {
-                            (original == &term).then(|| replacement.clone())
-                        })
-                        .unwrap_or(term),
-                );
+                let node = replacement_of
+                    .get(&term)
+                    .map_or(term, |&replacement| replacement.clone());
+                rebuilt_nodes.insert(address(&current), node.clone());
+                rebuilt.push(node);
             }
         }
     }
@@ -6826,16 +6817,29 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
     rebuilt.pop().expect("the walk rebuilds the root")
 }
 
-/// Whether some subterm occurrence of `term` equals an original of `replacements`. Like
-/// [`replace_terms_bottom_up`], the walk charges the occurrences it examines to the poll budget
-/// in force, if any (`stop::charge`).
+/// Whether some subterm of `term` equals an original of `replacements`. Each distinct node of
+/// `term` is examined once, however many times `term` holds it, so the work is bounded by its
+/// DAG size; like [`replace_terms_bottom_up`], the walk charges the nodes it examines to the
+/// poll budget in force, if any (`stop::charge`).
 fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]) -> bool {
+    let originals = replacements
+        .iter()
+        .map(|(original, _)| original)
+        .collect::<FxHashSet<_>>();
+    // The nodes examined, by address: every node is a subterm of `term`, which the caller holds
+    // for the walk, so no address is reused while the set lives.
+    let mut examined_nodes = FxHashSet::<usize>::default();
     let mut pending = vec![term];
     let mut examined = 0_u64;
-    // Invariant: no popped subterm equals an original in `replacements`, and `pending` holds unexamined subterm occurrences of `term`; each pop pushes only its direct children, so each occurrence is popped at most once.
+    // Invariant: no examined node equals an original in `replacements`, and the children of
+    // every examined node are on `pending` or examined. A node met again was examined, so it is
+    // skipped: its subterms are covered already.
     while let Some(term) = pending.pop() {
+        if !examined_nodes.insert(std::ptr::from_ref(term.kind()) as usize) {
+            continue;
+        }
         examined += 1;
-        if replacements.iter().any(|(original, _)| original == term) {
+        if originals.contains(term) {
             stop::charge(examined);
             return true;
         }
@@ -12131,6 +12135,353 @@ mod tests {
             membership(k, &open, true),
             vec![Predicate::Term(open_membership)]
         );
+    }
+
+    /// GAP K25: the simplifier (`defined_where_its_arguments_are`) and the solver's domain of an
+    /// application (`builtin::hook_domain`) read one judgement, `builtin::hook_definedness`, so
+    /// they agree on every class it reads: an evaluator's value, a result above a size bound, one
+    /// of several values the definition admits with a value (`Unspecified` with `defined`), and a
+    /// stated `\bottom` on literal arguments; a digest, which has a value for every byte string,
+    /// and a value the definition leaves to the implementation that its class defines, on
+    /// symbolic arguments. A value the definition leaves open with no value guaranteed, the
+    /// `\bottom` outside the inputs a description covers, and symbolic arguments no reading
+    /// decides are of unknown definedness: the simplifier does not read them as defined and the
+    /// solver leaves them open.
+    #[test]
+    fn the_simplifier_and_the_solver_read_one_hook_definedness() {
+        use crate::{
+            builtin::{HookDefinedness, Undefinedness},
+            evaluation::{EvaluationMode, with_evaluation},
+        };
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+                hooked-sort SortKVar{} [hook{}("KVAR.KVar"), hasDomainValues{}()]
+                sort SortExp{} []
+                symbol inj{From, To}(From) : To [sortInjection{}()]
+                symbol lambda{}(SortKVar{}, SortExp{}) : SortExp{} [constructor{}(), binder{}()]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow")]
+                hooked-symbol digest{}(SortBytes{}) : SortBytes{}
+                    [function{}(), hook{}("KRYPTO.keccak256raw")]
+                hooked-symbol base2string{}(SortInt{}, SortInt{}) : SortString{}
+                    [function{}(), hook{}("STRING.base2string")]
+                hooked-symbol string2int{}(SortString{}) : SortInt{}
+                    [function{}(), hook{}("STRING.string2int")]
+                hooked-symbol substOne{}(SortExp{}, SortExp{}, SortKVar{}) : SortExp{}
+                    [function{}(), hook{}("SUBSTITUTION.substOne")]
+                axiom{R}
+                    \exists{R}(
+                        Val:SortExp{},
+                        \equals{SortExp{}, R}(
+                            Val:SortExp{},
+                            inj{SortKVar{}, SortExp{}}(From:SortKVar{})
+                        )
+                    )
+                    [subsort{SortKVar{}, SortExp{}}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let int = |value: &str| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        let pow = |base: &str, exponent: &str| format!("pow{{}}({}, {})", int(base), int(exponent));
+        let not_a_number = r#"string2int{}(\dv{SortString{}}("abc"))"#;
+        let too_large = pow("2", &(1_u64 << 40).to_string());
+        let letter_digit = format!("base2string{{}}({}, {})", int("255"), int("16"));
+        let evaluator_classes = [
+            (
+                pow("2", "3"),
+                EvaluationMode::Proof,
+                HookDefinedness::Defined,
+            ),
+            (too_large, EvaluationMode::Proof, HookDefinedness::Defined),
+            (
+                letter_digit,
+                EvaluationMode::Proof,
+                HookDefinedness::Defined,
+            ),
+            (
+                not_a_number.to_owned(),
+                EvaluationMode::Proof,
+                HookDefinedness::Unknown,
+            ),
+            (
+                pow("2", "-1"),
+                EvaluationMode::Proof,
+                HookDefinedness::Undefined,
+            ),
+            (
+                not_a_number.to_owned(),
+                EvaluationMode::Execution,
+                HookDefinedness::Unknown,
+            ),
+        ];
+        // Each literal case reaches the evaluator class it stands for.
+        let outcome = |source: &str, mode| {
+            with_evaluation(mode, || {
+                crate::builtin::evaluate_in_definition(&term(&definition, source), &definition)
+            })
+            .expect("evaluation should not stop")
+            .expect("evaluation should not fail")
+        };
+        let classes = evaluator_classes
+            .iter()
+            .map(|(source, mode, _)| outcome(source, *mode))
+            .collect::<Vec<_>>();
+        assert!(matches!(classes[0], BuiltinResult::Value(_)), "{classes:?}");
+        assert!(
+            matches!(
+                classes[1],
+                BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+            ),
+            "{classes:?}"
+        );
+        assert!(
+            matches!(
+                classes[2],
+                BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                    defined: true,
+                    ..
+                })
+            ),
+            "{classes:?}"
+        );
+        assert!(
+            matches!(
+                classes[3],
+                BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                    defined: false,
+                    ..
+                })
+            ),
+            "{classes:?}"
+        );
+        assert_eq!(classes[4], BuiltinResult::Bottom(Undefinedness::Stated));
+        assert_eq!(
+            classes[5],
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
+        );
+        let symbolic = [
+            ("digest{}(B:SortBytes{})", HookDefinedness::Defined),
+            (
+                r#"substOne{}(lambda{}(\dv{SortKVar{}}("y"), E:SortExp{}), V:SortExp{}, \dv{SortKVar{}}("x"))"#,
+                HookDefinedness::Defined,
+            ),
+            ("pow{}(X:SortInt{}, Y:SortInt{})", HookDefinedness::Unknown),
+        ]
+        .map(|(source, expected)| (source.to_owned(), EvaluationMode::Proof, expected));
+        for (source, mode, expected) in evaluator_classes.into_iter().chain(symbolic) {
+            let application = term(&definition, &source);
+            let (shared, simplifier, solver) = with_evaluation(mode, || {
+                (
+                    crate::builtin::hook_definedness(&definition, &application)
+                        .expect("the judgement should not stop")
+                        .expect("the judgement should not fail"),
+                    unstopped(defined_where_its_arguments_are(&definition, &application).layered())
+                        .expect("the simplifier's judgement should not fail"),
+                    crate::builtin::hook_domain(&definition, &application)
+                        .expect("the solver's judgement should not stop"),
+                )
+            });
+            assert_eq!(
+                simplifier,
+                expected == HookDefinedness::Defined,
+                "the simplifier on {source} in {mode:?}"
+            );
+            assert_eq!(
+                solver,
+                match expected {
+                    HookDefinedness::Defined => Some(true),
+                    HookDefinedness::Undefined => Some(false),
+                    HookDefinedness::Unknown => None,
+                },
+                "the solver on {source} in {mode:?}"
+            );
+            assert_eq!(shared, expected, "{source} in {mode:?}");
+        }
+    }
+    /// A definition with constructors `c` and `f(A, A)` and a partial function `k(A)` without
+    /// equations, and a 28-level diamond `f(t, t)` over `k(Y)`: 30 distinct nodes (`Y` included)
+    /// and 2^29 - 1 occurrences of `f` and `k`.
+    fn diamond() -> (BackendDefinition, Term, Term) {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortA{} []
+                symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+                symbol f{}(SortA{}, SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
+                symbol k{}(SortA{}) : SortA{} [function{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let bottom = term(&definition, "k{}(Y:SortA{})");
+        let mut diamond = bottom.clone();
+        for _ in 0..28 {
+            diamond = Term::application(
+                definition.symbols()["f"].clone(),
+                vec![],
+                vec![diamond.clone(), diamond],
+            );
+        }
+        (definition, diamond, bottom)
+    }
+
+    /// The polls `walk` charges to a poll budget: `polls` with the least budget under which the
+    /// next poll after the walk still passes, found among `0..64`; `None` when it charges more.
+    fn charged_polls(mut walk: impl FnMut()) -> Option<u64> {
+        let mode = crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_secs(1));
+        (1..=64_u64)
+            .find(|&polls| {
+                let ((), record) = stop::with_poll_budget(polls, mode, || {
+                    walk();
+                    // The record says whether the poll passed; the stop is not this test's.
+                    if let Err(stop) = stop::check() {
+                        stop.forgo_refinement();
+                    }
+                });
+                !record.budget_exhausted
+            })
+            .map(|polls| polls - 1)
+    }
+
+    /// The number of distinct nodes of `term`, by allocation.
+    fn distinct_nodes(term: &Term) -> usize {
+        let mut seen = FxHashSet::default();
+        let mut pending = vec![term.clone()];
+        while let Some(term) = pending.pop() {
+            if seen.insert(std::ptr::from_ref(term.kind()) as usize) {
+                pending.extend(
+                    crate::term::immediate_children(term.kind())
+                        .into_iter()
+                        .cloned(),
+                );
+            }
+        }
+        seen.len()
+    }
+
+    /// GAP K28: the path condition's containment walk visits each node of a shared term once and
+    /// charges the budget by those nodes: on a 28-level diamond over `k(Y)` it finds `k(Y)` on
+    /// its 29th node and, looking for `k(Z)`, which it does not hold, it visits the 30 distinct
+    /// nodes and charges 30 polls. Before, it visited occurrences, more than 2^29 of them, and
+    /// charged those.
+    #[test]
+    fn the_containment_walk_visits_each_node_of_a_shared_term_once() {
+        let (definition, diamond, bottom) = diamond();
+        let one = term(&definition, "c{}()");
+        let present = [(bottom, one.clone())];
+        let absent = [(term(&definition, "k{}(Z:SortA{})"), one)];
+        assert_eq!(
+            charged_polls(|| assert!(term_contains_replacement_original(&diamond, &present))),
+            Some(29)
+        );
+        assert_eq!(
+            charged_polls(|| assert!(!term_contains_replacement_original(&diamond, &absent))),
+            Some(30)
+        );
+    }
+
+    /// GAP K28: the path condition's replacement walk rebuilds each node of a shared term once,
+    /// shares the rebuilt node in its result and charges the budget by the nodes: replacing
+    /// `k(Y)` by `c` in a 28-level diamond over it gives the 28-level diamond over `c`, of 29
+    /// distinct nodes, for the 30 polls of the diamond's distinct nodes. Before, it rebuilt every
+    /// occurrence, more than 2^29 of them, into an unshared tree.
+    #[test]
+    fn the_replacement_walk_rebuilds_each_node_of_a_shared_term_once() {
+        let (definition, diamond, bottom) = diamond();
+        let one = term(&definition, "c{}()");
+        let replacements = [(bottom, one.clone())];
+        let mut rebuilt = None;
+        assert_eq!(
+            charged_polls(|| rebuilt = Some(replace_terms_bottom_up(&diamond, &replacements))),
+            Some(30)
+        );
+        let rebuilt = rebuilt.expect("the walk ran");
+        assert_eq!(distinct_nodes(&rebuilt), 29);
+        let mut level = rebuilt;
+        for _ in 0..28 {
+            let TermKind::Application {
+                symbol, arguments, ..
+            } = level.kind()
+            else {
+                panic!("a level of the diamond is an application: {level:?}");
+            };
+            assert_eq!(&*symbol.name, "f");
+            assert!(arguments[0].ptr_eq(&arguments[1]));
+            level = arguments[0].clone();
+        }
+        assert_eq!(level, one);
+    }
+
+    /// GAP K28 (K18 Task 6): a `\ceil` nested under `\exists`, of an application whose evaluation
+    /// does not end (`pf(Y) = pf(k(Y))`), beside a sibling replacement (`q(X) = 1`), ends within
+    /// a poll budget: each round of `pf`'s evaluation walks the growing term for the replacement,
+    /// and the walks are charged to the budget. Without the charge the rounds' walks are
+    /// quadratic in the polls and the simplification runs past the guard.
+    #[test]
+    fn a_nested_ceil_beside_a_sibling_replacement_ends_within_its_budget() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortA{} []
+                symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+                symbol k{}(SortA{}) : SortA{} [constructor{}(), functional{}(), injective{}()]
+                symbol pf{}(SortA{}) : SortA{} [function{}()]
+                symbol q{}(SortA{}) : SortInt{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortA{}, R}(X0:SortA{}, VarY:SortA{}), \top{R}())),
+                    \equals{SortA{}, R}(
+                        pf{}(X0:SortA{}),
+                        \and{SortA{}}(pf{}(k{}(VarY:SortA{})), \top{SortA{}}())
+                    )
+                ) []
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let z = Variable::new("Z", Sort::simple("SortA"));
+        let predicates = [
+            Predicate::Exists(
+                z.clone(),
+                Arc::new(Predicate::And(Arc::from([
+                    Predicate::Ceil(term(&definition, "pf{}(c{}())")),
+                    Predicate::Equals(Term::variable(z.clone()), Term::variable(z)),
+                ]))),
+            ),
+            Predicate::Equals(
+                term(&definition, "q{}(X:SortA{})"),
+                term(&definition, r#"\dv{SortInt{}}("1")"#),
+            ),
+        ];
+        let mode = crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_secs(1));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let (result, record) = stop::with_poll_budget(4_000_000, mode, || {
+                    simplify_predicates_with_solver(
+                        &definition,
+                        &predicates,
+                        &[],
+                        SimplificationOptions::default(),
+                        &NoSolver,
+                    )
+                });
+                let _ = sender.send((format!("{result:?}"), record.budget_exhausted));
+            });
+        worker.expect("the thread starts");
+        let (result, exhausted) = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the simplification ends within the 10 s guard");
+        assert!(exhausted, "the budget ends it: {result}");
     }
 }
 
