@@ -20,6 +20,8 @@ LIBS = {
     "escrow": {"ns": "Escrow", "tier": "light", "guard": False},
     "tickets": {"ns": "Tickets", "tier": "light", "guard": False},
     "fuel": {"ns": "Fuel", "tier": "light", "guard": False},
+    "racelogstep": {"ns": "Racelog", "tier": "light", "guard": False},
+    "ledgersupply": {"ns": "Ledger", "tier": "light", "guard": False},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
@@ -80,6 +82,26 @@ def measure_meas(d, ns):
     return measure
 
 
+def step_meas(d, ns):
+    """The step property of library d (`gen --step-property`, `d/NS/StepProp.lean`; INV-21): its rule
+    cases, those proved by `k2l_step`, and the open ones (open-step-cases.txt); with
+    `--step-property-trans`, how its transitivity is proved ("auto" or "hand"); and the theorems of
+    the tracked hand module (a refutation, where the property is false)."""
+    def measure(c):
+        m = read(c.tree / "generated" / d / ns / "StepProp.lean")
+        h = read(c.tree / "generated" / d / ns / "StepPropHand.lean")
+        ol = read(c.tree / "generated" / d / "open-step-cases.txt") or ""
+        r = {"cases": len(re.findall(r"^theorem .* : Step\.Rel\..* StepProp\.holds :=", m, re.M)) if m else None,
+             "auto": len(re.findall(r"^theorem .* : Step\.Rel\..* StepProp\.holds := by k2l_stepp$", m, re.M)) if m else None,
+             "open": sorted(l.split(" | ")[0].strip() for l in ol.splitlines()
+                            if l.strip() and not l.startswith("#"))}
+        t = re.search(r"^theorem StepProp\.trans : .*\n *(.*)$", m, re.M) if m else None
+        r["trans"] = None if not t else ("auto" if t.group(1).strip() == "k2l_stepp" else "hand")
+        r["hand"] = sorted(re.findall(r"^theorem (\S+)", h, re.M)) if h else []
+        return r
+    return measure
+
+
 RECORDS = {
     # corout's measure (the confluence area's library corout, built by its demo TwoParamEnds):
     # every rule lowers it (INV-15)
@@ -93,4 +115,12 @@ RECORDS = {
     # measures under the invariant (INV-20): each rule's decrease under it, and its bound once
     "tickets-measure": {"tier": "light", "measure": measure_meas("tickets", "Tickets"), "sources": []},
     "fuel-measure": {"tier": "light", "measure": measure_meas("fuel", "Fuel"), "sources": []},
+    # step properties (INV-21): ledger's fees never decrease (beside its invariant), tickets' next id
+    # and what is left (over its whole <pool>, beside its invariant and measure; transitive),
+    # racelog's accumulated work (a rule matching a cell map; transitive), and ledger's false
+    # supplyUp (its `burn` case open, refuted in the hand module)
+    "ledger-step": {"tier": "light", "measure": step_meas("ledger", "Ledger"), "sources": []},
+    "tickets-step": {"tier": "light", "measure": step_meas("tickets", "Tickets"), "sources": []},
+    "racelog-step": {"tier": "light", "measure": step_meas("racelogstep", "Racelog"), "sources": []},
+    "ledgersupply-step": {"tier": "light", "measure": step_meas("ledgersupply", "Ledger"), "sources": []},
 }

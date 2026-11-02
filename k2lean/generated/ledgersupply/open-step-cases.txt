@@ -1,0 +1,7 @@
+# Cases of the step property `Ledger.StepProp.holds` that `k2l_step` does not close (`k2lean gen --step-property`).
+# `k2lean open-from-log Ledger/StepProp.lean BUILD.log open-step-cases.txt` adds the cases whose proof failed.
+# Each line: the case, its statement, the rule's source position. Prove each in Ledger/StepPropHand.lean as
+# `theorem StepProp.hand.r : Step.Rel.r StepProp.holds` (namespace `Ledger`; `Step.Rel.r`
+# is stated in Ledger/Preserves.lean, `StepProp.holds` in Ledger/StepPropDefs.lean). A case that is false
+# shows that the property does not hold of that rule.
+burn | Step.Rel.burn StepProp.holds | ledger.k:41:3

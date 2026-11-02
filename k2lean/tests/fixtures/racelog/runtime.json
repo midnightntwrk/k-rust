@@ -6,15 +6,15 @@
   "syntax_module": "RACELOG-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "6b92e441b65e8e892a74c63913203e912a4b8b903aa65508480b736c2f61eb93"
+    "sha256": "18b867b6e7aaad50bc4d2bd9f6a7c0343352d952d0ade7adca3bb9d7b402502f"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "79a09bc192c8320a29376c939629cbc9fd0cd5935570859847b16c37a2220d06"
+    "sha256": "c2980d7cb37d35b0d438e64e2383f3e1796bccfa0f1ebc568a39c1e41c549832"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "56666961fcffa7c5c51ac7cd3a2349569b4adefff90f1df4b6d9a9ce72132792"
+    "sha256": "8eb7b23e684ea8afe3667e8e739e42cbd69174376605e13476fd3119ac040db8"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -140,6 +140,7 @@
     "8fddbbbff10ea263c2f1f248a5a734171c69c8abd57e21be7a65c2e39af3d567",
     "ac6112b30756a1885c530eff7256e0795028b9244ba0a0159280f3612a3fe36b",
     "a841c5d3e24916a3290911851dbe4ddb4d98d6260c2d3d6cdefdf64fc0b955e4",
+    "b111f3511c4a4f9020befebe655be0bb54848ad430c10998602aaadc34c266f1",
     "b068294081ac6972bc4f6f41810e35372b266d3869002b2dda3f388a8ff1293a",
     "48a3b38a4b8294615688afbd9c97b94c5ba4b4a7b4add88c4b024959cbf0214b",
     "3292d22ccafd705dea80539c5a59ccffa2c2c4a9931522f79ccf227f769e1ba7",

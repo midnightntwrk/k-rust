@@ -58,4 +58,13 @@ module LEDGER
   syntax Bool ::= conserved(BooksCell) [function, total]
   rule conserved(<books> <bal> M </bal> <supply> S </supply> <fees> F </fees> </books>)
     => total(M) +Int F ==Int S
+
+  // `gen --step-property feesUp@fees`: the fees collected never decrease, a fact of every step
+  // (`fee` adds `X` under `0 <=Int X`; every other rule leaves `<fees>` alone)
+  syntax Bool ::= feesUp(Int, Int) [function, total]
+  rule feesUp(F1, F2) => F1 <=Int F2
+
+  // `gen --step-property supplyUp@supply`: false, `burn` lowers the supply (its case stays open)
+  syntax Bool ::= supplyUp(Int, Int) [function, total]
+  rule supplyUp(S1, S2) => S1 <=Int S2
 endmodule

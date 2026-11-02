@@ -1119,12 +1119,49 @@ The equations' generic attempts do not prove two kinds of lemma, so the measure'
 - a lemma about a function that tests an item's sort (`isz(_:Instr)`, `isz(P:Pgm)`, `[owise]`);
 - a lemma about a function whose rule calls a partial function inside its match (corout's `measure(_) >=Int 0`).
 
+### 3.12 A fact of every step (`gen --step-property`)
+
+An invariant is a fact of one configuration; some facts relate two: a nonce, the fees collected or an id counter never decreases, what is left to issue never grows. Such a fact is no invariant of the definition as written. It becomes one only with a cell that records the history, which changes the semantics, or, for a reflexive and transitive relation, as a family of invariants with a frozen value as parameter, which does not cover a strict relation or one that holds of some steps only.
+K's claims state reachability, from a pattern to a target, not a fact of every step; matching logic's one-step "next" is that fact, and K's claim syntax has none.
+So the author writes it in K, as for an invariant or a measure: a `Bool` function of two contents of one cell, before and after (or of the cell itself, as `poolMono` below), and `gen --step-property NAME@CELL` states, per rule, that the rule's step satisfies it (`NS/StepProp.lean`):
+
+```lean
+def StepProp.value (x y : C) : Option Bool := P x y          -- `some (P x y)` where `P` is total
+def StepProp.rel (x y : C) : Prop := StepProp.value x y = some true
+def StepProp.holds (c c' : Top) : Prop := StepProp.rel (cell c) (cell c')
+theorem StepProp.case.r : Step.Rel.r StepProp.holds
+theorem StepProp.step (h : Step c c') : StepProp.holds c c'
+```
+
+`Step.Rel.r Q` is the per-rule principle the measure's obligation is an instance of (`Step.Rel.r (Lower μ)`, §3.10), and that refinement, confluence and noninterference state their obligations with; `Step.rel_of` gathers the cases.
+Each case is proved by `k2l_step` (`KPrelude/StepProp.lean`), which is `k2l_measure`'s stages without sums: the rule's variables of one value form taken apart, the property and the functions it calls unfolded by their proved equations, the author's lemmas at each call, a case split on the calls left, then the hooks in Lean's arithmetic.
+A rule that leaves the cell alone has the case `P(x, x)`, so a strict relation fails there, as it should: such a rule's step does not change the value.
+A case `k2l_step` does not close is listed in `open-step-cases.txt` (`open-from-log NS/StepProp.lean`) and taken from the hand module `NS/StepPropHand.lean` (written once), as for measures; a case that is false shows that the property does not hold, and `StepProp.lean` then does not build.
+
+**Along runs.** With `--step-property-trans`, `gen` also states that the relation is transitive, over the cell's contents (`StepProp.trans : ∀ x y z, StepProp.rel x y → StepProp.rel y z → StepProp.rel x z`, by `k2l_step` or by hand as `StepProp.hand.trans`), and then the fact holds between a configuration and every one reached from it in one or more steps: `StepProp.plus : Relation.TransGen Step c c' → StepProp.holds c c'` (`KPrelude.StepProp.plus_of_step`).
+Transitivity is a property of the author's function, stated and never assumed; without the flag it is not stated, since a fact of every step need not be transitive (a value that changes by at most one per step).
+`TransGen` rather than `Star`: a strict relation is transitive and not reflexive.
+
+Measured (2026-11-02, the light gate's libraries):
+- `ledger` (`<k>` and `<books>`, beside its invariant): `feesUp(F1, F2) => F1 <=Int F2` at `<fees>`, 9 of 9 rules by `k2l_step` (`fee` adds `X` under its `requires 0 <=Int X`).
+- `tickets` (one `<pool>` cell, beside its invariant and measure): `poolMono`, the next id never decreases and what is left never grows, a function of the whole `<pool>` cell; 2 of 2 and its transitivity.
+- `racelog` (a rule matching an element of a cell map): `accUp` at `<acc>`, 3 of 3 and its transitivity (library `racelogstep`).
+- `ledger`'s `supplyUp` at `<supply>` is false: its `burn` case stays open, and the tracked hand module of library `ledgersupply` refutes it, a step of `burn` from a supply of `0` to `-1` (`StepProp.burn_lowers`).
+
+Each `StepProp.lean` builds in about a second, on Lean's three axioms.
+
+Not supported yet; each waits for a definition that needs it:
+- a cell inside a cell collection (refused): the elements before and after a step are related by their keys, which the property states over the collection's cell;
+- a property that holds only between reachable configurations (under the invariant, as `--measure-invariant` does for measures);
+- several properties in one library: one function over a common parent cell conjoins them;
+- a sum over a map read as a sum (the measure's sum stage), and lists beyond their length (append-only as a prefix).
+
 ## 4. Commands
 
 | command | does |
 |---|---|
 | `gen` | the library (§1) |
-| `open-from-log EQUATIONS.lean BUILD.log OPEN.txt` | adds the failed theorems of a build log to an open list (equations, the cases of a kind 1 invariant, of `progress` or of a measure) |
+| `open-from-log EQUATIONS.lean BUILD.log OPEN.txt` | adds the failed theorems of a build log to an open list (equations, the cases of a kind 1 invariant, of `progress`, of a measure or of a step property) |
 | `goldens`, `cases`, `configs` | test and benchmark data from krust runs |
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |

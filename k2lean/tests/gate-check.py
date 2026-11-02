@@ -79,7 +79,7 @@ What is compared:
             (search times, replay seconds and the order of logged lines are not compared)
   sources   the sha256 of every regenerated source equals the baseline's (the last accepted
             generation); a difference fails until accepted. The hand inputs of a library (its
-            open lists and hand modules `InvariantsHand.lean`, `ProgressHand.lean`) are not hashed: the build
+            open lists and hand modules `InvariantsHand.lean`, `ProgressHand.lean`, `StepPropHand.lean`) are not hashed: the build
             that uses them checks them
   banned    no `sorry` or `admit` token, and no `axiom` declaration outside the baseline's allowed
             set, in any Lean source of the work tree, and no "declaration uses 'sorry'" in a log
@@ -101,7 +101,7 @@ KINDS = ("lib", "inv", "prog", "demo", "negative", "record", "output")
 # hashed, so an edit to them is checked by the build that uses them, not by the sources check
 HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean", "RefutedHand.lean",
                "DivergesHand.lean", "open-progress-cases.txt", "ProgressHand.lean", "open-measure-cases.txt",
-               "MeasureHand.lean")
+               "MeasureHand.lean", "open-step-cases.txt", "StepPropHand.lean")
 
 
 def tiers(tier):

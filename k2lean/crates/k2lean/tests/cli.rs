@@ -2559,6 +2559,146 @@ fn ends_composes_the_invariant_progress_and_the_measure() {
     }
 }
 
+/// `gen --step-property` (design.md §3.12, INV-21): a `Bool` K function of two contents of one cell,
+/// stated of every rule's step (`Step.Rel.r StepProp.holds`) and proved by `k2l_step`, on the cell's
+/// content (ledger's `feesUp@fees`) or on the cell itself (tickets' `poolMono@pool`, partial since it
+/// matches the cell); with `--step-property-trans`, its transitivity and the fact along runs; a case
+/// listed open taken from the hand module, whose skeleton is written once; a function of another
+/// shape, or a cell inside a cell collection, refused; and a stale generated module removed while a
+/// hand-written one of that name is kept.
+#[test]
+fn step_property_states_every_rule_and_its_transitivity() {
+    let d = tmp("cli-step");
+    let o = gen_progress("ledger", &d, "Ledger", &["--step-property", "feesUp@fees"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("step property: 0 open cases"));
+    let defs = std::fs::read_to_string(d.join("Ledger/StepPropDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "def StepProp.value (x y : SortInt) : Option Bool :=\n  some (K.«feesUp(_,_)_LEDGER_Bool_Int_Int» x y)\n"
+    ), "{defs}");
+    assert!(defs.contains(
+        "def StepProp.holds (c c' : SortGeneratedTopCell) : Prop :=\n  StepProp.rel (StepProp.content_fees (StepProp.cell_fees (StepProp.cell_books (StepProp.cell_T c)))) (StepProp.content_fees (StepProp.cell_fees (StepProp.cell_books (StepProp.cell_T c'))))\n"
+    ), "{defs}");
+    let t = std::fs::read_to_string(d.join("Ledger/StepProp.lean")).unwrap();
+    assert!(t.contains(
+        "local macro \"k2l_stepp\" : tactic => `(tactic| k2l_step [StepProp.holds, StepProp.rel, StepProp.value, StepProp.cell_T, StepProp.cell_books, StepProp.cell_fees, StepProp.content_fees, Eqn.«feesUp(_,_)_LEDGER_Bool_Int_Int_1»] [])"
+    ), "{t}");
+    assert!(
+        t.contains("theorem fee : Step.Rel.fee StepProp.holds := by k2l_stepp\n"),
+        "{t}"
+    );
+    assert!(t.contains("(9 rules: 9 by `k2l_step`, 0 by hand)"), "{t}");
+    assert!(!t.contains("StepProp.trans"), "{t}");
+    assert!(t.contains("#k2l_assert_axioms StepProp.step\n"), "{t}");
+
+    // the cell form, partial, and transitive
+    let o = gen_progress(
+        "tickets",
+        &d,
+        "Tickets",
+        &["--step-property", "poolMono@pool", "--step-property-trans"],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let defs = std::fs::read_to_string(d.join("Tickets/StepPropDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "def StepProp.value (x y : SortPoolCell) : Option Bool :=\n  K.«poolMono(_,_)_TICKETS_Bool_PoolCell_PoolCell» x y\n"
+    ), "{defs}");
+    assert!(!defs.contains("StepProp.content_pool"), "{defs}");
+    let t = std::fs::read_to_string(d.join("Tickets/StepProp.lean")).unwrap();
+    assert!(t.contains(
+        "theorem StepProp.trans : ∀ x y z : SortPoolCell, StepProp.rel x y → StepProp.rel y z → StepProp.rel x z := by\n  k2l_stepp\n"
+    ), "{t}");
+    assert!(t.contains(
+        "theorem StepProp.plus {c c' : SortGeneratedTopCell} (h : Relation.TransGen Step c c') : StepProp.holds c c' :=\n  KPrelude.StepProp.plus_of_step StepProp.step\n    (fun {a b d} h₁ h₂ => StepProp.trans (StepProp.cell_pool (StepProp.cell_T a)) (StepProp.cell_pool (StepProp.cell_T b)) (StepProp.cell_pool (StepProp.cell_T d)) h₁ h₂) h\n"
+    ), "{t}");
+    assert!(
+        t.contains("#k2l_assert_axioms StepProp.step StepProp.trans StepProp.plus\n"),
+        "{t}"
+    );
+
+    // an open case (ledger's false `supplyUp`: `burn` lowers the supply), from the hand module
+    let d = tmp("cli-step-open");
+    std::fs::write(d.join("open-step-cases.txt"), "burn\n").unwrap();
+    let o = gen_progress(
+        "ledger",
+        &d,
+        "Ledger",
+        &["--step-property", "supplyUp@supply"],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let t = std::fs::read_to_string(d.join("Ledger/StepProp.lean")).unwrap();
+    assert!(
+        t.starts_with("import Ledger.StepPropDefs\nimport Ledger.StepPropHand\n"),
+        "{t}"
+    );
+    assert!(
+        t.contains("theorem burn : Step.Rel.burn StepProp.holds := StepProp.hand.burn\n"),
+        "{t}"
+    );
+    assert!(t.contains("(9 rules: 8 by `k2l_step`, 1 by hand)"), "{t}");
+    let h = std::fs::read_to_string(d.join("Ledger/StepPropHand.lean")).unwrap();
+    assert!(
+        h.contains("-- theorem StepProp.hand.burn : Step.Rel.burn StepProp.holds := by\n"),
+        "{h}"
+    );
+    let ol = std::fs::read_to_string(d.join("open-step-cases.txt")).unwrap();
+    assert!(
+        ol.contains("\nburn | Step.Rel.burn StepProp.holds | ledger.k:"),
+        "{ol}"
+    );
+    // the skeleton is written once
+    std::fs::write(d.join("Ledger/StepPropHand.lean"), "-- by hand\n").unwrap();
+    let o = gen_progress(
+        "ledger",
+        &d,
+        "Ledger",
+        &["--step-property", "supplyUp@supply"],
+    );
+    assert!(o.status.success());
+    assert_eq!(
+        std::fs::read_to_string(d.join("Ledger/StepPropHand.lean")).unwrap(),
+        "-- by hand\n"
+    );
+
+    // refused: a function of one argument, and a cell inside a cell collection
+    let d = tmp("cli-step-refused");
+    let o = gen_progress(
+        "ledger",
+        &d,
+        "Ledger",
+        &["--step-property", "conserved@books"],
+    );
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains(
+        "must take two arguments of one sort (the cell's content before and after a step) and return Bool"
+    ), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = gen_progress("racelog", &d, "Racelog", &["--step-property", "accUp@todo"]);
+    assert!(!o.status.success());
+    assert!(
+        String::from_utf8_lossy(&o.stderr)
+            .contains("--step-property accUp@todo: <todo> is inside a cell collection"),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+
+    // a generation without the flag removes the generated modules and keeps a hand-written one
+    let d = tmp("cli-step-stale");
+    let o = gen_progress("racelog", &d, "Racelog", &["--step-property", "accUp@acc"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(d.join("Racelog/StepProp.lean").exists());
+    let o = gen_progress("racelog", &d, "Racelog", &[]);
+    assert!(o.status.success());
+    assert!(!d.join("Racelog/StepProp.lean").exists());
+    assert!(!d.join("Racelog/StepPropDefs.lean").exists());
+    std::fs::write(d.join("Racelog/StepProp.lean"), "-- by hand\n").unwrap();
+    let o = gen_progress("racelog", &d, "Racelog", &[]);
+    assert!(o.status.success());
+    assert_eq!(
+        std::fs::read_to_string(d.join("Racelog/StepProp.lean")).unwrap(),
+        "-- by hand\n"
+    );
+}
+
 /// A measure that sums a weight over a cell map (`gen --measure` on `twoparam`, the work left of
 /// each task summed over `<tasks>`): the fold is recognized as a sum, and `MeasureDefs.lean` states
 /// its test of a binding (the key read twice: a cell map binds each task under its own `<tid>`), its

@@ -6,15 +6,15 @@
   "syntax_module": "LEDGER-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "01b6b3547ac2c24169a1d4d9501bea2717e130d4f4d63a433ec2dfd9e1c99078"
+    "sha256": "1c6829109d20ca4feb30699be117ef514d591418522ff39d9f221a0d79a6dbfb"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "2871eb59fe6c42349611fbbda2e9cf569e3f01ece7fcc12a3eb7293a8e7d9297"
+    "sha256": "d2abdb3890cded8402caae2af3b70f30afac98fbe54fe97cc5533029cdbb9dbc"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "1c7ab037009b79dec3fd093a9e1de8c8e8d8a8ebd0f3f09ed1e611a292c070c8"
+    "sha256": "03f19b9102a7389470d29aa1e307edf9491890ff80a912e79a3354d8c3ecb09d"
   },
   "configuration_variables": {
     "PGM": "Ops"
@@ -152,6 +152,8 @@
     "332b891a05cdaa9542185110a39cfaac2f7795e984b109cf6575da8e20cd46bb",
     "e86aaa345b10f18a7c41256c945f8953a103477303f595d53e8ff0ede3fd1439",
     "02d3fa206887db81b64ed5958de83fabc2e21337038c5ac86a3d9b1b8e9e29b7",
+    "d3a77e4e1f73e589a564502bd3eae92e568e63b32c9072910445d1272bb1a98b",
+    "e2f32c5373e65d520afd7932fa9433edf23efec73b3de5074ae38b732bcae4d9",
     "46b77964ead81cde246e88d8ddcd70affe810bf6452ddda818312664fafbf4f9",
     "d50ea5b7dadffc3f7b9e643c7027f181e01a56400fa686729b671c93970ba889",
     "dfffbb4a2bc9a5cd5b1696d9337789a00901d33690092ea08785d6663743195d",

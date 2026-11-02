@@ -1328,6 +1328,32 @@ module LEDGER
     ),
     total{}()
   ]
+  symbol LblfeesUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,19,64,53)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/ledger/ledger.k)"
+    ),
+    total{}()
+  ]
+  symbol LblsupplyUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,19,68,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/ledger/ledger.k)"
+    ),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),
@@ -2483,6 +2509,30 @@ module LEDGER
       \equals{SortBool{}, R}(
         Val:SortBool{},
         Lblconserved'LParUndsRParUnds'LEDGER'Unds'Bool'Unds'BooksCell{}(K0:SortBooksCell{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblfeesUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+          K0:SortInt{},
+          K1:SortInt{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblsupplyUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+          K0:SortInt{},
+          K1:SortInt{}
+        )
       )
     )
     [functional{}()]
@@ -6974,6 +7024,60 @@ module LEDGER
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInt{}, R}(X0:SortInt{}, VarF1:SortInt{}),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarF2:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblfeesUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds-LT-Eqls'Int'Unds'{}(VarF1:SortInt{}, VarF2:SortInt{}),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d3a77e4e1f73e589a564502bd3eae92e568e63b32c9072910445d1272bb1a98b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/ledger/ledger.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInt{}, R}(X0:SortInt{}, VarS1:SortInt{}),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarS2:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblsupplyUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds-LT-Eqls'Int'Unds'{}(VarS1:SortInt{}, VarS2:SortInt{}),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("e2f32c5373e65d520afd7932fa9433edf23efec73b3de5074ae38b732bcae4d9"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(69,3,69,39)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/ledger/ledger.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())),
       \equals{SortKCell{}, R}(
         LblinitKCell{}(X0:SortMap{}),
@@ -9144,7 +9248,7 @@ module LEDGER
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,1,61,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,1,70,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/ledger/ledger.k)"
   )
