@@ -37,7 +37,7 @@
 //!
 //! [[cost]]
 //! mode = "path condition replacements"
-//! bound = "per round of a term the path condition may change, when it holds a replacement (a sibling equality with a value side): one containment walk (term_contains_replacement_original) and one rebuilding walk (replace_terms_bottom_up) of the term, each visiting a node once however many times the term holds it, so O(DAG size of the term) with one hash lookup per node; each walk charges its nodes to the poll budget in force (stop::charge). Run verdicts are unchanged by the charge, since a run's step has no poll budget; request-time records (coverage::isolated, under stop::off_the_clock's budget) and the load-time check are bounded by the same work measure"
+//! bound = "per round of a term the path condition may change, when it holds a replacement (a sibling equality with a value side): one containment walk (term_contains_replacement_original) and one rebuilding walk (replace_terms_bottom_up) of the term, each visiting a node once however many times the term holds it, so O(DAG size of the term) with one hash lookup per node; each walk charges its nodes to the poll budget in force (stop::charge). Run verdicts are unchanged by the charge, since a run's step has no poll budget; request-time records (coverage::isolated, under stop::off_the_clock's budget) and the load-time checks (confluence::budgeted, data_term::instance::budgeted) are bounded by the same work measure"
 //! ```
 //!
 //! ```toml algorithm
@@ -4024,9 +4024,9 @@ fn uncomputed_refusal(
 /// carried and so never reaches this check.
 ///
 /// The `\ceil` of such an application is not a use of its value: it holds (an evaluator reports
-/// a size bound only where the hook is defined, `builtin::evaluated_definedness`, and the other kind is
-/// `total`), and term simplification leaves it as the obligation of a discarded partial subterm
-/// (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
+/// a size bound only where the hook is defined, `builtin::evaluated_definedness`, and the other
+/// kind is `total`), and term simplification leaves it as the obligation of a discarded partial
+/// subterm (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
 ///
 /// Only subterms that are not `evaluated` are visited: an `evaluated` term is built from
 /// constructors and domain values, or is certified a normal form, and neither holds such an

@@ -488,8 +488,9 @@ pub fn check() -> Result<(), Stop> {
 /// `simplify::term_contains_replacement_original`) visit each distinct node of a term once, so
 /// one walk is bounded by the term's DAG size.
 ///
-/// Every budget counts the charged work: the load-time check's (`confluence::budgeted`) and a
-/// request-time record's ([`off_the_clock`], `coverage::isolated`). A run's step has no poll
+/// Every budget counts the charged work: the load-time checks' (`confluence::budgeted`,
+/// `data_term::instance::budgeted`) and a request-time record's ([`off_the_clock`],
+/// `coverage::isolated`). A run's step has no poll
 /// budget, so its verdicts are unchanged by a charge; a record ends sooner than when only its
 /// polls were counted, which is its budget bounding its work.
 pub(crate) fn charge(work: u64) {

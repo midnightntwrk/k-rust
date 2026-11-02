@@ -916,8 +916,9 @@ pub fn open_applications(
 /// only. The simplifier reads this where an application's `\ceil` is left opaque by its ceil
 /// theory, and where a parent's expansion would state that `\ceil` beside the parent's again
 /// (`simplify`'s `defined_where_its_arguments_are`, through [`hook_definedness`]), as it reads
-/// [`ChosenValue::defined`]. Before GAP ticket K9 the digests and `Bytes2String` were not listed: the second reading was missing,
-/// and KEVM's hex parse of a symbolic argument (`\ceil(findString(Keccak256(B), "0x", 0))`)
+/// [`ChosenValue::defined`]. Before GAP ticket K9 the digests and `Bytes2String` were not
+/// listed: the second reading was missing, and KEVM's hex parse of a symbolic argument
+/// (`\ceil(findString(Keccak256(B), "0x", 0))`)
 /// recurred without end (`kore_simplify_of_a_hex_parse_of_an_unread_digest_ends_with_bounded_work`
 /// and `kore_simplify_of_a_hex_parse_of_a_partial_bytes_to_string_ends_with_bounded_work` in
 /// k-rust's `cli.rs`).
@@ -970,10 +971,11 @@ pub(crate) enum HookDefinedness {
 /// [`Defined`](HookDefinedness::Defined): the hook's text gives every argument of its sorts a
 /// value ([`defined_on_every_argument`]); the value is one the definition leaves to the
 /// implementation and its class gives it one ([`implementation_chosen`], `defined`); or the
-/// evaluator's verdict says so ([`evaluated_definedness`]). [`Undefined`](HookDefinedness::Undefined)
-/// and every other answer: the evaluator's verdict. The two readings of the hook's text come
-/// first, since only the third evaluates the hook. A failure of the evaluator is returned: the
-/// simplifier reports it, the solver reads it as an open definedness.
+/// evaluator's verdict says so ([`evaluated_definedness`]).
+/// [`Undefined`](HookDefinedness::Undefined) and every other answer: the evaluator's verdict.
+/// The two readings of the hook's text come first, since only the third evaluates the hook.
+/// A failure of the evaluator is returned: the simplifier reports it, the solver reads it as an
+/// open definedness.
 pub(crate) fn hook_definedness(
     definition: &BackendDefinition,
     term: &Term,
