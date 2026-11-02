@@ -1772,6 +1772,13 @@ fn hoist_condition_definedness(
         ));
     }
     if bindings == Bindings::Implied && element_binding(predicate) {
+        // The obligations are implied and not stated, but a binding whose term's definedness
+        // depends on an impure application in an operand a conditional does not evaluate is
+        // refused as every such atom is: deciding the request reads that definedness, which
+        // cannot be read without performing the effect.
+        if let Some(term) = condition_atom_term(definition, predicate, known) {
+            ceil_term_walk(definition, term, AtCeilFree::Skip)?;
+        }
         return Ok(predicate.clone());
     }
     if let Some(term) = condition_atom_term(definition, predicate, known) {
