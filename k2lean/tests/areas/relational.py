@@ -23,9 +23,19 @@ DEMOS = {
     "VmPopRefine": {"tier": "light", "sources": ["generated/vmpop", "generated/vmpop1",
                                                  "demos/VmPopRefine/VmPopRefine/Tr.lean", "demos/VmPopRefine/VmPopRefine/Refine.lean",
                                                  "demos/VmPopRefine/correspondence.toml", "demos/VmPopRefine/refine.toml"]},
+    # refuted by two runs (REL-7): the mutated rule's parts open, `Open.refuted` by the witnesses
+    "ImpUnrollMut": {"tier": "light", "sources": ["generated/kunrollle",
+                                                  "demos/ImpUnrollMut/ImpUnrollMut/Tr.lean", "demos/ImpUnrollMut/ImpUnrollMut/Refine.lean",
+                                                  "demos/ImpUnrollMut/ImpUnrollMut/Witnesses.lean",
+                                                  "demos/ImpUnrollMut/correspondence.toml", "demos/ImpUnrollMut/refine.toml"]},
+    "VmPopMut": {"tier": "light", "sources": ["generated/vmpop", "generated/vmpop1skip",
+                                              "demos/VmPopMut/VmPopMut/Tr.lean", "demos/VmPopMut/VmPopMut/Refine.lean",
+                                              "demos/VmPopMut/VmPopMut/Witnesses.lean",
+                                              "demos/VmPopMut/correspondence.toml", "demos/VmPopMut/refine.toml"]},
 }
 
 # each refine demo's parts (`fwd_tr.«RULE»`, `fwd_x.«RULE»`, `bwd_tr.«RULE»`, `bwd_x.«RULE»`), compared
-# by name: generic, by hand or open (REL-6); every part is generated, so no list
-for _d in ("ImpUnroll", "ImpPrintRefine", "VmPopRefine"):
+# by name: generic, by hand or open (REL-6); the three bisimilar pairs' parts are all generated, the
+# mutants' open ones listed in their demo (open.txt)
+for _d in ("ImpUnroll", "ImpPrintRefine", "VmPopRefine", "ImpUnrollMut", "VmPopMut"):
     DEMOS[_d]["slots"] = {"prefixes": ["fwd_tr.", "fwd_x.", "bwd_tr.", "bwd_x."]}

@@ -38,6 +38,11 @@
 //! --per-rule` states it as a premise of `fwd.r` and `bwd.r`, and this module discharges it rule
 //! by rule (`emit_priorities`: `pri_fwd.r`, `pri_bwd.r`, and `pri_mid` for the split's second
 //! step, which `X` carries).
+//!
+//! With `--witnesses DIR`, programs on which the two definitions disagree refute the open parts
+//! together (`witnesses`, `NS/Witnesses.lean`).
+
+mod witnesses;
 
 use crate::ir::{self, P};
 use crate::lower::L;
@@ -62,8 +67,9 @@ fn write_file(path: &str, text: &str) {
 }
 
 /// The rules of a definition as `gen` generates its `Step` (the order is immaterial here), its
-/// top sort and its builtin sorts (whose values a translation leaves as they are).
-pub fn load_rules(kore: &str) -> (Vec<Rule>, Option<Vec<i64>>, String, BTreeSet<String>) {
+/// priorities when it has several, its top sort, its builtin sorts (whose values a translation
+/// leaves as they are), and whether its library is the ranked one (`successors` without `rules`).
+pub fn load_rules(kore: &str) -> (Vec<Rule>, Option<Vec<i64>>, String, BTreeSet<String>, bool) {
     let text = std::fs::read_to_string(kore).unwrap_or_else(|e| fail(&format!("{kore}: {e}")));
     let def = ir::load(&text).unwrap_or_else(|e| fail(&format!("{kore}: {e:?}")));
     let m = Model::build(&def).unwrap_or_else(|e| fail(&e));
@@ -92,6 +98,7 @@ pub fn load_rules(kore: &str) -> (Vec<Rule>, Option<Vec<i64>>, String, BTreeSet<
         (ranked && prios.len() > 1).then_some(prios),
         top,
         builtin,
+        ranked,
     )
 }
 
@@ -721,8 +728,8 @@ pub fn main(args: &[String]) {
             .unwrap_or_else(|| fail(&format!("--{k} is required")))
     };
     let (na, nb, ns) = (get("name-a"), get("name-b"), get("ns"));
-    let (ra, pa, top, builtin) = load_rules(&get("kore-a"));
-    let (rb, pb, top_b, _) = load_rules(&get("kore-b"));
+    let (ra, pa, top, builtin, ranked_a) = load_rules(&get("kore-a"));
+    let (rb, pb, top_b, _, ranked_b) = load_rules(&get("kore-b"));
     // with priorities, a step of rank `i` carries that no rule of a rank before `i` applies
     // (`hpri`); a rank names the same place on both sides, so the two definitions have one list
     // of priorities
@@ -834,6 +841,20 @@ pub fn main(args: &[String]) {
             missing.len(),
             missing.join(", ")
         ));
+    }
+    // a program on which the two definitions disagree refutes the terminal corollaries, so the
+    // open parts under which they hold; they are generated with `X` (`not_terminal_of_X`)
+    if opt.contains_key("witnesses") {
+        if opened.is_empty() {
+            fail(
+                "--witnesses: no part is open, so the bisimulation is proved and no two runs disagree; list the parts the witnesses refute in --open",
+            );
+        }
+        if split.is_none() {
+            fail(
+                "--witnesses: the runs to terminal states are compared by `run_terminal`, which is generated with `X` (--hand-module none), not with a hand module's",
+            );
+        }
     }
     let tr = format!("tr_{}", crate::terms::fsuffix(&top));
     let (ta, tb) = (format!("{na}.{top}"), format!("{nb}.{top}"));
@@ -1312,6 +1333,27 @@ theorem run_terminal_back{ob} {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({t
         "\n[hand]\ncases = {hand_cases:?}\n\n[open]\ncases = {open_cases:?}"
     )
     .unwrap();
+    if let Some(dir) = opt.get("witnesses") {
+        let out = get("out");
+        let path = std::path::Path::new(&out).with_file_name("Witnesses.lean");
+        let (text, names) = witnesses::emit(&witnesses::Ctx {
+            dir,
+            kore_a: &get("kore-a"),
+            na: &na,
+            nb: &nb,
+            ns: &ns,
+            ta: &ta,
+            tr: &tr,
+            ranked: (ranked_a, ranked_b),
+        });
+        write_file(&path.to_string_lossy(), &text);
+        writeln!(
+            rep,
+            "\n[witnesses]  # programs on which the two definitions disagree (`witness.NAME.disagrees`), which refute the open parts together (`Open.refuted`)\nnames = {names:?}\nopen_refuted_by = {:?}",
+            names[0]
+        )
+        .unwrap();
+    }
     if let Some(p) = opt.get("report") {
         write_file(p, &rep);
     }

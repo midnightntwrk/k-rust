@@ -70,6 +70,14 @@ lake-manifest.json
 /demos/ImpPrintRefine/ImpPrintRefine/Tr.lean
 /demos/ImpPrintRefine/ImpPrintRefine/Refine.lean
 /demos/ImpPrintRefine/refine.toml
+/demos/ImpUnrollMut/ImpUnrollMut/Tr.lean
+/demos/ImpUnrollMut/ImpUnrollMut/Refine.lean
+/demos/ImpUnrollMut/ImpUnrollMut/Witnesses.lean
+/demos/ImpUnrollMut/refine.toml
+/demos/VmPopMut/VmPopMut/Tr.lean
+/demos/VmPopMut/VmPopMut/Refine.lean
+/demos/VmPopMut/VmPopMut/Witnesses.lean
+/demos/VmPopMut/refine.toml
 /demos/RaceConf/RaceConf/Views.lean
 /demos/RaceConf/RaceConf/Slots.lean
 /demos/RaceConf/RaceConf/Pairs/
@@ -208,7 +216,7 @@ lake-manifest.json
 /demos/ImpLeakNI/ImpLeakNI/Witnesses.lean
 /demos/ImpLeakNI/noninterference.toml
 # the witness programs' initial configurations (krust's `krun --depth 0`, `ni_witnesses` in
-# tests/areas/noninterference.sh)
+# tests/areas/noninterference.sh, `rel_witnesses` in tests/areas/relational.sh)
 /demos/*/witnesses/*.kore
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean

@@ -1,0 +1,8 @@
+# `pop` on an empty stack does nothing in KVmPop1Skip (tests/refine-mutant.py vm-pop-skip): its rule
+# has no counterpart on either side, so its parts at a translation are open, and so is its step of
+# KVmPop1Skip at a state `X` relates (the split's intermediate state, where `vmpop` would take
+# `pop-done` and then the counterpart, which it has none of); refuted together by `pop-twice`'s runs
+# (`Open.refuted`, Witnesses.lean)
+fwd_tr.«pop-underflow»
+bwd_tr.«pop-underflow»
+bwd_x.«pop-underflow»

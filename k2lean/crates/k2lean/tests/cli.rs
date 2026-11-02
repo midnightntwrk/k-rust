@@ -1046,6 +1046,102 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         rep.contains("[open]\ncases = [\"fwd_tr.«pop-start»\", \"bwd_x.«seq»\"]"),
         "{rep}"
     );
+    // refutations by two runs (REL-7): a witness is `A`'s initial configuration of a program
+    // (krust's `krun --depth 0` of `pop; .Pgm`), read as `init` at its `$PGM`; `Witnesses.lean`
+    // beside `Refine.lean` states that the runs from it and from its translation do not end in
+    // translations of each other, and refutes the open parts with it
+    const WIT: &str = r#"Lbl'-LT-'generatedTop'-GT-'{}( Lbl'-LT-'T'-GT-'{}( Lbl'-LT-'k'-GT-'{}( kseq{}( inj{SortPgm{}, SortKItem{}}( Lbl'UndsSClnUndsUnds'VMPOP-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm{}( Lblpop'Unds'VMPOP-SYNTAX'Unds'Instr{}(), Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'VMPOP-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}() ) ), dotk{}() ) ), Lbl'-LT-'stack'-GT-'{}(@STACK@) ), Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")) )"#;
+    let wd = d.join("witnesses");
+    std::fs::create_dir_all(&wd).unwrap();
+    let wit = |stack: &str| {
+        std::fs::write(wd.join("pop-empty.kore"), WIT.replace("@STACK@", stack)).unwrap()
+    };
+    let empty = "Lbl'Stop'Stack'Unds'VMPOP'Unds'Stack{}()";
+    wit(empty);
+    std::fs::write(wd.join("pop-empty.vm"), "pop; .Pgm\n").unwrap();
+    let refine_wit = |hand: &str, list: &str| {
+        let l = d.join("open.txt");
+        std::fs::write(&l, list).unwrap();
+        run(&[
+            "refine".as_ref(),
+            "--kore-a".as_ref(),
+            ka.as_os_str(),
+            "--name-a".as_ref(),
+            "A".as_ref(),
+            "--kore-b".as_ref(),
+            kb.as_os_str(),
+            "--name-b".as_ref(),
+            "B".as_ref(),
+            "--ns".as_ref(),
+            "R".as_ref(),
+            "--correspondence".as_ref(),
+            corr.as_os_str(),
+            "--hand-module".as_ref(),
+            hand.as_ref(),
+            "--open".as_ref(),
+            l.as_os_str(),
+            "--witnesses".as_ref(),
+            wd.as_os_str(),
+            "--out".as_ref(),
+            refine.as_os_str(),
+            "--report".as_ref(),
+            report.as_os_str(),
+        ])
+    };
+    let o = refine_wit("none", "fwd_tr.«pop-start»\nbwd_x.seq\n");
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let w = std::fs::read_to_string(d.join("Witnesses.lean")).unwrap();
+    for want in [
+        "import R.Refine\nimport A.Adequacy\nimport A.Init\nimport B.Adequacy\nimport KPrelude.TwoDefs\n",
+        "/-! ## The witness `pop-empty`:\n```\npop; .Pgm\n``` -/",
+        "def witness.«pop-empty».pgm : A.SortPgm :=\n  open A in SortPgm.«_;_» SortInstr.pop SortPgm.«.List{\"_;__VMPOP-SYNTAX_Pgm_Instr_Pgm\"}_Pgm»",
+        "def witness.«pop-empty».start : A.SortGeneratedTopCell :=\n  A.init witness.«pop-empty».pgm\n",
+        "theorem witness.«pop-empty».disagrees : ¬ EndsMatch A.Step B.Step tr_SortGeneratedTopCell witness.«pop-empty».start := by\n  k2l_ends_apart A.successors, A.successors_iff,\n    B.successors, B.successors_iff\n",
+        "theorem Open.refuted : ¬ Open := fun O =>\n  witness.«pop-empty».disagrees ⟨fun h ht => run_terminal O h ht, fun h ht => run_terminal_back O h ht⟩",
+        "#k2l_assert_axioms witness.«pop-empty».disagrees Open.refuted",
+    ] {
+        assert!(w.contains(want), "missing `{want}`:\n{w}");
+    }
+    let rep = std::fs::read_to_string(&report).unwrap();
+    assert!(
+        rep.contains("names = [\"pop-empty\"]\nopen_refuted_by = \"pop-empty\""),
+        "{rep}"
+    );
+    // refused: no open part (the bisimulation is proved), a hand module's `X` (no `run_terminal`),
+    // a configuration that is not `init`'s, a program with no configuration
+    let hand_open = "fwd_tr.«pop-start» | hand\nbwd_tr.pop | hand\nfwd_tr.«pop-underflow»\nbwd_tr.«pop-underflow» | hand\n";
+    for (hand, list, want) in [
+        (
+            "none",
+            "",
+            "--witnesses: no part is open, so the bisimulation is proved",
+        ),
+        (
+            "R.Relation",
+            hand_open,
+            "--witnesses: the runs to terminal states are compared by `run_terminal`, which is generated with `X` (--hand-module none)",
+        ),
+    ] {
+        let o = refine_wit(hand, list);
+        assert_eq!(o.status.code(), Some(2), "{list}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(err.contains(want), "{list}: {err}");
+    }
+    wit(&format!(
+        "Lbl'UndsColnUndsUnds'VMPOP'Unds'Stack'Unds'Int'Unds'Stack{{}}(\\dv{{SortInt{{}}}}(\"1\"), {empty})"
+    ));
+    let o = refine_wit("none", "fwd_tr.«pop-start»\n");
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("pop-empty.kore: not an initial configuration of the first definition"),
+        "{err}"
+    );
+    std::fs::remove_file(wd.join("pop-empty.kore")).unwrap();
+    let o = refine_wit("none", "fwd_tr.«pop-start»\n");
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("`pop-empty` has no `pop-empty.kore`"), "{err}");
     // with a hand module: a part whose rule has no counterpart is listed, and `| hand` is the
     // hand module's theorem under the part's name; a listed part's priority lemma is not written
     let o = refine_with("R.Relation", "");
