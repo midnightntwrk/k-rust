@@ -578,13 +578,21 @@ const CENSUS_AT_501F18B9: [&str; 88] = [
 /// value to `(A ^Int B) %Int C`", with `%Int` by zero `#False`; "Log base 2 of zero or a negative
 /// number is `#False`"), declares no hook and changes no hook's text, so no value becomes open or
 /// fixed: the open hooks are the same, and each citation after line 1398 moved by three lines.
+///
+/// Re-pin GAP W8a (k-rust docs/amendments.md): the five definedness rules of AM-10 and AM-12
+/// moved, unchanged and still marked, out of `INT-SYMBOLIC-KORE` into a module
+/// `INT-SYMBOLIC-KORE-AMENDMENTS` after the file's last line, which `INT-SYMBOLIC-KORE` imports on
+/// its last `imports` line (`imports private BOOL  imports INT-SYMBOLIC-KORE-AMENDMENTS`). The
+/// module adds no declaration and the rules state what they stated, so no value becomes open or
+/// fixed: the open hooks are the same, and every line of the file before the module is the pinned
+/// release's line of the same number, so each citation after line 1394 moved back by five to it.
 #[test]
 fn domains_md_leaves_these_hook_values_open() {
     let path = k_rust_backend().join("../k-rust/builtin/domains.md");
     let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(
         kink_patch::sha256(text.as_bytes()).to_string(),
-        "9b48f693cb235e0c221e3e2c38517de1b034ff80f8ccb11eaeafef3b5794cb18",
+        "0c415c4b19c39743949f50a7bde193f413e74e8eb4cbfa92b529efb5bd531293",
         "domains.md changed: sweep it again for hook values it leaves open"
     );
     let lines = text.lines().collect::<Vec<_>>();
@@ -615,8 +623,8 @@ fn domains_md_leaves_these_hook_values_open() {
             .all(|hook| !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(hook))
     );
     // Deliverable 8 rests on `encodeBytes` with a named encoding: domains.md names its
-    // encodings (line 2017), so it is not on the list.
-    assert!(lines[2016].contains("using `UTF-8`"), "{}", lines[2016]);
+    // encodings (line 2012), so it is not on the list.
+    assert!(lines[2011].contains("using `UTF-8`"), "{}", lines[2011]);
     assert!(!IMPLEMENTATION_CHOSEN_HOOKS.contains(&"BYTES.encodeBytes"));
 }
 
@@ -628,10 +636,13 @@ fn domains_md_leaves_these_hook_values_open() {
 /// regex lines end with the comment `// k-rust: AM-9`. Neither declares or changes a hook.
 ///
 /// Re-pin GAP AM-12: `domains.md` as above (three added definedness rules, no hook changed).
+///
+/// Re-pin GAP W8a: `domains.md` as above (the five added rules moved to a module after the file's
+/// last line, no hook changed).
 const BUILTIN_FILES: [(&str, &str); 9] = [
     (
         "domains.md",
-        "9b48f693cb235e0c221e3e2c38517de1b034ff80f8ccb11eaeafef3b5794cb18",
+        "0c415c4b19c39743949f50a7bde193f413e74e8eb4cbfa92b529efb5bd531293",
     ),
     (
         "ffi.md",

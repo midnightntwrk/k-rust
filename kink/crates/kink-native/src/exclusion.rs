@@ -239,11 +239,11 @@ pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 /// rest from re-pin R0c's sweep of domains.md, R0b review 1 major 2). Each is given with the
 /// domains.md lines and a phrase of them that says so; the kink-native test
 /// `domains_md_leaves_these_hook_values_open` checks every phrase against the file and pins the
-/// file's digest, so a re-pin sweeps it again. The line numbers are those of domains.md since
-/// k-rust 0da031036 (re-pin R1-PINS), whose two added definedness rules moved every line after
-/// 1394 by two and left the set of open hooks as it was, and since GAP AM-12, whose three added
-/// definedness rules (of `^Int`, `^%Int` and `log2Int`) moved every line after 1398 by three and
-/// left it as it was too.
+/// file's digest, so a re-pin sweeps it again. The line numbers are those of the pinned K
+/// release's domains.md, which the embedded file keeps for every upstream line since GAP W8a (its
+/// added definedness rules stand in a module after the file's last line); k-rust 0da031036
+/// (re-pin R1-PINS) and GAP AM-12 had moved every line after 1394 by two and every line after
+/// 1398 by three, and none of the three changes moved the set of open hooks.
 ///
 /// - The pair `String2Bytes`/`Bytes2String` names no encoding (domains.md names one only for
 ///   `encodeBytes`/`decodeBytes`, which take it as an argument, line 2017); k-rust reads each
@@ -270,37 +270,37 @@ pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
     (
         "BYTES.string2bytes",
-        "2094-2100",
+        "2089-2095",
         "You can convert between a `Bytes` and a `String`",
     ),
     (
         "BYTES.bytes2string",
-        "2094-2100",
+        "2089-2095",
         "You can convert between a `Bytes` and a `String`",
     ),
     (
         "STRING.float2string",
-        "1806-1809",
+        "1801-1804",
         "by `Float2String` is determined by the backend",
     ),
     (
         "STRING.floatFormat",
-        "1811-1815",
+        "1806-1810",
         "is one which results directly from passing that `format` to `mpfr_printf`",
     ),
     (
         "STRING.category",
-        "1882-1883",
+        "1877-1878",
         "String hooks which are deprecated and only are supported",
     ),
     (
         "STRING.directionality",
-        "1882-1883",
+        "1877-1878",
         "String hooks which are deprecated and only are supported",
     ),
     (
         "STRING.uuid",
-        "1882-1883",
+        "1877-1878",
         "String hooks which are deprecated and only are supported",
     ),
     (
@@ -330,104 +330,104 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
     ),
     (
         "KREFLECTION.configuration",
-        "2371-2373",
+        "2366-2368",
         "unsupported in modern K",
     ),
-    ("KREFLECTION.fresh", "2371-2373", "unsupported in modern K"),
-    ("KREFLECTION.getenv", "2371-2373", "unsupported in modern K"),
+    ("KREFLECTION.fresh", "2366-2368", "unsupported in modern K"),
+    ("KREFLECTION.getenv", "2366-2368", "unsupported in modern K"),
     (
         "KREFLECTION.kompiledDir",
-        "2371-2373",
+        "2366-2368",
         "unsupported in modern K",
     ),
     (
         "KREFLECTION.argv",
-        "2394-2395",
+        "2389-2390",
         "meaningful only for the purposes of compilation to a binary",
     ),
     (
         "KREFLECTION.printKORE",
-        "2371-2373",
+        "2366-2368",
         "unsupported in modern K",
     ),
     (
         "IO.open",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.tell",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.seek",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.seekEnd",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.getc",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.putc",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.write",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.close",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.lock",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.unlock",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.accept",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.shutdownWrite",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.time",
-        "2609-2610",
+        "2604-2605",
         "You can get the current time in seconds",
     ),
     (
         "IO.system",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.mkstemp",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
     (
         "IO.remove",
-        "2418-2419",
+        "2413-2414",
         "corresponding to the `errno` returned by the underlying system call",
     ),
 ];

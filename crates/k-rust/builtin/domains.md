@@ -1386,19 +1386,14 @@ endmodule
 module INT-SYMBOLIC-KORE [symbolic, haskell]
   imports INT-COMMON
   imports ML-SYNTAX
-  imports private BOOL
+  imports private BOOL  imports INT-SYMBOLIC-KORE-AMENDMENTS
 
   // Definability Conditions
   rule #Ceil(@I1:Int /Int   @I2:Int) => {(@I2 =/=Int 0) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
   rule #Ceil(@I1:Int %Int   @I2:Int) => {(@I2 =/=Int 0) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
   rule #Ceil(@I1:Int modInt @I2:Int) => {(@I2 =/=Int 0) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
-  rule #Ceil(@I1:Int divInt @I2:Int) => {(@I2 =/=Int 0) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification] // k-rust: AM-10
   rule #Ceil(@I1:Int >>Int  @I2:Int) => {(@I2 >=Int 0)  #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
   rule #Ceil(@I1:Int <<Int  @I2:Int) => {(@I2 >=Int 0)  #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]
-  rule #Ceil(bitRangeInt(@I:Int, @O:Int, @L:Int)) => {(@O >=Int 0 andBool @L >=Int 0) #Equals true} #And #Ceil(@I) #And #Ceil(@O) #And #Ceil(@L) [simplification] // k-rust: AM-10
-  rule #Ceil(@I1:Int ^Int @I2:Int) => {(@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification] // k-rust: AM-12
-  rule #Ceil(@I1:Int ^%Int @I2:Int @I3:Int) => {(@I3 =/=Int 0 andBool (@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1)) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) #And #Ceil(@I3) [simplification] // k-rust: AM-12
-  rule #Ceil(log2Int(@I:Int)) => {(@I >Int 0) #Equals true} #And #Ceil(@I) [simplification] // k-rust: AM-12
 endmodule
 
 module INT-KORE [symbolic]
@@ -3073,5 +3068,19 @@ than the input.
 ```
 
 ```k
+endmodule
+```
+
+```k
+module INT-SYMBOLIC-KORE-AMENDMENTS [symbolic, haskell]
+  imports INT-COMMON
+  imports ML-SYNTAX
+  imports private BOOL
+
+  rule #Ceil(@I1:Int divInt @I2:Int) => {(@I2 =/=Int 0) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification] // k-rust: AM-10
+  rule #Ceil(bitRangeInt(@I:Int, @O:Int, @L:Int)) => {(@O >=Int 0 andBool @L >=Int 0) #Equals true} #And #Ceil(@I) #And #Ceil(@O) #And #Ceil(@L) [simplification] // k-rust: AM-10
+  rule #Ceil(@I1:Int ^Int @I2:Int) => {(@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification] // k-rust: AM-12
+  rule #Ceil(@I1:Int ^%Int @I2:Int @I3:Int) => {(@I3 =/=Int 0 andBool (@I2 >=Int 0 orBool @I1 ==Int 1 orBool @I1 ==Int -1)) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) #And #Ceil(@I3) [simplification] // k-rust: AM-12
+  rule #Ceil(log2Int(@I:Int)) => {(@I >Int 0) #Equals true} #And #Ceil(@I) [simplification] // k-rust: AM-12
 endmodule
 ```
