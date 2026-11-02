@@ -256,6 +256,15 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm",
         evidence: "k-rust docs/compatibility.md (Backend scope, console IO): only ordinary committed execution performs IO.write and IO.putc, pure simplification gets no console state, and RPC performs no host IO; at k-rust 195a7718 `krs run` stopped with `unsupported-hook` after rewriting to `#write(1, \"hi\\n\")` (probe, 2026-10-10). llvm-kompile 7.1.337 on the same definition's native LLVM KORE built an interpreter that printed `hi` and `A`, as Java K's krun does, so native-llvm keeps them",
     },
+    // A frontend limit, not a meaning: a restriction chooses where an equation is used, and
+    // k-rust's evaluator keeps an application whose restricted instance it sets aside, so no
+    // equation of a lower priority applies in its place.
+    RouteCapability {
+        feature: "PartialEquationRestriction",
+        unavailable_on: &[Route::JavaLlvmReference, Route::JavaHaskellReference],
+        reason: "K 7.1.337's frontend takes `concrete` or `symbolic` on a function's equation only bare, and only when every equation of the function carries the same bare key; run this on the k-rust or native LLVM route, or make the restricted equation a simplification",
+        evidence: "Java kompile 7.1.337 refuses such a definition with `Found concrete attribute without simplification attribute on function with one or more non-concrete rules` (and the `symbolic` form), as K's regression cases checks/concrete.k and issue-3385 expect (scripts/conformance/expectations.toml); k-rust compiles them and applies each restricted equation where its restriction holds (krs/crates/krs-cli/tests/restricted_equations.rs)",
+    },
 ];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.

@@ -192,6 +192,7 @@ fn bare_concrete_on_every_equation_is_compiled_and_honoured_on_both_routes() {
         &["--output", emitted.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
+    assert_eq!(restriction_requirements(&emitted), Vec::<String>::new());
     let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
     assert!(k.contains("[owise, concrete, label("), "{k}");
     text_route(&k).unwrap_or_else(|error| panic!("{error}\n{k}"));
@@ -243,9 +244,26 @@ fn a_listed_restriction_is_compiled_and_honoured_on_both_routes() {
         &["--output", emitted.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
+    // The Java frontend's routes take a restriction on an equation only bare and on every
+    // equation of its function: the requirement names the function, and those routes refuse it.
+    assert_eq!(restriction_requirements(&emitted), ["h"]);
     let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
     assert!(k.contains("[concrete(X"), "{k}");
     text_route(&k).unwrap_or_else(|error| panic!("{error}\n{k}"));
+}
+
+/// The symbols of the `PartialEquationRestriction` requirements `symbols.json` in `emitted`
+/// records.
+fn restriction_requirements(emitted: &Path) -> Vec<String> {
+    let symbols: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(emitted.join("symbols.json")).unwrap()).unwrap();
+    symbols["capability_requirements"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["feature"] == "PartialEquationRestriction")
+        .map(|row| row["symbol"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 /// `krs check`'s first error.
