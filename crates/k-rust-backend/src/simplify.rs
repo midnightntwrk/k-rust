@@ -6002,13 +6002,24 @@ struct Lineage {
 ///
 /// A determined step ([`RootStep::DeterminedFunctionStep`]) rewrites a ground application by an
 /// unconditional equation and charges no budget, so where neither an `Unspecified` attempt nor a
-/// retry is open, and nothing is read from or written to the console, a round is a function of
-/// its term: the same term gives the same next term. A lineage that reaches a term it reached
-/// before, with the budget and the console where they were, then repeats those rounds without
-/// end, and the term has no normal form. The detection keeps one term (with the budget left and
-/// the console's position) and compares each new one with it, saving the new one after 1, 2, 4,
-/// .. steps, so it finds any cycle within twice its length after the cycle is entered, at the
-/// cost of one term comparison per step. Any other round starts the watch over.
+/// retry is open, and nothing is read from or written to the console or the log, a round is a
+/// function of its term: the same term gives the same next term. A lineage that reaches a term
+/// it reached before, with the budget, the console and the log where they were, then repeats
+/// those rounds without end. The detection keeps one such state and compares each new one with
+/// it, saving the new one after 1, 2, 4, .. steps, so it finds any recurrence within twice its
+/// length after it is entered, at the cost of one term comparison per step. Any other round
+/// starts the watch over.
+///
+/// A recurrence of one step is a fixed point, not a cycle: the round's root step gave back the
+/// term the round started from, whose children evaluate to the round's subject, so the
+/// equation's instance at the subject is an instance `t = t` up to the evaluation of its
+/// arguments, which gives `t` no other value, and the subject is the value (as where the result
+/// is the subject itself). A recurrence of two or more steps has no term the steps leave in
+/// place, so no value to give: `EvaluationCycle`.
+///
+/// A log write is output, as a console write is: a recurrence that writes either on each lap
+/// differs in what it has written, and is not one ([`Reached`]). Rounds after an `Unspecified`
+/// step stay unwatched while its frame is open, so a recurrence there runs until a deadline.
 #[derive(Default)]
 struct Recurrence {
     /// The state saved.
@@ -6019,28 +6030,32 @@ struct Recurrence {
     power: usize,
 }
 
-/// What a determined round of a lineage reached: its term, the budget left and the console's
-/// position after it ([`Recurrence`]).
+/// What a determined round of a lineage reached: its term, the budget left, the console's
+/// position and the number of log writes of the lineage after it ([`Recurrence`]).
 struct Reached {
     term: Term,
     remaining: usize,
+    output: Output,
+}
+
+/// What a lineage has read and written: the console's position (input read, output written),
+/// where there is a console, and the log writes ([`Accumulated::logged`]). Each only grows while a
+/// recurrence is watched, so equal positions mean nothing was read or written between.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Output {
     console: Option<(usize, usize)>,
+    logged: usize,
 }
 
 impl Recurrence {
-    /// Records `term`, the result of a determined round, with the budget left and the console's
-    /// position after it: the number of steps since it was last reached, if this lineage reached
-    /// it before in the watch.
-    fn reached(
-        &mut self,
-        term: &Term,
-        remaining: usize,
-        console: Option<(usize, usize)>,
-    ) -> Option<usize> {
+    /// Records `term`, the result of a determined round, with the budget left and what the
+    /// lineage has read and written after it: the number of steps since it was last reached, if
+    /// this lineage reached it before in the watch.
+    fn reached(&mut self, term: &Term, remaining: usize, output: Output) -> Option<usize> {
         self.steps += 1;
         if let Some(saved) = &self.saved
             && saved.remaining == remaining
-            && saved.console == console
+            && saved.output == output
             && (saved.term.ptr_eq(term) || saved.term == *term)
         {
             return Some(self.steps);
@@ -6049,7 +6064,7 @@ impl Recurrence {
             self.saved = Some(Reached {
                 term: term.clone(),
                 remaining,
-                console,
+                output,
             });
             self.power = self.power.max(1) * 2;
             self.steps = 0;
@@ -6244,10 +6259,18 @@ impl Lineage {
         } else if let Some(steps) = self.recurrence.reached(
             &root.term,
             *remaining,
-            execution
-                .as_deref()
-                .map(ExecutionEvaluationContext::observable_position),
+            Output {
+                console: execution
+                    .as_deref()
+                    .map(ExecutionEvaluationContext::observable_position),
+                logged: self.accumulated.logged(),
+            },
         ) {
+            // One step back to the term the round started from: the round's subject is the
+            // value (`Recurrence`).
+            if steps == 1 {
+                return Ok(ControlFlow::Break(children.term));
+            }
             return Err(SimplificationError::EvaluationCycle {
                 steps,
                 term: root.term,
@@ -10442,8 +10465,9 @@ mod tests {
         assert!(!result.term.attributes().evaluated);
     }
 
-    /// Anywhere equations `q(a, Y) = q(b, Y)`, `q(b, Y) = q(a, Y)`, and `p(X) = p(a)`, at the
-    /// anywhere head `q` and `p` of `SortS`.
+    /// Anywhere equations `q(a, Y) = q(b, Y)`, `q(b, Y) = q(a, Y)`, `p(X) = p(a)`, the
+    /// three-cycle `r(a) = r(b)`, `r(b) = r(c)`, `r(c) = r(a)`, and `w(X) = w(id(X))` with the
+    /// function `id(X) = X`.
     const REWRITING_BACK: &str = r#"[]
             module MAIN
                 sort SortS{} []
@@ -10477,13 +10501,25 @@ mod tests {
                     \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, c{}()), \top{R}())),
                     \equals{SortS{}, R}(r{}(X:SortS{}), \and{SortS{}}(r{}(a{}()), \top{SortS{}}()))
                 ) [label{}("r-ca"), anywhere{}()]
+                symbol w{}(SortS{}) : SortS{} [anywhere{}(), functional{}()]
+                symbol id{}(SortS{}) : SortS{} [function{}(), functional{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, Z:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(w{}(X:SortS{}), \and{SortS{}}(w{}(id{}(Z:SortS{})), \top{SortS{}}()))
+                ) [label{}("w-id"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X:SortS{}, Z:SortS{}), \top{R}())),
+                    \equals{SortS{}, R}(id{}(X:SortS{}), \and{SortS{}}(Z:SortS{}, \top{SortS{}}()))
+                ) [label{}("id")]
             endmodule []"#;
 
     /// Ground equation steps that reach a term again repeat without end, so the term has no
     /// normal form and its evaluation is refused, naming the term reached again and the length of
     /// the cycle: `q(a, c)` reaches `q(b, c)` again after two steps, and `r(a)` reaches itself
     /// after three. An equation whose instance is `t = t` gives `t` no other value and ends the
-    /// evaluation there: `p(b)` is `p(a)`.
+    /// evaluation there: `p(b)` is `p(a)`. So does one whose instance is `t = t` once the result's
+    /// arguments are evaluated, a recurrence of one step: `w(a) = w(id(a))`, and `id(a)` is `a`,
+    /// so `w(a)` is the value.
     #[test]
     fn ground_equation_steps_that_reach_a_term_again_are_refused_as_a_cycle() {
         let definition = BackendDefinition::internalize(
@@ -10511,6 +10547,61 @@ mod tests {
         ))
         .expect("an equation whose instance is `t = t` ends the evaluation");
         assert_eq!(stutter.term, term(&definition, "p{}(a{}())"));
+        let up_to_arguments = unstopped(simplify(
+            &definition,
+            &term(&definition, "w{}(a{}())"),
+            SimplificationOptions::default(),
+        ))
+        .expect("an instance `t = t` up to its arguments' evaluation ends the evaluation");
+        assert_eq!(up_to_arguments.term, term(&definition, "w{}(a{}())"));
+    }
+
+    /// A log write is output: equation steps that reach a term again but write the log on each
+    /// lap are not one state repeated, so they are not refused as a cycle, and only a deadline
+    /// ends them (`lg(a, K) = lg(b, log("x"))`, `lg(b, K) = lg(a, log("x"))`).
+    #[test]
+    fn steps_that_write_the_log_on_each_lap_are_not_refused_as_a_cycle() {
+        let definition = BackendDefinition::internalize(
+            &parse_definition(
+                r#"[]
+            module MAIN
+                sort SortK{} []
+                sort SortString{} [hasDomainValues{}()]
+                symbol a{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+                symbol b{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                hooked-symbol log{}(SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+                symbol lg{}(SortK{}, SortK{}) : SortK{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X:SortK{}, a{}()), \and{R}(\in{SortK{}, R}(Y:SortK{}, Z:SortK{}), \top{R}()))),
+                    \equals{SortK{}, R}(lg{}(X:SortK{}, Y:SortK{}), \and{SortK{}}(lg{}(b{}(), log{}(\dv{SortString{}}("x"))), \top{SortK{}}()))
+                ) [label{}("lg-ab")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X:SortK{}, b{}()), \and{R}(\in{SortK{}, R}(Y:SortK{}, Z:SortK{}), \top{R}()))),
+                    \equals{SortK{}, R}(lg{}(X:SortK{}, Y:SortK{}), \and{SortK{}}(lg{}(a{}(), log{}(\dv{SortString{}}("x"))), \top{SortK{}}()))
+                ) [label{}("lg-ba")]
+            endmodule []"#,
+            )
+            .expect("the definition should parse"),
+            "MAIN",
+        )
+        .expect("the definition should internalize");
+        let mode = crate::timeout::StepTimeoutMode::Manual(std::time::Duration::from_millis(200));
+        let deadline = crate::stop::arm_deadline(
+            std::time::Instant::now() + std::time::Duration::from_millis(200),
+            mode,
+        );
+        let result = simplify(
+            &definition,
+            &term(&definition, "lg{}(a{}(), dotk{}())"),
+            SimplificationOptions::default(),
+        );
+        drop(deadline);
+        match result {
+            Err(stop) => assert_eq!(stop.into_cause(), StopCause::Deadline(mode)),
+            Ok(other) => panic!("only the deadline ends a lap that writes the log: {other:?}"),
+        }
     }
 
     /// Steps on a symbolic application charge the budget, which ends their cycle: the watch reads
