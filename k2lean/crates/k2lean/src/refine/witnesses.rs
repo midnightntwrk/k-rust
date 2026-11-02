@@ -33,6 +33,9 @@ pub(super) struct Ctx<'a> {
     pub tr: &'a str,
     /// whether each library is the ranked one, whose `successors` takes no rules
     pub ranked: (bool, bool),
+    /// the legality (`--assume-invariant`), `A`'s generated invariant: a witness owes it at its
+    /// start (`init_holds`)
+    pub inv: Option<&'a str>,
 }
 
 struct Witness {
@@ -112,12 +115,26 @@ k2l_ends_apart {sa}, {na}.successors_iff,\n    {sb}, {nb}.successors_iff\n"
         )
         .unwrap();
         guard.push(format!("{wn}.disagrees"));
+        if let Some(i) = cx.inv {
+            writeln!(
+                o,
+                "/-- The start satisfies the legality: it is an initial configuration (`{i}.init_holds`). -/\n\
+theorem {wn}.legal : {i} {wn}.start := by\n  unfold {wn}.start\n  apply {i}.init_holds <;>\n    first | decide | fail \"a hypothesis of {i}.init_holds at `{wn}.start` is not decided\"\n"
+            )
+            .unwrap();
+            guard.push(format!("{wn}.legal"));
+        }
     }
     let w0 = format!("witness.{}", crate::names::ident(&ws[0].name));
+    let hi = if cx.inv.is_some() {
+        format!(" {w0}.legal")
+    } else {
+        String::new()
+    };
     writeln!(
         o,
         "/-- The open parts are not all true: under them the terminal corollaries hold, which the runs of\n`{}` refute. -/\n\
-theorem Open.refuted : ¬ Open := fun O =>\n  {w0}.disagrees ⟨fun h ht => run_terminal O h ht, fun h ht => run_terminal_back O h ht⟩\n\n\
+theorem Open.refuted : ¬ Open := fun O =>\n  {w0}.disagrees ⟨fun h ht => run_terminal O{hi} h ht, fun h ht => run_terminal_back O{hi} h ht⟩\n\n\
 #k2l_assert_axioms {} Open.refuted\n\nend {ns}",
         ws[0].name,
         guard.join(" ")

@@ -306,6 +306,76 @@ theorem bisim_of {μ : α → Nat} {ν : β → Nat}
     StutterBisim SA SB (Rel tr X) μ ν :=
   ⟨fun _ _ d h hr => hf h d hr, fun _ _ c h hr => hb h c hr⟩
 
+/-! Under a legality `Inv` of `SA`'s states (`refine --assume-invariant`), preserved by `SA`'s
+steps: the relation holds only at states satisfying it, and each part owes its conclusion only
+there. The conclusions are `Rel`'s; `bisimI_of` carries `Inv` along `SA`'s steps. -/
+
+variable (tr SA SB X) in
+/-- The relation under the legality `Inv`. -/
+def RelI (Inv : α → Prop) (c : α) (d : β) : Prop := Inv c ∧ Rel tr X c d
+
+variable (tr SA SB X) in
+/-- What a step of `SA` from a state satisfying `Inv` owes forward. -/
+def FwdQI (Inv : α → Prop) (μ : α → Nat) (c c' : α) : Prop := Inv c → FwdQ tr SB X μ c c'
+
+variable (tr SA SB X) in
+/-- The part of `FwdQI` at the translation of `c`. -/
+def FwdTrI (Inv : α → Prop) (μ : α → Nat) (c c' : α) : Prop := Inv c → FwdTr tr SB X μ c c'
+
+variable (tr SA SB X) in
+/-- The part of `FwdQI` at the states `X` relates to `c`. -/
+def FwdXI (Inv : α → Prop) (μ : α → Nat) (c c' : α) : Prop := Inv c → FwdX tr SB X μ c c'
+
+variable (tr SA SB X) in
+/-- What a step `d → d'` of `SB` owes backward, from a state related to one satisfying `Inv`. -/
+def BwdQI (Inv : α → Prop) (ν : β → Nat) (d d' : β) : Prop :=
+  ∀ c, Inv c → Rel tr X c d →
+    (∃ c', Relation.TransGen SA c c' ∧ Rel tr X c' d') ∨ (Rel tr X c d' ∧ ν d' < ν d)
+
+variable (tr SA SB X) in
+/-- The part of `BwdQI` where `d` is a translation. -/
+def BwdTrI (Inv : α → Prop) (ν : β → Nat) (d d' : β) : Prop :=
+  ∀ c, Inv c → d = tr c →
+    (∃ c', Relation.TransGen SA c c' ∧ Rel tr X c' d') ∨ (Rel tr X c d' ∧ ν d' < ν d)
+
+variable (tr SA SB X) in
+/-- The part of `BwdQI` at the states `X` relates to `d`. -/
+def BwdXI (Inv : α → Prop) (ν : β → Nat) (d d' : β) : Prop :=
+  ∀ c, Inv c → X c d →
+    (∃ c', Relation.TransGen SA c c' ∧ Rel tr X c' d') ∨ (Rel tr X c d' ∧ ν d' < ν d)
+
+theorem fwdQI_of {Inv : α → Prop} {μ : α → Nat} {c c' : α} (ht : FwdTrI tr SB X Inv μ c c')
+    (hx : FwdXI tr SB X Inv μ c c') : FwdQI tr SB X Inv μ c c' :=
+  fun hi => fwdQ_of (ht hi) (hx hi)
+
+theorem bwdQI_of {Inv : α → Prop} {ν : β → Nat} {d d' : β} (ht : BwdTrI tr SA X Inv ν d d')
+    (hx : BwdXI tr SA X Inv ν d d') : BwdQI tr SA X Inv ν d d' := by
+  rintro c hi (h | h)
+  · exact ht c hi h
+  · exact hx c hi h
+
+/-- A preserved predicate holds after one or more steps. -/
+theorem preserved_transGen {Inv : α → Prop} (hp : Preserved SA Inv) {a b : α}
+    (h : Relation.TransGen SA a b) (ha : Inv a) : Inv b := by
+  induction h with
+  | single hs => exact hp _ _ ha hs
+  | tail _ hs ih => exact hp _ _ ih hs
+
+/-- The stuttering bisimulation under a legality that `SA`'s steps preserve, from what every step
+owes at the states satisfying it. -/
+theorem bisimI_of {Inv : α → Prop} {μ : α → Nat} {ν : β → Nat} (hp : Preserved SA Inv)
+    (hf : ∀ {c c'}, SA c c' → FwdQI tr SB X Inv μ c c')
+    (hb : ∀ {d d'}, SB d d' → BwdQI tr SA X Inv ν d d') :
+    StutterBisim SA SB (RelI tr X Inv) μ ν := by
+  refine ⟨fun c c' d h ⟨hi, hr⟩ => ?_, fun d d' c h ⟨hi, hr⟩ => ?_⟩
+  · have hi' := hp c c' hi h
+    rcases hf h hi d hr with ⟨d', hd, hr'⟩ | ⟨hr', hlt⟩
+    · exact .inl ⟨d', hd, hi', hr'⟩
+    · exact .inr ⟨⟨hi', hr'⟩, hlt⟩
+  · rcases hb h c hi hr with ⟨c', hc, hr'⟩ | ⟨hr', hlt⟩
+    · exact .inl ⟨c', hc, preserved_transGen hp hc hi, hr'⟩
+    · exact .inr ⟨⟨hi, hr'⟩, hlt⟩
+
 end Stutter
 
 end Refine

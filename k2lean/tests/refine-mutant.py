@@ -9,8 +9,22 @@ Modes:
   `while` applied to OUT's `imp.k`, it is the other side of `demos/ImpUnrollMut`, against kimp.
 - `vm-pop-skip`: IN and OUT are files; the fixture `vmpop1`'s `pop` on an empty stack does nothing
   instead of halting with `underflow`. It is the other side of `demos/VmPopMut`, against `vmpop`.
+- `vm-empty`: IN and OUT are files; the fixture `vmpri` with a cell `<empty>` that caches whether
+  the stack is empty, kept by every rule that changes the stack (`pop` in two rules, by whether it
+  takes the last element), and the invariant `emptyOk` (the cache is right, `gen --invariant
+  emptyOk@T`). The first side of `demos/VmEmptyRefine`.
+- `vm-empty-opt`: `vm-empty` whose underflow rules on an empty stack read the cache instead of the
+  stack: the other side of `demos/VmEmptyRefine`, an optimization that holds only where the cache
+  is right, so `refine` relates the two under the invariant (`--assume-invariant`).
+- `vm-empty-stale`: `vm-empty-opt` whose `pop-last` leaves the cache as it was: a wrong
+  optimization, the other side of `demos/VmEmptyMut`, which a program refutes under the invariant
+  (`push(1); pop; pop` underflows against getting stuck).
+- `range-inc`: IN and OUT are files; the fixture `range` with `inc(L)`, which adds one to the value
+  stored at `L` where it is nonnegative. The first side of `demos/RangeIncRefine`.
+- `range-inc-opt`: `range-inc` without the check, which the fixture's invariant (`storeNat`, every
+  stored value is a nonnegative integer) makes redundant: the other side of `demos/RangeIncRefine`.
 
-Each mutated rule has no counterpart on the other side, so `refine` lists its parts open, and a
+In the mutants, each mutated rule has no counterpart on the other side, so `refine` lists its parts open, and a
 program on which the two sides disagree refutes them (`refine --witnesses`, `docs/design.md`,
 section 3.5). The script fails if a source does not contain exactly the text it rewrites.
 """
@@ -38,5 +52,57 @@ elif mode == "vm-pop-skip":
     rewrite(src, dst,
             "rule <k> pop => #halt(underflow) ... </k> [label(pop-underflow), owise]",
             "rule <k> pop => .K ... </k> [label(pop-underflow), owise]")
+elif mode in ("vm-empty", "vm-empty-opt", "vm-empty-stale"):
+    text = open(src).read()
+    edits = [
+        ("<stack> .Stack </stack> </T>", "<stack> .Stack </stack> <empty> true </empty> </T>"),
+        ("<stack> S => I : S </stack> [label(push)]",
+         "<stack> S => I : S </stack> <empty> _ => false </empty> [label(push)]"),
+        ("rule <k> pop => .K ... </k> <stack> _ : S => S </stack> [label(pop)]",
+         "rule <k> pop => .K ... </k> <stack> _ : X : S => X : S </stack> [label(pop)]\n"
+         "  rule <k> pop => .K ... </k> <stack> _ : .Stack => .Stack </stack> <empty> _ => true </empty>"
+         " [label(pop-last)]"),
+        ("  rule halted(_) => false [owise]\n", """  rule halted(_) => false [owise]
+  // the cache is right: `<empty>` says whether the stack is empty
+  syntax Bool ::= isEmpty(Stack) [function, total]
+                | emptyOk(TCell) [function, total]
+  rule isEmpty(.Stack) => true
+  rule isEmpty(_ : _) => false
+  rule emptyOk(<T> <k> _ </k> <stack> S </stack> <empty> E </empty> </T>) => E ==Bool isEmpty(S)
+"""),
+    ]
+    if mode == "vm-empty-stale":
+        edits[2] = (edits[2][0], edits[2][1].replace(" <empty> _ => true </empty>", ""))
+    if mode in ("vm-empty-opt", "vm-empty-stale"):
+        edits += [
+            ("<k> add => #halt(underflow) ... </k> <stack> .Stack </stack>",
+             "<k> add => #halt(underflow) ... </k> <empty> true </empty>"),
+            ("<k> div => #halt(underflow) ... </k> <stack> .Stack </stack>",
+             "<k> div => #halt(underflow) ... </k> <empty> true </empty>"),
+            ("rule <k> pop => #halt(underflow) ... </k> [label(pop-underflow), owise]",
+             "rule <k> pop => #halt(underflow) ... </k> <empty> true </empty> [label(pop-underflow), owise]"),
+        ]
+    for old, new in edits:
+        if text.count(old) != 1:
+            sys.exit(f"refine-mutant.py: expected exactly one occurrence of {old!r} in {src}")
+        text = text.replace(old, new)
+    open(dst, "w").write(text)
+elif mode in ("range-inc", "range-inc-opt"):
+    text = open(src).read()
+    check = " requires V >=Int 0" if mode == "range-inc" else ""
+    edits = [
+        ("               | seq(Cmd, Cmd)\n",
+         "               | seq(Cmd, Cmd)\n               | inc(Int)       // add one to the value at L\n"),
+        ("    requires V >=Int 0 [label(set)]\n",
+         "    requires V >=Int 0 [label(set)]\n"
+         "  rule <k> inc(L) => .K ... </k>\n"
+         "       <store> ... L |-> (V:Int => V +Int 1) ... </store>\n"
+         f"   {check} [label(inc)]\n"),
+    ]
+    for old, new in edits:
+        if text.count(old) != 1:
+            sys.exit(f"refine-mutant.py: expected exactly one occurrence of {old!r} in {src}")
+        text = text.replace(old, new)
+    open(dst, "w").write(text)
 else:
-    sys.exit(f"refine-mutant.py: unknown mode {mode!r} (imp-le, vm-pop-skip)")
+    sys.exit(f"refine-mutant.py: unknown mode {mode!r} (imp-le, vm-pop-skip, vm-empty, vm-empty-opt, vm-empty-stale, range-inc, range-inc-opt)")

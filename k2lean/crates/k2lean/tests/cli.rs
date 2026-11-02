@@ -956,7 +956,17 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         report.as_os_str(),
     ]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
-    let r = std::fs::read_to_string(&refine).unwrap();
+    // `X`, the measures, the parts' statements and `Open` are in `RefineDefs.lean`, which the
+    // output module imports (REL-8)
+    let defs = d.join("RefineDefs.lean");
+    let both =
+        || std::fs::read_to_string(&refine).unwrap() + &std::fs::read_to_string(&defs).unwrap();
+    let r = both();
+    assert!(
+        std::fs::read_to_string(&refine)
+            .unwrap()
+            .starts_with("import R.RefineDefs\n")
+    );
     for want in [
         "theorem pri_fwd.«pop-underflow» : A.Step.Rel.«pop-underflow» (fun c _ => ∀ j, j < 2 → ∀ d, tr_SortGeneratedTopCell c = d → ¬ B.App j d)",
         "  | pop DotVar2 Gen0 S DotVar0 => exact hpri _ hj (split_appbwd DotVar2 Gen0 S DotVar0 hd)",
@@ -971,7 +981,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         "noncomputable def μ (c : A.SortGeneratedTopCell) : Nat :=",
         "theorem run_terminal ",
         // a rule of a rank before `pop-done`'s at a state `X` relates: refuted by `X`'s `hp`
-        "(cases hX with | split _ _ _ _ _ _ _ _ _ _ _ _ hp => exact (hp 0 (by decide) (by apply A.App.«add-underflow0» <;> assumption)).elim)",
+        "(cases hX with | «split» _ _ _ _ _ _ _ _ _ _ _ _ hp => exact (hp 0 (by decide) (by apply A.App.«add-underflow0» <;> assumption)).elim)",
     ] {
         assert!(r.contains(want), "missing `{want}`");
     }
@@ -1026,7 +1036,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         "fwd_tr.«pop-start»\nbwd_x.seq  # a paired rule at an `X` state\n",
     );
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
-    let r = std::fs::read_to_string(&refine).unwrap();
+    let r = both();
     for want in [
         "structure Open : Prop where\n  «bwd_x.seq» : bwd_x.seq.statement\n  «fwd_tr.pop-start» : fwd_tr.«pop-start».statement\n",
         "theorem stutter_fwd.«pop-start» (O : Open) : ",
@@ -1059,7 +1069,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
     let empty = "Lbl'Stop'Stack'Unds'VMPOP'Unds'Stack{}()";
     wit(empty);
     std::fs::write(wd.join("pop-empty.vm"), "pop; .Pgm\n").unwrap();
-    let refine_wit = |hand: &str, list: &str| {
+    let refine_wit = |flag: &str, hand: &str, list: &str| {
         let l = d.join("open.txt");
         std::fs::write(&l, list).unwrap();
         run(&[
@@ -1076,7 +1086,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
             "R".as_ref(),
             "--correspondence".as_ref(),
             corr.as_os_str(),
-            "--hand-module".as_ref(),
+            flag.as_ref(),
             hand.as_ref(),
             "--open".as_ref(),
             l.as_os_str(),
@@ -1088,7 +1098,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
             report.as_os_str(),
         ])
     };
-    let o = refine_wit("none", "fwd_tr.«pop-start»\nbwd_x.seq\n");
+    let o = refine_wit("--hand-module", "none", "fwd_tr.«pop-start»\nbwd_x.seq\n");
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let w = std::fs::read_to_string(d.join("Witnesses.lean")).unwrap();
     for want in [
@@ -1107,22 +1117,24 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         rep.contains("names = [\"pop-empty\"]\nopen_refuted_by = \"pop-empty\""),
         "{rep}"
     );
-    // refused: no open part (the bisimulation is proved), a hand module's `X` (no `run_terminal`),
-    // a configuration that is not `init`'s, a program with no configuration
+    // refused: no open part (the bisimulation is proved), a relation module's `X` (no
+    // `run_terminal`), a configuration that is not `init`'s, a program with no configuration
     let hand_open = "fwd_tr.«pop-start» | hand\nbwd_tr.pop | hand\nfwd_tr.«pop-underflow»\nbwd_tr.«pop-underflow» | hand\n";
-    for (hand, list, want) in [
+    for (flag, hand, list, want) in [
         (
+            "--hand-module",
             "none",
             "",
             "--witnesses: no part is open, so the bisimulation is proved",
         ),
         (
+            "--relation-module",
             "R.Relation",
             hand_open,
-            "--witnesses: the runs to terminal states are compared by `run_terminal`, which is generated with `X` (--hand-module none)",
+            "--witnesses: the runs to terminal states are compared by `run_terminal`, which is generated with `X`, not with a relation module's (--relation-module)",
         ),
     ] {
-        let o = refine_wit(hand, list);
+        let o = refine_wit(flag, hand, list);
         assert_eq!(o.status.code(), Some(2), "{list}");
         let err = String::from_utf8_lossy(&o.stderr);
         assert!(err.contains(want), "{list}: {err}");
@@ -1130,7 +1142,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
     wit(&format!(
         "Lbl'UndsColnUndsUnds'VMPOP'Unds'Stack'Unds'Int'Unds'Stack{{}}(\\dv{{SortInt{{}}}}(\"1\"), {empty})"
     ));
-    let o = refine_wit("none", "fwd_tr.«pop-start»\n");
+    let o = refine_wit("--hand-module", "none", "fwd_tr.«pop-start»\n");
     assert_eq!(o.status.code(), Some(2));
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(
@@ -1138,13 +1150,37 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         "{err}"
     );
     std::fs::remove_file(wd.join("pop-empty.kore")).unwrap();
-    let o = refine_wit("none", "fwd_tr.«pop-start»\n");
+    let o = refine_wit("--hand-module", "none", "fwd_tr.«pop-start»\n");
     assert_eq!(o.status.code(), Some(2));
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(err.contains("`pop-empty` has no `pop-empty.kore`"), "{err}");
-    // with a hand module: a part whose rule has no counterpart is listed, and `| hand` is the
-    // hand module's theorem under the part's name; a listed part's priority lemma is not written
-    let o = refine_with("R.Relation", "");
+    // with a hand module (beside the generated `X`, REL-8): a part whose rule has no counterpart is
+    // listed, and `| hand` is the hand module's theorem under the part's name, checked against its
+    // statement; a listed part's priority lemma is not written. With a relation module's `X` (no
+    // split generated), a part whose rule has no counterpart is listed
+    let l = d.join("open.txt");
+    std::fs::write(&l, "").unwrap();
+    let o = run(&[
+        "refine".as_ref(),
+        "--kore-a".as_ref(),
+        ka.as_os_str(),
+        "--name-a".as_ref(),
+        "A".as_ref(),
+        "--kore-b".as_ref(),
+        kb.as_os_str(),
+        "--name-b".as_ref(),
+        "B".as_ref(),
+        "--ns".as_ref(),
+        "R".as_ref(),
+        "--correspondence".as_ref(),
+        corr.as_os_str(),
+        "--relation-module".as_ref(),
+        "R.Relation".as_ref(),
+        "--open".as_ref(),
+        l.as_os_str(),
+        "--out".as_ref(),
+        refine.as_os_str(),
+    ]);
     assert_eq!(o.status.code(), Some(2));
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(
@@ -1159,9 +1195,57 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
     let r = std::fs::read_to_string(&refine).unwrap();
     assert!(r.starts_with("import R.Relation\n"));
     assert!(r.contains("  exact Stutter.bwdQ_of (bwd_tr.pop DotVar2 Gen0 S DotVar0 hpri) (bwd_x.pop DotVar2 Gen0 S DotVar0 hpri)"));
-    assert!(!r.contains("theorem bwd_tr.pop ") && !r.contains("pri_bwd.«pop-underflow»"));
+    // `pop-underflow`'s priority lemma is still written: its generated part at a state `X` relates
+    // takes it (`A` completes the split's step, then takes the counterpart)
+    assert!(!r.contains("theorem bwd_tr.pop ") && r.contains("theorem pri_bwd.«pop-underflow» "));
+    assert!(
+        r.contains("#k2l_proves fwd_tr.«pop-start»\n") && r.contains("#k2l_proves bwd_tr.pop\n"),
+        "{r}"
+    );
+    assert!(
+        std::fs::read_to_string(&defs)
+            .unwrap()
+            .contains("def bwd_tr.pop.statement : Prop := ")
+    );
     let rep = std::fs::read_to_string(&report).unwrap();
     assert!(rep.contains("hand = 4\n"), "{rep}");
+    // a relation module (`--relation-module`) supplies `X` and the measures, and the definitions
+    // open the output module
+    let l = d.join("open.txt");
+    std::fs::write(
+        &l,
+        hand_open.replace(
+            "fwd_tr.«pop-underflow»\n",
+            "fwd_tr.«pop-underflow» | hand\n",
+        ),
+    )
+    .unwrap();
+    let o = run(&[
+        "refine".as_ref(),
+        "--kore-a".as_ref(),
+        ka.as_os_str(),
+        "--name-a".as_ref(),
+        "A".as_ref(),
+        "--kore-b".as_ref(),
+        kb.as_os_str(),
+        "--name-b".as_ref(),
+        "B".as_ref(),
+        "--ns".as_ref(),
+        "R".as_ref(),
+        "--correspondence".as_ref(),
+        corr.as_os_str(),
+        "--relation-module".as_ref(),
+        "R.Relation".as_ref(),
+        "--open".as_ref(),
+        l.as_os_str(),
+        "--out".as_ref(),
+        refine.as_os_str(),
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    assert!(r.starts_with("import R.Relation\n"));
+    assert!(r.contains("def bwd_tr.pop.statement : Prop := "));
+    assert!(!r.contains("inductive X ") && !r.contains("theorem run_terminal "));
     // refused: a refuted part, the earlier form, a rule of neither side, `| hand` without a hand
     // module, another mark
     for (hand, list, want) in [
@@ -1183,7 +1267,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         (
             "none",
             "fwd_x.seq | hand\n",
-            "--open: fwd_x.«seq» | hand: there is no hand module (--hand-module none)",
+            "--open: fwd_x.«seq» | hand: there is no hand module (--hand-module M)",
         ),
         (
             "none",
@@ -1256,6 +1340,219 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         ),
         "{err}"
     );
+}
+
+/// `refine` under a legality (REL-8): `vmpri` (`pop` in one step) against `vmpop1` (the same, with
+/// `#pop` and `pop-done`, which `vmpri` lacks): no step of one is taken in two by the other, so `X`
+/// relates nothing and the measures are 0, and `pop-done`'s part at a translation is listed. Under
+/// `--assume-invariant` the relation and every part (and priority lemma) hold at the configurations
+/// satisfying the invariant, whose preservation `bisim` takes; a witness owes it at its start
+/// (`init_holds`). A priority lemma is a named obligation too: generated (an unpaired rule whose
+/// left-hand side clashes, `cases hd`) or the hand module's.
+#[test]
+fn refine_under_a_legality_and_without_a_split() {
+    let d = tmp("cli-refine-legal");
+    let fx = |n: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures")
+            .join(n)
+    };
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let p = |x: &Path| x.to_str().unwrap().to_string();
+    let (ka, kb) = (
+        p(&fx("vmpri").join("definition.kore")),
+        p(&fx("vmpop1").join("definition.kore")),
+    );
+    let (sa, sb) = (
+        p(&fx("vmpri").join("syntaxDefinition.kore")),
+        p(&fx("vmpop1").join("syntaxDefinition.kore")),
+    );
+    let (tr, corr) = (p(&d.join("Tr.lean")), p(&d.join("correspondence.toml")));
+    let o = run(&[
+        "relate",
+        "--kore-a",
+        &ka,
+        "--syntax-a",
+        &sa,
+        "--name-a",
+        "A",
+        "--kore-b",
+        &kb,
+        "--syntax-b",
+        &sb,
+        "--name-b",
+        "B",
+        "--ns",
+        "R",
+        "--per-rule",
+        "true",
+        "--out",
+        &tr,
+        "--report",
+        &corr,
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let (refine, defs, report, list) = (
+        p(&d.join("Refine.lean")),
+        p(&d.join("RefineDefs.lean")),
+        p(&d.join("refine.toml")),
+        p(&d.join("open.txt")),
+    );
+    let refine_with = |list_text: &str, extra: &[&str]| {
+        std::fs::write(&list, list_text).unwrap();
+        let mut args = vec![
+            "refine",
+            "--kore-a",
+            &ka,
+            "--name-a",
+            "A",
+            "--kore-b",
+            &kb,
+            "--name-b",
+            "B",
+            "--ns",
+            "R",
+            "--correspondence",
+            &corr,
+            "--open",
+            &list,
+            "--out",
+            &refine,
+            "--report",
+            &report,
+        ];
+        args.extend_from_slice(extra);
+        run(&args)
+    };
+    let legal = ["--hand-module", "none", "--assume-invariant", "A.Invariant"];
+    let o = refine_with("bwd_tr.«pop-done»\n", &legal);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let (r, dt) = (
+        std::fs::read_to_string(&refine).unwrap(),
+        std::fs::read_to_string(&defs).unwrap(),
+    );
+    for want in [
+        "import R.Tr\nimport KPrelude.Scaffold\nimport A.Invariants\n",
+        "inductive X : A.SortGeneratedTopCell → B.SortGeneratedTopCell → Prop\n",
+        "def μ (_ : A.SortGeneratedTopCell) : Nat := 0\n",
+        "theorem X_next {c : A.SortGeneratedTopCell} {d : B.SortGeneratedTopCell} (h : X c d) : ∃ c', A.Step c c' ∧ d = tr_SortGeneratedTopCell c' :=\n  nomatch h\n",
+        "def fwd_tr.push.statement : Prop := A.Step.Rel.push (Stutter.FwdTrI tr_SortGeneratedTopCell B.Step X A.Invariant μ)",
+        "def bwd_x.«pop-done».statement : Prop := B.Step.Rel.«pop-done» (Stutter.BwdXI tr_SortGeneratedTopCell A.Step X A.Invariant ν)",
+        "def pri_fwd.«pop-underflow».statement : Prop := A.Step.Rel.«pop-underflow» (fun c _ => A.Invariant c → ∀ j, j < 2 → ∀ d, tr_SortGeneratedTopCell c = d → ¬ B.App j d)",
+        "def pri_bwd.«pop-underflow».statement : Prop := B.Step.Rel.«pop-underflow» (fun d _ => ∀ c, A.Invariant c → tr_SortGeneratedTopCell c = d → ∀ j, j < 2 → ¬ A.App j c)",
+        "structure Open : Prop where\n  «bwd_tr.pop-done» : bwd_tr.«pop-done».statement\n",
+    ] {
+        assert!(dt.contains(want), "missing `{want}`:\n{dt}");
+    }
+    for want in [
+        "import R.RefineDefs\n",
+        "Under the legality `A.Invariant` (`--assume-invariant`)",
+        // `B`'s `pop-done` has no counterpart, and its left-hand side (`#pop`) clashes with
+        // `pop-underflow`'s (`pop`)
+        "  | «pop-done» DotVar2 Gen0 S DotVar0 => cases hd\n",
+        "  intro hinv; exact Or.inl ⟨_, .single (fwd.push ",
+        "pri_fwd.«pop-underflow» DotVar2 DotVar1 DotVar0 hpri hinv j hj _ rfl",
+        "  intro c hinv hd\n",
+        "theorem stutter_fwd.push (O : Open) : A.Step.Rel.push (Stutter.FwdQI tr_SortGeneratedTopCell B.Step X A.Invariant μ) := by",
+        "theorem bisim (O : Open) : StutterBisim A.Step B.Step (Stutter.RelI tr_SortGeneratedTopCell X A.Invariant) μ ν :=\n  Stutter.bisimI_of A.Invariant.preserved\n",
+        "theorem run_fwd (O : Open) {c c' : A.SortGeneratedTopCell} (hi : A.Invariant c) (h : Star A.Step c c')",
+        "  (bisim O).terminal_run ⟨hi, Or.inl rfl⟩ h ht",
+        "theorem run_terminal (O : Open) {c c' : A.SortGeneratedTopCell} (hi : A.Invariant c) (h : Star A.Step c c')",
+        "  obtain ⟨d', hd, htd, _, hr | hx⟩ := run_fwd O hi h ht\n",
+        "theorem not_terminal_of_X ",
+    ] {
+        assert!(r.contains(want), "missing `{want}`:\n{r}");
+    }
+    let rep = std::fs::read_to_string(&report).unwrap();
+    assert!(rep.contains("legality = \"A.Invariant\"\n"), "{rep}");
+    // a witness under the legality owes it at its start: an initial configuration (`init_holds`)
+    const WIT: &str = r#"Lbl'-LT-'generatedTop'-GT-'{}( Lbl'-LT-'T'-GT-'{}( Lbl'-LT-'k'-GT-'{}( kseq{}( inj{SortPgm{}, SortKItem{}}( Lbl'UndsSClnUndsUnds'VMPRI-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm{}( Lblpop'Unds'VMPRI-SYNTAX'Unds'Instr{}(), Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'VMPRI-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}() ) ), dotk{}() ) ), Lbl'-LT-'stack'-GT-'{}(Lbl'Stop'Stack'Unds'VMPRI'Unds'Stack{}()) ), Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0")) )"#;
+    let wd = d.join("witnesses");
+    std::fs::create_dir_all(&wd).unwrap();
+    std::fs::write(wd.join("pop-empty.kore"), WIT).unwrap();
+    std::fs::write(wd.join("pop-empty.vm"), "pop; .Pgm\n").unwrap();
+    let wdp = p(&wd);
+    let o = refine_with(
+        "bwd_tr.«pop-done»\n",
+        &[&legal[..], &["--witnesses", &wdp]].concat(),
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let w = std::fs::read_to_string(d.join("Witnesses.lean")).unwrap();
+    for want in [
+        "theorem witness.«pop-empty».legal : A.Invariant witness.«pop-empty».start := by\n  unfold witness.«pop-empty».start\n  apply A.Invariant.init_holds <;>\n",
+        "  witness.«pop-empty».disagrees ⟨fun h ht => run_terminal O witness.«pop-empty».legal h ht, fun h ht => run_terminal_back O witness.«pop-empty».legal h ht⟩",
+        "#k2l_assert_axioms witness.«pop-empty».disagrees witness.«pop-empty».legal Open.refuted",
+    ] {
+        assert!(w.contains(want), "missing `{want}`:\n{w}");
+    }
+    // a priority lemma by hand: stated in the definitions, not written, checked against its
+    // statement
+    let o = refine_with(
+        "bwd_tr.«pop-done»\npri_fwd.«pop-underflow» | hand\n",
+        &[
+            "--hand-module",
+            "R.Hand",
+            "--assume-invariant",
+            "A.Invariant",
+        ],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    assert!(r.starts_with("import R.Hand\n"));
+    assert!(!r.contains("theorem pri_fwd.«pop-underflow» "));
+    assert!(r.contains("#k2l_proves pri_fwd.«pop-underflow»\n"));
+    let rep = std::fs::read_to_string(&report).unwrap();
+    assert!(
+        rep.contains("hand = [\"pri_fwd.«pop-underflow»\"]"),
+        "{rep}"
+    );
+    // refused: a priority lemma left open, one that is not written, a hand module beside a relation
+    // module, the invariant's options without one, a witness under a legality other than the
+    // generated invariant
+    for (list_text, extra, want) in [
+        (
+            "bwd_tr.«pop-done»\npri_fwd.«pop-underflow»\n",
+            vec!["--hand-module", "R.Hand"],
+            "--open: pri_fwd.«pop-underflow»: a priority lemma is the hand module's (`| hand`) or generated",
+        ),
+        (
+            "bwd_tr.«pop-done»\npri_fwd.«add-underflow0» | hand\n",
+            vec!["--hand-module", "R.Hand"],
+            "--open: pri_fwd.«add-underflow0»: no such priority lemma",
+        ),
+        (
+            "bwd_tr.«pop-done»\n",
+            vec!["--hand-module", "R.Hand", "--relation-module", "R.Relation"],
+            "--hand-module: with --relation-module, the hand parts are the relation module's",
+        ),
+        (
+            "bwd_tr.«pop-done»\n",
+            vec!["--hand-module", "none", "--invariant-module", "M"],
+            "--invariant-preserved and --invariant-module need --assume-invariant",
+        ),
+        (
+            "bwd_tr.«pop-done»\n",
+            vec![
+                "--hand-module",
+                "none",
+                "--assume-invariant",
+                "R.Legal",
+                "--witnesses",
+                &wdp,
+            ],
+            "--witnesses: under a legality, a witness owes it at its start",
+        ),
+    ] {
+        let o = refine_with(list_text, &extra);
+        assert_eq!(o.status.code(), Some(2), "{list_text}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(err.contains(want), "{list_text}: {err}");
+    }
 }
 
 /// `confluence --report-only` on the `threadend` fixture: the end of a thread (its `<k>` empty) is

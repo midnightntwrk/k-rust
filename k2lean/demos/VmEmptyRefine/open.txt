@@ -1,0 +1,14 @@
+# The underflow rules on an empty stack read the cache in KVmEmptyOpt and the stack in KVmEmpty
+# (tests/refine-mutant.py vm-empty-opt): they have no counterpart, so their parts at a translation
+# are the hand module's (Hand.lean), under the invariant that the cache is right
+# (`--assume-invariant KVmEmpty.Invariant`). So is `add`'s priority lemma: KVmEmptyOpt's
+# `add-underflow0`, of the first rank, reads the cache, so that it applies nowhere `add` does only
+# where the cache is right. Without the invariant all are false at a configuration whose cache is
+# wrong, which no program reaches.
+fwd_tr.«add-underflow0» | hand
+fwd_tr.«div-underflow0» | hand
+fwd_tr.«pop-underflow» | hand
+bwd_tr.«add-underflow0» | hand
+bwd_tr.«div-underflow0» | hand
+bwd_tr.«pop-underflow» | hand
+pri_fwd.«add» | hand
