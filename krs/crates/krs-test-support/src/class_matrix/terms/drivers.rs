@@ -1144,9 +1144,14 @@ impl Driver<'_> {
                     vec![k(vec![hold(int(0))])],
                     vec![k(vec![hold(unapplied)])],
                 )?;
-                // The rule applies `Probe` either way: one step.
+                // The rule applies `Probe` either way: one step, so the run ends at its bound,
+                // and an equation that does not apply, its condition false or with no value, shows
+                // as the application it leaves, which the cells state.
                 if let K7::Run(run) = &mut run {
                     run.steps = 1;
+                    if run.status == Status::Undefined {
+                        run.status = Status::Value;
+                    }
                 }
                 Ok(run)
             }

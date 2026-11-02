@@ -242,8 +242,8 @@ const STATUSES: &[&str] = &[
     "1735 runs at a second input",
     "1 runs, endless",
     "1654 runs, liveness",
-    "236 runs, undefined",
-    "2530 runs, value",
+    "228 runs, undefined",
+    "2538 runs, value",
 ];
 
 /// Every spelling that reads `x` states the second value of `x` its cases run at, or why it has
