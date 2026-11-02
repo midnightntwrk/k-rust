@@ -723,7 +723,7 @@ fn a_kept_leaf_keeps_the_condition_the_reading_does_not_decide() {
 /// term with no value has no value `V` is equal to, so the condition does not hold where `t`
 /// holds one, and the state is its configuration. Read so, the state's configuration is read
 /// too, so a term with no value beside a projection whose operand may have one (`opaque(1)`) is
-/// found there (`prj(noval(red))`, `duo(prj(opq(1)), size(red))`, alias_clauses).
+/// found there (`prj(noval(red))`, `duo(prj(opq(1)), size(red))`, `alias_clauses`).
 #[test]
 fn a_projection_s_definedness_is_a_condition_read_as_any_other() {
     let heads = Named::partial(&["f"]);
