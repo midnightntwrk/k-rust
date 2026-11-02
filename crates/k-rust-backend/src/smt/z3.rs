@@ -3139,6 +3139,9 @@ mod tests {
     /// domain is the head's domain function (`half`, no ceil equation), a name of one query's
     /// translation, is left out, and the solver still starts. Before, either lemma made the
     /// prelude fail (`SmtLemmaSurplusPredicates`), and with it every query of the definition.
+    /// So is `h(X) = 0 requires X sdiv 2 >Int 0`, whose domain plan, from the ceil equation
+    /// `\ceil(I sdiv J) = nz(J)`, holds `nz(2)`, a term of no SMT reading that only one
+    /// translation can name: before, it failed the prelude (`SmtLemmaSurplusMappings`).
     #[test]
     fn an_smt_lemma_over_a_partial_operand_states_its_domain_or_is_left_out() {
         let syntax = parse_definition(
@@ -3174,6 +3177,21 @@ mod tests {
                     \equals{SortInt{}, R}(g{}(X:SortInt{}),
                         \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
                     [simplification{}(), smt-lemma{}(), label{}("g-zero")]
+                hooked-symbol sdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                symbol nz{}(SortInt{}) : SortBool{} [function{}(), total{}()]
+                symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("h")]
+                axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+                    \ceil{SortInt{}, Q}(sdiv{}(I:SortInt{}, J:SortInt{})),
+                    \and{Q}(\equals{SortBool{}, Q}(nz{}(J:SortInt{}), \dv{SortBool{}}("true")),
+                      \top{Q}()))) [simplification{}()]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        gtInt{}(sdiv{}(X:SortInt{}, \dv{SortInt{}}("2")), \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")),
+                    \equals{SortInt{}, R}(h{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
+                    [simplification{}(), smt-lemma{}(), label{}("h-zero")]
             endmodule []"#,
         )
         .expect("definition should parse");
@@ -3195,7 +3213,11 @@ mod tests {
             .unique_id
             .clone()
         };
-        assert_eq!(prelude.dropped_lemmas(), [id("g-zero")]);
+        let mut dropped = prelude.dropped_lemmas().to_vec();
+        dropped.sort();
+        let mut expected = vec![id("g-zero"), id("h-zero")];
+        expected.sort();
+        assert_eq!(dropped, expected);
         let solver = Z3Solver::new(&definition).expect("Z3 should start");
         let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
         let at = |symbol: &str, argument: &str| {
@@ -3211,6 +3233,7 @@ mod tests {
             (at("f", "4"), Validity::Valid),
             (at("f", "1"), Validity::Contingent),
             (at("g", "4"), Validity::Contingent),
+            (at("h", "4"), Validity::Contingent),
         ] {
             assert_eq!(
                 solver.check_predicates(&[], &Substitution::new(), std::slice::from_ref(&checked)),
@@ -3218,6 +3241,38 @@ mod tests {
                 "{checked:?}"
             );
         }
+    }
+
+    /// GAP K18: a term of an `smt-lemma`'s own text that has no SMT reading is the author's: the
+    /// prelude cannot state the lemma, and says so (`SmtLemmaSurplusMappings`), as it did before
+    /// domains were read. Only a term a domain plan brings in leaves the lemma out.
+    #[test]
+    fn an_smt_lemma_whose_own_term_has_no_smt_reading_is_refused() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol nz{}(SortInt{}) : SortBool{} [function{}(), total{}()]
+                symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("h")]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(nz{}(\dv{SortInt{}}("2")), \dv{SortBool{}}("true")),
+                    \equals{SortInt{}, R}(h{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
+                    [simplification{}(), smt-lemma{}(), label{}("h-zero")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(
+            matches!(
+                SmtPrelude::from_definition(&definition),
+                Err(crate::smt::TranslationError::SmtLemmaSurplusMappings { .. })
+            ),
+            "{:?}",
+            SmtPrelude::from_definition(&definition).map(|prelude| prelude.declarations().to_vec())
+        );
     }
 
     /// A definition whose `Float`, `MInt{8}` and renamed-`Int` operations carry the `smt-hook`s

@@ -2132,8 +2132,11 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
 /// (`functional::prepare`), so a domain a ceil equation states, or that is `\top`, is a formula
 /// over the bound variables. A domain that stays the head's domain function, an opaque
 /// `\ceil` atom or a fact beside the domain is a name of one query's translation, which a
-/// prelude cannot mention; such a lemma is left out (`SmtPrelude::dropped_lemmas`), which only
-/// weakens what the solver knows. Stating `R` without the domains would assert `l = r` where
+/// prelude cannot mention, as is a term of such a domain's condition that the translation can
+/// only abstract (a function with no SMT reading); such a lemma is left out
+/// (`SmtPrelude::dropped_lemmas`), which only weakens what the solver knows. A term of the
+/// lemma's own text with no SMT reading is the author's, and stays an error
+/// (`TranslationError::SmtLemmaSurplusMappings`). Stating `R` without the domains would assert `l = r` where
 /// `R`'s total reading holds but `R` is `\bottom`.
 fn translate_smt_lemma(
     definition: &BackendDefinition,
@@ -2196,10 +2199,22 @@ fn translate_smt_lemma(
         ]));
     }
     if !translation.mappings.is_empty() {
-        return Err(TranslationError::SmtLemmaSurplusMappings {
-            rule_id: rule.attributes.unique_id.clone(),
-            terms: translation.mappings.into_keys().collect(),
-        });
+        // A surplus term of the lemma's own text is the author's, a lemma the prelude cannot
+        // state: an error, as before domains were read. Any other came from an operand's domain
+        // plan (a ceil equation's condition over a function the translation abstracts), a name
+        // of this translation like a domain function: the lemma is left out.
+        let written = lemma_subterms(rule, rhs);
+        if translation
+            .mappings
+            .keys()
+            .all(|term| written.contains(term))
+        {
+            return Err(TranslationError::SmtLemmaSurplusMappings {
+                rule_id: rule.attributes.unique_id.clone(),
+                terms: translation.mappings.into_keys().collect(),
+            });
+        }
+        return Ok(None);
     }
     if !translation.predicate_mappings.is_empty()
         || !translation.dependent_mappings.is_empty()
@@ -2215,6 +2230,22 @@ fn translate_smt_lemma(
     } else {
         SExpr::List(vec![SExpr::atom("forall"), SExpr::List(binders), body])
     }))
+}
+
+/// Every subterm of the `smt-lemma` `rule` as written: of its left-hand side, its right-hand
+/// side `rhs` and the terms of its `requires`.
+fn lemma_subterms(rule: &RewriteRule, rhs: &Term) -> rustc_hash::FxHashSet<Term> {
+    let mut pending = vec![rule.lhs.clone(), rhs.clone()];
+    for predicate in rule.requires.iter() {
+        predicate.visit_terms(&mut |term| pending.push(term.clone()));
+    }
+    let mut seen = rustc_hash::FxHashSet::default();
+    while let Some(term) = pending.pop() {
+        if seen.insert(term.clone()) {
+            pending.extend(crate::deferred::children(&term).into_iter().cloned());
+        }
+    }
+    seen
 }
 
 /// The SMT-LIB sort that stands for a K sort in a translation (`sort_denotation`).
