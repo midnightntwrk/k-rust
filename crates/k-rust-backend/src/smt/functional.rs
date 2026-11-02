@@ -19,7 +19,7 @@ use crate::{
 pub(super) struct SharedDomains {
     /// The domain of each node read in this scope: one name per node, however many parents
     /// and atoms share it. Keyed by the term's stored hash, with a pointer comparison first.
-    values: FxHashMap<Term, SExpr>,
+    pub(super) values: FxHashMap<Term, SExpr>,
     active: FxHashSet<Term>,
     reentrant: BTreeMap<Term, SExpr>,
     pub(super) bindings: Vec<(String, SExpr)>,
@@ -269,22 +269,40 @@ impl TranslationState {
             self.opaque_domain_reads += 1;
             return Ok(self.abstract_predicate(&original));
         }
-        let scope = self
-            .shared_domains
-            .as_mut()
-            .expect("predicate domain scope");
-        if let Some(value) = scope.values.get(term) {
-            return Ok(value.clone());
+        // The node denotes the same in the scope of its variables (`term_level`) and in every
+        // scope inside it, so a domain memoized or under derivation there is this one.
+        let level = self.term_level(term);
+        let scopes = level..self.scopes.len();
+        if let Some(value) = scopes.clone().rev().find_map(|index| {
+            self.scopes[index]
+                .domains
+                .as_ref()
+                .and_then(|scope| scope.values.get(term))
+                .cloned()
+        }) {
+            return Ok(value);
         }
+        let home = self.domain_scope_at(level).expect("predicate domain scope");
         // Source ceil equations can be recursive. Use an opaque atom to stop expansion;
         // an actual lexical reentry is tied to the completed domain below. A depth-limited
         // graph remains conservative rather than acquiring an invented total domain.
-        let reentrant = scope.active.contains(term);
-        if scope.active.len() >= 128 || reentrant {
+        let reentrant = scopes.rev().find(|&index| {
+            self.scopes[index]
+                .domains
+                .as_ref()
+                .is_some_and(|scope| scope.active.contains(term))
+        });
+        let active = &self.scopes[home]
+            .domains
+            .as_ref()
+            .expect("a domain scope")
+            .active;
+        if active.len() >= 128 || reentrant.is_some() {
             self.opaque_domain_reads += 1;
             let reference = self.abstract_predicate(&original);
-            if reentrant {
-                self.shared_domains
+            if let Some(index) = reentrant {
+                self.scopes[index]
+                    .domains
                     .as_mut()
                     .expect("active scope")
                     .reentrant
@@ -292,7 +310,12 @@ impl TranslationState {
             }
             return Ok(reference);
         }
-        scope.active.insert(term.clone());
+        self.scopes[home]
+            .domains
+            .as_mut()
+            .expect("a domain scope")
+            .active
+            .insert(term.clone());
         let resolved = summary.is_none()
             && (observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original)));
         // The domain is the head's own condition conjoined with every non-`ceil_free` child's
@@ -336,24 +359,18 @@ impl TranslationState {
             Ok(value)
         })();
         self.stated_defined.clear();
-        let scope = self.shared_domains.as_mut().expect("active domain scope");
-        scope.active.remove(term);
-        let value = result?;
-        let reference = if matches!(value, SExpr::Atom(_)) {
-            scope.values.insert(term.clone(), value.clone());
-            value
-        } else {
-            let name = self.fresh_name();
-            let reference = SExpr::atom(name.clone());
-            let scope = self.shared_domains.as_mut().expect("active domain scope");
-            scope.bindings.push((name, value));
-            scope.values.insert(term.clone(), reference.clone());
-            reference
-        };
-        let reentrant = self
-            .shared_domains
+        self.scopes[home]
+            .domains
             .as_mut()
-            .expect("active scope")
+            .expect("active domain scope")
+            .active
+            .remove(term);
+        let value = result?;
+        let reference = self.bind_domain(level, Some(term), value);
+        let reentrant = self.scopes[home]
+            .domains
+            .as_mut()
+            .expect("active domain scope")
             .reentrant
             .remove(term);
         if let Some(placeholder) = reentrant {
@@ -921,6 +938,78 @@ mod tests {
             .filter(|d| d.starts_with("(declare-fun") && d.ends_with(" Bool)"))
             .map(String::as_str)
             .collect()
+    }
+
+    /// GAP K23: a node whose variables no quantifier binds is named once, in the scope of its
+    /// own variables, however many binders read it. In `\exists Y. (f(X) = Y /\ \exists Z.
+    /// f(X) = Z)` the value and the domain of `f(X)` mention neither `Y` nor `Z`, so each is one
+    /// `let` outside both quantifiers, which both bodies read: a `let` is visible in its scope,
+    /// and a term without the bound variable denotes the same inside the binder and outside.
+    /// The domain function is then applied at one point outside every quantifier, so it is a
+    /// constant ([`a_domain_applied_at_one_point_is_a_constant`]).
+    #[test]
+    fn a_node_read_under_nested_binders_is_named_once_in_the_scope_of_its_variables() {
+        let definition = definition();
+        let term = |source: &str| {
+            definition
+                .internalize_term(
+                    &k_rust_kore::kore::parser::parse_pattern(source).unwrap(),
+                    &[],
+                )
+                .unwrap()
+        };
+        let int = crate::term::Sort::simple("SortInt");
+        let y = crate::term::Variable::new("Y", int);
+        let z = crate::term::Variable::new("Z", int);
+        let value = term("f{}(X:SortInt{})");
+        let inner = Predicate::Exists(
+            z.clone(),
+            Arc::new(Predicate::Equals(value.clone(), Term::variable(z))),
+        );
+        let outer = Predicate::Exists(
+            y.clone(),
+            Arc::new(Predicate::And(
+                vec![Predicate::Equals(value, Term::variable(y)), inner].into(),
+            )),
+        );
+        let (declarations, _, checked) = seeded_domain_query(&definition, &[outer], |_| {});
+        let [domain] = domain_declarations(&declarations)[..] else {
+            panic!("one domain declaration: {declarations:?}");
+        };
+        assert!(domain.ends_with(" () Bool)"), "{domain}");
+        let parsed = SExpr::parse(&checked).unwrap();
+        fn lets(expression: &SExpr, names: &mut Vec<String>) {
+            if let SExpr::List(items) = expression {
+                if let [SExpr::Atom(head), SExpr::List(bindings), _] = items.as_slice()
+                    && head == "let"
+                {
+                    for binding in bindings {
+                        if let SExpr::List(pair) = binding
+                            && let [SExpr::Atom(name), _] = pair.as_slice()
+                        {
+                            names.push(name.clone());
+                        }
+                    }
+                }
+                for item in items {
+                    lets(item, names);
+                }
+            }
+        }
+        let mut names = Vec::new();
+        lets(&parsed, &mut names);
+        assert_eq!(names.len(), 2, "one value and one domain let: {checked}");
+        let SExpr::List(conjunction) = &parsed else {
+            panic!("a checked conjunction: {checked}");
+        };
+        let [_, SExpr::List(conjunct)] = conjunction.as_slice() else {
+            panic!("one checked conjunct: {checked}");
+        };
+        assert_eq!(
+            conjunct.first(),
+            Some(&SExpr::atom("let")),
+            "the lets enclose the quantifiers: {checked}"
+        );
     }
 
     /// A domain function applied at a single point outside every quantifier is a Boolean

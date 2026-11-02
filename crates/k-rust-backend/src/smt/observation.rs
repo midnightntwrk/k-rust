@@ -145,17 +145,7 @@ impl TranslationState {
             ),
         };
         let value = if matches!(value, SExpr::List(_)) {
-            if self.shared_terms.is_some() {
-                let name = self.fresh_name();
-                self.shared_terms
-                    .as_mut()
-                    .expect("value scope")
-                    .bindings
-                    .push((name.clone(), value));
-                SExpr::atom(name)
-            } else {
-                value
-            }
+            self.bind_value(0, None, value)
         } else {
             value
         };
@@ -200,13 +190,7 @@ impl TranslationState {
             ),
         };
         let value = if matches!(value, SExpr::List(_)) {
-            let name = self.fresh_name();
-            self.shared_domains
-                .as_mut()
-                .expect("domain scope")
-                .bindings
-                .push((name.clone(), value));
-            SExpr::atom(name)
+            self.bind_domain(0, None, value)
         } else {
             value
         };
@@ -974,6 +958,10 @@ mod tests {
             .unwrap()
     }
 
+    /// The map-match guards of a nested key have a witness per image, so every domain and value
+    /// of the key's source operands is read under several binders. Each is named once, in the
+    /// scope of its own variables (GAP K23, `LetScope`): the query at depth 3 is 46.6 kB, 67.4
+    /// kB when every binder named its own copy, and the bound sits between the two.
     #[cfg(feature = "z3")]
     #[test]
     fn nested_typed_key_reads_share_source_facts_across_image_witnesses() {
@@ -1022,8 +1010,8 @@ mod tests {
             let bytes = query.base().len() + query.checked().to_string().len();
             eprintln!("nested typed map key depth {depth}: {bytes} bytes");
             assert!(
-                bytes < 1024 * 1024,
-                "source facts must be shared, depth {depth}: {bytes} bytes"
+                bytes < 56 * 1024,
+                "source facts and binder-free nodes must be shared, depth {depth}: {bytes} bytes"
             );
             assert_eq!(
                 solver

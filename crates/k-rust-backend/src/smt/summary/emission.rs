@@ -13,9 +13,7 @@ use super::{Atom, Catalog, Decision, Reading, Summary};
 use crate::{
     definition::BackendDefinition,
     rule::Predicate,
-    smt::{
-        Exactness, SExpr, SharedTerms, TranslationError, TranslationState, prelude_smt_sort, word,
-    },
+    smt::{Exactness, SExpr, TranslationError, TranslationState, prelude_smt_sort, word},
     stop::{self, Stoppable},
     substitution::Substitution,
     term::{SymbolType, Term, TermKind},
@@ -272,7 +270,14 @@ fn emit(
         ]));
         state.bound_variables.push((parameter.clone(), name));
     }
-    state.shared_terms = Some(SharedTerms::default());
+    // The parameters have no scope of their own: `term_level` puts a node that mentions them at
+    // level 0, which is this scope only while the stack is empty (emission runs at preparation,
+    // before any query is translated).
+    debug_assert!(
+        state.scopes.is_empty(),
+        "summary body scope opened inside another scope"
+    );
+    state.open_scope(None, false, true);
     let mut body = Body {
         state,
         decisions: FxHashMap::default(),
@@ -293,7 +298,7 @@ fn emit(
     } else {
         None
     };
-    let scope = state.shared_terms.take().expect("summary body scope");
+    let scope = state.close_scope(None).terms.expect("summary body scope");
     state.bound_variables.truncate(previous_bound);
     let exactness = state.exactness;
     state.exactness = previous_exactness.and(exactness);

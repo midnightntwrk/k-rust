@@ -310,9 +310,8 @@ impl CongruenceHead {
     }
 }
 
-/// A lexical value-sharing scope for a term, generated function or observation predicate.
-/// Parents refer to let-bound values; the scope stays inside the current quantifiers and
-/// outside any domain lets that read its values.
+/// The value `let`s of one lexical scope (`LetScope`). Parents refer to let-bound values; the
+/// value lets of a scope are bound outside its domain lets, which may read them.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct SharedTerms {
     values: FxHashMap<Term, SExpr>,
@@ -322,6 +321,49 @@ struct SharedTerms {
 impl SharedTerms {
     fn bind(&self, body: SExpr) -> SExpr {
         bind_shared(&self.bindings, body)
+    }
+}
+
+/// One lexical scope of shared `let`s: a root predicate's or term's (`variable` is `None`), or
+/// a quantifier's body, which binds `variable`. The scopes open at a point of the translation
+/// form a stack, outermost first, and the expression being built lies inside all of them.
+///
+/// A `let` is visible in its scope, and an SMT term that mentions no variable a quantifier
+/// binds denotes the same inside the quantifier and outside it. So the domain or value of a
+/// node is bound in the outermost scope where both its meaning and its text are available: no
+/// scope above it binds a variable of the node (`TranslationState::term_level`), and its text
+/// names no `let` or bound variable of a scope above it (`TranslationState::text_level`). The
+/// node is then named once for every binder below that scope that reads it, rather than once
+/// per binder. A scope's bindings are emitted when it closes, values outside domains, and only
+/// those its body needs (`bind_shared`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LetScope {
+    variable: Option<Variable>,
+    domains: Option<functional::SharedDomains>,
+    terms: Option<SharedTerms>,
+}
+
+impl LetScope {
+    fn bind(&self, mut body: SExpr) -> SExpr {
+        if let Some(domains) = &self.domains {
+            body = domains.bind(body);
+        }
+        if let Some(terms) = &self.terms {
+            body = terms.bind(body);
+        }
+        body
+    }
+
+    /// The SMT names this scope introduces: its bound variable's and its lets'.
+    fn names(&self) -> impl Iterator<Item = &String> {
+        self.domains
+            .iter()
+            .flat_map(|domains| domains.bindings.iter().map(|(name, _)| name))
+            .chain(
+                self.terms
+                    .iter()
+                    .flat_map(|terms| terms.bindings.iter().map(|(name, _)| name)),
+            )
     }
 }
 
@@ -389,9 +431,12 @@ pub struct TranslationState {
     #[cfg(any(feature = "z3", test))]
     summary_case_budget: usize,
     domain_facts: Vec<SExpr>,
-    shared_domains: Option<functional::SharedDomains>,
+    /// The open `let` scopes, outermost first (`LetScope`).
+    scopes: Vec<LetScope>,
+    /// The scope index of each `let` name and bound variable name of an open scope, which a
+    /// text referring to it must lie inside (`text_level`).
+    name_levels: FxHashMap<String, usize>,
     eligible_operands: FxHashMap<Term, bool>,
-    shared_terms: Option<SharedTerms>,
     word_predicates: BTreeMap<Predicate, SExpr>,
     word_demands: BTreeSet<Predicate>,
     #[cfg(any(feature = "z3", test))]
@@ -476,9 +521,9 @@ impl TranslationState {
             #[cfg(any(feature = "z3", test))]
             summary_case_budget: 256,
             domain_facts: Vec::new(),
-            shared_domains: None,
+            scopes: Vec::new(),
+            name_levels: FxHashMap::default(),
             eligible_operands: FxHashMap::default(),
-            shared_terms: None,
             word_predicates: BTreeMap::new(),
             word_demands: BTreeSet::new(),
             #[cfg(any(feature = "z3", test))]
@@ -563,15 +608,7 @@ impl TranslationState {
                 self.derived_definitions.push(definition);
             }
         }
-        let close = |state: &Self, mut expression: SExpr| {
-            if let Some(scope) = &state.shared_domains {
-                expression = scope.bind(expression);
-            }
-            if let Some(scope) = &state.shared_terms {
-                expression = scope.bind(expression);
-            }
-            expression
-        };
+        let close = |state: &Self, expression: SExpr| state.close_scopes(expression);
         let base = close(self, base);
         let exponent = close(self, exponent);
         let mentioned = smt_variables(&base)
@@ -760,13 +797,8 @@ impl TranslationState {
     }
 
     /// `fact` closed where it was derived, as `record_source_fact` asserts it.
-    fn close_source_fact(&mut self, mut fact: SExpr) -> Result<SExpr, TranslationError> {
-        if let Some(scope) = &self.shared_domains {
-            fact = scope.bind(fact);
-        }
-        if let Some(scope) = &self.shared_terms {
-            fact = scope.bind(fact);
-        }
+    fn close_source_fact(&mut self, fact: SExpr) -> Result<SExpr, TranslationError> {
+        let mut fact = self.close_scopes(fact);
         let mentioned = smt_variables(&fact)
             .into_iter()
             .map(str::to_owned)
@@ -786,6 +818,152 @@ impl TranslationState {
             ]);
         }
         Ok(fact)
+    }
+
+    /// `expression`, translated at this point, inside the bindings of every open scope it needs,
+    /// innermost first, so that it can be asserted on its own.
+    fn close_scopes(&self, expression: SExpr) -> SExpr {
+        self.scopes
+            .iter()
+            .rev()
+            .fold(expression, |expression, scope| scope.bind(expression))
+    }
+
+    /// Open a scope, whose quantifier binds `variable` (named `name`) unless it is a root.
+    fn open_scope(&mut self, variable: Option<(Variable, String)>, domains: bool, terms: bool) {
+        let level = self.scopes.len();
+        if let Some((_, name)) = &variable {
+            self.name_levels.insert(name.clone(), level);
+        }
+        self.scopes.push(LetScope {
+            variable: variable.map(|(variable, _)| variable),
+            domains: domains.then(functional::SharedDomains::default),
+            terms: terms.then(SharedTerms::default),
+        });
+    }
+
+    /// Close the innermost scope; its names are no longer visible. The scope is returned for
+    /// its bindings.
+    fn close_scope(&mut self, name: Option<&str>) -> LetScope {
+        let scope = self.scopes.pop().expect("an open let scope");
+        for binding in scope.names() {
+            self.name_levels.remove(binding);
+        }
+        if let Some(name) = name {
+            self.name_levels.remove(name);
+        }
+        scope
+    }
+
+    /// The innermost open scope whose quantifier binds a variable of `term`, or 0: `term`
+    /// denotes the same in that scope and in every scope inside it, and only there (a scope
+    /// further out does not bind that variable, or binds another variable of the same name).
+    fn term_level(&self, term: &Term) -> usize {
+        if self.bound_variables.is_empty() {
+            return 0;
+        }
+        let variables = &term.attributes().variables;
+        self.scopes
+            .iter()
+            .rposition(|scope| {
+                scope
+                    .variable
+                    .as_ref()
+                    .is_some_and(|variable| variables.contains(variable))
+            })
+            .unwrap_or(0)
+    }
+
+    /// The innermost open scope that introduces a name `expression` mentions (a `let` or a
+    /// bound variable), or 0: `expression` can be bound in that scope or any scope inside it.
+    fn text_level(&self, expression: &SExpr) -> usize {
+        fn walk(expression: &SExpr, levels: &FxHashMap<String, usize>, level: &mut usize) {
+            match expression {
+                SExpr::Atom(atom) => {
+                    if atom.starts_with("SMT-")
+                        && let Some(&found) = levels.get(atom.as_str())
+                    {
+                        *level = (*level).max(found);
+                    }
+                }
+                SExpr::List(items) => {
+                    for item in items {
+                        walk(item, levels, level);
+                    }
+                }
+            }
+        }
+        let mut level = 0;
+        if !self.name_levels.is_empty() {
+            walk(expression, &self.name_levels, &mut level);
+        }
+        level
+    }
+
+    /// The outermost open scope at or inside `level` that holds domain lets.
+    fn domain_scope_at(&self, level: usize) -> Option<usize> {
+        (level..self.scopes.len()).find(|&index| self.scopes[index].domains.is_some())
+    }
+
+    /// The outermost open scope at or inside `level` that holds value lets.
+    fn term_scope_at(&self, level: usize) -> Option<usize> {
+        (level..self.scopes.len()).find(|&index| self.scopes[index].terms.is_some())
+    }
+
+    fn has_domain_scope(&self) -> bool {
+        self.scopes.iter().any(|scope| scope.domains.is_some())
+    }
+
+    fn has_term_scope(&self) -> bool {
+        self.scopes.iter().any(|scope| scope.terms.is_some())
+    }
+
+    /// Bind `value` to a fresh name in the outermost value scope at or inside `level` and the
+    /// scopes its text needs, memoized there for `term` when given; `value` itself when no such
+    /// scope is open.
+    fn bind_value(&mut self, level: usize, term: Option<&Term>, value: SExpr) -> SExpr {
+        let Some(level) = self.term_scope_at(level.max(self.text_level(&value))) else {
+            return value;
+        };
+        let name = self.fresh_name();
+        let reference = SExpr::atom(name.clone());
+        self.name_levels.insert(name.clone(), level);
+        let scope = self.scopes[level].terms.as_mut().expect("a value scope");
+        scope.bindings.push((name, value));
+        if let Some(term) = term {
+            scope.values.insert(term.clone(), reference.clone());
+        }
+        reference
+    }
+
+    /// Bind `value` to a fresh name in the outermost domain scope at or inside `level` and the
+    /// scopes its text needs, as [`Self::bind_value`]; an atom is memoized as itself.
+    fn bind_domain(&mut self, level: usize, term: Option<&Term>, value: SExpr) -> SExpr {
+        let level = self
+            .domain_scope_at(level.max(self.text_level(&value)))
+            .expect("a domain scope");
+        let reference = if matches!(value, SExpr::Atom(_)) {
+            value
+        } else {
+            let name = self.fresh_name();
+            self.name_levels.insert(name.clone(), level);
+            self.scopes[level]
+                .domains
+                .as_mut()
+                .expect("a domain scope")
+                .bindings
+                .push((name.clone(), value));
+            SExpr::atom(name)
+        };
+        if let Some(term) = term {
+            self.scopes[level]
+                .domains
+                .as_mut()
+                .expect("a domain scope")
+                .values
+                .insert(term.clone(), reference.clone());
+        }
+        reference
     }
 
     /// Only visible binders used by a source consequence distinguish its instantiation.
@@ -810,34 +988,33 @@ impl TranslationState {
         self.foreign_text = true;
     }
 
-    /// Share operands in the active lexical value scope, preventing a small term DAG from
-    /// expanding into an exponential script. Observation predicates own their value scope
-    /// so that domain lets cannot outlive the values they read.
+    /// Share operands in the value scope of their own variables (`LetScope`), preventing a small
+    /// term DAG from expanding into an exponential script. Observation predicates own their
+    /// value scope so that domain lets cannot outlive the values they read.
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         if self.congruence.is_none()
-            || (self.shared_terms.is_none() && self.congruence_head(term).is_none())
+            || (!self.has_term_scope() && self.congruence_head(term).is_none())
         {
             return self.translate_term_node(term);
         }
-        let root = self.shared_terms.is_none();
+        let root = !self.has_term_scope();
         if root {
-            self.shared_terms = Some(SharedTerms::default());
+            self.open_scope(None, false, true);
         }
-        let cached = self
-            .shared_terms
-            .as_ref()
-            .and_then(|scope| scope.values.get(term))
-            .cloned();
+        // A value memoized in a scope at or inside the node's own level denotes the node here.
+        let level = self.term_level(term);
+        let cached = (level..self.scopes.len()).rev().find_map(|index| {
+            self.scopes[index]
+                .terms
+                .as_ref()
+                .and_then(|scope| scope.values.get(term))
+                .cloned()
+        });
         let result = match cached {
             Some(value) => Ok(value),
             None => self.translate_term_node(term).map(|value| {
                 if !root && matches!(value, SExpr::List(_)) {
-                    let name = self.fresh_name();
-                    let reference = SExpr::atom(name.clone());
-                    let scope = self.shared_terms.as_mut().expect("active term scope");
-                    scope.bindings.push((name, value));
-                    scope.values.insert(term.clone(), reference.clone());
-                    reference
+                    self.bind_value(level, Some(term), value)
                 } else {
                     value
                 }
@@ -846,7 +1023,7 @@ impl TranslationState {
         if !root {
             return result;
         }
-        let scope = self.shared_terms.take().expect("root term scope");
+        let scope = self.close_scope(None);
         result.map(|body| scope.bind(body))
     }
 
@@ -1249,26 +1426,17 @@ impl TranslationState {
         &mut self,
         predicate: &Predicate,
     ) -> Result<SExpr, TranslationError> {
-        let root = self.shared_domains.is_none();
+        let root = !self.has_domain_scope();
         // Source domain links may read exact value operands too. Keep one lexical
         // value scope for every definition-aware predicate so those links preserve
         // shared input DAGs and their domain lets can refer to the value bindings.
-        let value_root = root && self.shared_terms.is_none() && self.congruence.is_some();
-        if value_root {
-            self.shared_terms = Some(SharedTerms::default());
-        }
+        let value_root = root && !self.has_term_scope() && self.congruence.is_some();
         if root {
-            self.shared_domains = Some(functional::SharedDomains::default());
+            self.open_scope(None, true, value_root);
         }
         let result = self.translate_predicate_node(predicate);
-        let result = if root {
-            let scope = self.shared_domains.take().expect("root domain scope");
-            result.map(|body| scope.bind(body))
-        } else {
-            result
-        };
-        if value_root {
-            let scope = self.shared_terms.take().expect("predicate value scope");
+        if root {
+            let scope = self.close_scope(None);
             return result.map(|body| scope.bind(body));
         }
         result
@@ -1530,9 +1698,14 @@ impl TranslationState {
         let variable_name = self.fresh_name();
         self.bound_variables
             .push((variable.clone(), variable_name.clone()));
-        // Domain let bindings referring to this variable must stay inside its quantifier.
-        let outside_domains = self.shared_domains.take();
-        let outside_values = self.shared_terms.take();
+        // The body's scope: lets of the nodes that mention the variable stay inside the
+        // quantifier, the others go to the scope of their own variables outside it (`LetScope`).
+        let congruence = self.congruence.is_some();
+        self.open_scope(
+            Some((variable.clone(), variable_name.clone())),
+            true,
+            congruence,
+        );
         // A term stated defined outside that mentions the variable is about the variable of
         // that name outside, not the one this binds.
         let outside_stated = self.stated_defined.clone();
@@ -1540,8 +1713,8 @@ impl TranslationState {
             .retain(|term| !term.attributes().variables.contains(variable));
         let body = self.translate_predicate(body);
         self.stated_defined = outside_stated;
-        self.shared_domains = outside_domains;
-        self.shared_terms = outside_values;
+        let scope = self.close_scope(Some(&variable_name));
+        let body = body.map(|body| scope.bind(body));
         self.bound_variables.pop();
         Ok(SExpr::List(vec![
             SExpr::atom(quantifier),

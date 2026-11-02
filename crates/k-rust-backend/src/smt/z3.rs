@@ -55,7 +55,7 @@
 //!
 //! [[cost]]
 //! mode = "atom domains in the translation"
-//! bound = "Each atom's operands carry their domains (GAP K15): a ceil_free operand costs one stored-bit read and adds nothing; any other is read through the per-node domain memo of its predicate's lexical scope, one let per distinct non-ceil_free node per scope, each of size 1 + arity + its own condition (a domain-function application, an opaque atom, or a ceil-equation instance over argument references). An operand stated defined by a sibling ceil conjunct, a known ceil, or as a child within its parent's domain adds nothing. Preparation plans each distinct node once within its 16384-work budget. A quantifier's body has its own scope, so a closed operand's domain is repeated once per binder scope, as its value is. Decided-domain links to a head's domain function are asserted only when the query reads that function as an undecided domain."
+//! bound = "Each atom's operands carry their domains (GAP K15): a ceil_free operand costs one stored-bit read and adds nothing; any other is read through the per-node domain memo of its predicate's lexical scope, one let per distinct non-ceil_free node per scope, each of size 1 + arity + its own condition (a domain-function application, an opaque atom, or a ceil-equation instance over argument references). An operand stated defined by a sibling ceil conjunct, a known ceil, or as a child within its parent's domain adds nothing. Preparation plans each distinct node once within its 16384-work budget. A quantifier's body has its own scope, which holds the domains and values of the nodes that mention its variable; any other node is named once, in the scope of its own variables, however many binders read it (GAP K23). Decided-domain links to a head's domain function are asserted only when the query reads that function as an undecided domain."
 //!
 //! [[cost]]
 //! mode = "positive map-context sufficient proof"
@@ -3363,6 +3363,196 @@ mod tests {
             ),
             Ok(Ok(Validity::Valid))
         );
+    }
+
+    /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
+    /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
+    /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so
+    /// it is not the outer node's value: the formula says that `half` is defined everywhere and
+    /// constant, which its `smt-hook` (`div`) is not, so it is unsatisfiable. Reading the
+    /// inner `half(X)` as the outer one's `let` would make the `\forall` hold of every `Y` equal
+    /// to `half(X)`, a satisfiable formula.
+    #[test]
+    fn a_node_under_a_binder_that_rebinds_its_variable_is_not_the_outer_node() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = crate::term::Sort::simple("SortInt");
+        let x = crate::term::Variable::new("X", int);
+        let y = crate::term::Variable::new("Y", int);
+        let half = term(&definition, "half{}(X:SortInt{})");
+        let y_term = crate::term::Term::variable(y.clone());
+        let formula = Predicate::Exists(
+            y,
+            std::sync::Arc::new(Predicate::And(
+                vec![
+                    Predicate::Equals(half.clone(), y_term.clone()),
+                    Predicate::Forall(x, std::sync::Arc::new(Predicate::Equals(half, y_term))),
+                ]
+                .into(),
+            )),
+        );
+        assert_eq!(
+            solver.is_sat(&[formula], &Substitution::new()),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+    }
+
+    /// GAP K23 review: a hoisted `let` keeps the meaning of its node across every binder. Each
+    /// case is a formula whose satisfiability does not depend on `let` placement, decided by
+    /// what `half` (`div` by 2, total) and `sdiv` (`div`, defined at a nonzero divisor by its
+    /// `\ceil` equation) denote. The cases bind the same variable twice on one path (`p1`,
+    /// `p1b`, `p2`, `p4`, `p6`, `p7`): a node made under the outer binder and read again under
+    /// the inner one denotes another value there, so it may reuse only a `let` from a scope at
+    /// or inside the innermost binder of its variables. Reusing one from the outer binder's
+    /// scope (the outermost binder, not the innermost) reads `\forall X. half(X) = 1` as
+    /// `half(X) = 1` of the outer `X`: `p1`, `p2`, `p6`, `p7` become Sat and `p1b` Unsat.
+    /// `p3`, `p3b` rebind a free variable, a domain read through the `\ceil` equation; `p5`
+    /// hoists a node across a binder of another variable (sound: `N` does not occur in it);
+    /// `p7` puts an unrelated binder between the two binders of `X`. Both directions are
+    /// pinned: a capture turns a Sat case Unsat (`p1b`, `p3b`) as well as an Unsat one Sat.
+    #[test]
+    fn hoisted_lets_keep_their_meaning_under_binders_that_rebind_their_variables() {
+        use std::sync::Arc;
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+                hooked-symbol sdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+                    \ceil{SortInt{}, Q}(sdiv{}(I:SortInt{}, J:SortInt{})),
+                    \and{Q}(\equals{SortBool{}, Q}(neInt{}(J:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
+                      \top{Q}()))) [simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = crate::term::Sort::simple("SortInt");
+        let v = |name: &str| crate::term::Variable::new(name, int);
+        let t = |source: &str| term(&definition, source);
+        let lit = |n: &str| t(&format!("\\dv{{SortInt{{}}}}(\"{n}\")"));
+        let n = t("N:SortInt{}");
+        let and = |ps: Vec<Predicate>| Predicate::And(ps.into());
+        let ex = |name: &str, p: Predicate| Predicate::Exists(v(name), Arc::new(p));
+        let all = |name: &str, p: Predicate| Predicate::Forall(v(name), Arc::new(p));
+        let not = |p: Predicate| Predicate::Not(Arc::new(p));
+        let eq =
+            |a: &crate::term::Term, b: &crate::term::Term| Predicate::Equals(a.clone(), b.clone());
+        let ceil = |a: &crate::term::Term| Predicate::Ceil(a.clone());
+        let half_x = t("half{}(X:SortInt{})");
+        let div_1y = t("sdiv{}(\\dv{SortInt{}}(\"1\"), Y:SortInt{})");
+        let div_xy = t("sdiv{}(X:SortInt{}, Y:SortInt{})");
+        let cases: Vec<(&str, Predicate, Satisfiability)> = vec![
+            // A value, X bound twice: \exists X. (half(X) = 1 /\ \forall X. half(X) = 1).
+            (
+                "p1",
+                ex(
+                    "X",
+                    and(vec![
+                        eq(&half_x, &lit("1")),
+                        all("X", eq(&half_x, &lit("1"))),
+                    ]),
+                ),
+                Satisfiability::Unsat,
+            ),
+            // The other direction: \exists X. (half(X) = 1 /\ \exists X. half(X) = 2).
+            (
+                "p1b",
+                ex(
+                    "X",
+                    and(vec![
+                        eq(&half_x, &lit("1")),
+                        ex("X", eq(&half_x, &lit("2"))),
+                    ]),
+                ),
+                Satisfiability::Sat,
+            ),
+            // A domain, Y bound twice: \exists Y. (\ceil(1 sdiv Y) /\ \forall Y. \ceil(1 sdiv Y)).
+            (
+                "p2",
+                ex("Y", and(vec![ceil(&div_1y), all("Y", ceil(&div_1y))])),
+                Satisfiability::Unsat,
+            ),
+            // A domain, Y free outside: \ceil(1 sdiv Y) /\ \forall Y. \ceil(1 sdiv Y).
+            (
+                "p3",
+                and(vec![ceil(&div_1y), all("Y", ceil(&div_1y))]),
+                Satisfiability::Unsat,
+            ),
+            // The other direction: \not\ceil(1 sdiv Y) /\ \exists Y. \ceil(1 sdiv Y).
+            (
+                "p3b",
+                and(vec![not(ceil(&div_1y)), ex("Y", ceil(&div_1y))]),
+                Satisfiability::Sat,
+            ),
+            // An atom's operand domain, Y bound twice:
+            // \exists Y. (1 sdiv Y = 1 /\ \forall Y. \not(1 sdiv Y = 1)).
+            (
+                "p4",
+                ex(
+                    "Y",
+                    and(vec![
+                        eq(&div_1y, &lit("1")),
+                        all("Y", not(eq(&div_1y, &lit("1")))),
+                    ]),
+                ),
+                Satisfiability::Unsat,
+            ),
+            // Hoisted across a binder of another variable:
+            // \ceil(X sdiv Y) /\ \forall N. \not(X sdiv Y = N).
+            (
+                "p5",
+                and(vec![ceil(&div_xy), all("N", not(eq(&div_xy, &n)))]),
+                Satisfiability::Unsat,
+            ),
+            // Two variables, one rebound: \exists Y. (X sdiv Y = half(X) /\ \forall X. X sdiv Y = 0).
+            (
+                "p6",
+                ex(
+                    "Y",
+                    and(vec![eq(&div_xy, &half_x), all("X", eq(&div_xy, &lit("0")))]),
+                ),
+                Satisfiability::Unsat,
+            ),
+            // Three levels, the middle binder unrelated:
+            // \exists X. (half(X) = 1 /\ \exists N. (N = half(X) /\ \forall X. half(X) = N)).
+            (
+                "p7",
+                ex(
+                    "X",
+                    and(vec![
+                        eq(&half_x, &lit("1")),
+                        ex("N", and(vec![eq(&n, &half_x), all("X", eq(&half_x, &n))])),
+                    ]),
+                ),
+                Satisfiability::Unsat,
+            ),
+        ];
+        let failures: Vec<String> = cases
+            .into_iter()
+            .filter_map(|(name, formula, expected)| {
+                let got = solver.is_sat(&[formula], &Substitution::new());
+                (got != Ok(Ok(expected.clone())))
+                    .then(|| format!("{name}: expected {expected:?}, got {got:?}"))
+            })
+            .collect();
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 
     /// GAP K22 step 0 (K15's C1b acceptance): a deferred operand that builtin hooks alone show
