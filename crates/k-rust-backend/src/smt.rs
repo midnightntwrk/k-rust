@@ -535,10 +535,14 @@ impl TranslationState {
     /// `b <= -2` the same of `|b|^e` with the sign of the parity); for an integer literal
     /// `b >= 2`, `b^e > b^W` past the last exponent `W` of [`power_window`]
     /// (`b^e = b^(e-W) * b^W >= 2 * b^W`); and, for two powers of one integer literal `b`, their
-    /// quotient `b^e2 = b^(e2-e1) * b^e1` for `0 <= e1 <= e2` (the power of a sum; a product whose
-    /// factor `b^(e2-e1)` is a numeral wherever the query fixes the difference in the window, as
-    /// `b^(8N+8) = 256 * b^(8N)`), and, for `b >= 2`, the growth `b * b^e1 <= b^e2` for
-    /// `0 <= e1 < e2` (that quotient, with `b^(e2-e1) >= b`). Each is a ground instance
+    /// quotient `b^(e1+k) = b^k * b^e1` for `e1 >= 0` (the power of a sum), where the exponents
+    /// differ by an integer `k >= 0` whatever their operands denote ([`exponent_difference`]) and
+    /// `b^k` is a numeral of the window, as `b^(8N+8) = 256 * b^(8N)`, and, for `b >= 2`, their
+    /// order `b * b^e1 <= b^e2` for `0 <= e1 < e2` (`b^e2 = b^(e2-e1) * b^e1` with
+    /// `b^(e2-e1) >= b` and `b^e1 >= 1`). The quotient is not stated at a difference that is
+    /// not such an integer: its factor would be the power at the difference, a fresh reading
+    /// through the window's cases for each pair, which made queries over a few powers of 2 with
+    /// unrelated exponents too slow to decide (GAP K32 review). Each is a ground instance
     /// at powers the query states, the instance an instantiation pattern on those terms would
     /// give, never a quantified axiom: a quantified power axiom in the prelude leaves Z3 unable to
     /// show a model of a query of the definition, one without a power included.
@@ -686,34 +690,39 @@ impl TranslationState {
                 let (v1, v2) = (self.fresh_name(), self.fresh_name());
                 let (e1, e2, p1, p2) = (atom(&first), atom(&second), atom(&v1), atom(&v2));
                 let mut pair = Vec::new();
-                for ((low, low_value), (high, high_value)) in
-                    [((&e1, &p1), (&e2, &p2)), ((&e2, &p2), (&e1, &p1))]
-                {
-                    let product = app("*", vec![numeral.clone(), low_value.clone()]);
-                    let difference = app("-", vec![high.clone(), low.clone()]);
+                // The quotient, where the exponents differ by an integer `k` whatever their
+                // operands' values, and `b^k` is a numeral of the window: `b^(e1 + k)` is
+                // `b^k * b^e1` at `e1 >= 0`, for every base.
+                let difference = exponent_difference(&other, &exponent);
+                let ((low, low_value, high, high_value), quotient) = match &difference {
+                    Some(difference) if difference.sign() == num_bigint::Sign::Minus => {
+                        ((&e2, &p2, &e1, &p1), literal_power(literal, &-difference))
+                    }
+                    Some(difference) => ((&e1, &p1, &e2, &p2), literal_power(literal, difference)),
+                    None => ((&e1, &p1, &e2, &p2), None),
+                };
+                if let Some(quotient) = quotient {
                     pair.push(implies(
-                        app(
-                            "and",
-                            vec![
-                                app(">=", vec![low.clone(), atom("0")]),
-                                app("<=", vec![low.clone(), high.clone()]),
-                            ],
-                        ),
+                        app(">=", vec![low.clone(), atom("0")]),
                         app(
                             "=",
                             vec![
                                 high_value.clone(),
-                                app(
-                                    "*",
-                                    vec![
-                                        power_value(&numeral, &difference, &[]),
-                                        low_value.clone(),
-                                    ],
-                                ),
+                                app("*", vec![integer_sexpr(&quotient), low_value.clone()]),
                             ],
                         ),
                     ));
-                    if growing.is_some() {
+                }
+                // The order, for `b >= 2`: `b * b^e1 <= b^e2` at `0 <= e1 < e2`, since
+                // `b^e2 = b^(e2-e1) * b^e1` with `b^(e2-e1) >= b` and `b^e1 >= 1`. Where the
+                // difference is a known integer it orders the pair one way only.
+                if growing.is_some() {
+                    let orders = match &difference {
+                        Some(difference) if difference.is_zero() => vec![],
+                        Some(_) => vec![(low, low_value, high, high_value)],
+                        None => vec![(&e1, &p1, &e2, &p2), (&e2, &p2, &e1, &p1)],
+                    };
+                    for (low, low_value, high, high_value) in orders {
                         pair.push(implies(
                             app(
                                 "and",
@@ -722,9 +731,18 @@ impl TranslationState {
                                     app("<", vec![low.clone(), high.clone()]),
                                 ],
                             ),
-                            app("<=", vec![product, high_value.clone()]),
+                            app(
+                                "<=",
+                                vec![
+                                    app("*", vec![numeral.clone(), low_value.clone()]),
+                                    high_value.clone(),
+                                ],
+                            ),
                         ));
                     }
+                }
+                if pair.is_empty() {
+                    continue;
                 }
                 self.power_facts.push(let_in(
                     vec![(first, other), (second, exponent.clone())],
@@ -2031,6 +2049,167 @@ fn power_window(base: &BigInt) -> Vec<BigInt> {
     powers
 }
 
+/// `second - first` where it is one integer whatever the values of the operands of the two
+/// closed exponents: both read as linear sums ([`linear_integer`]) whose difference has no
+/// term but its constant. `None` where the difference is not such an integer or is not seen to be.
+fn exponent_difference(first: &SExpr, second: &SExpr) -> Option<BigInt> {
+    let scope = BTreeMap::new();
+    let mut difference = linear_integer(second, &scope)?;
+    let first = linear_integer(first, &scope)?;
+    difference.constant -= first.constant;
+    for (term, coefficient) in first.terms {
+        *difference.terms.entry(term).or_default() -= coefficient;
+    }
+    difference
+        .terms
+        .values()
+        .all(Zero::is_zero)
+        .then_some(difference.constant)
+}
+
+/// An integer expression as `constant + sum of coefficient * term`, each term an atom or an
+/// application that is not linear, keyed by its text.
+#[derive(Clone, Debug, Default)]
+struct LinearInteger {
+    constant: BigInt,
+    terms: BTreeMap<SExpr, BigInt>,
+}
+
+impl LinearInteger {
+    fn scaled(mut self, factor: &BigInt) -> Self {
+        self.constant *= factor;
+        for coefficient in self.terms.values_mut() {
+            *coefficient *= factor;
+        }
+        self
+    }
+
+    fn add(mut self, other: Self) -> Self {
+        self.constant += other.constant;
+        for (term, coefficient) in other.terms {
+            *self.terms.entry(term).or_default() += coefficient;
+        }
+        self
+    }
+}
+
+/// The linear sum an SMT-LIB integer expression denotes, reading numerals, `+`, `-` (unary and
+/// binary or more), `*` with at most one factor that is not a constant, and `let` (by
+/// substitution, its bindings read in the outer scope); any other application, or an atom no
+/// `let` binds, is a term. `scope` holds the `let`-bound names in reach. `None` where a term
+/// would mention a name of `scope`, whose text alone does not say what it denotes.
+fn linear_integer(
+    expression: &SExpr,
+    scope: &BTreeMap<String, Option<LinearInteger>>,
+) -> Option<LinearInteger> {
+    let term = |expression: &SExpr| {
+        let mut terms = BTreeMap::new();
+        terms.insert(expression.clone(), BigInt::one());
+        LinearInteger {
+            constant: BigInt::zero(),
+            terms,
+        }
+    };
+    match expression {
+        SExpr::Atom(atom) => {
+            if let Some(bound) = scope.get(atom) {
+                return bound.clone();
+            }
+            if !atom.is_empty() && atom.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Some(LinearInteger {
+                    constant: atom.parse().ok()?,
+                    terms: BTreeMap::new(),
+                });
+            }
+            Some(term(expression))
+        }
+        SExpr::List(items) => match items.as_slice() {
+            [SExpr::Atom(head), SExpr::List(bindings), body] if head == "let" => {
+                let mut inner = scope.clone();
+                for binding in bindings {
+                    let SExpr::List(binding) = binding else {
+                        return None;
+                    };
+                    let [SExpr::Atom(name), value] = binding.as_slice() else {
+                        return None;
+                    };
+                    inner.insert(name.clone(), linear_integer(value, scope));
+                }
+                linear_integer(body, &inner)
+            }
+            [SExpr::Atom(head), operands @ ..] if head == "+" && !operands.is_empty() => operands
+                .iter()
+                .try_fold(LinearInteger::default(), |sum, operand| {
+                    Some(sum.add(linear_integer(operand, scope)?))
+                }),
+            [SExpr::Atom(head), operand] if head == "-" => {
+                Some(linear_integer(operand, scope)?.scaled(&-BigInt::one()))
+            }
+            [SExpr::Atom(head), first, rest @ ..] if head == "-" => {
+                rest.iter()
+                    .try_fold(linear_integer(first, scope)?, |difference, operand| {
+                        Some(
+                            difference.add(linear_integer(operand, scope)?.scaled(&-BigInt::one())),
+                        )
+                    })
+            }
+            [SExpr::Atom(head), operands @ ..] if head == "*" && !operands.is_empty() => {
+                let factors = operands
+                    .iter()
+                    .map(|operand| linear_integer(operand, scope))
+                    .collect::<Option<Vec<_>>>()?;
+                let (constants, linear): (Vec<_>, Vec<_>) = factors
+                    .into_iter()
+                    .partition(|factor| factor.terms.values().all(Zero::is_zero));
+                let factor = constants
+                    .iter()
+                    .fold(BigInt::one(), |product, factor| product * &factor.constant);
+                match linear.as_slice() {
+                    [] => Some(LinearInteger {
+                        constant: factor,
+                        terms: BTreeMap::new(),
+                    }),
+                    [single] => Some(single.clone().scaled(&factor)),
+                    _ => opaque(expression, scope).then(|| term(expression)),
+                }
+            }
+            _ => opaque(expression, scope).then(|| term(expression)),
+        },
+    }
+}
+
+/// Whether `expression`'s text names what it denotes in `scope`: it mentions no name `scope`
+/// binds.
+fn opaque(expression: &SExpr, scope: &BTreeMap<String, Option<LinearInteger>>) -> bool {
+    match expression {
+        SExpr::Atom(atom) => !scope.contains_key(atom),
+        SExpr::List(items) => items.iter().all(|item| opaque(item, scope)),
+    }
+}
+
+/// `base^k` for an integer `k >= 0`, where it is a numeral of [`power_window`] (or `base` is 0,
+/// 1 or -1, whose powers are those three): the factor a pair fact of
+/// `TranslationState::record_power` states.
+fn literal_power(base: &BigInt, k: &BigInt) -> Option<BigInt> {
+    let k = usize::try_from(k).ok()?;
+    if base.magnitude() > &num_bigint::BigUint::one() {
+        power_window(base).into_iter().nth(k)
+    } else if base.is_zero() {
+        Some(if k == 0 {
+            BigInt::one()
+        } else {
+            BigInt::zero()
+        })
+    } else {
+        // 1 or -1: the power is the base at an odd exponent and 1 at an even one.
+        Some(if k % 2 == 0 {
+            BigInt::one()
+        } else {
+            base.clone()
+        })
+    }
+}
+
 /// The integer a template operand states as a literal, by itself or as the argument it names:
 /// an atom of digits with an optional leading `-`, or `(- n)`.
 fn integer_literal(operand: &SExpr, arguments: &[SExpr]) -> Option<BigInt> {
@@ -2246,8 +2425,10 @@ pub struct SmtPrelude {
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
     /// The `UNIQUE_ID`s of the `smt-lemma`s the prelude leaves out because a closed formula
-    /// cannot state the domain of an operand of their `requires` ([`dropped_smt_lemmas`]), each
-    /// once (the equations internalized from one axiom share it).
+    /// cannot state the domain of an operand of their `requires` ([`dropped_smt_lemmas`]), or
+    /// because their text applies a function a query defines for itself, the reading of a power of
+    /// an integer literal base with a symbolic exponent (`KRUST-POWER-OF-b`) among them
+    /// (`translate_smt_lemma`); each once (the equations internalized from one axiom share it).
     dropped_lemmas: Vec<String>,
     congruence: Option<Arc<CongruencePolicy>>,
     #[cfg(any(feature = "z3", test))]
@@ -2351,8 +2532,10 @@ impl SmtPrelude {
     }
 
     /// The `UNIQUE_ID`s of the definition's `smt-lemma`s the prelude leaves out: those whose
-    /// `requires` reads an operand whose domain no closed formula states ([`dropped_smt_lemmas`]).
-    /// Leaving out an axiom only weakens what the solver knows.
+    /// `requires` reads an operand whose domain no closed formula states ([`dropped_smt_lemmas`]),
+    /// and those whose text applies a function a query defines for itself, as the reading of a
+    /// power of an integer literal base with a symbolic exponent does (`KRUST-POWER-OF-b`, GAP
+    /// K32) (`translate_smt_lemma`). Leaving out an axiom only weakens what the solver knows.
     pub fn dropped_lemmas(&self) -> &[String] {
         &self.dropped_lemmas
     }
@@ -2829,8 +3012,10 @@ fn left_out_operand(
 /// over the bound variables. A domain that stays the head's domain function, an opaque
 /// `\ceil` atom or a fact beside the domain is a name of one query's translation, which a
 /// prelude cannot mention, as is a term of such a domain's condition that the translation can
-/// only abstract (a function with no SMT reading); such a lemma is left out
-/// ([`dropped_smt_lemmas`]), which only weakens what the solver knows. A term of the
+/// only abstract (a function with no SMT reading), and so is a function the translation defines
+/// for one query (a derived definition, as `KRUST-POWER-OF-b` reads a power of an integer
+/// literal base with a symbolic exponent); such a lemma is left out ([`dropped_smt_lemmas`]),
+/// which only weakens what the solver knows. A term of the
 /// lemma's own text with no SMT reading is the author's, and stays an error
 /// (`TranslationError::SmtLemmaSurplusMappings`). Stating `R` without the domains would assert `l = r` where
 /// `R`'s total reading holds but `R` is `\bottom`.
@@ -4056,6 +4241,39 @@ mod tests {
             translation.power_facts[2]
                 .to_string()
                 .contains("(|KRUST-POWER-OF-2| SMT-")
+        );
+    }
+
+    /// GAP K32 review: two powers' exponents differ by a constant only where their linear sums
+    /// say so, through `let`s read by substitution; a term that is not linear is compared by its
+    /// text only where that text names no `let`-bound name.
+    #[test]
+    fn reads_an_exponent_difference_only_where_it_is_a_constant() {
+        let difference = |first: &str, second: &str| {
+            exponent_difference(
+                &SExpr::parse(first).unwrap(),
+                &SExpr::parse(second).unwrap(),
+            )
+        };
+        let constant = |value: i64| Some(BigInt::from(value));
+        assert_eq!(difference("(* 8 B)", "(* 8 (+ B 1))"), constant(8));
+        assert_eq!(difference("(* 8 (+ B 1))", "(* 8 B)"), constant(-8));
+        assert_eq!(
+            difference("(let ((X (* 8 B))) X)", "(let ((Y (+ B 1))) (* Y 8))"),
+            constant(8)
+        );
+        assert_eq!(
+            difference("(- 256 (* 8 B))", "(- 264 (* 8 B))"),
+            constant(8)
+        );
+        assert_eq!(difference("(+ (div B 2) 3)", "(div B 2)"), constant(-3));
+        assert_eq!(difference("(* B B)", "(+ (* B B) (- 1))"), constant(-1));
+        assert_eq!(difference("B", "C"), None);
+        assert_eq!(difference("(* 8 B)", "(* 4 B)"), None);
+        // `(div X 2)` names a `let`-bound `X`: its text is not what it denotes.
+        assert_eq!(
+            difference("(let ((X B)) (div X 2))", "(let ((X C)) (div X 2))"),
+            None
         );
     }
 

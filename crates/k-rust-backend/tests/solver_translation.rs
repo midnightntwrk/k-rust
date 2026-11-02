@@ -570,41 +570,72 @@ fn unbounded_power_cases() -> Vec<(&'static str, Case)> {
 }
 
 /// Each query of [`unbounded_power_cases`] returns, under the wall clock and under resource units
-/// alone, and with no bound on Z3's memory but the backend's own (`bound_z3_memory` in z3.rs);
-/// its decided answers agree with K truth on the domain. Before GAP K32 the first two ran past
-/// 30 s in both modes, and the last past 30 s under resource units: the translation read each
-/// power as Z3's own, whose evaluation at model values nothing stopped. A regression hangs here.
+/// alone, within [`POWER_QUERY_WATCHDOG`] (each took 0.01-0.04 s when GAP K32 landed); its decided
+/// answers agree with K truth on the domain. Before GAP K32 the first two ran past 30 s in both
+/// modes, and the last past 30 s under resource units: the translation read each power as Z3's
+/// own, whose evaluation at model values nothing stopped. The queries run on a thread of their
+/// own and the test waits for each with a timeout, so a regression fails here, naming the query,
+/// instead of hanging the test binary (the stuck Z3 thread ends with the failing process).
 #[test]
 fn the_symbolic_power_queries_k19_found_return_under_either_bound() {
-    let backend = Backend::new();
-    let stats = Stats::default();
-    let modes = [
-        (
-            "the wall clock",
-            Z3Options {
-                timeout_ms: 100,
-                retry_limit: 0,
-                resource_limit: None,
-            },
-        ),
-        (
-            "resource units",
-            Z3Options {
-                timeout_ms: 100,
-                retry_limit: 1,
-                resource_limit: NonZeroU32::new(500_000),
-            },
-        ),
-    ];
-    for (mode, options) in modes {
-        let solver = Z3Solver::with_options(&backend.definition, options)
-            .expect("the solver loads the definition");
-        for (name, case) in unbounded_power_cases() {
-            let started = std::time::Instant::now();
-            check_case(&backend, &solver, &case, &stats)
-                .unwrap_or_else(|failure| panic!("{mode}, {name}: {failure}"));
-            eprintln!("{mode}, {name}: {:.2} s", started.elapsed().as_secs_f64());
+    /// The wait for one query, far above its measured time and below a hang's.
+    const POWER_QUERY_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(30);
+    enum Progress {
+        Started(String),
+        Returned(String, f64),
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let backend = Backend::new();
+        let stats = Stats::default();
+        let modes = [
+            (
+                "the wall clock",
+                Z3Options {
+                    timeout_ms: 100,
+                    retry_limit: 0,
+                    resource_limit: None,
+                },
+            ),
+            (
+                "resource units",
+                Z3Options {
+                    timeout_ms: 100,
+                    retry_limit: 1,
+                    resource_limit: NonZeroU32::new(500_000),
+                },
+            ),
+        ];
+        for (mode, options) in modes {
+            let solver = Z3Solver::with_options(&backend.definition, options)
+                .expect("the solver loads the definition");
+            for (name, case) in unbounded_power_cases() {
+                let label = format!("{mode}, {name}");
+                let _ = sender.send(Progress::Started(label.clone()));
+                let started = std::time::Instant::now();
+                check_case(&backend, &solver, &case, &stats)
+                    .unwrap_or_else(|failure| panic!("{label}: {failure}"));
+                let _ = sender.send(Progress::Returned(label, started.elapsed().as_secs_f64()));
+            }
+        }
+        eprintln!("{stats}");
+    });
+    let mut running = String::from("loading the solver");
+    loop {
+        match receiver.recv_timeout(POWER_QUERY_WATCHDOG) {
+            Ok(Progress::Started(label)) => running = label,
+            Ok(Progress::Returned(label, seconds)) => {
+                eprintln!("{label}: {seconds:.2} s");
+                running = String::from("loading the solver");
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!(
+                "{running}: no answer within {} s",
+                POWER_QUERY_WATCHDOG.as_secs()
+            ),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
-    eprintln!("{stats}");
+    if let Err(panic) = worker.join() {
+        std::panic::resume_unwind(panic);
+    }
 }
