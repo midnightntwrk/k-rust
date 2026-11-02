@@ -3215,14 +3215,6 @@ deviation = "different"
 finding = "NT-30-2"
 deviation = "different"
 
-# NT-38-1 (K7): an `anywhere` rule whose instance at what it wrote is `t = t` leaves the value it
-# wrote, which the run reaches at once; `krs run` reads that value back as an unreduced call of
-# the anywhere head, since the instance-normality scan counts the trivial instance as applying.
-
-["k7/attrs/local-rule/anywhere on what it writes"]
-finding = "NT-38-1"
-deviation = "another value: k = k[Cmd::Hold(cmdC761ada7a(Cmd::Go(), 0))], where the plan states k = k[Cmd::Hold(Cmd::C761ada7a(Cmd::Go(), 0))]"
-
 # NT-43-2 (K7): a result that builds `Size(x)`, an application of a partial function no equation
 # defines, has no value, so the sentence's next state is undefined (NT-37 D3); K7's run continues
 # with the application as a value. A key `Size(x)` looks nothing up; the run reports two states.

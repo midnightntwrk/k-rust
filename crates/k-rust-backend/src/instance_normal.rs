@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.normality.scan"
 //! name = "memoized instance-normality scan by conservative equation exclusion"
-//! sites = ["BackendDefinition::instance_normal", "BackendDefinition::instance_normal_memoized", "BackendDefinition::instance_normal_uncached", "BackendDefinition::excluded", "BackendDefinition::matching_refutes", "with_scan_memo", "ScanScope", "may_unify", "SyntacticUnifier"]
+//! sites = ["BackendDefinition::instance_normal", "BackendDefinition::instance_normal_memoized", "BackendDefinition::instance_normal_uncached", "BackendDefinition::excluded", "BackendDefinition::matching_refutes", "BackendDefinition::gives_subject_back", "holds_collection", "with_scan_memo", "ScanScope", "may_unify", "SyntacticUnifier"]
 //! variable = "D = distinct terms completed in one outer scan memo; E = immediate-child edges visited; Q = candidate equations examined; P = syntactic unifier pairs popped; B = variable-binding links followed by resolve and occurs, counting repeated visits; V = variable references inspected by occurs; C = structural equality, sort, root-classification and variable-set comparison work"
 //! counters = []
 //! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "equation exclusion"
-//! bound = "one syntactic unifiability test per candidate, then at most one Evaluate-mode match when syntactic unifiability remains possible and the variable sets are disjoint; the test follows bindings without path compression and its occurs walk can revisit a dependency, so B and V are traversal counts, not distinct-variable counts"
+//! bound = "one syntactic unifiability test per candidate, then at most two Evaluate-mode matches (the refutation, then, for a left-hand side without collections whose rule ensures nothing, the match whose substitution instantiates the right-hand side once for the gives-back test) when syntactic unifiability remains possible and the variable sets are disjoint; the test follows bindings without path compression and its occurs walk can revisit a dependency, so B and V are traversal counts, not distinct-variable counts"
 //! ```
 //!
 //! Instance normality: whether every instance of a term is a normal form of the equations.
@@ -41,7 +41,9 @@
 //! - an application of an `anywhere` symbol that is not a declared function is instance-normal
 //!   when its arguments are and every equation the evaluator may apply to it (headed by that
 //!   symbol or by a bare variable, of any priority, `requires` ignored) either does not
-//!   syntactically unify with it or is refuted on it by equation matching. An equation applies
+//!   syntactically unify with it, is refuted on it by equation matching, or gives every instance
+//!   it applies to back unchanged (its instance there is `t = t`, which states nothing more of
+//!   the term, as the evaluator, which ends a lineage at such a step, reads it). An equation applies
 //!   to an instance only if the instance matches the equation's left-hand side, an instance
 //!   matches only if the two terms unify, and a refutation by equation matching holds for every
 //!   instance; ignoring `requires` only makes the test report more applications as possibly
@@ -99,7 +101,7 @@ pub(crate) use token::{InstanceNormal, NormalArguments};
 use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
-    rule::RewriteRule,
+    rule::{RewriteRule, RuleRhs},
     term::{
         Sort, SortNode, Term, TermKind, Variable,
         head::{
@@ -150,10 +152,44 @@ impl BackendDefinition {
     /// overload family. An equation holding a literal whose element the definition leaves open
     /// (`crate::literal`) is never excluded: both tests read its left-hand side with k-rust's
     /// element of the literal.
+    ///
+    /// An equation is also excluded where every instance of the subject it applies to is its own
+    /// result there ([`Self::gives_subject_back`]): such an instance is `t = t`, which states
+    /// nothing more of `t`, so it leaves the instance a normal form, as the evaluator, which
+    /// ends a lineage where an equation gives its subject back, leaves it.
     fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
         rule.computed_attributes.open_literals.is_empty()
             && (!may_unify(self, &rule.lhs, arguments)
-                || self.matching_refutes(&rule.lhs, arguments.subject()))
+                || self.matching_refutes(&rule.lhs, arguments.subject())
+                || self.gives_subject_back(rule, arguments.subject()))
+    }
+
+    /// Whether `rule` gives every instance of `subject` that it applies to back unchanged. It
+    /// holds when equation matching matches the left-hand side to `subject` itself, its
+    /// variables kept as variables, by one substitution, under which the right-hand side is
+    /// `subject`, and the rule `ensures` nothing. An instance `σ(subject)` the left-hand side
+    /// matches is then matched by `σ` after that substitution, and its result is `σ(subject)`.
+    /// The left-hand side must hold no collection, whose matching modulo its axioms can match
+    /// one subject in several ways, so that the substitution is the only match: elsewhere the
+    /// rule is not excluded this way. The `requires` is not read: the rule gives the subject
+    /// back wherever it holds. A result that is the subject only once its arguments are
+    /// evaluated is not recognized, so such an instance still counts as one that applies.
+    fn gives_subject_back(&self, rule: &RewriteRule, subject: &Term) -> bool {
+        let RuleRhs::Term(result) = &rule.rhs else {
+            return false;
+        };
+        rule.ensures.is_empty()
+            && !holds_collection(&rule.lhs)
+            && rule
+                .lhs
+                .attributes()
+                .variables
+                .is_disjoint(&subject.attributes().variables)
+            && matches!(
+                match_terms_in_definition(MatchMode::Evaluate, self, &rule.lhs, subject),
+                MatchResult::Success(substitution)
+                    if crate::substitution::substitute(result, &substitution) == *subject
+            )
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching
@@ -169,6 +205,23 @@ impl BackendDefinition {
                 MatchResult::Failed(_)
             )
     }
+}
+
+/// Whether `term` holds a map, list or set term, a pattern equation matching reads modulo its
+/// collection's axioms.
+fn holds_collection(term: &Term) -> bool {
+    let mut pending = vec![term];
+    // Invariant: every term popped is a subterm of `term`, pushed once by its parent.
+    while let Some(term) = pending.pop() {
+        match term.kind() {
+            TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => return true,
+            TermKind::And(left, right) => pending.extend([left, right]),
+            TermKind::Application { arguments, .. } => pending.extend(arguments),
+            TermKind::Injection { term, .. } => pending.push(term),
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    false
 }
 
 /// Run `body` with one memo of instance normality open across all the
@@ -664,6 +717,59 @@ mod tests {
         assert!(normal(&definition, "wrap{}(s{}(s{}(X:SortNat{})))"));
         assert!(normal(&definition, "wrap{}(z{}())"));
         assert!(!normal(&definition, "wrap{}(f{}(X:SortNat{}))"));
+    }
+
+    /// An equation that gives the subject back excludes nothing: its instance there is `t = t`,
+    /// which leaves `t` a normal form, as the evaluator leaves it. `pair(X, Y) = pair(z, Y)` gives
+    /// every instance of `pair(z, Y)` back, so `pair(z, z)` and `pair(z, W)` are normal, while
+    /// `pair(s(z), z)`, which it rewrites, and `pair(W, z)`, some of whose instances it rewrites,
+    /// are not; `stick(X) = stick(z)` gives back only `stick(z)`.
+    #[test]
+    fn an_equation_that_gives_the_subject_back_leaves_it_normal() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                sort SortAddress{} []
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol pair{}(SortNat{}, SortNat{}) : SortAddress{} [anywhere{}(), functional{}()]
+                symbol stick{}(SortNat{}) : SortAddress{} [anywhere{}(), functional{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortNat{}, R}(X0:SortNat{}, X:SortNat{}),
+                            \and{R}(\in{SortNat{}, R}(X1:SortNat{}, Y:SortNat{}), \top{R}())
+                        )
+                    ),
+                    \equals{SortAddress{}, R}(
+                        pair{}(X0:SortNat{}, X1:SortNat{}),
+                        \and{SortAddress{}}(pair{}(z{}(), Y:SortNat{}), \top{SortAddress{}}())
+                    )
+                ) [anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(\in{SortNat{}, R}(X0:SortNat{}, X:SortNat{}), \top{R}())
+                    ),
+                    \equals{SortAddress{}, R}(
+                        stick{}(X0:SortNat{}),
+                        \and{SortAddress{}}(stick{}(z{}()), \top{SortAddress{}}())
+                    )
+                ) [anywhere{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(normal(&definition, "pair{}(z{}(), z{}())"));
+        assert!(normal(&definition, "pair{}(z{}(), W:SortNat{})"));
+        assert!(!normal(&definition, "pair{}(s{}(z{}()), z{}())"));
+        assert!(!normal(&definition, "pair{}(W:SortNat{}, z{}())"));
+        assert!(normal(&definition, "stick{}(z{}())"));
+        assert!(!normal(&definition, "stick{}(s{}(z{}()))"));
+        assert!(!normal(&definition, "stick{}(W:SortNat{})"));
     }
 
     /// The equation variables are renamed apart from the subject's, and a non-linear pattern
