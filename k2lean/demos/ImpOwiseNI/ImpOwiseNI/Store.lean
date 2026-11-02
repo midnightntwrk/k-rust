@@ -4,35 +4,17 @@ import KImpOwNI.Determinism
 /-! Hand-written: `demos/ImpNI`'s `Store.lean` over kimpowni (kimp with `owise` rules), unchanged
 but for the namespaces.
 
-What the generated relation (`Stack.lean`, `Proof.lean`) needs about kimp's store
-and the labelling beyond the generated `Spec.lean`: the level of an identifier is its label (`lev_id`,
-the checker's equation with a map pattern, which gets no generated inversion lemma), a high
-identifier is not low, a value passes the store's test (`storeOk`'s) and a binding that passes it is
-typed low and confined, and the five per-rule cases that read or write the store (`CALC.var` in `CQ`,
-`SQ`, `SameQ`; `CALC.assign` in `CQ`, `SameQ`). -/
+What the generated relation (`Stack.lean`, `Proof.lean`) needs about kimp's store and the labelling
+beyond the generated `Spec.lean`: a high identifier is not low (an identifier's level is its label,
+`lev_id`, generated in `Levels.lean`), a value passes the store's test (`storeOk`'s) and a binding
+that passes it is typed low and confined, and the five per-rule cases that read or write the store
+(`CALC.var` in `CQ`, `SQ`, `SameQ`; `CALC.assign` in `CQ`, `SameQ`). -/
 
 namespace ImpOwiseNI
 
 open KPrelude
 
 variable {G : Lab}
-
-/-- The level of an identifier: its label. -/
-def levId (G : Lab) (X : KImpOwNI.SortId) : Option Lvl :=
-  if MapHook.wfb G = true then
-    match MapHook.lookup G (KImpSec.SortKItem.inj_Id (tr_SortId X)) with
-    | some (KImpSec.SortKItem.inj_Level L) => some L
-    | _ => none
-  else none
-
-theorem lev_id (G : Lab) (X : KImpOwNI.SortId) : lev G (.inj_Id X) = levId G X := by
-  simp only [lev, levId, k2l_tr]
-  rw [KImpSec.K.«lev(_,_)_IMP-SEC_Level_Expr_Map».eq_def]
-  simp only []
-  by_cases hw : MapHook.wfb G = true
-  · simp only [hw, dite_true, ite_true]
-    split <;> rename_i hl <;> split at hl <;> rename_i hlk <;> (try split at hl) <;> simp_all
-  · simp [hw]
 
 theorem not_low_of_lev {G : Lab} {X : KImpOwNI.SortId} (h : lev G (.inj_Id X) = some .hi) : ¬ Low G X := by
   intro hl; unfold Low at hl; unfold lev at h; rw [hl] at h; cases h

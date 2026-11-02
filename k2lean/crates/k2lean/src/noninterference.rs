@@ -31,6 +31,8 @@
 //! relation is the one above with the observed cells equal in it and unchanged by a confined step,
 //! and the values' facts of `ni_full/` (a rule may leave a value read from a cell).
 
+mod witnesses;
+
 use crate::confluence::{load, proj_def};
 use crate::ir::P;
 use std::collections::{BTreeMap, BTreeSet};
@@ -94,6 +96,9 @@ pub fn main(args: &[String]) {
     // `--store-ok F`: the statement's facts are generated from the two definitions (`spec`), in
     // `NS/Spec.lean`, under fixed names, at the labelling `G` that `--params` binds
     let generated_spec = opt.contains_key("store-ok");
+    if opt.contains_key("witnesses") && !opt.contains_key("checker-kore") {
+        fail("--witnesses needs the relation (--checker-kore): two runs refute its open cases");
+    }
     if generated_spec {
         for k in ["hand-module", "secure", "low-eq", "good", "hi-only"] {
             if opt.contains_key(k) {
@@ -338,6 +343,14 @@ theorem noninterference (O : Obligations {pnames}Rel Sync Left Right) {{P : {nam
             r.hand,
             r.open.len(),
             r.open
+        )
+        .unwrap();
+    }
+    if let Some(r) = rel.as_ref().filter(|r| !r.witnesses.is_empty()) {
+        writeln!(
+            rep,
+            "\n[witnesses]  # programs the checker accepts, two of whose runs leak (`witness.NAME.leaks`), which refute the open cases together (`Open.refuted`)\nnames = {:?}\nopen_refuted_by = {:?}",
+            r.witnesses, r.witnesses[0]
         )
         .unwrap();
     }
@@ -771,53 +784,6 @@ end {ns}\n"
     )
 }
 
-/// One entry of the per-rule cases' list (`--open`): `KIND.«RULE» | hand` (the hand module's),
-/// or `KIND.«RULE»` alone (open), with a comment after `#`; ((kind, rule), by hand).
-fn case_entry(p: &str, l: &str, kinds: &[&str]) -> ((String, String), bool) {
-    // the name ends at the first space or `|` outside `«»` (a rule's name may hold either)
-    let (mut end, mut quoted) = (l.len(), false);
-    for (i, ch) in l.char_indices() {
-        match ch {
-            '«' => quoted = true,
-            '»' => quoted = false,
-            ' ' | '|' if !quoted => {
-                end = i;
-                break;
-            }
-            _ => {}
-        }
-    }
-    let (name, rest) = (&l[..end], l[end..].split('#').next().unwrap().trim());
-    let Some((k, r)) = name.split_once('.').filter(|(k, _)| kinds.contains(k)) else {
-        // the earlier form, `KIND RULE`
-        if kinds.contains(&name) {
-            fail(&format!(
-                "{p}: `{l}`: write `{name}.«{rest}» | hand` (proved in the hand module) or `{name}.«{rest}»` (open)"
-            ));
-        }
-        fail(&format!(
-            "{p}: `{l}` is not `KIND.«RULE»`, KIND one of {}",
-            kinds.join(", ")
-        ));
-    };
-    let r = r
-        .strip_prefix('«')
-        .and_then(|x| x.strip_suffix('»'))
-        .unwrap_or(r)
-        .to_string();
-    let hand = match rest.strip_prefix('|').map(str::trim) {
-        None if rest.is_empty() => false,
-        Some("hand") => true,
-        Some(m) if m.starts_with("refuted") => fail(&format!(
-            "{p}: {name} is marked refuted: a per-rule case is sufficient for the relation, not necessary, so its refutation says nothing of the definition (two runs refute a flow); leave it open"
-        )),
-        _ => fail(&format!(
-            "{p}: `{l}`: a case is `| hand` or open (its name alone)"
-        )),
-    };
-    ((k.to_string(), r), hand)
-}
-
 /// What `relation` generated: its inversion lemmas, and the per-rule cases (three or six per rule)
 /// proved by one tactic, listed as the hand module's, or listed open.
 struct RelationOut {
@@ -826,6 +792,8 @@ struct RelationOut {
     generic: usize,
     hand: Vec<String>,
     open: Vec<String>,
+    /// the witness programs (`--witnesses`), whose two runs refute the open cases together
+    witnesses: Vec<String>,
 }
 
 /// The relation of `--checker-kore` (`k2lean/docs/design.md`, section 3.7): for a two-level
@@ -980,7 +948,21 @@ fn relation(
         .iter()
         .find(|c| c.label == store)
         .unwrap_or_else(|| fail(&format!("no cell <{store}> in the top cell")));
-    let spec_text = store_ok_s.as_ref().map(|f| {
+    // the labelled sort (`lev(X:S, X |-> L _) => L`), with `--store-ok`: `Low`, `levId`, the
+    // witnesses' labellings
+    let key: Option<String> = store_ok_s.as_ref().map(|_| {
+        let key = eqs
+            .get(&lev.sym)
+            .and_then(|es| labelled_sort(es, &b.m.hooks))
+            .unwrap_or_else(|| {
+                fail("--store-ok: no equation of --lev looks its argument up in the labelling (`lev(X:S, X |-> L _) => L`)")
+            });
+        if !a.m.sorts.contains_key(&key) {
+            fail(&format!("--store-ok: the labelled sort {key} is not a sort of the semantics"));
+        }
+        key
+    });
+    let spec_text = store_ok_s.as_ref().zip(key.as_ref()).map(|(f, key)| {
         let d = &a.def.symbols[f];
         if d.args.len() != 1
             || snd::sname(&d.args[0]) != store_cell.content
@@ -991,25 +973,33 @@ fn relation(
                 names::demangle(f)
             ));
         }
-        let key = eqs
-            .get(&lev.sym)
-            .and_then(|es| labelled_sort(es, &b.m.hooks))
-            .unwrap_or_else(|| {
-                fail("--store-ok: no equation of --lev looks its argument up in the labelling (`lev(X:S, X |-> L _) => L`)")
-            });
-        if !a.m.sorts.contains_key(&key) {
-            fail(&format!("--store-ok: the labelled sort {key} is not a sort of the semantics"));
-        }
         spec(&Spec {
             ns,
             na: &na,
-            store_ok: (names::demangle(f), format!("{na}.{}", a.fns[f].lean), snd::short_name(f)),
-            sec: (names::demangle(&sec.sym), sec.lean_b.clone(), ty(&na, &sec.sort), crate::terms::fsuffix(&sec.sort)),
-            lev: (names::demangle(&lev.sym), lev.lean_b.clone(), crate::terms::fsuffix(&lev.sort)),
+            store_ok: (
+                names::demangle(f),
+                format!("{na}.{}", a.fns[f].lean),
+                snd::short_name(f),
+            ),
+            sec: (
+                names::demangle(&sec.sym),
+                sec.lean_b.clone(),
+                ty(&na, &sec.sort),
+                crate::terms::fsuffix(&sec.sort),
+            ),
+            lev: (
+                names::demangle(&lev.sym),
+                lev.lean_b.clone(),
+                crate::terms::fsuffix(&lev.sort),
+            ),
             lo: &lo,
             lab: ty(&nb, &lev.env),
             store: ty(&na, &store_cell.content),
-            key: (ty(&na, &key), cx.leaf_value(&key, "X", &lev.sort), format!("{na}.{}", a.m.leaf_ctor("SortKItem", &key))),
+            key: (
+                ty(&na, key),
+                cx.leaf_value(key, "X", &lev.sort),
+                format!("{na}.{}", a.m.leaf_ctor("SortKItem", key)),
+            ),
         })
     });
     let (cools, hole) = snd::coolings(&a, kpos);
@@ -1153,6 +1143,29 @@ components (its equations at that constructor, in order, then its `owise` value)
             .unwrap();
             inv_names.push(lname);
         }
+    }
+    // the level of an identifier is its label: `--lev`'s equation with a map pattern, which gets
+    // no inversion lemma, read through the labelling's lookup
+    if let Some(key) = &key {
+        writeln!(
+            t,
+            "\n/-- The level of an identifier: its label, when the labelling is well formed. -/\n\
+def levId (G : Lab) (X : {xt}) : Option Lvl :=\n  if MapHook.wfb G = true then\n    \
+match MapHook.lookup G ({nb}.{kc} (tr_{ks} X)) with\n    | some ({nb}.{lc} L) => some L\n    | _ => none\n  else none\n\n\
+/-- `{l}` at an identifier: its label (the checker's equation with a map pattern). -/\n\
+theorem lev_id (G : Lab) (X : {xt}) : {l} G {xe} = levId G X := by\n  simp only [{l}, levId, k2l_tr]\n  \
+rw [{lb}.eq_def]\n  simp only []\n  by_cases hw : MapHook.wfb G = true\n  \
+· simp only [hw, dite_true, ite_true]\n    \
+split <;> rename_i hl <;> split at hl <;> rename_i hlk <;> (try split at hl) <;> simp_all\n  · simp [hw]",
+            xt = ty(&na, key),
+            kc = b.m.leaf_ctor("SortKItem", key),
+            ks = crate::terms::fsuffix(key),
+            lc = b.m.leaf_ctor("SortKItem", &lvl),
+            l = lev.name,
+            xe = cx.leaf_value(key, "X", &lev.sort),
+            lb = lev.lean_b,
+        )
+        .unwrap();
     }
     writeln!(t, "\nend {ns}").unwrap();
 
@@ -1524,7 +1537,10 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(|l| case_entry(p, l, case_kinds))
+            .map(|l| {
+                crate::refuted::case_entry(l, case_kinds, "a per-rule case is sufficient for the relation, not necessary, so its refutation says nothing of the definition (two runs refute a flow)")
+                    .unwrap_or_else(|e| fail(&format!("{p}: {e}")))
+            })
             .collect(),
         None => BTreeMap::new(),
     };
@@ -1927,10 +1943,42 @@ theorem {thm} {ob}{{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : 
         generic6 = g6;
     }
 
+    // refutations by two runs (`--witnesses`): `Witnesses.lean`
+    let witnessed = opt.get("witnesses").map(|wdir| {
+        let (Some(key), Some(f)) = (&key, &store_ok_s) else {
+            fail("--witnesses needs the statement's facts generated (--store-ok)")
+        };
+        if opened.is_empty() {
+            fail(
+                "--witnesses: no per-rule case is open, so the theorem holds and no two runs leak",
+            );
+        }
+        let pgm = get("program-sort");
+        witnesses::emit(&witnesses::Ctx {
+            dir: wdir,
+            a: &a,
+            b: &b,
+            ns,
+            st,
+            key,
+            lvl: &lvl,
+            lo: &lo,
+            pgm: &pgm,
+            topt: &topt,
+            sec: &sec.name,
+            inversions: &inv_names,
+            unfolds: &unfolds,
+            store_ok: &snd::short_name(f),
+            thm: &format!("{}_noninterference", name.to_lowercase()),
+        })
+    });
     let dir = get("out-dir");
     let mut files = vec![("Levels.lean", &t), ("Stack.lean", &s), ("Proof.lean", &p)];
     if let Some(sp) = &spec_text {
         files.push(("Spec.lean", sp));
+    }
+    if let Some((w, _)) = &witnessed {
+        files.push(("Witnesses.lean", w));
     }
     for (f, text) in files {
         let path = std::path::Path::new(&dir).join(f);
@@ -1976,6 +2024,7 @@ theorem {thm} {ob}{{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : 
             .map(|((k, r), _)| format!("{k}.«{r}»"))
             .collect(),
         open: opened.iter().map(|(k, r)| format!("{k}.«{r}»")).collect(),
+        witnesses: witnessed.map(|(_, n)| n).unwrap_or_default(),
     }
 }
 

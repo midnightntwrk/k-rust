@@ -53,6 +53,56 @@ fn marker(line: &str, n: &str) -> Result<Option<Source>, String> {
     }
 }
 
+/// One entry of a list of per-rule cases (noninterference's and refine's `--open`): `KIND.«RULE» |
+/// hand` (the hand module's) or `KIND.«RULE»` alone (open), with a comment after `#`; ((kind,
+/// rule), by hand). A case is never refuted: `why` says what a refutation would speak to.
+pub fn case_entry(l: &str, kinds: &[&str], why: &str) -> Result<((String, String), bool), String> {
+    // the name ends at the first space or `|` outside `«»` (a rule's name may hold either)
+    let (mut end, mut quoted) = (l.len(), false);
+    for (i, ch) in l.char_indices() {
+        match ch {
+            '«' => quoted = true,
+            '»' => quoted = false,
+            ' ' | '|' if !quoted => {
+                end = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let (name, rest) = (&l[..end], l[end..].split('#').next().unwrap().trim());
+    let Some((k, r)) = name.split_once('.').filter(|(k, _)| kinds.contains(k)) else {
+        // the earlier form, `KIND RULE`
+        if kinds.contains(&name) {
+            return Err(format!(
+                "`{l}`: write `{name}.«{rest}» | hand` (proved in the hand module) or `{name}.«{rest}»` (open)"
+            ));
+        }
+        return Err(format!(
+            "`{l}` is not `KIND.«RULE»`, KIND one of {}",
+            kinds.join(", ")
+        ));
+    };
+    let r = r
+        .strip_prefix('«')
+        .and_then(|x| x.strip_suffix('»'))
+        .unwrap_or(r)
+        .to_string();
+    let hand = match rest.strip_prefix('|').map(str::trim) {
+        None if rest.is_empty() => false,
+        Some("hand") => true,
+        Some(m) if m.starts_with("refuted") => {
+            return Err(format!("{name} is marked refuted: {why}; leave it open"));
+        }
+        _ => {
+            return Err(format!(
+                "`{l}`: a case is `| hand` or open (its name alone)"
+            ));
+        }
+    };
+    Ok(((k.to_string(), r), hand))
+}
+
 pub fn parse(text: &str) -> Result<OpenList, String> {
     let mut o = OpenList::default();
     for l in text.lines() {

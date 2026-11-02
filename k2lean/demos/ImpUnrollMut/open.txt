@@ -1,0 +1,5 @@
+# `<=` is read as `<` in KUnrollLe (tests/refine-mutant.py imp-le): its rule has no counterpart on
+# either side, so its parts at a translation are open, and refuted together by `count`'s runs
+# (`Open.refuted`, Witnesses.lean)
+fwd_tr.«I1 <= I2»
+bwd_tr.«I1 <= I2»

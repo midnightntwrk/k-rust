@@ -1,0 +1,1 @@
+h = witness(); if (h < 5) { emit(1); } else { }

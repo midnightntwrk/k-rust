@@ -5,7 +5,7 @@ not either: at a labelling with one high and one low identifier the checker acce
 prints a low value and branches on the high identifier writing only it, and rejects an explicit
 flow to the output (`print(h);`) and an implicit one (`if (h > 0) print(1);`), which the store's
 low-equality alone would not see; the empty stores are low-equal. The checker's verdicts are
-computed through the inversion lemmas of `Levels.lean` (generated) and `lev_id` (`Store.lean`),
+computed through the inversion lemmas of `Levels.lean` (generated, `lev_id` among them),
 as in `demos/ImpNI`. -/
 
 namespace ImpOutNI.Examples
