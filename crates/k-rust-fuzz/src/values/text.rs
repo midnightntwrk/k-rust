@@ -38,7 +38,7 @@ use k_rust::{
     },
     kore::ast::{Pattern as KorePattern, Sort as KoreSort},
 };
-use krs_unparse::{Mode, Options, Unparser};
+use krs_unparse::{ListSpelling, Mode, Options, Unparser};
 
 use super::{Constraints, ValueSort, resolve_with};
 use crate::error::SortRefusal;
@@ -185,6 +185,7 @@ impl TextSyntax {
             color: false,
             reverse_aliases: false,
             sort_collections: false,
+            list_spelling: ListSpelling::Program,
         };
         let printed = self.0.unparser.print_kore(pattern, &options);
         if !printed.warnings.is_empty() {
@@ -215,6 +216,7 @@ impl TextSyntax {
             color: false,
             reverse_aliases: false,
             sort_collections: false,
+            list_spelling: ListSpelling::Program,
         };
         let printed = self.0.unparser.print_kore(pattern, &options);
         printed.warnings.is_empty().then(|| one_line(&printed.text))
