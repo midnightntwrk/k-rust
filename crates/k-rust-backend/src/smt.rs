@@ -14,6 +14,8 @@ use std::{
 };
 
 use k_rust_kore::names::BuiltinSort;
+use num_bigint::BigInt;
+use num_traits::{One, Zero};
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -228,7 +230,8 @@ impl<'a> SExprParser<'a> {
 /// which a model may set true where the term is undefined, so the translation stays
 /// `Approximate` for the purpose of reading a model.
 /// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
-/// is read as itself only where an integer is its value (`guard_powers`), and that a hook is
+/// with a symbolic exponent is read only where an integer is its value, and there by its value's
+/// cases (`guard_powers`), and that a hook is
 /// read at all only where its operation is a term at the application's sorts
 /// (`hook_is_well_sorted`): elsewhere the application is abstracted. Every SMT term of an
 /// uninterpreted sort therefore contains a declared constant, a bound variable or an `smtlib`
@@ -418,6 +421,11 @@ pub struct TranslationState {
     /// the function as an undecided domain (`undecided_domain_heads`), the only reading it
     /// relates the decided instance to: alone, it constrains a function nothing else reads.
     pending_domain_links: Vec<(String, SExpr)>,
+    /// Facts of the integer power at the powers whose exponent is not a numeral
+    /// (`record_power`), asserted with the known predicates.
+    power_facts: Vec<SExpr>,
+    /// The base and exponent of each power `power_facts` states facts at, closed.
+    powers: Vec<(SExpr, SExpr)>,
     undecided_domain_heads: BTreeSet<String>,
     /// Terms a plan admission found free of term-level `\and`s (`functional::admit_conditions`).
     conjunction_free: rustc_hash::FxHashSet<Term>,
@@ -482,6 +490,8 @@ impl TranslationState {
             opaque_domain_reads: 0,
             stated_defined: Vec::new(),
             pending_domain_links: Vec::new(),
+            power_facts: Vec::new(),
+            powers: Vec::new(),
             undecided_domain_heads: BTreeSet::new(),
             conjunction_free: rustc_hash::FxHashSet::default(),
             dependent_mappings: BTreeMap::new(),
@@ -508,6 +518,227 @@ impl TranslationState {
         let fact = self.close_source_fact(fact)?;
         self.domain_facts.push(fact);
         Ok(())
+    }
+
+    /// Define the function that reads the power `base ^ exponent` where its base is an integer
+    /// literal ([`power_of_literal_definition`]), and state what the integer power satisfies at
+    /// the power's value `V` ([`power_value`]) and at each pair of it and an earlier power of the
+    /// same literal base: facts asserted with the known predicates.
+    ///
+    /// `V` is the integer power `b^e` at every `e >= 0` in every model of the definition, since
+    /// each case of its reading is that power and `KRUST-POWER` is interpreted as the power there
+    /// ([`POWER_FUNCTION`]), whatever integers the operands denote (an operand that is undefined
+    /// in K denotes some integer in SMT, and each fact holds there too), so asserting a fact true
+    /// of the power keeps the reading of every predicate. The facts are what Z3 can use where no
+    /// case gives the value, in place of evaluating the power: its growth (`b^e >= b` and
+    /// `b^e >= e + 1` for `b >= 2` and `e >= 1`, by `b^e = b * b^(e-1)` and `2^e >= e + 1`; for
+    /// `b <= -2` the same of `|b|^e` with the sign of the parity); for an integer literal
+    /// `b >= 2`, `b^e > b^W` past the last exponent `W` of [`power_window`]
+    /// (`b^e = b^(e-W) * b^W >= 2 * b^W`); and, for two powers of one integer literal `b`, their
+    /// quotient `b^e2 = b^(e2-e1) * b^e1` for `0 <= e1 <= e2` (the power of a sum; a product whose
+    /// factor `b^(e2-e1)` is a numeral wherever the query fixes the difference in the window, as
+    /// `b^(8N+8) = 256 * b^(8N)`), and, for `b >= 2`, the growth `b * b^e1 <= b^e2` for
+    /// `0 <= e1 < e2` (that quotient, with `b^(e2-e1) >= b`). Each is a ground instance
+    /// at powers the query states, the instance an instantiation pattern on those terms would
+    /// give, never a quantified axiom: a quantified power axiom in the prelude leaves Z3 unable to
+    /// show a model of a query of the definition, one without a power included.
+    ///
+    /// A power whose operands mention a variable a quantifier of the query binds gets no fact,
+    /// since a fact about it would be a quantified one; its value's cases still read it. Facts
+    /// are stated once per closed base and exponent, and pairs only among the first
+    /// [`PAIRED_POWERS`] powers, so a query has one fact per power and at most
+    /// `PAIRED_POWERS * (PAIRED_POWERS - 1) / 2` pair facts; each names the operands' closed text
+    /// once, in a `let`.
+    fn record_power(&mut self, base: SExpr, exponent: SExpr) {
+        let literal = integer_literal(&base, &[]);
+        if let Some(literal) = &literal
+            && literal.magnitude() > &num_bigint::BigUint::one()
+        {
+            let definition = power_of_literal_definition(literal);
+            if !self.derived_definitions.contains(&definition) {
+                self.derived_definitions.push(definition);
+            }
+        }
+        let close = |state: &Self, mut expression: SExpr| {
+            if let Some(scope) = &state.shared_domains {
+                expression = scope.bind(expression);
+            }
+            if let Some(scope) = &state.shared_terms {
+                expression = scope.bind(expression);
+            }
+            expression
+        };
+        let base = close(self, base);
+        let exponent = close(self, exponent);
+        let mentioned = smt_variables(&base)
+            .into_iter()
+            .chain(smt_variables(&exponent))
+            .collect::<BTreeSet<_>>();
+        if self
+            .bound_variables
+            .iter()
+            .any(|(_, name)| mentioned.contains(name.as_str()))
+            || self
+                .powers
+                .iter()
+                .any(|(b, e)| *b == base && *e == exponent)
+        {
+            return;
+        }
+        let atom = |name: &str| SExpr::atom(name.to_owned());
+        let app = |operator: &str, arguments: Vec<SExpr>| SExpr::application(operator, arguments);
+        let implies = |condition: SExpr, conclusion: SExpr| app("=>", vec![condition, conclusion]);
+        let let_in = |bindings: Vec<(String, SExpr)>, body: SExpr| {
+            SExpr::List(vec![
+                atom("let"),
+                SExpr::List(
+                    bindings
+                        .into_iter()
+                        .map(|(name, value)| SExpr::List(vec![SExpr::atom(name), value]))
+                        .collect(),
+                ),
+                body,
+            ])
+        };
+        let (b, e, v) = (self.fresh_name(), self.fresh_name(), self.fresh_name());
+        let (bb, ee, vv) = (atom(&b), atom(&e), atom(&v));
+        let even = app(
+            "=",
+            vec![app("mod", vec![ee.clone(), atom("2")]), atom("0")],
+        );
+        let successor = app("+", vec![ee.clone(), atom("1")]);
+        let at_least_one = app(">=", vec![ee.clone(), atom("1")]);
+        let mut facts = vec![
+            implies(
+                app(
+                    "and",
+                    vec![app(">=", vec![bb.clone(), atom("2")]), at_least_one.clone()],
+                ),
+                app(
+                    "and",
+                    vec![
+                        app(">=", vec![vv.clone(), bb.clone()]),
+                        app(">=", vec![vv.clone(), successor.clone()]),
+                    ],
+                ),
+            ),
+            implies(
+                app(
+                    "and",
+                    vec![
+                        app("<=", vec![bb.clone(), app("-", vec![atom("2")])]),
+                        at_least_one,
+                    ],
+                ),
+                app(
+                    "ite",
+                    vec![
+                        even,
+                        app(
+                            "and",
+                            vec![
+                                app(">=", vec![vv.clone(), app("-", vec![bb.clone()])]),
+                                app(">=", vec![vv.clone(), successor.clone()]),
+                            ],
+                        ),
+                        app(
+                            "and",
+                            vec![
+                                app("<=", vec![vv.clone(), bb.clone()]),
+                                app("<=", vec![vv.clone(), app("-", vec![successor])]),
+                            ],
+                        ),
+                    ],
+                ),
+            ),
+        ];
+        let growing = literal.as_ref().filter(|literal| **literal > BigInt::one());
+        if let Some(literal) = growing {
+            let window = power_window(literal);
+            let last = window.len() - 1;
+            facts.push(implies(
+                app(">", vec![ee.clone(), atom(&last.to_string())]),
+                app(">", vec![vv.clone(), integer_sexpr(&window[last])]),
+            ));
+        }
+        self.power_facts.push(let_in(
+            vec![(b, base.clone()), (e, exponent.clone())],
+            let_in(
+                vec![(
+                    v,
+                    power_value(&literal.as_ref().map_or(bb, integer_sexpr), &ee, &[]),
+                )],
+                app("and", facts),
+            ),
+        ));
+        if let Some(literal) = &literal
+            && self.powers.len() < PAIRED_POWERS
+        {
+            let earlier = self
+                .powers
+                .iter()
+                .filter(|(other, _)| *other == base)
+                .map(|(_, other)| other.clone())
+                .collect::<Vec<_>>();
+            let numeral = integer_sexpr(literal);
+            for other in earlier {
+                let (first, second) = (self.fresh_name(), self.fresh_name());
+                let (v1, v2) = (self.fresh_name(), self.fresh_name());
+                let (e1, e2, p1, p2) = (atom(&first), atom(&second), atom(&v1), atom(&v2));
+                let mut pair = Vec::new();
+                for ((low, low_value), (high, high_value)) in
+                    [((&e1, &p1), (&e2, &p2)), ((&e2, &p2), (&e1, &p1))]
+                {
+                    let product = app("*", vec![numeral.clone(), low_value.clone()]);
+                    let difference = app("-", vec![high.clone(), low.clone()]);
+                    pair.push(implies(
+                        app(
+                            "and",
+                            vec![
+                                app(">=", vec![low.clone(), atom("0")]),
+                                app("<=", vec![low.clone(), high.clone()]),
+                            ],
+                        ),
+                        app(
+                            "=",
+                            vec![
+                                high_value.clone(),
+                                app(
+                                    "*",
+                                    vec![
+                                        power_value(&numeral, &difference, &[]),
+                                        low_value.clone(),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ));
+                    if growing.is_some() {
+                        pair.push(implies(
+                            app(
+                                "and",
+                                vec![
+                                    app(">=", vec![low.clone(), atom("0")]),
+                                    app("<", vec![low.clone(), high.clone()]),
+                                ],
+                            ),
+                            app("<=", vec![product, high_value.clone()]),
+                        ));
+                    }
+                }
+                self.power_facts.push(let_in(
+                    vec![(first, other), (second, exponent.clone())],
+                    let_in(
+                        vec![
+                            (v1, power_value(&numeral, &e1, &[])),
+                            (v2, power_value(&numeral, &e2, &[])),
+                        ],
+                        app("and", pair),
+                    ),
+                ));
+            }
+        }
+        self.powers.push((base, exponent));
     }
 
     /// `fact` closed where it was derived, as `record_source_fact` asserts it.
@@ -748,10 +979,16 @@ impl TranslationState {
                         .iter()
                         .map(|argument| self.translate_term(argument))
                         .collect::<Result<Vec<_>, _>>()?;
-                    let (template, guarded) = guard_powers(&template, &arguments);
-                    if guarded {
-                        // The power's value outside the integers is an uninterpreted function.
+                    let (template, powers) = guard_powers(&template, &arguments);
+                    if !powers.is_empty() {
+                        // The power's value outside the integers, and where no case of the
+                        // operands fixes it, is an uninterpreted function.
                         self.approximate(Exactness::Approximate);
+                    }
+                    for (base, exponent) in powers {
+                        let base = fill_placeholders(&base, arguments.clone())?;
+                        let exponent = fill_placeholders(&exponent, arguments.clone())?;
+                        self.record_power(base, exponent);
                     }
                     fill_placeholders(&template, arguments)
                 }
@@ -1530,12 +1767,23 @@ impl TranslationState {
 const POWER: &str = "^";
 
 /// The uninterpreted function that stands for a power where no integer is its value
-/// (`guard_powers`), declared in the prelude of a definition whose `smt-hook`s use [`POWER`].
+/// (`guard_powers`), declared in the prelude of a definition whose `smt-hook`s use [`POWER`],
+/// with [`POWER_FUNCTION`] and [`POWER_VALUE`].
 const POWER_OUTSIDE_THE_INTEGERS: &str = "|KRUST-POWER-OUTSIDE-THE-INTEGERS|";
 
-/// `expression` with every binary power `(^ a b)` read as
-/// `(ite (or (>= b 0) (= a 1) (= a (- 1))) (^ a b) (KRUST-POWER-OUTSIDE-THE-INTEGERS a b))`, and
-/// whether it had one.
+/// The powers of one query whose pairs `TranslationState::record_power` states facts at.
+const PAIRED_POWERS: usize = 32;
+
+/// The uninterpreted function that stands for a power with a symbolic exponent where an integer
+/// is its value and no case of [`power_value`] gives it (`guard_powers`), declared beside
+/// [`POWER_OUTSIDE_THE_INTEGERS`]. A model of the definition interprets it as the integer power
+/// `b^e` at every `e >= 0` (and anyhow elsewhere), the one interpretation every fact of
+/// `power_facts` is true of.
+const POWER_FUNCTION: &str = "|KRUST-POWER|";
+
+/// `expression` with every binary power `(^ a b)` whose exponent is not a numeral read as
+/// `(ite (or (>= b 0) (= a 1) (= a (- 1))) V (KRUST-POWER-OUTSIDE-THE-INTEGERS a b))`, where `V`
+/// is [`power_value`], with the base and exponent (template operands) of each such power.
 ///
 /// An `smt-hook` is trusted to state its hook's operation wherever the hook has a value; where
 /// the hook has none, the solver must not decide anything that depends on a value. SMT-LIB's own
@@ -1543,29 +1791,47 @@ const POWER_OUTSIDE_THE_INTEGERS: &str = "|KRUST-POWER-OUTSIDE-THE-INTEGERS|";
 /// answer holds for whatever it is. Z3's `^` on two integers does not: it is the real power,
 /// which has a value (`(^ 2 (- 1))` is `1/2`, and `mod` reads its integer part, 0) exactly where
 /// no integer is the power and `^Int` is undefined. The guard is the set where an integer power
-/// exists, a nonnegative exponent or a base of magnitude 1, and there `^` is that integer; outside
-/// it the power is an uninterpreted function of its operands, as a division by zero is. The
-/// function is Real-valued, as Z3's `^` is, so both branches and every context have its sort.
-/// The guard names each operand several times; `fill_placeholders` states each argument once.
+/// exists, a nonnegative exponent or a base of magnitude 1; outside it the power is an
+/// uninterpreted function of its operands, as a division by zero is.
+///
+/// Inside the guard the power is not Z3's `^` either: Z3's nonlinear arithmetic evaluates a
+/// power with a symbolic exponent at the values its candidate models give the operands, a
+/// bignum computation that neither its timeout nor its resource limit stops, at values it picks
+/// itself however small the query's constants are. [`power_value`] gives the power's value
+/// where a case of the operands fixes it and an uninterpreted function ([`POWER_FUNCTION`])
+/// elsewhere, and `TranslationState::record_power` states what the integer power satisfies
+/// there, so Z3 has no power to evaluate. `V` and both uninterpreted functions are Int-valued,
+/// so both branches and every context have one sort. The guard names each operand several
+/// times; `fill_placeholders` states each argument once.
 ///
 /// A power whose exponent is a numeral, written in the template or as the argument a
 /// placeholder names (`arguments` are the translated arguments), has an integer value for every
 /// base. A positive numeral leaves it as it is: its guard is constantly true, and Z3 reads it as
 /// the product of that many bases, 0 included. The numeral 0 makes it the constant `1.0` (of the
 /// sort of Z3's `^`): `X ^Int 0` is 1 for every integer `X`, `0 ^Int 0` included, while Z3 leaves
-/// `(^ 0 0)` uninterpreted, so the power itself would not be an exact reading there.
-fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, bool) {
+/// `(^ 0 0)` uninterpreted, so the power itself would not be an exact reading there. The
+/// exponent 0 is 1 whatever the exponent's form: a symbolic exponent equal to 0 has a case of
+/// [`power_value`] whose value is 1 for every base (GAP K16).
+fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, Vec<(SExpr, SExpr)>) {
+    let mut powers = Vec::new();
+    let guarded = guard_powers_into(expression, arguments, &mut powers);
+    (guarded, powers)
+}
+
+fn guard_powers_into(
+    expression: &SExpr,
+    arguments: &[SExpr],
+    powers: &mut Vec<(SExpr, SExpr)>,
+) -> SExpr {
     match expression {
-        SExpr::Atom(_) => (expression.clone(), false),
+        SExpr::Atom(_) => expression.clone(),
         SExpr::List(items) => {
-            let mut guarded = false;
+            // A power whose base or exponent holds a power is guarded with its operands, so
+            // the inner one's guard is part of the outer one's operand and is recorded first.
+            let mut inner = Vec::new();
             let items = items
                 .iter()
-                .map(|item| {
-                    let (item, inner) = guard_powers(item, arguments);
-                    guarded |= inner;
-                    item
-                })
+                .map(|item| guard_powers_into(item, arguments, &mut inner))
                 .collect::<Vec<_>>();
             match items.as_slice() {
                 [SExpr::Atom(operator), _, exponent]
@@ -1573,39 +1839,235 @@ fn guard_powers(expression: &SExpr, arguments: &[SExpr]) -> (SExpr, bool) {
                         && numeral(exponent, arguments)
                             .is_some_and(|value| value.bytes().all(|digit| digit == b'0')) =>
                 {
-                    // The base is dropped, and with it any guard it held.
-                    (SExpr::atom("1.0"), false)
+                    // The base is dropped, and with it any power it held.
+                    SExpr::atom("1.0")
                 }
                 [SExpr::Atom(operator), base, exponent]
                     if operator == POWER && numeral(exponent, arguments).is_none() =>
                 {
-                    let integer = |value: &str| SExpr::atom(value);
+                    powers.append(&mut inner);
+                    powers.push((base.clone(), exponent.clone()));
                     let condition = SExpr::application(
                         "or",
                         vec![
-                            SExpr::application(">=", vec![exponent.clone(), integer("0")]),
-                            SExpr::application("=", vec![base.clone(), integer("1")]),
-                            SExpr::application(
-                                "=",
-                                vec![base.clone(), SExpr::application("-", vec![integer("1")])],
-                            ),
+                            SExpr::application(">=", vec![exponent.clone(), SExpr::atom("0")]),
+                            SExpr::application("=", vec![base.clone(), SExpr::atom("1")]),
+                            SExpr::application("=", vec![base.clone(), negative_one()]),
                         ],
                     );
                     let outside = SExpr::application(
                         POWER_OUTSIDE_THE_INTEGERS,
                         vec![base.clone(), exponent.clone()],
                     );
-                    (
-                        SExpr::application(
-                            "ite",
-                            vec![condition, SExpr::List(items.clone()), outside],
-                        ),
-                        true,
+                    SExpr::application(
+                        "ite",
+                        vec![condition, power_value(base, exponent, arguments), outside],
                     )
                 }
-                _ => (SExpr::List(items), guarded),
+                _ => {
+                    powers.append(&mut inner);
+                    SExpr::List(items)
+                }
             }
         }
+    }
+}
+
+fn negative_one() -> SExpr {
+    SExpr::application("-", vec![SExpr::atom("1")])
+}
+
+/// The integer power `b^e` where an integer is its value (`e >= 0`, or `b` is 1 or -1), read
+/// without Z3's power: by its value's cases where they fix it, and `KRUST-POWER(b, e)`
+/// ([`POWER_FUNCTION`]) where none does. Each case is linear in `e`, whose value is only
+/// compared with numerals.
+///
+/// A base that is not an integer literal is read by [`POWER_VALUE`], the prelude's function of
+/// [`power_cases`]. An integer literal base `b` is read by `KRUST-POWER-OF-b`
+/// ([`power_of_literal`]), whose cases give the numeral `b^k` for each `k` of [`power_window`],
+/// so that a power whose exponent the query fixes in that window has its value, as Z3's own power
+/// gave it there; the bases 1, -1 and 0 are read by their value for every exponent the guard
+/// admits: 1, 1 or -1 by the parity (`1 / (-1)^n = (-1)^n` for a negative one), and 1 at
+/// `e = 0` and 0 at every other `e`, which is `e >= 1` there.
+fn power_value(base: &SExpr, exponent: &SExpr, arguments: &[SExpr]) -> SExpr {
+    let Some(literal) = integer_literal(base, arguments) else {
+        return SExpr::application(POWER_VALUE, vec![base.clone(), exponent.clone()]);
+    };
+    let ite =
+        |condition, then, otherwise| SExpr::application("ite", vec![condition, then, otherwise]);
+    let equals = |operand: &SExpr, value: &str| {
+        SExpr::application("=", vec![operand.clone(), SExpr::atom(value)])
+    };
+    if literal.is_one() {
+        SExpr::atom("1")
+    } else if literal == -BigInt::one() {
+        let parity = SExpr::application("mod", vec![exponent.clone(), SExpr::atom("2")]);
+        ite(equals(&parity, "0"), SExpr::atom("1"), negative_one())
+    } else if literal.is_zero() {
+        ite(equals(exponent, "0"), SExpr::atom("1"), SExpr::atom("0"))
+    } else {
+        SExpr::application(power_of_literal(&literal), vec![exponent.clone()])
+    }
+}
+
+/// The function of the prelude that reads a power whose base is not an integer literal
+/// ([`power_cases`]).
+const POWER_VALUE: &str = "|KRUST-POWER-VALUE|";
+
+/// The cases of the integer power `b^e` of the operands `b` and `e`, where `e >= 0` or `b` is 1
+/// or -1, each its value at every integer it covers, in order:
+/// `e = 0`: 1, for every base, 0 included (`X ^Int 0` is 1);
+/// `b = 1`: 1, for every exponent, a negative one included (`1 / 1^n`);
+/// `b = -1`: 1 for an even exponent and -1 for an odd one, a negative one included
+/// (`1 / (-1)^n = (-1)^n`), and SMT-LIB's `mod` by 2 is 0 or 1 by the parity of any integer;
+/// `e = 1`: `b`;
+/// `b = 0`: 0, since here `e >= 0` (with `b` not 1 or -1) and `e` is not 0, so `e >= 1`;
+/// `e = k` for `k` up to [`UNROLLED_EXPONENT`]: the product of `k` bases, a polynomial of fixed
+/// degree, whose value at any operands Z3 computes in time polynomial in their size;
+/// otherwise `KRUST-POWER(b, e)`.
+fn power_cases(base: &SExpr, exponent: &SExpr) -> SExpr {
+    let equals =
+        |operand: &SExpr, value: SExpr| SExpr::application("=", vec![operand.clone(), value]);
+    let ite =
+        |condition, then, otherwise| SExpr::application("ite", vec![condition, then, otherwise]);
+    let one = || SExpr::atom("1");
+    let parity = ite(
+        equals(
+            &SExpr::application("mod", vec![exponent.clone(), SExpr::atom("2")]),
+            SExpr::atom("0"),
+        ),
+        one(),
+        negative_one(),
+    );
+    let product = |k: usize| {
+        (1..k).fold(base.clone(), |product, _| {
+            SExpr::application("*", vec![base.clone(), product])
+        })
+    };
+    let unrolled = (2..=UNROLLED_EXPONENT).rev().fold(
+        SExpr::application(POWER_FUNCTION, vec![base.clone(), exponent.clone()]),
+        |otherwise, k| {
+            ite(
+                equals(exponent, SExpr::atom(k.to_string())),
+                product(k),
+                otherwise,
+            )
+        },
+    );
+    ite(
+        equals(exponent, SExpr::atom("0")),
+        one(),
+        ite(
+            equals(base, one()),
+            one(),
+            ite(
+                equals(base, negative_one()),
+                parity,
+                ite(
+                    equals(exponent, one()),
+                    base.clone(),
+                    ite(equals(base, SExpr::atom("0")), SExpr::atom("0"), unrolled),
+                ),
+            ),
+        ),
+    )
+}
+
+/// The prelude's definition of [`POWER_VALUE`].
+fn power_value_definition() -> String {
+    let (base, exponent) = (SExpr::atom("KRUST-BASE"), SExpr::atom("KRUST-EXPONENT"));
+    format!(
+        "(define-fun {POWER_VALUE} ((KRUST-BASE Int) (KRUST-EXPONENT Int)) Int {})",
+        power_cases(&base, &exponent)
+    )
+}
+
+/// The name of the function that reads the powers of the integer literal `base` (`|base| >= 2`),
+/// which a query that applies it defines ([`power_of_literal_definition`]).
+fn power_of_literal(base: &BigInt) -> String {
+    format!("|KRUST-POWER-OF-{base}|")
+}
+
+/// The definition of [`power_of_literal`]: the numeral `b^k` at each exponent `k` of
+/// [`power_window`], and `KRUST-POWER(b, e)` at every other.
+fn power_of_literal_definition(base: &BigInt) -> String {
+    let exponent = SExpr::atom("KRUST-EXPONENT");
+    let body = power_window(base).into_iter().enumerate().rev().fold(
+        SExpr::application(POWER_FUNCTION, vec![integer_sexpr(base), exponent.clone()]),
+        |otherwise, (k, value)| {
+            SExpr::application(
+                "ite",
+                vec![
+                    SExpr::application("=", vec![exponent.clone(), SExpr::atom(k.to_string())]),
+                    integer_sexpr(&value),
+                    otherwise,
+                ],
+            )
+        },
+    );
+    format!(
+        "(define-fun {} ((KRUST-EXPONENT Int)) Int {body})",
+        power_of_literal(base)
+    )
+}
+
+/// The largest exponent at which [`power_cases`] reads a power as a product of bases.
+const UNROLLED_EXPONENT: usize = 4;
+
+/// The powers `b^0, b^1, ..., b^W` of an integer literal `b` with `|b| >= 2` that
+/// [`power_of_literal_definition`] states as numerals: `W` is the largest exponent of at most 256 whose power
+/// has at most 512 bits, so a 256-bit word's powers of 2 (KEVM's `2 ^Int (8 *Int N)` for `N` up
+/// to 32) are all in it, and the window's numerals take a few kilobytes of text.
+fn power_window(base: &BigInt) -> Vec<BigInt> {
+    let mut powers = vec![BigInt::one()];
+    let mut power = BigInt::one();
+    while powers.len() <= 256 {
+        power *= base;
+        if power.bits() > 512 {
+            break;
+        }
+        powers.push(power.clone());
+    }
+    powers
+}
+
+/// The integer a template operand states as a literal, by itself or as the argument it names:
+/// an atom of digits with an optional leading `-`, or `(- n)`.
+fn integer_literal(operand: &SExpr, arguments: &[SExpr]) -> Option<BigInt> {
+    let operand = match operand {
+        SExpr::Atom(atom) => match placeholder(atom) {
+            Some(index) => index
+                .checked_sub(1)
+                .and_then(|index| arguments.get(index))?,
+            None => operand,
+        },
+        SExpr::List(_) => operand,
+    };
+    let digits = |text: &str| {
+        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| text.parse::<BigInt>().ok())
+            .flatten()
+    };
+    match operand {
+        SExpr::Atom(atom) => match atom.strip_prefix('-') {
+            Some(rest) => digits(rest).map(|value| -value),
+            None => digits(atom),
+        },
+        SExpr::List(items) => match items.as_slice() {
+            [SExpr::Atom(minus), SExpr::Atom(value)] if minus == "-" => {
+                digits(value).map(|value| -value)
+            }
+            _ => None,
+        },
+    }
+}
+
+/// An integer as an SMT-LIB term: a numeral, or `(- n)` below zero.
+fn integer_sexpr(value: &BigInt) -> SExpr {
+    if value.sign() == num_bigint::Sign::Minus {
+        SExpr::application("-", vec![SExpr::atom((-value).to_string())])
+    } else {
+        SExpr::atom(value.to_string())
     }
 }
 
@@ -1735,6 +2197,7 @@ fn translate_query_in_state(
     }
     let mut checked = checked;
     known.extend(translation.domain_facts.clone());
+    known.extend(translation.power_facts.clone());
     let mut substitution = substitution;
     translation.close_single_point_domains(
         substitution
@@ -1806,8 +2269,10 @@ impl SmtPrelude {
             matches!(&symbol.attributes.smt, Some(SmtType::Hook(expression)) if applies_power(expression))
         }) {
             declarations.push(format!(
-                "(declare-fun {POWER_OUTSIDE_THE_INTEGERS} (Int Int) Real)"
+                "(declare-fun {POWER_OUTSIDE_THE_INTEGERS} (Int Int) Int)"
             ));
+            declarations.push(format!("(declare-fun {POWER_FUNCTION} (Int Int) Int)"));
+            declarations.push(power_value_definition());
         }
         // K symbols that name the same `smtlib` function with the same SMT signature stand for
         // one function, which is declared once: SMT-LIB rejects a second declaration of it, and
@@ -3353,10 +3818,12 @@ mod tests {
         }
     }
 
-    /// Every power of an `smt-hook`, written as the hook's operation or inside its expression, is
-    /// read as itself only where an integer is its value, and as an uninterpreted function
-    /// elsewhere; the uninterpreted part makes the translation approximate even for a total
-    /// symbol. A power whose exponent is a numeral has an integer value, and is read as itself.
+    /// Every power of an `smt-hook` whose exponent is not a numeral, written as the hook's
+    /// operation or inside its expression, is read by its value's cases where an integer is its
+    /// value, the rest an uninterpreted function (`power_value`), and as another uninterpreted
+    /// function elsewhere, never as Z3's power; the uninterpreted parts make the translation
+    /// approximate even for a total symbol. A power whose exponent is a numeral has an integer
+    /// value for every base, and is read as itself.
     #[test]
     fn reads_a_power_as_itself_only_where_an_integer_is_its_value() {
         let int = Sort::simple("SortInt");
@@ -3373,12 +3840,68 @@ mod tests {
             int,
         );
         let exponent = Term::variable(Variable::new("B", int));
-        let guarded = |base: &str, exponent: &str| {
+        let guard = |base: &str, exponent: &str, value: &str| {
             format!(
-                "(ite (or (>= {exponent} 0) (= {base} 1) (= {base} (- 1))) (^ {base} {exponent}) \
+                "(ite (or (>= {exponent} 0) (= {base} 1) (= {base} (- 1))) {value} \
                  (|KRUST-POWER-OUTSIDE-THE-INTEGERS| {base} {exponent}))"
             )
         };
+        // A base that is not a literal is read by the prelude's function of its cases, with
+        // products up to the exponent 4.
+        let symbolic = |base: &str, exponent: &str| {
+            guard(
+                base,
+                exponent,
+                &format!("(|KRUST-POWER-VALUE| {base} {exponent})"),
+            )
+        };
+        assert_eq!(
+            power_value_definition(),
+            "(define-fun |KRUST-POWER-VALUE| ((KRUST-BASE Int) (KRUST-EXPONENT Int)) Int \
+             (ite (= KRUST-EXPONENT 0) 1 (ite (= KRUST-BASE 1) 1 (ite (= KRUST-BASE (- 1)) \
+             (ite (= (mod KRUST-EXPONENT 2) 0) 1 (- 1)) (ite (= KRUST-EXPONENT 1) KRUST-BASE \
+             (ite (= KRUST-BASE 0) 0 (ite (= KRUST-EXPONENT 2) (* KRUST-BASE KRUST-BASE) \
+             (ite (= KRUST-EXPONENT 3) (* KRUST-BASE (* KRUST-BASE KRUST-BASE)) \
+             (ite (= KRUST-EXPONENT 4) (* KRUST-BASE (* KRUST-BASE (* KRUST-BASE KRUST-BASE))) \
+             (|KRUST-POWER| KRUST-BASE KRUST-EXPONENT))))))))))"
+        );
+        // A literal base of magnitude at least 2 is read by the query's function of its powers
+        // as numerals, up to the exponent 256.
+        let literal = |base: i64, exponent: &str| {
+            guard(
+                &base.to_string(),
+                exponent,
+                &format!("(|KRUST-POWER-OF-{base}| {exponent})"),
+            )
+        };
+        let mut table = "(|KRUST-POWER| 2 KRUST-EXPONENT)".to_owned();
+        for k in (0..=256u32).rev() {
+            table = format!(
+                "(ite (= KRUST-EXPONENT {k}) {} {table})",
+                BigInt::from(2).pow(k)
+            );
+        }
+        assert_eq!(
+            power_of_literal_definition(&BigInt::from(2)),
+            format!("(define-fun |KRUST-POWER-OF-2| ((KRUST-EXPONENT Int)) Int {table})")
+        );
+        let x = Term::variable(Variable::new("X", Sort::simple("SortInt")));
+        let mut translation = TranslationState::new();
+        let translated = translation
+            .translate_term(&Term::application(
+                power.clone(),
+                Vec::new(),
+                vec![x.clone(), exponent.clone()],
+            ))
+            .unwrap();
+        assert_eq!(translated.to_string(), symbolic("SMT-1", "SMT-2"));
+        assert_eq!(translation.exactness(), Exactness::Approximate);
+        // One fact of the power at its operands, which no quantifier binds.
+        assert_eq!(translation.power_facts.len(), 1);
+        assert!(translation.power_facts[0].to_string().starts_with(
+            "(let ((SMT-3 SMT-1) (SMT-4 SMT-2)) (let ((SMT-5 (|KRUST-POWER-VALUE| SMT-3 SMT-4)))"
+        ));
+        assert!(translation.derived_definitions.is_empty());
 
         let mut translation = TranslationState::new();
         let translated = translation
@@ -3388,27 +3911,47 @@ mod tests {
                 vec![integer("2"), exponent.clone()],
             ))
             .unwrap();
-        assert_eq!(translated.to_string(), guarded("2", "SMT-1"));
-        assert_eq!(translation.exactness(), Exactness::Approximate);
-
-        let mut translation = TranslationState::new();
-        let translated = translation
+        assert_eq!(translated.to_string(), literal(2, "SMT-1"));
+        assert_eq!(
+            translation.derived_definitions,
+            [power_of_literal_definition(&BigInt::from(2))]
+        );
+        // The fact past the window: the power exceeds 2^256.
+        assert!(translation.power_facts[0].to_string().contains(&format!(
+            "(=> (> SMT-3 256) (> SMT-4 {}))",
+            BigInt::from(2).pow(256)
+        )));
+        let translated = TranslationState::new()
             .translate_term(&Term::application(
                 power_modulo,
                 Vec::new(),
-                vec![integer("3"), exponent, integer("7")],
+                vec![integer("-3"), exponent.clone(), integer("7")],
             ))
             .unwrap();
         assert_eq!(
             translated.to_string(),
-            format!("(mod {} 7)", guarded("3", "SMT-1"))
+            format!("(mod {} 7)", literal(-3, "SMT-1"))
         );
+        // The bases 1, -1 and 0 have their values for every exponent the guard admits.
+        for (base, value) in [
+            ("1", "1".to_owned()),
+            ("-1", "(ite (= (mod SMT-1 2) 0) 1 (- 1))".to_owned()),
+            ("0", "(ite (= SMT-1 0) 1 0)".to_owned()),
+        ] {
+            let translated = TranslationState::new()
+                .translate_term(&Term::application(
+                    power.clone(),
+                    Vec::new(),
+                    vec![integer(base), exponent.clone()],
+                ))
+                .unwrap();
+            assert_eq!(translated.to_string(), guard(base, "SMT-1", &value));
+        }
 
         // A positive numeral exponent, as the argument or in the template, leaves the power as it
         // is: the guard holds, and Z3 reads it as a product. The exponent 0 is the constant 1, of
         // the sort of Z3's power, for every base: Z3 leaves `(^ 0 0)` uninterpreted, and K's
         // `0 ^Int 0` is 1. A negative literal is not a numeral.
-        let x = Term::variable(Variable::new("X", Sort::simple("SortInt")));
         for (arguments, expected) in [
             (vec![x.clone(), integer("2")], "(^ SMT-1 2)"),
             (vec![x.clone(), integer("0")], "1.0"),
@@ -3429,7 +3972,7 @@ mod tests {
                 ))
                 .unwrap()
                 .to_string(),
-            guarded("2", "-1")
+            literal(2, "-1")
         );
         let squared_modulo = symbol(
             "squaredModulo",
@@ -3468,6 +4011,52 @@ mod tests {
         assert!(applies_power(&SExpr::atom("^")));
         assert!(applies_power(&SExpr::parse("(mod (^ #1 #2) #3)").unwrap()));
         assert!(!applies_power(&SExpr::parse("(mod #1 #2)").unwrap()));
+    }
+
+    /// GAP K32: the facts of a power read with `KRUST-POWER` are ground instances at the powers
+    /// the query states. A power whose exponent a quantifier binds gets none, since its fact would
+    /// be a quantified formula over the function; two powers of one literal base get the facts of
+    /// their pair besides their own.
+    #[test]
+    fn states_power_facts_only_at_powers_no_quantifier_binds() {
+        let int = Sort::simple("SortInt");
+        let power = symbol(
+            "power",
+            Some(SmtType::Hook(SExpr::atom("^"))),
+            vec![int, int],
+            int,
+        );
+        let b = Variable::new("B", int);
+        let c = Term::variable(Variable::new("C", int));
+        let power_of = |exponent: Term| {
+            Term::application(power.clone(), Vec::new(), vec![integer("2"), exponent])
+        };
+        let equation = |exponent: Term| Predicate::Equals(power_of(exponent), integer("4"));
+
+        let mut translation = TranslationState::new();
+        translation
+            .translate_predicate(&Predicate::Exists(
+                b.clone(),
+                Arc::new(equation(Term::variable(b.clone()))),
+            ))
+            .unwrap();
+        assert!(translation.power_facts.is_empty());
+
+        let mut translation = TranslationState::new();
+        translation
+            .translate_predicate(&equation(Term::variable(b.clone())))
+            .unwrap();
+        translation
+            .translate_predicate(&equation(c.clone()))
+            .unwrap();
+        translation.translate_predicate(&equation(c)).unwrap();
+        // One fact for each distinct power, and one for their pair.
+        assert_eq!(translation.power_facts.len(), 3);
+        assert!(
+            translation.power_facts[2]
+                .to_string()
+                .contains("(|KRUST-POWER-OF-2| SMT-")
+        );
     }
 
     /// An `smt-hook` template that names an argument several times states it once, in a `let`,
@@ -3523,7 +4112,7 @@ mod tests {
             translated.to_string(),
             format!(
                 "(let (({name} (+ SMT-1 1))) (ite (or (>= SMT-2 0) (= {name} 1) (= {name} (- 1))) \
-                 (^ {name} SMT-2) (|KRUST-POWER-OUTSIDE-THE-INTEGERS| {name} SMT-2)))"
+                 (|KRUST-POWER-VALUE| {name} SMT-2) (|KRUST-POWER-OUTSIDE-THE-INTEGERS| {name} SMT-2)))"
             )
         );
     }

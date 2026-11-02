@@ -1017,17 +1017,13 @@ pub fn power_base() -> BoxedStrategy<Box<IntT>> {
 /// An exponent of `^Int`: a literal in `[-2, 2]`, or, with `symbolic` (each target's
 /// `*_SYMBOLIC_EXPONENTS` variable), also a base-like symbolic term.
 ///
-/// A symbolic exponent is off by default because no bound of this test or of k-rust stops the
-/// query it can make: the translation states `X ^Int E` with a non-numeral `E` as Z3's `^` under
-/// `guard_powers`' condition (smt.rs), and Z3's nonlinear arithmetic then evaluates the power at
-/// its candidate model values, a bignum product that polls neither its timeout nor its resource
-/// limit. The query `known: [even(half(-1) ^Int half(Y)) = (Y in_keys(.Map)) \or (#if (N
-/// in_keys(.Map)) #then N +Int -1 #else Y #fi +Int divInt((2 +Int Y) ^Int half(N), -2)) = 2],
-/// checked: \ceil(divInt(X, Y))` ran past 40 s under a 100 ms timeout, and one generated case ran
-/// 2 h 20 min inside Z3's `mpn_manager::mul` (GAP K19 report). Without the bound, a power of a
-/// symbolic power exhausted 8 GiB under resource units alone, and a nested power ran 362 s. Those
-/// are solver cost, not answers to check; the literal exponents keep `^Int`'s domain (negative
-/// exponents, the bases 1 and -1, `0 ^Int 0`) in every run.
+/// A symbolic exponent covers the translation's reading of a power whose exponent is not a
+/// numeral (`guard_powers` in smt.rs), `0 ^Int Y` at `Y = 0` included (GAP K16); the literals keep
+/// `^Int`'s domain (negative exponents, the bases 1 and -1, `0 ^Int 0`) in every run. Before GAP
+/// K32 that reading was Z3's own power, whose evaluation at model values polls neither timeout nor
+/// resource limit (one generated case ran 2 h 20 min, GAP K19 report), so symbolic exponents were
+/// opt-in; `solver_translation` now turns them on by default, and its
+/// `the_symbolic_power_queries_k19_found_return_under_either_bound` holds the queries that hung.
 pub fn power_exponent(symbolic: bool) -> BoxedStrategy<Box<IntT>> {
     let literal = (-2i8..=2).prop_map(|value| Box::new(int_lit(value)));
     if symbolic {
@@ -1206,18 +1202,18 @@ pub fn configured_runner(prefix: &str) -> (TestRunner, u32, Option<u64>) {
     (runner, cases, seed)
 }
 
-/// A short wall-clock bound per Z3 check and no retry (`{prefix}_TIMEOUT_MS`, default 100), and a bound on Z3's own memory (`memory_max_size`, megabytes): both make an answer
-/// `Unknown`, which is counted and refutes nothing, so they bound the test's cost without
-/// weakening any check. Which cases are decided can then vary with the machine's load; every
-/// decided answer is checked whatever it is, so a failure is a wrong answer on any run, and the
-/// failure prints its shrunk case for a rerun.
+/// A short wall-clock bound per Z3 check and no retry (`{prefix}_TIMEOUT_MS`, default 100), and a
+/// bound on Z3's own memory (`memory_max_size`, megabytes): both make an answer `Unknown`, which
+/// is counted and refutes nothing, so they bound the test's cost without weakening any check.
+/// Which cases are decided can then vary with the machine's load; every decided answer is checked
+/// whatever it is, so a failure is a wrong answer on any run, and the failure prints its shrunk
+/// case for a rerun.
 ///
-/// Not the clock-free mode (`Z3Options::resource_limit`): Z3's resource units do not count its
-/// arithmetic on numerals, and a power with a symbolic exponent makes its nonlinear check
-/// evaluate powers of growing model values. Under resource units alone one query ran 362 s,
-/// another (`Y = (2 +Int Y) ^Int N` beside a map equality) did not end in 300 s, and a power of a
-/// power exhausted 8 GiB (GAP K19 report). The wall clock stopped those three, though not every
-/// query over a symbolic exponent (`power_exponent`).
+/// Not the clock-free mode (`Z3Options::resource_limit`), which `solver_translation`'s
+/// `the_symbolic_power_queries_k19_found_return_under_either_bound` covers for the queries that
+/// hung there before GAP K32 (one ran 362 s, one did not end in 300 s, a power of a power
+/// exhausted 8 GiB: GAP K19 report), when the translation read a power with a symbolic exponent
+/// as Z3's own.
 pub fn solver(definition: &BackendDefinition, prefix: &str) -> Z3Solver {
     z3::set_global_param("memory_max_size", "256");
     let timeout_ms = std::env::var(format!("{prefix}_TIMEOUT_MS"))

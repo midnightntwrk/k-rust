@@ -256,6 +256,30 @@ impl Default for Z3Options {
     }
 }
 
+/// Bound the Z3 heap of the whole process, once, before its first solver queries: Z3's
+/// `memory_max_size` (megabytes, a process-wide parameter), at half the process's memory
+/// allowance ([`crate::allowance::Allowance::of_process`]), unless the process has set it.
+///
+/// A check that would take Z3's heap past it ends with `unknown` ("out of memory") instead of
+/// exhausting the process. It is a backstop: neither the clock nor resource units bound memory,
+/// since Z3 counts neither in some of its own computations (its arithmetic on numerals among
+/// them), and an answer under it is unchanged unless the heap of every Z3 check the process runs
+/// at once reaches it. Z3 counts all its contexts' memory against one limit, so a check that
+/// reaches it while other checks hold memory can answer `unknown` where it would have answered
+/// alone. Half the allowance leaves the rest of the process its own half.
+fn bound_z3_memory() {
+    static BOUND: std::sync::Once = std::sync::Once::new();
+    BOUND.call_once(|| {
+        let set = z3::get_global_param("memory_max_size")
+            .is_some_and(|megabytes| megabytes.trim() != "0");
+        if !set {
+            let megabytes = (crate::allowance::Allowance::of_process().bytes() / 2) >> 20;
+            let megabytes = u32::try_from(megabytes).unwrap_or(u32::MAX).max(1);
+            z3::set_global_param("memory_max_size", &megabytes.to_string());
+        }
+    });
+}
+
 /// The version of the Z3 library this build links, as Z3 reports it (`Z3_get_full_version`):
 /// the resource units of [`Z3Options::resource_limit`] are counted by this version's search.
 #[must_use]
@@ -408,6 +432,7 @@ impl Z3Solver {
         options: Z3Options,
         prelude: Option<&str>,
     ) -> Result<Self, SmtError> {
+        bound_z3_memory();
         let solver = Self {
             prelude: match prelude {
                 Some(prelude) => SmtPrelude::from_definition_with_prelude(definition, prelude)?,
@@ -2814,6 +2839,10 @@ mod tests {
                     [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
                 hooked-symbol bor{}(SortBool{}, SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.or"), smt-hook{}("or")]
+                hooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                hooked-symbol mul{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.mul"), smt-hook{}("*")]
                 axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
                     \ceil{SortInt{}, Q}(pow{}(I1:SortInt{}, I2:SortInt{})),
                     \and{Q}(\equals{SortBool{}, Q}(
@@ -2953,6 +2982,154 @@ mod tests {
                 "{checked:?} under {known:?}"
             );
         }
+        // GAP K16: `X ^Int 0` is 1 for every `X`, 0 included, so wherever the exponent is 0 the
+        // power is 1 in every reading of the query, whether the exponent is the numeral 0 or a
+        // term the query makes 0, as `Y *Int Y = 0` does. Before, the reading of a symbolic
+        // exponent was Z3's `(^ a b)`, and Z3 leaves `(^ 0 0)` uninterpreted: both were
+        // `Contingent`.
+        let y_is_zero = Predicate::Term(term(&definition, &format!("eq{{}}({b}, {})", dv(0))));
+        let square_is_zero =
+            Predicate::Equals(term(&definition, &format!("mul{{}}({b}, {b})")), int("0"));
+        for (known, checked) in [
+            (
+                vec![y_is_zero],
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}({}, {b})", dv(0))),
+                    int("1"),
+                ),
+            ),
+            (
+                vec![square_is_zero],
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}(X:SortInt{{}}, {b})")),
+                    int("1"),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                validity(&known, checked.clone()),
+                Ok(Ok(Validity::Valid)),
+                "{checked:?} under {known:?}"
+            );
+        }
+        // GAP K32: a power with a symbolic exponent is no longer Z3's power, whose evaluation at
+        // model values nothing stops; what the solver decided through it, it decides from the
+        // value's cases and the power's facts (`power_value`, `record_power`): a 256-bit word's
+        // power of 2 at a bounded exponent, a lower bound, a value at fixed operands, and the
+        // quotient of two powers of one base, by one step and by a byte.
+        let at_most = |left: &str, right: &str| {
+            Predicate::Term(term(&definition, &format!("le{{}}({left}, {right})")))
+        };
+        let word = BigInt::from(2).pow(256).to_string();
+        for (known, checked) in [
+            (
+                vec![at_most(&dv(0), b), at_most(b, &dv(32))],
+                at_most(
+                    &format!("pow{{}}({}, mul{{}}({}, {b}))", dv(2), dv(8)),
+                    &format!(r#"\dv{{SortInt{{}}}}("{word}")"#),
+                ),
+            ),
+            (
+                vec![at_most(&dv(3), b)],
+                at_most(&dv(8), &format!("pow{{}}({}, {b})", dv(2))),
+            ),
+            (
+                vec![Predicate::Equals(term(&definition, b), int("3"))],
+                Predicate::Equals(term(&definition, &format!("pow{{}}({b}, {b})")), int("27")),
+            ),
+            (
+                vec![at_most(&dv(0), b)],
+                Predicate::Equals(
+                    term(
+                        &definition,
+                        &format!("pow{{}}({}, plus{{}}({b}, {}))", dv(2), dv(1)),
+                    ),
+                    term(
+                        &definition,
+                        &format!("mul{{}}({}, pow{{}}({}, {b}))", dv(2), dv(2)),
+                    ),
+                ),
+            ),
+            (
+                vec![at_most(&dv(0), b)],
+                Predicate::Equals(
+                    term(
+                        &definition,
+                        &format!(
+                            "pow{{}}({}, mul{{}}({}, plus{{}}({b}, {})))",
+                            dv(2),
+                            dv(8),
+                            dv(1)
+                        ),
+                    ),
+                    term(
+                        &definition,
+                        &format!(
+                            "mul{{}}({}, pow{{}}({}, mul{{}}({}, {b})))",
+                            dv(256),
+                            dv(2),
+                            dv(8)
+                        ),
+                    ),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                validity(&known, checked.clone()),
+                Ok(Ok(Validity::Valid)),
+                "{checked:?} under {known:?}"
+            );
+        }
+    }
+
+    /// GAP K16 (the K15 review's pin of the power's answer where its domain is open): without
+    /// AM-12's ceil equation, `^Int`'s domain is an uninterpreted domain function. Where no integer
+    /// is the power (`2 ^Int B` with `B <Int 0`), `0 <Int 2 ^Int B` is not valid: the atom carries
+    /// the open domain, and the reading gives the power no value there (`KRUST-POWER` and the
+    /// function outside the integers are both unconstrained at a negative exponent). Where the
+    /// exponent is nonnegative and the power is stated defined, the integer power is read and the
+    /// atom is valid. The first half holds even with Z3's unguarded real power, since the open
+    /// domain alone keeps the atom from being valid (GAP K16 report): it pins the answer, not
+    /// `guard_powers`' guard, whose text `reads_a_power_as_itself_only_where_an_integer_is_its_value`
+    /// pins.
+    #[test]
+    fn reads_no_power_value_where_no_integer_is_the_power_and_the_domain_is_open() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow"), smt-hook{}("^")]
+                hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+                hooked-symbol le{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.le"), smt-hook{}("<=")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let atom = |source: &str| Predicate::Term(term(&definition, source));
+        let two = r#"\dv{SortInt{}}("2")"#;
+        let zero = r#"\dv{SortInt{}}("0")"#;
+        let power = format!("pow{{}}({two}, B:SortInt{{}})");
+        let positive = atom(&format!("lt{{}}({zero}, {power})"));
+        let validity = |known: &[Predicate]| {
+            solver.check_predicates(known, &Substitution::new(), std::slice::from_ref(&positive))
+        };
+        assert_ne!(
+            validity(&[atom(&format!("lt{{}}(B:SortInt{{}}, {zero})"))]),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            validity(&[
+                atom(&format!("le{{}}({zero}, B:SortInt{{}})")),
+                Predicate::Ceil(term(&definition, &power)),
+            ]),
+            Ok(Ok(Validity::Valid))
+        );
     }
 
     /// GAP K15: the solver's domain of a partial hooked application that no ceil equation states
@@ -3581,7 +3758,8 @@ mod tests {
         );
     }
 
-    /// The `requires` `2 ^Int X ==Int 3` of a rule, as the backend writes it for Z3. It is
+    /// The `requires` `2 ^Int X ==Int 3` of a rule, as the backend wrote it for Z3 before GAP K32
+    /// read a power with a symbolic exponent without Z3's own power (`guard_powers`). It is
     /// satisfiable (`X = -1`, with the power outside the integers equal to 3), and Z3 either
     /// decides it in a few thousand resource units or takes a path on which it never decides it;
     /// which path it takes depends on everything the Z3 context it runs in has seen.
