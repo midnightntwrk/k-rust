@@ -3422,6 +3422,243 @@ endmodule
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// AM-10 and AM-12 (`docs/amendments.md`) on a grid, by a route that shares no code with the
+/// evaluators of the five operations: the definedness condition is what the simplifier makes of
+/// `\ceil` of the application on symbolic operands, which the definition's equations decide:
+/// `INT-SYMBOLIC-KORE`'s ceil equation of the operation (`domains.md`:3080, :3082-3084), and for
+/// `bitRangeInt` its unconditional defining equation (:1438) with the ceil equations of `>>Int`,
+/// `<<Int` and `modInt`, of which AM-10's `bitRangeInt` rule (:3081) is a theorem (a stricter
+/// copy of that rule changes no answer here, while one of each other rule does). At each point
+/// of the grid (every operand in [-3, 3], `bitRangeInt`'s offset and length in [-2, 3]) that
+/// condition with the point's literals substituted is decided by the `BOOL` and `INT` comparison
+/// hooks alone. It
+/// must be `\top` exactly where the ground evaluator of the operation (`int_pow_within`,
+/// `int_powmod`, `int_log2`, and for `divInt` and `bitRangeInt` `int_partial_binary` and
+/// `int_bit_range`, in `k-rust-backend`'s `builtin.rs`) gives a value, and `\bottom` exactly
+/// where it gives `\bottom`. Where it gives a value and the production has an `smt-hook` (`^Int`,
+/// `^%Int`, `divInt`), the solver, given the operands' values as known equalities, must find the
+/// application on the symbolic operands equal to that value: the term's `smt-hook` encoding
+/// (with the power guarded, `guard_powers` in `smt.rs`) agrees with the evaluator wherever the
+/// operation is defined. The one exception is a power of the base 0 at an exponent that is 0
+/// but not written as the numeral 0, where the encoding is Z3's uninterpreted `(^ 0 0)` and the
+/// solver finds the value consistent without deciding it (`Contingent`; `^%Int` by 1 or -1 is
+/// decided, every residue being 0): it never refutes an evaluated value. `log2Int` and `bitRangeInt` have no `smt-hook`. Every disagreement is
+/// collected before the assertion, so a failure lists them all.
+#[test]
+fn power_log2_ediv_and_bit_range_domains_agree_with_the_evaluators_on_a_grid() {
+    use k_rust::kore::parser::{parse_definition, parse_pattern};
+    use k_rust_backend::{
+        builtin::{BuiltinResult, evaluate_hook},
+        definition::BackendDefinition,
+        rewrite::substitute_predicates,
+        rule::Predicate,
+        simplify::{SimplificationOptions, simplify_predicates_with_solver},
+        smt::{NoSolver, SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+        term::{Term, TermKind},
+    };
+
+    let kore = compile(
+        r#"
+module DOMAIN-GRID
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:K </k>
+endmodule
+module DOMAIN-GRID-SPEC
+  imports DOMAIN-GRID
+endmodule
+"#,
+        "DOMAIN-GRID-SPEC",
+        "DOMAIN-GRID",
+    );
+    let parsed = parse_definition(&kore).expect("definition.kore parses");
+    let definition = BackendDefinition::internalize(&parsed, "DOMAIN-GRID-SPEC")
+        .expect("definition.kore internalizes");
+    let solver = Z3Solver::new(&definition).expect("Z3 starts");
+    let term = |text: &str| {
+        definition
+            .admit_unverified(&parse_pattern(text).expect("pattern parses"), &[])
+            .internalize_term()
+            .expect("pattern internalizes")
+    };
+    let int = |value: i64| term(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#));
+    let simplified = |predicates: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("no stop is armed")
+        .expect("the predicates simplify")
+    };
+
+    let operands: &[i64] = &[-3, -2, -1, 0, 1, 2, 3];
+    let lengths: &[i64] = &[-2, -1, 0, 1, 2, 3];
+    // The operation, its hook and symbol, and each operand's name and range; whether the
+    // production has an `smt-hook`.
+    type Operation<'a> = (&'a str, &'a str, &'a str, &'a [(&'a str, &'a [i64])], bool);
+    let operations: [Operation<'_>; 5] = [
+        (
+            "^Int",
+            "INT.pow",
+            "Lbl'UndsXor-'Int'Unds'",
+            &[("X", operands), ("Y", operands)],
+            true,
+        ),
+        (
+            "^%Int",
+            "INT.powmod",
+            "Lbl'UndsXor-Perc'Int'UndsUnds'",
+            &[("X", operands), ("Y", operands), ("Z", operands)],
+            true,
+        ),
+        (
+            "log2Int",
+            "INT.log2",
+            "Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int",
+            &[("X", operands)],
+            false,
+        ),
+        (
+            "divInt",
+            "INT.ediv",
+            "Lbl'Unds'divInt'Unds'",
+            &[("X", operands), ("Y", operands)],
+            true,
+        ),
+        (
+            "bitRangeInt",
+            "INT.bitRange",
+            "LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int",
+            &[("X", operands), ("O", lengths), ("L", lengths)],
+            false,
+        ),
+    ];
+
+    let mut wrong = Vec::new();
+    let mut points = 0;
+    let mut solver_checks = 0;
+    for (operation, hook, symbol, parameters, smt_hooked) in operations {
+        let names: Vec<String> = parameters
+            .iter()
+            .map(|(name, _)| format!("Var{name}:SortInt{{}}"))
+            .collect();
+        let variables: Vec<Term> = names.iter().map(|name| term(name)).collect();
+        let application = term(&format!("{symbol}{{}}({})", names.join(", ")));
+        let condition = simplified(&[Predicate::Ceil(application.clone())]);
+        // The equation decides the ceil: neither the ceil itself nor a constant is left.
+        assert!(
+            !condition.is_empty()
+                && !condition.contains(&Predicate::False)
+                && !condition.contains(&Predicate::Ceil(application.clone())),
+            "{operation}: the ceil equation did not decide the symbolic ceil: {condition:?}"
+        );
+        let mut grid: Vec<Vec<i64>> = vec![Vec::new()];
+        for (_, range) in parameters {
+            grid = grid
+                .into_iter()
+                .flat_map(|point| {
+                    range.iter().map(move |&value| {
+                        let mut point = point.clone();
+                        point.push(value);
+                        point
+                    })
+                })
+                .collect();
+        }
+        for point in grid {
+            points += 1;
+            let literals: Vec<Term> = point.iter().map(|&value| int(value)).collect();
+            let substitution: Substitution = variables
+                .iter()
+                .zip(&literals)
+                .map(|(variable, literal)| {
+                    let TermKind::Variable(variable) = variable.kind() else {
+                        unreachable!("a variable pattern internalizes to a variable")
+                    };
+                    (variable.clone(), literal.clone())
+                })
+                .collect();
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the substitution maps each operand variable to an integer literal, which is defined, so the instance of the simplified ceil condition is the ceil condition of the application at that point"
+            )]
+            let instance = substitute_predicates(&condition, &substitution);
+            let condition_defined = match simplified(&instance).as_slice() {
+                [] => true,
+                [Predicate::False] => false,
+                other => {
+                    wrong.push(format!(
+                        "{operation} {point:?}: the condition is not decided: {other:?}"
+                    ));
+                    continue;
+                }
+            };
+            let value = match evaluate_hook(hook, &literals)
+                .expect("no stop is armed")
+                .unwrap_or_else(|error| panic!("{operation} {point:?}: {error:?}"))
+            {
+                BuiltinResult::Value(value) => Some(value),
+                BuiltinResult::Bottom(_) => None,
+                other => {
+                    wrong.push(format!(
+                        "{operation} {point:?}: the evaluator gives neither a value nor \\bottom: {other:?}"
+                    ));
+                    continue;
+                }
+            };
+            if condition_defined != value.is_some() {
+                wrong.push(format!(
+                    "{operation} {point:?}: the ceil equation says {}, the evaluator gives {value:?}",
+                    if condition_defined {
+                        "defined"
+                    } else {
+                        "undefined"
+                    }
+                ));
+            }
+            let Some(value) = value.filter(|_| smt_hooked) else {
+                continue;
+            };
+            solver_checks += 1;
+            let known: Vec<Predicate> = variables
+                .iter()
+                .zip(&literals)
+                .map(|(variable, literal)| Predicate::Equals(variable.clone(), literal.clone()))
+                .collect();
+            let checked = [Predicate::Equals(application.clone(), value.clone())];
+            let answer = solver
+                .check_predicates(&known, &Substitution::new(), &checked)
+                .expect("no stop is armed");
+            // `0 ^Int 0` is 1, and Z3 leaves `(^ 0 0)` uninterpreted; the guard reads a power
+            // whose exponent is the numeral 0 as 1, but here the exponent is a variable, so the
+            // solver finds the value consistent without deciding it, unless the remainder by a
+            // modulus of 1 or -1 makes every power's residue 0.
+            let zero_power = match operation {
+                "^Int" => point == [0, 0],
+                "^%Int" => point[..2] == [0, 0] && point[2].abs() != 1,
+                _ => false,
+            };
+            let expected = if zero_power {
+                Validity::Contingent
+            } else {
+                Validity::Valid
+            };
+            if answer != Ok(expected) {
+                wrong.push(format!(
+                    "{operation} {point:?}: the evaluator gives {value:?}, the solver on the smt-hook answers {answer:?}"
+                ));
+            }
+        }
+    }
+    assert_eq!(points, 7 * 7 + 7 * 7 * 7 + 7 + 7 * 7 + 7 * 6 * 6);
+    assert!(solver_checks > 0, "no point was checked against the solver");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 /// Literal applicability is established as a complete condition, with no input narrowing.
 /// Reusing the backend across differently constrained claims also checks contextual cache use.
 #[test]

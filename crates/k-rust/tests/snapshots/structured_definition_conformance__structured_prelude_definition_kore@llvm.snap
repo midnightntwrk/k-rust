@@ -4,5 +4,5 @@ description: "definition.kore of a structured MAIN importing INT, BOOL, MAP, LIS
 ---
 ArtifactDigest {
     bytes: 141779,
-    sha256: "ef29ced8edd0a11294f088ddbc96fac339dd5957ee7ec27fb7a6dcef5d143b69",
+    sha256: "9d25c31156f1e2755ed04b714ba5ba79a31e43d832f8702d0ebba3e6811840a9",
 }

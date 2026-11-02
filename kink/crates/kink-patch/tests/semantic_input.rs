@@ -33,18 +33,25 @@ use kink_patch::{SemanticInput, SemanticInputError, structure_sha256};
 /// prelude's `INT-SYMBOLIC-KORE`: the semantic input and the KAST definition carry the three
 /// sentences, and every prelude sentence after them is three lines and their bytes later. No
 /// other sentence changed, and the user modules are equal.
+///
+/// Re-pin GAP W8a (k-rust docs/amendments.md): both digests moved again. The five definedness
+/// rules of AM-10 and AM-12 moved, unchanged, out of the prelude's `INT-SYMBOLIC-KORE` into a
+/// module `INT-SYMBOLIC-KORE-AMENDMENTS` after domains.md's last line, which `INT-SYMBOLIC-KORE`
+/// imports: the KAST definition carries the new module and the import, the five sentences are at
+/// their new lines, and every prelude sentence after line 1394 is five lines, and their bytes,
+/// earlier. No sentence changed, and the user modules are equal.
 #[test]
 fn literal_digests() {
     for (name, artifact, structure) in [
         (
             "counter.k",
-            "f410acd404327763cc0a7f681d9a61df96169c0e56e6d7e857f94aedc4d6b026",
-            "a3de13e7c4c3b3c9e3c0286153695acab8b5dad18623d1a49f57a03f0031bfa1",
+            "32d348cc87eb71adac6198a1f598fdd20c6232b712a040570d59332960a9b5cc",
+            "a2362c75a59d5846c0dec0f793d2de2f16fd4675a9419ab94e953ec8a49333ba",
         ),
         (
             "symmem.k",
-            "c7b6b36fc01615720b336633255706076e78b2a48ac073482eb0a51999033a83",
-            "39590ac3bbd42e40aa858f33922d76f9a5a57004aa03052d63669f5a9d5a293a",
+            "cadb09037a76948c11e8a1bee1b6a1e4073e0ee1da05d3cb6cb86b70cb3b8393",
+            "4eb58cd93acecaa668038a7d515a0cdb2c95754a1641e27e6cee545559f27378",
         ),
     ] {
         let baseline = support::load(name);
@@ -76,20 +83,26 @@ fn literal_digests() {
 /// Re-pin GAP AM-12: the compiled KORE moved with the three `#Ceil` rules AM-12 adds to
 /// `INT-SYMBOLIC-KORE` (three more axioms) and the source locations of the prelude sentences after
 /// them; the read-back still compiles to equal artifacts.
+///
+/// Re-pin GAP W8a: the compiled KORE moved with the five `#Ceil` rules of AM-10 and AM-12 moving
+/// to a module after domains.md's last line: the same axioms, the five at their new locations and
+/// ahead of `INT-SYMBOLIC-KORE`'s own (the imported module's sentences come first), and every
+/// prelude sentence after line 1394 at a location five lines earlier; no axiom and no KORE module
+/// was added or changed otherwise, and the read-back still compiles to equal artifacts.
 #[test]
 fn compiled_kore_is_unchanged_by_the_provenance_move_and_by_a_read_back() {
     for (name, kore) in [
         (
             "counter.k",
-            "fa13c240f3daa1a27c3113c6aa85f39f7e94fb8f9ecf3501fe438b27a541c109",
+            "0d18db45c057e6d07f8c65949d64621e91428e817f97c7e92a3a5cd0c97b27e3",
         ),
         (
             "symmem.k",
-            "e531c6e99046173f92ae74e7505ea06ddb9cb0a79b0e317d01863b22346a4ba1",
+            "e17db9dfe69a209f3e40130a1462d4e1ead24ac49f168886960fce03eaf0d098",
         ),
         (
             "guardedmem.k",
-            "e2ea50d262b99182114dc396093a85cdc20de5f98b0a9187270e379061f7ba99",
+            "ce5cfbd6f45f4a97306343958ec088220d8fd2a910bc2d56edcf05742c3b44f2",
         ),
     ] {
         let baseline = support::load(name);

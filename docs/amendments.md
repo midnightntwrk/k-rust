@@ -13,25 +13,30 @@ It lives only in this document, never in an upstream file: a sentence inserted i
 
 A meaning statement rests on one of two grounds, which its entry names:
 
-- evident intent: the text fixes the value, and what it leaves out its own model or words supply, an omission of the wording rather than a freedom it grants, or where its prose and the K text of the same production give the value differently, the K text decides it, since that text is what a backend runs; no sentence leaves the value to the implementation, as `domains.md` does of `Base2String`'s letter case;
+- evident intent: the text fixes the value, and what it leaves out its own model or words supply, an omission of the wording rather than a freedom it grants; no sentence leaves the value to the implementation, as `domains.md` does of `Base2String`'s letter case.
+  The text also fixes a value it states twice: where the operation is defined, a value that the prose and the production's own formal statement of the operation, its `smt-hook`, give differently is the formal statement's.
+  The backend states every term of the symbol to the solver through that `smt-hook`, so an evaluated value other than the `smt-hook`'s would give one term two values, and a term has one.
+  The case decides a value, never a domain: an `smt-hook` constrains its symbol's value only where the symbol is defined ([compatibility.md, Solver decisions over partial operations](compatibility.md#solver-decisions-over-partial-operations)), so a value SMT-LIB gives where the text leaves the operation undefined, as `bvudiv` gives `/uMInt` at a zero divisor, defines nothing;
 - convention: the text fixes the value up to a spelling or representation convention it does not name, every implementation the entry's evidence covers follows that convention, and the entry states the convention as k-rust's choice, which its upstream proposal would make the text's.
 
 A value neither ground gives stays open ([compatibility.md, Implementation-chosen hook values](compatibility.md#implementation-chosen-hook-values)).
 
 K text that k-rust loads and the upstream file does not hold stays in the embedded file, since K has no way to add a rule to an upstream module from outside it, and rewriting the text at load would make the definition k-rust runs differ from the file it shows.
 Each such line ends with the comment `// k-rust: AM-<n>`, naming its entry here, and that entry records the upstream line it replaces, or that it replaces none.
-An explanation of such an edit is the entry's; the file holds only the marked code lines.
+A line that replaces none stands in a module after the upstream file's last line, so that no upstream line moves: the rules added to `domains.md`'s `INT-SYMBOLIC-KORE` are in `INT-SYMBOLIC-KORE-AMENDMENTS`, which has that module's attributes and imports and which that module imports on its last `imports` line, the upstream line unchanged as the line's prefix; a module's sentences include those of the modules it imports, so the rules are `INT-SYMBOLIC-KORE`'s as if they were written in it.
+An explanation of such an edit is the entry's; the file holds only the marked code lines, the amendment module that holds the added ones and the import of it.
 A K-text entry names a ground too, that of what its lines state. Where the lines make k-rust run something other than what the pinned release runs, the release cannot follow the convention they state: the ground is then a convention of k-rust's own, which the entry says, and compatibility.md states the divergence.
 
-So every file of `crates/k-rust/builtin/` equals the pinned release's file byte for byte once each marked line is undone: removed if its entry says it was added, otherwise replaced by the upstream line its entry records.
-A citation `domains.md`:N in compatibility.md names a line of the embedded copy ([compatibility.md](compatibility.md#backend-scope) states the rule); an entry's `Upstream` field names lines of the upstream file itself.
+So every file of `crates/k-rust/builtin/` equals the pinned release's file byte for byte once each marked line is undone (removed if its entry says it was added, otherwise replaced by the upstream line its entry records) and its amendment module and the import of it are removed.
+A citation `domains.md`:N names a line of the embedded copy ([compatibility.md](compatibility.md#backend-scope) states the rule), which for every line of the upstream file is that file's line N; an entry's `Upstream` field names lines of the upstream file itself.
 
 The test [amendments.rs](../crates/k-rust/tests/amendments.rs) enforces the rule.
 It holds the SHA-256 digest of each pinned file, so it needs no K installation, and checks that:
 
 - the entries are numbered 1 to N in order, each once, and each has every field below, its `Ground` one of the two grounds;
-- undoing the marked lines of each embedded file as its entries say gives the pinned file's digest, every marked line is one its entry lists, and each marked line, its mark removed, is the corresponding `+` line of its entry's upstream proposal;
-- every entry's quoted passage occurs verbatim at the location its `Upstream` field cites: in the pinned file of a builtin (the embedded copy with its marks undone), and for `krypto.md` in [kink's reference copy](../kink/crates/kink-native/reference/krypto.md) of the plugin's file at `651a2db5`, whose digest it also checks;
+- undoing the marked lines of each embedded file as its entries say and removing its amendment module and the import of it gives the pinned file's digest, every marked line is one its entry lists, and each marked line, its mark removed, is the corresponding `+` line of its entry's upstream proposal;
+- every line of each embedded file before its amendment module is the pinned file's line of the same number, a marked line that replaces its upstream line and the line that ends with the module's import aside, so a citation `domains.md`:N names the same text in both and an amendment that inserts a line there fails;
+- every entry's quoted passage occurs verbatim at the location its `Upstream` field cites: in the pinned file of a builtin (the embedded copy with its marks undone and its amendment module removed), and for `krypto.md` in [kink's reference copy](../kink/crates/kink-native/reference/krypto.md) of the plugin's file at `651a2db5`, whose digest it also checks;
 - every `AM-<n>` in `crates/`, `docs/`, `docs-site/`, `krs/` and `kink/` names an entry.
 
 A passage is quoted as a block of the upstream file's lines, either a fenced block or `>` lines. It occurs verbatim at its location when, with every run of whitespace (the line breaks and indentation included) read as one space, its text is a contiguous run of the cited lines' text that starts on the first cited line and ends on the last; it may start or end within a line.
@@ -417,11 +422,13 @@ Each entry has these fields:
 - Reason: a ceil equation is an equality of the definition, so it holds only if it states the application's actual domain.
   `divInt` is Euclidean division, which gives one integer for every nonzero divisor, and division by zero is `#False`: the application is defined exactly where its operands are and its divisor is not zero.
   `bitRangeInt` is defined by its equation in module `INT` as `(I >>Int IDX) modInt (1 <<Int LEN)`: `I >>Int IDX` is defined exactly where `IDX` is not negative, `1 <<Int LEN` exactly where `LEN` is not negative, and it is then at least 1, so the remainder's divisor is never zero; the application is defined exactly where its operands are and `IDX` and `LEN` are not negative.
-  The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (upstream :1392-1396) and not those of `divInt` and `bitRangeInt`, so a claim whose right-hand side holds `V divInt 32` cannot show that it is defined, though the text says it is.
-  Other partial operations of `INT`, `^Int` and `^%Int` at a negative exponent, `^%Int` with a zero modulus and `log2Int` of a number that is not positive, have no ceil equation in the module either; AM-12 states theirs.
+  The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (:1392-1396) and not those of `divInt` and `bitRangeInt`, so a claim whose right-hand side holds `V divInt 32` cannot show that it is defined, though the text says it is.
+  Other partial operations of `INT`, `^Int` and `^%Int` at a negative exponent of a base other than 1 and -1, `^%Int` with a zero modulus and `log2Int` of a number that is not positive, have no ceil equation in the module either; AM-12 states theirs.
   The domains are not derived from the hooks' text in the backend instead: the ceil theory of a definition is the one source of an application's definedness for the definedness walk, the simplifier's own reading of a `\ceil`, the value classification of irreducible applications and the solver's function summaries (`ceil_theory` in `k-rust-backend`), so a derived condition would have to be added to that theory at load, as equations no source text states.
 - Evidence: `primitive_integer_domains_and_signed_literal_values_compose_in_claims` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs): `safe-ediv`, `safe-negative-ediv`, `safe-symbolic-ediv`, `safe-range`, `safe-zero-range` and `safe-symbolic-range` are proven, and `undefined-ediv`, `undefined-offset`, `undefined-length` and `undefined-operand` disproved with a certified leaf.
   The ground evaluators return the same domain: a zero divisor and a negative index or length are `\bottom` (`int_partial_binary` and `int_bit_range` in `k-rust-backend`'s `builtin.rs`).
+  `power_log2_ediv_and_bit_range_domains_agree_with_the_evaluators_on_a_grid` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs) checks it at every point of a grid (operands in [-3, 3], `bitRangeInt`'s index and length in [-2, 3]) by a route that does not run those evaluators: the simplified `\ceil` of the application on symbolic operands, instantiated at the point, is `\top` exactly where the evaluator gives a value and `\bottom` exactly where it gives `\bottom`, and where `divInt` has a value the solver finds its `smt-hook` (`div`) equal to it. For `bitRangeInt` the grid shows that the domain agrees with the evaluator, decided through `bitRangeInt`'s defining equation and the ceil equations of `>>Int`, `<<Int` and `modInt`, of which the marked line is a consequence that this route does not read: the test does not check the line's text (a stricter copy of it changes no answer).
+  The line is read elsewhere, as an equation of the definition's ceil theory (`ceil_theory` in `k-rust-backend`: the definedness walk, the value classification of irreducible applications and the solver's function summaries), and N52 drops it from the reference comparisons.
 - Upstream proposal:
 
   ```diff
@@ -434,7 +441,7 @@ Each entry has these fields:
 
   in module `INT-SYMBOLIC-KORE` (:1394-1396).
 - Status: local
-- Replaces: K text, marked lines `domains.md`:1395 and :1398, added (they replace no upstream line).
+- Replaces: K text, marked lines `domains.md`:3080 and :3081, added (they replace no upstream line; they stand in module `INT-SYMBOLIC-KORE-AMENDMENTS`, which `INT-SYMBOLIC-KORE` imports).
 
 ### AM-11: The edges of rootFloat in a positive degree are IEEE 754's rootn
 
@@ -510,10 +517,11 @@ Each entry has these fields:
   `^%Int` is "equal in value to `(A ^Int B) %Int C`": it is defined exactly where that remainder is, where `A ^Int B` is defined and the divisor `C` is not zero ("Division by zero is `#False`"); read as the Euclidean remainder (AM-13), whose division by zero is `#False` as well, the domain is the same.
   `log2Int` of zero or a negative number is `#False`, and of a positive integer is the index of its highest set bit, an integer: the application is defined exactly where its operand is and is positive.
   A power the backend does not compute for its size (a result above its bound, [compatibility.md, Resource bounds](compatibility.md#resource-bounds)) is defined: the bound is the evaluator's, and the equation, like the text, gives every such application a value.
-  The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (upstream :1392-1396) and, with AM-10, of `divInt` and `bitRangeInt`, and not these, so a claim whose right-hand side holds `V ^Int 3` cannot show that it is defined, and one holding `V ^Int -1` with `V` above 1 that it is not, though the text says both.
+  The module states the domains of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (:1392-1396) and, with AM-10, of `divInt` and `bitRangeInt`, and not these, so a claim whose right-hand side holds `V ^Int 3` cannot show that it is defined, and one holding `V ^Int -1` with `V` above 1 that it is not, though the text says both.
   The domains are stated as equations rather than derived from the hooks' text in the backend for the reason AM-10 gives: the ceil theory is the one source of an application's definedness.
 - Evidence: `power_modular_power_and_log2_domains_compose_in_claims` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs): on symbolic operands `safe-pow`, `safe-symbolic-pow`, `safe-one-pow`, `safe-minus-one-pow`, `safe-unit-pow`, `safe-powmod`, `safe-symbolic-powmod`, `safe-unit-powmod` and `safe-log2` are proven, and `undefined-pow`, `undefined-negative-base-pow`, `undefined-zero-pow`, `undefined-modulus-powmod`, `undefined-exponent-powmod`, `undefined-negative-base-powmod` and `undefined-log2` disproved with a certified leaf; the claims on literal operands, which the evaluators decide, are the controls and agree, a negative modulus (`-1 ^%Int -1 -5`) and a base below -1 at a negative exponent (`-2 ^Int -1`, `-2 ^%Int -1 -5`) among them.
   The ground evaluators apply the same domain case by case (`int_pow_within`, `int_powmod` and `int_log2` in `k-rust-backend`'s `builtin.rs`): the bases 1 and -1 have a power at every exponent, any other base at a negative exponent is `\bottom`; a zero modulus is `\bottom`, and otherwise `^%Int` at a negative exponent is as `^Int`; and an argument of `log2Int` that is not positive is `\bottom` (`undefined_integer_operations_are_bottom` and `powmod_is_the_euclidean_remainder_of_the_power` there).
+  `power_log2_ediv_and_bit_range_domains_agree_with_the_evaluators_on_a_grid` in [proof_semantics.rs](../crates/k-rust/tests/proof_semantics.rs) checks the three equations at every point of a grid (every operand in [-3, 3]) by a route that does not run those evaluators: the simplified `\ceil` of the application on symbolic operands, which the equation decides, instantiated at the point, is `\top` exactly where the evaluator gives a value and `\bottom` exactly where it gives `\bottom`; where `^Int` or `^%Int` has a value, the solver finds the term's `smt-hook` encoding equal to it, except at the base 0 and the exponent 0 written as a variable, where Z3 leaves `(^ 0 0)` uninterpreted and finds the value only consistent; no point refutes an evaluated value.
 - Upstream proposal:
 
   ```diff
@@ -526,7 +534,7 @@ Each entry has these fields:
 
   in module `INT-SYMBOLIC-KORE` (:1396-1397).
 - Status: local
-- Replaces: K text, marked lines `domains.md`:1399-1401, added (they replace no upstream line).
+- Replaces: K text, marked lines `domains.md`:3082-3084, added (they replace no upstream line; they stand in module `INT-SYMBOLIC-KORE-AMENDMENTS`, which `INT-SYMBOLIC-KORE` imports).
 
 ### AM-13: `^%Int` is the Euclidean remainder of the power
 
@@ -555,7 +563,7 @@ Each entry has these fields:
   k-rust cannot give the term any value but its `smt-hook`'s: the backend states every `^%Int` term to the SMT solver through that `smt-hook` (with the power read as compatibility.md's `^Int` paragraph says), so an evaluator that gave the t-division remainder of a negative power would let the backend derive two different values for one term, the evaluator's and the solver's.
   The prose's sentence is about cost ("but has a better asymptotic complexity") and names the power reduced by `C` to say what is computed faster; reading its `%Int` as `modInt` keeps that and removes the contradiction.
   The reading changes no domain: both remainders are defined exactly where the power is and `C` is not zero (AM-12).
-  So the ground is evident intent in the rule's second case: the prose and the production's K text give the value differently, and the K text decides it; no sentence leaves the value to the implementation.
+  So the ground is evident intent in the rule's case of a value the text states twice: `^%Int` is defined at every such point, where `C` is not zero and the power is an integer (AM-12), and there the prose and the production's `smt-hook` give the value differently, so the value is the `smt-hook`'s; no sentence leaves the value to the implementation.
 - Evidence: `powmod_is_the_euclidean_remainder_of_the_power` in `k-rust-backend`'s [builtin.rs](../crates/k-rust-backend/src/builtin.rs) (`-2 ^%Int 3 5` is 2 and `-1 ^%Int -1 5` is 4, where `%Int` would give -3 and -1; the modulus' sign changes nothing); `kprove_proves_nothing_from_a_power_where_no_integer_is_its_value` in [cli.rs](../crates/k-rust/tests/cli.rs) states such terms to the solver; no reference differential of k-rust's runs `^%Int` at a negative power on the Java or Haskell backend.
 - Upstream proposal:
 

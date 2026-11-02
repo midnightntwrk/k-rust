@@ -2246,7 +2246,8 @@ fn a_result_above_the_size_bound_stays_unevaluated_without_an_error() {
         );
         // Term simplification keeps the dropped conjunct's definedness obligation: the
         // `\ceil` of the application, since both hooks are partial (`domains.md` declares
-        // neither `total`: a negative exponent or shift amount has no value).
+        // neither `total`: a negative exponent of a base other than 1 and -1, and a negative
+        // shift amount, have no value).
         assert_eq!(
             result.constraints(),
             [Predicate::Ceil(input.clone())].as_slice(),

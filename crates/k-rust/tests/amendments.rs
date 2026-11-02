@@ -1,10 +1,11 @@
 //! The amendments overlay ([docs/amendments.md](../../../docs/amendments.md), "The rule"): the
 //! entries are numbered 1 to N in order, each with every field and one of the two grounds; every
 //! file of `crates/k-rust/builtin/` is the pinned K release's file byte for byte once its lines
-//! marked `// k-rust: AM-<n>` are undone as their entries say, and each marked line is the `+`
-//! line its entry's upstream proposal gives; every entry quotes its upstream passage verbatim at
-//! the location it cites; and every `AM-<n>` that `crates/`, `docs/`, `docs-site/`, `krs/` and
-//! `kink/` cite names an entry.
+//! marked `// k-rust: AM-<n>` are undone as their entries say and its amendment module and the
+//! import of it are removed, and each marked line is the `+` line its entry's upstream proposal
+//! gives; every line of an embedded file before its amendment module is the pinned file's line of
+//! the same number; every entry quotes its upstream passage verbatim at the location it cites; and
+//! every `AM-<n>` that `crates/`, `docs/`, `docs-site/`, `krs/` and `kink/` cite names an entry.
 
 use regex::Regex;
 use sha2::{Digest, Sha256};
@@ -54,6 +55,16 @@ const PINNED_BUILTINS: [(&str, &str); 9] = [
         "4a6fc7b72406d14a26c584366e8395b93071f6377ca8ca44aeba3edea5da8dbd",
     ),
 ];
+
+/// The module that holds the K text k-rust adds to an embedded file, after the pinned file's last
+/// line, so that no line of the pinned file moves ([docs/amendments.md](../../../docs/amendments.md),
+/// "The rule"): the file, the module's text with its marked lines left out, and the import of it
+/// that the line of the amended module's last `imports` ends with, the pinned line its prefix.
+const AMENDMENT_MODULES: [(&str, &str, &str); 1] = [(
+    "domains.md",
+    "\n```k\nmodule INT-SYMBOLIC-KORE-AMENDMENTS [symbolic, haskell]\n  imports INT-COMMON\n  imports ML-SYNTAX\n  imports private BOOL\n\nendmodule\n```\n",
+    "  imports INT-SYMBOLIC-KORE-AMENDMENTS",
+)];
 
 /// blockchain-k-plugin's `plugin/krypto.md` at `651a2db5afc1789c89553f9113c1afa39e391e35`, as
 /// kink embeds it (`NOTICE`), with the revision an entry names for it and its SHA-256.
@@ -319,7 +330,28 @@ fn amendments() -> Vec<Entry> {
     entries(&std::fs::read_to_string(root().join("docs/amendments.md")).unwrap())
 }
 
-/// Each embedded builtin file with its marked lines undone, checked against its pinned digest.
+/// `text`, an embedded file with its marked lines undone, without the amendment module it ends
+/// with and the import of it: the module's text is the file's end, and the import ends exactly
+/// one line, which is then the pinned file's line.
+fn without_amendment_module(file: &str, text: String) -> String {
+    let Some((_, module, import)) = AMENDMENT_MODULES.iter().find(|(name, ..)| *name == file)
+    else {
+        return text;
+    };
+    let head = text.strip_suffix(module).unwrap_or_else(|| {
+        panic!("{file} with its marked lines undone does not end with its amendment module")
+    });
+    let import = format!("{import}\n");
+    assert_eq!(
+        head.matches(&import).count(),
+        1,
+        "{file}: one line ends with the import {import:?}"
+    );
+    head.replacen(&import, "\n", 1)
+}
+
+/// Each embedded builtin file with its marked lines undone and its amendment module removed,
+/// checked against its pinned digest.
 fn pinned_builtins(entries: &[Entry]) -> BTreeMap<String, String> {
     let marks = entries
         .iter()
@@ -382,11 +414,11 @@ fn pinned_builtins(entries: &[Entry]) -> BTreeMap<String, String> {
                 );
             }
         }
-        let pinned = lines.into_iter().flatten().collect::<String>();
+        let pinned = without_amendment_module(file, lines.into_iter().flatten().collect());
         assert_eq!(
             sha256(pinned.as_bytes()),
             digest,
-            "{file} with its marked lines undone is not the pinned file"
+            "{file} with its marked lines undone and its amendment module removed is not the pinned file"
         );
         undone.insert(file.to_owned(), pinned);
     }
@@ -411,6 +443,63 @@ fn every_builtin_file_is_the_pinned_file_once_its_marked_lines_are_undone() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect::<BTreeSet<_>>();
     assert_eq!(files, undone.keys().cloned().collect());
+}
+
+/// A citation `file`:N names the same line in the embedded file and the pinned one: every line of
+/// an embedded file before its amendment module is the pinned file's line of the same number, a
+/// marked line that replaces its upstream line in place and the line that ends with the module's
+/// import (the pinned line its prefix) aside. An amendment that inserts a line there, which would
+/// move every later line, fails here; its line belongs in the amendment module.
+#[test]
+fn every_line_before_the_amendment_module_is_the_pinned_line_of_the_same_number() {
+    let entries = amendments();
+    let in_place = entries
+        .iter()
+        .filter_map(marks)
+        .filter(|marks| marks.replaced.is_some())
+        .flat_map(|marks| {
+            let file = marks.file;
+            marks
+                .lines
+                .into_iter()
+                .map(move |line| (file.clone(), line))
+        })
+        .collect::<BTreeSet<_>>();
+    let mark = Regex::new(r" // k-rust: AM-\d+$").unwrap();
+    for (file, pinned) in pinned_builtins(&entries) {
+        let text = k_rust::builtin::embedded(&file).unwrap().text;
+        let embedded = text.lines().collect::<Vec<_>>();
+        let pinned = pinned.lines().collect::<Vec<_>>();
+        let import = AMENDMENT_MODULES
+            .iter()
+            .find(|(name, ..)| *name == file)
+            .map(|(_, _, import)| *import);
+        assert!(
+            embedded.len() >= pinned.len(),
+            "{file} is shorter than the pinned file"
+        );
+        for (index, (line, upstream)) in embedded.iter().zip(&pinned).enumerate() {
+            let number = index + 1;
+            let same = line == upstream
+                || (in_place.contains(&(file.clone(), number)) && mark.is_match(line))
+                || import.is_some_and(|import| line.strip_suffix(import) == Some(upstream));
+            assert!(
+                same,
+                "{file}:{number} is {line:?}, where the pinned file has {upstream:?}"
+            );
+        }
+        let rest = embedded[pinned.len()..].join("\n");
+        match import {
+            Some(_) => assert!(
+                rest.starts_with("\n```k\nmodule "),
+                "{file}: after the pinned file's last line comes its amendment module, not {rest:?}"
+            ),
+            None => assert!(
+                rest.is_empty(),
+                "{file} has lines after the pinned file's last"
+            ),
+        }
+    }
 }
 
 #[test]

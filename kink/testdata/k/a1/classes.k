@@ -7,7 +7,7 @@
 // without a console leaves unevaluated.
 // GAP K1: `nan`, `mz` and `mx` build their zero as `Int2Float(N *Int N, 53, 11) -Float
 // Int2Float(N, 53, 11)`, +0.0 at N = 1 (`fp.sub` of 1.0 and 1.0 under roundNearestTiesToEven,
-// domains.md 1572) and 2.0 at N = 2, where they converted `Int2Float(0, 53, 11)`, which K1 marked
+// domains.md 1570) and 2.0 at N = 2, where they converted `Int2Float(0, 53, 11)`, which K1 marked
 // `float-rounding` and k-rust's AM-5 determines as +0.0 since GAP A2: the probe reads the zero
 // through no open value but its own class, the control a nonzero value as before.
 // `i2f` converts to binary32 and `rt` takes a square root; since GAP A2 both are determined where

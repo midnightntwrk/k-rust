@@ -23059,7 +23059,7 @@ endmodule
     let timings: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
     let mut expected = expected_compile_phases_through("print macros.kore");
-    expected.push("write artifacts");
+    expected.extend(["load-time checks", "write artifacts"]);
     assert_eq!(compile_phase_names(&timings), expected);
     assert!(
         timings["write_seconds"].as_f64().unwrap() > 0.0,
@@ -23112,7 +23112,8 @@ fn kcompile_timings_are_written_when_compilation_fails() {
 }
 
 /// A compile that succeeds and then fails the critical-pair check promoted by
-/// `--warnings-to-errors` writes every compile phase and no write phase.
+/// `--warnings-to-errors` writes every compile phase, the load-time checks last, and no write
+/// phase.
 #[test]
 fn kcompile_timings_are_written_when_a_post_compile_check_fails() {
     let (root, definition) = fixture();
@@ -23146,10 +23147,9 @@ fn kcompile_timings_are_written_when_a_post_compile_check_fails() {
     );
     let timings: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
-    assert_eq!(
-        compile_phase_names(&timings),
-        expected_compile_phases_through("print macros.kore")
-    );
+    let mut expected = expected_compile_phases_through("print macros.kore");
+    expected.push("load-time checks");
+    assert_eq!(compile_phase_names(&timings), expected);
     assert_no_write_phases(&timings);
     fs::remove_dir_all(root).unwrap();
 }
