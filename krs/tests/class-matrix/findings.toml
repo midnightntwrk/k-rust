@@ -65,6 +65,11 @@ kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
 
+["NT-42-1"]
+owner = "NT-42"
+kind = "bug"
+what = "a rule's result over `k::matches!(k::project!(S, t), P)` emits `P :=K {t}:>S`, a projection as `:=K`'s operand, which the reference frontend refuses (\"Could not find productions for KApply with label project:S\"): the K text route cannot read what the class matrix accepts; the reference-frontend gate pins the refusal"
+
 ["NT-43-2"]
 owner = "NT-42"
 kind = "bug"

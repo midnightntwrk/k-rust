@@ -2151,8 +2151,12 @@ pub fn write_package(directory: &Path, name: &str, source: &str) -> PathBuf {
 /// Writes the K text of the cases of a collected batch that KRS accepted under `directory`, for
 /// a reference frontend to read (`scripts/krs-class-reference-frontend.sh`): their definition
 /// together, `<hash>/definition.k`, and each case's own, `<hash>/cases/<hash>/definition.k`
-/// beside its `id`. Nothing the class matrix judges reads it; a case whose emission fails is left
-/// out, as K2 judges it.
+/// beside its `id`. Nothing the class matrix judges reads it.
+///
+/// An emission that fails or panics leaves cases without K text, which no frontend then judges:
+/// each is recorded under `dropped/` (`<hash>.txt`: the reason on its first line, then the case
+/// IDs, one per line), the batch's when its joint emission fails, a case's when its own does, so
+/// that the frontend's run counts them and fails rather than reading their absence as a verdict.
 fn write_k_text(
     directory: &Path,
     collected: &CollectedDefinition,
@@ -2164,15 +2168,43 @@ fn write_k_text(
         .filter(|judged| !judged.observed.refused())
         .map(|judged| judged.id.as_str())
         .collect::<BTreeSet<_>>();
+    if accepted.is_empty() {
+        return;
+    }
     let emit = |bundle| match catch_unwind(AssertUnwindSafe(|| collected.emit_k(bundle))) {
-        Ok(Ok(emitted)) => Some(emitted.definition),
-        _ => None,
+        Ok(Ok(emitted)) => Ok(emitted.definition),
+        Ok(Err(error)) => Err(format!("the emission failed: {error}")),
+        Err(panic) => Err(format!("the emission panicked: {}", panic_message(&*panic))),
+    };
+    let dropped = |reason: &str, ids: &[&str]| {
+        let mut record = reason.replace('\n', " ");
+        for id in ids {
+            record.push('\n');
+            record.push_str(id);
+        }
+        record.push('\n');
+        let dropped = directory.join("dropped");
+        let path = dropped.join(format!("{:016x}.txt", fnv1a64(&record)));
+        let written = fs::create_dir_all(&dropped).and_then(|()| fs::write(&path, &record));
+        if let Err(error) = written {
+            panic!(
+                "the dropped record is written at {}: {error}",
+                path.display()
+            );
+        }
     };
     let together = sub_bundle_of(&collected.bundle, all, |placed| {
         accepted.contains(placed.case.id.as_str())
     });
-    let Some(definition) = (!accepted.is_empty()).then(|| emit(together)).flatten() else {
-        return;
+    let definition = match emit(together) {
+        Ok(definition) => definition,
+        Err(reason) => {
+            dropped(
+                &format!("batch: {reason}"),
+                &accepted.iter().copied().collect::<Vec<_>>(),
+            );
+            return;
+        }
     };
     let batch = directory.join(format!("{:016x}", fnv1a64(&definition)));
     let written = fs::create_dir_all(batch.join("cases"))
@@ -2184,8 +2216,12 @@ fn write_k_text(
         .iter()
         .filter(|placed| accepted.contains(placed.case.id.as_str()))
     {
-        let Some(definition) = emit(sub_bundle(&collected.bundle, all, Some(placed))) else {
-            continue;
+        let definition = match emit(sub_bundle(&collected.bundle, all, Some(placed))) {
+            Ok(definition) => definition,
+            Err(reason) => {
+                dropped(&format!("case: {reason}"), &[placed.case.id.as_str()]);
+                continue;
+            }
         };
         let case = batch
             .join("cases")
