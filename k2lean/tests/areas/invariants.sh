@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, tickets, fuel, the step
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, tickets, fuel,
+# flagsmirror, flagscache, the step
 # properties' racelogstep and ledgersupply, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
@@ -19,6 +20,7 @@ kore_invariants() {
 name_invariants() {
   case $1 in
     kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;; ledger|ledgersupply) echo Ledger ;; escrow) echo Escrow ;; tickets) echo Tickets ;; fuel) echo Fuel ;;
+    flagsmirror|flagscache) echo KFlags ;;
     racelogstep) echo Racelog ;;
     simpleinv|simplestore|simplet|simpleenvs) echo KSimpleInv ;;
     *) return 1 ;;
@@ -107,6 +109,12 @@ gen_invariants() {
     fuel) GEN_ARGS=(--kore "$FIXTURES/fuel/definition.kore" --runtime "$FIXTURES/fuel/runtime.json"
             --out "$o" --name Fuel --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant nonneg@fuel --measure work@tasks --measure-invariant) ;;
+    # invariants read through `==Bool`, `=/=Bool` and `xorBool` (tests/fixtures/flags): flags a rule
+    # writes together, a total right-hand side (`mirror`), and a cache of a call's value, which a
+    # rule writes with the call (`cached`: `Z ==Bool isZero(N)`)
+    flagsmirror|flagscache) GEN_ARGS=(--kore "$FIXTURES/flags/definition.kore" --runtime "$FIXTURES/flags/runtime.json"
+            --out "$o" --name KFlags --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant "$([ "$1" = flagsmirror ] && echo mirror || echo cached)@T") ;;
     # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
             --out "$o" --name KWalk --prelude ../../lean --open-obligations "$o/open-obligations.txt"
@@ -387,6 +395,9 @@ gate_invariants() {
   # invariant first, then `Measure.lean`, which imports it
   runs lib tickets && inv_lib tickets Tickets && meascases tickets Tickets && stepcases tickets Tickets
   runs lib fuel && inv_lib fuel Fuel && meascases fuel Fuel
+  # invariants through `==Bool`, `=/=Bool`, `xorBool`: total, and of a cached call (tests/fixtures/flags)
+  runs lib flagsmirror && inv_lib flagsmirror KFlags
+  runs lib flagscache && seed_lake flagscache flagsmirror && inv_lib flagscache KFlags
   # step properties with no invariant (INV-21): racelog's, generic; ledger's false `supplyUp`, its
   # `burn` case open and refuted by hand (library ledgersupply, tracked open list and hand module)
   if runs lib racelogstep; then

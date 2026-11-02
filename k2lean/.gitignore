@@ -105,6 +105,10 @@ lake-manifest.json
 /demos/VmEmptyMut/VmEmptyMut/RefineDefs.lean
 /demos/VmEmptyMut/VmEmptyMut/Witnesses.lean
 /demos/VmEmptyMut/refine.toml
+/demos/VmGuardRefine/VmGuardRefine/Tr.lean
+/demos/VmGuardRefine/VmGuardRefine/Refine.lean
+/demos/VmGuardRefine/VmGuardRefine/RefineDefs.lean
+/demos/VmGuardRefine/refine.toml
 /demos/RaceConf/RaceConf/Views.lean
 /demos/RaceConf/RaceConf/Slots.lean
 /demos/RaceConf/RaceConf/Pairs/

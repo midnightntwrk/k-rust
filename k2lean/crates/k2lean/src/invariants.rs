@@ -31,7 +31,9 @@
 //! and a rule's case has variables for the cells it does not mention. When `φ` binds partial calls
 //! (`A andBool B`), the proof cases on each call, and the unfolding set gets the split of the
 //! bind chain (`BIND_SPLIT`) and not the function's own definition, which would unfold first and
-//! stay stuck on a rule's cell variables.
+//! stay stuck on a rule's cell variables. When `φ` is total and applies a `Bool` connective
+//! (`A ==Bool B`), the unfolding set gets all of them (`BOOL_CONNECTIVES`), which a rule's values
+//! apply too (`<a> _ => notBool X </a>`).
 //!
 //! **Preservation.** `Step.preserves_of` (`{ns}/Preserves.lean`) proves `Preserved Step Invariant` from
 //! one `Step.Case.r Invariant` per rule, and each case is a theorem `Invariant.case.r` proved by `k2l_preserve`
@@ -2403,15 +2405,33 @@ struct CellTree {
     reads: BTreeMap<String, Vec<String>>,
 }
 
+/// K's `Bool` connectives (`notBool`, `andBool`, `orBool`, `impliesBool`, `xorBool`, `==Bool`,
+/// `=/=Bool`), each a definition whose body is Lean's own operation on `Bool` (`KPrelude.Hooks`), so
+/// unfolding one is exact. An invariant's right-hand side reads through them; the closers read
+/// what they unfold to.
+const BOOL_CONNECTIVES: &[&str] = &[
+    "KPrelude.BoolHook.and",
+    "KPrelude.BoolHook.or",
+    "KPrelude.BoolHook.not",
+    "KPrelude.BoolHook.implies",
+    "KPrelude.BoolHook.xor",
+    "KPrelude.BoolHook.eq",
+    "KPrelude.BoolHook.ne",
+];
+
 /// What splits a chain of `Option.bind`s over partial `Bool` calls equated to `some true`
-/// (`f_cells` of a function whose right-hand side is `A andBool B`): the split of one link, the
-/// connectives at constants, and the propositional clean-up of the branches that fail.
+/// (`f_cells` of a function whose right-hand side is `A andBool B`, or `E ==Bool f(S)`): the
+/// split of one link, the connectives at the values it substitutes (all of `BOOL_CONNECTIVES`),
+/// and the propositional clean-up of the branches that fail.
 const BIND_SPLIT: &[&str] = &[
     "KPrelude.bind_bool_eq_some_true",
     "KPrelude.BoolHook.and",
     "KPrelude.BoolHook.or",
     "KPrelude.BoolHook.not",
     "KPrelude.BoolHook.implies",
+    "KPrelude.BoolHook.xor",
+    "KPrelude.BoolHook.eq",
+    "KPrelude.BoolHook.ne",
     "Option.some.injEq",
     "Bool.false_eq_true",
     "and_false",
@@ -2419,6 +2439,17 @@ const BIND_SPLIT: &[&str] = &[
     "or_false",
     "false_or",
 ];
+
+/// Whether Lean text applies the constant `name` (an occurrence not followed by more of an
+/// identifier: `KPrelude.BoolHook.not` is not an occurrence of `KPrelude.BoolHook.no`).
+fn applies(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(i, _)| {
+        !text[i + name.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '\'')
+    })
+}
 
 /// The variables of a pattern, in order (for the right-hand side of an equation).
 fn free_vars(p: &P, out: &mut Vec<String>) {
@@ -3150,6 +3181,14 @@ pub fn emit(
                 // the bind chain of partial `Bool` calls, split one call at a time, and the
                 // `Bool` connectives at the values it substitutes
                 for n in BIND_SPLIT {
+                    if !unfold.iter().any(|u| u == n) {
+                        unfold.push(n.to_string());
+                    }
+                }
+            } else if BOOL_CONNECTIVES.iter().any(|n| applies(&ct.theorem, n)) {
+                // a total right-hand side that applies a connective (`A ==Bool B`): all of them,
+                // for the connectives also at the values a rule writes (`<a> _ => notBool X </a>`)
+                for n in BOOL_CONNECTIVES {
                     if !unfold.iter().any(|u| u == n) {
                         unfold.push(n.to_string());
                     }
