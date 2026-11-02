@@ -6116,8 +6116,105 @@ fn simplify_with_budget(
     })
 }
 
+/// One level of the term simplifier: inside a proof's record of normal forms
+/// (`normal_forms`), a non-ground compound term entered with no rule condition active is routed
+/// through it ([`simplify_subterm_through_record`]); every other term is simplified as a lineage
+/// ([`simplify_lineage`]).
 #[allow(clippy::too_many_arguments)]
 fn simplify_on_stack(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    // A ground term is left to the evaluated mark (ground-only, since a symbolic normal form
+    // depends on the path condition). A variable is not routed, to spare a lookup at each
+    // occurrence: no equation applies to it, and the children of its path condition's
+    // replacement are each routed at their own level. Under an active rule condition an
+    // attempt on a condition met again is `Recurred`, which the key does not hold: the record is
+    // used only where none is active.
+    if normal_forms::open()
+        && active_conditions.is_empty()
+        && !term.attributes().variables.is_empty()
+        && !matches!(term.kind(), TermKind::Variable(_))
+    {
+        return simplify_subterm_through_record(
+            definition,
+            term,
+            assumptions,
+            options,
+            remaining,
+            solver,
+            execution,
+        );
+    }
+    simplify_lineage(
+        definition,
+        term,
+        assumptions,
+        options,
+        remaining,
+        active_conditions,
+        solver,
+        execution,
+    )
+}
+
+/// [`simplify_lineage`] of a non-ground subterm through the proof's record of normal forms
+/// (`normal_forms::subterm_through_record`): served whole where an equal key was recorded, and
+/// recorded where its simplification was clean. The key's subject is `term` as it is entered,
+/// before its path condition is applied, since the lineage reads that form too (the operands a
+/// short-circuit hook evaluated, `hook_argument_definedness`); the path condition is part of the
+/// key, so the term it gives is a function of the key. Out of line, so that the frames of the
+/// simplifier's other levels do not hold the record's.
+#[inline(never)]
+fn simplify_subterm_through_record(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    let in_execution = execution.is_some();
+    let no_conditions = BTreeSet::new();
+    let simplified = normal_forms::subterm_through_record(
+        definition,
+        term,
+        assumptions,
+        options,
+        solver,
+        remaining,
+        in_execution,
+        |remaining| {
+            simplify_lineage(
+                definition,
+                term,
+                assumptions,
+                options,
+                remaining,
+                &no_conditions,
+                solver,
+                execution,
+            )
+            .layered()
+        },
+    );
+    match simplified {
+        Ok(Ok(simplification)) => Ok(simplification),
+        Ok(Err(failure)) => Err(Unwind::Fail(failure)),
+        Err(stop) => Err(Unwind::Stop(stop)),
+    }
+}
+
+/// A lineage of the term simplifier: rounds on `term` to a fixed point ([`Lineage`]).
+#[allow(clippy::too_many_arguments)]
+fn simplify_lineage(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
@@ -6675,6 +6772,9 @@ fn claims_checked_in(definition: &BackendDefinition) -> bool {
     definition.declares_claims() && crate::path_facts::checking_claims()
 }
 
+/// Compared and hashed by content, for a key of `normal_forms` (a subterm's normal form is one
+/// under the path condition it was simplified under).
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct PathConditionReplacements {
     substitution: Substitution,
     replacements: Vec<(Term, Term)>,

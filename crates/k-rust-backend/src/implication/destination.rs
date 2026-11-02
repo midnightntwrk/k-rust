@@ -625,7 +625,9 @@ mod tests {
     /// GAP K17 review, finding 3: inside a run with a console, an open coverage collection, or
     /// an open lineage's records of `Unspecified` evaluations, the thread holds something the
     /// key does not, and each check is refused before the lookup, counted by its reason, and
-    /// simplifies.
+    /// simplifies. The reason is counted twice per check: once for the destination and once for
+    /// its term `f(Y')`, a non-ground subterm the term simplifier routes through the record too
+    /// (K17 part b), which is refused for the same reason.
     #[test]
     fn a_destination_is_neither_recorded_nor_served_inside_what_its_key_does_not_hold() {
         let definition = definition();
@@ -649,9 +651,15 @@ mod tests {
                         (
                             prepared.recorded,
                             prepared.served,
+                            prepared
+                                .delta
+                                .get(Counter::SimplifyNormalFormsSubtermRecorded),
+                            prepared
+                                .delta
+                                .get(Counter::SimplifyNormalFormsSubtermServed),
                             prepared.delta.get(reason)
                         ),
-                        (0, 0, 1),
+                        (0, 0, 0, 0, 2),
                         "{reason:?}"
                     );
                     assert!(prepared.attempts > 0);

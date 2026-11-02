@@ -20,7 +20,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 25;
+pub const COUNTER_SCHEMA_VERSION: u64 = 26;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -560,11 +560,19 @@ pub enum Counter {
     /// Known predicates each conjunction simplification copies into its own assumptions,
     /// counted once per call.
     SimplifyKnownPredicates,
-    /// Simplifications `simplify::normal_forms` recorded for reuse within a proof.
+    /// Simplifications of a proof's destination `simplify::normal_forms` recorded for reuse
+    /// within the proof.
     SimplifyNormalFormsRecorded,
-    /// Simplifications `simplify::normal_forms` served from its record, each in place of a
-    /// simplification.
+    /// Simplifications of a proof's destination `simplify::normal_forms` served from its record,
+    /// each in place of a simplification.
     SimplifyNormalFormsServed,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule
+    /// condition active that `simplify::normal_forms` recorded for reuse within a proof.
+    SimplifyNormalFormsSubtermRecorded,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule
+    /// condition active that `simplify::normal_forms` served from its record, each in place of
+    /// a simplification.
+    SimplifyNormalFormsSubtermServed,
     /// Simplifications `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
     SimplifyNormalFormsRefusedConsole,
     /// Simplifications `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
@@ -656,7 +664,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 116;
+    pub const COUNT: usize = 118;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -737,6 +745,8 @@ impl Counter {
         Counter::SimplifyKnownPredicates,
         Counter::SimplifyNormalFormsRecorded,
         Counter::SimplifyNormalFormsServed,
+        Counter::SimplifyNormalFormsSubtermRecorded,
+        Counter::SimplifyNormalFormsSubtermServed,
         Counter::SimplifyNormalFormsRefusedConsole,
         Counter::SimplifyNormalFormsRefusedUnspecified,
         Counter::SimplifyNormalFormsRefusedCoverage,
@@ -860,6 +870,8 @@ impl Counter {
             Counter::SimplifyKnownPredicates => "simplify.known_predicates",
             Counter::SimplifyNormalFormsRecorded => "simplify.normal_forms.recorded",
             Counter::SimplifyNormalFormsServed => "simplify.normal_forms.served",
+            Counter::SimplifyNormalFormsSubtermRecorded => "simplify.normal_forms.subterm.recorded",
+            Counter::SimplifyNormalFormsSubtermServed => "simplify.normal_forms.subterm.served",
             Counter::SimplifyNormalFormsRefusedConsole => {
                 "simplify.normal_forms.refused_unclean.console"
             }
