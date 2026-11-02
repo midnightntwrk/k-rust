@@ -1,0 +1,14 @@
+# VmEmptyRefine with no legality: the parts that need the cache to be right are open, and so is
+# `add`'s (its priority lemma needs it), refuted together by `wrong-cache` (`Open.refuted`,
+# Witnesses.lean): a configuration no program reaches, so a legality is missing
+# (`--assume-invariant`, as VmEmptyRefine states it). witnesses/wrong-cache.kore is the
+# configuration of `push(1); push(2); add` at `add` (krust's `krun --depth 5`) with the cache
+# `<empty>` set to `true` while the stack holds 2 and 1: KVmEmpty adds and ends `ok`, KVmEmptyOpt
+# reads the cache and underflows.
+fwd_tr.«add»
+fwd_tr.«add-underflow0»
+fwd_tr.«div-underflow0»
+fwd_tr.«pop-underflow»
+bwd_tr.«add-underflow0»
+bwd_tr.«div-underflow0»
+bwd_tr.«pop-underflow»

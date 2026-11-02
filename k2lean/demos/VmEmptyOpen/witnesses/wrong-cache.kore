@@ -1,0 +1,26 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'T'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+      kseq{}(
+        inj{SortInstr{}, SortKItem{}}(Lbladd'Unds'VMPRI-SYNTAX'Unds'Instr{}()),
+        kseq{}(
+          inj{SortPgm{}, SortKItem{}}(
+            Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'VMPRI-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}()
+          ),
+          dotk{}()
+        )
+      )
+    ),
+    Lbl'-LT-'stack'-GT-'{}(
+      Lbl'UndsColnUndsUnds'VMPRI'Unds'Stack'Unds'Int'Unds'Stack{}(
+        \dv{SortInt{}}("2"),
+        Lbl'UndsColnUndsUnds'VMPRI'Unds'Stack'Unds'Int'Unds'Stack{}(
+          \dv{SortInt{}}("1"),
+          Lbl'Stop'Stack'Unds'VMPRI'Unds'Stack{}()
+        )
+      )
+    ),
+    Lbl'-LT-'empty'-GT-'{}(\dv{SortBool{}}("true"))
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

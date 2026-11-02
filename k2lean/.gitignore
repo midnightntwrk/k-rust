@@ -91,6 +91,11 @@ lake-manifest.json
 /demos/RangeIncRefine/RangeIncRefine/Refine.lean
 /demos/RangeIncRefine/RangeIncRefine/RefineDefs.lean
 /demos/RangeIncRefine/refine.toml
+/demos/VmEmptyOpen/VmEmptyOpen/Tr.lean
+/demos/VmEmptyOpen/VmEmptyOpen/Refine.lean
+/demos/VmEmptyOpen/VmEmptyOpen/RefineDefs.lean
+/demos/VmEmptyOpen/VmEmptyOpen/Witnesses.lean
+/demos/VmEmptyOpen/refine.toml
 /demos/VmPopLegal/VmPopLegal/Tr.lean
 /demos/VmPopLegal/VmPopLegal/Refine.lean
 /demos/VmPopLegal/VmPopLegal/RefineDefs.lean
@@ -240,6 +245,8 @@ lake-manifest.json
 # the witness programs' initial configurations (krust's `krun --depth 0`, `ni_witnesses` in
 # tests/areas/noninterference.sh, `rel_witnesses` in tests/areas/relational.sh)
 /demos/*/witnesses/*.kore
+# a witness that no program reaches is written by hand, not by krust (REL-9)
+!/demos/VmEmptyOpen/witnesses/wrong-cache.kore
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean

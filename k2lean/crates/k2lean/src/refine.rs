@@ -1599,6 +1599,7 @@ set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace
             nb: &nb,
             ns: &ns,
             ta: &ta,
+            top: &top,
             tr: &tr,
             ranked: (ranked_a, ranked_b),
             inv: inv.as_ref().map(|i| i.name.as_str()),

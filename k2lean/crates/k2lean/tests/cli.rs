@@ -1142,13 +1142,20 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
     wit(&format!(
         "Lbl'UndsColnUndsUnds'VMPOP'Unds'Stack'Unds'Int'Unds'Stack{{}}(\\dv{{SortInt{{}}}}(\"1\"), {empty})"
     ));
+    // a configuration that is not an initial one (REL-9): the start is the configuration itself,
+    // which no program need reach
     let o = refine_wit("--hand-module", "none", "fwd_tr.«pop-start»\n");
-    assert_eq!(o.status.code(), Some(2));
-    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let w = std::fs::read_to_string(d.join("Witnesses.lean")).unwrap();
     assert!(
-        err.contains("pop-empty.kore: not an initial configuration of the first definition"),
-        "{err}"
+        w.contains("/-- The start: a configuration of `A`, which no program need reach. -/\ndef witness.«pop-empty».start : A.SortGeneratedTopCell :=\n  open A in SortGeneratedTopCell.«<generatedTop>» "),
+        "{w}"
     );
+    assert!(
+        w.contains("(SortStack.«_:_» (1 : Int) SortStack.«.Stack»)"),
+        "{w}"
+    );
+    assert!(!w.contains("witness.«pop-empty».pgm"), "{w}");
     std::fs::remove_file(wd.join("pop-empty.kore")).unwrap();
     let o = refine_wit("--hand-module", "none", "fwd_tr.«pop-start»\n");
     assert_eq!(o.status.code(), Some(2));
@@ -1553,6 +1560,31 @@ fn refine_under_a_legality_and_without_a_split() {
         let err = String::from_utf8_lossy(&o.stderr);
         assert!(err.contains(want), "{list_text}: {err}");
     }
+    // a configuration that no program need reach is a witness with no legality (REL-9), but under
+    // one its start owes it, shown of initial configurations only
+    std::fs::write(
+        wd.join("pop-empty.kore"),
+        WIT.replace(
+            "Lbl'Stop'Stack'Unds'VMPRI'Unds'Stack{}()",
+            "Lbl'UndsColnUndsUnds'VMPRI'Unds'Stack'Unds'Int'Unds'Stack{}(\\dv{SortInt{}}(\"1\"), Lbl'Stop'Stack'Unds'VMPRI'Unds'Stack{}())",
+        ),
+    )
+    .unwrap();
+    let o = refine_with(
+        "bwd_tr.«pop-done»\n",
+        &[&legal[..], &["--witnesses", &wdp]].concat(),
+    );
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("--witnesses: `pop-empty` is not an initial configuration: under a legality a witness owes it at its start"),
+        "{err}"
+    );
+    let o = refine_with(
+        "bwd_tr.«pop-done»\n",
+        &["--hand-module", "none", "--witnesses", &wdp],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
 }
 
 /// `confluence --report-only` on the `threadend` fixture: the end of a thread (its `<k>` empty) is

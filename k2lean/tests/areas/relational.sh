@@ -4,8 +4,8 @@
 # the library kunroll; with priority ranks, VmPopRefine, libraries vmpop and vmpop1, and ImpPrintRefine,
 # libraries kprint and kprintu; refuted by two runs, ImpUnrollMut and VmPopMut, libraries kunrollle and
 # vmpop1skip; under a legality, VmEmptyRefine, RangeIncRefine and VmEmptyMut, libraries vmempty,
-# vmemptyopt, vmemptystale, rangeinc and rangeincopt, and VmPopLegal, library vmpopinv). Registry:
-# relational.py.
+# vmemptyopt, vmemptystale, rangeinc and rangeincopt, and VmPopLegal, library vmpopinv; with no
+# legality, refuted at a configuration no program reaches, VmEmptyOpen). Registry: relational.py.
 
 kore_relational() {
   case $1 in
@@ -134,6 +134,7 @@ relate_relational() {
     ImpUnrollMut) nb=KUnrollLe kd=$(kore_dir kimp-unroll-le) extra=(--per-rule true) ;;
     VmPopMut) na=KVmPop ka=$(libs_fixture vmpop) nb=KVmPop1Skip kd=$(kore_dir vmpop1-skip) extra=(--per-rule true) ;;
     VmEmptyRefine) na=KVmEmpty ka=$(kore_dir vm-empty) nb=KVmEmptyOpt kd=$(kore_dir vm-empty-opt) extra=(--per-rule true) ;;
+    VmEmptyOpen) na=KVmEmpty ka=$(kore_dir vm-empty) nb=KVmEmptyOpt kd=$(kore_dir vm-empty-opt) extra=(--per-rule true) ;;
     VmPopLegal) na=KVmPopInv ka=$(libs_fixture vmpop) nb=KVmPop1 kd=$(libs_fixture vmpop1) extra=(--per-rule true) ;;
     VmEmptyMut) na=KVmEmpty ka=$(kore_dir vm-empty) nb=KVmEmptyStale kd=$(kore_dir vm-empty-stale) extra=(--per-rule true) ;;
     RangeIncRefine) na=KRangeInc ka=$(kore_dir range-inc) nb=KRangeIncOpt kd=$(kore_dir range-inc-opt) extra=(--per-rule true) ;;
@@ -173,6 +174,13 @@ libs_refine() {
         --correspondence "$DEMOS/VmEmptyRefine/correspondence.toml" --open "$DEMOS/VmEmptyRefine/open.txt" \
         --hand-module VmEmptyRefine.Hand --assume-invariant KVmEmpty.Invariant \
         --out "$DEMOS/VmEmptyRefine/VmEmptyRefine/Refine.lean" --report "$DEMOS/VmEmptyRefine/refine.toml" ;;
+    # the same with no legality (REL-9): the parts that need it open, refuted by a configuration no
+    # program reaches (NS/witnesses/wrong-cache.kore, written from a run with the cache made wrong)
+    VmEmptyOpen) "$G" refine --kore-a "$(kore_dir vm-empty)/definition.kore" --name-a KVmEmpty \
+        --kore-b "$(kore_dir vm-empty-opt)/definition.kore" --name-b KVmEmptyOpt --ns VmEmptyOpen \
+        --correspondence "$DEMOS/VmEmptyOpen/correspondence.toml" --open "$DEMOS/VmEmptyOpen/open.txt" \
+        --hand-module none --witnesses "$DEMOS/VmEmptyOpen/witnesses" \
+        --out "$DEMOS/VmEmptyOpen/VmEmptyOpen/Refine.lean" --report "$DEMOS/VmEmptyOpen/refine.toml" ;;
     # VmPopRefine's split under vmpop's invariant (`kOk`): the legality threaded through the split's
     # parts (`split_bwd`, and `A`'s state after `X_next` by the invariant's preservation)
     VmPopLegal) "$G" refine --kore-a "$(libs_fixture vmpop)/definition.kore" --name-a KVmPopInv \
@@ -320,6 +328,15 @@ gate_relational() {
     rel RangeIncRefine
     scaffold refine-RangeIncRefine libs_refine RangeIncRefine
     dbuild_slots RangeIncRefine
+  fi
+  # the same pair with no legality (REL-9): a configuration whose cache is wrong, which no program
+  # reaches, refutes the parts that need the legality
+  if runs demo VmEmptyOpen; then
+    phase "scaffold VmEmptyOpen"
+    kc vm-empty && kc vm-empty-opt && partlib vmempty KVmEmpty.Adequacy && partlib vmemptyopt KVmEmptyOpt.Adequacy
+    rel VmEmptyOpen
+    scaffold refine-VmEmptyOpen libs_refine VmEmptyOpen
+    dbuild_slots VmEmptyOpen
   fi
   if runs demo VmPopLegal; then
     phase "scaffold VmPopLegal"

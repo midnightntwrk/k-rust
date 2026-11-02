@@ -42,6 +42,11 @@ DEMOS = {
                                                     "demos/RangeIncRefine/RangeIncRefine/Tr.lean", "demos/RangeIncRefine/RangeIncRefine/Refine.lean",
                                                     "demos/RangeIncRefine/RangeIncRefine/RefineDefs.lean", "demos/RangeIncRefine/RangeIncRefine/Hand.lean",
                                                     "demos/RangeIncRefine/correspondence.toml", "demos/RangeIncRefine/refine.toml"]},
+    # with no legality (REL-9): refuted at a configuration that no program reaches
+    "VmEmptyOpen": {"tier": "light", "sources": ["generated/vmempty", "generated/vmemptyopt",
+                                                 "demos/VmEmptyOpen/VmEmptyOpen/Tr.lean", "demos/VmEmptyOpen/VmEmptyOpen/Refine.lean",
+                                                 "demos/VmEmptyOpen/VmEmptyOpen/RefineDefs.lean", "demos/VmEmptyOpen/VmEmptyOpen/Witnesses.lean",
+                                                 "demos/VmEmptyOpen/correspondence.toml", "demos/VmEmptyOpen/refine.toml"]},
     "VmPopLegal": {"tier": "light", "sources": ["generated/vmpopinv", "generated/vmpop1",
                                                 "demos/VmPopLegal/VmPopLegal/Tr.lean", "demos/VmPopLegal/VmPopLegal/Refine.lean",
                                                 "demos/VmPopLegal/VmPopLegal/RefineDefs.lean",
@@ -57,5 +62,5 @@ DEMOS = {
 # open (REL-6); the three bisimilar pairs' parts are all generated, the legal ones' by hand where the
 # invariant is needed, the mutants' open ones listed in their demo (open.txt)
 for _d in ("ImpUnroll", "ImpPrintRefine", "VmPopRefine", "ImpUnrollMut", "VmPopMut",
-           "VmEmptyRefine", "RangeIncRefine", "VmPopLegal", "VmEmptyMut"):
+           "VmEmptyRefine", "RangeIncRefine", "VmPopLegal", "VmEmptyMut", "VmEmptyOpen"):
     DEMOS[_d]["slots"] = {"prefixes": ["fwd_tr.", "fwd_x.", "bwd_tr.", "bwd_x.", "pri_fwd.", "pri_bwd."]}
