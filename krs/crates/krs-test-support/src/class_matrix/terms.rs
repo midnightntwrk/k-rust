@@ -109,8 +109,9 @@ pub struct Word(pub String);
 /// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
 /// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path, and the aliases
 /// that are there for printing (`Ah`, `Am`, `Av`, `Ac`, `Bp`, `Bq`, `Ak`, `An`, below the driver
-/// base's clauses), and K7's driver commands (below the initializer, and `Drive`, which a case's
-/// own rule writes its witness from), then one command per case.
+/// base's clauses), and K7's driver commands (below the initializer, `Drive`, which a case's
+/// own rule writes its witness from, and `When`, whose rule's condition reads what a static
+/// clause's result writes in it), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -134,6 +135,7 @@ pub enum Cmd {
     #[k::syntax("pb({a})")] #[k::desugar] Pb { a: KItem },
     #[k::syntax("qb({a})")] #[k::desugar] Qb { a: KItem },
     #[k::syntax("drive({a})")] Drive { a: Int },
+    #[k::syntax("when({a})")] When { a: KItem },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
@@ -175,8 +177,9 @@ pub struct Word(pub String);
 /// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
 /// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path, and the aliases
 /// that are there for printing (`Ah`, `Am`, `Av`, `Ac`, `Bp`, `Bq`, `Ak`, `An`, below the driver
-/// base's clauses), and K7's driver commands (below the initializer, and `Drive`, which a case's
-/// own rule writes its witness from), then one command per case.
+/// base's clauses), and K7's driver commands (below the initializer, `Drive`, which a case's
+/// own rule writes its witness from, and `When`, whose rule's condition reads what a static
+/// clause's result writes in it), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -200,6 +203,7 @@ pub enum Cmd {
     #[k::syntax("pb({a})")] #[k::desugar] Pb { a: KItem },
     #[k::syntax("qb({a})")] #[k::desugar] Qb { a: KItem },
     #[k::syntax("drive({a})")] Drive { a: Int },
+    #[k::syntax("when({a})")] When { a: KItem },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
@@ -514,6 +518,9 @@ k::rules! {
     add_token: { k: [Cmd::AddToken(a), ..], token: { .. } } => { k: [..], token: { Token { mark: a }, .. } };
     #[k::rule(priority = 10)]
     add_row: { k: [Cmd::AddRow(a, b), ..], row: { .. } } => { k: [..], row: { Row { id: a, value: b }, .. } };
+    #[k::rule(priority = 10)]
+    #[k::requires(k::matches!(a, true))]
+    when: { k: [Cmd::When(a), ..] } => { k: [Cmd::Hold(a), ..] };
 }
 
 k::rules! {
@@ -2152,6 +2159,28 @@ const RULE_SUBJECT: &str = concat!(
 
 const ALIAS_SUBJECT: &str = "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
+/// A desugar clause's result below `Cmd::When`, which the base's `when` rule reads in its
+/// condition ([`STATIC_GUARDED_HOLDS`]).
+fn static_guarded() -> Slot {
+    slot(
+        "desugar",
+        "result-guarded",
+        Side::Result,
+        (Desugar, Part::Result, &[Argument]),
+        "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, _)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::When(HOLE)\n}\n",
+    )
+    .parsed_by_rustc()
+    .marked("#[k::desugar]")
+    .holding(Holds::Only(STATIC_GUARDED_HOLDS))
+}
+
+/// The Bool spellings `static_guarded`'s result holds, each `true` where `x` is 1.
+const STATIC_GUARDED_HOLDS: &[&str] = &["true", "k::is!(Int, x)"];
+
+/// The subjects `k::matches!(HOLE, _)` holds: a name, a value, and a projection, which has no
+/// value where `x` is not an `Int`, where the test has none either.
+const MATCHED_SUBJECTS: &[&str] = &["x", "1", "k::project!(Int, x)"];
+
 const DESUGAR_SUBJECT: &str = "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
 /// [`DESUGAR_SUBJECT`] beside a second clause of the case's production, whose subject holds a
@@ -2890,6 +2919,10 @@ fn slots() -> Vec<Slot> {
         )
         .parsed_by_rustc()
         .marked("#[k::desugar]"),
+        // A result a rule's condition then reads: the base's `when` takes a step where its item
+        // matches `true`, so a run shows the result's value through a condition, also where the
+        // result has none.
+        static_guarded(),
         slot(
             "alias",
             "subject",
@@ -3449,6 +3482,18 @@ fn openers() -> Vec<Slot> {
             &[],
         )
     };
+    // `k::matches!(HOLE, _)`: the test holds where the subject has a value, and has none where
+    // the subject has none (finding NT-37-1: a projection there).
+    let matches_subject = |host: &Slot| {
+        host.open(
+            "matches-subject",
+            "k::matches!(HOLE, _)",
+            &[node(C::Matches, &[])],
+            &[MatchesSubject],
+            &[node(C::Wildcard, &[MatchesPattern])],
+        )
+        .holding(Holds::Only(MATCHED_SUBJECTS))
+    };
     let or_branch = |host: &Slot| {
         host.open(
             "or-branch",
@@ -3589,6 +3634,8 @@ fn openers() -> Vec<Slot> {
         matches_pattern(&built),
         matches_pattern(&guard),
         matches_pattern(&evaluated),
+        matches_subject(&guard),
+        matches_subject(&static_guarded()),
         local.open(
             "rewrite-left",
             "k::rewrite!(HOLE => Cmd::Go())",

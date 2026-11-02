@@ -209,7 +209,8 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
     // An equation whose function context reads the configuration leaves, where it does not
     // apply, its application with the configuration it read, which the generator does not state.
     if undriven(slot).is_some()
-        || matches!(slot.form, "desugar" | "alias" | "simplification")
+        || (matches!(slot.form, "desugar" | "alias" | "simplification")
+            && slot.position != "result-guarded")
         || (slot.form, slot.position) == ("equation", "context-map-key")
     {
         return Vec::new();
@@ -604,6 +605,18 @@ impl Driver<'_> {
             }
             Some("let-pattern") => Meaning::Undefined(super::LET_UNMATCHED),
             Some("matches-pattern") => Meaning::Value(Ground::Bool(self.spelling.matches_x)),
+            // `k::matches!(HOLE, _)` holds where the hole has a value and has none where the hole
+            // has none; an x-counter's `x` is a value, which a reading that ignored the hole's
+            // meaning would test in its place.
+            Some("matches-subject") => {
+                if self.x_counter {
+                    self.read_witness.set(true);
+                }
+                match spelling {
+                    Meaning::Value(_) | Meaning::Unstated(_) => Meaning::Value(Ground::Bool(true)),
+                    other => other.clone(),
+                }
+            }
             Some("function-argument") => wrapped(|value| Ground::ctor("Wrap", vec![value])),
             // `Cmd::Pair { a: HOLE, ..p }` over the matched `p`, `pair(5, 6)`.
             Some("update-field") => wrapped(|value| pair(value, int(6))),
@@ -1354,6 +1367,14 @@ impl Driver<'_> {
                 let value = self.value()?;
                 self.expanded(&reading(), vec![k(vec![hold(value.term)])], value.status)
             }
+            // The clause's result is `when(V)`, which the base's `when` takes in one step to
+            // `hold(V)` where `V` matches `true`, and leaves where it does not or has no value.
+            ("desugar", "result-guarded") => self.guarded(
+                &reading(),
+                1,
+                vec![k(vec![hold(Ground::Bool(true))])],
+                Vec::new(),
+            ),
             ("alias", "result-root") => {
                 let value = self.value()?;
                 self.forward_only_if_computed(self.expanded(

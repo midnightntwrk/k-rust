@@ -117,7 +117,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 2 conditions of a `cells!` rule that restates its cells, and the list brackets at a
             // fn's `List` subject (NT-18); and the 4 spellings a desugar's subject holds beside a
             // second clause of its production (NT-22: two names that overlap it, two terms that do
-            // not).
+            // not); and the 2 Bool spellings a desugar's result holds below `Cmd::When`, whose
+            // rule's condition reads it, and the 3 subjects of `k::matches!(HOLE, _)` there and in
+            // a rule's guard (NT-42).
             (
                 Family::Terms,
                 106 * 51
@@ -132,11 +134,13 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 8 * 2
                     + 2
                     + 1
-                    + 4,
+                    + 4
+                    + 2
+                    + 2 * 3,
             ),
-            // 94 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
+            // 95 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
             // subject beside a second clause one too) × 2 bare variants.
-            (Family::Import, 94 * 2),
+            (Family::Import, 95 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's), and a
             // set's singleton as the witness a rule of the case's own writes, at each static
@@ -2590,6 +2594,7 @@ fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
                 "constant/value",
                 "constant/value-root",
                 "desugar/result",
+                "desugar/result-guarded",
                 "desugar/result-root",
                 "equation/result",
                 "rule/result",
