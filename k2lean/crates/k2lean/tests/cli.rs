@@ -3175,6 +3175,89 @@ fn noninterference_observes_cells_by_equality_without_a_disclosure_cell() {
     );
 }
 
+/// `noninterference --disclosed` with the statement's inputs (design.md §3.7, NI-8(b)): the inputs'
+/// refusals are the form without a disclosure cell's (an input related outside the store, an
+/// observed cell holding a private input); a related store input itself is taken
+/// (demos/ContractEnvNI, over a definition whose store is an input).
+#[test]
+fn noninterference_disclosed_refuses_inputs_as_the_other_forms() {
+    let d = tmp("cli-noninterference-disclosed-inputs");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    std::fs::write(d.join("open.txt"), "").unwrap();
+    let run = |inputs: &str, observe: &str, disclosed: &str| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("noninterference")
+            .arg("--kore")
+            .arg(fx.join("contract/definition.kore"))
+            .args([
+                "--name",
+                "Contract",
+                "--ns",
+                "CD",
+                "--store-cell",
+                "env",
+                "--program-sort",
+                "SortStmt",
+                "--params",
+                "(G : ContractSec.SortMap)",
+                "--store-ok",
+                "storeOk",
+                "--checker-name",
+                "ContractSec",
+                "--lev",
+                "lev",
+                "--sec",
+                "sec",
+                "--conf",
+                "conf",
+                "--quiet",
+                "quiet",
+                "--inputs",
+                inputs,
+                "--observe",
+                observe,
+                "--disclosed",
+                disclosed,
+            ])
+            .arg("--checker-kore")
+            .arg(fx.join("contractsec/definition.kore"))
+            .arg("--open")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("NI.lean"))
+            .arg("--report")
+            .arg(d.join("ni.toml"))
+            .arg("--out-dir")
+            .arg(&d)
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let o = run(
+        "LEDGER=lowEq G,WIT=private",
+        "ledger,transcript",
+        "disclosed",
+    );
+    assert!(
+        !o.status.success()
+            && err(&o).contains(
+                "$LEDGER is related by `lowEq G`; only the store <env>'s input is related"
+            ),
+        "{}",
+        err(&o)
+    );
+    let o = run(
+        "LEDGER=public,WIT=private",
+        "ledger,transcript,wit",
+        "disclosed",
+    );
+    assert!(
+        !o.status.success() && err(&o).contains("--observe: <wit> holds the private input $WIT"),
+        "{}",
+        err(&o)
+    );
+}
+
 /// `noninterference` with priority ranks (design.md §3.7, NI-6): a definition of several ranks is
 /// taken (`counter`, whose `skip` is at priority 40, gets past it to the statement, which wants
 /// `--inputs` since its store is no input); a rule that does not step the top cell's nonempty `<k>`

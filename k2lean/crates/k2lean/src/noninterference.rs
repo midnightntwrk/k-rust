@@ -1334,9 +1334,6 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
         if dcell.is_some() && st.pubs.is_empty() {
             fail("--disclosed: the observation is expected to include cells compared by equality (--observe)");
         }
-        if dcell.is_some() && st.related().next().is_some() {
-            fail("--disclosed: inputs related by a relation are not supported yet (public or private)");
-        }
         let d = dcell.map(|c| disclosure(&a, c));
         let vs_full = value_sort(&a.m, &hole);
         let vs = names::short_sort(&vs_full).to_string();
@@ -1747,7 +1744,8 @@ or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `
         }
         let mut os = subs.clone();
         os.push(("@BINDERS@", st.binders()));
-        os.push(("@ARGS1@", st.args(1)));
+        os.push(("@PREMS@", st.premise_names()));
+        os.push(("@INITSTORE@", init_store(st, &store, low_eq)));
         os.push((
             "@FINAL@",
             if st.store_observed.is_some() {
@@ -1773,12 +1771,14 @@ or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `
             "\n/-- Noninterference up to disclosure for `{name}` and the checker `{nb}`: two runs of an\n\
 accepted program from initial configurations that agree on the public inputs, that both end and\n\
 disclosed the same values, end with the same observation. -/\n\
-theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P) {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂)\n    (hd : discOf f₁ = discOf f₂) : {} :=\n  noninterference G obligations hP h₁ hf₁ h₂ hf₂ hd\n\n\
+theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂)\n    (hd : discOf f₁ = discOf f₂) : {} :=\n  noninterference G obligations hP{} h₁ hf₁ h₂ hf₂ hd\n\n\
 #k2l_assert_axioms cq_step sq_step same_step append_step cool_step disc_step obligations\n  {thm}\n\nend {ns}",
             st.implicit_binders(name),
+            st.premise_hyps(),
             st.args(1),
             st.args(2),
             st.conclusion("f₁", "f₂"),
+            st.premise_names(),
         )
         .unwrap();
         p = q;
@@ -1863,15 +1863,19 @@ fn fill(t: &str, subs: &[(&str, String)]) -> String {
     s
 }
 
-/// The proof of the initial stores' low-equality in `Obligations.init` without a disclosure cell:
-/// the premise of the input that the store holds, related by the store's relation; a store that
-/// holds no input, or public ones only, is one store, `lowEq_refl (good_init …)` (the hand
-/// module's `good_init`, the initial store is a store). An input related by another relation, or
-/// held by another cell, and an observed cell that holds a private input are refused: the relation
-/// relates only the stores.
+/// The proof of the initial stores' low-equality in `Obligations.init`: the premise of the input
+/// that the store holds, related by the store's relation; a store that holds no input is one store,
+/// `lowEq_refl (good_init …)` (the hand module's `good_init`, the initial store is a store). An
+/// input related by another relation, or held by another cell, and an observed or disclosure cell
+/// that holds a private input are refused: the relation relates only the stores. So is a public
+/// store input: nothing says an arbitrary value is a store, which relating it says.
 fn init_store(st: &Statement, store: &str, low: &str) -> String {
     for i in &st.inputs {
         match &i.kind {
+            InputKind::Public if i.cells.contains(store) => fail(&format!(
+                "--inputs: ${} is public and the store <{store}> holds it: relate it (`{low}`), whose premise says each is a store",
+                i.var
+            )),
             InputKind::Related(r) if r != low || !i.cells.iter().all(|c| c == store) => {
                 fail(&format!(
                     "--inputs: ${} is related by `{r}`; only the store <{store}>'s input is related, by `{low}`",
@@ -1879,13 +1883,23 @@ fn init_store(st: &Statement, store: &str, low: &str) -> String {
                 ))
             }
             InputKind::Private if i.cells.contains(store) => fail(&format!(
-                "--inputs: ${} is private and the store <{store}> holds it: relate it (`{low}`) or make it public",
+                "--inputs: ${} is private and the store <{store}> holds it: relate it (`{low}`)",
                 i.var
             )),
             InputKind::Private => {
-                if let Some(c) = st.pubs.iter().find(|c| i.cells.contains(*c)) {
+                if let Some(c) = st
+                    .pubs
+                    .iter()
+                    .chain(&st.disclosed)
+                    .find(|c| i.cells.contains(*c))
+                {
+                    let flag = if st.disclosed.as_ref() == Some(c) {
+                        "--disclosed"
+                    } else {
+                        "--observe"
+                    };
                     fail(&format!(
-                        "--observe: <{c}> holds the private input ${}, so the two runs start with different observations",
+                        "{flag}: <{c}> holds the private input ${}, so the two runs start with different observations",
                         i.var
                     ))
                 }
