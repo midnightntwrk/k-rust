@@ -1103,15 +1103,20 @@ pub fn prove_claim(
 /// value, or a normal form the simplifier has marked) and applies whatever those constraints add,
 /// path-condition replacements included, also when the prepared form carries the evaluated mark;
 /// it keeps a destination unsimplified only where the written form carries the mark, and a failed
-/// simplification keeps the written form, as before. What can differ from a check of the written
-/// form is only what the ground simplifications decide with no path condition: a ground subterm's
-/// steps no longer share the check's iteration budget with the rest of the destination (the
-/// budget counts the steps that are not determined ground function steps), so a check whose
-/// written destination would exhaust it only through its ground parts now completes; the
-/// conditions of the ground parts come first among the conditions the check conjoins; and a
-/// condition on a ground term that the solver decides alone but not beside an inconsistent or
-/// hard path condition is decided. Each makes a check at least as decisive and none changes
-/// what a verdict states.
+/// simplification keeps the written form, as before. A ground subterm is prepared only when its
+/// simplification decided every condition and attempt it met, each on a closed formula, so a
+/// check under consistent constraints that reaches the same decisions takes the same steps on it.
+/// What can differ from a check of the written form is exactly this: a ground subterm's steps no
+/// longer share the check's iteration budget with the rest of the destination (the budget counts
+/// the steps that are not determined ground function steps), so a check whose written destination
+/// would exhaust it only through its ground parts now completes; the conditions of the ground
+/// parts come first among the conditions the check conjoins; and where a state's constraints keep
+/// the solver from reaching a decision about a ground term that it reaches with none (an unknown
+/// answer beside those constraints, or constraints that are inconsistent), the check holds the
+/// normal form that decision gives, where the written form's simplification would stop at the
+/// undecided step or, for a simplification lemma, try a lower one, which can give another normal
+/// form of the same value. The destination denotes the same set in every case, so no verdict
+/// changes its meaning.
 ///
 /// The proof prepares them at its first check, with the check's options, so that a proof that
 /// makes no check simplifies nothing more than before; a stop is returned for that check's state,
@@ -5479,14 +5484,40 @@ mod tests {
     }
 
     /// Beside [`GROUND_DESTINATIONS`]: `undef` is a partial function with no equation, which `drop`
-    /// discards; `ite` is `KEQUAL.ite`; `expand` rewrites `expand(X)` to `expand(expand(X))`, so
-    /// its simplification exhausts any budget.
+    /// discards; `ite`, `andThenBool`, `orElseBool` and `log` are `KEQUAL.ite`, `BOOL.andThen`,
+    /// `BOOL.orElse` and `IO.logString`; `isb(b)` is `true`; `sel(X)` is `b` where the function
+    /// `opaque()`, which has no equation, is `a`, and otherwise, by a lower lemma, `c`; `expand`
+    /// rewrites `expand(X)` to `expand(expand(X))`, so its simplification exhausts any budget.
     const PREPARED_DESTINATION_CASES: &str = r#"
         hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
         hooked-symbol ite{}(SortBool{}, SortS{}, SortS{}) : SortS{}
             [function{}(), total{}(), hook{}("KEQUAL.ite")]
         symbol holds{}(SortBool{}) : SortS{} [constructor{}()]
         symbol undef{}() : SortS{} [function{}()]
+        symbol opaque{}() : SortS{} [function{}(), total{}()]
+        symbol sel{}(SortS{}) : SortS{} [function{}(), total{}()]
+        symbol isb{}(SortS{}) : SortBool{} [function{}(), total{}()]
+        hooked-symbol andThenBool{}(SortBool{}, SortBool{}) : SortBool{}
+            [function{}(), total{}(), hook{}("BOOL.andThen")]
+        hooked-symbol orElseBool{}(SortBool{}, SortBool{}) : SortBool{}
+            [function{}(), total{}(), hook{}("BOOL.orElse")]
+        sort SortK{} []
+        symbol dotk{}() : SortK{} [constructor{}()]
+        hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+        hooked-symbol log{}(SortString{}) : SortK{} [function{}(), total{}(), hook{}("IO.logString")]
+        symbol logged{}(SortS{}, SortK{}) : SortS{} [constructor{}()]
+        axiom{R} \implies{R}(
+            \equals{SortS{}, R}(opaque{}(), a{}()),
+            \equals{SortS{}, R}(sel{}(X:SortS{}), \and{SortS{}}(b{}(), \top{SortS{}}()))
+        ) [label{}("sel-if-opaque-a"), simplification{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortS{}, R}(sel{}(X:SortS{}), \and{SortS{}}(c{}(), \top{SortS{}}()))
+        ) [label{}("sel-otherwise"), simplification{}("60")]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortBool{}, R}(isb{}(b{}()), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))
+        ) [label{}("isb-b"), simplification{}()]
         symbol drop{}(SortS{}) : SortS{} [function{}(), total{}()]
         axiom{R} \implies{R}(
             \top{R}(),
@@ -5565,6 +5596,64 @@ mod tests {
                  ite{}(B:SortBool{}, pick{}(a{}()), c{}())), b{}())"
             )
         );
+    }
+
+    /// Of `ite`, `andThenBool` and `orElseBool` the walk enters exactly the deciding operand: a
+    /// ground deciding operand `isb(pick(a))` is prepared to `true`, and every other operand stays
+    /// as written, also beside a literal deciding operand, where `ite(true, X, pick(a))` keeps the
+    /// `pick(a)` the conditional discards.
+    #[test]
+    fn a_prepared_destination_enters_exactly_the_deciding_operand_of_a_conditional() {
+        let written = "state{}(state{}(holds{}(andThenBool{}(P:SortBool{}, isb{}(pick{}(a{}())))), \
+                       holds{}(orElseBool{}(isb{}(pick{}(a{}())), P:SortBool{}))), \
+                       state{}(ite{}(isb{}(pick{}(a{}())), X:SortS{}, pick{}(a{}())), \
+                       ite{}(\\dv{SortBool{}}(\"true\"), X:SortS{}, pick{}(a{}()))))";
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "deciding-operands",
+            "state{}(X:SortS{}, holds{}(P:SortBool{}))",
+            written,
+        )]);
+        let destination = prepared(&definition, "deciding-operands", ProofOptions::default());
+        assert_eq!(
+            destination.term,
+            term(
+                &definition,
+                "state{}(state{}(holds{}(andThenBool{}(P:SortBool{}, isb{}(pick{}(a{}())))), \
+                 holds{}(orElseBool{}(\\dv{SortBool{}}(\"true\"), P:SortBool{}))), \
+                 state{}(ite{}(\\dv{SortBool{}}(\"true\"), X:SortS{}, pick{}(a{}())), \
+                 ite{}(\\dv{SortBool{}}(\"true\"), X:SortS{}, pick{}(a{}()))))"
+            )
+        );
+    }
+
+    /// A ground subterm whose simplification leaves a condition undecided is kept as written:
+    /// `sel(a)`'s first lemma needs `opaque() = a`, which nothing decides without assumptions,
+    /// and a lemma does not block, so the lower lemma would give `c` there, where a state whose
+    /// constraints state `opaque() = a` would give `b`. Each check simplifies `sel(a)` under its
+    /// own constraints instead.
+    #[test]
+    fn a_prepared_destination_keeps_a_ground_subterm_with_an_undecided_lemma() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "to-sel",
+            "start{}(X:SortS{})",
+            "state{}(X:SortS{}, sel{}(a{}()))",
+        )]);
+        let destination = prepared(&definition, "to-sel", ProofOptions::default());
+        assert_eq!(destination, claim_with_label(&definition, "to-sel").rhs[0]);
+    }
+
+    /// A ground subterm whose simplification performs a builtin effect is kept as written:
+    /// `log("hi")` is the effect of logging, which the preparation does not take in the checks'
+    /// place.
+    #[test]
+    fn a_prepared_destination_keeps_an_effect_as_written() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "to-log",
+            "start{}(X:SortS{})",
+            r#"logged{}(X:SortS{}, log{}(\dv{SortString{}}("hi")))"#,
+        )]);
+        let destination = prepared(&definition, "to-log", ProofOptions::default());
+        assert_eq!(destination, claim_with_label(&definition, "to-log").rhs[0]);
     }
 
     /// A ground subterm whose simplification fails is kept as written: `expand(a())` exhausts

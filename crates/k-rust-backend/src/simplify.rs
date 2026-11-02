@@ -446,9 +446,15 @@ pub fn simplify_with_solver(
 /// written; a ground one is simplified whole, by the simplifier, which keeps the invariant itself.
 /// Every other node's children are operands a simplification evaluates.
 ///
-/// A subterm whose simplification fails (a budget the caller's options make a failure included)
-/// or performs a builtin effect is kept as written, for a later simplification to take up as it
-/// would have. Equal ground subterms are simplified once. A stop is returned.
+/// A subterm is replaced only when its simplification decided every equation condition and
+/// equation attempt it met: a decision reached with no assumption is reached on a closed formula
+/// and holds under every consistent path condition, so the result is the one a simplification of
+/// the subterm under such a path condition reaches wherever it reaches the same decisions. A
+/// subterm whose simplification left a decision undecided (a function equation's or a
+/// simplification lemma's; a lemma does not block, so a lower one may apply in its place), fails
+/// (a budget the caller's options make a failure included) or performs a builtin effect is kept
+/// as written, for a later simplification under its own path condition to take up as it would
+/// have. Equal ground subterms are simplified once. A stop is returned.
 pub(crate) fn simplify_ground_subterms(
     definition: &BackendDefinition,
     term: &Term,
@@ -536,7 +542,16 @@ fn simplify_ground_subterm(
     if term.attributes().evaluated {
         return Ok(term.clone());
     }
-    let Ok(simplification) = simplify_with_solver(definition, term, &[], options, solver)? else {
+    let undecided_from = UNDECIDED.get();
+    let simplified = simplify_with_solver(definition, term, &[], options, solver)?;
+    // A decision left undecided with no assumption may be reached under a state's constraints,
+    // and a simplification lemma passed over for it lets a lower one apply in its place
+    // (`scan::scan_term_theory`): the result is then not the one every consistent path condition
+    // gives, so the subterm is kept for the checks to simplify under theirs.
+    if UNDECIDED.get() != undecided_from {
+        return Ok(term.clone());
+    }
+    let Ok(simplification) = simplified else {
         return Ok(term.clone());
     };
     let parts = simplification.into_parts();
@@ -2460,7 +2475,7 @@ fn evaluate_equation_condition(
     if let Some(probe) = &probe
         && let Some(outcome) = ConditionMemo::served(probe)
     {
-        return Ok(outcome);
+        return Ok(note_undecided_verdict(outcome));
     }
     let pending = probe.map(ConditionMemoProbe::into_pending);
     let collected = diagnostic::collecting();
@@ -2497,7 +2512,27 @@ fn evaluate_equation_condition(
     {
         ConditionMemo::record(pending, verdict, facts_from, emissions, collected);
     }
+    verdict.map(note_undecided_verdict)
+}
+
+thread_local! {
+    /// The equation-condition verdicts and equation attempts on this thread that were left
+    /// undecided (an `Indeterminate` verdict, or an attempt that ended `Indeterminate` or
+    /// `Recurred`), counted for [`simplify_ground_subterm`], which compares two readings.
+    static UNDECIDED: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Count `verdict` in [`UNDECIDED`] when it is `Indeterminate`.
+fn note_undecided_verdict(verdict: EquationCondition) -> EquationCondition {
+    if matches!(verdict, EquationCondition::Indeterminate(_)) {
+        note_undecided();
+    }
     verdict
+}
+
+/// Count one undecided verdict or attempt ([`UNDECIDED`]).
+pub(super) fn note_undecided() {
+    UNDECIDED.set(UNDECIDED.get().wrapping_add(1));
 }
 
 /// The equation-condition verdicts reached while a scope is open on this thread (the outermost
