@@ -22,6 +22,10 @@
 //! `--open-joins` are the hand module's (`hand.NAME`), those listed alone are open (premises of
 //! `terminal_unique`).
 //!
+//! Modulo an equivalence the author states (`--equiv CELL=REL,…`, module `equiv`): the cells named
+//! are compared by `any` (not at all) or `perm` (a list up to order), the others by equality;
+//! each rule keeps the equivalence (`equiv.sim.r`), and the joins and the theorem are modulo it.
+//!
 //! Refutations by two runs (`--witnesses DIR`): each `NAME.kore` in `DIR` is the initial
 //! configuration of a program (krust's `krun --depth 0`), and `witness.NAME.refutes` states that
 //! two of its runs end with different observations (`KPrelude.TwoRuns.UniqueFrom`), found by a
@@ -50,6 +54,8 @@ use crate::model::Model;
 use crate::rules::{self, Rule};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+
+mod equiv;
 
 fn fail(msg: &str) -> ! {
     eprintln!("confluence: {msg}");
@@ -1414,6 +1420,48 @@ pub fn main(args: &[String]) {
             .cloned()
             .unwrap_or(format!("{ns}.Views")),
     });
+    // an equivalence the author states (`--equiv`): every rule keeps it generically, the observed
+    // cells are compared by equality, and nothing decides `≠` of configurations (the peaks)
+    let eqv = opt.get("equiv").map(|s| equiv::parse(s, &lib, &name));
+    if let Some(e) = &eqv {
+        if lib.prios.len() > 1 {
+            fail(
+                "--equiv: the definition has priorities: that a rule of a rank before applies at one of two related configurations only when at the other is not shown yet",
+            );
+        }
+        if let Some(o) = &obs {
+            e.check_obs(o);
+        }
+        if opt.contains_key("witnesses") && obs.is_none() {
+            fail(
+                "--equiv: --witnesses needs --obs: two runs refute `terminal_unique` modulo `Equiv` by their observations",
+            );
+        }
+        if let Some(so) = &slot_opts
+            && let Some((n, _)) = so
+                .list
+                .iter()
+                .find(|(_, m)| matches!(m, Mark::Refuted | Mark::RefutedBy(_)))
+        {
+            fail(&format!(
+                "--equiv: `{n}` is marked refuted: a refutation of a slot modulo `Equiv` is not generated yet"
+            ));
+        }
+        let bad: Vec<String> = rs
+            .iter()
+            .filter_map(|r| {
+                equiv::check(e, r)
+                    .err()
+                    .map(|m| format!("{}: {m}", rules::display_name(r)))
+            })
+            .collect();
+        if !bad.is_empty() {
+            fail(&format!(
+                "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  {}",
+                bad.join("\n  ")
+            ));
+        }
+    }
     // the views, what the report says of them, the slots, and the summary line
     let (mut out, counts_report, premises, slots, summary) = match opt.get("threads") {
         Some(threads) => {
@@ -1464,6 +1512,10 @@ pub fn main(args: &[String]) {
         } else {
             text
         };
+        let text = match &eqv {
+            Some(_) => equiv::apply(&text, &name),
+            None => text,
+        };
         write_file(p, &text);
         status = Some(st);
     }
@@ -1471,6 +1523,9 @@ pub fn main(args: &[String]) {
     // written under it already (the peaks, the witnesses)
     if let (Some(inv), None) = (&inv, &slot_opts) {
         out = under_invariant(&out, &name, inv);
+    }
+    if let Some(e) = &eqv {
+        out = equiv::views(&out, e, &lib, &name);
     }
     write_file(&get("out"), &out);
     if let Some(p) = opt.get("report") {
@@ -1491,6 +1546,9 @@ pub fn main(args: &[String]) {
             if let Some(i) = &so.instance {
                 writeln!(prem, "instance = {:?}", i.name).unwrap();
             }
+        }
+        if let Some(e) = &eqv {
+            prem.push_str(&e.report(n));
         }
         write_file(p, &(head + &counts_report + &prem + &rep));
     }

@@ -1446,6 +1446,166 @@ fn confluence_slots_with_and_without_threads() {
     );
 }
 
+/// `confluence --equiv CELL=REL,…`: the theorem modulo an equivalence the author states, per leaf
+/// cell. `Equiv` compares the other cells by equality; each rule keeps it (`equiv.sim.r`, generic
+/// when the rule reads no relaxed cell), so it is a `StepEquiv`; the joins are modulo `Equiv`,
+/// closed by `k2l_equiv_close`; the observation follows by `obs_of_equiv`. Refused: a relation on
+/// a cell that is not a leaf, `perm` of a cell that is not a list, an observed relaxed cell, a rule
+/// that reads a relaxed cell, priorities, witnesses without an observation.
+#[test]
+fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
+    let d = tmp("cli-confluence-equiv");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let run = |fixture: &str, name: &str, extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(fx.join(fixture).join("definition.kore"))
+            .args(["--name", name, "--ns", "EQ"])
+            .args(extra)
+            .arg("--slots")
+            .arg(d.join("Slots.lean"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"))
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+    let racelog = [
+        "--threads",
+        "workers",
+        "--obs",
+        "acc",
+        "--equiv",
+        "log=perm,last=any",
+    ];
+    let o = run("racelog", "RaceLog", &racelog);
+    assert!(o.status.success(), "{}", err(&o));
+    let (v, m, r) = (read("Views.lean"), read("Slots.lean"), read("c.toml"));
+    for x in [
+        "import KPrelude.Scaffold\nimport KPrelude.Equiv\n",
+        "/-- The content of the cell `<log>`. -/\n@[reducible] def cell.log (c : RaceLog.SortGeneratedTopCell) : RaceLog.SortList :=\n  match c with\n  | RaceLog.SortGeneratedTopCell.«<generatedTop>» x _ => match x with\n    | RaceLog.SortTCell.«<T>» _ _ _ x _ _ => match x with\n      | RaceLog.SortLogCell.«<log>» y => y\n",
+        "/-- The configurations the theorem identifies: equal but in `<log>` up to the order of its items, `<last>` not compared. -/\n@[reducible] def Equiv (a b : RaceLog.SortGeneratedTopCell) : Prop :=\n  cell.k a = cell.k b ∧\n    cell.workers a = cell.workers b ∧\n    cell.acc a = cell.acc b ∧\n    ListHook.Perm (cell.log a) (cell.log b) ∧\n    cell.next a = cell.next b ∧\n    cell.generatedCounter a = cell.generatedCounter b\n",
+        "theorem shape.SortKCell (c : RaceLog.SortKCell) : ∃ x0, c = (RaceLog.SortKCell.«<k>» x0) := by\n",
+        "theorem equiv.sim.work : RaceLog.Step.Rel.work\n    (fun a a' => ∀ b, Equiv a b → ∃ b', RaceLog.Step b b' ∧ Equiv a' b') := by\n  intro Gen4 m A DotVar2 Gen0 Gen5 DotVar0 DotVar3 W C r hm hreq hr b he\n  obtain ⟨_, rfl⟩ := shape.SortKCell Gen4\n",
+        "  obtain ⟨rfl, rfl, rfl, _, rfl, rfl⟩ := he\n  exact ⟨_, RaceLog.Step.work (hm := hm) (hreq := hreq) (hr := hr) .., by k2l_equiv_close⟩\n",
+        "theorem equiv_stepEquiv : StepEquiv RaceLog.Step Equiv where\n",
+        "  sim he hs := RaceLog.Step.rel_of equiv.sim.work equiv.sim.spawn equiv.sim.stop hs _ he\n",
+        "theorem obs_of_equiv {a b : RaceLog.SortGeneratedTopCell} (h : Equiv a b) : obs a = obs b := by\n",
+        "MapHook.lookup a₁ k ≠ none → MapHook.lookup a₂ k ≠ none → DiamondMod RaceLog.Step Equiv c₁ c₂",
+        "Or.inr (l₁ _ _ y ?_), Equiv.refl' _⟩",
+        "(t₂ : Terminal RaceLog.Step n₂) : Equiv n₁ n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) equiv_stepEquiv",
+        "  obs_of_equiv (terminal_unique_of O S h₁ t₁ h₂ t₂)",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    assert!(
+        !v.contains("Step Eq ") && !v.contains("StepEquiv.eq"),
+        "{v}"
+    );
+    for x in [
+        "Or.inr (RaceLog.Step.work (hm := a₃) (hreq := hreq) (hr := a₄) ..), by k2l_equiv_close⟩)",
+        "| exact ⟨_, _, Or.inl rfl, Or.inl rfl, Equiv.refl' _⟩",
+        "(t₂ : Terminal RaceLog.Step n₂) : Equiv n₁ n₂ :=",
+        "  obs_of_equiv (terminal_unique h₁ t₁ h₂ t₂)",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(!m.contains("k2l_join_eq⟩"), "{m}");
+    assert!(
+        r.contains("\n[equiv]  # the cells compared otherwise than by equality (`--equiv`), and the rules shown to\n# keep the equivalence (`equiv.sim.r`, generic)\ncells = { \"log\" = \"perm\", \"last\" = \"any\" }\nsim = 3\n"),
+        "{r}"
+    );
+    // without threads: every ordered pair a slot, modulo `Equiv`
+    let o = run("jobs", "Jobs", &["--obs", "total", "--equiv", "done=perm"]);
+    assert!(o.status.success(), "{}", err(&o));
+    let (v, m) = (read("Views.lean"), read("Slots.lean"));
+    for x in [
+        "@[reducible] def Equiv (a b : Jobs.SortGeneratedTopCell) : Prop :=\n  cell.jobs a = cell.jobs b ∧\n    cell.total a = cell.total b ∧\n    ListHook.Perm (cell.done a) (cell.done b) ∧\n    cell.generatedCounter a = cell.generatedCounter b\n",
+        "    DiamondMod Jobs.Step Equiv c₁ c₂",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    assert!(
+        m.contains("Or.inr (Jobs.Step.run (hm := a₃) (hr := a₄) ..), by k2l_equiv_close⟩)"),
+        "{m}"
+    );
+    // the refusals
+    for (fixture, name, extra, msg) in [
+        (
+            "racelog",
+            "RaceLog",
+            vec!["--threads", "workers", "--equiv", "T=any"],
+            "--equiv: <T> is not a leaf cell of the configuration",
+        ),
+        (
+            "racelog",
+            "RaceLog",
+            vec!["--threads", "workers", "--equiv", "acc=perm"],
+            "--equiv: <acc> holds a SortInt, not a list",
+        ),
+        (
+            "racelog",
+            "RaceLog",
+            vec!["--threads", "workers", "--equiv", "log=sorted"],
+            "--equiv: `sorted` is not a relation",
+        ),
+        (
+            "racelog",
+            "RaceLog",
+            vec![
+                "--threads",
+                "workers",
+                "--obs",
+                "log",
+                "--equiv",
+                "log=perm",
+            ],
+            "--obs: <log> is compared by `perm` in --equiv",
+        ),
+        (
+            "racelog",
+            "RaceLog",
+            vec!["--threads", "workers", "--equiv", "next=any"],
+            "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  spawn: a hypothesis of its step (a side condition, or a match of a map or a list) reads <next>",
+        ),
+        (
+            "vmpri",
+            "VmPri",
+            vec!["--equiv", "k=any"],
+            "--equiv: the definition has priorities",
+        ),
+    ] {
+        let o = run(fixture, name, &extra);
+        assert!(
+            !o.status.success() && err(&o).contains(msg),
+            "{msg}\n{}",
+            err(&o)
+        );
+    }
+    std::fs::write(d.join("open.txt"), "join.open.work.work\n").unwrap();
+    let mut extra = vec![
+        "--threads",
+        "workers",
+        "--equiv",
+        "log=perm,last=any",
+        "--open-joins",
+    ];
+    let open = d.join("open.txt");
+    let wit = fx.join("racelog/witnesses");
+    extra.push(open.to_str().unwrap());
+    extra.extend(["--witnesses", wit.to_str().unwrap()]);
+    let o = run("racelog", "RaceLog", &extra);
+    assert!(
+        !o.status.success() && err(&o).contains("--equiv: --witnesses needs --obs"),
+        "{}",
+        err(&o)
+    );
+}
+
 /// `confluence --threads --slots`: one obligation per pair of rules in a premise, its statement
 /// in the views; a slot is attempted generically, proved by the hand module (`NAME | hand` in the
 /// open-joins list) or open (a field of `Open`, the premise of `terminal_unique`). The views'
