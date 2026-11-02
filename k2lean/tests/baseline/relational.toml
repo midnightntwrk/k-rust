@@ -2016,7 +2016,7 @@ preserve = []
 "generated/vmempty/KVmEmpty/Functions.lean" = { tier = "light", sha256 = "fdf32555b4d7caba66be26231051dadf010cd5f331bca755c819835a418826ec" }
 "generated/vmempty/KVmEmpty/Init.lean" = { tier = "light", sha256 = "cddca89a3d43219029301d364b4d31cdd95ef28acf6b91bec3e0f4bee2106d81" }
 "generated/vmempty/KVmEmpty/InvariantDefs.lean" = { tier = "light", sha256 = "246031d94ae260676bc8756aff4c11b9601a2647d145ec40ca80a1f5b5955c00" }
-"generated/vmempty/KVmEmpty/Invariants.lean" = { tier = "light", sha256 = "ff6d8d655406a84505a6e53e268cfe35d151afe6a9d9308a9b99e2731c53bd0f" }
+"generated/vmempty/KVmEmpty/Invariants.lean" = { tier = "light", sha256 = "9b97bedfec8804fc4a18e9a65c0f6e59b451cab53e74c21442725357a82291e8" }
 "generated/vmempty/KVmEmpty/Preserves.lean" = { tier = "light", sha256 = "a09ae1fb21b3e9bf9da5e299add1c0737649ab54021221b6ca7f556a7ea61891" }
 "generated/vmempty/KVmEmpty/Rules.lean" = { tier = "light", sha256 = "f39f501af20a0aa64f5d1fef21c75668b0378cc8a47224a30b144ecce9e022dd" }
 "generated/vmempty/KVmEmpty/Terms.lean" = { tier = "light", sha256 = "a5a0a902adb6ef4b6b86e2c2f322bf07f08f0af7c993d61e7c3ae206d0def6cd" }
@@ -2024,7 +2024,7 @@ preserve = []
 "generated/vmempty/KVmEmptyTest/Axioms.lean" = { tier = "light", sha256 = "5ccc45650665b031f1d5e8e74a81b0622d4157e583b373302af3ae0a5be7424e" }
 "generated/vmempty/KVmEmptyTest/DetAxioms.lean" = { tier = "light", sha256 = "7a86abdc10c9b0ec86b0853087d2a137e72c09303f6ea46e18b383eab5a2995e" }
 "generated/vmempty/KVmEmptyTest/Main.lean" = { tier = "light", sha256 = "f064d68785e9c957f73f89bc8454d5447bef94a0119c6525502b736e5c9604d4" }
-"generated/vmempty/invariant-unfold.txt" = { tier = "light", sha256 = "e709bb6cee360e8fe16e22233ed9d7a152d5e77c286d6b8f5984c7deb6be1b03" }
+"generated/vmempty/invariant-unfold.txt" = { tier = "light", sha256 = "c27ff8f7a5d648d71baa8ddd1bb9f0fe2dd99cb56ce0b1da2a192b28a723f75e" }
 "generated/vmempty/lakefile.lean" = { tier = "light", sha256 = "fbd5b2bed3499128397c55a694bee22db559b70c5a678b3324df8cb60fe27856" }
 "generated/vmempty/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/vmemptyopt/KVmEmptyOpt.lean" = { tier = "light", sha256 = "7031f6219e22e219c0afbc1d32ef89603597a5ee6daff4f1ab04257991a43294" }
@@ -2129,7 +2129,7 @@ preserve = []
 "generated/vmpopinv/KVmPopInv/Functions.lean" = { tier = "light", sha256 = "3c9477b4da5b1ec0f2e73b987d0f2e443c82e45ed0a88a78ccd6cca4459f0f5a" }
 "generated/vmpopinv/KVmPopInv/Init.lean" = { tier = "light", sha256 = "5979b96e876a0da124acb190944b6e0b4bb60881caf940f726e75c6d03104a85" }
 "generated/vmpopinv/KVmPopInv/InvariantDefs.lean" = { tier = "light", sha256 = "5b2801ecb5f8e32e42f27d05fb0defce83768390e300a36e119b9cd2b22a0047" }
-"generated/vmpopinv/KVmPopInv/Invariants.lean" = { tier = "light", sha256 = "6d59e74c8d6a842ddc65ebe8b21729dc0e45d63d1e5f888a49f556f29cd8182a" }
+"generated/vmpopinv/KVmPopInv/Invariants.lean" = { tier = "light", sha256 = "b8b7f7253f57acbdce8e92112cc820b96b21061f74e60e9f6b90e17b832170a3" }
 "generated/vmpopinv/KVmPopInv/Preserves.lean" = { tier = "light", sha256 = "c429e0f5de21e24a5c2bd375b3588fac6c1019034779e78925b4f12f7df0fa37" }
 "generated/vmpopinv/KVmPopInv/Rules.lean" = { tier = "light", sha256 = "bebb37721858d57b92e77acb52bd8c6acbbe5a9cffcab9613dc3cc7b1948ae36" }
 "generated/vmpopinv/KVmPopInv/Terms.lean" = { tier = "light", sha256 = "79bd4a80f89816c678873eeffd736269ddeb3c0ac8815d7278b1af830823b263" }
@@ -2137,6 +2137,6 @@ preserve = []
 "generated/vmpopinv/KVmPopInvTest/Axioms.lean" = { tier = "light", sha256 = "11d216ea0ceada23a40d6e02947339d6a2ebc7a425a3ce04f05612714673da1b" }
 "generated/vmpopinv/KVmPopInvTest/DetAxioms.lean" = { tier = "light", sha256 = "69d274205ab659a54383c11acf8770ac1e4c8c757b46e7e065054a95b9bc80e8" }
 "generated/vmpopinv/KVmPopInvTest/Main.lean" = { tier = "light", sha256 = "c53e117b26c8b9d8e43b733c857a6341331abedc0cd681fe73de628be17e5b0a" }
-"generated/vmpopinv/invariant-unfold.txt" = { tier = "light", sha256 = "586696e2e02dd58d6403602f365050957b4d8eb96d7a29b78571b417e259e052" }
+"generated/vmpopinv/invariant-unfold.txt" = { tier = "light", sha256 = "e1c3d2096f347ea07fd8dde3cff41d541dc15b8274de2a8a8d5b9d321e6aa08a" }
 "generated/vmpopinv/lakefile.lean" = { tier = "light", sha256 = "87d8c5a079973fe56cfdc1641554ba03509ce988705679752d726ca6d63d35bb" }
 "generated/vmpopinv/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
