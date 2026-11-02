@@ -25,9 +25,10 @@
 //! make a Z3 check that no bound stops, `solver_oracle::power_exponent`) with
 //! `SIMPLIFIER_EQUIVALENCE_SYMBOLIC_EXPONENTS=1`, and print every case, each output and its time
 //! with `SIMPLIFIER_EQUIVALENCE_TRACE=1`. A failure prints the shrunk `P`, `F` and `P'`, the
-//! valuation, and each conjunct's truth there. A run of at least 1,000 compared outputs also fails
-//! when more than 40% of them are vacuous (no valuation where `F` holds and both sides are
-//! definite).
+//! valuation, and each conjunct's truth there. The facts are drawn true at a valuation of the
+//! domain (`input`), so that the check has a valuation to compare at; a run of at least 1,000
+//! compared outputs fails when more than 10% of them are vacuous (no valuation where `F` holds and
+//! both sides are definite).
 
 #![cfg(feature = "z3")]
 
@@ -87,10 +88,42 @@ impl fmt::Display for Input {
     }
 }
 
-/// `P` is one to three predicates and `F` zero to two, drawn as `solver_translation` draws its
-/// checked and known predicates, and, a quarter of the time, a binding `V = t` among the facts
-/// (with `t` not mentioning `V`), which the simplifier can use as a substitution. A quarter of
-/// `P`'s predicates are instead a reflexive atom over a partial term (`reflexive`).
+/// How many candidates a fact (or the binding) draws before it falls back (`input`).
+const FACT_ATTEMPTS: usize = 8;
+
+/// A valuation of the domain the check enumerates (`valuations`): each Int variable in `DOMAIN`,
+/// `B`, one of the four maps, and one of the four models.
+fn valuation() -> impl Strategy<Value = Env> {
+    (
+        prop::array::uniform4(DOMAIN),
+        any::<bool>(),
+        0..maps().len(),
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(ints, bool, map, pf_total, alt_values)| Env {
+            ints,
+            bool,
+            map,
+            pf_total,
+            alt_values,
+        })
+}
+
+/// `P` is one to three predicates, drawn as `solver_translation` draws its checked predicate; a
+/// quarter of them are instead a reflexive atom over a partial term (`reflexive`). `P` is not
+/// constrained.
+///
+/// `F` is drawn from a valuation ρ of the domain (`valuation`), so that it holds somewhere the
+/// check looks: an output whose `F` holds at no valuation checks nothing, since `P ∧ F` and
+/// `P' ∧ F` are then both false everywhere. A quarter of the time `F` gets a binding `V = t` (with
+/// `t` not mentioning `V`), which the simplifier can use as a substitution: of up to
+/// `FACT_ATTEMPTS` candidates, the first whose `t` has a value in `DOMAIN` at ρ is kept and ρ's
+/// `V` is set to that value, so the binding holds at ρ (`t` does not read `V`); with none, there
+/// is no binding. Then zero to two facts, each the first of `FACT_ATTEMPTS` predicates drawn as
+/// `solver_translation` draws its known ones that the oracle makes true at ρ, and `\top` when
+/// none is. So every conjunct of `F` holds at ρ, and ρ (on `F`'s free variables) is one of the
+/// valuations the check enumerates.
 fn input(symbolic_exponents: bool) -> impl Strategy<Value = Input> {
     let terms = terms(3, symbolic_exponents);
     let predicate = predicate(&terms);
@@ -104,14 +137,38 @@ fn input(symbolic_exponents: bool) -> impl Strategy<Value = Input> {
     );
     (
         prop::collection::vec(checked, 1..=3),
-        prop::collection::vec(predicate, 0..=2),
-        prop::option::weighted(0.25, binding),
+        valuation(),
+        prop::option::weighted(
+            0.25,
+            prop::collection::vec(binding, FACT_ATTEMPTS..=FACT_ATTEMPTS),
+        ),
+        prop::collection::vec(
+            prop::collection::vec(predicate, FACT_ATTEMPTS..=FACT_ATTEMPTS),
+            0..=2,
+        ),
         1usize..=8,
     )
-        .prop_map(|(predicates, mut facts, binding, budget)| {
-            if let Some((var, term)) = binding.filter(|(var, term)| !term.mentions(*var)) {
-                facts.push(Pred::Eq(AnyT::Int(IntT::Var(var)), AnyT::Int(term)));
-            }
+        .prop_map(|(predicates, mut rho, bindings, candidates, budget)| {
+            let binding = bindings.into_iter().flatten().find_map(|(var, term)| {
+                if term.mentions(var) {
+                    return None;
+                }
+                let value = eval_int(&term, &rho).ok().flatten()?;
+                DOMAIN.contains(&value).then(|| {
+                    rho.ints[var.index()] = value;
+                    Pred::Eq(AnyT::Int(IntT::Var(var)), AnyT::Int(term))
+                })
+            });
+            let mut facts = candidates
+                .into_iter()
+                .map(|candidates| {
+                    candidates
+                        .into_iter()
+                        .find(|fact| eval_pred(fact, &rho) == Truth::True)
+                        .unwrap_or(Pred::Top)
+                })
+                .collect::<Vec<_>>();
+            facts.extend(binding);
             Input {
                 predicates,
                 facts,
@@ -678,8 +735,10 @@ fn every_simplified_output_is_equivalent_to_its_input_under_the_facts() {
         Err(TestError::Abort(reason)) => panic!("the property run aborted: {reason}"),
     }
     // A run that compares nothing passes vacuously, so a later generator or read-back change
-    // must not make it so silently. Over seeds 1-5 and the fixed one (512 cases each) the share
-    // is 29-35%, almost all of it facts false at every valuation; short runs are exempt.
+    // must not make it so silently. With the facts drawn true at a valuation (`input`), over the
+    // fixed seed and seeds 1-10 (512 cases each) the share is 4.5-7.8%. `F` holds at that
+    // valuation, so these are outputs where `P` or `P'` is unknown wherever `F` holds (an Int
+    // `\exists` with no witness in range, or an overflow). Short runs are exempt.
     let (compared, vacuous) = (stats.compared.get(), stats.vacuous.get());
     assert!(
         compared < MIN_OUTPUTS_FOR_FLOOR || vacuous * 100 <= compared * MAX_VACUOUS_PERCENT,
@@ -690,5 +749,5 @@ fn every_simplified_output_is_equivalent_to_its_input_under_the_facts() {
 
 /// The vacuous share's bound (`every_simplified_output_is_equivalent_to_its_input_under_the_facts`),
 /// asserted on runs of at least `MIN_OUTPUTS_FOR_FLOOR` compared outputs.
-const MAX_VACUOUS_PERCENT: usize = 40;
+const MAX_VACUOUS_PERCENT: usize = 10;
 const MIN_OUTPUTS_FOR_FLOOR: usize = 1000;
