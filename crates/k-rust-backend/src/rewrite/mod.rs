@@ -1093,8 +1093,9 @@ impl InitialSimplificationStatus {
 /// What a rewrite step knows of its subject's definedness.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SubjectDefinedness<'a> {
-    /// The caller assumes the subject defined: its `⌈t⌉` is known while the rules' conditions
-    /// are decided (`ExecutionOptions::assume_initial_defined`).
+    /// The caller assumes the subject defined: its `⌈t⌉` is known, and not stated, while the
+    /// rules' conditions and the remainder they leave are decided
+    /// (`ExecutionOptions::assume_initial_defined`).
     Assumed,
     /// Not assumed. The subject denotes its defined instances only, those where these decided
     /// obligations hold ([`initial_definedness`]); none are given when nothing beyond its

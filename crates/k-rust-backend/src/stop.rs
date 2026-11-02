@@ -474,6 +474,25 @@ pub fn check() -> Result<(), Stop> {
     }
 }
 
+/// Spend `work` polls of the enclosing [`with_poll_budget`] scope's budget at once, or all that
+/// remain if fewer do, without raising anything: the next [`check`] past the budget raises.
+/// With no budget in force it does nothing, so a computation outside such a scope is unchanged.
+///
+/// For work done between two polls that is not bounded by a constant, such as a walk over every
+/// node of a term the computation builds: charged by the nodes it visits, the walk counts as the
+/// polls a traversal polling at each node would make. Without that, a loop that polls once per
+/// round while each round walks a term growing by one node per round spends a budget of `n`
+/// polls on about `n²/2` nodes, and the budget no longer bounds the computation's work.
+pub(crate) fn charge(work: u64) {
+    REGISTRY.with(|registry| {
+        if let Some(budget) = &registry.borrow().polls {
+            budget
+                .remaining
+                .set(budget.remaining.get().saturating_sub(work));
+        }
+    });
+}
+
 /// Bytes of native stack that must remain when the simplifier enters a call of
 /// `simplify_with_budget` or `simplify_predicate_with_budget`, the points at which it checks the
 /// stack (`with_stack_headroom`); with less, the call runs on a new segment or stops.
@@ -1222,6 +1241,28 @@ mod tests {
             assert_eq!((polled(), polled()), (None, None));
         });
         assert_eq!(record, PollBudgetRecord::default());
+    }
+
+    /// Work charged to a budget spends its polls as that many polls would, without raising: the
+    /// next poll past the budget raises. Outside a budget's scope a charge changes nothing.
+    #[test]
+    fn charged_work_spends_the_budget_as_polls_do() {
+        charge(u64::MAX);
+        assert_eq!(polled(), None);
+        let ((), record) = with_poll_budget(5, MANUAL, || {
+            charge(4);
+            assert_eq!(polled(), None);
+            assert_eq!(polled(), Some(StopCause::Deadline(MANUAL)));
+        });
+        assert!(record.budget_exhausted);
+        let ((), record) = with_poll_budget(5, MANUAL, || {
+            charge(6);
+            assert_eq!(polled(), Some(StopCause::Deadline(MANUAL)));
+        });
+        assert!(record.budget_exhausted);
+        let ((), record) = with_poll_budget(5, MANUAL, || charge(5));
+        assert!(!record.budget_exhausted);
+        assert!(registry_is_empty());
     }
 
     /// An inner budget is the only one in force in its scope, the outer one is restored after it

@@ -3045,13 +3045,19 @@ fn flattens_overlapping_conjunctions_before_using_sibling_assumptions() {
     assert_eq!(result, [defined, first, second]);
 }
 
-/// A conjunct `\ceil(t)` keeps stating the definedness of a partial `t` beside a sibling
-/// equality `t = c`. Rewritten through that equality it would become `\ceil(c)`, which holds,
-/// and leave the definedness of `t` to the equality alone; the solver may later decide the
-/// equality valid with `t`'s SMT reading, which is exact only where `t` is defined, and drop it.
-/// An equality among the known predicates, which the caller keeps, still discharges it.
+/// A conjunct `\ceil(t)` beside a sibling equality `t = c`, `c` defined, is discharged through
+/// it: the equality holds only where `t` denotes an element, so `\ceil(t) /\ t = c` is
+/// `t = c`, and the conjunction simplifies to the equality alone. An equality among the known
+/// predicates discharges it too.
+///
+/// fb8d4d58a kept the `\ceil` (it simplified a `\ceil` conjunct under the known equalities
+/// only), because the solver then read `t = c` through `t`'s total reading, exact only where `t`
+/// is defined. Since GAP K15 the solver reads the equality with `t`'s domain, so the residual
+/// is decided as K does without the `\ceil`
+/// (`a_ceil_conjunct_beside_a_sibling_equality_is_not_decided_valid`); GAP K18 removed the
+/// rule.
 #[test]
-fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
+fn a_ceil_conjunct_is_discharged_through_a_sibling_equality() {
     let definition = definition(
         r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
            symbol p{}(SortInt{}) : SortInt{} [function{}()]"#,
@@ -3072,14 +3078,38 @@ fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
     };
 
     let siblings = simplified(&[defined.clone(), equality.clone()], &[]);
-    assert!(
-        siblings.contains(&defined) && siblings.contains(&equality),
-        "{siblings:?}"
-    );
+    assert_eq!(siblings, std::slice::from_ref(&equality));
     assert!(
         simplified(&[defined], &[equality]).is_empty(),
         "a known equality discharges the ceil"
     );
+}
+
+/// GAP K15: the case fb8d4d58a fixed, decided by the solver. `\ceil(half(1)) /\ half(1) = 0` is
+/// `\bottom` where `half(1)` is undefined, so it is not valid; the solver reads `half(1) = 0` with
+/// `half(1)`'s domain, not as `div 1 2 = 0`, whatever the simplifier leaves beside it.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_conjunct_beside_a_sibling_equality_is_not_decided_valid() {
+    let definition = sibling_equality_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let half = term(&definition, r#"half{}(\dv{SortInt{}}("1"))"#);
+    let conjunction = Predicate::And(
+        vec![
+            Predicate::Ceil(half.clone()),
+            Predicate::Equals(half, term(&definition, r#"\dv{SortInt{}}("0")"#)),
+        ]
+        .into(),
+    );
+    let decided = simplify_and_decide_predicate_with_solver(
+        &definition,
+        &conjunction,
+        &[],
+        SimplificationOptions::default(),
+        &solver,
+    )
+    .unwrap();
+    assert_ne!(decided, Predicate::True);
 }
 
 /// GAP K11: the partial symbols of the sibling-equality tests below. `p`, `half`, `gg` and `ff`
@@ -3105,7 +3135,8 @@ fn sibling_equality_definition() -> BackendDefinition {
     )
 }
 
-/// GAP K11: the rule of `a_ceil_conjunct_is_not_discharged_through_a_sibling_equality` holds
+/// GAP K11: fb8d4d58a's rule (a top-level `\ceil` conjunct not discharged through a sibling
+/// equality, removed by GAP K18) held
 /// for a `\ceil` whose expansion has members besides it, at each of its two places. The
 /// expansion of `\ceil(ff(gg(p(X))))` beside `p(X) = 0` keeps `\ceil(gg(p(X)))` (the sibling
 /// states `p(X)` defined, so `\ceil(p(X))` is dropped: the atom still states it), and the
@@ -3116,6 +3147,16 @@ fn sibling_equality_definition() -> BackendDefinition {
 /// beside `gg(p(X)) = 0` because the sibling states `gg(p(X))` defined, with the same effect,
 /// where `\ceil(p(X))` beside `p(X) = 0` (no further member) was kept. Siblings may still
 /// discharge the members: the atom stays and states them.
+///
+/// GAP K15 re-pinned the residual: the solver now reads `p(X) = 0` with `p(X)`'s domain
+/// (`smt::TranslationState::atom_with_domains`), so the definedness-explicit form need not
+/// survive simplification, and both rewrites are restored. Each is an equivalence: the
+/// sibling `t = c`, an equality with the defined side `c`, implies `\ceil` of `t` and of every
+/// subterm of `t` (every application is strict), so `\ceil(s) /\ t = c` is `t = c` for `s` a
+/// subterm of `t`. For a term `s` that contains `t` it is `\ceil(s[t := c]) /\ t = c` instead,
+/// which is `t = c` only where the definition shows `s[t := c]` defined: here `gg-zero` and the
+/// ceil equation of `ff(0)` do, so the residual is the equality alone. The solver test below
+/// still shows that residual is not decided valid.
 #[test]
 fn a_ceil_atom_is_not_discharged_through_a_sibling_equality_by_its_expansion() {
     let definition = sibling_equality_definition();
@@ -3142,7 +3183,7 @@ fn a_ceil_atom_is_not_discharged_through_a_sibling_equality_by_its_expansion() {
         let defined = Predicate::Ceil(term(&definition, subject));
         let equality = Predicate::Equals(left, zero.clone());
         let siblings = simplified(&[defined.clone(), equality.clone()], &[]);
-        if !(siblings.contains(&defined) && siblings.contains(&equality)) {
+        if siblings != [equality.clone()] {
             discharged.push(subject);
         }
         assert!(
@@ -3152,7 +3193,7 @@ fn a_ceil_atom_is_not_discharged_through_a_sibling_equality_by_its_expansion() {
     }
     assert!(
         discharged.is_empty(),
-        "discharged through the sibling: {discharged:?}"
+        "not discharged through the sibling: {discharged:?}"
     );
 }
 
@@ -3228,6 +3269,11 @@ fn conditional_ceil_definition() -> BackendDefinition {
 /// sibling equality among them, so it went too, and the conjunction was left with `half(1) = 0`
 /// alone. It is now decided under what stays stated (the kept predicates and the enclosing
 /// definedness atoms): it stays beside the equality, and a known equality still discharges it.
+///
+/// GAP K15 re-pinned the residual to `half(1) = 0`: `\ceil(half(1)) /\ half(1) = 0` is
+/// `half(1) = 0`, since an equality with the defined side `0` holds only where `half(1)` is
+/// defined, and the solver now reads that equality with `half(1)`'s domain, so the obligation
+/// may go (the next test still shows the residual is not decided valid).
 #[test]
 fn a_ceil_equation_keeps_its_bound_term_obligation_beside_a_sibling_equality() {
     let definition = conditional_ceil_definition();
@@ -3246,7 +3292,8 @@ fn a_ceil_equation_keeps_its_bound_term_obligation_beside_a_sibling_equality() {
     };
     assert_eq!(
         simplified(&[defined.clone(), equality.clone()], &[]),
-        [Predicate::Ceil(half), equality.clone()],
+        std::slice::from_ref(&equality),
+        "the obligation {half:?} goes beside the equality that implies it"
     );
     assert!(simplified(&[defined], &[equality]).is_empty());
 }
@@ -3309,9 +3356,12 @@ fn beside_half_equality(definition: &BackendDefinition, atom: Predicate) -> Vec<
     ]
 }
 
-/// The conjunction simplified (it must not be the equality alone) and decided by Z3 (it must not
-/// be valid: it is `\bottom` where `half(1)` is undefined, which Z3, reading `half` as `div`,
-/// does not see).
+/// The conjunction simplified and decided by Z3: it must not be valid, since it is `\bottom`
+/// where `half(1)` is undefined, which Z3, reading `half` as `div`, did not see. Since GAP K15
+/// the simplified residual is the equality alone (it was pinned to keep a `\ceil` beside it):
+/// `\ceil(s) /\ half(1) = 0` is `\ceil(s[half(1) := 0]) /\ half(1) = 0`, and each atom these
+/// tests pass is over a term whose instance at 0 the definition shows defined (`hh(0)` by
+/// `ceil-hh`, `zz(0)` by `zz-zero`). The solver reads that equality with `half(1)`'s domain.
 #[cfg(feature = "z3")]
 fn assert_keeps_half_definedness(definition: &BackendDefinition, atom: Predicate) {
     let conjunction = beside_half_equality(definition, atom);
@@ -3323,10 +3373,7 @@ fn assert_keeps_half_definedness(definition: &BackendDefinition, atom: Predicate
         &NoSolver,
     )
     .unwrap();
-    assert!(
-        simplified.len() > 1 && simplified.contains(&conjunction[1]),
-        "{simplified:?}"
-    );
+    assert_eq!(simplified, [conjunction[1].clone()], "{simplified:?}");
     let solver = k_rust_backend::smt::Z3Solver::new(definition).expect("Z3 should start");
     let decided = simplify_and_decide_predicate_with_solver(
         definition,
@@ -3361,6 +3408,141 @@ fn a_ceil_under_a_binder_is_not_rewritten_through_a_sibling_equality() {
 fn a_function_equation_in_a_ceil_keeps_its_bound_term_obligation_beside_a_sibling_equality() {
     let definition = conditional_ceil_definition();
     assert_keeps_half_definedness(&definition, function_equation_route(&definition));
+}
+
+/// GAP K15: the refutations the K11-K14 withholdings lost in positions where a definedness atom
+/// states nothing (review finding 3). `\not \ceil(t)` beside `t = c` is `\bottom`: the equality,
+/// with the defined side `0`, holds only where `t` is defined. Rewritten through the sibling
+/// `gg(p(X)) = 0`, `\ceil(gg(p(X)))` becomes `\ceil(0)`, which holds; `zz-zero` makes
+/// `zz(half(1))` 0 with the obligation `\ceil(half(1))`, which the sibling `half(1) = 0`
+/// discharges. At K10 both conjunctions were `\bottom`; under K11-K14 neither was, since each
+/// rewrite was withheld wherever the arm stood. And a sibling that refutes
+/// the obligation of a function equation's bound term refutes the `\ceil` (review Q4), in both
+/// orders.
+#[test]
+fn a_negated_ceil_is_refuted_through_a_sibling_equality() {
+    let simplified = |definition: &BackendDefinition, predicates: &[Predicate]| {
+        simplify_predicates_with_solver(
+            definition,
+            predicates,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+    let not = |predicate: Predicate| Predicate::Not(Arc::new(predicate));
+    let sibling = sibling_equality_definition();
+    let gg = term(&sibling, "gg{}(p{}(X:SortInt{}))");
+    let zero = term(&sibling, r#"\dv{SortInt{}}("0")"#);
+    assert_eq!(
+        simplified(
+            &sibling,
+            &[
+                not(Predicate::Ceil(gg.clone())),
+                Predicate::Equals(gg, zero)
+            ]
+        ),
+        [Predicate::False]
+    );
+    let conditional = conditional_ceil_definition();
+    let half = term(&conditional, r#"half{}(\dv{SortInt{}}("1"))"#);
+    let mut negated = beside_half_equality(&conditional, function_equation_route(&conditional));
+    negated[0] = not(negated[0].clone());
+    assert_eq!(simplified(&conditional, &negated), [Predicate::False]);
+    for conjunction in [
+        [
+            function_equation_route(&conditional),
+            not(Predicate::Ceil(half.clone())),
+        ],
+        [
+            not(Predicate::Ceil(half.clone())),
+            function_equation_route(&conditional),
+        ],
+    ] {
+        assert_eq!(simplified(&conditional, &conjunction), [Predicate::False]);
+    }
+}
+
+/// GAP K15: the K13 binder route with a sibling that mentions the bound variable (review nit 7):
+/// the binder view sets that sibling aside, and the conjunction is still not decided valid.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_under_a_shadowing_binder_beside_a_sibling_equality_is_not_decided_valid() {
+    let definition = conditional_ceil_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let mut conjunction = beside_half_equality(&definition, binder_route(&definition));
+    conjunction.push(Predicate::Equals(
+        term(&definition, "Y:SortInt{}"),
+        term(&definition, r#"\dv{SortInt{}}("3")"#),
+    ));
+    let decided = simplify_and_decide_predicate_with_solver(
+        &definition,
+        &Predicate::And(conjunction.into()),
+        &[],
+        SimplificationOptions::default(),
+        &solver,
+    )
+    .unwrap();
+    assert_ne!(decided, Predicate::True);
+}
+
+/// GAP K15: the two routes the K11-K14 review found, at which the simplifier still leaves the
+/// definedness of `half(1)` to an equality alone, which K15 closes at the solver instead. Route
+/// 5: `pvalid` (`KRYPTO.bn128valid`) is defined wherever its argument is and `g1` is a
+/// constructor, so `\ceil(pvalid(g1(half(1), 0)))` states exactly `\ceil(half(1))`, which the
+/// sibling `half(1) = 0` implies: the arm returns `\top` and leaves `half(1) = 0`. Route 6:
+/// `\ceil(0 /\ half(1))` is `\ceil(0) /\ 0 = half(1)`, an ML equivalence. Both are K
+/// equivalences; neither form is valid, since each is `\bottom` where `half(1)` is undefined, and
+/// Z3, reading `half` as `div` without its domain, decided both valid.
+fn review_route_definition() -> BackendDefinition {
+    definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           sort SortG1Point{} []
+           symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+           symbol g1{}(SortInt{}, SortInt{}) : SortG1Point{} [constructor{}()]
+           hooked-symbol pvalid{}(SortG1Point{}) : SortBool{}
+             [function{}(), hook{}("KRYPTO.bn128valid")]"#,
+    )
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn the_review_routes_to_an_equality_alone_are_not_decided_valid() {
+    let definition = review_route_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let half = r#"half{}(\dv{SortInt{}}("1"))"#;
+    let zero = r#"\dv{SortInt{}}("0")"#;
+    let mut valid = Vec::new();
+    for predicate in [
+        Predicate::And(
+            vec![
+                Predicate::Ceil(term(
+                    &definition,
+                    &format!("pvalid{{}}(g1{{}}({half}, {zero}))"),
+                )),
+                Predicate::Equals(term(&definition, half), term(&definition, zero)),
+            ]
+            .into(),
+        ),
+        Predicate::Ceil(term(
+            &definition,
+            &format!(r#"\and{{SortInt{{}}}}({zero}, {half})"#),
+        )),
+    ] {
+        let decided = simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .unwrap();
+        if decided == Predicate::True {
+            valid.push(predicate);
+        }
+    }
+    assert!(valid.is_empty(), "decided valid: {valid:?}");
 }
 
 /// Every application is strict, so a known predicate that states a term defined (a Boolean term
@@ -4772,6 +4954,10 @@ fn written_predicate_definition() -> BackendDefinition {
 /// in both disjuncts, hence a conjunct of the whole subject, which states the definedness of the
 /// operands the lemma consumes and is conjoined to the result. The written disjunction alone is
 /// not strict in `sf(Y)`, whose definedness is open, so the lemma is not used on it.
+///
+/// The result's `\ceil` is `\ceil(sf(c))`: it is simplified beside the result's binding
+/// `Y = c`, and `Y` is an element variable, so under `Y = c` the `\ceil` of `sf(Y)` is that of
+/// `sf(c)`, an equivalence.
 #[test]
 fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_aside() {
     let definition = written_predicate_definition();
@@ -4806,7 +4992,13 @@ fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_asid
         other => vec![other.clone()],
     };
     assert_eq!(conjuncts.len(), 2, "{result:?}");
-    assert!(conjuncts.contains(&defined), "{result:?}");
+    assert!(
+        conjuncts.contains(&Predicate::Ceil(term(
+            &definition,
+            r#"sf{}(\dv{SortS{}}("c"))"#
+        ))),
+        "{result:?}"
+    );
     assert!(
         conjuncts.contains(&Predicate::Equals(y.clone(), c.clone()))
             || conjuncts.contains(&Predicate::Equals(c, y)),

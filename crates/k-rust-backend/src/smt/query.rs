@@ -79,6 +79,7 @@ mod tests {
             declarations: Vec::new(),
             smtlib_names: std::collections::BTreeSet::new(),
             user_script: false,
+            dropped_lemmas: Vec::new(),
             congruence: None,
             source: None,
         }

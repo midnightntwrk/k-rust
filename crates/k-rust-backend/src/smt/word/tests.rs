@@ -24,23 +24,54 @@ fn definition_source() -> String {
       hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
     "#,
     );
-    for (name, hook, smt) in [
-        ("add", "INT.add", Some("+")),
-        ("sub", "INT.sub", Some("-")),
-        ("mul", "INT.mul", Some("*")),
-        ("and", "INT.and", None),
-        ("or", "INT.or", None),
-        ("xor", "INT.xor", None),
-        ("shl", "INT.shl", None),
-        ("shr", "INT.shr", None),
-        ("div", "INT.ediv", Some("div")),
-        ("mod", "INT.emod", Some("mod")),
-        ("tdiv", "INT.tdiv", None),
-        ("tmod", "INT.tmod", None),
+    // The totality and the domains `domains.md` states for these hooks (with AM-10 for
+    // `bitRangeInt`): the solver reads an atom over a partial term only where its domain is
+    // known (GAP K15), and these tests are about the word readings of defined terms.
+    for (name, hook, smt, total) in [
+        ("add", "INT.add", Some("+"), true),
+        ("sub", "INT.sub", Some("-"), true),
+        ("mul", "INT.mul", Some("*"), true),
+        ("and", "INT.and", None, true),
+        ("or", "INT.or", None, true),
+        ("xor", "INT.xor", None, true),
+        ("shl", "INT.shl", None, false),
+        ("shr", "INT.shr", None, false),
+        ("div", "INT.ediv", Some("div"), false),
+        ("mod", "INT.emod", Some("mod"), false),
+        ("tdiv", "INT.tdiv", None, false),
+        ("tmod", "INT.tmod", None, false),
     ] {
-        source.push_str(&format!(r#"hooked-symbol {name}{{}}(SortInt{{}},SortInt{{}}):SortInt{{}} [function{{}}(), hook{{}}("{hook}"){smt}]
-        "#, smt=smt.map_or(String::new(), |s|format!(r#", smt-hook{{}}("{s}")"#))));
+        source.push_str(&format!(r#"hooked-symbol {name}{{}}(SortInt{{}},SortInt{{}}):SortInt{{}} [function{{}}(), hook{{}}("{hook}"){smt}{total}]
+        "#, smt=smt.map_or(String::new(), |s|format!(r#", smt-hook{{}}("{s}")"#)), total=if total { ", total{}()" } else { "" }));
     }
+    let condition =
+        |test: &str| format!(r#"\equals{{SortBool{{}}, Q}}({test}, \dv{{SortBool{{}}}}("true"))"#);
+    let nonzero = condition(r#"ne{}(I2:SortInt{}, \dv{SortInt{}}("0"))"#);
+    let nonnegative = condition(r#"le{}(\dv{SortInt{}}("0"), I2:SortInt{})"#);
+    for (name, stated) in [
+        ("div", nonzero.clone()),
+        ("mod", nonzero.clone()),
+        ("tdiv", nonzero.clone()),
+        ("tmod", nonzero),
+        ("shl", nonnegative.clone()),
+        ("shr", nonnegative),
+    ] {
+        source.push_str(&format!(
+            r#"axiom{{Q}} \implies{{Q}}(\top{{Q}}(), \equals{{Q, Q}}(
+              \ceil{{SortInt{{}}, Q}}({name}{{}}(I1:SortInt{{}}, I2:SortInt{{}})),
+              \and{{Q}}({stated}, \top{{Q}}()))) [simplification{{}}()]
+            "#
+        ));
+    }
+    source.push_str(&format!(
+        r#"axiom{{Q}} \implies{{Q}}(\top{{Q}}(), \equals{{Q, Q}}(
+          \ceil{{SortInt{{}}, Q}}(bits{{}}(I:SortInt{{}}, I1:SortInt{{}}, I2:SortInt{{}})),
+          \and{{Q}}({}, \and{{Q}}({}, \top{{Q}}())))) [simplification{{}}()]
+        hooked-symbol ne{{}}(SortInt{{}},SortInt{{}}):SortBool{{}} [function{{}}(),total{{}}(),hook{{}}("INT.ne"),smt-hook{{}}("distinct")]
+        "#,
+        condition(r#"le{}(\dv{SortInt{}}("0"), I1:SortInt{})"#),
+        condition(r#"le{}(\dv{SortInt{}}("0"), I2:SortInt{})"#),
+    ));
     source.push_str(r#"hooked-symbol lt{}(SortInt{},SortInt{}):SortBool{} [function{}(),total{}(),hook{}("INT.lt"),smt-hook{}("<")]
       hooked-symbol le{}(SortInt{},SortInt{}):SortBool{} [function{}(),total{}(),hook{}("INT.le"),smt-hook{}("<=")]
       hooked-symbol bor{}(SortBool{},SortBool{}):SortBool{} [function{}(),total{}(),hook{}("BOOL.or"),smt-hook{}("or")]
@@ -487,6 +518,71 @@ fn same_width_profiles_keep_exact_guards_and_shared_dags_stay_small() {
     // those links capable of expanding the same diamond into a huge tree.
     let bytes = built.base().len() + built.checked().to_string().len();
     assert!(bytes < 100_000, "shared query bytes: {bytes}");
+}
+
+/// GAP K15: a query over a shared DAG of partial applications stays linear in the DAG, for a
+/// partial head read through its `smt-hook` (`add`) and one read through a value function
+/// (`pf`), with atoms whose operands are the shared root: an equality with a literal, the
+/// reflexive equality, a known equality and the root's `\ceil`. Added before K15 states the
+/// operands' domains beside each atom: the domains must share the DAG as the values do.
+#[cfg(feature = "z3")]
+#[test]
+fn a_query_over_a_shared_partial_dag_stays_linear() {
+    let d = BackendDefinition::internalize(
+        &parse_definition(&definition_source().replace(
+            "endmodule []",
+            "symbol pf{}(SortInt{},SortInt{}):SortInt{} [function{}()]\n      endmodule []",
+        ))
+        .unwrap(),
+        "MAIN",
+    )
+    .unwrap();
+    for head in ["add", "pf"] {
+        let mut diamond = binary(&d, head, var("X"), var("Y"));
+        for _ in 0..28 {
+            diamond = binary(&d, head, diamond.clone(), diamond);
+        }
+        let known = [Predicate::Equals(diamond.clone(), int(5))];
+        for checked in [
+            Predicate::Equals(diamond.clone(), int(0)),
+            Predicate::Equals(diamond.clone(), diamond.clone()),
+            Predicate::Ceil(diamond.clone()),
+        ] {
+            let built = query(&d, &known, std::slice::from_ref(&checked));
+            let bytes = built.base().len() + built.checked().to_string().len();
+            assert!(bytes < 100_000, "{head}: shared query bytes: {bytes}");
+        }
+    }
+}
+
+/// GAP K15: a ceil equation's condition over a shared argument is read as stated, with its
+/// atoms' domains stated by the translation, so its admission reads the argument's DAG, not its
+/// tree. `\ceil(Z div d)` with `d` a 16-level diamond of `add` (2^16 paths) is `d =/=Int 0`, valid where
+/// `d` is not 0; before, the definedness-explicit conversion of the condition walked `d` as a tree,
+/// over the preparation budget, and the domain stayed opaque.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_condition_over_a_shared_argument_is_read_on_its_dag() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let d = definition();
+    let mut diamond = binary(&d, "add", var("X"), var("Y"));
+    for _ in 0..16 {
+        diamond = binary(&d, "add", diamond.clone(), diamond);
+    }
+    let known = [Predicate::Not(Arc::new(Predicate::Equals(
+        diamond.clone(),
+        int(0),
+    )))];
+    let checked = Predicate::Ceil(binary(&d, "div", var("Z"), diamond));
+    let built = query(&d, &known, std::slice::from_ref(&checked));
+    let bytes = built.base().len() + built.checked().to_string().len();
+    assert!(bytes < 100_000, "shared query bytes: {bytes}");
+    assert_eq!(
+        Z3Solver::new(&d)
+            .unwrap()
+            .check_predicates(&known, &Substitution::new(), &[checked]),
+        Ok(Ok(Validity::Valid))
+    );
 }
 
 #[cfg(feature = "z3")]

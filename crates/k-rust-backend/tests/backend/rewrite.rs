@@ -14258,6 +14258,13 @@ fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
 /// constraint restates the absence of `a` from `(K |-> V) F`. With `MAP.in_keys` declared an
 /// absence is an `in_keys` term, which a substitution into `\not(in_keys(a, R))` would leave
 /// undecomposed.
+///
+/// Of those facts the leaf states the binding, `a` distinct from `K` and `a` absent from `F`;
+/// `K` absent from `F` is implied by the binding and is not a constraint of its own. `R` is an
+/// element variable, so `R = (K |-> V) F` holds only where the map literal denotes an element,
+/// and `(K |-> V) F` is defined exactly where `K` is not a key of `F` (an equality with an
+/// undefined side and a defined one is false). The solver reads the binding with that domain,
+/// so the absence is valid beside it and the conjunction without it is the same predicate.
 #[cfg(feature = "z3")]
 #[test]
 fn a_consumed_map_split_by_unification_is_charged_as_the_binding_builds_it() {
@@ -14328,10 +14335,11 @@ fn a_consumed_map_split_by_unification_is_charged_as_the_binding_builds_it() {
         );
     };
     assert_eq!(frame.halt_reason, HaltReason::DepthBound);
-    // `R = (K |-> V) F`, `a` distinct from `K`, and `a` and `K` absent from `F`.
+    // `R = (K |-> V) F`, `a` distinct from `K`, and `a` absent from `F`; `K` absent from `F` is
+    // the binding's own consequence.
     assert_eq!(
         frame.pattern.constraints.len(),
-        4,
+        3,
         "{:#?}",
         frame.pattern.constraints
     );

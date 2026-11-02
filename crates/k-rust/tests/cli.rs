@@ -6003,6 +6003,9 @@ fn a_symbolic_conditional_splits_on_its_condition_under_the_unused_operands_defi
     // `mid(#if N >Int 0 #then 1 #else undef() #fi)` meets `mid(1)`: where `N >Int 0` the
     // conditional is `1` only where `undef()` is defined, and where it does not hold the
     // conditional is `undef()`, which is `1` where the two are equal. The rest stays at `mid`.
+    // The second leaf states no `\ceil(undef())`: `1` is a domain value, so `1 = undef()` is
+    // false wherever `undef()` is `\bottom` and implies `\ceil(undef())` itself. The third
+    // keeps it, since `N >Int 0` says nothing of `undef()`.
     let (root, _) = fixture();
     let split = compiled_for_execution(&root, "split", SYMBOLIC_CONDITIONAL, "SPLIT", "SPLIT");
     let pattern = top_with("inj{SortExp{}, SortKItem{}}(Lblstart{}(VarN:SortInt{}))");
@@ -6030,7 +6033,7 @@ fn a_symbolic_conditional_splits_on_its_condition_under_the_unused_operands_defi
     let expected = format!(
         "\\or{{SortGeneratedTopCell{{}}}}({}, {}, {})",
         state(&format!("Lblmid{{}}({conditional})"), &[&fails, &unequal]),
-        state("Lblone{}()", &[&defined, &fails, equal]),
+        state("Lblone{}()", &[&fails, equal]),
         state("Lblone{}()", &[&defined, &holds]),
     );
     assert_eq!(squashed(&stdout), squashed(&expected), "{stdout}");
@@ -17192,8 +17195,11 @@ endmodule
 /// under the undecided equality `go = b ; c`, beside the branch under its negation; its result
 /// `(b ; c) ; d` is again an uncertified application, so the rule applies on every state it
 /// builds. The run revisits the same states: three leaves at depth 2 and the same three at depth
-/// 6, no minted existential. A rule that leaves a left-hand-side variable unbound halts on the
-/// variable-free configuration instead.
+/// 6, no minted existential. The two leaves under `go = b ; c` state no `\ceil(b ; c)`: `go` is
+/// a constructor, so the equality is false wherever `b ; c` is `\bottom` and implies its
+/// definedness itself (as does their configuration `(b ; c) ; d`, which is `\bottom` there). A
+/// rule that leaves a left-hand-side variable unbound halts on the variable-free configuration
+/// instead.
 #[test]
 fn a_withdrawn_anywhere_head_makes_a_rebuilding_rule_branch_on_equalities() {
     let seq_bc = "Lblseq{}(Lblb{}(),Lblc{}())";
@@ -17207,9 +17213,8 @@ fn a_withdrawn_anywhere_head_makes_a_rebuilding_rule_branch_on_equalities() {
         format!(r"\equals{{SortStmt{{}},SortGeneratedTopCell{{}}}}(Lblgo{{}}(),{right})")
     };
     let not = |predicate: &str| format!(r"\not{{SortGeneratedTopCell{{}}}}({predicate})");
-    let ceil = format!(r"\ceil{{SortStmt{{}},SortGeneratedTopCell{{}}}}({seq_bc})");
     let expected = format!(
-        r"\or{{SortGeneratedTopCell{{}}}}(\and{{SortGeneratedTopCell{{}}}}({},{}),\and{{SortGeneratedTopCell{{}}}}({},\and{{SortGeneratedTopCell{{}}}}({ceil},{},{})),\and{{SortGeneratedTopCell{{}}}}({},\and{{SortGeneratedTopCell{{}}}}({ceil},{},{})))",
+        r"\or{{SortGeneratedTopCell{{}}}}(\and{{SortGeneratedTopCell{{}}}}({},{}),\and{{SortGeneratedTopCell{{}}}}({},\and{{SortGeneratedTopCell{{}}}}({},{})),\and{{SortGeneratedTopCell{{}}}}({},\and{{SortGeneratedTopCell{{}}}}({},{})))",
         leaf(seq_bc),
         not(&equals(seq_bc)),
         leaf(&seq_bcd),

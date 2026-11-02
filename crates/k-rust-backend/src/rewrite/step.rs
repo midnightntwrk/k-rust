@@ -212,11 +212,31 @@ fn apply_priority_group<'r>(
     // The remainder is the part of the subject no rule of the group applies to, among its
     // instances: those where its decided definedness fails are none, so it is simplified
     // knowing that definedness and states it, `simplify(R | D) ∧ D` being `R ∧ D`.
-    let known = if restriction.is_empty() {
+    //
+    // An assumed definedness `A` (`SubjectDefinedness::Assumed`) is known in the same way and is
+    // not stated: each rule's applicability `C_i` was decided under `A` (`apply::knowledge`), so
+    // the remainder is `¬C_1 ∧ .. ∧ ¬C_n` among the instances where `A` holds, and the instances
+    // where it fails are no configuration to rewrite or to leave over. Deciding the remainder
+    // without `A` would keep instances that no rule was asked about: under the solver's faithful
+    // reading, `¬(t >Int 5) ∧ ¬(t <=Int 5)` holds where the partial `t` is undefined, which `A`
+    // excludes.
+    let assumed = if subject_definedness.assumed() {
+        // As for the rules' knowledge: a definedness that depends on an impure application in an
+        // operand a conditional never evaluates is left out, which only weakens it.
+        ceil_term(definition, &pattern.term)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|fact| !pattern.constraints.contains(fact))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let known = if restriction.is_empty() && assumed.is_empty() {
         std::borrow::Cow::Borrowed(pattern.constraints.as_slice())
     } else {
         let mut known = pattern.constraints.clone();
-        known.extend(restriction.iter().cloned());
+        extend_unique(&mut known, restriction.iter().cloned());
+        extend_unique(&mut known, assumed.iter().cloned());
         std::borrow::Cow::Owned(known)
     };
     let (remainder, remainder_diagnostics) = diagnostic::collect(|| {
@@ -244,6 +264,7 @@ fn apply_priority_group<'r>(
     } else {
         let mut predicates = pattern.constraints.clone();
         predicates.extend(remainder.iter().cloned());
+        extend_unique(&mut predicates, assumed.iter().cloned());
         if violates_finite_constructor_domain(definition, &predicates) {
             Ok(Satisfiability::Unsat)
         } else {

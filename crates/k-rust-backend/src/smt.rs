@@ -220,13 +220,13 @@ impl<'a> SExprParser<'a> {
 /// valuation that satisfies the predicates induce a model of the translation. A model is a K
 /// valuation of the predicates only when the translation is `Exact`.
 ///
-/// A partial function translated as a total SMT operation is not an over-approximation: an atom
-/// over an undefined term denotes `\bottom` in K and some value in SMT. It is `Approximate` for
-/// the purpose of reading a model, and `Unsat` refutes the predicates only when they are
-/// definedness-faithful, which their definedness-explicit form ensures: each atom over a partial
-/// term is a conjunct of a conjunction enclosing it that also holds that term's definedness, or
-/// a top-level atom that shows its term defined (docs/compatibility.md, "Solver decisions over
-/// partial operations").
+/// A partial function translated as a total SMT operation has a value where K has none, so the
+/// translation states each atom with the domains of its operands (`atom_with_domains`): an atom
+/// over an undefined term denotes in SMT what it denotes in K, whatever the form of the
+/// predicates, and `Unsat` refutes them (docs/compatibility.md, "Solver decisions over partial
+/// operations"). A domain the definition does not decide is a domain function or an opaque atom,
+/// which a model may set true where the term is undefined, so the translation stays
+/// `Approximate` for the purpose of reading a model.
 /// SMT hook translations, SMT lemma axioms and the user prelude are trusted, except that a power
 /// is read as itself only where an integer is its value (`guard_powers`), and that a hook is
 /// read at all only where its operation is a term at the application's sorts
@@ -361,6 +361,10 @@ pub struct TranslationState {
     /// The domain functions the query applies at a single point, declared as constants.
     single_point_domains: BTreeSet<String>,
     domains: BTreeMap<Term, Arc<[Predicate]>>,
+    /// Facts of the conditional ceil equations at a partial application whose domain is its
+    /// head's domain function (`functional::domain_lemmas`), each stated once per binder scope.
+    domain_lemmas: BTreeMap<Term, Arc<[Predicate]>>,
+    domain_lemma_seen: BTreeSet<(Term, Vec<String>)>,
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
     observation_facts: BTreeMap<Term, Vec<Predicate>>,
@@ -391,6 +395,32 @@ pub struct TranslationState {
     summaries: BTreeMap<summary::Key, summary::Reading>,
     derived_definitions: Vec<String>,
     predicate_mappings: Vec<(Predicate, String)>,
+    /// The names of `predicate_mappings`, for a lookup that does not scan them.
+    predicate_mapping_names: FxHashMap<Predicate, String>,
+    /// Translate an atom as its reading alone, without its operands' domains: set by a reading
+    /// that is related to another under those domains (the word plans' scalar fallback,
+    /// `word::prepare`), never for a predicate the query asserts.
+    atom_readings: bool,
+    /// Domain readings that fell back to an opaque domain (a head's domain function or an
+    /// opaque `\ceil` atom), counted to report the atoms whose operands read one
+    /// (`Counter::SmtOpaqueAtomDomains`).
+    opaque_domain_reads: usize,
+    /// Terms whose `\ceil` is a conjunct of a conjunction enclosing the predicate being
+    /// translated (`translate_predicates`, `translate_query_in_state`), or the children of the
+    /// domain whose own condition is being translated (`translate_domain_node`), whose domains
+    /// are conjoined beside it. Within a conjunction `φ /\ \ceil(t)` is `φ[D(t) := true] /\
+    /// \ceil(t)`, so an atom over such a term states no copy of its domain
+    /// (`operand_domain`). Set aside wherever a translation becomes a fact of its own
+    /// (`record_source_fact` from an observation or a domain), and filtered under a binder.
+    stated_defined: Vec<Term>,
+    /// The facts tying a decided domain to its head's domain function, closed, with that
+    /// function's name (`translate_domain_node`). One is asserted only when the query also reads
+    /// the function as an undecided domain (`undecided_domain_heads`), the only reading it
+    /// relates the decided instance to: alone, it constrains a function nothing else reads.
+    pending_domain_links: Vec<(String, SExpr)>,
+    undecided_domain_heads: BTreeSet<String>,
+    /// Terms a plan admission found free of term-level `\and`s (`functional::admit_conditions`).
+    conjunction_free: rustc_hash::FxHashSet<Term>,
     dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
     bound_variables: Vec<(Variable, String)>,
     counter: usize,
@@ -415,6 +445,8 @@ impl TranslationState {
             domain_functions: BTreeMap::new(),
             single_point_domains: BTreeSet::new(),
             domains: BTreeMap::new(),
+            domain_lemmas: BTreeMap::new(),
+            domain_lemma_seen: BTreeSet::new(),
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
             observation_facts: BTreeMap::new(),
@@ -445,6 +477,13 @@ impl TranslationState {
             summaries: BTreeMap::new(),
             derived_definitions: Vec::new(),
             predicate_mappings: Vec::new(),
+            predicate_mapping_names: FxHashMap::default(),
+            atom_readings: false,
+            opaque_domain_reads: 0,
+            stated_defined: Vec::new(),
+            pending_domain_links: Vec::new(),
+            undecided_domain_heads: BTreeSet::new(),
+            conjunction_free: rustc_hash::FxHashSet::default(),
             dependent_mappings: BTreeMap::new(),
             bound_variables: Vec::new(),
             counter: 1,
@@ -465,7 +504,14 @@ impl TranslationState {
     /// Close a source consequence where it was derived. Value bindings precede domain
     /// bindings: query value totalizations do not depend on the query's domain lets, while
     /// domain conditions may read shared values. Both scopes remain inside their binders.
-    fn record_source_fact(&mut self, mut fact: SExpr) -> Result<(), TranslationError> {
+    fn record_source_fact(&mut self, fact: SExpr) -> Result<(), TranslationError> {
+        let fact = self.close_source_fact(fact)?;
+        self.domain_facts.push(fact);
+        Ok(())
+    }
+
+    /// `fact` closed where it was derived, as `record_source_fact` asserts it.
+    fn close_source_fact(&mut self, mut fact: SExpr) -> Result<SExpr, TranslationError> {
         if let Some(scope) = &self.shared_domains {
             fact = scope.bind(fact);
         }
@@ -490,8 +536,7 @@ impl TranslationState {
                 fact,
             ]);
         }
-        self.domain_facts.push(fact);
-        Ok(())
+        Ok(fact)
     }
 
     /// Only visible binders used by a source consequence distinguish its instantiation.
@@ -584,6 +629,10 @@ impl TranslationState {
             if !self.active_observations.insert(term.clone()) {
                 return self.translate_term_node_plain(term);
             }
+            // The facts below are asserted, so their atoms carry their domains whatever reading
+            // the enclosing predicate takes (`translate_predicate_reading`).
+            let outside = std::mem::replace(&mut self.atom_readings, false);
+            let outside_defined = std::mem::take(&mut self.stated_defined);
             let result = (|| {
                 for demand in demands {
                     self.translate_term(&demand)?;
@@ -599,6 +648,8 @@ impl TranslationState {
                 Ok(value)
             })();
             self.active_observations.remove(term);
+            self.atom_readings = outside;
+            self.stated_defined = outside_defined;
             return result;
         }
         self.translate_term_node_plain(term)
@@ -968,16 +1019,38 @@ impl TranslationState {
         result
     }
 
+    /// A predicate's translation. Each atom is translated with the domains of its operands
+    /// (`atom_with_domains`), so that it denotes what the atom denotes in K wherever its
+    /// operands are undefined too; every other connective is its Boolean operation, which is
+    /// then the predicate's own (docs/compatibility.md, "Solver decisions over partial
+    /// operations").
+    /// `predicate` with each atom read as its operands' relation alone (`atom_readings`), for a
+    /// reading that is used only where those operands are defined: a value read under the
+    /// domain of the term it stands for (an observation's case test, `observation_value`), or
+    /// the scalar reading that a word plan's fact relates to its word value under the operands'
+    /// domains (`word::prepare`). Such a reading is a value, and value bindings precede domain
+    /// bindings (`record_source_fact`), so it must not read a domain.
+    pub(super) fn translate_predicate_reading(
+        &mut self,
+        predicate: &Predicate,
+    ) -> Result<SExpr, TranslationError> {
+        let outside = std::mem::replace(&mut self.atom_readings, true);
+        let result = self.translate_predicate(predicate);
+        self.atom_readings = outside;
+        result
+    }
+
     fn translate_predicate_node(
         &mut self,
         predicate: &Predicate,
     ) -> Result<SExpr, TranslationError> {
-        if self.bound_variables.is_empty()
-            && let Some(value) = self.word_predicates.get(predicate)
-        {
-            return Ok(value.clone());
-        }
-        if let Predicate::Equals(left, right) = predicate
+        let word = if self.bound_variables.is_empty() {
+            self.word_predicates.get(predicate).cloned()
+        } else {
+            None
+        };
+        if word.is_none()
+            && let Predicate::Equals(left, right) = predicate
             && let (
                 TermKind::Injection {
                     source: sa,
@@ -997,18 +1070,127 @@ impl TranslationState {
         {
             // Licensed injections are injective. This is source injection theory, not
             // injectivity of arbitrary constructor/function UFs. Preserve model protection
-            // for the carrier that this equality no longer needs to translate.
+            // for the carrier that this equality no longer needs to translate. An injection
+            // is defined exactly where its operand is, so the inner equality's domains are
+            // the outer one's.
             self.approximate(Exactness::Approximate);
             return self.translate_predicate(&Predicate::Equals(a.clone(), b.clone()));
         }
         match predicate {
+            Predicate::Term(term) => {
+                let reading = match word {
+                    Some(value) => value,
+                    None => self.translate_term(term)?,
+                };
+                self.atom_with_domains(&[term], reading)
+            }
+            Predicate::Equals(left, right) => {
+                let reading = match word {
+                    Some(value) => value,
+                    None => SExpr::application(
+                        "=",
+                        vec![self.translate_term(left)?, self.translate_term(right)?],
+                    ),
+                };
+                self.atom_with_domains(&[left, right], reading)
+            }
+            Predicate::True
+            | Predicate::False
+            | Predicate::Ceil(_)
+            | Predicate::Floor(_)
+            | Predicate::In(..)
+            | Predicate::Not(_)
+            | Predicate::And(_)
+            | Predicate::Or(_)
+            | Predicate::Implies(..)
+            | Predicate::Iff(..)
+            | Predicate::Exists(..)
+            | Predicate::Forall(..)
+            | Predicate::Absent(_)
+            | Predicate::Defined(_) => self.translate_connective(predicate),
+        }
+    }
+
+    /// The atom whose operands are `operands` (one Boolean term, or the two sides of an
+    /// equality) and whose reading of their values is `reading`, with the operands' domains.
+    ///
+    /// A term denotes one element where it is defined and `\bottom` elsewhere; `D(t)`, the
+    /// domain reading of `\ceil(t)` (`translate_domain`), is the SMT statement of where it is
+    /// defined, and `\top` (left out) for a `ceil_free` term. Where the operands are defined
+    /// the reading is their K values' relation (the `smt-hook`s are exact there), so:
+    /// - a Boolean term `b` means `\equals(b, true)`, false where `b` is `\bottom`:
+    ///   `D(b) /\ b`;
+    /// - an equality with one side `c` defined means that the other side `a` is defined and is
+    ///   `c`'s element: `D(a) /\ a = c`;
+    /// - an equality of two possibly undefined sides holds where both denote the same element
+    ///   or both denote none, since `\bottom = \bottom` is `\top`:
+    ///   `(D(a) /\ D(b) /\ a = b) \/ (\not D(a) /\ \not D(b))`.
+    ///
+    /// Each is equivalent to the atom in K under the trusted readings, so the translation of a
+    /// predicate, under any negation or disjunction, is too, and a solver answer about it is a
+    /// K answer whatever form the simplifier left it in.
+    fn atom_with_domains(
+        &mut self,
+        operands: &[&Term],
+        reading: SExpr,
+    ) -> Result<SExpr, TranslationError> {
+        if self.atom_readings {
+            return Ok(reading);
+        }
+        let mut domains = Vec::with_capacity(operands.len());
+        for operand in operands {
+            domains.push(self.operand_domain(operand)?);
+        }
+        Ok(match domains.as_slice() {
+            [None] | [None, None] | [] => reading,
+            [Some(domain)] | [Some(domain), None] | [None, Some(domain)] => {
+                SExpr::application("and", vec![domain.clone(), reading])
+            }
+            [Some(left), Some(right)] => SExpr::application(
+                "or",
+                vec![
+                    SExpr::application("and", vec![left.clone(), right.clone(), reading]),
+                    SExpr::application(
+                        "and",
+                        vec![
+                            SExpr::application("not", vec![left.clone()]),
+                            SExpr::application("not", vec![right.clone()]),
+                        ],
+                    ),
+                ],
+            ),
+            _ => unreachable!("an atom has one or two operands"),
+        })
+    }
+
+    /// The domain of an atom's operand, `None` where it is `\top`: a `ceil_free` term owes no
+    /// obligation under any definition, so its domain is not read at all, and one whose `\ceil`
+    /// is a conjunct beside the atom is read as defined there (`stated_defined`).
+    ///
+    /// ```toml algorithm-site
+    /// id = "backend.smt.check"
+    /// role = "part"
+    /// sites = ["TranslationState::operand_domain", "TranslationState::atom_with_domains"]
+    /// ```
+    fn operand_domain(&mut self, term: &Term) -> Result<Option<SExpr>, TranslationError> {
+        if term.attributes().ceil_free() || self.stated_defined.contains(term) {
+            return Ok(None);
+        }
+        let opaque = self.opaque_domain_reads;
+        let domain = self.translate_domain(term)?;
+        if self.opaque_domain_reads > opaque {
+            k_rust_kore::measure::bump(k_rust_kore::measure::Counter::SmtOpaqueAtomDomains);
+        }
+        Ok((domain != SExpr::atom("true")).then_some(domain))
+    }
+
+    fn translate_connective(&mut self, predicate: &Predicate) -> Result<SExpr, TranslationError> {
+        match predicate {
             Predicate::True => Ok(SExpr::atom("true")),
             Predicate::False => Ok(SExpr::atom("false")),
-            Predicate::Term(term) => self.translate_term(term),
-            Predicate::Equals(left, right) => Ok(SExpr::application(
-                "=",
-                vec![self.translate_term(left)?, self.translate_term(right)?],
-            )),
+            Predicate::Term(_) | Predicate::Equals(..) => {
+                unreachable!("atoms are translated by translate_predicate_node")
+            }
             Predicate::Not(inner) => Ok(SExpr::application(
                 "not",
                 vec![self.translate_predicate(inner)?],
@@ -1096,7 +1278,13 @@ impl TranslationState {
         // Domain let bindings referring to this variable must stay inside its quantifier.
         let outside_domains = self.shared_domains.take();
         let outside_values = self.shared_terms.take();
+        // A term stated defined outside that mentions the variable is about the variable of
+        // that name outside, not the one this binds.
+        let outside_stated = self.stated_defined.clone();
+        self.stated_defined
+            .retain(|term| !term.attributes().variables.contains(variable));
         let body = self.translate_predicate(body);
+        self.stated_defined = outside_stated;
         self.shared_domains = outside_domains;
         self.shared_terms = outside_values;
         self.bound_variables.pop();
@@ -1115,13 +1303,16 @@ impl TranslationState {
         operator: &str,
         predicates: &[Predicate],
     ) -> Result<SExpr, TranslationError> {
-        Ok(SExpr::application(
-            operator,
-            predicates
-                .iter()
-                .map(|predicate| self.translate_predicate(predicate))
-                .collect::<Result<Vec<_>, _>>()?,
-        ))
+        let stated = self.stated_defined.len();
+        if operator == "and" {
+            stated_definedness(predicates, &mut self.stated_defined);
+        }
+        let result = predicates
+            .iter()
+            .map(|predicate| self.translate_predicate(predicate))
+            .collect::<Result<Vec<_>, _>>();
+        self.stated_defined.truncate(stated);
+        Ok(SExpr::application(operator, result?))
     }
 
     /// Applies the SMT operation `name` to the translated arguments. `exactness` states whether
@@ -1173,16 +1364,14 @@ impl TranslationState {
         {
             return expression;
         }
-        if let Some((_, name)) = self
-            .predicate_mappings
-            .iter()
-            .find(|(mapped, _)| mapped == predicate)
-        {
+        if let Some(name) = self.predicate_mapping_names.get(predicate) {
             return SExpr::atom(name);
         }
         let name = self.fresh_name();
         self.predicate_mappings
             .push((predicate.clone(), name.clone()));
+        self.predicate_mapping_names
+            .insert(predicate.clone(), name.clone());
         SExpr::atom(name)
     }
 
@@ -1445,6 +1634,34 @@ fn applies_power(expression: &SExpr) -> bool {
     }
 }
 
+/// Push the terms whose definedness a conjunct of `conjunction` (through nested conjunctions)
+/// states as a `\ceil` or deferred atom.
+fn stated_definedness(conjunction: &[Predicate], stated: &mut Vec<Term>) {
+    for predicate in conjunction {
+        match predicate {
+            Predicate::Ceil(term) | Predicate::Defined(term) => {
+                if !term.attributes().ceil_free() {
+                    stated.push(term.clone());
+                }
+            }
+            Predicate::And(conjuncts) => stated_definedness(conjuncts, stated),
+            Predicate::True
+            | Predicate::False
+            | Predicate::Term(_)
+            | Predicate::Equals(..)
+            | Predicate::Floor(_)
+            | Predicate::In(..)
+            | Predicate::Not(_)
+            | Predicate::Or(_)
+            | Predicate::Implies(..)
+            | Predicate::Iff(..)
+            | Predicate::Exists(..)
+            | Predicate::Forall(..)
+            | Predicate::Absent(_) => {}
+        }
+    }
+}
+
 /// `Approximate` for a symbol whose SMT operation does not denote it exactly: an `smtlib`
 /// symbol is an uninterpreted function, and a partial function is a total SMT operation that
 /// has a value where the function has none.
@@ -1490,15 +1707,18 @@ fn translate_query_in_state(
     checked: &[Predicate],
     mut translation: TranslationState,
 ) -> Result<QueryTranslation, TranslationError> {
+    // The known predicates are asserted in every query posed, and the checked ones are a
+    // conjunction: a `\ceil(t)` among the first is a conjunct of each assertion, one among
+    // the second of the checked conjunction (`TranslationState::stated_defined`).
+    stated_definedness(known, &mut translation.stated_defined);
+    // A binding `X = t` of an element variable, which is defined: the equality with `t`'s domain
+    // (`atom_with_domains`), where the pattern's instances are.
     let substitution = substitution
         .iter()
         .map(|(variable, term)| {
-            Ok(SExpr::application(
-                "=",
-                vec![
-                    translation.translate_term(&Term::variable(variable.clone()))?,
-                    translation.translate_term(term)?,
-                ],
+            translation.translate_predicate(&Predicate::Equals(
+                Term::variable(variable.clone()),
+                term.clone(),
             ))
         })
         .collect::<Result<Vec<_>, TranslationError>>()?;
@@ -1506,11 +1726,14 @@ fn translate_query_in_state(
         .iter()
         .map(|predicate| translation.translate_predicate(predicate))
         .collect::<Result<Vec<_>, _>>()?;
-    let checked = checked
-        .iter()
-        .map(|predicate| translation.translate_predicate(predicate))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut checked = SExpr::application("and", checked);
+    let checked = translation.translate_predicates("and", checked)?;
+    translation.stated_defined.clear();
+    for (head, fact) in std::mem::take(&mut translation.pending_domain_links) {
+        if translation.undecided_domain_heads.contains(&head) {
+            translation.domain_facts.push(fact);
+        }
+    }
+    let mut checked = checked;
     known.extend(translation.domain_facts.clone());
     let mut substitution = substitution;
     translation.close_single_point_domains(
@@ -1556,6 +1779,9 @@ pub struct SmtPrelude {
     smtlib_names: BTreeSet<String>,
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
+    /// The `UNIQUE_ID`s of the `smt-lemma`s the prelude leaves out because a closed formula
+    /// cannot state the domain of an operand of their `requires` (`translate_smt_lemma`).
+    dropped_lemmas: Vec<String>,
     congruence: Option<Arc<CongruencePolicy>>,
     #[cfg(any(feature = "z3", test))]
     source: Option<summary::Source>,
@@ -1613,14 +1839,20 @@ impl SmtPrelude {
                 ));
             }
         }
+        let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
+        let mut dropped_lemmas = Vec::new();
         for rule in smt_lemmas(definition) {
-            declarations.push(format!("(assert {})", translate_smt_lemma(rule)?));
+            match translate_smt_lemma(definition, congruence.clone(), rule)? {
+                Some(lemma) => declarations.push(format!("(assert {lemma})")),
+                None => dropped_lemmas.push(rule.attributes.unique_id.clone()),
+            }
         }
         Ok(Self {
             declarations,
             smtlib_names,
             user_script: false,
-            congruence: CongruencePolicy::from_definition(definition).map(Arc::new),
+            dropped_lemmas,
+            congruence,
             #[cfg(any(feature = "z3", test))]
             source: Some(summary::Source::new(definition)),
         })
@@ -1640,6 +1872,13 @@ impl SmtPrelude {
 
     pub fn declarations(&self) -> &[String] {
         &self.declarations
+    }
+
+    /// The `UNIQUE_ID`s of the definition's `smt-lemma`s the prelude leaves out: those whose
+    /// `requires` reads an operand whose domain no closed formula states (`translate_smt_lemma`).
+    /// Leaving out an axiom only weakens what the solver knows.
+    pub fn dropped_lemmas(&self) -> &[String] {
+        &self.dropped_lemmas
     }
 
     #[cfg(feature = "z3")]
@@ -1756,15 +1995,16 @@ impl SmtPrelude {
 /// A `Sat` answer for `predicates` shows a K valuation of them only when this is `Exact`
 /// (see [`Exactness`]).
 ///
-/// The partial-function approximation also affects `SmtSolver::is_sat` and
-/// `SmtSolver::check_predicates`: an `Unsat`, `Valid` or `Refuted` answer holds for the total
-/// operation, including on instances where the partial function has no value. It is sound for a
-/// predicate only when the predicate is definedness-faithful (see [`Exactness`]). The rewrite and
-/// equation condition callers make it so before deciding (`definedness::condition_definedness`
-/// and `definedness::faithful_conditions` on every `requires` and `ensures`), and so do the admission of a request's predicates
-/// (`definition::Admitted`, `definedness::request_definedness`) and the internalization of a
-/// claim's constraints (`claim::with_explicit_definedness`); docs/compatibility.md, "Solver
-/// decisions over partial operations", lists the source and predicate-reading boundaries.
+/// An `Unsat`, `Valid` or `Refuted` answer of `SmtSolver::is_sat` and
+/// `SmtSolver::check_predicates` is a K answer whatever form the predicates have: each atom is
+/// translated with its operands' domains (see [`Exactness`]), so the totalized operation is read
+/// only where its application is defined. The definedness-explicit forms the callers state
+/// before simplifying (`definedness::condition_definedness` and
+/// `definedness::faithful_conditions` on every `requires` and `ensures`, the admission of a
+/// request's predicates, `definition::Admitted` and `definedness::request_definedness`, and the
+/// internalization of a claim's constraints, `claim::with_explicit_definedness`) serve the
+/// simplifier, which may rewrite a term so that a partial subterm no longer shows; the solver
+/// does not rely on them (docs/compatibility.md, "Solver decisions over partial operations").
 /// An instantiated condition with an atom over a term-level conjunction is refused rather
 /// than decided with a totalized value.
 #[must_use]
@@ -1883,11 +2123,50 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
         .collect()
 }
 
-fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
+/// The assertion that states the `smt-lemma` `rule`, `l = r requires R`, as the closed formula
+/// `∀ vars(l). T(R) => l = r`, or `None` when no closed formula states it.
+///
+/// `T(R)` reads each atom of `R` with its operands' domains, as a query does
+/// (`atom_with_domains`): in K an atom over an undefined term does not hold, so the lemma holds
+/// only where they are defined. The domains are prepared from the definition
+/// (`functional::prepare`), so a domain a ceil equation states, or that is `\top`, is a formula
+/// over the bound variables. A domain that stays the head's domain function, an opaque
+/// `\ceil` atom or a fact beside the domain is a name of one query's translation, which a
+/// prelude cannot mention, as is a term of such a domain's condition that the translation can
+/// only abstract (a function with no SMT reading); such a lemma is left out
+/// (`SmtPrelude::dropped_lemmas`), which only weakens what the solver knows. A term of the
+/// lemma's own text with no SMT reading is the author's, and stays an error
+/// (`TranslationError::SmtLemmaSurplusMappings`). Stating `R` without the domains would assert `l = r` where
+/// `R`'s total reading holds but `R` is `\bottom`.
+fn translate_smt_lemma(
+    definition: &BackendDefinition,
+    congruence: Option<Arc<CongruencePolicy>>,
+    rule: &RewriteRule,
+) -> Result<Option<SExpr>, TranslationError> {
     let RuleRhs::Term(rhs) = &rule.rhs else {
         return Err(TranslationError::UnsupportedPredicate("ceil SMT lemma"));
     };
     let mut translation = TranslationState::new();
+    // The domain plans of `requires`' operands are those of the definition's functional heads,
+    // as in a query. The policy is set only for preparing them: the lemma's own terms are
+    // translated as before, with no congruence function of a query's translation.
+    #[cfg(any(feature = "z3", test))]
+    {
+        translation.congruence = congruence;
+        let requires = rule.requires.iter().cloned().collect::<Vec<_>>();
+        // A stop leaves the domains unprepared, so the lemma is left out below; it is raised
+        // again at the next poll.
+        let _ = functional::prepare(
+            definition,
+            &mut translation,
+            &[],
+            &Substitution::new(),
+            &requires,
+        );
+        translation.congruence = None;
+    }
+    #[cfg(not(any(feature = "z3", test)))]
+    let _ = (definition, congruence);
     let equality = SExpr::application(
         "=",
         vec![
@@ -1920,36 +2199,53 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
         ]));
     }
     if !translation.mappings.is_empty() {
-        return Err(TranslationError::SmtLemmaSurplusMappings {
-            rule_id: rule.attributes.unique_id.clone(),
-            terms: translation.mappings.into_keys().collect(),
-        });
+        // A surplus term of the lemma's own text is the author's, a lemma the prelude cannot
+        // state: an error, as before domains were read. Any other came from an operand's domain
+        // plan (a ceil equation's condition over a function the translation abstracts), a name
+        // of this translation like a domain function: the lemma is left out.
+        let written = lemma_subterms(rule, rhs);
+        if translation
+            .mappings
+            .keys()
+            .all(|term| written.contains(term))
+        {
+            return Err(TranslationError::SmtLemmaSurplusMappings {
+                rule_id: rule.attributes.unique_id.clone(),
+                terms: translation.mappings.into_keys().collect(),
+            });
+        }
+        return Ok(None);
     }
-    if !translation.predicate_mappings.is_empty() || !translation.dependent_mappings.is_empty() {
-        return Err(TranslationError::SmtLemmaSurplusPredicates {
-            rule_id: rule.attributes.unique_id.clone(),
-            predicates: translation
-                .predicate_mappings
-                .into_iter()
-                .map(|(predicate, _)| predicate)
-                .chain(
-                    translation
-                        .dependent_mappings
-                        .into_keys()
-                        .map(|(predicate, _)| predicate),
-                )
-                .collect(),
-        });
+    if !translation.predicate_mappings.is_empty()
+        || !translation.dependent_mappings.is_empty()
+        || !translation.domain_functions.is_empty()
+        || !translation.domain_facts.is_empty()
+        || !translation.pending_domain_links.is_empty()
+        || !translation.derived_definitions.is_empty()
+    {
+        return Ok(None);
     }
-    if binders.is_empty() {
-        Ok(body)
+    Ok(Some(if binders.is_empty() {
+        body
     } else {
-        Ok(SExpr::List(vec![
-            SExpr::atom("forall"),
-            SExpr::List(binders),
-            body,
-        ]))
+        SExpr::List(vec![SExpr::atom("forall"), SExpr::List(binders), body])
+    }))
+}
+
+/// Every subterm of the `smt-lemma` `rule` as written: of its left-hand side, its right-hand
+/// side `rhs` and the terms of its `requires`.
+fn lemma_subterms(rule: &RewriteRule, rhs: &Term) -> rustc_hash::FxHashSet<Term> {
+    let mut pending = vec![rule.lhs.clone(), rhs.clone()];
+    for predicate in rule.requires.iter() {
+        predicate.visit_terms(&mut |term| pending.push(term.clone()));
     }
+    let mut seen = rustc_hash::FxHashSet::default();
+    while let Some(term) = pending.pop() {
+        if seen.insert(term.clone()) {
+            pending.extend(crate::deferred::children(&term).into_iter().cloned());
+        }
+    }
+    seen
 }
 
 /// The SMT-LIB sort that stands for a K sort in a translation (`sort_denotation`).
@@ -3046,7 +3342,15 @@ mod tests {
         );
         let mut state = TranslationState::new();
         let translated = state.translate_predicate(&predicate).unwrap().to_string();
-        assert!(!translated.contains("(and"), "{translated}");
+        // The constant is the conjunction's only mapped term: neither operand is translated, so
+        // no SMT `and` of them is written. (Since GAP K15 the atom carries the conjunction's
+        // domain, `(and D (= c false))`, an SMT `and` of the domain and the equality.)
+        assert_eq!(state.mappings.len(), 1, "{translated}");
+        assert!(
+            !state.mappings.contains_key(&operand("B1"))
+                && !state.mappings.contains_key(&operand("B2")),
+            "{translated}"
+        );
         assert_eq!(state.exactness(), Exactness::Approximate);
     }
 

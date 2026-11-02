@@ -2833,6 +2833,16 @@ fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
 /// not depend on the state set. This test pins today's behaviour so that a fix (k-rust recording
 /// the contradiction, or kink deciding it) shows up here; it is a gap to close, not a guarantee.
 /// Z3-only: the `Stuck` remainder needs a solver.
+///
+/// GAP K18 (`draft/kink27/gap`, K18 C6 bcec7f4dd, the revert of fb8d4d58a's rule): the gap is
+/// not closed (no record, no exclusion), but RPD-LATER's `Trivial` leaf naming `pz` is gone, and
+/// its one leaf is the `Stuck` `p(X, h(X))` with no constraint. `pz` binds `Y` to `h(X)`, so
+/// its applicability is `⌈h(X)⌉ ∧ X = 0`; a top-level `\ceil` conjunct is now simplified under
+/// its sibling equality, to `⌈h(0)⌉`, which `h0` makes `⌈1 /Int 0⌉`, `\bottom`: `pz` applies to
+/// no instance. The leaf set means what it meant: the `Trivial` leaf's constraint
+/// `⌈h(X)⌉ ∧ X = 0` had no instance, and the `Stuck` remainder `\not(⌈h(X)⌉ ∧ X = 0)` was
+/// `\top`. At X = 0 the configuration `p(0, h(0))` is `\bottom`, so it is no state, as before;
+/// what the symbolic run no longer shows is a leaf that names a rule at that instance.
 #[cfg(feature = "z3")]
 #[test]
 fn known_gap_a_pd_claim_false_at_a_narrowed_symbolic_instance_is_not_excluded() {
@@ -2900,15 +2910,8 @@ fn known_gap_a_pd_claim_false_at_a_narrowed_symbolic_instance_is_not_excluded() 
             if module == "RPD-LATER" {
                 assert_eq!(
                     state_set,
-                    (
-                        vec![
-                            (HaltClass::Stuck, None),
-                            (HaltClass::Trivial, Some("RPD-LATER.pz".to_owned())),
-                        ],
-                        0,
-                        false,
-                        None
-                    ),
+                    // GAP K18: no `Trivial` leaf naming `pz` (its applicability is `\bottom`).
+                    (vec![(HaltClass::Stuck, None)], 0, false, None),
                     "{module}"
                 );
             } else {

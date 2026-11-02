@@ -2,24 +2,31 @@
 //!
 //! Every hook is strict: `f(t1, .., tn)` is `\bottom` wherever some `ti` is, so a hook that
 //! evaluates `f(t1, .., tn)` to `v` without inspecting a symbolic `ti` (`t ==Int t`,
-//! `true orBool b`, `true orElseBool b`, `#if true #then a #else b #fi`) must return
+//! `t <=Int t`, `true orBool b`, `true orElseBool b`, `#if true #then a #else b #fi`) must return
 //! `\ceil(t1) /\ .. /\ \ceil(tn) /\ v`. With `10 /Int X` as such an argument, every leaf a rule
 //! reaches from a symbolic `X` must imply `X =/=Int 0`, which is what ground execution on `0`
 //! shows: the rule does not apply (Stuck) or its successor is empty (Trivial).
 //!
 //! A rule or equation condition holds on an instance only where its terms are defined, so the
 //! same holds for a condition that no hook shortcuts but a solver decides (`10 /Int A <=Int
-//! 10 /Int A`, which a solver that gives `/Int` a value at `0` finds valid) and for a condition
-//! the predicate simplifier splits into a disjunction (`a orBool b` into `a \/ b`).
+//! 10 /Int A +Int 1`, which a solver that gives `/Int` a value at `0` finds valid) and for a
+//! condition the predicate simplifier splits into a disjunction (`a orBool b` into `a \/ b`).
+//! The solver reads each atom with its operands' domains, so a leaf of such a condition may state
+//! `X =/=Int 0` through the atom itself ([`states_defined`]).
 
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, HaltReasonOutput,
-        ResultModalityOutput,
+        ImplicationRequest, ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{
+        ast::{Pattern as KorePattern, VariableKind},
+        codec,
+        parser::parse_pattern,
+        printer::Printer,
+    },
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
@@ -53,6 +60,9 @@ const SOURCE: &str = r#"module DEFPROBE-SYNTAX
               | gnd(Int)    [symbol(gnd)]
               | val(Int)    [symbol(val)]
               | flag(Bool)  [symbol(flag)]
+              | ltp(Int)    [symbol(ltp)]
+              | nlt(Int)    [symbol(nlt)]
+              | ltf(Int)    [symbol(ltf)]
   syntax Prog ::= "halt" [symbol(halt)]
                 | seq(Op, Prog) [symbol(seq)]
   syntax Int ::= f(Int) [function, symbol(f)]
@@ -84,6 +94,9 @@ module DEFPROBE
   rule [eqf]:     seq(eqf(A), P) => seq(val(f(A)), P)
   rule [eqfk]:    seq(eqfk(A), P) => seq(val(f(A)), P) requires A =/=Int 0
   rule [gnd]:     seq(gnd(_), P) => P requires f(0) <=Int f(0)
+  rule [ltp]:     seq(ltp(A), P) => P requires 10 /Int A <=Int 10 /Int A +Int 1
+  rule [nlt]:     seq(nlt(A), P) => P requires notBool (10 /Int A <Int 10 /Int A)
+  rule [ltf]:     seq(ltf(A), P) => P requires 10 /Int A <Int 10 /Int A
   rule f(X) => 1 requires 10 /Int X <=Int 10 /Int X [simplification]
 endmodule
 "#;
@@ -196,6 +209,101 @@ fn op(name: &str, argument: &str) -> String {
     seq(&format!("Lbl{name}{{}}({argument})"))
 }
 
+/// Whether the printed leaf `text` implies `\ceil(subterm)` through one of its top-level
+/// conjuncts: `guard`, the definedness as a leaf states it, or an equality one of whose sides is
+/// a domain value or an element variable and whose other side is a term (symbol applications
+/// over element variables and domain values) that holds `subterm`. An application is
+/// `\bottom` wherever one of its arguments is, so such a term is `\bottom` wherever `subterm`
+/// is, and an equality of a defined side with `\bottom` is false: the equality implies
+/// `\ceil(subterm)`.
+fn states_defined(text: &str, guard: &str, subterm: &str) -> bool {
+    fn conjuncts<'p>(pattern: &'p KorePattern, found: &mut Vec<&'p KorePattern>) {
+        if let KorePattern::And { arguments, .. } = pattern {
+            for argument in arguments {
+                conjuncts(argument, found);
+            }
+        } else {
+            found.push(pattern);
+        }
+    }
+    fn defined(pattern: &KorePattern) -> bool {
+        match pattern {
+            KorePattern::DomainValue { .. } => true,
+            KorePattern::Variable(variable) => variable.kind == VariableKind::Element,
+            _ => false,
+        }
+    }
+    fn term(pattern: &KorePattern) -> bool {
+        match pattern {
+            KorePattern::Application { arguments, .. }
+            | KorePattern::AssociativeApplication { arguments, .. } => arguments.iter().all(term),
+            _ => defined(pattern),
+        }
+    }
+    let printer = Printer::compact();
+    let leaf = parse_pattern(text).unwrap();
+    let mut found = Vec::new();
+    conjuncts(&leaf, &mut found);
+    found.into_iter().any(|conjunct| match conjunct {
+        KorePattern::Equals { left, right, .. } => {
+            [(left, right), (right, left)]
+                .into_iter()
+                .any(|(side, other)| {
+                    defined(side) && term(other) && printer.print_pattern(other).contains(subterm)
+                })
+        }
+        _ => printer.print_pattern(conjunct) == guard,
+    })
+}
+
+/// Whether `leaf` implies `X =/=Int 0` ([`states_defined`] of `10 /Int X`).
+fn implies_nonzero(leaf: &Leaf) -> bool {
+    states_defined(&leaf.text, X_NONZERO, &div(X))
+}
+
+/// Whether the solver refutes `leaf` at `X = 0`: `implies(leaf /\ X = 0, \bottom)` is valid.
+fn refuted_at_zero(backend: &mut Backend, leaf: &Leaf) -> bool {
+    let antecedent = format!("\\and{{SortGeneratedTopCell{{}}}}({}, {X_ZERO})", leaf.text);
+    backend
+        .implies(ImplicationRequest::new(
+            parse_pattern(&antecedent).unwrap(),
+            parse_pattern("\\bottom{SortGeneratedTopCell{}}()").unwrap(),
+        ))
+        .unwrap()
+        .status
+        == "valid"
+}
+
+/// Whether one of the top-level conjuncts of the printed leaf `text` is printed as `conjunct`.
+fn has_top_conjunct(text: &str, conjunct: &str) -> bool {
+    fn conjuncts<'p>(pattern: &'p KorePattern, found: &mut Vec<&'p KorePattern>) {
+        if let KorePattern::And { arguments, .. } = pattern {
+            for argument in arguments {
+                conjuncts(argument, found);
+            }
+        } else {
+            found.push(pattern);
+        }
+    }
+    let leaf = parse_pattern(text).unwrap();
+    let mut found = Vec::new();
+    conjuncts(&leaf, &mut found);
+    let printer = Printer::compact();
+    found
+        .into_iter()
+        .any(|found| printer.print_pattern(found) == conjunct)
+}
+
+/// Whether `leaf` is the remainder of a split on `X =/=Int 0` that admits `X = 0`: it negates an
+/// applicability whose first conjunct is `X =/=Int 0`, or, where the condition simplified to
+/// `X =/=Int 0` itself (a hook shortcut), it states `X = 0`.
+fn admits_zero(leaf: &Leaf) -> bool {
+    let negated = format!(
+        "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
+    );
+    leaf.text.contains(&negated) || has_top_conjunct(&leaf.text, X_ZERO)
+}
+
 /// Why `leaves` fail the contract, if they do: every leaf past the rule's step implies
 /// `X =/=Int 0`, and the rule either steps or halts Indeterminate.
 fn nonzero_violation(case: &str, leaves: &[Leaf]) -> Option<String> {
@@ -295,11 +403,14 @@ fn a_solver_splits_a_requires_hook_shortcut_like_the_ground_run() {
     assert_no_violation(&violations);
 }
 
-/// Operations whose condition relies on the definedness of `10 /Int A` without a hook
-/// shortcut: a solver decides it, or the simplifier splits it into a disjunction.
-const CONDITIONS: [&str; 4] = ["lt", "orx", "andx", "enslt"];
+/// Operations whose condition relies on the definedness of `10 /Int A`: `lt`, `enslt` and `nlt`
+/// compare it with itself (`<=Int`, which the hook decides to `true` where it is defined, and
+/// `<Int`, to `false`, so `notBool` of it is `true` there: each step states `X =/=Int 0`), and the
+/// simplifier splits the conditions of `orx` and `andx` into a disjunction. `ltp`'s condition
+/// only a solver decides (`a_condition_only_a_solver_decides_keeps_the_definedness_of_its_terms`).
+const CONDITIONS: [&str; 5] = ["lt", "orx", "andx", "enslt", "nlt"];
 /// Of those, the ones whose `requires` excludes `A = 0`.
-const CONDITION_REQUIRES: [&str; 3] = ["lt", "orx", "andx"];
+const CONDITION_REQUIRES: [&str; 4] = ["lt", "orx", "andx", "nlt"];
 
 #[test]
 fn a_condition_keeps_the_definedness_of_its_terms() {
@@ -326,15 +437,8 @@ fn a_solver_splits_a_partial_requires_like_the_ground_run() {
     let mut violations = Vec::new();
     for name in CONDITION_REQUIRES {
         let leaves = execute(&mut backend, &op(name, X), false);
-        // The remainder negates an applicability whose first conjunct is `X =/=Int 0`, so
-        // `X = 0` satisfies it.
-        let remainder = format!(
-            "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
-        );
         let stuck_at_zero = leaves.iter().any(|leaf| {
-            leaf.depth == 0
-                && leaf.reason == HaltReasonOutput::Stuck
-                && leaf.text.contains(&remainder)
+            leaf.depth == 0 && leaf.reason == HaltReasonOutput::Stuck && admits_zero(leaf)
         });
         let stepped = leaves
             .iter()
@@ -347,6 +451,70 @@ fn a_solver_splits_a_partial_requires_like_the_ground_run() {
         }
     }
     assert_no_violation(&violations);
+}
+
+/// `ltp`'s `requires 10 /Int A <=Int 10 /Int A +Int 1` holds wherever it is defined, and no hook
+/// decides it (its operands differ): a solver does. A solver that gave `/Int` a value at `0`
+/// would find it valid. Every leaf past the step implies `X =/=Int 0` ([`implies_nonzero`]: the
+/// solver reads the atom with its operands' domains, so the leaf may state it through the atom)
+/// and is refuted at `X = 0`, and the remainder admits `X = 0`, which ground execution on `0`
+/// shows Stuck. Without a solver the step is Indeterminate.
+#[test]
+fn a_condition_only_a_solver_decides_keeps_the_definedness_of_its_terms() {
+    let mut backend = backend();
+    for assume in [false, true] {
+        let leaves = execute(&mut backend, &op("ltp", X), assume);
+        assert!(
+            leaves
+                .iter()
+                .all(|leaf| leaf.depth == 0 || implies_nonzero(leaf))
+                && (leaves.iter().any(|leaf| leaf.depth > 0)
+                    || leaves
+                        .iter()
+                        .all(|leaf| leaf.reason == HaltReasonOutput::Indeterminate)),
+            "ltp(X) assume={assume}: a leaf past the step does not imply X =/=Int 0, or neither \
+             a step nor an Indeterminate halt: {leaves:#?}"
+        );
+        if backend.capabilities().smt {
+            assert!(
+                leaves.iter().any(|leaf| leaf.depth == 1)
+                    && leaves.iter().all(|leaf| leaf.depth == 0
+                        || (implies_nonzero(leaf) && refuted_at_zero(&mut backend, leaf)))
+                    && leaves.iter().any(|leaf| leaf.depth == 0
+                        && leaf.reason == HaltReasonOutput::Stuck
+                        && admits_zero(leaf)),
+                "ltp(X) assume={assume}: expected a Stuck remainder admitting X = 0 and a step \
+                 refuted at X = 0: {leaves:#?}"
+            );
+        }
+    }
+    let ground = execute(&mut backend, &op("ltp", ZERO), false);
+    assert!(
+        matches!(ground.as_slice(), [leaf] if leaf.depth == 0
+            && leaf.reason == HaltReasonOutput::Stuck),
+        "ltp(0): expected one Stuck leaf at depth 0: {ground:#?}"
+    );
+}
+
+/// `ltf`'s `requires 10 /Int A <Int 10 /Int A` is `false` wherever the quotient is defined and
+/// `\bottom` elsewhere, so `true = (10 /Int A <Int 10 /Int A)` holds on no instance: the rule
+/// never applies, in either solver profile, and the run is the initial state, Stuck, with no
+/// constraint.
+#[test]
+fn a_strict_comparison_of_a_term_with_itself_never_holds() {
+    let mut backend = backend();
+    for argument in [X, ZERO] {
+        for assume in [false, true] {
+            let leaves = execute(&mut backend, &op("ltf", argument), assume);
+            assert!(
+                matches!(leaves.as_slice(), [leaf] if leaf.depth == 0
+                    && leaf.reason == HaltReasonOutput::Stuck
+                    && !leaf.text.contains("\\and")),
+                "ltf({argument}) assume={assume}: expected one unconstrained Stuck leaf at depth \
+                 0: {leaves:#?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -499,13 +667,10 @@ endmodule
             return;
         }
         let leaves = execute(&mut backend, &op("letlt", X), false);
-        let remainder = format!(
-            "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
-        );
         assert!(
             leaves.iter().any(|leaf| leaf.depth == 0
                 && leaf.reason == HaltReasonOutput::Stuck
-                && leaf.text.contains(&remainder))
+                && admits_zero(leaf))
                 && leaves
                     .iter()
                     .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO)),
@@ -1330,6 +1495,34 @@ endmodule
         let mut found = Vec::new();
         visit(state, guard, false, true, &mut found);
         found
+    }
+
+    /// With `assume_state_defined: true` the subject `sti(X /Int Y)` is assumed defined, so
+    /// `Y =/=Int 0` holds on every instance, and on each of them `X /Int Y >Int 5` or
+    /// `X /Int Y <=Int 5` holds: the `owise` rule `sti-c` applies to none. The conditions of
+    /// `sti-a` and `sti-b` are decided knowing the assumption, and so is the remainder they leave
+    /// to `sti-c`; without it, `\not(true = X /Int Y >Int 5) /\ \not(true = X /Int Y <=Int 5)`
+    /// is satisfiable at `Y = 0` alone, where the subject is `\bottom`. Without the assumption
+    /// the run states `Y =/=Int 0` itself and the same two leaves remain.
+    #[test]
+    fn an_owise_rule_takes_no_instance_the_assumed_definedness_excludes() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let program = top(&format!("Lblsti{{}}({})", quotient()));
+        for assume in [false, true] {
+            let reached = routes(&mut backend, &program, assume)
+                .into_iter()
+                .map(|(route, state)| (route.depth, print(&state)))
+                .collect::<Vec<_>>();
+            assert!(
+                reached.len() == 2
+                    && reached.iter().all(|(depth, state)| *depth == 1
+                        && (state.contains("Lbla{}()") || state.contains("Lblb{}()"))),
+                "sti(X /Int Y) assume={assume}: expected the a and b leaves only: {reached:#?}"
+            );
+        }
     }
 
     /// The leaf contract (docs/backend-port.md, `ExecutionLeaf`): the constraints of every leaf

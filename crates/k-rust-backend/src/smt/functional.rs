@@ -7,6 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use super::{SExpr, TranslationError, TranslationState};
 use crate::{
     rule::Predicate,
@@ -15,8 +17,10 @@ use crate::{
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SharedDomains {
-    values: BTreeMap<Term, SExpr>,
-    active: BTreeSet<Term>,
+    /// The domain of each node read in this scope: one name per node, however many parents
+    /// and atoms share it. Keyed by the term's stored hash, with a pointer comparison first.
+    values: FxHashMap<Term, SExpr>,
+    active: FxHashSet<Term>,
     reentrant: BTreeMap<Term, SExpr>,
     pub(super) bindings: Vec<(String, SExpr)>,
 }
@@ -226,7 +230,20 @@ impl TranslationState {
         result
     }
 
+    /// The domain of `term`: the SMT statement of `\ceil(term)`, memoized per node in the
+    /// predicate's domain scope. A domain is exact in both polarities, so its own atoms carry
+    /// their domains even inside a predicate read as a reading alone
+    /// (`TranslationState::translate_predicate_reading`).
     pub(super) fn translate_domain(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        let outside = std::mem::replace(&mut self.atom_readings, false);
+        let outside_defined = std::mem::take(&mut self.stated_defined);
+        let result = self.translate_domain_node(term);
+        self.atom_readings = outside;
+        self.stated_defined = outside_defined;
+        result
+    }
+
+    fn translate_domain_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         if self.congruence.is_some() && term.attributes().ceil_free() {
             // Eliminating a domain must not turn an uninterpreted input carrier into
             // an exact model query merely because its variable no longer needs a value.
@@ -249,6 +266,7 @@ impl TranslationState {
         let observation = self.observations.get(term).cloned();
         let supplies_value = observation.is_some() || self.observation_demands.contains_key(term);
         if plan.is_none() && summary.is_none() && observation.is_none() {
+            self.opaque_domain_reads += 1;
             return Ok(self.abstract_predicate(&original));
         }
         let scope = self
@@ -263,6 +281,7 @@ impl TranslationState {
         // graph remains conservative rather than acquiring an invented total domain.
         let reentrant = scope.active.contains(term);
         if scope.active.len() >= 128 || reentrant {
+            self.opaque_domain_reads += 1;
             let reference = self.abstract_predicate(&original);
             if reentrant {
                 self.shared_domains
@@ -276,6 +295,16 @@ impl TranslationState {
         scope.active.insert(term.clone());
         let resolved = summary.is_none()
             && (observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original)));
+        // The domain is the head's own condition conjoined with every non-`ceil_free` child's
+        // domain (`domain_plan`, `observation_domain`), so within that condition a child may be
+        // read as defined: `φ /\ D(c)` is `φ[D(c) := true] /\ D(c)`. An atom over a child there
+        // then states no second copy of the child's domain, which inside a quantifier of the
+        // condition (a sort projection's `\exists V. X = inj(V)`) would be a copy per binder
+        // scope (`TranslationState::stated_defined`).
+        self.stated_defined = crate::deferred::children(term)
+            .into_iter()
+            .cloned()
+            .collect();
         let result = (|| {
             #[cfg(any(feature = "z3", test))]
             if let Some(reading) = summary {
@@ -288,7 +317,12 @@ impl TranslationState {
                 let mut parts = Vec::new();
                 for predicate in plan.iter() {
                     if *predicate == original {
-                        parts.push(self.translate_domain_head(term)?);
+                        self.opaque_domain_reads += 1;
+                        let head = self.translate_domain_head(term)?;
+                        if let Some(name) = domain_function_name(&head) {
+                            self.undecided_domain_heads.insert(name);
+                        }
+                        parts.push(head);
                     } else {
                         parts.push(self.translate_predicate(predicate)?);
                     }
@@ -301,6 +335,7 @@ impl TranslationState {
             };
             Ok(value)
         })();
+        self.stated_defined.clear();
         let scope = self.shared_domains.as_mut().expect("active domain scope");
         scope.active.remove(term);
         let value = result?;
@@ -357,10 +392,27 @@ impl TranslationState {
                     } else {
                         SExpr::application("and", argument_domains)
                     },
-                    SExpr::application("=", vec![head, reference.clone()]),
+                    SExpr::application("=", vec![head.clone(), reference.clone()]),
                 ],
             );
-            self.record_source_fact(fact)?;
+            let fact = self.close_source_fact(fact)?;
+            match domain_function_name(&head) {
+                Some(name) => self.pending_domain_links.push((name, fact)),
+                None => self.domain_facts.push(fact),
+            }
+        }
+        // The conditional ceil equations at the application, facts beside its domain function
+        // (`domain_lemmas`). Each reads the completed domain through the memo.
+        if let Some(lemmas) = self.domain_lemmas.get(term).cloned()
+            && self.domain_lemma_seen.insert((
+                term.clone(),
+                self.source_scope(&term.attributes().variables.to_btree_set()),
+            ))
+        {
+            for lemma in lemmas.iter() {
+                let fact = self.translate_predicate(lemma)?;
+                self.record_source_fact(fact)?;
+            }
         }
         // A demanded observation domain also demands its guarded value equation. For
         // example a ceil(get(put(...),q)) must transport its value through an opaque alias.
@@ -440,6 +492,18 @@ impl TranslationState {
     }
 }
 
+/// The name of the domain function a head-domain reading applies (`translate_domain_head`).
+fn domain_function_name(head: &SExpr) -> Option<String> {
+    match head {
+        SExpr::Atom(name) if name.starts_with("SMT-") => Some(name.clone()),
+        SExpr::List(items) => match items.first() {
+            Some(SExpr::Atom(name)) if name.starts_with("SMT-") => Some(name.clone()),
+            _ => None,
+        },
+        SExpr::Atom(_) => None,
+    }
+}
+
 /// Derive source predicates before translation, with no query names or caller facts in them.
 /// An unsupported operand or exhausted construction budget keeps its previous opaque reading.
 #[cfg(any(feature = "z3", test))]
@@ -466,7 +530,7 @@ pub(super) fn prepare(
     let mut candidates = Vec::new();
     // Substituted terms can contribute domains reached from a checked partial application.
     candidates.extend(substitution.values().cloned());
-    let mut seen = BTreeSet::new();
+    let mut seen = FxHashSet::default();
     while !predicates.is_empty() || !candidates.is_empty() {
         stop::check()?;
         if remaining == 0 {
@@ -476,6 +540,15 @@ pub(super) fn prepare(
         if let Some(predicate) = predicates.pop() {
             match predicate {
                 Predicate::Ceil(term) | Predicate::Defined(term) => candidates.push(term),
+                // An atom's operands: the translation states their domains beside it.
+                Predicate::Term(term) if !term.attributes().ceil_free() => candidates.push(term),
+                Predicate::Equals(left, right) => {
+                    for side in [left, right] {
+                        if !side.attributes().ceil_free() {
+                            candidates.push(side);
+                        }
+                    }
+                }
                 Predicate::Not(p) | Predicate::Exists(_, p) | Predicate::Forall(_, p) => {
                     predicates.push((*p).clone());
                 }
@@ -491,7 +564,6 @@ pub(super) fn prepare(
                 Predicate::True
                 | Predicate::False
                 | Predicate::Term(_)
-                | Predicate::Equals(..)
                 | Predicate::Floor(_)
                 | Predicate::In(..)
                 | Predicate::Absent(_) => {}
@@ -513,6 +585,9 @@ pub(super) fn prepare(
                 .filter(|p| **p != Predicate::Ceil(term.clone()))
                 .cloned(),
         );
+        if let Some(lemmas) = state.domain_lemmas.get(&term) {
+            predicates.extend(lemmas.iter().cloned());
+        }
     }
     Ok(())
 }
@@ -538,7 +613,7 @@ pub(super) fn domain_plan(
     term: &Term,
     remaining: &mut usize,
 ) -> crate::stop::Stoppable<Option<std::sync::Arc<[Predicate]>>> {
-    use crate::definedness::{apply_ceil_equation, request_definedness};
+    use crate::definedness::apply_ceil_equation;
     crate::stop::check()?;
     if let Some(plan) = state.domains.get(term) {
         return Ok(Some(plan.clone()));
@@ -549,39 +624,63 @@ pub(super) fn domain_plan(
     // The ceil conditions are read as stated: the reading applies no equation to the query's
     // terms, whose evaluation, as of an operand a conditional discards, need not end
     // (`crate::definedness::with_stated_ceil_conditions`).
-    let plan = crate::definedness::with_stated_ceil_conditions(|| match term.kind() {
-        TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => Some(
-            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
-                match apply_ceil_equation(definition, term) {
-                    Some(conditions) if admit_conditions(state, &conditions, remaining) => {
-                        request_definedness(definition, conditions)
-                            .unwrap_or_else(|_| vec![Predicate::Ceil(term.clone())])
-                    }
-                    Some(_) | None => vec![Predicate::Ceil(term.clone())],
+    let plan = crate::definedness::with_stated_ceil_conditions(
+        || -> crate::stop::Stoppable<Option<Vec<Predicate>>> {
+            Ok(match term.kind() {
+                TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => {
+                    Some(
+                        if symbol.attributes.symbol_type
+                            == SymbolType::Function(FunctionType::Partial)
+                        {
+                            match apply_ceil_equation(definition, term) {
+                                // The condition as stated: the translation reads each of its
+                                // atoms with its operands' domains, so it needs no
+                                // definedness-explicit form, whose conversion walks the shared
+                                // argument terms as trees.
+                                Some(conditions)
+                                    if admit_conditions(state, &conditions, remaining) =>
+                                {
+                                    conditions
+                                }
+                                Some(_) => vec![Predicate::Ceil(term.clone())],
+                                // No ceil theory states it: the hook's own reading, which the
+                                // simplifier reads at the same place (`builtin::hook_domain`).
+                                None => match crate::builtin::hook_domain(definition, term)? {
+                                    Some(true) => Vec::new(),
+                                    Some(false) => vec![Predicate::False],
+                                    None => {
+                                        domain_lemmas(definition, state, term, remaining);
+                                        vec![Predicate::Ceil(term.clone())]
+                                    }
+                                },
+                            }
+                        } else {
+                            Vec::new()
+                        },
+                    )
                 }
-            } else {
-                Vec::new()
-            },
-        ),
-        TermKind::Variable(_) | TermKind::DomainValue { .. } | TermKind::Injection { .. } => {
-            Some(Vec::new())
-        }
-        TermKind::Map { entries, .. }
-            if definition.map_operations(&term.sort()).is_some()
-                && entries.len().saturating_mul(entries.len()) <= *remaining =>
-        {
-            let conditions = crate::definedness::collection_head_domain(definition, term).ok()?;
-            admit_conditions(state, &conditions, remaining).then_some(conditions)
-        }
-        TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
-            Some(Vec::new())
-        }
-        TermKind::Application { .. }
-        | TermKind::Map { .. }
-        | TermKind::List { .. }
-        | TermKind::Set { .. }
-        | TermKind::And(..) => None,
-    });
+                TermKind::Variable(_)
+                | TermKind::DomainValue { .. }
+                | TermKind::Injection { .. } => Some(Vec::new()),
+                TermKind::Map { entries, .. }
+                    if definition.map_operations(&term.sort()).is_some()
+                        && entries.len().saturating_mul(entries.len()) <= *remaining =>
+                {
+                    crate::definedness::collection_head_domain(definition, term)
+                        .ok()
+                        .filter(|conditions| admit_conditions(state, conditions, remaining))
+                }
+                TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
+                    Some(Vec::new())
+                }
+                TermKind::Application { .. }
+                | TermKind::Map { .. }
+                | TermKind::List { .. }
+                | TermKind::Set { .. }
+                | TermKind::And(..) => None,
+            })
+        },
+    )?;
     let Some(mut plan) = plan else {
         return Ok(None);
     };
@@ -604,8 +703,80 @@ pub(super) fn domain_plan(
     Ok(Some(plan))
 }
 
-/// Bound the tree work of canonical condition conversion before asking it to traverse a
-/// shared value DAG. Opaque domain atoms need no value walk; value atoms must be pure.
+/// Record, for the partial application `term` whose domain stays its head's domain function,
+/// the instances of its conditional ceil equations as facts (`TranslationState::domain_lemmas`):
+/// `A => (\ceil(term) <=> q)` for each instance `\ceil(term) = q requires R`, where `A` is `R`
+/// with the definedness of the terms the instance binds and of `term`'s arguments
+/// (`definedness::conditional_ceil_lemmas`). The equation's variables range over elements, so
+/// each is an instance of an axiom of the definition where `A` holds, and it holds in every model
+/// in which the domain function is the application's definedness; the domain itself stays exact.
+/// Without the definedness in `A`, the fact would force the domain of a bound term that `R` does
+/// not mention wherever `q` holds. Their predicates are stated as written, as a plan's conditions are, since
+/// the translation reads each atom with its operands' domains, and admitted under the same
+/// bound; an instance that is not is left out, which only weakens what the query knows.
+#[cfg(any(feature = "z3", test))]
+fn domain_lemmas(
+    definition: &crate::definition::BackendDefinition,
+    state: &mut TranslationState,
+    term: &Term,
+    remaining: &mut usize,
+) {
+    let mut lemmas = Vec::new();
+    for (requires, condition) in crate::definedness::conditional_ceil_lemmas(definition, term) {
+        if !admit_conditions(state, &requires, remaining)
+            || !admit_conditions(state, &condition, remaining)
+        {
+            continue;
+        }
+        let conjunction = |mut predicates: Vec<Predicate>| match predicates.len() {
+            0 => Predicate::True,
+            1 => predicates.pop().expect("one predicate"),
+            _ => Predicate::And(predicates.into()),
+        };
+        lemmas.push(Predicate::Implies(
+            std::sync::Arc::new(conjunction(requires)),
+            std::sync::Arc::new(Predicate::Iff(
+                std::sync::Arc::new(Predicate::Ceil(term.clone())),
+                std::sync::Arc::new(conjunction(condition)),
+            )),
+        ));
+    }
+    if !lemmas.is_empty() {
+        state.domain_lemmas.insert(term.clone(), lemmas.into());
+    }
+}
+
+/// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
+/// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
+/// atom reads a term-level `\and`, whose definedness is more than its operands' (the
+/// translation refuses a non-Boolean one). One unit of `remaining` per predicate node and term
+/// read; the terms are not walked as trees.
+/// Whether `term` holds a term-level `\and`. Each distinct node is read once per query: the
+/// nodes of a walk that found none are recorded (`TranslationState::conjunction_free`), and one
+/// unit of `remaining` is charged per node read; `true` when the budget runs out, which refuses
+/// the plan.
+#[cfg(any(feature = "z3", test))]
+fn holds_term_conjunction(
+    state: &mut TranslationState,
+    term: &Term,
+    remaining: &mut usize,
+) -> bool {
+    let mut seen = FxHashSet::default();
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if state.conjunction_free.contains(term) || !seen.insert(term.clone()) {
+            continue;
+        }
+        if *remaining == 0 || matches!(term.kind(), TermKind::And(..)) {
+            return true;
+        }
+        *remaining -= 1;
+        pending.extend(crate::deferred::children(term));
+    }
+    state.conjunction_free.extend(seen);
+    false
+}
+
 #[cfg(any(feature = "z3", test))]
 fn admit_conditions(
     state: &mut TranslationState,
@@ -630,14 +801,9 @@ fn admit_conditions(
         *remaining -= 1;
         match node {
             Pending::Term(term) => {
-                if !state.eligible_operand(term) {
+                if !state.eligible_operand(term) || holds_term_conjunction(state, term, remaining) {
                     return false;
                 }
-                let children = crate::deferred::children(term);
-                if children.len() > *remaining {
-                    return false;
-                }
-                pending.extend(children.into_iter().map(Pending::Term));
             }
             Pending::Predicate(predicate) => match predicate {
                 Predicate::Term(t) => pending.push(Pending::Term(t)),

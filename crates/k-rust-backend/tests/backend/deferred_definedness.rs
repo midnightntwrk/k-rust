@@ -478,6 +478,24 @@ fn a_request_whose_definedness_depends_on_an_impure_application_is_refused() {
         ),
         "{refused:?}"
     );
+    // GAP K18: a binding `Y = t` states `t`'s definedness itself, so none is hoisted beside it,
+    // but one whose definedness depends on the impure application is refused all the same.
+    let binding = parse_pattern(
+        r#"\and{SortState{}}(hold{}(X:SortInt{}), \equals{SortInt{}, SortState{}}(Y:SortInt{}, ite{}(eqInt{}(X:SortInt{}, \dv{SortInt{}}("0")), \dv{SortInt{}}("1"), tdiv{}(\dv{SortInt{}}("1"), imp{}()))))"#,
+    )
+    .unwrap();
+    let refused = definition
+        .admit_unverified(&binding, &[])
+        .internalize_pattern();
+    assert!(
+        matches!(
+            refused,
+            Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::Impure { .. }
+            ))
+        ),
+        "{refused:?}"
+    );
     let pure = request(r#"two{}(\dv{SortInt{}}("1"))"#);
     let admitted = definition
         .admit_unverified(&pure, &[])

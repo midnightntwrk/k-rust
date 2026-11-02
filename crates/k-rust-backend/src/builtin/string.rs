@@ -70,6 +70,16 @@ fn compare(
     comparison: impl FnOnce(&[u8], &[u8]) -> bool,
 ) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
+    // A term compared with itself: each comparison is reflexive (`==String`, `<=String`,
+    // `>=String`) or irreflexive (`=/=String`, `<String`, `>String`) on every string, so its value
+    // is the one it has on any string equal to itself, such as the empty one, wherever the term is
+    // defined. The application is strict; the caller states the argument's definedness
+    // (`simplify::hook_argument_definedness`). A domain value is read below instead: a payload
+    // that is not UTF-8 is no `String` value, so no comparison of it is evaluated.
+    if arguments[0] == arguments[1] && !matches!(arguments[0].kind(), TermKind::DomainValue { .. })
+    {
+        return Ok(BuiltinResult::Value(bool_term(comparison(&[], &[]))));
+    }
     let Some((left, right)) = read_string(&arguments[0]).zip(read_string(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
     };

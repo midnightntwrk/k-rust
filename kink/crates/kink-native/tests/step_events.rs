@@ -1042,6 +1042,13 @@ mod kink_tier {
     /// `/Int` does not translate exactly). `same`'s applied path (condition Y =/=Int 0) refutes
     /// Y = 0 and decides Y = 1. Without Z3 each run is one Indeterminate leaf at the initial state:
     /// no step, no event, and no Unsat (the path is `SolverUnknown`, so no query is decided).
+    ///
+    /// GAP K31 (`draft/kink27/gap`): k-rust's builtin hook decides a comparison of a term with
+    /// itself to its value at equal operands under the term's definedness, so `same`'s condition
+    /// `X /Int Y <=Int X /Int Y` is `Y =/=Int 0` and its owise path's condition is `Y = 0`, which
+    /// is exactly its set of K instances. That path is now decided: every event on it is
+    /// `Certain` (the path has only the instances `Y = 0`), the instance `Y = 0` is `Sat` and
+    /// `Y = 1` is `Unsat`. `pos`'s rows are unchanged.
     #[test]
     #[ignore = "kink"]
     fn audit_so_partial_condition_events_are_never_refuted() {
@@ -1134,6 +1141,16 @@ mod kink_tier {
                     Unknown,
                 );
                 let expected = if head == "Lblsame" {
+                    // GAP K31: the owise path's condition is `Y = 0` itself (see above).
+                    let owise = (
+                        vec![
+                            ("toOther".to_owned(), EventPresence::Certain),
+                            ("tick".to_owned(), EventPresence::Certain),
+                            ("doneZero".to_owned(), EventPresence::Certain),
+                        ],
+                        Sat,
+                        Unsat,
+                    );
                     vec![(Vec::new(), Unsat, Sat), owise]
                 } else {
                     vec![(Vec::new(), Unknown, Unknown), owise]
