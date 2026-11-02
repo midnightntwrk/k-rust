@@ -1204,15 +1204,6 @@ fn render_reference_term_type(
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))
         }
-        krs_ir::DescriptorSortRef::Declared(id)
-            if id.package() == package.package && id.module_path() == module_path =>
-        {
-            if is_token_sort(id, bundle) || is_list_sort(id, bundle) {
-                return render_reference_token_term_type(id, package);
-            }
-            let marker = rust_ident(&format!("{}Sort", id.item_name()))?;
-            Ok(quote!(k::Term<dyn #marker>))
-        }
         // A framework sort's marker is the facade's `k::KItemSort` or `k::KResultSort`.
         krs_ir::DescriptorSortRef::Declared(id)
             if id.package().k_namespace() == crate::partition::FRAMEWORK_NAMESPACE =>
@@ -1220,9 +1211,19 @@ fn render_reference_term_type(
             let marker = rust_ident(&format!("{}Sort", id.item_name()))?;
             Ok(quote!(k::Term<dyn k::#marker>))
         }
-        krs_ir::DescriptorSortRef::Declared(id) => Err(
-            ReferenceExpansionError::ExternalReferenceSort(Box::new(id.clone())),
-        ),
+        // A sort of the printed module by its marker's name; one of another module or package
+        // by the marker's path, as a turbofish marker prints it ([`render_sort_marker`]).
+        krs_ir::DescriptorSortRef::Declared(id) => {
+            if is_token_sort(id, bundle) || is_list_sort(id, bundle) {
+                return render_reference_token_term_type(id, package);
+            }
+            let marker = rust_ident(&format!("{}Sort", id.item_name()))?;
+            if id.package() == package.package && id.module_path() == module_path {
+                return Ok(quote!(k::Term<dyn #marker>));
+            }
+            let path = render_local_path(id, package, &[marker])?;
+            Ok(quote!(k::Term<dyn #path>))
+        }
         krs_ir::DescriptorSortRef::Cell(id) => render_declared_path(id, package),
         krs_ir::DescriptorSortRef::Parameter(name) => {
             let name = rust_ident(name)?;
@@ -3255,8 +3256,11 @@ fn render_local_path(
 ///
 /// - for an item declared at the crate root, `dep::Item`: the source reaches the crate only by
 ///   its name, and the crate root's own items need no module to be public;
-/// - where the source writes that declaring path (`dep::m::Item`, or `d::m::Item` in a module
-///   where `use dep as d;` stands, [`authored_paths`]).
+/// - where the source writes a path to the declaring module or through it (`use dep::m;`,
+///   `dep::m::Other`, or `d::m::Item` in a module where `use dep as d;` stands,
+///   [`authored_paths`]): rustc resolved every module on it from the printed crate, which sees
+///   another crate's items alike from all its modules. The item itself is taken to be public,
+///   as at the crate root.
 ///
 /// Elsewhere printing is refused ([`ReferenceExpansionError::DependencyPath`]). No other path is
 /// taken from what the source writes elsewhere: a path's last segment is the name a module
@@ -3279,14 +3283,15 @@ fn dependency_path(
         return Ok(declared);
     };
     let head = head.unraw().to_string();
+    // A path written to the declaring module itself, or through it, compiles only where every
+    // module on it is public; another crate's item is visible from every module of the printed
+    // crate alike, so a path the source writes anywhere is evidence everywhere. A module holds
+    // one item of a name in the type namespace, so the written modules are the declaring ones.
+    let module = declared.last().cloned().unwrap_or_default();
     let written = scope
         .authored
-        .get(&(crate_name.clone(), head.clone()))
-        .is_some_and(|paths| {
-            paths
-                .iter()
-                .any(|path| path[..path.len() - 1] == declared[..])
-        });
+        .get(&(crate_name.clone(), module))
+        .is_some_and(|paths| paths.contains(&declared));
     if id.module_path().is_empty() || written {
         return Ok(declared);
     }
@@ -4568,8 +4573,6 @@ pub enum ReferenceExpansionError {
         /// Its declaring path from the crate name.
         declared: String,
     },
-    /// A constructor field uses a declared sort whose marker path is external.
-    ExternalReferenceSort(Box<StableItemId>),
     /// One application mixed positional and named arguments.
     MixedApplicationArguments,
     /// A builtin operation unexpectedly used named arguments.
@@ -4635,7 +4638,6 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::MissingBindingSort { .. } => codes::reference::MISSING_BINDING_SORT,
             Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
             Self::DependencyPath { .. } => codes::reference::DEPENDENCY_PATH,
-            Self::ExternalReferenceSort(_) => codes::reference::EXTERNAL_REFERENCE_SORT,
             Self::MixedApplicationArguments => codes::reference::MIXED_APPLICATION_ARGUMENTS,
             Self::NamedBuiltinApplication => codes::reference::NAMED_BUILTIN_APPLICATION,
             Self::MissingDeclaration(_) => codes::reference::MISSING_DECLARATION,
@@ -4710,10 +4712,6 @@ impl fmt::Display for ReferenceExpansionError {
                 formatter,
                 "cannot print a path to {item}: the clause writes no path to it that the long form can print (a path of one name that no one `use` of the module binds, or a path a glob of the block may reach), and `{declared}` passes through modules whose publicity the collected declarations do not record; name it in the clause by a path that compiles there, such as its public re-export"
             ),
-            Self::ExternalReferenceSort(id) => write!(
-                formatter,
-                "cannot render external reference-sort marker {id} without its authored Cargo alias"
-            ),
             Self::MixedApplicationArguments => {
                 formatter.write_str("application mixes positional and named arguments")
             }
@@ -4772,7 +4770,6 @@ impl Error for ReferenceExpansionError {
             | Self::MissingBindingSort { .. }
             | Self::ExternalDeclaration(_)
             | Self::DependencyPath { .. }
-            | Self::ExternalReferenceSort(_)
             | Self::MixedApplicationArguments
             | Self::NamedBuiltinApplication
             | Self::MissingDeclaration(_)
@@ -5108,9 +5105,18 @@ mod tests {
             printed(source, &item(&["sorts"], "Same")).unwrap(),
             "::semantic_dep::sorts::Same"
         );
+        // A path through the declaring module shows the module reaches the printed crate, so
+        // every item it declares prints by its declaring path, whichever item the path names.
+        for through in [source, "pub use semantic_dep::sorts;"] {
+            assert_eq!(
+                printed(through, &unit).unwrap(),
+                "::semantic_dep::sorts::Unit",
+                "{through}"
+            );
+        }
         for refused in [
-            source,
             "use semantic_dep::{Unit as U, other::Same};",
+            "use semantic_dep::sorts_other::Unit;",
             "fn f() {}",
         ] {
             let error = printed(refused, &unit).unwrap_err();
@@ -5141,7 +5147,7 @@ mod tests {
         for unrenamed in [
             "mod m { use semantic_dep as sd; } k::rules! { cross: sd::sorts::Unit => sd::sorts::Unit; }",
             "use semantic_dep as sd; mod m { fn f() { sd::sorts::Unit; } }",
-            "use semantic_dep as sd; use semantic_dep::sorts as sd; k::rules! { cross: sd::sorts::Unit => sd::Unit; }",
+            "use semantic_dep as sd; use semantic_dep::other as sd; k::rules! { cross: sd::sorts::Unit => sd::Unit; }",
         ] {
             assert!(
                 matches!(
