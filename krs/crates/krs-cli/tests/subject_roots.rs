@@ -364,6 +364,30 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
     ]));
 }
 
+/// A simplification or an equation states that its subject's application equals its result, so
+/// the result's sort is below the application's (finding NT-42-3): `code(..)` is an `Int`, and a
+/// `Stmt` or a `Bool` result is refused at the result, whatever sort the fn's signature writes
+/// around it. A result of a sort below the application's is accepted (`code_other`'s `0`).
+#[test]
+fn a_simplification_or_equation_whose_result_is_of_another_sort_is_refused() {
+    expect_test::expect![[r"
+        simplification:
+        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-SUBJECT-ROOTS::simp (simplification): the result of simplification `simp` has sort `Stmt`, which is not below `Int`, the sort of the application its subject writes: the simplification states that the application equals its result, and no term of sort `Stmt` is a value of sort `Int`; write a result of sort `Int`, or of a sort below it
+        --> src/lib.rs:63:5
+        builtin:
+        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-SUBJECT-ROOTS::simp (simplification): the result of simplification `simp` has sort `Bool`, which is not below `Int`, the sort of the application its subject writes: the simplification states that the application equals its result, and no term of sort `Bool` is a value of sort `Int`; write a result of sort `Int`, or of a sort below it
+        --> src/lib.rs:63:5"]].assert_eq(&refusals([
+        (
+            "simplification",
+            "#[k::simplification]\nfn simp(k::term![Code { c: Cmd::Red() }]: Term<k::KItem>) -> Term<k::KItem> {\n    Cmd::Blue()\n}\n",
+        ),
+        (
+            "builtin",
+            "#[k::simplification]\nfn simp(k::term![Code { c: Cmd::Red() }]: Term<k::KItem>) -> Term<k::KItem> {\n    true\n}\n",
+        ),
+    ]));
+}
+
 /// `_`, an alias and a compiler-owned island stand below a subject's root, refused there with
 /// and without `k::term!`, in a rule's and an equation's subject and in each alternative of a
 /// root `A | B`. A rule fn's refusal shows the `for Sort` clause, whose root is any term of the

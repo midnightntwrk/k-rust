@@ -36,6 +36,7 @@ mod record_updates;
 pub(crate) use record_updates::{head_rule_long_form, structured_rule_long_form};
 mod references;
 mod restriction;
+mod result_sorts;
 mod rules;
 mod set_instances;
 mod smt;
@@ -351,6 +352,7 @@ pub fn lower_descriptor_bundle(
     or_positions::check_or_pattern_positions(&modules)?;
     list_patterns::check_list_patterns(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
+    result_sorts::check_result_sorts(&modules)?;
     let modules = statics::static_clauses(modules, &semantic_sort_parents)?;
     visibility::check_proof_visibility(&modules)?;
     spec_modules::check_spec_lemmas(&modules)?;
