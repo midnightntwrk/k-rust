@@ -1782,6 +1782,10 @@ fn turbofishes_above_the_solved_instance(target: &Path, root: &Path) -> Vec<Stri
 ///   (no head, so no strict cast fixes it), would hold another term on each route: it is refused
 ///   (`parametric-instance`) at each such pair.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One pinned table of every cast cell's value on both routes and every refused turbofish."
+)]
 fn a_cast_initial_value_is_the_same_value_on_both_routes() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
