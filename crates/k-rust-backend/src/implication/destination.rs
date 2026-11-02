@@ -19,7 +19,30 @@ use crate::{
     term::Variable,
 };
 
-use super::{ImplicationError, freshen_existentials, simplify_consequent};
+use super::{ImplicationError, freshen_existentials, rename_as_freshened, simplify_consequent};
+
+/// One consequent of a check: the pattern the check simplifies and matches (`checked`), and the
+/// pattern its caller wrote (`written`), which denote the same set on every valuation. They are
+/// the same pattern ([`Consequent::as_written`]) except for a proof's destination, whose ground
+/// subterms the proof has simplified once (`proof::prepare_destinations`); the written form then
+/// decides what the check does where the prepared one would decide otherwise (whether the
+/// destination is kept unsimplified, and what a failed simplification keeps), so that each check
+/// takes the steps it would take on the written form.
+#[derive(Clone, Copy)]
+pub(crate) struct Consequent<'a> {
+    pub(crate) checked: &'a Pattern,
+    pub(crate) written: &'a Pattern,
+}
+
+impl<'a> Consequent<'a> {
+    /// A consequent checked as written.
+    pub(crate) fn as_written(pattern: &'a Pattern) -> Self {
+        Self {
+            checked: pattern,
+            written: pattern,
+        }
+    }
+}
 
 /// The destination of one implication check in the form the match against it assumes: its
 /// existentials freshened apart from the antecedent, then simplified with the definition's
@@ -33,20 +56,28 @@ pub(super) struct Destination {
 
 impl Destination {
     /// Freshen `consequent`'s `existentials` apart from `antecedent` (`freshen_existentials`),
-    /// then simplify it under the antecedent's constraints (`simplify_consequent`).
+    /// then simplify its checked form under the antecedent's constraints (`simplify_consequent`).
     ///
     /// A stop is returned on the outer layer: it belongs to the operation that runs the check
     /// and says nothing about the destination.
     pub(super) fn prepare(
         definition: &BackendDefinition,
         antecedent: &Pattern,
-        consequent: &Pattern,
+        consequent: Consequent<'_>,
         existentials: &BTreeSet<Variable>,
         options: SimplificationOptions,
         solver: &dyn SmtSolver,
     ) -> Stoppable<Result<Self, ImplicationError>> {
-        let (pattern, existentials) = freshen_existentials(antecedent, consequent, existentials);
-        simplify_consequent(definition, antecedent, pattern, options, solver)
+        // The renaming is chosen for the written form, as a check of it alone chooses it, and the
+        // prepared form, which has the same variables, is renamed alike.
+        let (written, existentials, renaming) =
+            freshen_existentials(antecedent, consequent.written, existentials);
+        let checked = if std::ptr::eq(consequent.checked, consequent.written) {
+            written.clone()
+        } else {
+            rename_as_freshened(consequent.checked, &renaming)
+        };
+        simplify_consequent(definition, antecedent, checked, written, options, solver)
             .map(|pattern| Self {
                 pattern,
                 existentials,

@@ -68,6 +68,7 @@ mod destination;
 mod evidence;
 
 use consequent::{ConsequentMatch, ConsequentObligations};
+pub(crate) use destination::Consequent;
 use destination::Destination;
 pub(crate) use evidence::Instance;
 pub use evidence::{Counterexample, ObligationRefuted};
@@ -1016,7 +1017,7 @@ pub fn check_implication_with_existentials_complete(
         definition,
         antecedent,
         antecedent_existentials,
-        consequent,
+        Consequent::as_written(consequent),
         consequent_existentials,
         SimplificationOptions::default(),
         solver,
@@ -1040,16 +1041,45 @@ pub fn check_disjunctive_implication_with_existentials(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Coverage, ImplicationError>> {
+    let consequents = consequents
+        .iter()
+        .map(Consequent::as_written)
+        .collect::<Vec<_>>();
+    check_disjunctive_implication_of(
+        definition,
+        antecedent,
+        &consequents,
+        consequent_existentials,
+        options,
+        solver,
+    )
+}
+
+/// [`check_disjunctive_implication_with_existentials`] for consequents that may be given in a
+/// prepared form beside the form written ([`Consequent`]): each is matched in its prepared
+/// form, simplified, kept or replaced on failure as its written form would be.
+pub(crate) fn check_disjunctive_implication_of(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    consequents: &[Consequent<'_>],
+    consequent_existentials: &BTreeSet<Variable>,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Result<Coverage, ImplicationError>> {
     if let [consequent] = consequents {
-        return check_implication_with_existentials_and_options(
+        // One span per problem: the check and its grading.
+        let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
+        return check_established(
             definition,
             antecedent,
             &BTreeSet::new(),
-            consequent,
+            *consequent,
             consequent_existentials,
             options,
             solver,
-        );
+        )
+        .map(grade_coverage)
+        .layered();
     }
     // One span per problem: the check and its grading.
     let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
@@ -1086,7 +1116,7 @@ pub fn check_disjunctive_implication_with_existentials(
 fn establish_disjunction(
     definition: &BackendDefinition,
     antecedent: &Pattern,
-    consequents: &[Pattern],
+    consequents: &[Consequent<'_>],
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
@@ -1109,7 +1139,7 @@ fn establish_disjunction(
             Ok(Destination::prepare(
                 definition,
                 &antecedent,
-                consequent,
+                *consequent,
                 consequent_existentials,
                 options,
                 solver,
@@ -1373,7 +1403,7 @@ pub fn check_implication_with_existentials_and_options(
         definition,
         antecedent,
         antecedent_existentials,
-        consequent,
+        Consequent::as_written(consequent),
         consequent_existentials,
         options,
         solver,
@@ -1389,7 +1419,7 @@ fn check_established(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     antecedent_existentials: &BTreeSet<Variable>,
-    consequent: &Pattern,
+    consequent: Consequent<'_>,
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
@@ -1818,6 +1848,13 @@ fn grade_outside(
 /// term that already carries the evaluated mark is kept. A simplification failure keeps the
 /// destination as written, which denotes the same set; the check then proceeds on that form.
 ///
+/// `consequent` is the form simplified, `written` the form its caller wrote, both renamed alike
+/// ([`Consequent`]); they are one pattern unless a proof prepared its destination
+/// (`proof::prepare_destinations`). The shortcut and the fallback read the written form, so a
+/// prepared destination is kept, simplified or replaced where its written form would be: a
+/// written term with the evaluated mark is kept as written, and a failure keeps the written form,
+/// also when the prepared one carries the mark or would have been simplified.
+///
 /// Where a simplification inside the check fails, the check falls back to a weaker but sound
 /// step: the unsimplified form, or an indeterminate verdict. That is a fit answer to a bound or
 /// to an error of the input. A stop is neither: the cancelled request, the passed step deadline,
@@ -1829,11 +1866,12 @@ fn simplify_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: Pattern,
+    written: Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> CheckResult<Pattern> {
-    if consequent.term.attributes().evaluated {
-        return Ok(consequent);
+    if written.term.attributes().evaluated {
+        return Ok(written);
     }
     match simplify_with_solver(
         definition,
@@ -1852,7 +1890,7 @@ fn simplify_consequent(
                 ),
             })
         }
-        Err(_) => Ok(consequent),
+        Err(_) => Ok(written),
     }
 }
 
@@ -1865,7 +1903,7 @@ fn freshen_existentials(
     antecedent: &Pattern,
     consequent: &Pattern,
     existentials: &BTreeSet<Variable>,
-) -> (Pattern, BTreeSet<Variable>) {
+) -> (Pattern, BTreeSet<Variable>, Substitution) {
     let mut names = free_variables(antecedent)
         .into_iter()
         .chain(free_variables(consequent))
@@ -1903,7 +1941,20 @@ fn freshen_existentials(
             constraints: substitute_predicates(&consequent.constraints, &substitution),
         },
         fresh,
+        substitution,
     )
+}
+
+/// `pattern` under the renaming `freshen_existentials` chose for another form of it.
+fn rename_as_freshened(pattern: &Pattern, renaming: &Substitution) -> Pattern {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a renaming to fresh variables; a variable denotes an element"
+    )]
+    Pattern {
+        term: substitute(&pattern.term, renaming),
+        constraints: substitute_predicates(&pattern.constraints, renaming),
+    }
 }
 
 /// Rename the existentials of `pattern` whose names occur free in `other`, or `None` when none
@@ -3333,7 +3384,7 @@ mod tests {
         let destination = unstopped(Destination::prepare(
             &definition,
             &consequent,
-            &consequent,
+            Consequent::as_written(&consequent),
             &BTreeSet::new(),
             SimplificationOptions::default(),
             &NoSolver,

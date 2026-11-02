@@ -353,10 +353,12 @@ fn scan_alternatives<A, T, N>(
                 return Ok((Combined::Applied(result), held));
             }
             EquationAttempt::Indeterminate(reason) => {
+                super::note_undecided();
                 held.push(diagnostics);
                 undecided.get_or_insert(Combined::Indeterminate(reason));
             }
             EquationAttempt::Recurred => {
+                super::note_undecided();
                 held.push(diagnostics);
                 undecided.get_or_insert(Combined::Recurred);
             }
