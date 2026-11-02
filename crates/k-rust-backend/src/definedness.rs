@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "KeyGroups", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness", "beside_members", "request_definedness", "faithful_conditions", "faithful_equalities"]
+//! sites = ["rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_walk", "ceil_term_without_attribute", "ceil_term_node", "KeyGroups", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness", "beside_members", "request_definedness", "stated_definedness_of", "faithful_conditions", "faithful_equalities"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; k = nodes of the keys (elements) of one map (set); g = groups of those keys by apartness skeleton; v = variables of one term; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
@@ -18,7 +18,7 @@
 //! bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions, the members of their conjunctions and the k known predicates when an obligation is hoisted, and, per obligation stated in place, a scan of the k known predicates and of the conjuncts beside the atom in the conjunctions on its path (Vec::contains), without copying them"
 //!
 //! [[cost]]
-//! mode = "one request's predicates (request_definedness)"
+//! mode = "one request's predicates or a summary body's obligations (request_definedness, stated_definedness_of)"
 //! bound = "O(1) per term when every term's stored ceil_free attribute is true; otherwise one recursive walk of each predicate, with, per equality, up to two ceil_term calls and, per obligation, a scan of the conjuncts beside the equality in the conjunctions on its path (term_is_provably_defined), and per equality with no side shown defined, two more ceil_term calls and one deduplication of their obligations; then one condition_definedness call as above on the result"
 //!
 //! [[cost]]
@@ -1988,6 +1988,25 @@ pub(crate) fn request_definedness(
 ) -> Result<Vec<Predicate>, PredicateDefinednessFailure> {
     let faithful = faithful_conditions(definition, predicates)?;
     stated_condition_definedness(definition, faithful, &[], Bindings::Implied)
+        .map_err(PredicateDefinednessFailure::Deferred)
+}
+
+/// Predicates that state facts about given terms, in definedness-explicit form: as
+/// [`request_definedness`], except that the term of a binding `X = t` among them also has its
+/// obligations stated where the binding stands ([`Bindings::State`]).
+///
+/// A binding implies `\ceil(t)`, so the two forms are equivalent; they differ in what a reader of
+/// the list sees. A caller that eliminates the bindings (a request whose bindings become a
+/// substitution) needs nothing beyond the implied form. A caller that inspects the list for the
+/// partial calls whose domains it states (a summary's body domain, whose obligations are facts
+/// about the body and are never eliminated) must see `t`'s partial calls hoisted beside the
+/// binding, or it would state their domain without evidence.
+pub(crate) fn stated_definedness_of(
+    definition: &BackendDefinition,
+    predicates: Vec<Predicate>,
+) -> Result<Vec<Predicate>, PredicateDefinednessFailure> {
+    let faithful = faithful_conditions(definition, predicates)?;
+    stated_condition_definedness(definition, faithful, &[], Bindings::State)
         .map_err(PredicateDefinednessFailure::Deferred)
 }
 

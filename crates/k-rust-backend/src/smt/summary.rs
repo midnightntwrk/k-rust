@@ -759,8 +759,11 @@ impl<'d> Catalog<'d> {
             Err(_) => return Ok(Err(Rejected::Partial)),
         };
         stop::check()?;
+        // The obligations are facts about the body, not a request whose bindings are
+        // eliminated: a binding `X = t` among them keeps `t`'s partial calls stated beside it,
+        // so the walk below sees every partial call whose domain the summary would state.
         let obligations =
-            match crate::definedness::request_definedness(self.definition, obligations) {
+            match crate::definedness::stated_definedness_of(self.definition, obligations) {
                 Ok(obligations) => obligations,
                 Err(_) => return Ok(Err(Rejected::Partial)),
             };
