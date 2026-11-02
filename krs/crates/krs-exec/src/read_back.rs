@@ -448,11 +448,9 @@ impl Semantics {
     /// Whether one of `read`, the readings of `cell`'s print, is the term the state holds,
     /// value for value: with every instance and, where `typed`, every token's sort.
     fn compare(&self, cell: &PrintedCell<'_>, read: &[Pattern], typed: bool) -> ReadBack {
-        let index = &self.values;
-        let held = shape(index, cell.content, typed);
         if read
             .iter()
-            .any(|reading| shape(index, reading, typed) == held)
+            .any(|reading| reads_as(&self.values, cell.content, reading, typed))
         {
             return ReadBack::Reads;
         }
@@ -601,8 +599,18 @@ fn injected_sort(item: &Pattern) -> Option<String> {
     }
 }
 
-/// A term as two prints of it are compared: its value, constructors with their instances and
-/// by their overload family ([`ValueIndex::overload_family`]), collections as collections; an application no KRS declaration describes by its symbol, its
+/// Whether `reading`, a print's reading, is `held`, the term the state holds, value for value
+/// ([`Shape`]): with every instance and, where `typed`, every token's sort, modulo the
+/// definition's overload axioms, by which both are rewritten first ([`crate::overloads`]).
+fn reads_as(index: &ValueIndex, held: &Pattern, reading: &Pattern, typed: bool) -> bool {
+    let overloads = index.overloads();
+    shape(index, &overloads.normalize(held), typed)
+        == shape(index, &overloads.normalize(reading), typed)
+}
+
+/// A term as two prints of it are compared, each rewritten by the definition's overload axioms
+/// first ([`crate::overloads`]): its value, constructors with their instances, collections as
+/// collections; an application no KRS declaration describes by its symbol, its
 /// instance and its arguments, below the injections the reader puts around a term; a token by
 /// its text, and by its sort where `typed`.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -646,12 +654,8 @@ fn value_shape(index: &ValueIndex, value: &Value, typed: bool) -> Shape {
             .collect()
     };
     match value {
-        // A constructor by its overload family: the definition's overload axioms equate the
-        // family's applications over the same arguments, which a reader builds as the grammar
-        // reads them (`tick , 2` is an `Exps` list throughout, where a run that evaluated its
-        // tail holds a `Vals` one there).
         Value::Ctor(ctor) => Shape::Ctor {
-            decl: index.overload_family(ctor.decl()).to_string(),
+            decl: ctor.decl().to_string(),
             instance: ctor.sort_args().iter().map(ToString::to_string).collect(),
             fields: ctor
                 .fields()
@@ -697,29 +701,6 @@ fn opaque_shape(index: &ValueIndex, pattern: &Pattern, typed: bool) -> Shape {
                 _ => Shape::Pattern(pattern.to_string()),
             }
         }
-        // An application of an overloaded constructor that decodes as no value (an overload
-        // axiom still rewrites it to its overload: `expsCons(inj(2), expsNil)`, a reading of
-        // `2` as an `Exps` list) is the value the axiom gives, by its family.
-        Pattern::Application { symbol, arguments } if symbol.sort_parameters.is_empty() => {
-            match index.overloaded_constructor(&symbol.name) {
-                Some(family) => Shape::Ctor {
-                    decl: family.to_string(),
-                    instance: Vec::new(),
-                    fields: arguments
-                        .iter()
-                        .map(|argument| shape(index, argument, typed))
-                        .collect(),
-                },
-                None => Shape::Application {
-                    symbol: symbol.name.clone(),
-                    instance: Vec::new(),
-                    arguments: arguments
-                        .iter()
-                        .map(|argument| shape(index, argument, typed))
-                        .collect(),
-                },
-            }
-        }
         Pattern::Application { symbol, arguments }
         | Pattern::AssociativeApplication {
             symbol, arguments, ..
@@ -740,5 +721,42 @@ fn opaque_shape(index: &ValueIndex, pattern: &Pattern, typed: bool) -> Shape {
             text: String::from_utf8_lossy(value.as_bytes()).into_owned(),
         },
         other => Shape::Pattern(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use k_rust::kore::parser::parse_pattern;
+
+    use super::reads_as;
+    use crate::overloads::tests::VALS;
+    use crate::values::index_of;
+
+    /// A reading reads back as the state where the overload axioms equate them, and not where
+    /// only the overloads' family is the same: `expsCons(tick, expsNil)` is no `valsCons`, whose
+    /// first argument would be a `Val`, which `tick` is not.
+    #[test]
+    fn a_reading_is_the_state_modulo_the_overload_axioms_and_no_further() {
+        let index = index_of(VALS, &[]);
+        let reads = |held: &str, reading: &str| {
+            reads_as(
+                &index,
+                &parse_pattern(held).unwrap(),
+                &parse_pattern(reading).unwrap(),
+                true,
+            )
+        };
+        assert!(reads(
+            r"inj{SortVals{}, SortExps{}}(valsCons{}(inj{SortInt{}, SortVal{}}(one{}()), valsNil{}()))",
+            r"expsCons{}(inj{SortInt{}, SortExp{}}(one{}()), expsNil{}())",
+        ));
+        assert!(reads(
+            r"expsCons{}(tick{}(), inj{SortVals{}, SortExps{}}(valsNil{}()))",
+            r"expsCons{}(tick{}(), expsNil{}())",
+        ));
+        assert!(!reads(
+            r"inj{SortVals{}, SortExps{}}(valsCons{}(tick{}(), valsNil{}()))",
+            r"expsCons{}(tick{}(), expsNil{}())",
+        ));
     }
 }

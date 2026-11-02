@@ -716,9 +716,8 @@ pub struct ValueIndex {
     builders: [CollectionSymbols; 3],
     cells: Vec<CellNode>,
     top: String,
-    /// Each overloaded constructor's declaration, beside the one declaration its overload
-    /// family is known by ([`Self::overload_family`]).
-    overload_families: HashMap<Decl, Decl>,
+    /// The definition's overload axioms, which a printed term is compared modulo.
+    overloads: crate::overloads::Overloads,
 }
 
 /// Whether an application of an equation head (a constructor an `anywhere` rule rewrites) is a
@@ -762,51 +761,6 @@ impl EquationHeadData {
         let heads = self.heads.get_or_init(|| self.definition.data_heads());
         self.definition.is_data(&term, heads)
     }
-}
-
-/// The overload families of the constructors `ctors` holds by KORE symbol
-/// ([`ValueIndex::overload_family`]): each overloaded constructor's declaration, beside the
-/// declaration of the first symbol of the constructors the backend's overload relation joins it
-/// to.
-fn overload_families(
-    backend: &BackendDefinition,
-    ctors: &HashMap<String, Arc<CtorInfo>>,
-) -> HashMap<Decl, Decl> {
-    let overloads = backend.overloads();
-    let mut symbols = ctors
-        .keys()
-        .filter(|symbol| overloads.is_overloaded(&Arc::<str>::from(symbol.as_str())))
-        .cloned()
-        .collect::<Vec<_>>();
-    symbols.sort();
-    // Each symbol's family, by the index of its first member; a family is merged into the
-    // other one's first member whenever one of its symbols overloads one of the other's.
-    let mut first = (0..symbols.len()).collect::<Vec<_>>();
-    let root = |first: &[usize], mut index: usize| {
-        while first[index] != index {
-            index = first[index];
-        }
-        index
-    };
-    for greater in 0..symbols.len() {
-        for lesser in 0..symbols.len() {
-            if overloads.is_overloading(
-                &Arc::<str>::from(symbols[greater].as_str()),
-                &Arc::<str>::from(symbols[lesser].as_str()),
-            ) {
-                let (left, right) = (root(&first, greater), root(&first, lesser));
-                first[left.max(right)] = left.min(right);
-            }
-        }
-    }
-    (0..symbols.len())
-        .map(|index| {
-            (
-                ctors[&symbols[index]].decl.clone(),
-                ctors[&symbols[root(&first, index)]].decl.clone(),
-            )
-        })
-        .collect()
 }
 
 const fn collection_slot(collection: Collection) -> usize {
@@ -910,9 +864,8 @@ impl ValueIndex {
             .filter_map(|(name, sort)| Some((name.to_string(), sort.hook.as_ref()?.to_string())))
             .collect();
         let symbols = BackendSymbols::scan(backend);
-        let overload_families = overload_families(backend, &ctors_by_symbol);
         Self {
-            overload_families,
+            overloads: crate::overloads::Overloads::new(backend.axioms()),
             ctors_by_symbol,
             ctors_by_decl,
             sorts_by_kore,
@@ -933,26 +886,9 @@ impl ValueIndex {
         }
     }
 
-    /// The declaration `decl`'s overload family is known by: of the constructors the
-    /// definition's overload axioms relate to it, directly or through others, the one with the
-    /// first KORE symbol; `decl` itself where it is overloaded by none and overloads none. The
-    /// axioms equate an application of a constructor with one of its overload over the same
-    /// arguments, injections aside (`expsCons(inj(2), inj(valsNil))` is
-    /// `inj(valsCons(2, valsNil))`, where `Vals` is the `Exps` overload of K's `Vals` idiom),
-    /// so two terms that differ only in which overload of a family each applies are one value.
-    #[must_use]
-    pub fn overload_family<'d>(&'d self, decl: &'d Decl) -> &'d Decl {
-        self.overload_families.get(decl).unwrap_or(decl)
-    }
-
-    /// The overload family ([`Self::overload_family`]) of the constructor whose KORE symbol is
-    /// `symbol`, where it is an overloaded constructor without sort parameters.
-    pub(crate) fn overloaded_constructor(&self, symbol: &str) -> Option<&Decl> {
-        let info = self.ctors_by_symbol.get(symbol)?;
-        if info.parameters > 0 {
-            return None;
-        }
-        self.overload_families.get(&info.decl)
+    /// The definition's overload axioms ([`crate::overloads`]).
+    pub(crate) const fn overloads(&self) -> &crate::overloads::Overloads {
+        &self.overloads
     }
 
     /// The constructor named by `name`: its full path or a `::`-aligned suffix of it
@@ -1568,15 +1504,54 @@ fn cell_nodes(
         .collect()
 }
 
+/// The index of the KORE definition `text` (main module `MAIN`), whose KRS declarations are the
+/// constructors `ctors` (symbol, `t::S::` name, fields), and no sort or cell.
+#[cfg(test)]
+pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueIndex {
+    use k_rust::backend::{Backend, BackendOptions};
+
+    let mut backend = Backend::new(text, "MAIN", BackendOptions::default()).unwrap();
+    let definition = backend.select_definition(None).unwrap();
+    let symbols = BackendSymbols::scan(&definition);
+    let mut ctors_by_symbol = HashMap::new();
+    let mut ctors_by_decl = HashMap::new();
+    for (symbol, name, fields) in ctors {
+        let info = Arc::new(CtorInfo {
+            decl: Decl(format!("t::S::{name}").into()),
+            symbol: (*symbol).to_owned(),
+            fields: fields.iter().map(|field| Arc::from(*field)).collect(),
+            parameters: 0,
+        });
+        ctors_by_symbol.insert((*symbol).to_owned(), info.clone());
+        ctors_by_decl.insert(info.decl.clone(), info);
+    }
+    ValueIndex {
+        ctors_by_symbol,
+        ctors_by_decl,
+        sorts_by_kore: HashMap::new(),
+        kore_by_sort: HashMap::new(),
+        sort_hooks: HashMap::new(),
+        kast_sort_hooks: HashMap::new(),
+        known_symbols: symbols.known,
+        free_constructors: symbols.free_constructors,
+        equational_partial: symbols.equational_partial,
+        collection_builders: symbols.collection_builders,
+        equation_heads: symbols.equation_heads,
+        overloads: crate::overloads::Overloads::new(definition.axioms()),
+        equation_head_data: EquationHeadData::new(definition),
+        result_sorts: symbols.result_sorts,
+        collections: symbols.collections,
+        builders: symbols.builders,
+        cells: Vec::new(),
+        top: String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
-    use k_rust::backend::{Backend, BackendOptions};
     use k_rust::kore::parser::parse_pattern;
 
-    use super::{BackendSymbols, CtorInfo, Decl, EquationHeadData, Float, Value, ValueIndex};
+    use super::{Decl, Float, Value, ValueIndex, index_of};
 
     /// `c` is a constructor an `anywhere` rule rewrites, `c(a) => c(b)`: `c(b)`, which no
     /// equation reduces, is a value of `c`; `c(a)`, which the rule still reduces, is none.
@@ -1594,41 +1569,10 @@ mod tests {
 
     /// The index of [`ANYWHERE`], whose KRS declarations are `t::S::A`, `t::S::B` and `t::S::C`.
     fn anywhere_index() -> ValueIndex {
-        let mut backend = Backend::new(ANYWHERE, "MAIN", BackendOptions::default()).unwrap();
-        let definition = backend.select_definition(None).unwrap();
-        let symbols = BackendSymbols::scan(&definition);
-        let mut ctors_by_symbol = HashMap::new();
-        let mut ctors_by_decl = HashMap::new();
-        for (symbol, name, fields) in [("a", "A", &[][..]), ("b", "B", &[]), ("c", "C", &["x"])] {
-            let info = Arc::new(CtorInfo {
-                decl: Decl(format!("t::S::{name}").into()),
-                symbol: symbol.to_owned(),
-                fields: fields.iter().map(|field| Arc::from(*field)).collect(),
-                parameters: 0,
-            });
-            ctors_by_symbol.insert(symbol.to_owned(), info.clone());
-            ctors_by_decl.insert(info.decl.clone(), info);
-        }
-        ValueIndex {
-            ctors_by_symbol,
-            ctors_by_decl,
-            sorts_by_kore: HashMap::new(),
-            kore_by_sort: HashMap::new(),
-            sort_hooks: HashMap::new(),
-            kast_sort_hooks: HashMap::new(),
-            known_symbols: symbols.known,
-            free_constructors: symbols.free_constructors,
-            equational_partial: symbols.equational_partial,
-            collection_builders: symbols.collection_builders,
-            equation_heads: symbols.equation_heads,
-            equation_head_data: EquationHeadData::new(definition),
-            result_sorts: symbols.result_sorts,
-            collections: symbols.collections,
-            builders: symbols.builders,
-            cells: Vec::new(),
-            top: String::new(),
-            overload_families: HashMap::new(),
-        }
+        index_of(
+            ANYWHERE,
+            &[("a", "A", &[][..]), ("b", "B", &[]), ("c", "C", &["x"])],
+        )
     }
 
     #[test]
