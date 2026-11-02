@@ -33,14 +33,15 @@ DEMOS = {
                                               "demos/VmPopMut/VmPopMut/Witnesses.lean",
                                               "demos/VmPopMut/correspondence.toml", "demos/VmPopMut/refine.toml"]},
     # under a legality (REL-8): an optimization that holds only where the invariant does, the parts
-    # that need it by hand (Hand.lean), and a wrong one refuted by a program from a legal start
+    # that need it by the generic attempts (REL-10), and a wrong one refuted by a program from a
+    # legal start
     "VmEmptyRefine": {"tier": "light", "sources": ["generated/vmempty", "generated/vmemptyopt",
                                                    "demos/VmEmptyRefine/VmEmptyRefine/Tr.lean", "demos/VmEmptyRefine/VmEmptyRefine/Refine.lean",
-                                                   "demos/VmEmptyRefine/VmEmptyRefine/RefineDefs.lean", "demos/VmEmptyRefine/VmEmptyRefine/Hand.lean",
+                                                   "demos/VmEmptyRefine/VmEmptyRefine/RefineDefs.lean",
                                                    "demos/VmEmptyRefine/correspondence.toml", "demos/VmEmptyRefine/refine.toml"]},
     "RangeIncRefine": {"tier": "light", "sources": ["generated/rangeinc", "generated/rangeincopt",
                                                     "demos/RangeIncRefine/RangeIncRefine/Tr.lean", "demos/RangeIncRefine/RangeIncRefine/Refine.lean",
-                                                    "demos/RangeIncRefine/RangeIncRefine/RefineDefs.lean", "demos/RangeIncRefine/RangeIncRefine/Hand.lean",
+                                                    "demos/RangeIncRefine/RangeIncRefine/RefineDefs.lean",
                                                     "demos/RangeIncRefine/correspondence.toml", "demos/RangeIncRefine/refine.toml"]},
     # with no legality (REL-9): refuted at a configuration that no program reaches
     "VmEmptyOpen": {"tier": "light", "sources": ["generated/vmempty", "generated/vmemptyopt",
@@ -55,12 +56,17 @@ DEMOS = {
                                                 "demos/VmEmptyMut/VmEmptyMut/Tr.lean", "demos/VmEmptyMut/VmEmptyMut/Refine.lean",
                                                 "demos/VmEmptyMut/VmEmptyMut/RefineDefs.lean", "demos/VmEmptyMut/VmEmptyMut/Witnesses.lean",
                                                 "demos/VmEmptyMut/correspondence.toml", "demos/VmEmptyMut/refine.toml"]},
+    # a rule against its namesake with no legality (REL-10)
+    "VmGuardRefine": {"tier": "light", "sources": ["generated/vmprik", "generated/vmguard",
+                                                   "demos/VmGuardRefine/VmGuardRefine/Tr.lean", "demos/VmGuardRefine/VmGuardRefine/Refine.lean",
+                                                   "demos/VmGuardRefine/VmGuardRefine/RefineDefs.lean",
+                                                   "demos/VmGuardRefine/correspondence.toml", "demos/VmGuardRefine/refine.toml"]},
 }
 
 # each refine demo's parts (`fwd_tr.«RULE»`, `fwd_x.«RULE»`, `bwd_tr.«RULE»`, `bwd_x.«RULE»`) and
 # priority lemmas (`pri_fwd.«RULE»`, `pri_bwd.«RULE»`, REL-8), compared by name: generic, by hand or
-# open (REL-6); the three bisimilar pairs' parts are all generated, the legal ones' by hand where the
-# invariant is needed, the mutants' open ones listed in their demo (open.txt)
+# open (REL-6); the bisimilar pairs' parts are all generated (where the rules differ, by the generic
+# attempts, REL-10), the mutants' open ones listed in their demo (open.txt)
 for _d in ("ImpUnroll", "ImpPrintRefine", "VmPopRefine", "ImpUnrollMut", "VmPopMut",
-           "VmEmptyRefine", "RangeIncRefine", "VmPopLegal", "VmEmptyMut", "VmEmptyOpen"):
+           "VmEmptyRefine", "RangeIncRefine", "VmPopLegal", "VmEmptyMut", "VmEmptyOpen", "VmGuardRefine"):
     DEMOS[_d]["slots"] = {"prefixes": ["fwd_tr.", "fwd_x.", "bwd_tr.", "bwd_x.", "pri_fwd.", "pri_bwd."]}

@@ -1191,7 +1191,7 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
     assert_eq!(o.status.code(), Some(2));
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(
-        err.contains("refine: 2 parts are not generated (their rules have no counterpart) and not listed in --open: list each `KIND.«RULE» | hand` (the hand module's) or `KIND.«RULE»` (open): fwd_tr.«pop-start», bwd_tr.«pop»"),
+        err.contains("refine: 2 parts are not generated (their rules have no counterpart, nor a rule of the same name on the other side) and not listed in --open: list each `KIND.«RULE» | hand` (the hand module's) or `KIND.«RULE»` (open): fwd_tr.«pop-start», bwd_tr.«pop»"),
         "{err}"
     );
     let o = refine_with(
@@ -1540,7 +1540,7 @@ fn refine_under_a_legality_and_without_a_split() {
         (
             "bwd_tr.«pop-done»\n",
             vec!["--hand-module", "none", "--invariant-module", "M"],
-            "--invariant-preserved and --invariant-module need --assume-invariant",
+            "--invariant-preserved, --invariant-module and --invariant-unfold need --assume-invariant",
         ),
         (
             "bwd_tr.«pop-done»\n",
@@ -1585,6 +1585,155 @@ fn refine_under_a_legality_and_without_a_split() {
         &["--hand-module", "none", "--witnesses", &wdp],
     );
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+}
+
+/// `refine` on rules with no counterpart but a rule of the same name on the other side (REL-10):
+/// `vmpri` against `vmpop1` with pairs dropped from `relate`'s report, so that `push` and `pop`
+/// are each unpaired on both sides. Their parts at a translation are attempted generically
+/// (`near_attempt`), not refused; under a legality the attempts read its unfolding set
+/// (`--invariant-unfold`, else refused), and so does the arm of a priority lemma whose earlier
+/// rule has no counterpart and may apply (`pop-underflow`'s, at `B`'s `pop`).
+#[test]
+fn refine_attempts_a_rule_against_its_namesake() {
+    let d = tmp("cli-refine-near");
+    let fx = |n: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures")
+            .join(n)
+    };
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let p = |x: &Path| x.to_str().unwrap().to_string();
+    let (ka, kb) = (
+        p(&fx("vmpri").join("definition.kore")),
+        p(&fx("vmpop1").join("definition.kore")),
+    );
+    let (sa, sb) = (
+        p(&fx("vmpri").join("syntaxDefinition.kore")),
+        p(&fx("vmpop1").join("syntaxDefinition.kore")),
+    );
+    let (tr, corr) = (p(&d.join("Tr.lean")), p(&d.join("correspondence.toml")));
+    let o = run(&[
+        "relate",
+        "--kore-a",
+        &ka,
+        "--syntax-a",
+        &sa,
+        "--name-a",
+        "A",
+        "--kore-b",
+        &kb,
+        "--syntax-b",
+        &sb,
+        "--name-b",
+        "B",
+        "--ns",
+        "R",
+        "--per-rule",
+        "true",
+        "--out",
+        &tr,
+        "--report",
+        &corr,
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    // `push` and `pop` unpaired: each the other side's namesake
+    let report = std::fs::read_to_string(&corr).unwrap();
+    let kept: String = report
+        .lines()
+        .filter(|l| !l.starts_with("\"push\" ") && !l.starts_with("\"pop\" "))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert_ne!(kept, report, "{report}");
+    std::fs::write(&corr, kept).unwrap();
+    let (refine, rep, list, unfold) = (
+        p(&d.join("Refine.lean")),
+        p(&d.join("refine.toml")),
+        p(&d.join("open.txt")),
+        p(&d.join("invariant-unfold.txt")),
+    );
+    std::fs::write(&list, "bwd_tr.«pop-done»\n").unwrap();
+    std::fs::write(&unfold, "# the set\nInvariant.kOk, Eqn.«kOk(_)_1»\n").unwrap();
+    let refine_with = |extra: &[&str]| {
+        let mut args = vec![
+            "refine",
+            "--kore-a",
+            &ka,
+            "--name-a",
+            "A",
+            "--kore-b",
+            &kb,
+            "--name-b",
+            "B",
+            "--ns",
+            "R",
+            "--correspondence",
+            &corr,
+            "--open",
+            &list,
+            "--hand-module",
+            "none",
+            "--out",
+            &refine,
+            "--report",
+            &rep,
+        ];
+        args.extend_from_slice(extra);
+        run(&args)
+    };
+    // no legality: attempted with no legality's closers
+    let o = refine_with(&[]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    let hpri_pop = "k2l_strict (exfalso; refine hpri 1 (by decide) ?_; apply (A.App.pop _ _ _ _) <;> k2l_near_hyp)";
+    for want in [
+        "import R.RefineDefs\nimport KPrelude.RefineAttempt\n".to_string(),
+        "local macro \"k2l_near_hyp\" : tactic => `(tactic| first\n  | assumption\n".to_string(),
+        "local macro \"k2l_near_fin\" : tactic =>".to_string(),
+        "theorem fwd_tr.push : A.Step.Rel.push (Stutter.FwdTr tr_SortGeneratedTopCell B.Step X μ) := by\n  intro I DotVar2 S DotVar0 hpri\n  all_goals first\n    | k2l_strict (refine Or.inl ⟨_, .single (B.Step.push I (tr_SortK DotVar2) (tr_SortStack S) (tr_SortGeneratedCounterCell DotVar0) ?_), Or.inl rfl⟩ <;> k2l_near_hyp)\n    | fail \"fwd_tr.«push»: no closer applies at this case".to_string(),
+        "  intro c hd\n  all_goals k2l_inv\n  all_goals first\n    | k2l_strict (exact Or.inl ⟨_, .single (by apply (A.Step.push _ _ _ _) <;> k2l_near_hyp), by k2l_near_fin⟩)\n".to_string(),
+        // `pop-underflow`'s priority lemma: `B`'s `pop` has no counterpart and may apply where
+        // `pop-underflow` does; split by its pattern, a clash on an empty stack, else `A`'s `pop`
+        // applies, which `hpri` excludes
+        format!("  | pop _ _ _ _ => (k2l_cases DotVar1 with ⟨⟨⟩⟩) <;> (first | k2l_strict (cases hd; done) | {hpri_pop} | fail \"pri_fwd.«pop-underflow»: no closer applies"),
+    ] {
+        assert!(r.contains(&want), "missing `{want}`:\n{r}");
+    }
+    assert!(!r.contains("k2l_inv_absurd"), "{r}");
+    // under a legality, refused without its unfolding set
+    let legal = ["--assume-invariant", "A.Invariant"];
+    let o = refine_with(&legal);
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("under a legality, the generic attempts at fwd_tr.«push», bwd_tr.«push», fwd_tr.«pop», bwd_tr.«pop» read what the invariant says: pass --invariant-unfold"),
+        "{err}"
+    );
+    let o = refine_with(&[&legal[..], &["--invariant-unfold", &unfold]].concat());
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    let absurd = "k2l_inv_absurd hinv in A [A.Invariant, Invariant.kOk, Eqn.«kOk(_)_1»]";
+    for want in [
+        format!("  intro hinv; all_goals first\n    | k2l_strict {absurd}\n"),
+        "  intro c hinv hd\n".to_string(),
+        "  | (k2l_inv_facts hinv in A [A.Invariant, Invariant.kOk, Eqn.«kOk(_)_1»]; simp_all; done)\n".to_string(),
+        // the legality's refutation among the priority arm's closers
+        "  intro DotVar2 DotVar1 DotVar0 hpri hinv j hj d hd hb\n  cases hb with\n".to_string(),
+        format!("  | pop _ _ _ _ => (k2l_cases DotVar1 with ⟨⟨⟩⟩) <;> (first | k2l_strict (cases hd; done) | k2l_strict {absurd} | {hpri_pop} | fail \"pri_fwd.«pop-underflow»: no closer applies"),
+    ] {
+        assert!(r.contains(&want), "missing `{want}`:\n{r}");
+    }
+    // a listed part is never attempted
+    std::fs::write(&list, "bwd_tr.«pop-done»\nfwd_tr.«push»\n").unwrap();
+    let o = refine_with(&[&legal[..], &["--invariant-unfold", &unfold]].concat());
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    assert!(!r.contains("theorem fwd_tr.push "), "{r}");
+    assert!(r.contains("theorem bwd_tr.push "), "{r}");
 }
 
 /// `confluence --report-only` on the `threadend` fixture: the end of a thread (its `<k>` empty) is

@@ -20,6 +20,14 @@
 //!   with the rule's left-hand side);
 //! - `bwd_tr r`, `bwd_x r`: the same for the steps of `B`, from `bwd.r`.
 //!
+//! A rule with no counterpart whose name the other side's rule with no counterpart has too (its
+//! namesake: the two differ in what they read) has its parts at a translation attempted
+//! generically (`near_attempt`): the configuration split by the rules' patterns, each case
+//! refuted by the legality, or matched by the namesake's step, or excluded by an earlier rule's
+//! match; and so is a priority lemma's arm at an earlier rule with no counterpart that may apply
+//! (`pri_arm`). A case no closer closes fails the proof at the part's name, and the author lists
+//! it.
+//!
 //! Each part is an obligation by name, as confluence's slots are: stated (`fwd_tr.«r».statement :
 //! Prop := A.Step.Rel.«r» (Stutter.FwdTr …)` and so on), and proved by its own theorem
 //! (`fwd_tr.«r»`) when generated, by the hand module under that name when listed `| hand`, or left
@@ -337,6 +345,120 @@ fn may_unify(a: &L, b: &L) -> bool {
     }
 }
 
+/// A pattern of `k2l_cases`: a variable left as it is (`_`), or cased on, the arguments of its
+/// constructors cased as the subpatterns say, by position (`⟨p0, …⟩`).
+#[derive(Clone, Debug, PartialEq)]
+enum Pat {
+    Leave,
+    Case(Vec<Pat>),
+}
+
+impl Pat {
+    /// The coarsest pattern that cases as much as both.
+    fn merge(&self, o: &Pat) -> Pat {
+        match (self, o) {
+            (Pat::Leave, p) | (p, Pat::Leave) => p.clone(),
+            (Pat::Case(a), Pat::Case(b)) => Pat::Case(
+                (0..a.len().max(b.len()))
+                    .map(|i| {
+                        a.get(i)
+                            .unwrap_or(&Pat::Leave)
+                            .merge(b.get(i).unwrap_or(&Pat::Leave))
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    fn render(&self) -> String {
+        match self {
+            Pat::Leave => "_".into(),
+            Pat::Case(xs) => {
+                let n = xs
+                    .iter()
+                    .rposition(|p| *p != Pat::Leave)
+                    .map_or(0, |i| i + 1);
+                let inner: Vec<String> = xs[..n].iter().map(Pat::render).collect();
+                format!("⟨{}⟩", inner.join(", "))
+            }
+        }
+    }
+}
+
+/// The shape a variable is cased to so that `t` matches or clashes at each case by constructors: a
+/// constructor application of a generated sort cases on its arguments' shapes, a Bool literal on
+/// the two values; an injection (a function of the arity-indexed family), any other builtin value
+/// or a variable is left.
+fn shape(t: &L) -> Pat {
+    match t {
+        L::App(h, xs) if h.starts_with("Sort") && !h.contains(".inj_") => {
+            Pat::Case(xs.iter().map(shape).collect())
+        }
+        L::Raw(r) if r == "true" || r == "false" => Pat::Case(vec![]),
+        L::Typed(e, _) => shape(e),
+        _ => Pat::Leave,
+    }
+}
+
+/// The case split of the variables of `own` (a rule's left-hand side, its variables' sorts in
+/// `types`) at which one of `others` (the left-hand sides whose match the attempt decides) has a
+/// constructor or a Bool literal, as deep as theirs: after it, each of `others` matches or clashes
+/// at each case by constructors (pattern compilation). A variable of `K` or `KItem` (the
+/// computation, whose injections are functions) or of a builtin sort other than `Bool` is not
+/// cased. In the order the variables are first met.
+fn case_split(
+    own: &L,
+    others: &[L],
+    types: &BTreeMap<String, String>,
+    builtin: &BTreeSet<String>,
+) -> Vec<(String, Pat)> {
+    fn walk(own: &L, other: &L, ok: &dyn Fn(&str) -> bool, out: &mut Vec<(String, Pat)>) {
+        match (own, other) {
+            (L::Var(v), t) => {
+                let p = shape(t);
+                if p == Pat::Leave || !ok(v) {
+                    return;
+                }
+                match out.iter_mut().find(|(w, _)| w == v) {
+                    Some((_, q)) => *q = q.merge(&p),
+                    None => out.push((v.clone(), p)),
+                }
+            }
+            (L::App(h1, a1), L::App(h2, a2)) if h1 == h2 && a1.len() == a2.len() => {
+                for (x, y) in a1.iter().zip(a2) {
+                    walk(x, y, ok, out);
+                }
+            }
+            (L::Typed(e1, _), L::Typed(e2, _)) => walk(e1, e2, ok, out),
+            (L::Typed(e, _), t) => walk(e, t, ok, out),
+            (t, L::Typed(e, _)) => walk(t, e, ok, out),
+            _ => {}
+        }
+    }
+    let ok = |v: &str| {
+        types.get(v).is_some_and(|t| {
+            t != "SortK" && t != "SortKItem" && (t == "SortBool" || !builtin.contains(t))
+        })
+    };
+    let mut out = vec![];
+    for o in others {
+        walk(own, o, &ok, &mut out);
+    }
+    out
+}
+
+/// The case split as tactics, one per line (`k2l_cases v with p`, on every goal after the first).
+fn render_split(split: &[(String, Pat)]) -> Vec<String> {
+    split
+        .iter()
+        .enumerate()
+        .map(|(i, (v, p))| {
+            let all = if i == 0 { "" } else { "all_goals " };
+            format!("{all}k2l_cases {v} with {}", p.render())
+        })
+        .collect()
+}
+
 /// The constructor applications of `t` and the occurrences of each variable; `None` when `t`
 /// holds a raw term (a value whose size is not that of a constructor term).
 fn size_profile(t: &L, apps: &mut usize, vars: &mut BTreeMap<String, usize>) -> Option<()> {
@@ -512,6 +634,9 @@ struct Inv {
     /// `A`'s generated invariant (`NA.Invariant` of `NA.Invariants`), whose `init_holds` states it
     /// at the initial configuration
     generated: bool,
+    /// what unfolds it (`--invariant-unfold`, the `invariant-unfold.txt` of `gen --invariant`, with
+    /// the predicate itself), for the generic attempts' closers; names relative to `A`'s namespace
+    unfold: Option<Vec<String>>,
 }
 
 struct Pri<'a> {
@@ -531,6 +656,10 @@ struct Pri<'a> {
     inv: Option<&'a str>,
     /// the list (`--open`): a lemma listed `pri_fwd.«r» | hand` is the hand module's
     listed: &'a BTreeMap<(String, String), bool>,
+    /// the legality's refutation (`k2l_inv_absurd hinv in NA […]`, with `--invariant-unfold`): an
+    /// earlier rule without a counterpart that may apply gets a generic attempt
+    inv_absurd: Option<&'a str>,
+    builtin: &'a BTreeSet<String>,
 }
 
 /// The priority lemmas written: per rule of `A` whose forward part at a translation is generated
@@ -543,6 +672,8 @@ struct Pris {
     mid: bool,
     names: Vec<String>,
     hand: Vec<(String, String)>,
+    /// whether an arm is a generic attempt (`KPrelude.RefineAttempt`)
+    attempts: bool,
 }
 
 /// The priority hypotheses that the generated parts pass to the other side's steps
@@ -555,9 +686,10 @@ struct Pris {
 /// `a2`'s left-hand side, the intermediate state, clashes with every translation of a paired
 /// rule's. Any other rule without a counterpart of a rank before `i` applies nowhere `r` does when
 /// their left-hand sides clash (`may_unify`); otherwise whether it applies at the related state is
-/// a fact of the two definitions (under a legality, often only of the legal states), and the
-/// lemma is the hand module's (`pri_fwd.«r» | hand` in the list), or the part that takes it is
-/// listed.
+/// a fact of the two definitions (under a legality, often only of the legal states): under a
+/// legality whose unfolding set is given, its arm is a generic attempt (`r`'s configuration split
+/// by `q`'s pattern, each case a clash or refuted by the legality, `pri_arm`); else the lemma is
+/// the hand module's (`pri_fwd.«r» | hand` in the list), or the part that takes it is listed.
 ///
 /// Each lemma is stated in the definitions' module (`pri_fwd.r.statement`), under the legality
 /// when there is one (`Inv c`, unused by the generated arms):
@@ -714,6 +846,7 @@ fn emit_priorities(o: &mut String, d: &mut String, p: &Pri) -> Pris {
             continue;
         }
         let mut arms = String::new();
+        let mut attempted = false;
         for (j, q) in p.rb.iter().enumerate() {
             let qargs = rules::ctor_args(&q.app).join(" ");
             let arm = if (p.rank)(q) >= k {
@@ -725,14 +858,45 @@ fn emit_priorities(o: &mut String, d: &mut String, p: &Pri) -> Pris {
             } else if !may_unify(&lhs(r), &lhs(q)) {
                 // the two left-hand sides clash: `q` applies nowhere `r` does
                 "cases hd".to_string()
+            } else if let Some(arm) = pri_arm(
+                &lhs(r),
+                &lhs(q),
+                &r.step.binders.iter().cloned().collect(),
+                p.builtin,
+                &p.inv_absurd
+                    .iter()
+                    .map(|c| c.to_string())
+                    .chain(p.ra.iter().filter(|e| (p.rank)(e) < k && may_unify(&lhs(r), &lhs(e))).map(|e| {
+                        format!(
+                            "(exfalso; refine hpri {} (by decide) ?_; apply ({na}.App.{}{}) <;> k2l_near_hyp)",
+                            (p.rank)(e),
+                            e.lean,
+                            " _".repeat(e.app.binders.len())
+                        )
+                    }))
+                    .collect::<Vec<_>>(),
+                &format!("pri_fwd.«{}»", rules::display_name(r)),
+            ) {
+                // `q`'s names left inaccessible: they would shadow `r`'s, which the split cases
+                attempted |= p.inv_absurd.is_some();
+                out.attempts = true;
+                writeln!(
+                    arms,
+                    "  | {}{} => {arm}",
+                    q.lean,
+                    " _".repeat(rules::ctor_args(&q.app).len())
+                )
+                .unwrap();
+                continue;
             } else {
                 fail_unpaired(q, r, "pri_fwd", "fwd_tr")
             };
             writeln!(arms, "  | {} {qargs} => {arm}", q.lean).unwrap();
         }
+        let h = if attempted { " hinv" } else { hi };
         writeln!(
             o,
-            "theorem pri_fwd.{} : {ty} := by\n  intro {}{hi} j hj d hd hb\n  cases hb with\n{arms}",
+            "theorem pri_fwd.{} : {ty} := by\n  intro {}{h} j hj d hd hb\n  cases hb with\n{arms}",
             p.ca[i].lean,
             p.ca[i].args.join(" ")
         )
@@ -753,6 +917,7 @@ fn emit_priorities(o: &mut String, d: &mut String, p: &Pri) -> Pris {
             continue;
         }
         let mut arms = String::new();
+        let mut attempted = false;
         for (i, q) in p.ra.iter().enumerate() {
             let qargs = rules::ctor_args(&q.app).join(" ");
             let arm = if (p.rank)(q) >= k {
@@ -764,14 +929,38 @@ fn emit_priorities(o: &mut String, d: &mut String, p: &Pri) -> Pris {
             } else if p.split.is_some_and(|s| s.a2 == i) || !may_unify(&lhs(q), &lhs(r)) {
                 // `a2`'s left-hand side, or one that clashes with `r`'s
                 "cases hd".to_string()
+            } else if let Some(arm) = pri_arm(
+                &lhs(q),
+                &lhs(r),
+                &q.app.binders.iter().cloned().collect(),
+                p.builtin,
+                &p.inv_absurd
+                    .iter()
+                    .map(|c| c.to_string())
+                    .chain(p.rb.iter().filter(|e| (p.rank)(e) < k && may_unify(&lhs(r), &lhs(e))).map(|e| {
+                        format!(
+                            "(exfalso; rw [← hd] at hpri; refine hpri {} (by decide) ?_; (try simp only [k2l_tr]); apply ({nb}.App.{}{}) <;> k2l_near_hyp)",
+                            (p.rank)(e),
+                            e.lean,
+                            " _".repeat(e.app.binders.len())
+                        )
+                    }))
+                    .collect::<Vec<_>>(),
+                &format!("pri_bwd.«{}»", rules::display_name(r)),
+            ) {
+                // `A`'s configuration is `q`'s left-hand side, split by `r`'s pattern
+                attempted |= p.inv_absurd.is_some();
+                out.attempts = true;
+                arm
             } else {
                 fail_unpaired(q, r, "pri_bwd", "bwd_tr")
             };
             writeln!(arms, "  | {} {qargs} => {arm}", q.lean).unwrap();
         }
+        let h = if attempted { " hinv" } else { hi };
         writeln!(
             o,
-            "theorem pri_bwd.{} : {ty} := by\n  intro {} c{hi} hd j hj ha\n  cases ha with\n{arms}",
+            "theorem pri_bwd.{} : {ty} := by\n  intro {} c{h} hd j hj ha\n  cases ha with\n{arms}",
             p.cb[j].lean,
             p.cb[j].args.join(" ")
         )
@@ -779,6 +968,167 @@ fn emit_priorities(o: &mut String, d: &mut String, p: &Pri) -> Pris {
         out.names.push(format!("pri_bwd.{}", p.cb[j].lean));
     }
     d.push('\n');
+    out
+}
+
+/// The generic attempt at a priority lemma's arm, where the other side's earlier rule `q` has no
+/// counterpart and may apply: the configuration `own` (the stepping rule's left-hand side
+/// forward, `q`'s backward, where it is `A`'s) split by the pattern `other`, each case closed by
+/// the first of `closers` that applies (`k2l_strict`): a clash of the translation with `q`'s
+/// left-hand side (`cases hd`), the legality's refutation, or a match of an earlier rule of the
+/// stepping side, which its priority hypothesis excludes (`q` is often its namesake). `None` when
+/// only the clash would be tried: after the split, `q`'s pattern matches at some case.
+fn pri_arm(
+    own: &L,
+    other: &L,
+    types: &BTreeMap<String, String>,
+    builtin: &BTreeSet<String>,
+    closers: &[String],
+    lemma: &str,
+) -> Option<String> {
+    if closers.is_empty() {
+        return None;
+    }
+    let split = case_split(own, std::slice::from_ref(other), types, builtin);
+    let mut steps: Vec<String> = split
+        .iter()
+        .map(|(v, pat)| format!("(k2l_cases {v} with {})", pat.render()))
+        .collect();
+    let alts: Vec<String> = std::iter::once("k2l_strict (cases hd; done)".to_string())
+        .chain(closers.iter().map(|c| format!("k2l_strict {c}")))
+        .chain(std::iter::once(format!(
+            "fail \"{lemma}: no closer applies at this case (a clash, the legality, an earlier rule's match); list it `| hand`\""
+        )))
+        .collect();
+    steps.push(format!("(first | {})", alts.join(" | ")));
+    Some(steps.join(" <;> "))
+}
+
+/// What the generic attempt at a part reads: the stepping rule `own`, its namesake `near` on the
+/// other side and the arguments of its `Step` constructor, the rules of a rank before each's that
+/// may apply where `own` does (the stepping side's with their ranks), and the legality's refutation
+/// (`k2l_inv_absurd …`).
+struct Near<'a> {
+    fwd: bool,
+    /// the part's name, for the failure's message
+    part: String,
+    own: &'a Rule,
+    near: &'a Rule,
+    near_args: &'a [String],
+    /// the stepping side's earlier rules (a match refutes `hpri`) and their ranks
+    earlier_own: Vec<(&'a Rule, usize)>,
+    /// the other side's earlier rules (their clashes give the namesake's priority premise)
+    earlier_other: Vec<&'a Rule>,
+    na: &'a str,
+    nb: &'a str,
+    builtin: &'a BTreeSet<String>,
+    inv_absurd: Option<&'a str>,
+}
+
+/// The generic attempt at a part at a translation of a rule with no counterpart and a namesake
+/// (`fwd_tr.r` with `A`'s `r`, `bwd_tr.r` with `B`'s): the two rules differ in what they read, and
+/// whether the namesake steps where `r` does is decided case by case. The configuration is split
+/// by the patterns (`case_split`: the namesake's left-hand side and the earlier rules'), backward
+/// then the translation inverted; each case is closed by the first closer that applies
+/// (`k2l_strict`): the legality refutes it (`k2l_inv_absurd`), the namesake steps there to the
+/// translation of `r`'s result (its premises by `k2l_near_hyp`: the rule's hypotheses, the clashes
+/// of the earlier rules, the legality's facts), or an earlier rule of the stepping side applies,
+/// which its priority hypothesis excludes. A case no closer closes fails the proof at the part's
+/// name, and the author lists the part (`docs/design.md`, section 3.5).
+fn near_attempt(n: &Near) -> String {
+    let lhs = |r: &Rule| sides(r).0;
+    let (step_side, app_side) = if n.fwd { (n.nb, n.na) } else { (n.na, n.nb) };
+    let types: BTreeMap<String, String> = n.own.step.binders.iter().cloned().collect();
+    let others: Vec<L> = std::iter::once(lhs(n.near))
+        .chain(n.earlier_own.iter().map(|(q, _)| lhs(q)))
+        .chain(n.earlier_other.iter().map(|q| lhs(q)))
+        .collect();
+    let split = case_split(&lhs(n.own), &others, &types, n.builtin);
+    let mut lines: Vec<String> = vec![];
+    if !n.fwd {
+        lines.push("intro c hd".into());
+    }
+    lines.extend(render_split(&split));
+    if !n.fwd {
+        lines.push("all_goals k2l_inv".into());
+        // `B`'s map patterns and partial operations on translations are translations, as in
+        // `relate`'s backward lemmas
+        let lhs_hyps: BTreeSet<&String> = n.own.app.hyps.iter().map(|(h, _)| h).collect();
+        for (hn, hp) in &n.own.step.hyps {
+            if lhs_hyps.contains(hn)
+                && hp.starts_with("KPrelude.MapHook.concat (KPrelude.MapHook.element")
+            {
+                let m = hp.rsplit("some ").next().unwrap_or_default().trim();
+                if let Some(t) = types.get(m) {
+                    lines.push(format!(
+                        "all_goals first | (obtain ⟨_, _, _, _, _, _, _⟩ := map_bwd_{} {hn}) | skip",
+                        crate::terms::fsuffix(t)
+                    ));
+                    lines.push("all_goals k2l_inv".into());
+                }
+            } else if hp.contains("= some") {
+                lines.push(format!(
+                    "all_goals first | (simp only [k2l_rel, Option.map_eq_some_iff] at {hn}; obtain ⟨_, _, rfl⟩ := {hn}) | skip"
+                ));
+            }
+        }
+    }
+    let mut alts: Vec<String> = vec![];
+    if let Some(c) = n.inv_absurd {
+        alts.push(format!("k2l_strict {c}"));
+    }
+    if n.fwd {
+        // the namesake's arguments: the translation of `r`'s variable of the same name and sort
+        // where `r` has one that the split left (the two rules come from one text, so a shared name
+        // is a shared position), else what unification determines; its hypotheses and priority
+        // premise are goals
+        let near_vars: BTreeMap<&String, &String> =
+            n.near.step.binders.iter().map(|(b, t)| (b, t)).collect();
+        let split_vars: BTreeSet<&str> = split.iter().map(|(v, _)| v.as_str()).collect();
+        let args: Vec<String> = n
+            .near_args
+            .iter()
+            .map(|a| match (near_vars.get(a), types.get(a)) {
+                (None, _) => "?_".to_string(),
+                (Some(tb), Some(ta)) if *tb == ta && !split_vars.contains(a.as_str()) => {
+                    tr_var(n.builtin, ta, a)
+                }
+                _ => "_".to_string(),
+            })
+            .collect();
+        alts.push(format!(
+            "k2l_strict (refine Or.inl ⟨_, .single ({step_side}.Step.{} {}), Or.inl rfl⟩ <;> k2l_near_hyp)",
+            n.near.lean,
+            args.join(" ")
+        ));
+    } else {
+        alts.push(format!(
+            "k2l_strict (exact Or.inl ⟨_, .single (by apply ({step_side}.Step.{}{}) <;> k2l_near_hyp), by k2l_near_fin⟩)",
+            n.near.lean,
+            " _".repeat(n.near.step.binders.len())
+        ));
+    }
+    let untr = if n.fwd {
+        ""
+    } else {
+        " (try simp only [k2l_tr]);"
+    };
+    for (q, k) in &n.earlier_own {
+        alts.push(format!(
+            "k2l_strict (exfalso; refine hpri {k} (by decide) ?_;{untr} apply ({app_side}.App.{}{}) <;> k2l_near_hyp)",
+            q.lean,
+            " _".repeat(q.app.binders.len())
+        ));
+    }
+    alts.push(format!(
+        "fail \"{}: no closer applies at this case (the legality, the namesake's step, an earlier rule's match); list the part in --open\"",
+        n.part
+    ));
+    lines.push("all_goals first".into());
+    let mut out = lines.join("\n    ");
+    for a in alts {
+        write!(out, "\n      | {a}").unwrap();
+    }
     out
 }
 
@@ -854,11 +1204,23 @@ pub fn main(args: &[String]) {
             .cloned()
             .unwrap_or(format!("{na}.Invariants")),
         generated: *i == format!("{na}.Invariant") && !opt.contains_key("invariant-module"),
+        unfold: opt.get("invariant-unfold").map(|f| {
+            if !std::path::Path::new(f).is_file() {
+                fail(&format!("--invariant-unfold: no file {f}"));
+            }
+            std::iter::once(i.clone())
+                .chain(crate::claims::read_unfold(&std::path::PathBuf::from(f)))
+                .collect()
+        }),
     });
     if inv.is_none()
-        && (opt.contains_key("invariant-preserved") || opt.contains_key("invariant-module"))
+        && (opt.contains_key("invariant-preserved")
+            || opt.contains_key("invariant-module")
+            || opt.contains_key("invariant-unfold"))
     {
-        fail("--invariant-preserved and --invariant-module need --assume-invariant");
+        fail(
+            "--invariant-preserved, --invariant-module and --invariant-unfold need --assume-invariant",
+        );
     }
     let x = opt.get("extra").cloned().unwrap_or("X".into());
     let mu = opt.get("measure-a").cloned().unwrap_or("μ".into());
@@ -917,14 +1279,38 @@ pub fn main(args: &[String]) {
         }
     }
 
+    // a rule with no counterpart whose name the other side's rule with no counterpart has too (its
+    // namesake): the two differ in what they read, and its parts at a translation are attempted
+    // generically (`near_attempt`)
+    let near: BTreeMap<usize, usize> = ra
+        .iter()
+        .enumerate()
+        .filter(|(i, r)| {
+            !paired_a.contains(&rules::display_name(r))
+                && !split.as_ref().is_some_and(|s| s.a1 == *i)
+        })
+        .filter_map(|(i, r)| {
+            rb.iter()
+                .enumerate()
+                .find(|(j, q)| {
+                    rules::display_name(q) == rules::display_name(r)
+                        && !paired_b.contains(&rules::display_name(q))
+                        && !split.as_ref().is_some_and(|s| s.b == *j)
+                })
+                .map(|(j, _)| (i, j))
+        })
+        .collect();
+    let near_b: BTreeSet<usize> = near.values().copied().collect();
     // a part at a translation is generated when its rule has a counterpart or is the split's (`a1`,
-    // `b`), and one at an `X` state is always attempted: any other part is listed
+    // `b`), and attempted when it has a namesake; one at an `X` state is always attempted: any
+    // other part is listed
     let missing: Vec<String> = ra
         .iter()
         .enumerate()
         .filter(|(i, r)| {
             !paired_a.contains(&rules::display_name(r))
                 && !split.as_ref().is_some_and(|s| s.a1 == *i)
+                && !near.contains_key(i)
         })
         .map(|(_, r)| ("fwd_tr", rules::display_name(r)))
         .chain(
@@ -933,6 +1319,7 @@ pub fn main(args: &[String]) {
                 .filter(|(j, r)| {
                     !paired_b.contains(&rules::display_name(r))
                         && !split.as_ref().is_some_and(|s| s.b == *j)
+                        && !near_b.contains(j)
                 })
                 .map(|(_, r)| ("bwd_tr", rules::display_name(r))),
         )
@@ -941,7 +1328,7 @@ pub fn main(args: &[String]) {
         .collect();
     if !missing.is_empty() {
         fail(&format!(
-            "{} parts are not generated (their rules have no counterpart) and not listed in --open: list each `KIND.«RULE» | hand` (the hand module's) or `KIND.«RULE»` (open): {}",
+            "{} parts are not generated (their rules have no counterpart, nor a rule of the same name on the other side) and not listed in --open: list each `KIND.«RULE» | hand` (the hand module's) or `KIND.«RULE»` (open): {}",
             missing.len(),
             missing.join(", ")
         ));
@@ -965,6 +1352,35 @@ pub fn main(args: &[String]) {
             );
         }
     }
+    // the parts attempted generically (a namesake, not listed); under a legality their closers
+    // unfold it by its unfolding set
+    let attempted: Vec<String> = near
+        .iter()
+        .flat_map(|(i, j)| {
+            [
+                ("fwd_tr", rules::display_name(&ra[*i])),
+                ("bwd_tr", rules::display_name(&rb[*j])),
+            ]
+        })
+        .filter(|(k, r)| !listed.contains_key(&(k.to_string(), r.clone())))
+        .map(|(k, r)| format!("{k}.«{r}»"))
+        .collect();
+    let unfold = inv
+        .as_ref()
+        .and_then(|i| i.unfold.as_ref())
+        .map(|u| u.join(", "));
+    if inv.is_some() && unfold.is_none() && !attempted.is_empty() {
+        fail(&format!(
+            "under a legality, the generic attempts at {} read what the invariant says: pass --invariant-unfold (the invariant-unfold.txt that `gen --invariant` writes beside the first definition's library), or list them in --open",
+            attempted.join(", ")
+        ));
+    }
+    let inv_absurd = unfold
+        .as_ref()
+        .map(|u| format!("k2l_inv_absurd hinv in {na} [{u}]"));
+    let inv_facts = unfold
+        .as_ref()
+        .map(|u| format!("k2l_inv_facts hinv in {na} [{u}]"));
     let tr = format!("tr_{}", crate::terms::fsuffix(&top));
     let (ta, tb) = (format!("{na}.{top}"), format!("{nb}.{top}"));
     let defs_module = opt
@@ -1000,7 +1416,7 @@ pub fn main(args: &[String]) {
     };
     let legality = match &inv {
         Some(i) => format!(
-            "\n\nUnder the legality `{}` (`--assume-invariant`), a predicate of `{na}`'s configurations that its\nsteps preserve (`{}`): the relation holds only at configurations satisfying it, and every part is\nowed only there (`Stutter.FwdTrI`, `Stutter.BwdTrI`, …); the generated parts do not use it.",
+            "\n\nUnder the legality `{}` (`--assume-invariant`), a predicate of `{na}`'s configurations that its\nsteps preserve (`{}`): the relation holds only at configurations satisfying it, and every part is\nowed only there (`Stutter.FwdTrI`, `Stutter.BwdTrI`, …); the parts from a counterpart do not use it, the\ngeneric attempts at a rule against its namesake do.",
             i.name, i.pres
         ),
         None => String::new(),
@@ -1111,8 +1527,9 @@ theorem {x}_next {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ∃ c', {na}.Step c c
     };
     // the priority hypotheses of the other side's steps, per rule whose generated part takes
     // one (design.md, section 3.5, "Priorities")
+    let mut po = String::new();
     let pri = emit_priorities(
-        &mut o,
+        &mut po,
         &mut d,
         &Pri {
             ra: &ra,
@@ -1129,8 +1546,32 @@ theorem {x}_next {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ∃ c', {na}.Step c c
             tr: &tr,
             inv: inv.as_ref().map(|i| i.name.as_str()),
             listed: &listed,
+            inv_absurd: inv_absurd.as_deref(),
+            builtin: &builtin,
         },
     );
+    // the generic attempts' premises (`near_attempt`, `pri_arm`): the rule's hypotheses through the
+    // translation, a priority premise by the earlier rules' clashes, a side condition from what the
+    // legality says at the case; before the priority lemmas, whose arms use them
+    if !attempted.is_empty() || pri.attempts {
+        let facts = inv_facts
+            .as_ref()
+            .map(|f| format!("\n  | ({f}; simp_all; done)\n  | ({f}; k2l_arith_omega)"))
+            .unwrap_or_default();
+        writeln!(
+            o,
+            "/-! ## The generic attempts' premises -/\n\n\
+set_option hygiene false in\n\
+/-- A premise of a namesake's step, or of an earlier rule's match, in a generic attempt: a hypothesis\n\
+of the rule (through the translation), a priority premise (each earlier rule clashes at the case),\n\
+a side condition from what the legality says there. -/\n\
+local macro \"k2l_near_hyp\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (intro j hj hb; cases hb <;> first | omega | (exact absurd hj (by decide)))\n  | (simp only [k2l_rel, *, Option.map_some]; done)\n  | (simp only [k2l_rel] at * <;> simp_all <;> done)\n  | k2l_assumption\n  | (simp [k2l_eq] at *; done)\n  | k2l_arith_omega{facts})\n\n\
+/-- `d' = tr c'` after a backward step of a generic attempt. -/\n\
+local macro \"k2l_near_fin\" : tactic => `(tactic| first | exact Or.inl rfl | (left; simp only [k2l_rel]; done) | (left; simp only [k2l_rel] at * <;> simp_all <;> done))\n"
+        )
+        .unwrap();
+    }
+    o.push_str(&po);
     for ((k, r), _) in listed.iter().filter(|((k, _), _)| k.starts_with("pri_")) {
         let rs = if k == "pri_fwd" { &ra } else { &rb };
         let l = &rs
@@ -1355,6 +1796,41 @@ theorem {x}_next {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ∃ c', {na}.Step c c
             );
         }
     }
+    let lhs_of = |r: &Rule| sides(r).0;
+    // the generic attempt at a rule's part at a translation from its namesake
+    let attempt = |fwd: bool, i: usize, j: usize| {
+        let (own, nr, rs_own, rs_other, near_c) = if fwd {
+            (&ra[i], &rb[j], &ra, &rb, &cb[j])
+        } else {
+            (&rb[j], &ra[i], &rb, &ra, &ca[i])
+        };
+        let l = lhs_of(own);
+        near_attempt(&Near {
+            fwd,
+            part: format!(
+                "{}.«{}»",
+                if fwd { "fwd_tr" } else { "bwd_tr" },
+                rules::display_name(own)
+            ),
+            own,
+            near: nr,
+            near_args: &near_c.args,
+            earlier_own: rs_own
+                .iter()
+                .filter(|q| rank(q) < rank(own) && may_unify(&l, &lhs_of(q)))
+                .map(|q| (q, rank(q)))
+                .collect(),
+            earlier_other: rs_other
+                .iter()
+                .filter(|q| rank(q) < rank(nr) && may_unify(&l, &lhs_of(q)))
+                .collect(),
+            na: &na,
+            nb: &nb,
+            builtin: &builtin,
+            inv_absurd: inv_absurd.as_deref(),
+        })
+    };
+    let near_back: BTreeMap<usize, usize> = near.iter().map(|(i, j)| (*j, *i)).collect();
     writeln!(o, "/-! ## Forward: the steps of `{na}` -/\n").unwrap();
     for (idx, (r, c)) in ra.iter().zip(&ca).enumerate() {
         let name = rules::display_name(r);
@@ -1375,7 +1851,8 @@ theorem {x}_next {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ∃ c', {na}.Step c c
                     .as_ref()
                     .filter(|(i, _)| *i == idx)
                     .map(|(_, t)| t.clone())
-            });
+            })
+            .or_else(|| near.get(&idx).map(|&j| attempt(true, idx, j)));
         let ht = part(&mut o, "fwd_tr", (&name, &c.lean), args, tr_auto);
         // a rule of a rank before `a2`'s may match `A`'s side of `X` (one that does not read what
         // `a1` changed: K's stream rules), where `X`'s `hp` says no such rule applies
@@ -1415,7 +1892,8 @@ theorem {x}_next {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ∃ c', {na}.Step c c
                     pri_b(idx, &args.join(" "), "c", hinv, "hd.symm")
                 )
             })
-            .or_else(|| split_bwd_tr.as_ref().filter(|(i, _)| *i == idx).map(|(_, t)| t.clone()));
+            .or_else(|| split_bwd_tr.as_ref().filter(|(i, _)| *i == idx).map(|(_, t)| t.clone()))
+            .or_else(|| near_back.get(&idx).map(|&i| attempt(false, i, idx)));
         let ht = part(&mut o, "bwd_tr", (&name, &c.lean), args, tr_auto);
         let x_auto = split_bwd_x.get(&idx).cloned().unwrap_or_else(|| {
             "intro c hX; cases hX <;> first | done | contradiction | (simp_all; done)".to_string()
@@ -1518,6 +1996,11 @@ theorem run_terminal_back{ob} {{c : {ta}}} {{d' : {tb}}}{hia} (h : Star {nb}.Ste
         .map(|i| format!("import {}\n", i.module))
         .unwrap_or_default();
     let out = get("out");
+    let attempts_import = if attempted.is_empty() && !pri.attempts {
+        ""
+    } else {
+        "import KPrelude.RefineAttempt\n"
+    };
     let head = if generated {
         let trm = opt.get("tr-module").cloned().unwrap_or(format!("{ns}.Tr"));
         let defs = format!(
@@ -1538,11 +2021,14 @@ set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace
                 .to_string_lossy(),
             &defs,
         );
-        format!("import {}\n\n", hand.as_deref().unwrap_or(&defs_module))
+        format!(
+            "import {}\n{attempts_import}\n",
+            hand.as_deref().unwrap_or(&defs_module)
+        )
     } else {
         // with a relation module the definitions open the output module
         format!(
-            "import {}\n{inv_import}\n",
+            "import {}\n{inv_import}{attempts_import}\n",
             hand.as_deref().unwrap_or_default()
         )
     };
@@ -1586,7 +2072,7 @@ set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace
     }
     writeln!(
         rep,
-        "\n[hand]\ncases = {hand_cases:?}\n\n[open]\ncases = {open_cases:?}"
+        "\n[attempts]\ncases = {attempted:?}\n\n[hand]\ncases = {hand_cases:?}\n\n[open]\ncases = {open_cases:?}"
     )
     .unwrap();
     if let Some(dir) = opt.get("witnesses") {
