@@ -1042,7 +1042,13 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
         ),
     ] {
         let (state, stderr) = run(program);
-        let mut lines = stderr.lines();
+        // The verdict follows any warning the print gave: `prj(noval(red))`'s state keeps the
+        // definedness of the projection it holds, `\ceil(noval(zero()))`, which no solver
+        // reading decides, and printing that constrained state groups it in K's default bracket
+        // (NT-40's warning).
+        let mut lines = stderr
+            .lines()
+            .skip_while(|line| line.starts_with("warning: "));
         assert_eq!(
             lines.next().and_then(|line| line.split(';').next()),
             Some("krs run: undefined after 0 steps"),
