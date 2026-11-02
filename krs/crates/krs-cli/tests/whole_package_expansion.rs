@@ -603,6 +603,10 @@ mod twin {
 #[cfg(all())]
 #[path = "twin_file.rs"]
 mod twin;
+// Configured out, reading the file the held `twin` reads: its descriptors are `twin`'s.
+#[cfg(any())]
+#[path = "twin_file.rs"]
+mod ghost;
 
 // One file read by two modules, printed once.
 #[path = "plain.rs"]

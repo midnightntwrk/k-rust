@@ -39,8 +39,8 @@ class NormalizationTests(unittest.TestCase):
 
     def test_a_raw_k_comment_is_read_without_its_position(self) -> None:
         self.assertEqual(
-            sentences("rule a\\n// raw_k! src/lib.rs:38:1 (opaque to KRS)\\nrule b"),
-            sentences("rule a\\n// raw_k! src/lib.rs:43:1 (opaque to KRS)\\nrule b"),
+            sentences("rule a\n// raw_k! src/lib.rs:38:1 (opaque to KRS)\nrule b"),
+            sentences("rule a\n// raw_k! src/lib.rs:43:1 (opaque to KRS)\nrule b"),
         )
 
     def test_a_missing_sentence_is_a_difference_at_any_position(self) -> None:
@@ -48,12 +48,12 @@ class NormalizationTests(unittest.TestCase):
             authored, printed = Path(temporary, "a"), Path(temporary, "b")
             authored.mkdir()
             printed.mkdir()
-            (authored / "definition.k").write_text("rule a\\nrule b\\n", encoding="utf-8")
-            (printed / "definition.k").write_text("rule a\\n", encoding="utf-8")
+            (authored / "definition.k").write_text("rule a\nrule b\n", encoding="utf-8")
+            (printed / "definition.k").write_text("rule a\n", encoding="utf-8")
             self.assertTrue(differences(authored, printed))
-            (printed / "definition.k").write_text("rule a\\nrule b\\n", encoding="utf-8")
+            (printed / "definition.k").write_text("rule a\nrule b\n", encoding="utf-8")
             self.assertEqual(differences(authored, printed), [])
-            (printed / "spec.k").write_text("claim c\\n", encoding="utf-8")
+            (printed / "spec.k").write_text("claim c\n", encoding="utf-8")
             self.assertTrue(differences(authored, printed))
 
 
