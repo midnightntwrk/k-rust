@@ -1988,17 +1988,84 @@ fn confluence_witnesses_under_an_invariant_are_legal() {
     }
     assert!(!m.contains("def witness."), "{m}");
     assert!(
-        r.contains("open_refuted_by = \"two-spends\"\nlegal_by = \"hand\"\n"),
+        r.contains("open_refuted_by = \"two-spends\"\nlegal_by = { \"two-spends\" = \"hand\" }\n"),
         "{r}"
     );
-    // a witness not shown legal; a legality not the hand module's; one without the invariant; an
-    // unknown witness
+    // not listed: the witness is the initial configuration of its program, so its legality is
+    // `init_holds` at it, a hypothesis of which `decide` attempts (whether it is decided is the
+    // build's: TwoOutConf's is not, and lists it `| hand`)
+    let o = run(slot, true);
+    assert!(o.status.success(), "{}", err(&o));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
+    for x in [
+        "import KPrelude.InvColl\n",
+        "theorem witness.«two-spends».legal : TwoLayer.Invariant witness.«two-spends» := by\n  simp only [witness.«two-spends», KPrelude.MapHook.ofEntries_one, KPrelude.MapHook.ofEntries_nil]\n  apply TwoLayer.Invariant.init_holds <;>\n    first | decide | fail ",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(!m.contains("hand.witness"), "{m}");
+    assert!(
+        r.contains("legal_by = { \"two-spends\" = \"init\" }\n"),
+        "{r}"
+    );
+    // a witness that is not an initial configuration (its counter moved), and an invariant not the
+    // generated library's, each unless listed `| hand`
+    let kore = std::fs::read_to_string(w.join("two-spends.kore")).unwrap();
+    let c0 = "generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\")";
+    assert_eq!(kore.matches(c0).count(), 1);
+    std::fs::write(
+        w.join("two-spends.kore"),
+        kore.replace(c0, "generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"5\")"),
+    )
+    .unwrap();
     let o = run(slot, true);
     assert!(
-        !o.status.success() && err(&o).contains("must satisfy the invariant"),
+        !o.status.success() && err(&o).contains("is not the initial configuration"),
         "{}",
         err(&o)
     );
+    assert!(run(&format!("{slot}{legal}"), true).status.success());
+    std::fs::write(w.join("two-spends.kore"), kore).unwrap();
+    std::fs::write(d.join("open.txt"), slot).unwrap();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_k2lean"));
+    let o = c
+        .arg("confluence")
+        .arg("--kore")
+        .arg(fx.join("definition.kore"))
+        .args([
+            "--name",
+            "TwoLayer",
+            "--ns",
+            "TW",
+            "--threads",
+            "tasks",
+            "--obs",
+            "vals",
+        ])
+        .args([
+            "--assume-invariant",
+            "TW.Legal",
+            "--invariant-preserved",
+            "TW.Legal.preserved",
+        ])
+        .args(["--invariant-module", "TW.Legal"])
+        .arg("--witnesses")
+        .arg(&w)
+        .arg("--slots")
+        .arg(d.join("Slots.lean"))
+        .arg("--open-joins")
+        .arg(d.join("open.txt"))
+        .arg("--out")
+        .arg(d.join("Views.lean"))
+        .output()
+        .unwrap();
+    assert!(
+        !o.status.success() && err(&o).contains("is not the generated library's invariant"),
+        "{}",
+        err(&o)
+    );
+    // a legality not the hand module's; one without the invariant; an unknown witness
     let o = run(
         &format!("{slot}witness.«two-spends».legal | refuted\n"),
         true,

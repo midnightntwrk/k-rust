@@ -207,11 +207,13 @@ libs_confluence() {
         --slots "$DEMOS/TwoParamConf/TwoParamConf/Slots.lean" \
         --out "$DEMOS/TwoParamConf/TwoParamConf/Views.lean" --report "$DEMOS/TwoParamConf/confluence.toml" ;;
     # under `valsOk` alone the same races remain: refuted from programs `valsOk` admits
-    # (`witness.W.legal`, the hand module's) at the instance `TwoParamOkConf.seg` (the hand module's)
+    # (`witness.W.legal`, generated: each is an initial configuration, `Invariant.init_holds`) at the
+    # instance `TwoParamOkConf.seg` (TwoParamOkConf/Hand.lean)
     TwoParamOkConf) "$G" confluence --kore "$(libs_fixture twoparam)/definition.kore" --name TwoParam \
         --ns TwoParamOkConf --threads tasks --obs vals --assume-invariant TwoParam.Invariant \
-        --hand-module TwoParamOkConf.Hand --open-joins "$DEMOS/TwoParamOkConf/open-joins.txt" \
+        --open-joins "$DEMOS/TwoParamOkConf/open-joins.txt" \
         --witnesses "$(libs_fixture twoparam)/witnesses" --witness-instance TwoParamOkConf.seg \
+        --witness-instance-module TwoParamOkConf.Hand \
         --slots "$DEMOS/TwoParamOkConf/TwoParamOkConf/Slots.lean" \
         --out "$DEMOS/TwoParamOkConf/TwoParamOkConf/Views.lean" --report "$DEMOS/TwoParamOkConf/confluence.toml" ;;
     # the translations of code between twoparam and corout, both ways (`relate --roots SortStmts`, by

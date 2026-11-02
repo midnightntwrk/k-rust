@@ -1,7 +1,6 @@
 import TwoParamOkConf.Views
-import TwoParam.Invariants
 
-/-! The instance the witnesses run at, and each witness's legality, by hand.
+/-! The instance the witnesses run at, by hand.
 
 `seg` runs a segment as the coroutine language does (`tests/fixtures/corout`: `add`, `dbl`,
 `loop`, to the next `yield` or the code's end), within a bound on its steps: the segment's
@@ -10,8 +9,8 @@ so its resume does not step; the witnesses' segments take a few steps each. It i
 the elaborator's search and the kernel run it; `TwoParamInst.hooks`, the segments as corout's own
 runs, is not (it chooses a run's end), so the witnesses cannot run at it.
 
-Each witness is the initial configuration of its program (`TwoParam.init`), and every initial
-configuration satisfies `valsOk` (its `<vals>` is empty; `Invariant.init_holds`). -/
+Each witness's legality is generated (`witness.W.legal` in `Slots.lean`): it is the initial
+configuration of its program (`TwoParam.init`), which satisfies `valsOk` (`Invariant.init_holds`). -/
 
 namespace TwoParamOkConf
 
@@ -38,22 +37,5 @@ def run : Nat → Int → SortStmts → Option (Int × SortStmts)
 def seg : TwoParam.Hooks where
   «fn.segReg(_,_)_TWOPARAM_Int_Int_Stmts» R C := (run 1000 R C).map (·.1)
   «fn.segCode(_,_)_TWOPARAM_Stmts_Int_Stmts» R C := (run 1000 R C).map (·.2)
-
-attribute [local instance] seg
-
-/-- A configuration that is initial satisfies the invariant. -/
-theorem legal_of_init {c : SortGeneratedTopCell} (pgm : SortPgm) (h : c = init pgm) : Invariant c :=
-  h ▸ Invariant.init_holds pgm
-
-local macro "init_legal" : tactic => `(tactic| (refine legal_of_init ?pgm ?h; case h => simp only [init, MapHook.ofEntries_one, MapHook.ofEntries_nil]; rfl))
-
-theorem hand.witness.«two-news».legal : Invariant witness.«two-news» := by
-  unfold witness.«two-news»; init_legal
-theorem hand.witness.«two-resumes».legal : Invariant witness.«two-resumes» := by
-  unfold witness.«two-resumes»; init_legal
-theorem hand.witness.«lit-and-oid».legal : Invariant witness.«lit-and-oid» := by
-  unfold witness.«lit-and-oid»; init_legal
-theorem hand.witness.«two-spends».legal : Invariant witness.«two-spends» := by
-  unfold witness.«two-spends»; init_legal
 
 end TwoParamOkConf

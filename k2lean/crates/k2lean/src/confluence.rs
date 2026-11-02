@@ -35,9 +35,12 @@
 //! search in the elaborator and checked by the kernel (`k2l_two_runs`). Then the open slots are
 //! not all true (`Open.refuted`, through `terminal_unique`), and a slot listed
 //! `NAME | refuted WITNESS` is refuted at a peak the witness reaches. Under a program hypothesis
-//! every witness satisfies it (`witness.NAME.legal`, the hand module's, listed
-//! `witness.NAME.legal | hand`), so the refutations are from starts the theorem is about; the
-//! witnesses are then defined in the views, where the hand module reads them. A library with
+//! every witness satisfies it (`witness.NAME.legal`), so the refutations are from starts the
+//! theorem is about. Under the generated library's invariant, a witness that is the initial
+//! configuration at some values of the configuration variables (`init::witnesses`) satisfies it
+//! by `Invariant.init_holds` there, whose hypotheses `decide` attempts; otherwise, or when listed
+//! `witness.NAME.legal | hand`, it is the hand module's. The witnesses are then defined in the
+//! views, where the hand module reads them. A library with
 //! parameters (`class Hooks`) runs its witnesses at an instance the author names
 //! (`--witness-instance NAME`, a computable `LIB.Hooks` defined in `--witness-instance-module`,
 //! else in the hand module): the witnesses' section is outside the `[Hooks]` binder, with `NAME` a
@@ -1041,6 +1044,9 @@ pub(crate) struct Witness {
     pub name: String,
     pub value: String,
     pub program: Option<String>,
+    /// Whether it is the initial configuration at some values of the configuration variables
+    /// (`init::witnesses`), so that `Invariant.init_holds` speaks of it.
+    pub initial: bool,
 }
 
 fn read_witnesses(dir: &str, lib: &Lib) -> Vec<Witness> {
@@ -1065,6 +1071,7 @@ fn read_witnesses(dir: &str, lib: &Lib) -> Vec<Witness> {
         }
     }
     let conv = crate::convert::Conv::new(&lib.m, &lib.def);
+    let init = crate::init::of(&lib.def);
     let read = |p: &std::path::Path| {
         std::fs::read_to_string(p).unwrap_or_else(|e| fail(&format!("{}: {e}", p.display())))
     };
@@ -1077,14 +1084,19 @@ fn read_witnesses(dir: &str, lib: &Lib) -> Vec<Witness> {
         };
         let pat = k_rust_kore::kore::parser::parse_pattern(read(&kore).trim())
             .unwrap_or_else(|e| fail(&format!("{}: {e:?}", kore.display())));
+        let pat = ir::pat(&pat);
         let value = conv
-            .value(&ir::pat(&pat), &lib.top)
+            .value(&pat, &lib.top)
             .unwrap_or_else(|e| fail(&format!("{}: {e}", kore.display())))
             .render();
+        let initial = init
+            .as_ref()
+            .is_some_and(|t| crate::init::witnesses(t, &pat, &lib.def).is_some());
         out.push(Witness {
             name,
             value,
             program: program.map(|p| read(&p).trim_end().to_string()),
+            initial,
         });
     }
     if out.is_empty() {
@@ -1417,6 +1429,7 @@ pub fn main(args: &[String]) {
     // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
     let inv = opt.get("assume-invariant").map(|inv| views::Inv {
         name: inv.clone(),
+        generated: *inv == format!("{name}.Invariant") && !opt.contains_key("invariant-module"),
         pres: opt
             .get("invariant-preserved")
             .cloned()
@@ -1569,9 +1582,22 @@ pub fn main(args: &[String]) {
                 views::open_witness(so)
             )
             .unwrap();
-            // under the invariant, each witness satisfies it (`witness.NAME.legal`)
+            // under the invariant, each witness satisfies it (`witness.NAME.legal`): as an initial
+            // configuration (`init`), or by the hand module (`hand`)
             if so.inv.is_some() {
-                writeln!(prem, "legal_by = \"hand\"").unwrap();
+                let by: Vec<String> = so
+                    .witnesses
+                    .iter()
+                    .map(|w| {
+                        let by = if views::legal_by_hand(so, w) {
+                            "hand"
+                        } else {
+                            "init"
+                        };
+                        format!("{:?} = \"{by}\"", w.name)
+                    })
+                    .collect();
+                writeln!(prem, "legal_by = {{ {} }}", by.join(", ")).unwrap();
             }
             // a library with parameters: the instance they run at
             if let Some(i) = &so.instance {
@@ -1897,6 +1923,9 @@ mod views {
     #[derive(Clone)]
     pub(super) struct Inv {
         pub name: String,
+        /// the generated library's invariant (`LIB.Invariant` of `LIB.Invariants`), whose
+        /// `init_holds` states it at the initial configuration
+        pub generated: bool,
         pub pres: String,
         pub module: String,
     }
@@ -4423,6 +4452,10 @@ def SameThreadJoins : Prop :=
         }
         if !so.witnesses.is_empty() {
             writeln!(m, "import KPrelude.TwoRuns\nimport {name}.Adequacy").unwrap();
+            // `MapHook.ofEntries_one`, `ofEntries_nil`: a witness's legality from `init`
+            if so.inv.is_some() && so.witnesses.iter().any(|w| !legal_by_hand(so, w)) {
+                writeln!(m, "import KPrelude.InvColl").unwrap();
+            }
             if so.fuel.is_some() {
                 writeln!(m, "import {name}.Fuel").unwrap();
             }
@@ -4836,8 +4869,15 @@ def SameThreadJoins : Prop :=
         } else if !so.witnesses.is_empty() {
             let w = "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted on its\nown (`NAME.refuted`): a configuration the witness reaches has steps by its two rules that do not\njoin within one step each (`witness.NAME.peaks`, `k2l_peaks`). That refutes the slot, not the definition: two steps may\njoin later.";
             let w = if so.inv.is_some() {
+                let by = if so.witnesses.iter().all(|w| legal_by_hand(so, w)) {
+                    "the hand module's"
+                } else if so.witnesses.iter().any(|w| legal_by_hand(so, w)) {
+                    "as an initial configuration, `init_holds`, or the hand module's"
+                } else {
+                    "as an initial configuration, `init_holds`"
+                };
                 format!(
-                    "{w}\nEach witness satisfies the program hypothesis (`witness.NAME.legal`, the hand module's), so the\nruns start where `terminal_unique` speaks."
+                    "{w}\nEach witness satisfies the program hypothesis (`witness.NAME.legal`, {by}), so the\nruns start where `terminal_unique` speaks."
                 )
             } else {
                 w.to_string()
@@ -4864,6 +4904,13 @@ def SameThreadJoins : Prop :=
         (m, status)
     }
 
+    /// Whether a witness's legality under the invariant is the hand module's (listed
+    /// `witness.NAME.legal | hand`); otherwise it is generated from the initial configuration.
+    pub(super) fn legal_by_hand(so: &SlotOpts, w: &super::Witness) -> bool {
+        let n = format!("witness.{}.legal", crate::names::ident(&w.name));
+        so.list.get(&n) == Some(&super::Mark::Hand)
+    }
+
     /// The witness whose runs refute `Open`: the one a slot names (`| refuted NAME`), else the
     /// first.
     pub(super) fn open_witness(so: &SlotOpts) -> &str {
@@ -4880,10 +4927,13 @@ def SameThreadJoins : Prop :=
     /// with different observations (`witness.NAME.refutes`), and from them `Open.refuted`, through
     /// `terminal_unique`, whose premise is `Open`; and each slot listed `| refuted NAME`, refuted at
     /// a peak `NAME` reaches (`witness.NAME.peaks` by `k2l_peaks`, the views' `peak_open`, `peak_same`,
-    /// `peak_key`). Under the invariant every witness satisfies it (`witness.NAME.legal`, the hand
-    /// module's, listed `witness.NAME.legal | hand`), which `terminal_unique` and the peaks take: a
-    /// refutation from a start outside it says nothing of the starts the theorem is about. The
-    /// witnesses are then defined in the views (`o`), which the hand module reads.
+    /// `peak_key`). Under the invariant every witness satisfies it (`witness.NAME.legal`), which
+    /// `terminal_unique` and the peaks take: a refutation from a start outside it says nothing of
+    /// the starts the theorem is about. It is generated for a witness that is an initial
+    /// configuration under the generated library's invariant (`Invariant.init_holds` at it, a
+    /// hypothesis of which `decide` attempts), else the hand module's (listed
+    /// `witness.NAME.legal | hand`). The witnesses are then defined in the views (`o`), which the
+    /// hand module reads.
     #[allow(clippy::too_many_arguments)]
     fn emit_witnesses(
         o: &mut String,
@@ -4930,9 +4980,16 @@ def SameThreadJoins : Prop :=
             if so.instance.is_some() {
                 writeln!(o, "\nend {ns}\n\nnamespace {ns}").unwrap();
             }
+            let by = if so.witnesses.iter().all(|w| legal_by_hand(so, w)) {
+                "whose legality the hand module proves"
+            } else if so.witnesses.iter().any(|w| legal_by_hand(so, w)) {
+                "whose legality the slots module proves from `init`, or the hand module"
+            } else {
+                "whose legality the slots module proves from `init`"
+            };
             writeln!(
                 o,
-                "\n/-! ## The witness programs (`--witnesses`), whose legality the hand module proves -/\n"
+                "\n/-! ## The witness programs (`--witnesses`), {by} -/\n"
             )
             .unwrap();
         }
@@ -4969,18 +5026,42 @@ def SameThreadJoins : Prop :=
             .unwrap();
             if let Some(inv) = &so.inv {
                 let n = format!("witness.{id}.legal");
-                if so.list.get(&n) != Some(&super::Mark::Hand) {
-                    super::fail(&format!(
-                        "--witnesses: `{}` must satisfy the invariant: list `{n} | hand` in --open-joins, proved by the hand module (`hand.{n}`); the invariant's evaluation at a configuration is not generated yet",
-                        w.name
-                    ));
+                if legal_by_hand(so, w) {
+                    writeln!(
+                        body,
+                        "/-- The witness `{}` satisfies the invariant (the hand module's){at}. -/\ntheorem {n} : {} witness.{id} := hand.{n}\n",
+                        w.name, inv.name
+                    )
+                    .unwrap();
+                } else {
+                    let why = if !inv.generated {
+                        format!(
+                            "`{}` is not the generated library's invariant, which states itself at the initial configuration (`{name}.Invariant.init_holds`)",
+                            inv.name
+                        )
+                    } else if !w.initial {
+                        format!(
+                            "it is not the initial configuration (`{name}.init`) at any values of the configuration variables"
+                        )
+                    } else {
+                        String::new()
+                    };
+                    if !why.is_empty() {
+                        super::fail(&format!(
+                            "--witnesses: `{}` must satisfy the invariant, and {why}: list `{n} | hand` in --open-joins, proved by the hand module (`hand.{n}`)",
+                            w.name
+                        ));
+                    }
+                    // the witness's map literals of one binding or none as `init` writes them; the
+                    // unifier finds the configuration variables' values through `init`'s definition
+                    writeln!(
+                        body,
+                        "/-- The witness `{}` is the initial configuration of its program (`{name}.init`), so it\nsatisfies the invariant (`{inv}.init_holds`){at}. -/\ntheorem {n} : {inv} witness.{id} := by\n  simp only [witness.{id}, KPrelude.MapHook.ofEntries_one, KPrelude.MapHook.ofEntries_nil]\n  apply {inv}.init_holds <;>\n    first | decide | fail \"a hypothesis of {inv}.init_holds at `witness.{id}` is not decided: list `{n} | hand`\"\n",
+                        w.name,
+                        inv = inv.name
+                    )
+                    .unwrap();
                 }
-                writeln!(
-                    body,
-                    "/-- The witness `{}` satisfies the invariant (the hand module's){at}. -/\ntheorem {n} : {} witness.{id} := hand.{n}\n",
-                    w.name, inv.name
-                )
-                .unwrap();
                 guard.push(n);
             }
             writeln!(
