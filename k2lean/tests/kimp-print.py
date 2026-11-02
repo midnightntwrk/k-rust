@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """Write kimp with output to K's stdout stream, for `k2lean refine` with priority ranks.
 
-usage: kimp-print.py KIMP_DIR OUT_DIR
+usage: kimp-print.py KIMP_DIR OUT_DIR [plain]
 
 Copies kimp's `expr.k` and `imp.k` and writes its `calc.k` with an `<output stream="stdout">`
 cell and the statement `print ( E ) ;` (strict), which appends an integer to it. The stream
 attribute brings K's stdout stream rules, at priorities 25 and 30, before the default 50: a
 configuration whose output buffer has an element flushes it before any other rule steps. With
 tests/kimp-unroll.py applied to the written `imp.k`, the two sides of `demos/ImpPrintRefine`
-(`docs/design.md`, section 3.5). The script fails if `calc.k` does not contain exactly the text
-it rewrites.
+(`docs/design.md`, section 3.5). With `plain`, the cell has no stream attribute: a cell that only
+appends, observed by equality in `demos/ImpOutNI` (section 3.7). The script fails if `calc.k` does
+not contain exactly the text it rewrites.
 """
 import os
 import shutil
 import sys
 
 src, dst = sys.argv[1], sys.argv[2]
+plain = sys.argv[3:] == ["plain"]
+if sys.argv[3:] and not plain:
+    sys.exit("kimp-print.py: the third argument is `plain` or absent")
 os.makedirs(dst, exist_ok=True)
 for f in ("expr.k", "imp.k"):
     shutil.copy(os.path.join(src, f), os.path.join(dst, f))
@@ -33,8 +37,8 @@ edits = [
 '''),
     ('''    <env color="yellow"> $ENV:Map  </env>
 ''', '''    <env color="yellow"> $ENV:Map  </env>
-    <output stream="stdout"> .List </output>
-'''),
+    <output%s> .List </output>
+''' % ("" if plain else ' stream="stdout"')),
     ('''  rule [assign]:''', '''  rule [print]:
     <k> print ( I:Int ) ; => .K ... </k>
     <output> ... .List => ListItem(I) </output>

@@ -27,7 +27,9 @@
 //! receiving a value (the disclosed expression's evaluation), the two runs' disclosures in
 //! progress (`Pend`), and runs whose disclosed values differ (`Div`, kept by every step since a
 //! step only appends), with three more per-rule properties of one run (`AppendQ`, `CoolQ`,
-//! `DiscQ`); its text is filled from the templates in `ni_full/`.
+//! `DiscQ`); its text is filled from the templates in `ni_full/`. Without a disclosure cell, the
+//! relation is the one above with the observed cells equal in it and unchanged by a confined step,
+//! and the values' facts of `ni_full/` (a rule may leave a value read from a cell).
 
 use crate::confluence::{load, proj_def};
 use crate::ir::P;
@@ -73,9 +75,20 @@ pub fn main(args: &[String]) {
         .map(crate::rules::display_name)
         .collect();
     if !background.is_empty() {
+        // K's stream rules: the writer `#write` is undefined in the model (`IOHook.undef2`), so
+        // the write rule applies (`App`) to a nonempty buffer and never steps, and a rule of a
+        // later rank never steps after it
+        let stream = background
+            .iter()
+            .any(|r| r.ends_with("-STREAM.stdoutWrite") || r.ends_with("-STREAM.stderrWrite"));
         fail(&format!(
-            "rules that do not step a nonempty <k> of the top cell ({}): a configuration whose <k> is empty may still step, so `Final` (`<k>` empty) would not be terminal; not supported",
-            background.join(", ")
+            "rules that do not step a nonempty <k> of the top cell ({}): a configuration whose <k> is empty may still step, so `Final` (`<k>` empty) would not be terminal; not supported{}",
+            background.join(", "),
+            if stream {
+                " (K's output stream: `#write` is undefined in the model, so a run that writes and continues never ends; observe output as a cell that appends, without the stream attribute)"
+            } else {
+                ""
+            }
         ));
     }
     // `--store-ok F`: the statement's facts are generated from the two definitions (`spec`), in
@@ -359,6 +372,8 @@ enum InputKind {
 struct Input {
     /// `$X` without the `$`
     var: String,
+    /// the cells of the initial configuration that hold it
+    cells: BTreeSet<String>,
     /// its Lean type
     ty: String,
     /// the stem of the statement's variables (`E` for `E₁ E₂`)
@@ -510,8 +525,10 @@ fn statement(
     store_sort: &str,
     low: &str,
 ) -> Statement {
-    let vars: Vec<crate::init::ConfigVar> = crate::init::of(&lib.def)
-        .unwrap_or_else(|| fail("no initial configuration (topCellInitializer)"))
+    let it = crate::init::of(&lib.def)
+        .unwrap_or_else(|| fail("no initial configuration (topCellInitializer)"));
+    let held = input_cells(&it);
+    let vars: Vec<crate::init::ConfigVar> = it
         .vars
         .into_iter()
         .filter(|v| v.name.trim_start_matches('$') != "PGM")
@@ -561,6 +578,7 @@ fn statement(
             };
             stems.insert(stem.clone());
             Input {
+                cells: held.get(&v.kore_var).cloned().unwrap_or_default(),
                 var,
                 ty: v.sort.clone(),
                 stem,
@@ -601,6 +619,35 @@ fn statement(
         disclosed: opt.get("disclosed").cloned(),
         classic,
     }
+}
+
+/// The cells of the initial configuration that hold each configuration variable (by its KORE
+/// variable): the innermost cell around each occurrence.
+fn input_cells(it: &crate::init::InitTerm) -> BTreeMap<String, BTreeSet<String>> {
+    fn go(p: &P, cell: Option<&str>, out: &mut BTreeMap<String, BTreeSet<String>>) {
+        match p {
+            P::Var(x, _) => {
+                if let Some(c) = cell {
+                    out.entry(x.clone()).or_default().insert(c.to_string());
+                }
+            }
+            P::App(f, _, args) => {
+                let d = crate::names::demangle(f);
+                let inner = d
+                    .strip_prefix('<')
+                    .and_then(|x| x.strip_suffix('>'))
+                    .filter(|x| !x.is_empty() && !x.contains(['<', '>']));
+                for a in args {
+                    go(a, inner.or(cell), out);
+                }
+            }
+            P::And(_, ps) => ps.iter().for_each(|q| go(q, cell, out)),
+            _ => {}
+        }
+    }
+    let mut out = BTreeMap::new();
+    go(&it.term, None, &mut out);
+    out
 }
 
 /// The sort the labelling labels: that of the variable `X` that an equation of `--lev` looks up
@@ -1210,23 +1257,34 @@ attribute [simp] litem0_{hs} citem0_{hs} litem_false citem_false\n",
         },
     )
     .unwrap();
-    // the per-rule properties
+    // the per-rule properties; with cells observed by equality (`pubOf`) and no disclosure cell,
+    // the observation is equal in `Sync` and `SameQ` and unchanged by a confined step
+    let pubq = !st.pubs.is_empty() && st.disclosed.is_none();
+    let (pub_cq, pub_sync, pub_same) = if pubq {
+        (
+            " ∧\n      pubOf c' = pubOf c",
+            " ∧\n    pubOf c₁ = pubOf c₂",
+            " ∧\n    pubOf c₁' = pubOf c₂'",
+        )
+    } else {
+        ("", "", "")
+    };
     let good = opt.get("good").cloned().unwrap_or("Good".into());
     let hionly = opt.get("hi-only").cloned().unwrap_or("HiOnly G".into());
     writeln!(
         s,
         "\n/-! ## The per-rule properties -/\n\n\
 /-- A step of a run inside a confined stack keeps it a confined stack over the same continuation,\nand changes the store only at high identifiers. -/\n\
-def CQ (G : Lab) (c c' : {topt}) : Prop :=\n  ∀ K, CK G K false (kOf c) → kOf c ≠ K → {good} (storeOf c) →\n    CK G K false (kOf c') ∧ {hionly} (storeOf c) (storeOf c')\n\n\
+def CQ (G : Lab) (c c' : {topt}) : Prop :=\n  ∀ K, CK G K false (kOf c) → kOf c ≠ K → {good} (storeOf c) →\n    CK G K false (kOf c') ∧ {hionly} (storeOf c) (storeOf c'){pub_cq}\n\n\
 /-- The first `n` items of `<k>` dropped. -/\ndef dropK : Nat → {kt} → {kt}\n  | 0, k => k\n  | _ + 1, .dotk => .dotk\n  | n + 1, .kseq _ k => dropK n k\n\n\
 /-- A step from a low stack leads to a confined stack over a low stack (the confined part is empty\nunless the step enters a high assignment or a branch on a high condition). -/\n\
 def SQ (G : Lab) (c c' : {topt}) : Prop :=\n  lk G false (kOf c) = true → {good} (storeOf c) → ∃ K, CK G K false (kOf c') ∧ lk G false K = true\n\n\
 theorem sq_base {{G : Lab}} {{k : {kt}}} (h : lk G false k = true) :\n    ∃ K, CK G K false k ∧ lk G false K = true := ⟨k, CK_base G k, h⟩\n\n\
 theorem sq_drop2 {{G : Lab}} {{k : {kt}}} (h₁ : CK G (dropK 2 k) false k)\n    (h₂ : lk G false (dropK 2 k) = true) : ∃ K, CK G K false k ∧ lk G false K = true :=\n  ⟨_, h₁, h₂⟩\n\n\
 /-- Both runs at the same low stack, with low-equal stores. -/\n\
-def Sync (G : Lab) (c₁ c₂ : {topt}) : Prop :=\n  kOf c₁ = kOf c₂ ∧ lk G false (kOf c₁) = true ∧ {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
+def Sync (G : Lab) (c₁ c₂ : {topt}) : Prop :=\n  kOf c₁ = kOf c₂ ∧ lk G false (kOf c₁) = true ∧ {low_eq} (storeOf c₁) (storeOf c₂){pub_sync}\n\n\
 /-- From the same low stack, the other run steps to the same stack, with low-equal stores. -/\n\
-def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → kOf c₁' = kOf c₂' ∧ {low_eq} (storeOf c₁') (storeOf c₂')\n"
+def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → kOf c₁' = kOf c₂' ∧ {low_eq} (storeOf c₁') (storeOf c₂'){pub_same}\n"
     )
     .unwrap();
     // the closers
@@ -1268,15 +1326,18 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
     .unwrap();
     let _ = projs;
 
-    // ---- up to disclosure: the further constructs (filled from `ni_full/`)
-    let full = st.disclosed.as_ref().map(|dcell| {
-        if st.pubs.is_empty() {
+    // ---- the statement's general form (`--inputs`, `--observe`): the values (`KResult`), which a
+    // rule leaves from a cell (`witness()`, `read`) and the checker reads (`quiet`); up to
+    // disclosure, the further constructs (all filled from `ni_full/`)
+    let general = (!st.classic).then(|| {
+        let dcell = st.disclosed.as_ref();
+        if dcell.is_some() && st.pubs.is_empty() {
             fail("--disclosed: the observation is expected to include cells compared by equality (--observe)");
         }
-        if st.related().next().is_some() {
+        if dcell.is_some() && st.related().next().is_some() {
             fail("--disclosed: inputs related by a relation are not supported yet (public or private)");
         }
-        let d = disclosure(&a, dcell);
+        let d = dcell.map(|c| disclosure(&a, c));
         let vs_full = value_sort(&a.m, &hole);
         let vs = names::short_sort(&vs_full).to_string();
         let leaves: Vec<String> = a
@@ -1288,7 +1349,7 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
             .collect();
         let need = |n: String| {
             if !inv_names.contains(&n) {
-                fail(&format!("--disclosed: no inversion lemma {n} (the checker's value at a value)"));
+                fail(&format!("no inversion lemma {n} (the checker's value at a value)"));
             }
             n
         };
@@ -1297,7 +1358,7 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
             Some(q) => leaves.iter().map(|l| need(format!("{}.inj_{l}", q.name))).collect(),
             None => vec![],
         };
-        let lev_disc = need(format!("{}.{}", lev.name, d.own_lean));
+        let lev_disc = d.as_ref().map(|d| need(format!("{}.{}", lev.name, d.own_lean)));
         let cell_sort = |label: &str| {
             cells
                 .iter()
@@ -1306,11 +1367,11 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
                 .unwrap_or_else(|| fail(&format!("no cell <{label}> in the top cell")))
         };
         // the cells whose content the projections read (`pubOf` reads the observed cells whole)
-        let cell_sorts = [cell_sort(&store), cell_sort(dcell)];
-        let mut lkfrz = vec![lev_disc];
+        let cell_sorts: Vec<String> = std::iter::once(cell_sort(&store)).chain(dcell.map(|c| cell_sort(c))).collect();
+        let mut lkfrz: Vec<String> = lev_disc.into_iter().collect();
         lkfrz.extend(lev_leaves.iter().filter(|n| n.ends_with(&format!(".inj_{dflt_leaf}"))).cloned());
         lkfrz.extend(quiet_leaves.iter().filter(|n| n.ends_with(&format!(".inj_{dflt_leaf}"))).cloned());
-        let subs: Vec<(&str, String)> = vec![
+        let mut subs: Vec<(&str, String)> = vec![
             ("@NS@", ns.to_string()),
             ("@TOP@", topt.clone()),
             ("@KIT@", kit.clone()),
@@ -1320,11 +1381,7 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
             ("@SS@", ss.clone()),
             ("@OWN@", ty(&na, &a.m.own_ty(&hole))),
             ("@VS@", vs.clone()),
-            ("@FRZ@", format!("{na}.{}", d.frz)),
-            ("@DITEM@", format!("{na}.{}", d.item)),
-            ("@DOWN@", format!("{na}.{}", d.own)),
             ("@STORECELL@", cell_sort(&store)),
-            ("@DISCCELL@", cell_sort(dcell)),
             ("@CELLSORTS@", cell_sorts.iter().map(|c| format!("``{c}")).collect::<Vec<_>>().join(", ")),
             ("@LO@", lo.clone()),
             ("@LEV@", lev.name.clone()),
@@ -1361,9 +1418,25 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
                     .map(|l| format!("\n      | exact ⟨{na}.inj_{l}_{vs} v, rfl⟩"))
                     .collect(),
             ),
-            ("@LKFRZ@", lkfrz.join(", ")),
             ("@NA@", na.clone()),
         ];
+        let Some(d) = d else {
+            // without a disclosure cell: the values, before the per-rule properties, and their
+            // case split (`k2l_values`) with the store's (`k2l_cases_cells`)
+            let pr = s.find("/-! ## The per-rule properties -/").unwrap();
+            s.insert_str(pr, &fill(T_VALUES, &subs));
+            let end = s.rfind(&format!("end {ns}")).unwrap();
+            s.insert_str(end, &format!("{}\n", fill(T_ELABS, &subs)));
+            return subs;
+        };
+        let dcell = dcell.unwrap();
+        subs.extend([
+            ("@FRZ@", format!("{na}.{}", d.frz)),
+            ("@DITEM@", format!("{na}.{}", d.item)),
+            ("@DOWN@", format!("{na}.{}", d.own)),
+            ("@DISCCELL@", cell_sort(dcell)),
+            ("@LKFRZ@", lkfrz.join(", ")),
+        ]);
         // the confined typing over a continuation receiving `b₀`
         let ck_from = s.find("/-- A confined stack over the continuation `K`").unwrap();
         let ck_to = s.find("/-! ## Computing the typings -/").unwrap();
@@ -1380,6 +1453,14 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
         s.insert_str(end, &format!("{}\n", fill(T_ELABS, &subs)));
         subs
     });
+    let full = if st.disclosed.is_some() {
+        general.clone()
+    } else {
+        None
+    };
+    let value_short: Option<String> = general
+        .as_ref()
+        .and_then(|g| g.iter().find(|(k, _)| *k == "@VS@").map(|(_, v)| v.clone()));
 
     // ---- Proof.lean
     let rs = &a.rules;
@@ -1437,16 +1518,27 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
     // unfolding of it (`with_reducible exact`); reducibly the mismatch fails at once
     writeln!(
         p,
-        "/-- The generic case of `CQ`. -/\nlocal macro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | with_reducible exact hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
-/-- The generic case of `SQ`. -/\nlocal macro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n  try subst_vars\n  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
-/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nlocal macro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  k2l_cases c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
-        pat = {
+        "/-- The generic case of `CQ`. -/\nlocal macro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, {cq_pub}CK_kseq{isres}] at hck hne hgood ⊢\n  refine ⟨?_, ?_{cq_goal}⟩\n  all_goals first\n{cq_rfl}    | with_reducible exact hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}{proj_vals}] at *\n       try subst_vars\n{cq_values}       try k2l_ni_comp)))\n\n\
+/-- The generic case of `SQ`. -/\nlocal macro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}{proj_vals}] at *\n  try subst_vars\n{sq_values}  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
+/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nlocal macro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n{same}))\n",
+        cq_pub = if pubq { "pubOf, " } else { "" },
+        // the general form: an item that is a value (`isKResult`) is an injected value
+        isres = if general.is_some() { ", and_true_left, isKResult_eq" } else { "" },
+        proj_vals = match &value_short {
+            Some(vs) => format!(", {na}.proj_eq_some_{hs}_{vs},\n         {na}.proj_eq_some_KItem_{vs}"),
+            None => String::new(),
+        },
+        cq_values = if general.is_some() { "       try k2l_values\n" } else { "" },
+        sq_values = if general.is_some() { "  try simp only [and_true_left, isKResult_eq] at *\n  try k2l_values\n" } else { "" },
+        cq_goal = if pubq { ", ?_" } else { "" },
+        cq_rfl = if pubq { "    | rfl\n" } else { "" },
+        same = same_case(st, name, &{
             // `⟨⟨k₂⟩, e₂, g₂⟩`: the top cell's arguments, `<k>` destructured
             let ps: Vec<String> = (0..cells.len())
                 .map(|i| if i == kpos { "⟨k₂⟩".to_string() } else { format!("x{i}₂") })
                 .collect();
             format!("⟨{}⟩", ps.join(", "))
-        },
+        }),
     )
     .unwrap();
     if ranked {
@@ -1496,14 +1588,20 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
         p,
         "variable (G : Lab)\n\n\
 /-- The relation: confined stacks over a common low stack, with low-equal stores. -/\n\
-def Rel (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
-def Left (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ kOf c₁ ≠ K ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
-def Right (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, kOf c₁ = K ∧ CK G K false (kOf c₂) ∧ kOf c₂ ≠ K ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
+def Rel (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂){pub_rel}\n\n\
+def Left (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ kOf c₁ ≠ K ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂){pub_rel}\n\n\
+def Right (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, kOf c₁ = K ∧ CK G K false (kOf c₂) ∧ kOf c₂ ≠ K ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂){pub_rel}\n\n\
 variable {{G}}\n\n\
 theorem ne_dotk_of_CK {{K k : {kt}}} (h : CK G K false k) (hne : k ≠ K) : k ≠ .dotk := by\n  rintro rfl\n  {ck_dotk_at}exact hne (h.2)\n\n\
-theorem sync_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → Rel G c₁' c₂' := by\n  intro c₂ c₂' hs h₂\n  obtain ⟨hk, hlow⟩ := same_step G h c₂ c₂' hs h₂\n  obtain ⟨K, hck, hlk⟩ := sq_step G h hs.2.1 hs.2.2.1\n  exact ⟨K, hck, hk ▸ hck, hlk, hlow⟩\n\n\
-theorem left_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by\n  rintro c₂ ⟨K, hc₁, hne, hc₂, hlk, hlow⟩\n  obtain ⟨hc₁', hhi⟩ := cq_step G h K hc₁ hne hlow.1\n  exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi⟩\n\n\
-theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by\n  rintro c₁ ⟨K, hc₁, hc₂, hne, hlk, hlow⟩\n  obtain ⟨hc₂', hhi⟩ := cq_step G h K hc₂ hne hlow.2.1\n  exact ⟨K, hc₁ ▸ CK_base G K, hc₂', hlk, lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi)⟩\n"
+theorem sync_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → Rel G c₁' c₂' := by\n  intro c₂ c₂' hs h₂\n  obtain ⟨hk, hlow{hp}⟩ := same_step G h c₂ c₂' hs h₂\n  obtain ⟨K, hck, hlk⟩ := sq_step G h hs.2.1 hs.2.2.1{good_at}\n  exact ⟨K, hck, hk ▸ hck, hlk, hlow{hp}⟩\n\n\
+theorem left_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by\n  rintro c₂ ⟨K, hc₁, hne, hc₂, hlk, hlow{hpub}⟩\n  obtain ⟨hc₁', hhi{hp}⟩ := cq_step G h K hc₁ hne hlow.1\n  exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi{left_pub}⟩\n\n\
+theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by\n  rintro c₁ ⟨K, hc₁, hc₂, hne, hlk, hlow{hpub}⟩\n  obtain ⟨hc₂', hhi{hp}⟩ := cq_step G h K hc₂ hne hlow.2.1\n  exact ⟨K, hc₁ ▸ CK_base G K, hc₂', hlk, lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi){right_pub}⟩\n",
+        pub_rel = if pubq { " ∧ pubOf c₁ = pubOf c₂" } else { "" },
+        hp = if pubq { ", hp" } else { "" },
+        hpub = if pubq { ", hpub" } else { "" },
+        good_at = if pubq { ".1" } else { "" },
+        left_pub = if pubq { ", hp.trans hpub" } else { "" },
+        right_pub = if pubq { ", hpub.trans hp.symm" } else { "" },
     )
     .unwrap();
     for r in rs {
@@ -1517,8 +1615,18 @@ theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    �
     let pitem = format!("{na}.inj_{ss}_KItem");
     writeln!(
         p,
-        "\ntheorem obligations : Obligations G (Rel G) (Sync G) (Left G) (Right G) where\n  init P E₁ E₂ hP hE := by\n    refine ⟨_, CK_base G _, ?_, ?_, hE⟩\n    · simp only [{name}.init, kOf]; exact CK_base G _\n    · simp only [{name}.init, kOf, lk_kseq, litem_false, litem0_inj_{ss}]\n      simp [show {} G P = some true from hP]\n  final := fun ⟨_, _, _, _, hlow⟩ _ _ => hlow\n  cover := by\n    rintro c₁ c₂ ⟨K, hc₁, hc₂, hlk, hlow⟩ hnf\n    by_cases h₁ : kOf c₁ = K\n    · by_cases h₂ : kOf c₂ = K\n      · refine Or.inr (Or.inr ⟨⟨h₁.trans h₂.symm, by rw [h₁]; exact hlk, hlow⟩,\n          fun hf => hnf ⟨hf, ?_⟩, fun hf => hnf ⟨?_, hf⟩⟩)\n        · simp only [Final] at hf ⊢; rw [h₂, ← h₁, hf]\n        · simp only [Final] at hf ⊢; rw [h₁, ← h₂, hf]\n      · exact Or.inr (Or.inl ⟨⟨K, h₁, hc₂, h₂, hlk, hlow⟩, ne_dotk_of_CK hc₂ h₂⟩)\n    · exact Or.inl ⟨⟨K, hc₁, h₁, hc₂, hlk, hlow⟩, ne_dotk_of_CK hc₁ h₁⟩",
-        sec.name
+        "\ntheorem obligations : Obligations G (Rel G) (Sync G) (Left G) (Right G) where\n  init P{} hP{} := by\n    refine ⟨_, CK_base G _, ?_, ?_, {}{}⟩\n    · simp only [{name}.init, kOf]; exact CK_base G _\n    · simp only [{name}.init, kOf, lk_kseq, litem_false, litem0_inj_{ss}]\n      simp [show {} G P = some true from hP]\n  final := fun ⟨_, _, _, _, hlow{}⟩ _ _ => {}\n  cover := by\n    rintro c₁ c₂ ⟨K, hc₁, hc₂, hlk, hlow⟩ hnf\n    by_cases h₁ : kOf c₁ = K\n    · by_cases h₂ : kOf c₂ = K\n      · refine Or.inr (Or.inr ⟨⟨h₁.trans h₂.symm, by rw [h₁]; exact hlk, hlow⟩,\n          fun hf => hnf ⟨hf, ?_⟩, fun hf => hnf ⟨?_, hf⟩⟩)\n        · simp only [Final] at hf ⊢; rw [h₂, ← h₁, hf]\n        · simp only [Final] at hf ⊢; rw [h₁, ← h₂, hf]\n      · exact Or.inr (Or.inl ⟨⟨K, h₁, hc₂, h₂, hlk, hlow⟩, ne_dotk_of_CK hc₂ h₂⟩)\n    · exact Or.inl ⟨⟨K, hc₁, h₁, hc₂, hlk, hlow⟩, ne_dotk_of_CK hc₁ h₁⟩",
+        st.binders(),
+        st.premise_names(),
+        init_store(st, &store, low_eq),
+        if pubq { ", rfl" } else { "" },
+        sec.name,
+        if pubq { ", hpub" } else { "" },
+        match (st.store_observed.is_some(), pubq) {
+            (true, true) => "⟨hlow, hpub⟩",
+            (false, true) => "hpub",
+            _ => "hlow",
+        },
     )
     .unwrap();
     let _ = pitem;
@@ -1533,12 +1641,17 @@ theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    �
     }
     let thm = format!("{}_noninterference", name.to_lowercase());
     let pgm = get("program-sort");
-    let store_sort_t = opt.get("store-sort").cloned().unwrap_or("SortMap".into());
     writeln!(
         p,
         "\n/-- Termination-insensitive noninterference for `{name}` and the checker `{nb}`. -/\n\
-theorem {thm} {{P : {name}.{pgm}}} {{E₁ E₂ : {name}.{store_sort_t}}}\n    (hP : {secure} P) (hE : {low_eq} E₁ E₂) {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P E₁) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P E₂) f₂) (hf₂ : Final f₂) :\n    {low_eq} (storeOf f₁) (storeOf f₂) :=\n  noninterference G obligations hP hE h₁ hf₁ h₂ hf₂\n\n\
-#k2l_assert_axioms cq_step sq_step same_step obligations {thm}\n\nend {ns}"
+theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂) :\n    {} :=\n  noninterference G obligations hP{} h₁ hf₁ h₂ hf₂\n\n\
+#k2l_assert_axioms cq_step sq_step same_step obligations {thm}\n\nend {ns}",
+        st.implicit_binders(name),
+        st.premise_hyps(),
+        st.args(1),
+        st.args(2),
+        st.conclusion("f₁", "f₂"),
+        st.premise_names(),
     )
     .unwrap();
 
@@ -1750,6 +1863,100 @@ fn fill(t: &str, subs: &[(&str, String)]) -> String {
     s
 }
 
+/// The proof of the initial stores' low-equality in `Obligations.init` without a disclosure cell:
+/// the premise of the input that the store holds, related by the store's relation; a store that
+/// holds no input, or public ones only, is one store, `lowEq_refl (good_init …)` (the hand
+/// module's `good_init`, the initial store is a store). An input related by another relation, or
+/// held by another cell, and an observed cell that holds a private input are refused: the relation
+/// relates only the stores.
+fn init_store(st: &Statement, store: &str, low: &str) -> String {
+    for i in &st.inputs {
+        match &i.kind {
+            InputKind::Related(r) if r != low || !i.cells.iter().all(|c| c == store) => {
+                fail(&format!(
+                    "--inputs: ${} is related by `{r}`; only the store <{store}>'s input is related, by `{low}`",
+                    i.var
+                ))
+            }
+            InputKind::Private if i.cells.contains(store) => fail(&format!(
+                "--inputs: ${} is private and the store <{store}> holds it: relate it (`{low}`) or make it public",
+                i.var
+            )),
+            InputKind::Private => {
+                if let Some(c) = st.pubs.iter().find(|c| i.cells.contains(*c)) {
+                    fail(&format!(
+                        "--observe: <{c}> holds the private input ${}, so the two runs start with different observations",
+                        i.var
+                    ))
+                }
+            }
+            _ => {}
+        }
+    }
+    match st.related().next() {
+        Some((i, _)) => format!("h{}", i.stem),
+        None => format!("lowEq_refl (good_init P{})", st.args(1)),
+    }
+}
+
+/// The body of `k2l_same` without a disclosure cell (after `intro c₂ c₂' hS h₂`): the other run's
+/// `<k>` (and the observation) substituted by the first run's, then the same rule by
+/// `Step.deterministic`. With the statement's general form (`--inputs`, `--observe`), a rule that
+/// reads what the runs do not share (a private input) does not apply at the other run, and its
+/// stack is not low.
+fn same_case(st: &Statement, name: &str, pat: &str) -> String {
+    if st.classic {
+        return format!(
+            "  obtain ⟨hk, hlk, hlow⟩ := hS\n  k2l_cases c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩"
+        );
+    }
+    let n = st.pubs.len();
+    let (hs, at, inj, split) = match n {
+        0 => (
+            "⟨hk, hlk, hlow⟩".to_string(),
+            "hk".to_string(),
+            "",
+            String::new(),
+        ),
+        1 => (
+            "⟨hk, hlk, hlow, hp₁⟩".to_string(),
+            "hk hp₁".to_string(),
+            "",
+            String::new(),
+        ),
+        _ => {
+            let hp: Vec<String> = (1..=n).map(|i| format!("hp{}", sub_digit(i))).collect();
+            (
+                "⟨hk, hlk, hlow, hpub⟩".to_string(),
+                "hk hpub".to_string(),
+                ", Prod.mk.injEq",
+                format!("\n  obtain ⟨{}⟩ := hpub", hp.join(", ")),
+            )
+        }
+    };
+    let substs: String = match n {
+        0 => "hk".into(),
+        1 => "hk hp₁".into(),
+        _ => std::iter::once("hk".to_string())
+            .chain((1..=n).map(|i| format!("hp{}", sub_digit(i))))
+            .collect::<Vec<_>>()
+            .join(" "),
+    };
+    format!(
+        "  obtain {hs} := hS\n  k2l_cases c₂ with {pat}\n  simp only [kOf{}{inj}] at {at}{split}\n  subst {substs}\n  first\n    | (have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n       subst hd\n       k2l_cases_store\n       simp only [kOf, storeOf{}, true_and, and_true] at hlow ⊢\n       first\n         | assumption\n         | exact ⟨rfl, by assumption⟩)\n    | (simp only [kOf, lk_kseq, litem_false] at hlk; k2l_ni_comp; done)",
+        if n > 0 { ", pubOf" } else { "" },
+        if n > 0 { ", pubOf" } else { "" },
+    )
+}
+
+/// `1` → `₁`: a subscript of hypothesis names.
+fn sub_digit(i: usize) -> String {
+    i.to_string()
+        .chars()
+        .map(|c| char::from_u32(0x2080 + c.to_digit(10).unwrap()).unwrap())
+        .collect()
+}
+
 /// With priority ranks, `import KPrelude.OtherRun` (Proof.lean's `k2l_pri_other`).
 fn other_run_import(ranked: bool) -> &'static str {
     if ranked {
@@ -1876,7 +2083,7 @@ fn value_sort(m: &crate::model::Model, hole: &str) -> String {
         .collect();
     match top.as_slice() {
         [v] => (*v).clone(),
-        _ => fail("--disclosed: the values of the holes are expected to be one sort below KResult"),
+        _ => fail("the values of the holes are expected to be one sort below KResult"),
     }
 }
 

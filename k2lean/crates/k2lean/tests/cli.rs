@@ -3055,6 +3055,126 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
     );
 }
 
+/// `noninterference` with cells observed by equality and no disclosure cell (design.md §3.7,
+/// NI-8(a)): the relation without the disclosure's constructs, the observation equal in `Sync`,
+/// `SameQ` and the relation's modes and unchanged by a confined step; `init` from the statement's
+/// inputs (the store holds none: `good_init`); refused, an observed cell that holds a private input,
+/// and an input related by a relation that is not in the store.
+#[test]
+fn noninterference_observes_cells_by_equality_without_a_disclosure_cell() {
+    let d = tmp("cli-noninterference-observe");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    std::fs::write(
+        d.join("open.txt"),
+        "cq CONTRACT.var\ncq CONTRACT.assign\nsq CONTRACT.var\nsame CONTRACT.var\nsame CONTRACT.assign\n",
+    )
+    .unwrap();
+    let run = |inputs: &str, observe: &str| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("noninterference")
+            .arg("--kore")
+            .arg(fx.join("contract/definition.kore"))
+            .args([
+                "--name",
+                "Contract",
+                "--ns",
+                "CO",
+                "--store-cell",
+                "env",
+                "--program-sort",
+                "SortStmt",
+                "--params",
+                "(G : ContractSec.SortMap)",
+                "--store-ok",
+                "storeOk",
+                "--checker-name",
+                "ContractSec",
+                "--lev",
+                "lev",
+                "--sec",
+                "sec",
+                "--conf",
+                "conf",
+                "--quiet",
+                "quiet",
+                "--inputs",
+                inputs,
+                "--observe",
+                observe,
+            ])
+            .arg("--checker-kore")
+            .arg(fx.join("contractsec/definition.kore"))
+            .arg("--open")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("NI.lean"))
+            .arg("--report")
+            .arg(d.join("ni.toml"))
+            .arg("--out-dir")
+            .arg(&d)
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let o = run("LEDGER=public,WIT=private", "ledger,transcript,disclosed");
+    assert!(o.status.success(), "{}", err(&o));
+    let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+    let (ni, stack, proof, rep) = (
+        read("NI.lean"),
+        read("Stack.lean"),
+        read("Proof.lean"),
+        read("ni.toml"),
+    );
+    assert!(
+        ni.contains("final : ∀ {f₁ f₂}, Rel f₁ f₂ → Final f₁ → Final f₂ → pubOf f₁ = pubOf f₂")
+            && !ni.contains("discOf"),
+        "{ni}"
+    );
+    for x in [
+        "CK G K false (kOf c') ∧ HiOnly G (storeOf c) (storeOf c') ∧\n      pubOf c' = pubOf c",
+        "lowEq G (storeOf c₁) (storeOf c₂) ∧\n    pubOf c₁ = pubOf c₂",
+    ] {
+        assert!(stack.contains(x), "{x}\n{stack}");
+    }
+    assert!(
+        !stack.contains("frzD") && !stack.contains("AppendQ"),
+        "{stack}"
+    );
+    for x in [
+        "obtain ⟨hk, hlk, hlow, hpub⟩ := hS",
+        "simp only [kOf, pubOf, Prod.mk.injEq] at hk hpub\n  obtain ⟨hp₁, hp₂, hp₃⟩ := hpub\n  subst hk hp₁ hp₂ hp₃",
+        "| (simp only [kOf, lk_kseq, litem_false] at hlk; k2l_ni_comp; done)",
+        "    lowEq G (storeOf c₁) (storeOf c₂) ∧ pubOf c₁ = pubOf c₂\n",
+        "init P L W₁ W₂ hP := by\n    refine ⟨_, CK_base G _, ?_, ?_, lowEq_refl (good_init P L W₁), rfl⟩",
+        "final := fun ⟨_, _, _, _, hlow, hpub⟩ _ _ => hpub",
+        "exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi, hp.trans hpub⟩",
+        "theorem contract_noninterference {P : Contract.SortStmt} {L : Contract.SortMap} {W₁ W₂ : Contract.SortList}\n    (hP : secure G P) {f₁ f₂ : Contract.SortGeneratedTopCell}",
+        "    pubOf f₁ = pubOf f₂ :=\n  noninterference G obligations hP h₁ hf₁ h₂ hf₂",
+    ] {
+        assert!(proof.contains(x), "{x}\n{proof}");
+    }
+    assert!(rep.contains("cases = 102\ngeneric = 97\nhand = 5"), "{rep}");
+    // refused: an observed cell holding a private input, an input related outside the store
+    let o = run("LEDGER=private,WIT=private", "ledger,transcript");
+    assert!(
+        !o.status.success() && err(&o).contains("<ledger> holds the private input $LEDGER"),
+        "{}",
+        err(&o)
+    );
+    let o = run("LEDGER=public,WIT=private", "wit");
+    assert!(
+        !o.status.success() && err(&o).contains("<wit> holds the private input $WIT"),
+        "{}",
+        err(&o)
+    );
+    let o = run("LEDGER=public,WIT=lowEq G", "ledger");
+    assert!(
+        !o.status.success() && err(&o).contains("only the store <env>'s input is related"),
+        "{}",
+        err(&o)
+    );
+}
+
 /// `noninterference` with priority ranks (design.md §3.7, NI-6): a definition of several ranks is
 /// taken (`counter`, whose `skip` is at priority 40, gets past it to the statement, which wants
 /// `--inputs` since its store is no input); a rule that does not step the top cell's nonempty `<k>`
