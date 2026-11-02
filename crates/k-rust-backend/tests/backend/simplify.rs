@@ -3146,9 +3146,12 @@ fn sibling_equality_definition() -> BackendDefinition {
 /// GAP K15 re-pinned the residual: the solver now reads `p(X) = 0` with `p(X)`'s domain
 /// (`smt::TranslationState::atom_with_domains`), so the definedness-explicit form need not
 /// survive simplification, and both rewrites are restored. Each is an equivalence: the
-/// sibling, an equality with the defined side `0`, implies `\ceil` of its other side and of
-/// every subterm of it, so `\ceil(s) /\ t = c` is `t = c` for `s` over `t`, and the residual is
-/// the equality alone. The solver test below still shows that residual is not decided valid.
+/// sibling `t = c`, an equality with the defined side `c`, implies `\ceil` of `t` and of every
+/// subterm of `t` (every application is strict), so `\ceil(s) /\ t = c` is `t = c` for `s` a
+/// subterm of `t`. For a term `s` that contains `t` it is `\ceil(s[t := c]) /\ t = c` instead,
+/// which is `t = c` only where the definition shows `s[t := c]` defined: here `gg-zero` and the
+/// ceil equation of `ff(0)` do, so the residual is the equality alone. The solver test below
+/// still shows that residual is not decided valid.
 #[test]
 fn a_ceil_atom_is_not_discharged_through_a_sibling_equality_by_its_expansion() {
     let definition = sibling_equality_definition();
@@ -3350,9 +3353,10 @@ fn beside_half_equality(definition: &BackendDefinition, atom: Predicate) -> Vec<
 
 /// The conjunction simplified and decided by Z3: it must not be valid, since it is `\bottom`
 /// where `half(1)` is undefined, which Z3, reading `half` as `div`, did not see. Since GAP K15
-/// the simplified residual is the equality alone, `\ceil(s) /\ half(1) = 0` being
-/// `half(1) = 0` for `s` over `half(1)` (it was pinned to keep a `\ceil` beside it), and the
-/// solver reads that equality with `half(1)`'s domain.
+/// the simplified residual is the equality alone (it was pinned to keep a `\ceil` beside it):
+/// `\ceil(s) /\ half(1) = 0` is `\ceil(s[half(1) := 0]) /\ half(1) = 0`, and each atom these
+/// tests pass is over a term whose instance at 0 the definition shows defined (`hh(0)` by
+/// `ceil-hh`, `zz(0)` by `zz-zero`). The solver reads that equality with `half(1)`'s domain.
 #[cfg(feature = "z3")]
 fn assert_keeps_half_definedness(definition: &BackendDefinition, atom: Predicate) {
     let conjunction = beside_half_equality(definition, atom);
