@@ -2240,7 +2240,39 @@ fn note_undecided_verdict(verdict: EquationCondition) -> EquationCondition {
 
 /// Count one undecided verdict or attempt ([`UNDECIDED`]).
 pub(super) fn note_undecided() {
-    UNDECIDED.set(UNDECIDED.get().wrapping_add(1));
+    note_undecided_times(1);
+}
+
+/// Count `count` undecided verdicts or attempts ([`UNDECIDED`]), those of work whose result is
+/// reused in place of doing it again (`normal_forms`).
+fn note_undecided_times(count: u64) {
+    UNDECIDED.set(UNDECIDED.get().wrapping_add(count));
+}
+
+/// The verdicts and attempts this thread has left undecided so far ([`UNDECIDED`]).
+fn undecided_so_far() -> u64 {
+    UNDECIDED.get()
+}
+
+/// Run `action`, work whose result the run does not use, and restore [`UNDECIDED`] afterwards,
+/// also when it unwinds: a reader comparing two readings around it reads what it would read
+/// without it (`normal_forms`'s check of a served simplification).
+#[cfg(feature = "check-normal-forms")]
+fn with_undecided_restored<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(u64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            UNDECIDED.set(self.0);
+        }
+    }
+    let _restore = Restore(UNDECIDED.get());
+    action()
+}
+
+/// [`undecided_so_far`], for a test that compares two readings.
+#[cfg(test)]
+pub(crate) fn undecided_count() -> u64 {
+    undecided_so_far()
 }
 
 /// The equation-condition verdicts reached while a scope is open on this thread (the outermost
@@ -9024,6 +9056,15 @@ impl UnspecifiedValues {
             given,
         );
     }
+}
+
+/// Run `action` with a lineage's records of `Unspecified` evaluations open
+/// ([`UnspecifiedValues`]), as a lineage that took a step on one holds them, for a test of work
+/// that asks whether they are.
+#[cfg(test)]
+pub(crate) fn with_unspecified_values_open<T>(action: impl FnOnce() -> T) -> T {
+    let _open = UnspecifiedValues::open();
+    action()
 }
 
 impl Drop for UnspecifiedValues {

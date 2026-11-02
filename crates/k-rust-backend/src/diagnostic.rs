@@ -333,9 +333,9 @@ thread_local! {
 }
 
 /// How many diagnostics this thread has emitted so far, whether or not a collector was open to
-/// record them, a buffered emission and a replayed one included: work during which this does not
-/// move emitted nothing, whatever collector its caller opens around it
-/// (`simplify::normal_forms`).
+/// record them, a buffered emission and a replayed one included, those of work run
+/// [`discarded`] excluded: work during which this does not move emitted nothing that a collector
+/// its caller opens around it would receive (`simplify::normal_forms`).
 pub(crate) fn emitted() -> u64 {
     EMITTED.with(Cell::get)
 }
@@ -960,18 +960,19 @@ impl<'a> Occurrences<'a> {
 }
 
 /// Run `action`, work that explains no result, with every diagnostic it emits dropped and the
-/// thread's next emission position restored afterwards, also when it unwinds: no collection
-/// receives its emissions, and every later emission takes the position it would have taken
-/// without it, so the order in which collected lists merge and the "nothing emitted since"
-/// tests of the caller ([`next_position`]) are unchanged.
+/// thread's next emission position and count of emissions restored afterwards, also when it
+/// unwinds: no collection receives its emissions, and every later emission takes the position it
+/// would have taken without it, so the order in which collected lists merge and the "nothing
+/// emitted since" tests of the caller ([`next_position`], [`emitted`]) are unchanged.
 pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
-    struct Restore(u64);
+    struct Restore(u64, u64);
     impl Drop for Restore {
         fn drop(&mut self) {
             NEXT_POSITION.set(self.0);
+            EMITTED.set(self.1);
         }
     }
-    let _restore = Restore(NEXT_POSITION.get());
+    let _restore = Restore(NEXT_POSITION.get(), EMITTED.get());
     buffer(action).0
 }
 

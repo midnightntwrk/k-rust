@@ -571,21 +571,19 @@ pub enum Counter {
     SimplifyNormalFormsRefusedUnspecified,
     /// Simplifications `simplify::normal_forms` did not record or look up because a coverage collection was open.
     SimplifyNormalFormsRefusedCoverage,
-    /// Simplifications `simplify::normal_forms` did not record or look up because the simplification stopped, or dismissed a stop for lack of native stack.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because the simplification stopped, or dismissed a stop for lack of native stack.
     SimplifyNormalFormsRefusedStop,
-    /// Simplifications `simplify::normal_forms` did not record or look up because the simplification failed.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because the simplification failed.
     SimplifyNormalFormsRefusedFailed,
-    /// Simplifications `simplify::normal_forms` did not record or look up because it emitted a diagnostic.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it emitted a diagnostic while a collector was open.
     SimplifyNormalFormsRefusedDiagnostic,
-    /// Simplifications `simplify::normal_forms` did not record or look up because it noted a path fact.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it noted a path fact.
     SimplifyNormalFormsRefusedPathFact,
-    /// Simplifications `simplify::normal_forms` did not record or look up because it received an undecided solver answer.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it received an undecided solver answer.
     SimplifyNormalFormsRefusedUnknown,
-    /// Simplifications `simplify::normal_forms` did not record or look up because it left an equation condition or an equation attempt undecided.
-    SimplifyNormalFormsRefusedUndecided,
-    /// Simplifications `simplify::normal_forms` did not record or look up because it performed a builtin effect.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it performed a builtin effect.
     SimplifyNormalFormsRefusedEffect,
-    /// Simplifications `simplify::normal_forms` did not record or look up because its result holds a name minted by a renaming apart while its own renamings minted names.
+    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back.
     SimplifyNormalFormsRefusedApart,
     /// Prepared SMT subqueries issued, including script-result-cache hits.
     SmtQueries,
@@ -658,7 +656,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 117;
+    pub const COUNT: usize = 116;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -747,7 +745,6 @@ impl Counter {
         Counter::SimplifyNormalFormsRefusedDiagnostic,
         Counter::SimplifyNormalFormsRefusedPathFact,
         Counter::SimplifyNormalFormsRefusedUnknown,
-        Counter::SimplifyNormalFormsRefusedUndecided,
         Counter::SimplifyNormalFormsRefusedEffect,
         Counter::SimplifyNormalFormsRefusedApart,
         Counter::SmtQueries,
@@ -884,9 +881,6 @@ impl Counter {
             }
             Counter::SimplifyNormalFormsRefusedUnknown => {
                 "simplify.normal_forms.refused_unclean.unknown"
-            }
-            Counter::SimplifyNormalFormsRefusedUndecided => {
-                "simplify.normal_forms.refused_unclean.undecided"
             }
             Counter::SimplifyNormalFormsRefusedEffect => {
                 "simplify.normal_forms.refused_unclean.effect"

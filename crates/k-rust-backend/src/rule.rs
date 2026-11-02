@@ -4453,6 +4453,12 @@ pub(crate) fn with_apart_names_restored<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Whether an [`ApartScope`] is open on this thread, so that the `{name}!apart{counter}` counter
+/// only grows until the outermost one closes: no entry point inside restarts it.
+pub(crate) fn apart_scope_open() -> bool {
+    APART.with(|state| state.get().0 > 0)
+}
+
 /// The thread's next `{name}!apart{counter}` counter: the renamings between two readings
 /// minted the names numbered from the first to the second.
 pub(crate) fn apart_counter() -> u64 {
