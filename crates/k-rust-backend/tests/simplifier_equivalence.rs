@@ -25,7 +25,9 @@
 //! make a Z3 check that no bound stops, `solver_oracle::power_exponent`) with
 //! `SIMPLIFIER_EQUIVALENCE_SYMBOLIC_EXPONENTS=1`, and print every case, each output and its time
 //! with `SIMPLIFIER_EQUIVALENCE_TRACE=1`. A failure prints the shrunk `P`, `F` and `P'`, the
-//! valuation, and each conjunct's truth there.
+//! valuation, and each conjunct's truth there. A run of at least 1,000 compared outputs also fails
+//! when more than 40% of them are vacuous (no valuation where `F` holds and both sides are
+//! definite).
 
 #![cfg(feature = "z3")]
 
@@ -87,16 +89,21 @@ impl fmt::Display for Input {
 
 /// `P` is one to three predicates and `F` zero to two, drawn as `solver_translation` draws its
 /// checked and known predicates, and, a quarter of the time, a binding `V = t` among the facts
-/// (with `t` not mentioning `V`), which the simplifier can use as a substitution.
+/// (with `t` not mentioning `V`), which the simplifier can use as a substitution. A quarter of
+/// `P`'s predicates are instead a reflexive atom over a partial term (`reflexive`).
 fn input(symbolic_exponents: bool) -> impl Strategy<Value = Input> {
     let terms = terms(3, symbolic_exponents);
     let predicate = predicate(&terms);
+    let checked = prop_oneof![
+        3 => predicate.clone(),
+        1 => reflexive(symbolic_exponents),
+    ];
     let binding = (
         prop_oneof![Just(IntVar::X), Just(IntVar::Y), Just(IntVar::Z)],
         terms_at(2, symbolic_exponents),
     );
     (
-        prop::collection::vec(predicate.clone(), 1..=3),
+        prop::collection::vec(checked, 1..=3),
         prop::collection::vec(predicate, 0..=2),
         prop::option::weighted(0.25, binding),
         1usize..=8,
@@ -111,6 +118,51 @@ fn input(symbolic_exponents: bool) -> impl Strategy<Value = Input> {
                 budget,
             }
         })
+}
+
+/// A term with a partial head, so its domain is a proper part of the valuations: `half`,
+/// `divInt` (by a term or by a literal, zero included), `pf`, a map lookup, or `^Int` with a
+/// negative exponent, over an operand of depth at most 2.
+fn partial_term(symbolic_exponents: bool) -> BoxedStrategy<IntT> {
+    let operand = || terms_at(2, symbolic_exponents).prop_map(Box::new);
+    let literal = || (-2i8..=2).prop_map(|value| Box::new(int_lit(value)));
+    prop_oneof![
+        2 => operand().prop_map(IntT::Half),
+        2 => (operand(), operand()).prop_map(|(a, b)| IntT::Div(a, b)),
+        1 => (operand(), literal()).prop_map(|(a, b)| IntT::Div(a, b)),
+        2 => operand().prop_map(IntT::Pf),
+        2 => (map_leaf().prop_map(Box::new), operand()).prop_map(|(m, k)| IntT::Lookup(m, k)),
+        1 => (power_base(), (-2i8..=-1).prop_map(|value| Box::new(int_lit(value))))
+            .prop_map(|(a, b)| IntT::Pow(a, b)),
+    ]
+    .boxed()
+}
+
+/// A comparison of a partial term `t` with itself. The K comparisons (`t ==Int t`, its negation,
+/// `t <Int t`, `t <=Int t`, `t =/=Int t`, `t >=Int t`) are applications, strict in `t`: as
+/// predicates they hold, for the true ones, exactly where `t` is defined. The ML equalities (`t =
+/// t`, `t +Int 0 = t`) hold everywhere, `t`'s undefinedness included. So a reflexive rewrite that
+/// drops `t`'s definedness, or adds it to an ML equality, is refuted at a valuation where `t` is
+/// undefined.
+fn reflexive(symbolic_exponents: bool) -> BoxedStrategy<Pred> {
+    partial_term(symbolic_exponents)
+        .prop_flat_map(|t| {
+            let b = || Box::new(t.clone());
+            prop_oneof![
+                Just(Pred::Holds(BoolT::Eq(b(), b()))),
+                Just(Pred::Holds(BoolT::Not(Box::new(BoolT::Eq(b(), b()))))),
+                Just(Pred::Holds(BoolT::Lt(b(), b()))),
+                Just(Pred::Holds(BoolT::Le(b(), b()))),
+                Just(Pred::Holds(BoolT::Ne(b(), b()))),
+                Just(Pred::Holds(BoolT::Ge(b(), b()))),
+                Just(Pred::Eq(AnyT::Int(t.clone()), AnyT::Int(t.clone()))),
+                Just(Pred::Eq(
+                    AnyT::Int(IntT::Add(b(), Box::new(IntT::Lit(0)))),
+                    AnyT::Int(t.clone()),
+                )),
+            ]
+        })
+        .boxed()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -194,7 +246,8 @@ impl<'a> ReadBack<'a> {
                 Pred::Exists(self.binder(variable)?, Box::new(self.predicate(body)?))
             }
             // `\forall v. p` is `\not \exists v. \not p`; the oracle's `\exists` over Int is
-            // unknown without a witness, so this is false only where a counterexample is found.
+            // unknown without a witness outside the one-point form, so this is then false only
+            // where a counterexample is found.
             Predicate::Forall(variable, body) => Pred::Not(Box::new(Pred::Exists(
                 self.binder(variable)?,
                 Box::new(Pred::Not(Box::new(self.predicate(body)?))),
@@ -624,4 +677,18 @@ fn every_simplified_output_is_equivalent_to_its_input_under_the_facts() {
         }
         Err(TestError::Abort(reason)) => panic!("the property run aborted: {reason}"),
     }
+    // A run that compares nothing passes vacuously, so a later generator or read-back change
+    // must not make it so silently. Over seeds 1-5 and the fixed one (512 cases each) the share
+    // is 29-35%, almost all of it facts false at every valuation; short runs are exempt.
+    let (compared, vacuous) = (stats.compared.get(), stats.vacuous.get());
+    assert!(
+        compared < MIN_OUTPUTS_FOR_FLOOR || vacuous * 100 <= compared * MAX_VACUOUS_PERCENT,
+        "{vacuous} of {compared} compared outputs had no valuation where F holds and both sides \
+         are definite, over the {MAX_VACUOUS_PERCENT}% bound"
+    );
 }
+
+/// The vacuous share's bound (`every_simplified_output_is_equivalent_to_its_input_under_the_facts`),
+/// asserted on runs of at least `MIN_OUTPUTS_FOR_FLOOR` compared outputs.
+const MAX_VACUOUS_PERCENT: usize = 40;
+const MIN_OUTPUTS_FOR_FLOOR: usize = 1000;

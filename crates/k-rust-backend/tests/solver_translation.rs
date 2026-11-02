@@ -315,6 +315,9 @@ fn check_case(
     Ok(())
 }
 
+/// Every answer of `check_predicates` and `is_sat` that claims something about all valuations or
+/// about none, and every model of an exact query, agrees with K truth at each valuation of the
+/// domain in each model of the definition (module docs).
 #[test]
 fn every_decided_solver_answer_agrees_with_k_truth_on_the_domain() {
     let backend = Backend::new();

@@ -11,8 +11,10 @@
 //! a predicate is `b = true`. No function of k-rust computes this truth: the definition's text is
 //! the only input the evaluator and the code under test share. Valuations range over a small
 //! domain (`X, Y, Z, N ∈ [-2, 2]`, `B` both Booleans, `M` four maps), which is all a refutation
-//! needs; `\exists` over `Bool` is exact, `\exists` over `Int` is true where a witness lies in
-//! `[-4, 4]` and unknown otherwise, since an unbounded domain cannot be refuted by enumeration.
+//! needs; `\exists` over `Bool` is exact; `\exists N:Int` is exact where its body has a conjunct
+//! `N = t` with `t` free of `N` (the one-point rule, `one_point`), and otherwise true where a
+//! witness lies in `[-4, 4]` and unknown elsewhere, since an unbounded domain cannot be refuted by
+//! enumeration.
 //! Unknown truth refutes nothing.
 //!
 //! The definition has more than one model, and the evaluator enumerates four of them wherever a
@@ -913,6 +915,18 @@ pub fn eval_pred(predicate: &Pred, env: &Env) -> Truth {
             .fold(Truth::False, Truth::or),
         Pred::Exists(Binder::Int(var), body) => {
             let mut env = env.clone();
+            if let Some(t) = one_point(body, *var) {
+                match eval_int(t, &env) {
+                    // `N = t` holds of no element `N`, so neither does the body.
+                    Ok(None) => return Truth::False,
+                    // Only `N = v` satisfies the conjunct, so the body there is the answer.
+                    Ok(Some(value)) => {
+                        env.ints[var.index()] = value;
+                        return eval_pred(body, &env);
+                    }
+                    Err(Overflow) => {}
+                }
+            }
             let witnessed = WITNESSES.into_iter().any(|value| {
                 env.ints[var.index()] = value;
                 eval_pred(body, &env) == Truth::True
@@ -923,6 +937,23 @@ pub fn eval_pred(predicate: &Pred, env: &Env) -> Truth {
                 Truth::Unknown
             }
         }
+    }
+}
+
+/// The term `t` of a conjunct `N = t` (or `t = N`) of `body`, read through nested `\and`s, with
+/// `t` not mentioning `N`: then `\exists N. body` is `\ceil(t) ∧ body[t/N]`, exactly (the
+/// one-point rule), since `N = t` holds of the one element `t` denotes and of none where `t` is
+/// `\bottom`.
+fn one_point(body: &Pred, var: IntVar) -> Option<&IntT> {
+    match body {
+        Pred::And(p, q) => one_point(p, var).or_else(|| one_point(q, var)),
+        Pred::Eq(AnyT::Int(IntT::Var(bound)), AnyT::Int(t))
+        | Pred::Eq(AnyT::Int(t), AnyT::Int(IntT::Var(bound)))
+            if *bound == var && !t.mentions(var) =>
+        {
+            Some(t)
+        }
+        _ => None,
     }
 }
 
