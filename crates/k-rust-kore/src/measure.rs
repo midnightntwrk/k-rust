@@ -573,26 +573,48 @@ pub enum Counter {
     /// condition active that `simplify::normal_forms` served from its record, each in place of
     /// a simplification.
     SimplifyNormalFormsSubtermServed,
-    /// Simplifications `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
+    /// Simplifications of a proof's destination `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
     SimplifyNormalFormsRefusedConsole,
-    /// Simplifications `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
+    /// Simplifications of a proof's destination `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
     SimplifyNormalFormsRefusedUnspecified,
-    /// Simplifications `simplify::normal_forms` did not record or look up because a coverage collection was open.
+    /// Simplifications of a proof's destination `simplify::normal_forms` did not record or look up because a coverage collection was open.
     SimplifyNormalFormsRefusedCoverage,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because the simplification stopped, or dismissed a stop for lack of native stack.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because the simplification stopped, or dismissed a stop for lack of native stack.
     SimplifyNormalFormsRefusedStop,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because the simplification failed.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because the simplification failed.
     SimplifyNormalFormsRefusedFailed,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it emitted a diagnostic while a collector was open.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because it emitted a diagnostic while a collector was open.
     SimplifyNormalFormsRefusedDiagnostic,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it noted a path fact.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because it noted a path fact.
     SimplifyNormalFormsRefusedPathFact,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it received an undecided solver answer.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because it received an undecided solver answer.
     SimplifyNormalFormsRefusedUnknown,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because it performed a builtin effect.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because it performed a builtin effect.
     SimplifyNormalFormsRefusedEffect,
-    /// Simplifications `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back.
+    /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back.
     SimplifyNormalFormsRefusedApart,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
+    SimplifyNormalFormsSubtermRefusedConsole,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
+    SimplifyNormalFormsSubtermRefusedUnspecified,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` did not record or look up because a coverage collection was open.
+    SimplifyNormalFormsSubtermRefusedCoverage,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because the simplification stopped, or dismissed a stop for lack of native stack. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedStop,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because the simplification failed. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedFailed,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it emitted a diagnostic while a collector was open. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedDiagnostic,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it noted a path fact. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedPathFact,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it received an undecided solver answer. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedUnknown,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it performed a builtin effect. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedEffect,
+    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    SimplifyNormalFormsSubtermRefusedApart,
+    /// Clears of a proof's record of normal forms (`simplify::normal_forms`) on reaching its bound of entries or of its estimate of bytes held; a cleared record simplifies again what it no longer holds.
+    SimplifyNormalFormsCleared,
     /// Prepared SMT subqueries issued, including script-result-cache hits.
     SmtQueries,
     /// API queries answered before preparation by the typed-input result cache.
@@ -664,7 +686,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 118;
+    pub const COUNT: usize = 129;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -757,6 +779,17 @@ impl Counter {
         Counter::SimplifyNormalFormsRefusedUnknown,
         Counter::SimplifyNormalFormsRefusedEffect,
         Counter::SimplifyNormalFormsRefusedApart,
+        Counter::SimplifyNormalFormsSubtermRefusedConsole,
+        Counter::SimplifyNormalFormsSubtermRefusedUnspecified,
+        Counter::SimplifyNormalFormsSubtermRefusedCoverage,
+        Counter::SimplifyNormalFormsSubtermRefusedStop,
+        Counter::SimplifyNormalFormsSubtermRefusedFailed,
+        Counter::SimplifyNormalFormsSubtermRefusedDiagnostic,
+        Counter::SimplifyNormalFormsSubtermRefusedPathFact,
+        Counter::SimplifyNormalFormsSubtermRefusedUnknown,
+        Counter::SimplifyNormalFormsSubtermRefusedEffect,
+        Counter::SimplifyNormalFormsSubtermRefusedApart,
+        Counter::SimplifyNormalFormsCleared,
         Counter::SmtQueries,
         Counter::SmtTypedCacheHits,
         Counter::SmtTypedCacheMisses,
@@ -900,6 +933,37 @@ impl Counter {
             Counter::SimplifyNormalFormsRefusedApart => {
                 "simplify.normal_forms.refused_unclean.apart"
             }
+            Counter::SimplifyNormalFormsSubtermRefusedConsole => {
+                "simplify.normal_forms.subterm.refused_unclean.console"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedUnspecified => {
+                "simplify.normal_forms.subterm.refused_unclean.unspecified"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedCoverage => {
+                "simplify.normal_forms.subterm.refused_unclean.coverage"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedStop => {
+                "simplify.normal_forms.subterm.refused_unclean.stop"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedFailed => {
+                "simplify.normal_forms.subterm.refused_unclean.failed"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedDiagnostic => {
+                "simplify.normal_forms.subterm.refused_unclean.diagnostic"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedPathFact => {
+                "simplify.normal_forms.subterm.refused_unclean.path_fact"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedUnknown => {
+                "simplify.normal_forms.subterm.refused_unclean.unknown"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedEffect => {
+                "simplify.normal_forms.subterm.refused_unclean.effect"
+            }
+            Counter::SimplifyNormalFormsSubtermRefusedApart => {
+                "simplify.normal_forms.subterm.refused_unclean.apart"
+            }
+            Counter::SimplifyNormalFormsCleared => "simplify.normal_forms.cleared",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtTypedCacheHits => "smt.typed_cache_hits",
             Counter::SmtTypedCacheMisses => "smt.typed_cache_misses",

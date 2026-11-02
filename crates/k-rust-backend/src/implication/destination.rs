@@ -625,9 +625,9 @@ mod tests {
     /// GAP K17 review, finding 3: inside a run with a console, an open coverage collection, or
     /// an open lineage's records of `Unspecified` evaluations, the thread holds something the
     /// key does not, and each check is refused before the lookup, counted by its reason, and
-    /// simplifies. The reason is counted twice per check: once for the destination and once for
-    /// its term `f(Y')`, a non-ground subterm the term simplifier routes through the record too
-    /// (K17 part b), which is refused for the same reason.
+    /// simplifies. The reason is counted once per check at each site: for the destination, and
+    /// for its term `f(Y')`, a non-ground subterm the term simplifier routes through the record
+    /// too (K17 part b), which is refused for the same reason and counted at the subterm site.
     #[test]
     fn a_destination_is_neither_recorded_nor_served_inside_what_its_key_does_not_hold() {
         let definition = definition();
@@ -644,7 +644,7 @@ mod tests {
                     counted,
                 )
             };
-            let refused = |reason: Counter, inside: &dyn Fn() -> Prepared| {
+            let refused = |(reason, subterm): (Counter, Counter), inside: &dyn Fn() -> Prepared| {
                 for _ in 0..2 {
                     let prepared = inside();
                     assert_eq!(
@@ -657,27 +657,42 @@ mod tests {
                             prepared
                                 .delta
                                 .get(Counter::SimplifyNormalFormsSubtermServed),
-                            prepared.delta.get(reason)
+                            prepared.delta.get(reason),
+                            prepared.delta.get(subterm)
                         ),
-                        (0, 0, 0, 0, 2),
+                        (0, 0, 0, 0, 1, 1),
                         "{reason:?}"
                     );
                     assert!(prepared.attempts > 0);
                 }
             };
-            refused(Counter::SimplifyNormalFormsRefusedConsole, &|| {
-                let _console = crate::evaluation::EvaluationScope::enter_run(
-                    crate::evaluation::EvaluationMode::Proof,
-                    true,
-                );
-                prepare()
-            });
-            refused(Counter::SimplifyNormalFormsRefusedCoverage, &|| {
-                crate::coverage::collect(prepare).0
-            });
-            refused(Counter::SimplifyNormalFormsRefusedUnspecified, &|| {
-                simplify::with_unspecified_values_open(prepare)
-            });
+            refused(
+                (
+                    Counter::SimplifyNormalFormsRefusedConsole,
+                    Counter::SimplifyNormalFormsSubtermRefusedConsole,
+                ),
+                &|| {
+                    let _console = crate::evaluation::EvaluationScope::enter_run(
+                        crate::evaluation::EvaluationMode::Proof,
+                        true,
+                    );
+                    prepare()
+                },
+            );
+            refused(
+                (
+                    Counter::SimplifyNormalFormsRefusedCoverage,
+                    Counter::SimplifyNormalFormsSubtermRefusedCoverage,
+                ),
+                &|| crate::coverage::collect(prepare).0,
+            );
+            refused(
+                (
+                    Counter::SimplifyNormalFormsRefusedUnspecified,
+                    Counter::SimplifyNormalFormsSubtermRefusedUnspecified,
+                ),
+                &|| simplify::with_unspecified_values_open(prepare),
+            );
         });
     }
 }

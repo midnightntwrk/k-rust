@@ -434,3 +434,4 @@ The file is one JSON document, `{"format": "krust-counters", "version": 5, "coun
 The counters are thread-local and the one-shot subcommands do their work on the main thread; `krust kore-rpc` answers requests on connection threads, so its dump shows zeros for the backend families.
 A ratchet asserts a bound on a checked-in input and a growth shape on a parameterised one; a bound that trips after a deliberate algorithm change is re-pinned in a commit that states the new measured value and why it moved.
 Renaming or removing a counter changes the dump schema and bumps `version`.
+A `measure` build also reads `KRUST_CONDITION_MEMO=off`, which turns the condition memo (`simplify::ConditionMemo`) off for the run, so that a measurement can compare the work a run does with and without it; the memo serves only the verdict a new decision gives, so the outputs are the same either way. Builds without the feature do not read the variable.

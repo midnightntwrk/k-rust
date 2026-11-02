@@ -174,6 +174,12 @@ fn start_trace(
 fn main() -> ExitCode {
     #[cfg(feature = "measure")]
     k_rust_kore::measure::set_output_counting_enabled(env::var_os("KRUST_COUNTERS").is_some());
+    // A measurement of the condition memo's share: `KRUST_CONDITION_MEMO=off` turns it off for
+    // the run (measure builds only; it changes the work and no output).
+    #[cfg(feature = "measure")]
+    k_rust_backend::simplify::set_condition_memo_off_for_measurement(
+        env::var_os("KRUST_CONDITION_MEMO").is_some_and(|value| value == "off"),
+    );
     let outcome = run(Cli::parse());
     #[cfg(feature = "measure")]
     write_counters_if_requested();

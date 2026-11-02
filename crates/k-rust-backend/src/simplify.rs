@@ -2394,6 +2394,21 @@ pub(crate) fn without_condition_memo<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Measure builds only: whether [`ConditionMemo`] keeps and serves no verdict in this process,
+/// so that a run can be measured with the memo off (`krust` reads `KRUST_CONDITION_MEMO=off`).
+/// A verdict the memo serves is the one a new decision gives, so turning it off changes the
+/// work a run does and no output.
+#[cfg(feature = "measure")]
+static CONDITION_MEMO_OFF_IN_PROCESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Measure builds only: keep and serve no verdict of [`ConditionMemo`] in this process from now
+/// on where `off` (`CONDITION_MEMO_OFF_IN_PROCESS`).
+#[cfg(feature = "measure")]
+pub fn set_condition_memo_off_for_measurement(off: bool) {
+    CONDITION_MEMO_OFF_IN_PROCESS.store(off, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Run `action` with the thread's [`ConditionMemo`] set aside, and restore it afterwards, also
 /// when `action` unwinds: work inside neither is served the verdicts kept so far nor keeps any
 /// for the work after it (`coverage::isolated`).
@@ -2884,6 +2899,10 @@ impl<'a, 'i> ConditionMemoProbe<'a, 'i> {
     ) -> Option<Self> {
         #[cfg(test)]
         if CONDITION_MEMO_OFF.get() {
+            return None;
+        }
+        #[cfg(feature = "measure")]
+        if CONDITION_MEMO_OFF_IN_PROCESS.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
         }
         if crate::evaluation::current() == crate::evaluation::EvaluationMode::Execution
@@ -6118,7 +6137,7 @@ fn simplify_with_budget(
 
 /// One level of the term simplifier: inside a proof's record of normal forms
 /// (`normal_forms`), a non-ground compound term entered with no rule condition active is routed
-/// through it ([`simplify_subterm_through_record`]); every other term is simplified as a lineage
+/// through it ([`simplify_through_record`]); every other term is simplified as a lineage
 /// ([`simplify_lineage`]).
 #[allow(clippy::too_many_arguments)]
 fn simplify_on_stack(
@@ -6142,12 +6161,13 @@ fn simplify_on_stack(
         && !term.attributes().variables.is_empty()
         && !matches!(term.kind(), TermKind::Variable(_))
     {
-        return simplify_subterm_through_record(
+        return simplify_through_record(
             definition,
             term,
             assumptions,
             options,
             remaining,
+            active_conditions,
             solver,
             execution,
         );
@@ -6164,26 +6184,71 @@ fn simplify_on_stack(
     )
 }
 
-/// [`simplify_lineage`] of a non-ground subterm through the proof's record of normal forms
-/// (`normal_forms::subterm_through_record`): served whole where an equal key was recorded, and
-/// recorded where its simplification was clean. The key's subject is `term` as it is entered,
-/// before its path condition is applied, since the lineage reads that form too (the operands a
-/// short-circuit hook evaluated, `hook_argument_definedness`); the path condition is part of the
-/// key, so the term it gives is a function of the key. Out of line, so that the frames of the
-/// simplifier's other levels do not hold the record's.
+/// [`simplify_lineage`] of a non-ground subterm with no rule condition active, through the
+/// proof's record of normal forms: looked up ([`subterm_lookup`]), served where an equal key was
+/// recorded, and recorded where its simplification was clean (`normal_forms::subterm_recorded`).
+/// `no_conditions` is the caller's empty set of active rule conditions. Its own frame, out of
+/// line so that an unrouted level's does not grow, holds only the boxed state a miss carries to
+/// the record and the lineage's result; the lookup and the record are out of line too, so that
+/// a routed level takes about the native stack an unrouted one takes (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
 #[inline(never)]
-fn simplify_subterm_through_record(
+fn simplify_through_record(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
+    no_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
-    let in_execution = execution.is_some();
-    let no_conditions = BTreeSet::new();
-    let simplified = normal_forms::subterm_through_record(
+    let pending = match subterm_lookup(
+        definition,
+        term,
+        assumptions,
+        options,
+        remaining,
+        solver,
+        execution.is_some(),
+    ) {
+        normal_forms::Lookup::Served(simplification) => return Ok(*simplification),
+        normal_forms::Lookup::Missed(pending) => Some(pending),
+        normal_forms::Lookup::Unrecorded => None,
+    };
+    let simplified = simplify_lineage(
+        definition,
+        term,
+        assumptions,
+        options,
+        remaining,
+        no_conditions,
+        solver,
+        execution,
+    );
+    if let Some(pending) = pending {
+        normal_forms::subterm_recorded(pending, &simplified, *remaining);
+    }
+    simplified
+}
+
+/// The record's lookup of a non-ground subterm (`normal_forms::subterm_lookup`). The key's
+/// subject is `term` as it is entered, before its path condition is applied, since the lineage
+/// reads that form too (the operands a short-circuit hook evaluated,
+/// `hook_argument_definedness`); the path condition is part of the key, so the term it gives is
+/// a function of the key. A served simplification is checked against a new one
+/// (`check-normal-forms`) only where no execution runs, since an execution is refused.
+#[inline(never)]
+fn subterm_lookup<'a>(
+    definition: &BackendDefinition,
+    term: &'a Term,
+    assumptions: &TermAssumptions<'a>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    solver: &dyn SmtSolver,
+    in_execution: bool,
+) -> normal_forms::Lookup<'a> {
+    normal_forms::subterm_lookup(
         definition,
         term,
         assumptions,
@@ -6198,18 +6263,13 @@ fn simplify_subterm_through_record(
                 assumptions,
                 options,
                 remaining,
-                &no_conditions,
+                &BTreeSet::new(),
                 solver,
-                execution,
+                None,
             )
             .layered()
         },
-    );
-    match simplified {
-        Ok(Ok(simplification)) => Ok(simplification),
-        Ok(Err(failure)) => Err(Unwind::Fail(failure)),
-        Err(stop) => Err(Unwind::Stop(stop)),
-    }
+    )
 }
 
 /// A lineage of the term simplifier: rounds on `term` to a fixed point ([`Lineage`]).

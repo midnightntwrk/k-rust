@@ -3,20 +3,20 @@
 //! ```toml algorithm
 //! id = "backend.simplify.normal_forms"
 //! name = "reuse of a clean simplification within a proof under an equal path condition"
-//! sites = ["NormalForms", "NormalForms::served", "NormalForms::record", "NormalForms::count_new_nodes", "NormalForms::intern_path_condition", "simplified_through_record", "subterm_through_record", "through_record", "open", "Probe::new", "Watch::start", "Watch::verdict", "holds_an_apart_name", "scope", "aside", "NormalFormsScope"]
+//! sites = ["NormalForms", "NormalForms::served", "NormalForms::record", "NormalForms::count_new_nodes", "NormalForms::intern_path_condition", "simplified_through_record", "subterm_lookup", "subterm_recorded", "consult", "serve", "Pending::start", "Pending::finish", "open", "Probe::new", "Watch::start", "Watch::verdict", "Watch::counts", "holds_an_apart_name", "scope", "aside", "NormalFormsScope"]
 //! variable = "k = known predicates of the key; p = bindings and replacements of a subterm key's path condition; r = pairs of the key's renaming; c = conjuncts of a recorded simplification; n = term nodes of a recorded subject and result the record has not counted yet"
-//! counters = ["SimplifyNormalFormsRecorded", "SimplifyNormalFormsServed", "SimplifyNormalFormsSubtermRecorded", "SimplifyNormalFormsSubtermServed", "SimplifyNormalFormsRefusedConsole", "SimplifyNormalFormsRefusedUnspecified", "SimplifyNormalFormsRefusedCoverage", "SimplifyNormalFormsRefusedStop", "SimplifyNormalFormsRefusedFailed", "SimplifyNormalFormsRefusedDiagnostic", "SimplifyNormalFormsRefusedPathFact", "SimplifyNormalFormsRefusedUnknown", "SimplifyNormalFormsRefusedEffect", "SimplifyNormalFormsRefusedApart"]
+//! counters = ["SimplifyNormalFormsRecorded", "SimplifyNormalFormsServed", "SimplifyNormalFormsSubtermRecorded", "SimplifyNormalFormsSubtermServed", "SimplifyNormalFormsRefusedConsole", "SimplifyNormalFormsRefusedUnspecified", "SimplifyNormalFormsRefusedCoverage", "SimplifyNormalFormsRefusedStop", "SimplifyNormalFormsRefusedFailed", "SimplifyNormalFormsRefusedDiagnostic", "SimplifyNormalFormsRefusedPathFact", "SimplifyNormalFormsRefusedUnknown", "SimplifyNormalFormsRefusedEffect", "SimplifyNormalFormsRefusedApart", "SimplifyNormalFormsSubtermRefusedConsole", "SimplifyNormalFormsSubtermRefusedUnspecified", "SimplifyNormalFormsSubtermRefusedCoverage", "SimplifyNormalFormsSubtermRefusedStop", "SimplifyNormalFormsSubtermRefusedFailed", "SimplifyNormalFormsSubtermRefusedDiagnostic", "SimplifyNormalFormsSubtermRefusedPathFact", "SimplifyNormalFormsSubtermRefusedUnknown", "SimplifyNormalFormsSubtermRefusedEffect", "SimplifyNormalFormsSubtermRefusedApart", "SimplifyNormalFormsCleared"]
 //! span = "none"
 //! invariant = "A recorded simplification ran inside a proof's scope and an ApartScope, outside an execution and any run with a console, with no Unspecified attempt or lineage and no coverage collection open, did not stop or dismiss a stack stop, did not fail, received no undecided solver answer, noted no path fact, performed no effect, holds no name its own renamings apart minted, and emitted no diagnostic where a collector was open; its key holds the subject node, the renaming applied to it, the known predicates, for a subterm the path condition it was simplified under, the options, the iteration budget it started from, the definition, the solver, the thread's condition modes, whether claims are checked and the choice-sampling seed. A subterm is routed only where no rule condition is active against re-entry. It is served only under an equal key, only where no path-fact record is open unless one was open when it was recorded, and only where no collector is open unless one was open when it was recorded; a serve counts again the equation conditions and attempts it left undecided, moves the renaming-apart counter on by the names it minted, and leaves the iteration budget it left."
 //! tests = ["crates/k-rust-backend/src/simplify/normal_forms.rs", "crates/k-rust-backend/src/implication/destination.rs", "crates/k-rust-backend/src/proof.rs"]
 //!
 //! [[cost]]
 //! mode = "lookup (every simplification a caller routes through the record while a proof's scope is open)"
-//! bound = "the context checks (thread flags); the record's copy of the known list found by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference, and where that fails one hash lookup by content that hashes them; for a subterm the record's copy of the path condition found the same way, O(p); then a key with r cloned pairs and one map lookup, the subject compared by node and the known list and path condition by allocation. A hit clones the recorded simplification's shared handles and moves two thread counters on; a miss runs the simplification, which it pays, and then reads six thread counters, the result's effects, and, only where its renamings minted names, its variables (one cached set per term of the result and its c conjuncts). A record walks, for its byte estimate, only the nodes of its subject and result no earlier record counted, O(n) with one hash-set insertion each, so the records of nested subterms together walk each node they hold once."
+//! bound = "the context checks (thread flags); the record's copy of the known list found by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference, and where that fails one hash lookup by content that hashes them; for a subterm the record's copy of the path condition found the same way, O(p); then a key with r cloned pairs and one map lookup, the subject compared by node and the known list and path condition by allocation. A hit clones the recorded simplification's shared handles and moves two thread counters on; a miss boxes the probe and the thread's counters at the start (off the caller's recursive frame), runs the simplification, which it pays, and then reads seven thread counters, the result's effects, and, only where its renamings minted names, its variables (one cached set per term of the result and its c conjuncts). A record walks, for its byte estimate, only the nodes of its subject and result no earlier record counted, O(n) with one hash-set insertion each, so the records of nested subterms together walk each node they hold once."
 //!
 //! [[cost]]
 //! mode = "retention"
-//! bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), and per distinct path condition, one copy (p binding and replacement handles), each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once; reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
+//! bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), and per distinct path condition, one copy (p binding and replacement handles), each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
 //! ```
 //!
 //! A simplification is a function of what it reads: the term, the path condition it is
@@ -59,8 +59,8 @@
 //! `Recurred` under them, and the key does not hold them.
 //!
 //! A proof opens the record ([`scope`]); a caller routes a simplification through it with
-//! [`simplified_through_record`] or [`subterm_through_record`], naming the node the result is a
-//! function of. The implication check's destination does (`implication::Destination::prepare`),
+//! [`simplified_through_record`] or [`subterm_lookup`] and [`subterm_recorded`], naming the
+//! node the result is a function of. The implication check's destination does (`implication::Destination::prepare`),
 //! and so does the term simplifier at each non-ground compound term it enters with no rule
 //! condition active (`simplify::simplify_on_stack`), the configuration's subterms among them: an
 //! application whose equation's `requires` stays undecided is not evaluated and carries no mark
@@ -74,6 +74,14 @@
 //! budget, since one exhausted cuts the simplification short (or makes it fail), and a serve
 //! leaves the caller the budget the recorded simplification left. Whether contradicted claims
 //! are checked is in every key, since a lineage reports where it found `\bottom` only then.
+//!
+//! A serve does none of the work a new simplification would do, so it spends none of the polls
+//! of `stop::check` or the native stack that work would spend: where a new simplification would
+//! stop, at an enclosing `stop::with_poll_budget`'s last poll or for want of stack, a served one
+//! is returned. Neither is reachable within a proof today: a poll budget is in force only under
+//! `coverage::isolated`, which sets the record aside ([`aside`]), and in load-time checks, which
+//! open no proof's scope; a stop for want of stack depends on the thread's stack and on the depth
+//! the work runs at, not on its inputs, and a simplification that met one is never recorded.
 
 use std::{
     cell::{Cell, RefCell},
@@ -108,10 +116,16 @@ const NORMAL_FORMS_BYTES: usize = 64 << 20;
 /// The clean simplifications of one proof, by everything they read ([`NormalFormKey`]).
 ///
 /// The record is bounded by its number of entries ([`NORMAL_FORMS_CAPACITY`]) and by an
-/// estimate of the bytes it holds in place ([`NORMAL_FORMS_BYTES`]); reaching either clears it,
-/// and a cleared record simplifies again what it no longer holds. The estimate counts the
-/// record's own allocations, not the term nodes its keys and results share with the run, which
-/// an entry keeps alive until the proof ends or the record clears.
+/// estimate of the bytes it holds ([`NORMAL_FORMS_BYTES`]); reaching either clears it (counted,
+/// `simplify.normal_forms.cleared`), and a cleared record simplifies again what it no longer
+/// holds. The estimate counts the record's own allocations (each key and entry in place, its
+/// renaming pairs, its conjunct and rule-name handles, the interned lists) and the term nodes its
+/// subjects and results hold, each node once ([`NormalForms::count_new_nodes`]), at
+/// [`NODE_BYTES`] apiece: it is a count of nodes, not of bytes held. It leaves out what a node
+/// holds on the heap beyond its place (argument slices, the increments of its variable set, a
+/// collection's chunked storage, which [`crate::term::immediate_children`] does not walk), and
+/// it counts again at every entry the conjuncts and rule names that entries share (a nested
+/// entry's `applied_rules` are part of the enclosing entry's).
 #[derive(Default)]
 struct NormalForms {
     entries: FxHashMap<NormalFormKey, Recorded>,
@@ -237,6 +251,11 @@ thread_local! {
     static NORMAL_FORMS: RefCell<Option<NormalForms>> = const { RefCell::new(None) };
     /// The open [`scope`]s on this thread.
     static DEPTH: Cell<usize> = const { Cell::new(0) };
+    /// The subterm refusals found after the simplification ([`Watch::verdict`]) counted on this
+    /// thread so far, by reason (`Refusal as usize`): such a reason (an undecided answer, a
+    /// stop, a minted name the result holds) reaches every routed simplification that holds the
+    /// one that met it, and [`Watch::counts`] counts it at the innermost only.
+    static SUBTERM_REFUSALS: Cell<[u64; Refusal::COUNT]> = const { Cell::new([0; Refusal::COUNT]) };
 }
 
 #[cfg(test)]
@@ -261,9 +280,11 @@ pub(crate) fn without_normal_forms<T>(action: impl FnOnce() -> T) -> T {
 /// An open scope of the record on this thread ([`scope`]).
 pub(crate) struct NormalFormsScope(());
 
-/// Keep the clean simplifications routed through [`simplified_through_record`] while the scope
-/// is open: a proof opens one, so that a destination simplified again under the same state
-/// constraints at a later check is served. A scope opened inside another shares its record; the
+/// Keep the clean simplifications routed through [`simplified_through_record`] and
+/// [`subterm_lookup`] while the scope is open: a proof opens one, so that a destination
+/// simplified again under the same state constraints at a later check is served, and so is a
+/// non-ground subterm the term simplifier enters again under an equal path condition and budget
+/// (`simplify::simplify_on_stack`). A scope opened inside another shares its record; the
 /// outermost one drops it when it closes.
 ///
 /// An undecided solver answer is detected through `smt::undecided_on_thread`, which counts the
@@ -334,18 +355,36 @@ pub(crate) enum Refusal {
 }
 
 impl Refusal {
-    fn counter(self) -> Counter {
-        match self {
-            Self::Console => Counter::SimplifyNormalFormsRefusedConsole,
-            Self::Unspecified => Counter::SimplifyNormalFormsRefusedUnspecified,
-            Self::Coverage => Counter::SimplifyNormalFormsRefusedCoverage,
-            Self::Stop => Counter::SimplifyNormalFormsRefusedStop,
-            Self::Failed => Counter::SimplifyNormalFormsRefusedFailed,
-            Self::Diagnostic => Counter::SimplifyNormalFormsRefusedDiagnostic,
-            Self::PathFact => Counter::SimplifyNormalFormsRefusedPathFact,
-            Self::Unknown => Counter::SimplifyNormalFormsRefusedUnknown,
-            Self::Effect => Counter::SimplifyNormalFormsRefusedEffect,
-            Self::Apart => Counter::SimplifyNormalFormsRefusedApart,
+    /// The number of reasons, for [`SUBTERM_REFUSALS`].
+    const COUNT: usize = 10;
+
+    /// The counter of this refusal at `site`.
+    fn counter(self, site: Site) -> Counter {
+        match site {
+            Site::Destination => match self {
+                Self::Console => Counter::SimplifyNormalFormsRefusedConsole,
+                Self::Unspecified => Counter::SimplifyNormalFormsRefusedUnspecified,
+                Self::Coverage => Counter::SimplifyNormalFormsRefusedCoverage,
+                Self::Stop => Counter::SimplifyNormalFormsRefusedStop,
+                Self::Failed => Counter::SimplifyNormalFormsRefusedFailed,
+                Self::Diagnostic => Counter::SimplifyNormalFormsRefusedDiagnostic,
+                Self::PathFact => Counter::SimplifyNormalFormsRefusedPathFact,
+                Self::Unknown => Counter::SimplifyNormalFormsRefusedUnknown,
+                Self::Effect => Counter::SimplifyNormalFormsRefusedEffect,
+                Self::Apart => Counter::SimplifyNormalFormsRefusedApart,
+            },
+            Site::Subterm => match self {
+                Self::Console => Counter::SimplifyNormalFormsSubtermRefusedConsole,
+                Self::Unspecified => Counter::SimplifyNormalFormsSubtermRefusedUnspecified,
+                Self::Coverage => Counter::SimplifyNormalFormsSubtermRefusedCoverage,
+                Self::Stop => Counter::SimplifyNormalFormsSubtermRefusedStop,
+                Self::Failed => Counter::SimplifyNormalFormsSubtermRefusedFailed,
+                Self::Diagnostic => Counter::SimplifyNormalFormsSubtermRefusedDiagnostic,
+                Self::PathFact => Counter::SimplifyNormalFormsSubtermRefusedPathFact,
+                Self::Unknown => Counter::SimplifyNormalFormsSubtermRefusedUnknown,
+                Self::Effect => Counter::SimplifyNormalFormsSubtermRefusedEffect,
+                Self::Apart => Counter::SimplifyNormalFormsSubtermRefusedApart,
+            },
         }
     }
 }
@@ -377,20 +416,22 @@ impl Site {
     }
 }
 
-/// What a caller routes through the record: the node, the renaming applied to it, and what it
-/// is simplified under, borrowed where they are.
+/// What a caller routes through the record: the node and what it is simplified under, borrowed
+/// where they are.
 struct Subject<'a> {
     site: Site,
     node: &'a Term,
-    renaming: &'a Substitution,
     known: &'a [Predicate],
     /// `None` where the path condition is the one `known` gives ([`NormalFormKey::path_condition`]).
     path_condition: Option<&'a PathConditionReplacements>,
 }
 
-/// A simplification's inputs, borrowed where they are, for a lookup and a record.
+/// A simplification's inputs, borrowed where they are but the renaming, for a lookup and a
+/// record.
 struct Probe<'a> {
     subject: Subject<'a>,
+    /// The renaming applied to the subject ([`NormalFormKey::renaming`]).
+    renaming: Box<[(Variable, Term)]>,
     scalars: Scalars,
 }
 
@@ -403,6 +444,7 @@ impl<'a> Probe<'a> {
     fn new(
         definition: &BackendDefinition,
         subject: Subject<'a>,
+        renaming: &Substitution,
         options: SimplificationOptions,
         solver: &dyn SmtSolver,
         budget: usize,
@@ -429,6 +471,10 @@ impl<'a> Probe<'a> {
         }
         Some(Ok(Self {
             subject,
+            renaming: renaming
+                .iter()
+                .map(|(original, renamed)| (original.clone(), renamed.clone()))
+                .collect(),
             scalars: Scalars {
                 definition: std::ptr::from_ref(definition).addr(),
                 solver: solver_address(solver),
@@ -443,14 +489,6 @@ impl<'a> Probe<'a> {
             },
         }))
     }
-
-    fn renaming(&self) -> Box<[(Variable, Term)]> {
-        self.subject
-            .renaming
-            .iter()
-            .map(|(original, renamed)| (original.clone(), renamed.clone()))
-            .collect()
-    }
 }
 
 /// The place of a path condition, for [`InternTable::find`].
@@ -462,7 +500,7 @@ fn path_condition_place(path_condition: &PathConditionReplacements) -> (usize, u
 }
 
 /// Whether a record is open on this thread ([`scope`]): a caller with work to do before it can
-/// route a simplification ([`subterm_through_record`]) asks first.
+/// route a simplification ([`subterm_lookup`]) asks first.
 #[inline]
 pub(super) fn open() -> bool {
     DEPTH.get() > 0
@@ -490,107 +528,215 @@ pub(crate) fn simplified_through_record(
     // A destination's simplification starts a lineage of its own, with the whole budget, and
     // leaves its caller none to read.
     let mut budget = options.max_iterations;
-    through_record(
-        definition,
-        Subject {
-            site: Site::Destination,
-            node: subject,
-            renaming,
-            known,
-            path_condition: None,
-        },
-        options,
-        solver,
-        &mut budget,
-        false,
-        |_| simplify(),
-    )
+    let subject = Subject {
+        site: Site::Destination,
+        node: subject,
+        known,
+        path_condition: None,
+    };
+    match consult(
+        definition, subject, renaming, options, solver, budget, false,
+    ) {
+        Consulted::Unrecorded => simplify(),
+        Consulted::Served(served) => Ok(Ok(serve(Site::Destination, served, &mut budget, |_| {
+            simplify()
+        }))),
+        Consulted::Missed(probe) => {
+            let pending = Pending::start(probe);
+            let result = simplify();
+            let outcome = match &result {
+                Err(_) => Err(Refusal::Stop),
+                Ok(Err(_)) => Err(Refusal::Failed),
+                Ok(Ok(simplification)) => Ok(simplification),
+            };
+            pending.finish(outcome, budget);
+            result
+        }
+    }
+}
+
+/// What the record holds for a non-ground subterm the term simplifier enters
+/// ([`subterm_lookup`]).
+pub(super) enum Lookup<'a> {
+    /// No record is consulted, or the thread holds open what the key does not (counted): the
+    /// subterm is simplified, and nothing is recorded.
+    Unrecorded,
+    /// The recorded simplification, its reuse replayed: the thread counters it moved are moved
+    /// as far, and the iteration budget is left where it left it.
+    Served(Box<Simplification>),
+    /// Nothing recorded under the key: the subterm is simplified, and the simplification
+    /// recorded when it was clean ([`subterm_recorded`]).
+    Missed(Box<Pending<'a>>),
 }
 
 /// [`simplified_through_record`] for a non-ground subterm the term simplifier enters
 /// (`simplify::simplify_on_stack`), simplified as it is (an empty renaming) under `assumptions`,
-/// in a lineage whose iteration budget is `remaining`: `simplify` must be its simplification from
-/// the budget it is given, which it leaves there, with no rule condition active against
-/// re-entry. The budget is part of the key, and a serve leaves in `remaining` what the recorded
-/// simplification left; `execution` says whether it runs in an execution, which is refused.
+/// in a lineage whose iteration budget is `remaining`, with no rule condition active against
+/// re-entry; `execution` says whether it runs in an execution, which is refused. The budget is
+/// part of the key, and a serve leaves in `remaining` what the recorded simplification left.
+///
+/// In two halves, so that the record's state is off the recursion path: the caller simplifies
+/// the subterm itself where this misses, from `remaining`, and hands the result to
+/// [`subterm_recorded`]; nothing the record holds is on its frame meanwhile but the boxed
+/// [`Pending`]. `simplify` is that simplification, run from scratch only to check a serve
+/// (`check-normal-forms`).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn subterm_through_record(
+pub(super) fn subterm_lookup<'a>(
     definition: &BackendDefinition,
-    subject: &Term,
-    assumptions: &TermAssumptions<'_>,
+    subject: &'a Term,
+    assumptions: &TermAssumptions<'a>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     remaining: &mut usize,
     execution: bool,
     simplify: impl FnOnce(&mut usize) -> Stoppable<Result<Simplification, SimplificationError>>,
-) -> Stoppable<Result<Simplification, SimplificationError>> {
-    through_record(
-        definition,
-        Subject {
-            site: Site::Subterm,
-            node: subject,
-            renaming: &Substitution::new(),
-            known: assumptions.predicates,
-            path_condition: Some(assumptions.path_condition),
-        },
-        options,
-        solver,
-        remaining,
-        execution,
-        simplify,
-    )
+) -> Lookup<'a> {
+    let subject = Subject {
+        site: Site::Subterm,
+        node: subject,
+        known: assumptions.predicates,
+        path_condition: Some(assumptions.path_condition),
+    };
+    let renaming = Substitution::new();
+    match consult(
+        definition, subject, &renaming, options, solver, *remaining, execution,
+    ) {
+        Consulted::Unrecorded => Lookup::Unrecorded,
+        Consulted::Served(served) => {
+            Lookup::Served(Box::new(serve(Site::Subterm, served, remaining, simplify)))
+        }
+        Consulted::Missed(probe) => Lookup::Missed(Box::new(Pending::start(probe))),
+    }
 }
 
-/// The record's lookup, the simplification where it misses, and the record of a clean one
-/// ([`simplified_through_record`]); `simplify` runs from `budget` and leaves its rest there.
-fn through_record(
+/// The second half of [`subterm_lookup`]: `result` is the subterm's simplification, which left
+/// the iteration budget `remaining`; it is recorded when it was clean.
+pub(super) fn subterm_recorded(
+    pending: Box<Pending<'_>>,
+    result: &super::SimplifyResult<Simplification>,
+    remaining: usize,
+) {
+    let outcome = match result {
+        Err(super::Unwind::Stop(_)) => Err(Refusal::Stop),
+        Err(super::Unwind::Fail(_)) => Err(Refusal::Failed),
+        Ok(simplification) => Ok(simplification),
+    };
+    pending.finish(outcome, remaining);
+}
+
+/// What a consultation of the record found ([`consult`]).
+enum Consulted<'a> {
+    /// No record is consulted, or the thread holds open what the key does not (counted).
+    Unrecorded,
+    /// The simplification recorded under the probe's key, not replayed yet ([`serve`]).
+    Served(Served),
+    /// Nothing recorded under the probe's key.
+    Missed(Probe<'a>),
+}
+
+/// The record's lookup of `subject` renamed by `renaming`, simplified from the iteration budget
+/// `budget` ([`Probe::new`], [`NormalForms::served`]); a refusal is counted at its site.
+fn consult<'a>(
     definition: &BackendDefinition,
-    subject: Subject<'_>,
+    subject: Subject<'a>,
+    renaming: &Substitution,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-    budget: &mut usize,
+    budget: usize,
     execution: bool,
-    simplify: impl FnOnce(&mut usize) -> Stoppable<Result<Simplification, SimplificationError>>,
-) -> Stoppable<Result<Simplification, SimplificationError>> {
-    let probe = match Probe::new(definition, subject, options, solver, *budget, execution) {
-        None => return simplify(budget),
+) -> Consulted<'a> {
+    let site = subject.site;
+    match Probe::new(
+        definition, subject, renaming, options, solver, budget, execution,
+    ) {
+        None => Consulted::Unrecorded,
         Some(Err(refusal)) => {
-            measure::bump(refusal.counter());
-            return simplify(budget);
+            measure::bump(refusal.counter(site));
+            Consulted::Unrecorded
         }
-        Some(Ok(probe)) => probe,
-    };
-    if let Some(served) = NormalForms::served(&probe) {
-        measure::bump(probe.subject.site.served());
-        // Checked where a new simplification would run: before the reuse moves any counter.
-        #[cfg(feature = "check-normal-forms")]
-        check_served(&served, *budget, simplify);
-        crate::rule::skip_apart_names(served.replayed.apart);
-        super::note_undecided_times(served.replayed.undecided);
-        *budget = served.replayed.budget;
-        return Ok(Ok(served.simplification));
+        Some(Ok(probe)) => match NormalForms::served(&probe) {
+            Some(served) => Consulted::Served(served),
+            None => Consulted::Missed(probe),
+        },
     }
-    let watch = Watch::start();
-    let (result, stack_stops) = stop::counting_stack_stops(|| simplify(budget));
-    match watch.verdict(&result, stack_stops, *budget) {
-        Err(refusal) => measure::bump(refusal.counter()),
-        Ok((simplification, replayed)) => {
-            NormalForms::record(
-                &probe,
-                simplification.clone(),
-                watch.facts_open,
-                watch.collected,
-                replayed,
-            );
-            measure::bump(probe.subject.site.recorded());
+}
+
+/// The reuse of `served` where a simplification of it from the iteration budget `budget` would
+/// run (`simplify`, run from scratch only to check it, `check-normal-forms`): the thread counters
+/// it moved are moved as far, and the budget is left where it left it.
+fn serve(
+    site: Site,
+    served: Served,
+    budget: &mut usize,
+    simplify: impl FnOnce(&mut usize) -> Stoppable<Result<Simplification, SimplificationError>>,
+) -> Simplification {
+    measure::bump(site.served());
+    // Checked where a new simplification would run: before the reuse moves any counter.
+    #[cfg(feature = "check-normal-forms")]
+    check_served(&served, *budget, simplify);
+    #[cfg(not(feature = "check-normal-forms"))]
+    let _ = simplify;
+    crate::rule::skip_apart_names(served.replayed.apart);
+    super::note_undecided_times(served.replayed.undecided);
+    *budget = served.replayed.budget;
+    served.simplification
+}
+
+/// A simplification the record missed, while it runs: its probe, the thread's counters at its
+/// start ([`Watch`]), and the count of stack stops open around it.
+pub(super) struct Pending<'a> {
+    probe: Probe<'a>,
+    watch: Watch,
+    stack_stops: stop::StackStopCount,
+}
+
+impl<'a> Pending<'a> {
+    /// Opened where the simplification starts, after the lookup.
+    fn start(probe: Probe<'a>) -> Self {
+        let watch = Watch::start();
+        Self {
+            probe,
+            watch,
+            stack_stops: stop::StackStopCount::start(),
         }
     }
-    result
+
+    /// The simplification ended with `outcome` (a stop or a failure already named), leaving the
+    /// iteration budget `budget`: recorded when it was clean, and the refusal counted otherwise.
+    #[inline(never)]
+    fn finish(self, outcome: Result<&Simplification, Refusal>, budget: usize) {
+        let Self {
+            probe,
+            watch,
+            stack_stops,
+        } = self;
+        let stack_stops = stack_stops.finish();
+        let site = probe.subject.site;
+        match watch.verdict(outcome, stack_stops, budget) {
+            Err(refusal) => {
+                if watch.counts(site, refusal) {
+                    measure::bump(refusal.counter(site));
+                }
+            }
+            Ok((simplification, replayed)) => {
+                NormalForms::record(
+                    &probe,
+                    simplification.clone(),
+                    watch.facts_open,
+                    watch.collected,
+                    replayed,
+                );
+                measure::bump(site.recorded());
+            }
+        }
+    }
 }
 
 /// The thread's counters at the start of a simplification, read again at its end to say
 /// whether it was clean ([`Watch::verdict`]).
 struct Watch {
+    /// [`SUBTERM_REFUSALS`] at the start.
+    refusals: [u64; Refusal::COUNT],
     emitted: u64,
     collected: bool,
     facts: crate::path_facts::Marker,
@@ -603,6 +749,7 @@ struct Watch {
 impl Watch {
     fn start() -> Self {
         Self {
+            refusals: SUBTERM_REFUSALS.get(),
             emitted: crate::diagnostic::emitted(),
             collected: crate::diagnostic::collecting(),
             facts: crate::path_facts::marker(),
@@ -611,6 +758,28 @@ impl Watch {
             undecided: super::undecided_so_far(),
             apart: crate::rule::apart_counter(),
         }
+    }
+
+    /// Whether the refusal of the simplification at `site` that ended for `refusal`
+    /// ([`Watch::verdict`]) is counted: a destination's always; a subterm's only where no
+    /// subterm simplification inside it was counted for the same reason since the start, since
+    /// a reason found after the simplification reaches every simplification that holds the one
+    /// that met it (an undecided answer `d` routed levels deep is counted once, not `d + 1`
+    /// times). An enclosing simplification that met the same reason on its own is not counted
+    /// either: the counters count the routed simplifications that met a reason first, not every
+    /// one refused for it.
+    fn counts(&self, site: Site, refusal: Refusal) -> bool {
+        if site == Site::Destination {
+            return true;
+        }
+        let index = refusal as usize;
+        let mut counted = SUBTERM_REFUSALS.get();
+        if counted[index] != self.refusals[index] {
+            return false;
+        }
+        counted[index] += 1;
+        SUBTERM_REFUSALS.set(counted);
+        true
     }
 
     /// The names the renamings apart minted since the start; `None` where the counter went
@@ -625,15 +794,15 @@ impl Watch {
     /// it moves, when it was clean; why it is not recorded otherwise, the first reason found.
     fn verdict<'r>(
         &self,
-        result: &'r Stoppable<Result<Simplification, SimplificationError>>,
+        outcome: Result<&'r Simplification, Refusal>,
         stack_stops: usize,
         budget: usize,
     ) -> Result<(&'r Simplification, Replayed), Refusal> {
-        let simplification = match result {
-            Err(_) => return Err(Refusal::Stop),
-            Ok(_) if stack_stops > 0 => return Err(Refusal::Stop),
-            Ok(Err(_)) => return Err(Refusal::Failed),
-            Ok(Ok(simplification)) => simplification,
+        let simplification = match outcome {
+            Err(Refusal::Stop) => return Err(Refusal::Stop),
+            _ if stack_stops > 0 => return Err(Refusal::Stop),
+            Err(refusal) => return Err(refusal),
+            Ok(simplification) => simplification,
         };
         // An emission with no collector open reaches no sink and moves no emission position:
         // the entry is served only where none is open either (`Recorded::collected`).
@@ -730,7 +899,7 @@ impl NormalForms {
             };
             let key = NormalFormKey {
                 subject: probe.subject.node.clone(),
-                renaming: probe.renaming(),
+                renaming: probe.renaming.clone(),
                 known: Interned(known),
                 path_condition,
                 scalars: probe.scalars,
@@ -756,7 +925,7 @@ impl NormalForms {
         collected: bool,
         replayed: Replayed,
     ) {
-        let renaming = probe.renaming();
+        let renaming = probe.renaming.clone();
         let own_bytes = std::mem::size_of::<(NormalFormKey, Recorded)>()
             + std::mem::size_of_val(&*renaming)
             + simplification.conjoined().len() * std::mem::size_of::<Predicate>()
@@ -775,6 +944,7 @@ impl NormalForms {
                 record.path_conditions.clear();
                 record.counted.clear();
                 record.retained = 0;
+                measure::bump(Counter::SimplifyNormalFormsCleared);
             }
             let known = record.intern_known(probe.subject.known);
             let path_condition = probe
@@ -914,6 +1084,8 @@ fn check_served(
             replayed,
         )
     };
+    // The subterm refusals the recompute counts are none of the run's either.
+    let refusals = SUBTERM_REFUSALS.get();
     let (outcome, emitted, noted, replayed) = measure::without_counting(|| {
         super::with_undecided_restored(|| {
             crate::rule::with_apart_names_restored(|| {
@@ -938,6 +1110,7 @@ fn check_served(
             })
         })
     });
+    SUBTERM_REFUSALS.set(refusals);
     let Some(fresh) = outcome else {
         return;
     };
@@ -1047,7 +1220,11 @@ mod tests {
         undecided: u64,
         recorded: u64,
         served: u64,
+        /// Subterm refusals for a console, and for an undecided answer.
         console: u64,
+        unknown: u64,
+        /// The destination's refusals for the same two reasons, which a subterm does not count.
+        destination_refusals: [u64; 2],
     }
 
     /// Where a subterm is simplified, besides its term: the known predicates, the rule
@@ -1080,7 +1257,7 @@ mod tests {
         definition: &BackendDefinition,
         subject: &Term,
         given: &Given<'_>,
-        solver: &Contingent,
+        solver: &dyn SmtSolver,
     ) -> Run {
         let path_condition =
             PathConditionReplacements::new(given.path_condition.unwrap_or(given.known));
@@ -1117,7 +1294,13 @@ mod tests {
             undecided: simplify::undecided_count() - undecided,
             recorded: delta.get(Counter::SimplifyNormalFormsSubtermRecorded),
             served: delta.get(Counter::SimplifyNormalFormsSubtermServed),
-            console: delta.get(Counter::SimplifyNormalFormsRefusedConsole),
+            console: delta.get(Counter::SimplifyNormalFormsSubtermRefusedConsole),
+            unknown: delta.get(Counter::SimplifyNormalFormsSubtermRefusedUnknown),
+            destination_refusals: [
+                Counter::SimplifyNormalFormsRefusedConsole,
+                Counter::SimplifyNormalFormsRefusedUnknown,
+            ]
+            .map(|counter| delta.get(counter)),
         }
     }
 
@@ -1282,5 +1465,108 @@ mod tests {
                 assert_eq!(run.simplification, outside.simplification);
             }
         });
+    }
+
+    /// Every satisfiability check is `Sat` and every validity check `Unknown` (as a timeout).
+    struct Unknowing;
+
+    impl SmtSolver for Unknowing {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Ok(Satisfiability::Sat))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(Validity::Unknown("timeout".to_owned())))
+        }
+    }
+
+    /// GAP K17 part b, the fix round: a subterm refusal is counted at the subterm site, once per
+    /// routed simplification that met its reason, not again at every routed simplification that
+    /// holds it. In `pair(f(Y), f(Z))` each `f(..)` receives an undecided answer and is refused,
+    /// counted once each; `pair(..)` is refused for the same answers and not counted again (3
+    /// with every level counting); the destination's counters count none of them.
+    #[test]
+    fn a_subterm_refusal_is_counted_once_at_the_simplification_that_met_it() {
+        let definition = definition();
+        let unknowing = Unknowing;
+        let solver = crate::smt::UndecidedCounting::new(&unknowing);
+        let subject = term(&definition, "pair{}(f{}(Y:SortInt{}), f{}(Z:SortInt{}))");
+        let known = [above(&definition, "0")];
+        in_a_proof(|| {
+            for _ in 0..2 {
+                let run = simplify_subterm(&definition, &subject, &Given::under(&known), &solver);
+                assert_eq!((run.recorded, run.served), (0, 0), "{run:#?}");
+                assert_eq!(run.unknown, 2, "{run:#?}");
+                assert_eq!(run.destination_refusals, [0, 0], "{run:#?}");
+            }
+        });
+    }
+
+    /// `h(X) = \bottom` for every `X`, and `t`, a `total` symbol whose equation makes the
+    /// definition one that declares a claim (`BackendDefinition::declares_claims`).
+    fn bottom_definition() -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol h{}(SortInt{}) : SortInt{} [function{}()]
+                symbol t{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Z:SortInt{}), \top{R}())),
+                    \equals{SortInt{}, R}(h{}(X0:SortInt{}), \and{SortInt{}}(\bottom{SortInt{}}(), \top{SortInt{}}()))
+                ) [label{}("h-bottom")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Z:SortInt{}), \top{R}())),
+                    \equals{SortInt{}, R}(t{}(X0:SortInt{}), \and{SortInt{}}(Z:SortInt{}, \top{SortInt{}}()))
+                ) [label{}("t-id")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    /// GAP K17 part b, the fix round: whether contradicted claims are checked is in the key. A
+    /// lineage reports where it found `\bottom` (`Simplification::bottom`) only where claims
+    /// are checked (a path-fact record is open); `h(Y)` recorded inside one is not served where
+    /// none is open, since a new simplification there reports nothing (with the key part left
+    /// out, `check-normal-forms` finds the served simplification differs from a new one).
+    #[test]
+    fn a_subterm_recorded_where_claims_are_checked_is_not_served_where_they_are_not() {
+        let definition = bottom_definition();
+        assert!(definition.declares_claims());
+        let solver = Contingent;
+        let subject = term(&definition, "h{}(Y:SortInt{})");
+        let known = [];
+        let given = Given::under(&known);
+        let runs = || {
+            in_a_proof(|| {
+                let (checked, _facts) = crate::path_facts::collect(|| {
+                    simplify_subterm(&definition, &subject, &given, &solver)
+                });
+                let unchecked = simplify_subterm(&definition, &subject, &given, &solver);
+                let again = simplify_subterm(&definition, &subject, &given, &solver);
+                (checked, unchecked, again)
+            })
+        };
+        let (checked, unchecked, again) = runs();
+        assert!(checked.simplification.bottom.is_some(), "{checked:#?}");
+        assert!(unchecked.simplification.bottom.is_none(), "{unchecked:#?}");
+        assert_eq!((checked.recorded, checked.served), (1, 0), "{checked:#?}");
+        assert_eq!(
+            (unchecked.recorded, unchecked.served),
+            (1, 0),
+            "{unchecked:#?}"
+        );
+        assert_eq!((again.recorded, again.served), (0, 1), "{again:#?}");
+        let (fresh_checked, fresh_unchecked, _) = without_normal_forms(runs);
+        assert_eq!(checked.simplification, fresh_checked.simplification);
+        assert_eq!(unchecked.simplification, fresh_unchecked.simplification);
     }
 }
