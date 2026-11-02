@@ -3009,6 +3009,16 @@ symbol = "BackendDefinition::matching_refutes"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::gives_subject_back"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "holds_collection"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
 symbol = "with_scan_memo"
 
 [[node.sites]]
@@ -3032,7 +3042,7 @@ bound = "O(D + E + Q + P + B + V) expected hash-table operations, plus C and the
 
 [[node.cost]]
 mode = "equation exclusion"
-bound = "one syntactic unifiability test per candidate, then at most one Evaluate-mode match when syntactic unifiability remains possible and the variable sets are disjoint; the test follows bindings without path compression and its occurs walk can revisit a dependency, so B and V are traversal counts, not distinct-variable counts"
+bound = "one syntactic unifiability test per candidate, then at most two Evaluate-mode matches (the refutation, then, for a left-hand side without collections whose rule ensures nothing, the match whose substitution instantiates the right-hand side once for the gives-back test) when syntactic unifiability remains possible and the variable sets are disjoint; the test follows bindings without path compression and its occurs walk can revisit a dependency, so B and V are traversal counts, not distinct-variable counts"
 
 [[node]]
 kind = "algorithm"
@@ -4307,7 +4317,7 @@ bound = '''only in a round with a \ceil conjunct: one walk of the known predicat
 
 [[node.cost]]
 mode = 'opaque \ceil or absence expansion (expansion_obligations)'
-bound = '''per ceil_term expansion of a \ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms'''
+bound = '''per ceil_term expansion of a \ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then builtin::evaluated_definedness evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms'''
 
 [[node.cost]]
 mode = '''further pass of a \ceil or absence atom's arm (settled)'''
@@ -4490,7 +4500,7 @@ symbol = "simplify_on_stack"
 
 [[node.cost]]
 mode = "one term lineage"
-bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
+bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, the stack guard, and the recurrence watch, which ends a lineage whose determined steps reach a term again (EvaluationCycle) at one term comparison per step"
 
 [[node.cost]]
 mode = "the items of a map, set or list of n items (simplify_children)"
@@ -4515,6 +4525,10 @@ bound = "only at a root whose hook is Unspecified: one hash lookup in the stack 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
 bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
+
+[[node.cost]]
+mode = "path condition replacements"
+bound = "per round of a term the path condition may change, when it holds a replacement (a sibling equality with a value side): one containment walk (term_contains_replacement_original) and one rebuilding walk (replace_terms_bottom_up) of the term, each visiting a node once however many times the term holds it, so O(DAG size of the term) with one hash lookup per node; each walk charges its nodes to the poll budget in force (stop::charge). Run verdicts are unchanged by the charge, since a run's step has no poll budget; request-time records (coverage::isolated, under stop::off_the_clock's budget) and the load-time checks (confluence::budgeted, data_term::instance::budgeted) are bounded by the same work measure"
 
 [[node]]
 kind = "algorithm"
