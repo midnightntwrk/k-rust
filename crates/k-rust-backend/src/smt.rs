@@ -361,6 +361,10 @@ pub struct TranslationState {
     /// The domain functions the query applies at a single point, declared as constants.
     single_point_domains: BTreeSet<String>,
     domains: BTreeMap<Term, Arc<[Predicate]>>,
+    /// Facts of the conditional ceil equations at a partial application whose domain is its
+    /// head's domain function (`functional::domain_lemmas`), each stated once per binder scope.
+    domain_lemmas: BTreeMap<Term, Arc<[Predicate]>>,
+    domain_lemma_seen: BTreeSet<(Term, Vec<String>)>,
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
     observation_facts: BTreeMap<Term, Vec<Predicate>>,
@@ -415,6 +419,8 @@ impl TranslationState {
             domain_functions: BTreeMap::new(),
             single_point_domains: BTreeSet::new(),
             domains: BTreeMap::new(),
+            domain_lemmas: BTreeMap::new(),
+            domain_lemma_seen: BTreeSet::new(),
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
             observation_facts: BTreeMap::new(),

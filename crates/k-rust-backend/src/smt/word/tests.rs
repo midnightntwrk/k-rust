@@ -489,6 +489,41 @@ fn same_width_profiles_keep_exact_guards_and_shared_dags_stay_small() {
     assert!(bytes < 100_000, "shared query bytes: {bytes}");
 }
 
+/// GAP K15: a query over a shared DAG of partial applications stays linear in the DAG, for a
+/// partial head read through its `smt-hook` (`add`) and one read through a value function
+/// (`pf`), with atoms whose operands are the shared root: an equality with a literal, the
+/// reflexive equality, a known equality and the root's `\ceil`. Added before K15 states the
+/// operands' domains beside each atom: the domains must share the DAG as the values do.
+#[cfg(feature = "z3")]
+#[test]
+fn a_query_over_a_shared_partial_dag_stays_linear() {
+    let d = BackendDefinition::internalize(
+        &parse_definition(&definition_source().replace(
+            "endmodule []",
+            "symbol pf{}(SortInt{},SortInt{}):SortInt{} [function{}()]\n      endmodule []",
+        ))
+        .unwrap(),
+        "MAIN",
+    )
+    .unwrap();
+    for head in ["add", "pf"] {
+        let mut diamond = binary(&d, head, var("X"), var("Y"));
+        for _ in 0..28 {
+            diamond = binary(&d, head, diamond.clone(), diamond);
+        }
+        let known = [Predicate::Equals(diamond.clone(), int(5))];
+        for checked in [
+            Predicate::Equals(diamond.clone(), int(0)),
+            Predicate::Equals(diamond.clone(), diamond.clone()),
+            Predicate::Ceil(diamond.clone()),
+        ] {
+            let built = query(&d, &known, std::slice::from_ref(&checked));
+            let bytes = built.base().len() + built.checked().to_string().len();
+            assert!(bytes < 100_000, "{head}: shared query bytes: {bytes}");
+        }
+    }
+}
+
 #[cfg(feature = "z3")]
 #[test]
 fn original_definedness_atoms_remain_separate_from_word_value_plans() {

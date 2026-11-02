@@ -362,6 +362,19 @@ impl TranslationState {
             );
             self.record_source_fact(fact)?;
         }
+        // The conditional ceil equations at the application, facts beside its domain function
+        // (`domain_lemmas`). Each reads the completed domain through the memo.
+        if let Some(lemmas) = self.domain_lemmas.get(term).cloned()
+            && self.domain_lemma_seen.insert((
+                term.clone(),
+                self.source_scope(&term.attributes().variables.to_btree_set()),
+            ))
+        {
+            for lemma in lemmas.iter() {
+                let fact = self.translate_predicate(lemma)?;
+                self.record_source_fact(fact)?;
+            }
+        }
         // A demanded observation domain also demands its guarded value equation. For
         // example a ceil(get(put(...),q)) must transport its value through an opaque alias.
         // Cache the domain first so the value equation can use it without recursive expansion.
@@ -513,6 +526,9 @@ pub(super) fn prepare(
                 .filter(|p| **p != Predicate::Ceil(term.clone()))
                 .cloned(),
         );
+        if let Some(lemmas) = state.domain_lemmas.get(&term) {
+            predicates.extend(lemmas.iter().cloned());
+        }
     }
     Ok(())
 }
@@ -549,39 +565,60 @@ pub(super) fn domain_plan(
     // The ceil conditions are read as stated: the reading applies no equation to the query's
     // terms, whose evaluation, as of an operand a conditional discards, need not end
     // (`crate::definedness::with_stated_ceil_conditions`).
-    let plan = crate::definedness::with_stated_ceil_conditions(|| match term.kind() {
-        TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => Some(
-            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
-                match apply_ceil_equation(definition, term) {
-                    Some(conditions) if admit_conditions(state, &conditions, remaining) => {
-                        request_definedness(definition, conditions)
-                            .unwrap_or_else(|_| vec![Predicate::Ceil(term.clone())])
-                    }
-                    Some(_) | None => vec![Predicate::Ceil(term.clone())],
+    let plan = crate::definedness::with_stated_ceil_conditions(
+        || -> crate::stop::Stoppable<Option<Vec<Predicate>>> {
+            Ok(match term.kind() {
+                TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => {
+                    Some(
+                        if symbol.attributes.symbol_type
+                            == SymbolType::Function(FunctionType::Partial)
+                        {
+                            match apply_ceil_equation(definition, term) {
+                                Some(conditions)
+                                    if admit_conditions(state, &conditions, remaining) =>
+                                {
+                                    request_definedness(definition, conditions)
+                                        .unwrap_or_else(|_| vec![Predicate::Ceil(term.clone())])
+                                }
+                                Some(_) => vec![Predicate::Ceil(term.clone())],
+                                // No ceil theory states it: the hook's own reading, which the
+                                // simplifier reads at the same place (`builtin::hook_domain`).
+                                None => match crate::builtin::hook_domain(definition, term)? {
+                                    Some(true) => Vec::new(),
+                                    Some(false) => vec![Predicate::False],
+                                    None => {
+                                        domain_lemmas(definition, state, term, remaining);
+                                        vec![Predicate::Ceil(term.clone())]
+                                    }
+                                },
+                            }
+                        } else {
+                            Vec::new()
+                        },
+                    )
                 }
-            } else {
-                Vec::new()
-            },
-        ),
-        TermKind::Variable(_) | TermKind::DomainValue { .. } | TermKind::Injection { .. } => {
-            Some(Vec::new())
-        }
-        TermKind::Map { entries, .. }
-            if definition.map_operations(&term.sort()).is_some()
-                && entries.len().saturating_mul(entries.len()) <= *remaining =>
-        {
-            let conditions = crate::definedness::collection_head_domain(definition, term).ok()?;
-            admit_conditions(state, &conditions, remaining).then_some(conditions)
-        }
-        TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
-            Some(Vec::new())
-        }
-        TermKind::Application { .. }
-        | TermKind::Map { .. }
-        | TermKind::List { .. }
-        | TermKind::Set { .. }
-        | TermKind::And(..) => None,
-    });
+                TermKind::Variable(_)
+                | TermKind::DomainValue { .. }
+                | TermKind::Injection { .. } => Some(Vec::new()),
+                TermKind::Map { entries, .. }
+                    if definition.map_operations(&term.sort()).is_some()
+                        && entries.len().saturating_mul(entries.len()) <= *remaining =>
+                {
+                    crate::definedness::collection_head_domain(definition, term)
+                        .ok()
+                        .filter(|conditions| admit_conditions(state, conditions, remaining))
+                }
+                TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
+                    Some(Vec::new())
+                }
+                TermKind::Application { .. }
+                | TermKind::Map { .. }
+                | TermKind::List { .. }
+                | TermKind::Set { .. }
+                | TermKind::And(..) => None,
+            })
+        },
+    )?;
     let Some(mut plan) = plan else {
         return Ok(None);
     };
@@ -602,6 +639,53 @@ pub(super) fn domain_plan(
     let plan: std::sync::Arc<[Predicate]> = plan.into();
     state.domains.insert(term.clone(), plan.clone());
     Ok(Some(plan))
+}
+
+/// Record, for the partial application `term` whose domain stays its head's domain function,
+/// the instances of its conditional ceil equations as facts (`TranslationState::domain_lemmas`):
+/// `R => (\ceil(term) <=> q)` for each instance `\ceil(term) = q requires R`
+/// (`definedness::conditional_ceil_lemmas`). Each is an axiom of the definition, so it holds in
+/// every model in which the domain function is the application's definedness, and the domain
+/// itself stays exact. Their predicates are stated definedness-explicit, as a plan's conditions
+/// are, and admitted under the same bound; an instance that is not is left out, which only
+/// weakens what the query knows.
+#[cfg(any(feature = "z3", test))]
+fn domain_lemmas(
+    definition: &crate::definition::BackendDefinition,
+    state: &mut TranslationState,
+    term: &Term,
+    remaining: &mut usize,
+) {
+    use crate::definedness::request_definedness;
+    let mut lemmas = Vec::new();
+    for (requires, condition) in crate::definedness::conditional_ceil_lemmas(definition, term) {
+        if !admit_conditions(state, &requires, remaining)
+            || !admit_conditions(state, &condition, remaining)
+        {
+            continue;
+        }
+        let (Ok(requires), Ok(condition)) = (
+            request_definedness(definition, requires),
+            request_definedness(definition, condition),
+        ) else {
+            continue;
+        };
+        let conjunction = |mut predicates: Vec<Predicate>| match predicates.len() {
+            0 => Predicate::True,
+            1 => predicates.pop().expect("one predicate"),
+            _ => Predicate::And(predicates.into()),
+        };
+        lemmas.push(Predicate::Implies(
+            std::sync::Arc::new(conjunction(requires)),
+            std::sync::Arc::new(Predicate::Iff(
+                std::sync::Arc::new(Predicate::Ceil(term.clone())),
+                std::sync::Arc::new(conjunction(condition)),
+            )),
+        ));
+    }
+    if !lemmas.is_empty() {
+        state.domain_lemmas.insert(term.clone(), lemmas.into());
+    }
 }
 
 /// Bound the tree work of canonical condition conversion before asking it to traverse a

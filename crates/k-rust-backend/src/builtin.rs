@@ -948,6 +948,59 @@ pub(crate) fn defined_on_every_argument(definition: &BackendDefinition, term: &T
     }
 }
 
+/// The definedness of `term`, an application of a partial hooked symbol that no ceil theory
+/// states, as far as its hook decides it without the definition's equations: `Some(true)` where
+/// it is defined wherever its arguments are, `Some(false)` where it is `\bottom` in every model,
+/// `None` where the hook leaves it open.
+///
+/// Defined: the hook's text gives every argument of its sorts a value
+/// ([`defined_on_every_argument`]); the value is one the definition leaves to the
+/// implementation and its class gives it one ([`implementation_chosen`], `defined`); or the
+/// arguments are constructor-like and the evaluator gives a value, a result above a size bound
+/// (`ResultTooLarge`, reported only where the hook has a value), or one of several values the
+/// definition admits (`Unspecified` with `defined`). Undefined: the arguments are
+/// constructor-like and the evaluator answers [`Undefinedness::Stated`], `\bottom` in every model.
+/// These are the simplifier's judgements (`simplify`'s `defined_where_its_arguments_are`, with
+/// the evaluator's stated `\bottom`), so the solver's domain of the application, which reads
+/// them (`smt::functional::domain_plan`), is the application's `\ceil` on defined arguments.
+/// An evaluation applies no equation of the definition: it is one hook evaluation on literal
+/// arguments, which ends. A failure of the evaluator leaves the definedness open.
+pub(crate) fn hook_domain(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<bool>> {
+    if defined_on_every_argument(definition, term)
+        || implementation_chosen(term).is_some_and(|chosen| chosen.defined)
+    {
+        return Ok(Some(true));
+    }
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return Ok(None);
+    };
+    if symbol.attributes.hook.is_none()
+        || !arguments
+            .iter()
+            .all(|argument| argument.attributes().constructor_like)
+    {
+        return Ok(None);
+    }
+    // Only the application's own definedness is read, which a value the definition leaves open
+    // has in every model: the evaluation marks no path (`crate::path_facts`).
+    Ok(
+        match crate::path_facts::suspend(|| evaluate_in_definition(term, definition))? {
+            Ok(
+                BuiltinResult::Value(_)
+                | BuiltinResult::Unsupported(
+                    UnsupportedHookReason::ResultTooLarge { .. }
+                    | UnsupportedHookReason::Unspecified { defined: true, .. },
+                ),
+            ) => Some(true),
+            Ok(BuiltinResult::Bottom(Undefinedness::Stated)) => Some(false),
+            Ok(_) | Err(_) => None,
+        },
+    )
+}
+
 /// Evaluate a hook candidate with buffered execution state available.
 ///
 /// This entry point establishes the console capability boundary without exposing buffered

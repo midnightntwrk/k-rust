@@ -1350,6 +1350,67 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
     None
 }
 
+/// The instances at `term` of the conditional ceil equations of its ceil theory, each as the
+/// pair of its instantiated `requires` and right-hand side, as stated: no simplification, no
+/// equation applied to the query's terms (`with_stated_ceil_conditions`).
+///
+/// A conditional ceil equation `\ceil(l) = q requires R` is an axiom: on every instance where
+/// `R` holds, `\ceil(lσ)` is `qσ`. It is no equivalence for `\ceil(lσ)` alone, so the solver
+/// does not read it as the application's domain; it states it as a fact beside that domain
+/// (`smt::functional`, `TranslationState::domain_lemmas`), which holds in every model of the
+/// definition. The instances are those the simplifier's ceil equations enumerate
+/// ([`equation_instances`]), matched only; an equation whose matching is undecided, whose result
+/// has a variable its left-hand side does not bind, whose right-hand side is no predicate, or
+/// that holds an open literal gives none, and neither does an instance that binds an impure
+/// application (as in [`ceil_theory_condition`]).
+#[cfg(any(feature = "z3", test))]
+pub(crate) fn conditional_ceil_lemmas(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Vec<(Vec<Predicate>, Vec<Predicate>)> {
+    let mut lemmas = Vec::new();
+    let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
+    for rule in groups.values().flatten() {
+        if rule.requires.is_empty()
+            || !rule.computed_attributes.unbound_result_variables.is_empty()
+            || !matches!(rule.rhs, RuleRhs::Predicates(_))
+            || !rule.computed_attributes.open_literals.is_empty()
+        {
+            continue;
+        }
+        let (rule, instances) = equation_instances(definition, rule, term, &[]);
+        let EquationInstances::Matched(instances) = instances else {
+            continue;
+        };
+        let RuleRhs::Predicates(predicates) = &rule.rhs else {
+            continue;
+        };
+        for instance in instances {
+            let Instance::Usable(substitution) = instance else {
+                continue;
+            };
+            if substitution
+                .values()
+                .any(|value| crate::deferred::holds_impure_application(definition, value))
+            {
+                continue;
+            }
+            let requires = rule
+                .requires
+                .instantiate(&substitution)
+                .as_written()
+                .to_vec();
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "a conditional ceil equation's right-hand side at a usable instance, stated as a fact under its requires; the solver's domain lemmas state the definedness of its atoms"
+            )]
+            let condition = substitute_predicates(predicates, &substitution);
+            lemmas.push((requires, condition));
+        }
+    }
+    lemmas
+}
+
 /// A rule or equation condition with the definedness of its Boolean terms made explicit.
 ///
 /// A condition is a predicate over the instance, and a term in it denotes `\bottom` on an

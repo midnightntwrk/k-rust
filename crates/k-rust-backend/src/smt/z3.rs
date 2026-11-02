@@ -2918,6 +2918,105 @@ mod tests {
         }
     }
 
+    /// GAP K15: the solver's domain of a partial hooked application that no ceil equation states
+    /// reads what the hook decides, as the simplifier does (`builtin::hook_domain`): `bn128valid`
+    /// is a `Bool` for every point term and a raw digest has a value for every byte string, so
+    /// both are defined wherever their arguments are; on literal arguments the evaluator's value
+    /// shows `2 ^Int 3` defined and its stated `\bottom` shows `2 ^Int -1` undefined. Before, each
+    /// domain was its head's opaque domain function, and the solver decided none of them.
+    #[test]
+    fn a_domain_reads_the_definedness_its_hook_decides() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+                sort SortG1{} []
+                hooked-symbol valid{}(SortG1{}) : SortBool{}
+                    [function{}(), hook{}("KRYPTO.bn128valid")]
+                hooked-symbol digest{}(SortBytes{}) : SortBytes{}
+                    [function{}(), hook{}("KRYPTO.keccak256raw")]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow"), smt-hook{}("^")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let ceil = |source: &str| Predicate::Ceil(term(&definition, source));
+        let dv = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        for (checked, expected) in [
+            (ceil("valid{}(P:SortG1{})"), Validity::Valid),
+            (ceil("digest{}(B:SortBytes{})"), Validity::Valid),
+            (
+                ceil(&format!("pow{{}}({}, {})", dv(2), dv(3))),
+                Validity::Valid,
+            ),
+            (
+                ceil(&format!("pow{{}}({}, {})", dv(2), dv(-1))),
+                Validity::Refuted,
+            ),
+        ] {
+            assert_eq!(
+                solver.check_predicates(&[], &Substitution::new(), std::slice::from_ref(&checked)),
+                Ok(Ok(expected)),
+                "{checked:?}"
+            );
+        }
+    }
+
+    /// GAP K15: a conditional ceil equation `\ceil(I divInt J) = \top requires J =/=Int 0` is an
+    /// axiom, not the domain of `divInt` (which stays its domain function); the solver states its
+    /// instance beside that domain, so `\ceil(I divInt J)` is valid where `J =/=Int 0` is known,
+    /// as the simplifier decides by the same equation, and not valid without it.
+    #[test]
+    fn a_conditional_ceil_equation_is_a_fact_beside_the_domain() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.ediv"), smt-hook{}("div")]
+                axiom{R, Q} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        neInt{}(J:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{Q, R}(
+                        \ceil{SortInt{}, Q}(divInt{}(I:SortInt{}, J:SortInt{})),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("div-defined"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let defined = Predicate::Ceil(term(&definition, "divInt{}(X:SortInt{}, Y:SortInt{})"));
+        let nonzero = Predicate::Term(term(
+            &definition,
+            r#"neInt{}(Y:SortInt{}, \dv{SortInt{}}("0"))"#,
+        ));
+        assert_eq!(
+            solver.check_predicates(
+                std::slice::from_ref(&nonzero),
+                &Substitution::new(),
+                std::slice::from_ref(&defined)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[defined]),
+            Ok(Ok(Validity::Contingent))
+        );
+    }
+
     /// A definition whose `Float`, `MInt{8}` and renamed-`Int` operations carry the `smt-hook`s
     /// `domains.md` gives them (and `fg.gt`, which names no SMT-LIB function): the solver
     /// interprets none of these sorts.
