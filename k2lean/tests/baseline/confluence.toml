@@ -120,6 +120,34 @@ preserve = []
 "join.open.run.drop" = { status = "generic", id = "fa06bf0fcc05d0c5" }
 "join.open.run.run" = { status = "generic", id = "b5beb73f130f45d4" }
 
+[demo.UtxoRelConf]
+tier = "light"
+guarded = 40
+preserve = []
+
+[demo.UtxoRelConf.slots]
+"equiv.sim.create" = { status = "generic", id = "09dbaf1cf0b331c2" }
+"equiv.sim.done" = { status = "generic", id = "5bf2868947a15eb0" }
+"equiv.sim.nil" = { status = "generic", id = "7c96e93d36af8742" }
+"equiv.sim.resume" = { status = "generic", id = "f704e7a3c2220e71" }
+"equiv.sim.seq" = { status = "generic", id = "9c97285f650492f7" }
+"equiv.sim.spawn" = { status = "generic", id = "ee0b2807360705aa" }
+"equiv.sim.spend" = { status = "generic", id = "972d8044d815d69a" }
+"equiv.sim.yield" = { status = "generic", id = "d0444bf977dca8d9" }
+"join.key.create.create" = { status = "generic", id = "7dcbdc127f2ce5d7" }
+"join.key.create.spend" = { status = "generic", id = "8ada1c03fd19a96d" }
+"join.key.spend.create" = { status = "generic", id = "7141fdb930df80e5" }
+"join.key.spend.spend" = { status = "generic", id = "40fa8d47383b482b" }
+"join.open.spawn.spawn" = { status = "hand", id = "c129a27a28ef49ab" }
+"join.same.create.create" = { status = "generic", id = "183ceb2c2c7832fa" }
+"join.same.done.done" = { status = "generic", id = "e57261c5bb707397" }
+"join.same.nil.nil" = { status = "generic", id = "dfde62521d30eee8" }
+"join.same.resume.resume" = { status = "generic", id = "c3078609193a971c" }
+"join.same.seq.seq" = { status = "generic", id = "a28c863d82a5575c" }
+"join.same.spawn.spawn" = { status = "generic", id = "ff6301bd2bf78ae3" }
+"join.same.spend.spend" = { status = "generic", id = "e64097ea3886e4b2" }
+"join.same.yield.yield" = { status = "generic", id = "fe1a8c4ceafcd4c2" }
+
 [demo.SimpleConf]
 tier = "heavy"
 guarded = 754
@@ -1601,13 +1629,13 @@ preserve = []
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "2255c4bbcf17fb3291a50116472959301e19343d9fd4a973320794200d7cc292" }
 "demos/RaceConf/pairs.toml" = { tier = "light", sha256 = "893187b2c1638854d1a62231bdfff88f5d2b650d7c3247e1659d61ea5372a2c1" }
 "demos/RaceLogConf/RaceLogConf/Equiv/Slots.lean" = { tier = "light", sha256 = "5b8f8cf1989b463b5602f340269f7a277e85ad56bcd9af6fc740b804f6fdd477" }
-"demos/RaceLogConf/RaceLogConf/Equiv/Views.lean" = { tier = "light", sha256 = "9c3afcd87e64929d63df6651b09772934671c1ab0b54abc25602f99b039d7916" }
+"demos/RaceLogConf/RaceLogConf/Equiv/Views.lean" = { tier = "light", sha256 = "c42f5144bf66a11e880d1d701615890f9c367b9fa84967f1a47b0734d64a5918" }
 "demos/RaceLogConf/RaceLogConf/Slots.lean" = { tier = "light", sha256 = "34ff34ddf69c8dbf8f7d1f8f995040794c6db5db14431b169f2360214acd35b5" }
 "demos/RaceLogConf/RaceLogConf/Views.lean" = { tier = "light", sha256 = "611d61ecc841adcd4f158e76e98196f34cd28c036520b078691092f024aa07dd" }
 "demos/RaceLogConf/confluence.toml" = { tier = "light", sha256 = "6df74d6d065ad5c453d995d19ae70d93c77d0f8f8bd3495856f5931c8e5ab6fd" }
 "demos/RaceLogConf/equiv.toml" = { tier = "light", sha256 = "ab0a1bf7957f9654ba18c6bcfe75b7bbdb0b0990e49175ac5ff9daa71375efb7" }
 "demos/RaceLogOwConf/RaceLogOwConf/Slots.lean" = { tier = "light", sha256 = "642ddb89cbcab9352eb4e66d2edaa341b9b54782d01670db1d56227cb4a921ec" }
-"demos/RaceLogOwConf/RaceLogOwConf/Views.lean" = { tier = "light", sha256 = "312d4bae77bcc02f185794720cc5ae95a23312437d0a118682e972d4507f30da" }
+"demos/RaceLogOwConf/RaceLogOwConf/Views.lean" = { tier = "light", sha256 = "3abfb3b29e60a5f574941c1b925881ec7642f8206e77a3f8f255062583b04efd" }
 "demos/RaceLogOwConf/confluence.toml" = { tier = "light", sha256 = "16e83e578c6501f3b005c84606f37c56ba5bc55730498b7804c42f62e32b91e1" }
 "demos/SimpleConf/SimpleConf/Slots.lean" = { tier = "heavy", sha256 = "9dc75a68ad41e99234bd2fc4f24110b8b196d8982840dd1ba8dca0af71d7e701" }
 "demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "84883fd115b600487c0858545e16baec750ac1579acd8bde5a4f3da4b4e7a39e" }
@@ -1631,6 +1659,9 @@ preserve = []
 "demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "91e59af29ba4c006e51198c4be011fd0e26b454cbe604ecbe96478872d210f43" }
 "demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "20f7bb57a07adfecbbe05e37cfa8b187fc6e1a5856f2e08ceffcd0a53c234ca8" }
 "demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "f1caa6876267d02167a7fd07453dc85c2cecf824061ceb0013b4538ed75ff671" }
+"demos/UtxoRelConf/UtxoRelConf/Slots.lean" = { tier = "light", sha256 = "fb31400c97e380dfd0b87faff62173e83a20d1988098e84e316cf35237c13368" }
+"demos/UtxoRelConf/UtxoRelConf/Views.lean" = { tier = "light", sha256 = "e3286f182df54f01899698a18071e61e40a74941049e2d59327c6cff5822193f" }
+"demos/UtxoRelConf/confluence.toml" = { tier = "light", sha256 = "18bbe04b96d7c3009dac1f8164cc37c8fdea5366e2a6559309c6fde859d4fb27" }
 "generated/corout/Corout.lean" = { tier = "light", sha256 = "8364fb848a93b90057875738477ca636e7be59fe08375a3af166f6105dc5a1f1" }
 "generated/corout/Corout/Adequacy.lean" = { tier = "light", sha256 = "dc9dad7484d5e5b96cdadd152f03c295e7a0f618247f6fabcd26a89da2c67621" }
 "generated/corout/Corout/Defined.lean" = { tier = "light", sha256 = "69185a4fb33a0b1f6695f2a0796c55f70da4afb55f3367e9c5a070fa79f1250a" }
@@ -1924,3 +1955,19 @@ preserve = []
 "generated/utxo/UtxoTest/Main.lean" = { tier = "light", sha256 = "ec23996c710389c763b5d6a696d092544ac58655a53cd9082d43b16e805d39d8" }
 "generated/utxo/lakefile.lean" = { tier = "light", sha256 = "215aae5c7d030163497f11022a9edeaf29615d0a58eff50b63b5d534e79cae46" }
 "generated/utxo/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/utxorel/UtxoRel.lean" = { tier = "light", sha256 = "3fb796ec8598ea3a3786eb9843c273bb5db39baa9bdbca62578f9681f148d3ae" }
+"generated/utxorel/UtxoRel/Adequacy.lean" = { tier = "light", sha256 = "98a752ab34ca6b69f810e5fcb5c4f5265a90f397235843aa0f580f8dd0e7be53" }
+"generated/utxorel/UtxoRel/Determinism.lean" = { tier = "light", sha256 = "aed424f45e42d62e947cbc829789093891dc282d8964235b83191dea3e89ff66" }
+"generated/utxorel/UtxoRel/EqBase.lean" = { tier = "light", sha256 = "809c450f3bbbe8ada73ca9d600ad0ed770afe83c64fe5eae3fe98524c4da8d36" }
+"generated/utxorel/UtxoRel/Equations.lean" = { tier = "light", sha256 = "9aa22b73eaf5071746ba4c6f69a80cf0ab3bf07e13262da7ed60b02392ca99e0" }
+"generated/utxorel/UtxoRel/Functions.lean" = { tier = "light", sha256 = "12301841fca41a9a49a4096b7db01e3430a90af4904aac3b7be371fb357c6d05" }
+"generated/utxorel/UtxoRel/Init.lean" = { tier = "light", sha256 = "4fd6e206fef436cc59793a505dc0aa32171c8650c4524e6a69d6f05bfc81b540" }
+"generated/utxorel/UtxoRel/Preserves.lean" = { tier = "light", sha256 = "b6402d16c12159902053a809d489ffb2aaf8fa4913ad0ab7f2da8c5b301bb9ac" }
+"generated/utxorel/UtxoRel/Rules.lean" = { tier = "light", sha256 = "f19d48bdc987fdb98184a77543a253837312b8754ddb6d8ebe0c13101977b771" }
+"generated/utxorel/UtxoRel/Terms.lean" = { tier = "light", sha256 = "78a3a80218b3f31d32382938c02889deb1028619131acc6276cb9eefc43df2cc" }
+"generated/utxorel/UtxoRelBench/Main.lean" = { tier = "light", sha256 = "d72782f84e0c71a059bbb83202d4bd119c09933fafe60031700ab417bb2d4859" }
+"generated/utxorel/UtxoRelBench/Programs.lean" = { tier = "light", sha256 = "58b554f2ffcad28651efb70be8092cdd0e9add98741a3dfa38e9c5b708c179b8" }
+"generated/utxorel/UtxoRelTest/Axioms.lean" = { tier = "light", sha256 = "2568e0de16e88bb3ecaaf3aeb4678b14cfcf95f055484bb64fcdc2ffbb2d8771" }
+"generated/utxorel/UtxoRelTest/Main.lean" = { tier = "light", sha256 = "1bad2e692579071f1be23ae54f6ab4009296f704808a8f6d676a3fb2c6b510b2" }
+"generated/utxorel/lakefile.lean" = { tier = "light", sha256 = "18b41a2f817d859ceaddf31fe92264d1a0e93865e499ca77f80abdc1e3ea5e57" }
+"generated/utxorel/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
