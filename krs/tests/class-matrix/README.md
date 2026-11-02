@@ -259,14 +259,22 @@ the descriptors of the base and its own. A case is judged by
   `sone(2)`), a selection by its witness; a map key, a list or cons element and a collection's instance are first set up by the
   terms base's driver commands (`then(setenv(..), cNAME(1, 0))`), one step each at priority 10,
   so that no driver rule overlaps a case's; an equation's function is applied from the base's
-  rules `call(a, b) => hold(probe(a, b))`, `callk(a, b) => hold(probek(a, b))` and
-  `sizeof(a) => hold(size(a))`, and where the hole is an argument in an equation's result it is
+  rules `call(a, b) => hold(probe(a, b))`, `callk(a, b) => hold(probek(a, b))`,
+  `sizeof(a) => hold(size(a))`, `callz(a, b) => hold(zero(a, b))` and `callkz(a) => hold(kz(a))`,
+  and where the hole is an argument in an equation's result it is
   `Wk`'s, in `ProbeK(Cmd::NAME(), x) => Wk(HOLE)`, so that the run ends with `hold(wrap(v))`, a
   value (`Size` has no equation, so `size(v)` would name none); a simplification rewrites `Zero`,
-  whose equation makes it 0, to 0 or to `Kz(HOLE)`, which is 0 too, so that it states a true
-  equation at `Int`, under the condition where a spelling with no value at some `x` has one; one
-  whose root is the hole states `HOLE => 0` under `false` and `ProbeK(Cmd::NAME(), x) => HOLE`
-  (NT-43; `terms.rs` module docs, "Simplification equations", argue each); a context heats the
+  whose equation makes it 0, to 0 or to `Kz(HOLE)`, which is 0 too, so that it states an equation
+  its definition's equations entail, under the condition where a spelling with no value at some
+  `x` has one (`Size(x)` none: `false`); one whose root is the hole states `HOLE => 0` and
+  `ProbeK(Cmd::NAME(), x) => HOLE` under `false`, which no definition entails otherwise (NT-43;
+  `terms.rs` module docs, "Simplification equations"). A simplification is a lemma, which a
+  concrete run does not apply, so K7 runs its twin (`SIMPLIFICATION_TWIN`): both sides evaluated
+  at each input by the definition's equations (`callz(cTAG, t)` at the term `t` the subject's hole
+  stands for, `callz(cTAG, x)` for a guard's and a result's left side, `callkz(v)` at the result
+  hole's value `v`), each of which must end `hold(0)`; a definition in which the lemma is false
+  gives a side another value. The lemma takes no part in such a run, so its dependency check
+  states it unchanged. A context heats the
   token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
   which the run's parse expands, and its result read in the expansion; an initializer, of the
   term family or of the configuration families' `init` (the machine and typed bases, with `$PGM`
@@ -381,37 +389,53 @@ the descriptors of the base and its own. A case is judged by
   (`StateView::value`) and compared with the plan's terms. A deviation is keyed `k7/<case ID>`:
   `not applied: N of M steps, then HALT; CELLS`, `no defined result: ..` (a sentence matched and
   its result has no value), `applied where it should not`, `counter-witness `PROGRAM`: ..` (the
-  counter run's deviation), `at the second input, `PROGRAM`: ..` (the run at the spelling's
-  second input, below), `ended HALT after N steps, where the construct has no value ..` (a
-  construct with no value whose run did not end stuck), `failed: ERROR`
+  counter run's deviation), `in its run of `PROGRAM`: ..` (a run at another of the spelling's
+  inputs, below, or a simplification twin's other side), `ended HALT after N steps, where the
+  construct has no value ..` (a construct with no value whose run did not end stuck), `ended HALT
+  after N steps, where the sentence's result has no value ..` (a result with no value whose run did
+  not end undefined), `failed: ERROR`
   (the program's parse or expansion, or the run), `time limit: ..`, `no configuration
   (\bottom)`, or `another value: CELLS, where the plan states CELLS`. Each shard prints how many
   programs K7 ran, in how much worker time, and what it checked of each case K6 accepted: a
   stated `value`, `liveness` only (a witness, or a value the generator does not state),
-  `undefined` (below), or why nothing (`no driver`, `no witness`, `no value`).
+  `undefined` and `undefined result` (below), or why nothing (`no driver`, `no witness`, `no
+  value`). A conforming run's TSV line is `ran as stated (STATUS)`.
 
-  *Two inputs* (NT-43). A value stated at one input shows only that the lowering computes the
-  construct's value there: a lowering that folded in a constant, dropped `x`, or swapped two
-  operands that agree at 1 (`x << 1` and `1 << x`) conforms at `x = 1`. So each spelling that
-  reads `x` states its witness and its value as functions of `x`'s value (a Rust function per
-  spelling, written from what the construct denotes, which reads no lowering or emitted K), the
-  value at 1 computed from it, and a second input at which its meaning differs from its meaning
-  at 1 (`terms.rs` `SECOND`, -2, for the `Int` spellings, at which each operation differs from the
-  lowerings that agree with it at 1; `go`, `Cmd::Hold(-2)` or `pair(5, 6)` where the meaning
+  *Other inputs* (NT-43). A value stated at one input shows only that the lowering computes the
+  construct's value there: a lowering that folded in a constant, dropped `x`, swapped two operands
+  that agree at 1 (`x << 1` and `1 << x`) or wrote another operator of the class conforms at
+  `x = 1`. So each spelling that reads `x` states its witness and its value as functions of `x`'s
+  value (a Rust function per spelling, written from what the construct denotes, which reads no
+  lowering or emitted K), the value at 1 computed from it, and the other inputs it runs at
+  (`terms.rs` `SECOND`, -2, for the `Int` spellings; `ABOVE`, 3, too for the comparisons, at
+  which `<` and `!=`, and `==` and `>=`, part; `ODD_NEGATIVE`, -3, for `x / 2`, `x % 2` and
+  `x >> 1`, at which truncating and Euclidean rounding part; 2 too for `map![x -> 1, 2 -> 3]`, at
+  which the later of two equal keys wins; `go`, `Cmd::Hold(-2)` or `pair(5, 6)` where the meaning
   turns on the term's shape; `false` for the `Bool` ones), or why it has none (a value the same at
-  every `x`, a construct with no value at any). Each case whose spelling has one runs its plan
+  every `x`, a construct with no value at any). Each case whose spelling has them runs its plan
   there too (`Case::k7_inputs`), where the slot's program takes `x` (not a static clause's
   `subject-written`, whose rule writes the witness at 1 into the source); a case whose construct
-  has no value at 1 but has one there is planned there. `tests/k7.rs`
-  `every_spelling_that_reads_x_states_a_second_input_or_why_not` requires the meaning to differ.
+  has no value at 1 and whose sentence does not match it there (`x && true` narrows `x` to
+  `Bool`) is planned at the first input where it has one. `tests/k7.rs`
+  `every_spelling_that_reads_x_states_its_inputs_or_why_not` requires the meaning to differ at
+  one of them, and
+  `every_operator_spelling_differs_from_every_other_operator_of_its_class_on_its_inputs` that the
+  inputs separate each operator spelling from every other operator of its class substituted in
+  (and `/`, `%` from their Euclidean readings, `>>` from a truncating division).
 
   *Constructs with no value* (NT-43). Where a condition, or a key or a set's element a pattern
   computes and looks up, has no value at the input (a lookup in the empty map, a refutable `let`
   whose pattern fails, a projection of a term of another sort), the sentence does not apply: the
   plan (`Status::Undefined`) takes the steps before the sentence's, the collection holding `x`,
   the term the construct reads its value from, and the run must end stuck there, not at an
-  undefined state (a sentence that applied to a term with no value) or an error. Its counterfactual
-  is the run without the sentence (`Run::applies` is false). `KRS_CLASS_RUN=0` skips K7; without K6
+  undefined state (a sentence that applied to a term with no value) or an error, with the
+  computation cell holding the command the sentence would take. Its counterfactual is the run
+  without the sentence (`Run::applies` is false). Where the term a result builds has no value (a
+  refutable `let`, a record update, a lookup in the empty map, `Size(x)`), the sentence applies
+  and its next state is undefined (NT-37 D3: a result is not tested): the plan
+  (`Status::UndefinedResult`) takes the steps before the sentence's and must end undefined, or,
+  where no step precedes it (a static clause's result, an initializer), with no configuration
+  (`\bottom`). `KRS_CLASS_RUN=0` skips K7; without K6
   (`KRS_CLASS_NATIVE=0`) it does not run, and says so.
 
   *The dependency check* (`Worker::check_dependency`). A run is evidence of what a case states
@@ -434,7 +458,7 @@ the descriptors of the base and its own. A case is judged by
   a rule, removing the sentence mostly removes the step, and the old `hold(size(v))` witnesses,
   which stated an application no equation evaluates, would have passed it. That is shown, for a
   value the generator states, by the value itself, and where it is computed from `x`, by the run
-  at the second input (*Two inputs*, above).
+  at the other inputs (*Other inputs*, above).
 
   Dependence is shown only by a run that completes and ends otherwise (`depends: ..`). A run that
   ends as stated deviates (`the runs end as stated without what the case states too`). A run that

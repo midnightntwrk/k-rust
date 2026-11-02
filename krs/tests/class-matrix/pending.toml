@@ -856,6 +856,18 @@ deviation = "krs::syntax::invalid-pattern-as @ entry"
 finding = "S0-14"
 deviation = "krs::syntax::invalid-pattern-as @ entry"
 
+["terms/readable/map-key/as-body/x / 2"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
+
+["terms/readable/map-key/as-body/x % 2"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
+
+["terms/readable/map-key/as-body/x >> 1"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-pattern-as @ entry"
+
 ["terms/readable/map-key/as-body/x == 1"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-pattern-as @ entry"
@@ -997,6 +1009,18 @@ finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
 
 ["terms/readable/map-key/or-branch/x << 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["terms/readable/map-key/or-branch/x / 2"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["terms/readable/map-key/or-branch/x % 2"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["terms/readable/map-key/or-branch/x >> 1"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
 
@@ -1507,6 +1531,18 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
 ["k3/terms/sort-rule/result/let-body/x << 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/sort-rule/result/let-body/x / 2"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/sort-rule/result/let-body/x % 2"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+["k3/terms/sort-rule/result/let-body/x >> 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
@@ -3213,3 +3249,141 @@ deviation = "different"
 ["k7/attrs/local-rule/anywhere on what it writes"]
 finding = "NT-41-1"
 deviation = "ended stuck after 0 steps, where the case's sentence still applies to what it wrote: the run has no end"
+
+# NT-43-2 (K7): a result that builds `Size(x)`, an application of a partial function no equation
+# defines, has no value, so the sentence's next state is undefined (NT-37 D3); K7's run continues
+# with the application as a value. A key `Size(x)` looks nothing up; the run reports two states.
+["k7/terms/alias/result-root/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 0 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/alias/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 0 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/cells/map-key/Size(x)"]
+finding = "NT-43-2"
+deviation = "failed: a run must end in exactly one state; the backend returned 2 defined states"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/cells/result-item-root/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/cells/result-map-key/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/cells/result-map-value/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/cells/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/desugar/result-root/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 0 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/desugar/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 0 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/equation/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/init/variable-item/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 0 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/local-rule/subject/rewrite-right/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/readable/map-key/Size(x)"]
+finding = "NT-43-2"
+deviation = "failed: a run must end in exactly one state; the backend returned 2 defined states"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/readable/map-key/let-body/Size(x)"]
+finding = "NT-43-2"
+deviation = "failed: a run must end in exactly one state; the backend returned 2 defined states"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/readable/result-item-root/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/readable/result-list-element/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 3 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 2 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/readable/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/readable/set-instance-child/Size(x)"]
+finding = "NT-43-2"
+deviation = "failed: a run must end in exactly one state; the backend returned 2 defined states"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/rule/result-root/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/rule/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/rule/subject/set-element/Size(x)"]
+finding = "NT-43-2"
+deviation = "failed: a run must end in exactly one state; the backend returned 2 defined states"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/sort-rule/result-root/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/sort-rule/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/sort-rule/result/function-argument/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/sort-rule/result/let-body/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/sort-rule/result/update-field/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes
+
+["k7/terms/table/result/Size(x)"]
+finding = "NT-43-2"
+deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
+# the run does not show what the case's sentence denotes

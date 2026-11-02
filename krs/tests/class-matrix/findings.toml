@@ -74,6 +74,11 @@ owner = "NT-38"
 kind = "bug"
 what = "an `anywhere` rule whose result its own subject matches again rewrites without end, so no state of a run of it is final; k-rust applies it once and reports the run stuck at a term the rule still matches, a false statement about the state, and runs two anywhere rules that rewrite into each other without end, so a `--depth` bound does not end the run (k-rust engine follow-up; the rule-forms gate pins both)"
 
+["NT-43-2"]
+owner = "NT-42"
+kind = "bug"
+what = "K7's run of a sentence whose result builds an application of a partial function that no equation defines (`Size(x)`, `Size` partial with no equation) continues with the application in its state as if it were a value, ending at its depth bound, and one whose computed key is such an application reports two defined states; by KRS's meaning the term has no value, so the sentence's next state is undefined (NT-37 D3) and a key with no value looks nothing up: NT-42-2's class (a ground state that holds a valueless application of a partial function is no value) on K7's in-process route"
+
 ["S0-14"]
 owner = "S5"
 kind = "bug"

@@ -863,10 +863,8 @@ impl<'w> Worker<'w> {
                     break;
                 }
                 if let Ran::Deviates(deviation) = once(input) {
-                    verdict = Ran::Deviates(format!(
-                        "at the second input, `{}`: {deviation}",
-                        input.program
-                    ));
+                    verdict =
+                        Ran::Deviates(format!("in its run of `{}`: {deviation}", input.program));
                 }
             }
             let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);

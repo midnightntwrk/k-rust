@@ -33,7 +33,9 @@ impl Ran {
     #[must_use]
     pub fn signature(&self) -> String {
         match self {
-            Self::Conforms(status) => format!("applied as stated ({})", status.name()),
+            // A run as stated is not always one where the sentence applied: an `undefined` run's
+            // sentence must not apply.
+            Self::Conforms(status) => format!("ran as stated ({})", status.name()),
             Self::Deviates(observed) => observed.clone(),
         }
     }
@@ -179,6 +181,11 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
     };
     let view = match views.as_slice() {
         [View::State(view)] => view,
+        // A first state with no value is no configuration: a static clause's result or an
+        // initializer that builds a term with no value, which no step precedes.
+        [View::Bottom] if run.status == Status::UndefinedResult && report.steps == run.steps => {
+            return Ran::Conforms(Status::UndefinedResult);
+        }
         [View::Bottom] => {
             return Ran::Deviates(format!(
                 "no configuration (\\bottom) after {} of {} steps",
@@ -464,6 +471,19 @@ fn steps_deviation(run: &Run, report: &RunReport, shown: &str) -> Option<String>
     } else {
         format!("; {shown}")
     };
+    // Where the sentence's result has no value at the run's input the sentence applies and its
+    // next state is undefined: the run ends undefined after the steps before the sentence's, not
+    // stuck (a sentence that did not apply) nor at a state that holds the term as a value.
+    if run.status == Status::UndefinedResult {
+        return (report.halt != Halt::Undefined || report.steps != run.steps).then(|| {
+            format!(
+                "ended {} after {} steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after {} steps{cells}",
+                report.halt.as_str(),
+                report.steps,
+                run.steps,
+            )
+        });
+    }
     // A rule that matched and whose result has no value ends the run undefined, which is no
     // stuck rule.
     if report.steps < run.steps && report.halt == Halt::Undefined {

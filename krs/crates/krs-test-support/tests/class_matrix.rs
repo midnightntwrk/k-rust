@@ -102,7 +102,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
             // the typed `stmt` written after it starts.
             (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1),
-            // (81 positions of depth 1 + 25 positions constructs open) × 48 constructs, the alias
+            // (81 positions of depth 1 + 25 positions constructs open) × 51 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings
             // reading an initializer's configuration variable in a `let` body; the 2 static
@@ -120,7 +120,7 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // not).
             (
                 Family::Terms,
-                106 * 48
+                106 * 51
                     + 3 * 2
                     + 2
                     + 35 * 2
@@ -189,7 +189,14 @@ fn ids_are_spelled_from_the_axes_and_commands_are_unique() {
             "{} does not end with its construct",
             case.id
         );
-        assert!(!case.construct.contains('/'), "{} holds a `/`", case.id);
+        // A construct holds a `/` only as the division operator, spaced (`x / 2`), and an
+        // opener's name holds no space: an ID's segments before its construct are read by
+        // taking the construct off its end, never by splitting at its last `/`.
+        assert!(
+            !case.construct.replace(" / ", " ").contains('/'),
+            "{} holds a `/` that is no spaced operator",
+            case.id
+        );
         if let Some(command) = case.command() {
             assert!(
                 commands.insert(command.name.clone()),
@@ -373,7 +380,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 73] = [
+const OVERRIDDEN: [(&str, &str); 76] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -423,6 +430,10 @@ const OVERRIDDEN: [(&str, &str); 73] = [
         "function-in-pattern",
     ),
     (
+        "terms/cells/map-key/beside-fresh/x % 2",
+        "function-in-pattern",
+    ),
+    (
         "terms/cells/map-key/beside-fresh/x & 1",
         "function-in-pattern",
     ),
@@ -435,6 +446,10 @@ const OVERRIDDEN: [(&str, &str); 73] = [
         "function-in-pattern",
     ),
     (
+        "terms/cells/map-key/beside-fresh/x / 2",
+        "function-in-pattern",
+    ),
+    (
         "terms/cells/map-key/beside-fresh/x < 1",
         "function-in-pattern",
     ),
@@ -444,6 +459,10 @@ const OVERRIDDEN: [(&str, &str); 73] = [
     ),
     (
         "terms/cells/map-key/beside-fresh/x == 1",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x >> 1",
         "function-in-pattern",
     ),
     (
@@ -1923,14 +1942,21 @@ fn the_term_accepts_file_holds_only_term_accept_entries() {
 }
 
 /// The parts of a term case's ID: its form, its position, the construct whose opening it stands
-/// in (depth 2), and its construct.
+/// in (depth 2), and its construct. An opener's name holds no space, and a construct that holds a
+/// `/` holds one beside it (`x / 2`), so the segment after the position is an opener's exactly
+/// where a `/` follows it and it holds no space.
 fn id_parts(id: &str) -> Option<(&str, &str, Option<&str>, &str)> {
-    let (rest, construct) = id.rsplit_once('/')?;
-    let mut segments = rest.split('/');
+    let mut segments = id.splitn(4, '/');
     segments.next()?;
     let form = segments.next()?;
     let position = segments.next()?;
-    Some((form, position, segments.next(), construct))
+    let rest = segments.next()?;
+    Some(match rest.split_once('/') {
+        Some((opener, construct)) if !opener.is_empty() && !opener.contains(' ') => {
+            (form, position, Some(opener), construct)
+        }
+        _ => (form, position, None, rest),
+    })
 }
 
 /// The forms whose binders a `cells!` record declares, at the sort of the field each fills.
@@ -2229,7 +2255,11 @@ fn every_position_without_an_accepted_case_is_listed() {
     let resolution = table.resolve_cases(&cases, registry_kind);
     let mut accepted = BTreeMap::<&str, bool>::new();
     for case in cases.iter().filter(|case| case.family == Family::Terms) {
-        let (position, _) = case.id.rsplit_once('/').expect("a case ID has a construct");
+        let position = case
+            .id
+            .strip_suffix(case.construct.as_str())
+            .and_then(|position| position.strip_suffix('/'))
+            .expect("a case ID ends with its construct");
         let accepts = matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_)));
         *accepted.entry(position).or_default() |= accepts;
     }

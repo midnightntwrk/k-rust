@@ -22,7 +22,7 @@
 //! sentences that hold no command of their own (a subject's root) are run apart
 //! ([`super::super::Case::unkeyed`]).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use super::super::Command;
 use super::super::k7::{Ground, K7, Meaning, Run, SkipKind, Status};
@@ -51,7 +51,7 @@ struct Driver<'a> {
     command: &'a Command,
     counter: Option<Ground>,
     extra: bool,
-    /// `x`'s value: 1, the spelling's second input ([`Spelling::second`]), or in an x-counter
+    /// `x`'s value: 1, another of the spelling's inputs ([`Spelling::inputs`]), or in an x-counter
     /// run ([`Spelling::x_counter`]) the counter.
     x: Ground,
     /// Whether the run is an x-counter run, which reads the hole as `x` itself.
@@ -61,6 +61,23 @@ struct Driver<'a> {
     /// Whether the plan read a key or a set's element that has no value at `x`, so that the
     /// sentence does not apply ([`Status::Undefined`]).
     undefined: Cell<bool>,
+    /// Whether the plan built a term with no value at `x` where the sentence is not tested (a
+    /// result), so that its next state is undefined ([`Status::UndefinedResult`]).
+    undefined_result: Cell<bool>,
+    /// The program of the plan, as the driver wrote it ([`Driver::applied`]).
+    program: RefCell<Option<Ground>>,
+}
+
+/// The command a run of `program` gives the case's sentence: the program itself, or the last
+/// command of a `then(a, b)` chain, which the base's `then` rule and the setup commands before it
+/// leave alone in the computation cell, one step each.
+fn taken(program: &Ground) -> Ground {
+    match program {
+        Ground::Ctor { path, fields } if path == "Cmd::Then" && fields.len() == 2 => {
+            taken(&fields[1])
+        }
+        _ => program.clone(),
+    }
 }
 
 /// Why a form has no driver, if it has none.
@@ -68,9 +85,6 @@ fn undriven(slot: &Slot) -> Option<&'static str> {
     Some(match slot.form {
         "claim" | "cells-claim" => {
             "a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)"
-        }
-        "simplification" => {
-            "a simplification only rewrites what a prover simplifies, and needs a prover"
         }
         "context-alias" => {
             "a context alias acts only through a production strict in it, and neither the base nor the case declares one"
@@ -95,37 +109,73 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
         .unwrap_or_else(|skip| skip)
 }
 
-/// K7's plan for `spelling` at `slot` at the spelling's second input ([`Spelling::second`]),
-/// beside `plan`, its plan at 1: the case's plan, and its plans at other inputs. Where the plan at
-/// 1 has no value to check (its construct has none there) and the plan at the second input runs,
-/// that run is the case's plan. There is none where the spelling states no second input, where
-/// the slot's program does not take `x` ([`takes_x`]), or where the plan at the second input is
-/// the plan at 1.
-pub(super) fn at_second_input(
+/// K7's plans for `spelling` at `slot` at the spelling's other inputs ([`Spelling::inputs`]),
+/// beside `plan`, its plan at 1: the case's plan, and its plans at the other inputs. Where the plan
+/// at 1 has no value to check (its construct has none there, and the sentence does not match it)
+/// and a plan at another input runs, the first such run is the case's plan. There is none where
+/// the spelling states no other input, where the slot's program does not take `x`
+/// ([`takes_x`]), or where the plan at an input is the case's plan or one before it.
+pub(super) fn at_inputs(
     slot: &Slot,
     spelling: &Spelling,
     command: &Command,
     plan: K7,
 ) -> (K7, Vec<Run>) {
-    let Ok(second) = &spelling.second else {
+    let Ok(inputs) = &spelling.inputs else {
         return (plan, Vec::new());
     };
     if undriven(slot).is_some() || !takes_x(slot) {
         return (plan, Vec::new());
     }
-    let driver = Driver {
-        x: second.clone(),
-        ..Driver::new(slot, spelling, command, None, false)
-    };
-    let Ok(K7::Run(run)) = driver.plan() else {
-        return (plan, Vec::new());
-    };
-    match plan {
-        K7::Run(first) if first == run => (K7::Run(first), Vec::new()),
-        K7::Run(first) => (K7::Run(first), vec![run]),
-        K7::Skip(skip) if skip.kind == SkipKind::Value => (K7::Run(run), Vec::new()),
-        skip @ K7::Skip(_) => (skip, Vec::new()),
+    let mut plan = plan;
+    let mut others = Vec::<Run>::new();
+    for input in inputs {
+        let driver = Driver {
+            x: input.clone(),
+            ..Driver::new(slot, spelling, command, None, false)
+        };
+        let Ok(K7::Run(run)) = driver.plan() else {
+            continue;
+        };
+        match &plan {
+            K7::Run(first) if *first == run || others.contains(&run) => {}
+            K7::Run(_) => others.push(run),
+            K7::Skip(skip) if skip.kind == SkipKind::Value => plan = K7::Run(run),
+            K7::Skip(_) => return (plan, Vec::new()),
+        }
     }
+    (plan, others)
+}
+
+/// The runs of a simplification's result's twin ([`super::super::SIMPLIFICATION_TWIN`]) that
+/// evaluate its left side, `Zero(Cmd::NAME(), x)`, at 1 and at each of the spelling's other inputs
+/// where the hole has a value, beside its plan, which evaluates the right side; none for any other
+/// slot.
+pub(super) fn twin_left_sides(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
+    if (slot.form, slot.position) != ("simplification", "result") {
+        return Vec::new();
+    }
+    let mut inputs = vec![int(1)];
+    inputs.extend(spelling.inputs.clone().unwrap_or_default());
+    inputs
+        .into_iter()
+        .filter(|x| matches!(spelling.value_at(x), Meaning::Value(_)))
+        .filter_map(|x| {
+            let driver = Driver {
+                x: x.clone(),
+                ..Driver::new(slot, spelling, command, None, false)
+            };
+            let Ok(K7::Run(run)) = driver.applied(
+                &Ground::ctor("Cmd::CallZ", vec![driver.command(Vec::new()), x]),
+                1,
+                vec![("k", Ground::Seq(vec![hold(int(0))]))],
+                Status::Value,
+            ) else {
+                return None;
+            };
+            Some(run)
+        })
+        .collect()
 }
 
 /// Whether the program of `slot`'s driver takes `x`'s value: every slot's but a static clause's
@@ -159,7 +209,7 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
     // An equation whose function context reads the configuration leaves, where it does not
     // apply, its application with the configuration it read, which the generator does not state.
     if undriven(slot).is_some()
-        || matches!(slot.form, "desugar" | "alias")
+        || matches!(slot.form, "desugar" | "alias" | "simplification")
         || (slot.form, slot.position) == ("equation", "context-map-key")
     {
         return Vec::new();
@@ -396,6 +446,8 @@ impl<'a> Driver<'a> {
             x_counter: false,
             read_witness: Cell::new(false),
             undefined: Cell::new(false),
+            undefined_result: Cell::new(false),
+            program: RefCell::new(None),
         }
     }
 
@@ -442,6 +494,28 @@ impl Driver<'_> {
             term: self.own_witness()?,
             status: Status::Liveness,
         })
+    }
+
+    /// The term a simplification's hole stands for at `x`, which its twin evaluates the lemma's
+    /// side at ([`super::super::SIMPLIFICATION_TWIN`]): where `matched`, at the subject, what the
+    /// spelling matches, or what it denotes where it computes; at the result, what it denotes. The
+    /// lemma states nothing where the hole has no value (its condition), so the twin has nothing
+    /// to evaluate there.
+    fn twin_hole(&self, matched: bool) -> Result<Ground, K7> {
+        if matched && let Ok(witness) = self.spelling.witness_at(&self.x) {
+            return Ok(witness);
+        }
+        match self.spelling.value_at(&self.x) {
+            Meaning::Value(value) if !contains_any(&value) => Ok(value),
+            Meaning::Undefined(_) => Err(K7::skip(
+                SkipKind::Value,
+                "the hole has no value at the input, where the simplification's condition does not hold, so it states nothing there",
+            )),
+            Meaning::Value(_) => Err(K7::skip(SkipKind::Value, "the hole's value is not stated")),
+            Meaning::Unstated(reason) | Meaning::NoTerm(reason) => {
+                Err(K7::skip(SkipKind::Value, reason))
+            }
+        }
     }
 
     /// A key or a set's element that a pattern computes and that has no value at `x`: the
@@ -560,9 +634,21 @@ impl Driver<'_> {
                 term: Ground::Any,
                 status: Status::Liveness,
             }),
-            Meaning::Undefined(reason) | Meaning::NoTerm(reason) => {
+            // The operator narrows `x` to its domain, so where `x` is not in it the sentence that
+            // binds `x` does not match, rather than building a term with no value.
+            Meaning::Undefined(reason) if self.spelling.narrows_x.is_some() => {
                 Err(K7::skip(SkipKind::Value, reason))
             }
+            // A built term is not tested (decision NT-37 D3): the sentence applies, and its next
+            // state is undefined.
+            Meaning::Undefined(_) => {
+                self.undefined_result.set(true);
+                Ok(Hole {
+                    term: Ground::Any,
+                    status: Status::UndefinedResult,
+                })
+            }
+            Meaning::NoTerm(reason) => Err(K7::skip(SkipKind::Value, reason)),
         }
     }
 
@@ -610,6 +696,7 @@ impl Driver<'_> {
     /// A run of `program` that applies the case's sentence after `setup` steps of the driver's,
     /// and ends with `cells`.
     fn applied(
+        &self,
         program: &Ground,
         steps: u64,
         cells: Vec<(&str, Ground)>,
@@ -621,6 +708,7 @@ impl Driver<'_> {
                 "the program would hold a value the generator does not state",
             ));
         }
+        self.program.replace(Some(program.clone()));
         let program = program.program().ok_or_else(|| {
             K7::skip(
                 SkipKind::Witness,
@@ -652,7 +740,7 @@ impl Driver<'_> {
         unapplied: Vec<(&str, Ground)>,
     ) -> Result<K7, K7> {
         let (holds, status) = self.guard()?;
-        let mut run = match Self::applied(
+        let mut run = match self.applied(
             program,
             steps,
             if holds { cells } else { unapplied },
@@ -671,19 +759,21 @@ impl Driver<'_> {
     /// A run that sets the cells up with `setup`, one step, and then applies the case's sentence
     /// to `command`: `then(setup, command)`, three steps.
     fn set_up(
+        &self,
         setup: Ground,
         command: Ground,
         cells: Vec<(&str, Ground)>,
         status: Status,
     ) -> Result<K7, K7> {
         let program = Ground::ctor("Cmd::Then", vec![setup, command]);
-        Self::applied(&program, 3, cells, status)
+        self.applied(&program, 3, cells, status)
     }
 
     /// A run that adds `other` and then `setup`, one step each, and then applies the case's
     /// sentence to `command`: `then(then(other, setup), command)`, five steps that leave the
     /// computation cell empty.
     fn set_up_beside(
+        &self,
         other: Ground,
         setup: Ground,
         command: Ground,
@@ -693,37 +783,52 @@ impl Driver<'_> {
             "Cmd::Then",
             vec![Ground::ctor("Cmd::Then", vec![other, setup]), command],
         );
-        Self::applied(&program, 5, vec![("k", Ground::Seq(Vec::new()))], status)
+        self.applied(&program, 5, vec![("k", Ground::Seq(Vec::new()))], status)
     }
 
-    /// The plan of the case, where a key or a set's element it reads has a value; where one has
-    /// none ([`Self::undefined_hole`]), the sentence must not apply: the run takes the steps
-    /// before the sentence's, and ends stuck ([`Status::Undefined`]). An equation's function
-    /// context that looks nothing up leaves its application with the configuration it read,
-    /// which the generator does not state.
+    /// The plan of the case, where every term it reads or builds has a value at `x`; otherwise:
+    ///
+    /// - where a key or a set's element it reads has none ([`Self::undefined_hole`]), the
+    ///   sentence must not apply: the run takes the steps before the sentence's and ends stuck
+    ///   there, with the computation cell holding the command the sentence would take
+    ///   ([`Status::Undefined`]). An equation's function context that looks nothing up leaves its
+    ///   application with the configuration it read, which the generator does not state;
+    /// - where the term its result builds has none ([`Self::value`]), the sentence applies and its
+    ///   next state is undefined: the run takes the steps before the sentence's and ends there
+    ///   undefined ([`Status::UndefinedResult`]). A static clause's result is expanded as the
+    ///   program is read, before any step, so the run's first state is undefined.
     fn plan(&self) -> Result<K7, K7> {
         let plan = self.planned()?;
         let K7::Run(mut run) = plan else {
             return Ok(plan);
         };
-        if !self.undefined.get() {
-            return Ok(K7::Run(run));
+        if self.undefined.get() {
+            if matches!(self.slot.form, "equation" | "table") {
+                return Err(K7::skip(
+                    SkipKind::Value,
+                    "the function context looks up a key with no value, and an equation that does not apply leaves its application with the configuration it read, which the generator does not state",
+                ));
+            }
+            let taken = self
+                .program
+                .borrow()
+                .as_ref()
+                .map(taken)
+                .expect("a plan that runs writes its program");
+            // A key or a set's element a pattern computes stands in a transition's subject, whose
+            // sentence takes a step: a static clause's subject computes none.
+            run.steps = run
+                .steps
+                .checked_sub(1)
+                .expect("a sentence whose subject computes a key takes a step");
+            run.cells = vec![("k".to_owned(), Ground::Seq(vec![taken]))];
+            run.status = Status::Undefined;
+            run.applies = false;
+        } else if self.undefined_result.get() {
+            run.steps = run.steps.saturating_sub(1);
+            run.cells = Vec::new();
+            run.status = Status::UndefinedResult;
         }
-        if matches!(self.slot.form, "equation" | "table") {
-            return Err(K7::skip(
-                SkipKind::Value,
-                "the function context looks up a key with no value, and an equation that does not apply leaves its application with the configuration it read, which the generator does not state",
-            ));
-        }
-        run.steps = run.steps.checked_sub(1).ok_or_else(|| {
-            K7::skip(
-                SkipKind::Value,
-                "the construct has no value, and the plan takes no step to leave out",
-            )
-        })?;
-        run.cells = Vec::new();
-        run.status = Status::Undefined;
-        run.applies = false;
         Ok(K7::Run(run))
     }
 
@@ -733,7 +838,7 @@ impl Driver<'_> {
         reason = "One match of the closed slot set; each arm is one slot's driver."
     )]
     fn planned(&self) -> Result<K7, K7> {
-        // `x`'s value: 1, the second input or an x-counter's.
+        // `x`'s value: 1, another input or an x-counter's.
         let one = || self.x.clone();
         let k = |items: Vec<Ground>| ("k", Ground::Seq(items));
         let fields = |a: Ground, b: Ground| vec![a, b];
@@ -755,7 +860,7 @@ impl Driver<'_> {
         match (self.slot.form, position) {
             ("rule" | "sort-rule", "subject") => {
                 let witness = self.witness()?;
-                Self::applied(
+                self.applied(
                     &self.command(fields(one(), witness.term)),
                     1,
                     vec![k(vec![hold(one())])],
@@ -764,7 +869,7 @@ impl Driver<'_> {
             }
             ("rule" | "sort-rule", "subject-depth-2") => {
                 let witness = self.witness()?;
-                Self::applied(
+                self.applied(
                     &self.command(fields(one(), hold(witness.term))),
                     1,
                     vec![k(vec![hold(one())])],
@@ -777,10 +882,10 @@ impl Driver<'_> {
             | ("rule", "subject-root-list") => {
                 let witness = self.witness()?;
                 if witness.term.is_statement() {
-                    Self::applied(&witness.term, 1, vec![k(vec![go()])], witness.status)
+                    self.applied(&witness.term, 1, vec![k(vec![go()])], witness.status)
                 } else {
                     let program = setup("Then", vec![witness.term, go()]);
-                    Self::applied(&program, 2, vec![k(vec![go(), go()])], witness.status)
+                    self.applied(&program, 2, vec![k(vec![go(), go()])], witness.status)
                 }
             }
             ("rule" | "sort-rule", "result") => {
@@ -790,7 +895,7 @@ impl Driver<'_> {
                     Some("update-field") => self.command(fields(one(), pair(int(5), int(6)))),
                     _ => reading(),
                 };
-                Self::applied(&program, 1, vec![k(vec![hold(value.term)])], value.status)
+                self.applied(&program, 1, vec![k(vec![hold(value.term)])], value.status)
             }
 
             ("rule", "guard") => self.guarded(
@@ -828,7 +933,7 @@ impl Driver<'_> {
                     Status::Liveness
                 };
                 let after = self.command(fields(go(), kept));
-                Self::applied(
+                self.applied(
                     &self.command(fields(one(), written)),
                     1,
                     vec![k(vec![after])],
@@ -840,11 +945,11 @@ impl Driver<'_> {
             ("local-rule", "subject-root") => {
                 let witness = self.witness()?;
                 let value = self.value()?;
-                Self::applied(&witness.term, 1, vec![k(vec![value.term])], Status::Value)
+                self.applied(&witness.term, 1, vec![k(vec![value.term])], Status::Value)
             }
             ("cells" | "readable", "subject") => {
                 let witness = self.witness()?;
-                Self::applied(
+                self.applied(
                     &self.command(fields(one(), witness.term)),
                     1,
                     vec![k(empty_items())],
@@ -853,7 +958,7 @@ impl Driver<'_> {
             }
             ("readable", "subject-depth-2") => {
                 let witness = self.witness()?;
-                Self::applied(
+                self.applied(
                     &self.command(fields(one(), hold(witness.term))),
                     1,
                     vec![k(empty_items())],
@@ -864,15 +969,15 @@ impl Driver<'_> {
             ("cells" | "readable", "item-root") => {
                 let witness = self.witness()?;
                 let program = setup("Then", vec![witness.term, reading()]);
-                Self::applied(&program, 2, vec![k(empty_items())], witness.status)
+                self.applied(&program, 2, vec![k(empty_items())], witness.status)
             }
             ("cells" | "readable", "result") => {
                 let value = self.value()?;
-                Self::applied(&reading(), 1, vec![k(vec![hold(value.term)])], value.status)
+                self.applied(&reading(), 1, vec![k(vec![hold(value.term)])], value.status)
             }
             ("rule" | "sort-rule", "result-root") | ("cells" | "readable", "result-item-root") => {
                 let value = self.value()?;
-                Self::applied(&reading(), 1, vec![k(vec![value.term])], value.status)
+                self.applied(&reading(), 1, vec![k(vec![value.term])], value.status)
             }
             ("readable", "guard") => self.guarded(
                 &reading(),
@@ -886,7 +991,7 @@ impl Driver<'_> {
                     Some("update-field") => self.command(fields(one(), pair(int(5), int(6)))),
                     _ => reading(),
                 };
-                Self::set_up(
+                self.set_up(
                     env(key.term, int(0)),
                     command,
                     vec![k(empty_items())],
@@ -902,7 +1007,7 @@ impl Driver<'_> {
             ),
             ("cells" | "readable", "map-value") => {
                 let witness = self.witness()?;
-                Self::set_up(
+                self.set_up(
                     env(one(), witness.term),
                     reading(),
                     vec![k(empty_items())],
@@ -912,7 +1017,7 @@ impl Driver<'_> {
             // `map![HOLE -> 1]`: the entry's value is the literal 1, whatever `x` is.
             ("cells", "result-map-key") => {
                 let value = self.value()?;
-                Self::applied(
+                self.applied(
                     &reading(),
                     1,
                     vec![
@@ -924,7 +1029,7 @@ impl Driver<'_> {
             }
             ("cells", "result-map-value") => {
                 let value = self.value()?;
-                Self::applied(
+                self.applied(
                     &reading(),
                     1,
                     vec![
@@ -938,7 +1043,7 @@ impl Driver<'_> {
             // twice, under two spellings, the later value the map's.
             ("cells", "result-map-framed") => {
                 let value = self.value()?;
-                Self::set_up(
+                self.set_up(
                     env(one(), int(0)),
                     reading(),
                     vec![
@@ -955,7 +1060,7 @@ impl Driver<'_> {
             // over it.
             ("cells", "result-map-whole") => {
                 let value = self.value()?;
-                Self::set_up(
+                self.set_up(
                     setup(
                         "SetEnv",
                         vec![Ground::map(vec![(one(), int(0)), (int(2), int(0))])],
@@ -976,7 +1081,7 @@ impl Driver<'_> {
             // remainder.
             ("cells", "result-map-framed-key") => {
                 let key = self.value()?;
-                Self::set_up(
+                self.set_up(
                     setup(
                         "SetEnv",
                         vec![Ground::map(vec![(one(), int(0)), (int(2), int(0))])],
@@ -998,7 +1103,7 @@ impl Driver<'_> {
                     "SetStack",
                     vec![Ground::List(vec![witness.term, int(EXTRA)])],
                 );
-                Self::set_up(list, reading(), vec![k(empty_items())], witness.status)
+                self.set_up(list, reading(), vec![k(empty_items())], witness.status)
             }
             ("readable", "cons-element") => {
                 let witness = self.witness()?;
@@ -1012,7 +1117,7 @@ impl Driver<'_> {
                         ),
                     ],
                 );
-                Self::set_up(
+                self.set_up(
                     setup("SetSeq", vec![items]),
                     reading(),
                     vec![k(empty_items())],
@@ -1029,7 +1134,7 @@ impl Driver<'_> {
                 } else {
                     (self.element()?, "AddToken")
                 };
-                Self::set_up_beside(
+                self.set_up_beside(
                     setup(command, vec![go()]),
                     setup(command, vec![hold(witness.term)]),
                     reading(),
@@ -1044,7 +1149,7 @@ impl Driver<'_> {
                 } else {
                     vec![go(), hold(witness.term)]
                 };
-                Self::set_up_beside(
+                self.set_up_beside(
                     setup("AddRow", vec![pair(int(EXTRA), int(EXTRA)), go()]),
                     setup("AddRow", row),
                     reading(),
@@ -1055,7 +1160,7 @@ impl Driver<'_> {
             // whose rest the result keeps.
             ("readable", "result-list-element") => {
                 let value = self.value()?;
-                Self::set_up(
+                self.set_up(
                     setup("SetStack", vec![Ground::List(vec![int(0), int(EXTRA)])]),
                     reading(),
                     vec![
@@ -1070,7 +1175,7 @@ impl Driver<'_> {
             ("context", "subject") => {
                 let witness = self.witness()?;
                 let program = self.command(vec![word(), one(), witness.term]);
-                Self::applied(
+                self.applied(
                     &program,
                     1,
                     vec![k(vec![word(), Ground::Any])],
@@ -1105,7 +1210,7 @@ impl Driver<'_> {
                 } else {
                     int(0)
                 };
-                Self::applied(
+                self.applied(
                     &call(argument),
                     1,
                     vec![k(vec![hold(result)])],
@@ -1118,7 +1223,7 @@ impl Driver<'_> {
             ("equation" | "table", "result") => {
                 let value = self.value()?;
                 let callk = Ground::ctor("Cmd::CallK", vec![self.command(Vec::new()), one()]);
-                Self::applied(
+                self.applied(
                     &callk,
                     1,
                     vec![k(vec![hold(Ground::ctor("Wrap", vec![value.term]))])],
@@ -1129,7 +1234,7 @@ impl Driver<'_> {
             // the call's result is 0 where the equation applies.
             ("equation", "context-map-key") => {
                 let key = self.key()?;
-                Self::set_up(
+                self.set_up(
                     env(key.term, int(0)),
                     call(one()),
                     vec![k(vec![hold(int(0))])],
@@ -1157,7 +1262,7 @@ impl Driver<'_> {
             }
             // The equation's subject is the function's application: `Size(x)`, which the base's
             // rule `sizeof(a) => hold(size(a))` applies.
-            ("equation", "subject-root") if self.spelling.text == "Size(x)" => Self::applied(
+            ("equation", "subject-root") if self.spelling.text == "Size(x)" => self.applied(
                 &setup("SizeOf", vec![one()]),
                 1,
                 vec![k(vec![hold(int(0))])],
@@ -1166,6 +1271,43 @@ impl Driver<'_> {
             ("equation", "subject-root") => Err(K7::skip(
                 SkipKind::Form,
                 "the base applies no function but Probe, ProbeK and Size from a rule",
+            )),
+            // A simplification's twin ([`super::super::SIMPLIFICATION_TWIN`]): the lemma's sides
+            // evaluated at the input by the definition's equations, `zero(a, b) = 0` and
+            // `kz(a) = 0`, applied from the base's rules `callz(a, b) => hold(zero(a, b))` and
+            // `callkz(a) => hold(kz(a))`. The subject's left side, `Zero(Cmd::NAME(), HOLE)`, at the
+            // term the hole stands for there; its right side is the literal 0.
+            ("simplification", "subject") => {
+                let term = self.twin_hole(true)?;
+                self.applied(
+                    &Ground::ctor("Cmd::CallZ", vec![self.command(Vec::new()), term]),
+                    1,
+                    vec![k(vec![hold(int(0))])],
+                    Status::Value,
+                )
+            }
+            // The guard's left side, `Zero(Cmd::NAME(), x)`, whatever the condition, under each of
+            // which the lemma holds; its right side is the literal 0.
+            ("simplification", "guard") => self.applied(
+                &Ground::ctor("Cmd::CallZ", vec![self.command(Vec::new()), one()]),
+                1,
+                vec![k(vec![hold(int(0))])],
+                Status::Value,
+            ),
+            // The result's right side, `Kz(HOLE)`, at the hole's value; its left side,
+            // `Zero(Cmd::NAME(), x)`, is run beside ([`twin_left_sides`]).
+            ("simplification", "result") => {
+                let term = self.twin_hole(false)?;
+                self.applied(
+                    &Ground::ctor("Cmd::CallKz", vec![term]),
+                    1,
+                    vec![k(vec![hold(int(0))])],
+                    Status::Value,
+                )
+            }
+            ("simplification", "subject-root" | "result-root") => Err(K7::skip(
+                SkipKind::Form,
+                "the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
             )),
             // The case's rule writes the clause's production applied to the witness, which
             // kompile expanded: `drive(N)` takes one step to the clause's result.
@@ -1177,7 +1319,7 @@ impl Driver<'_> {
                         format!("no rule writes {} as one term", witness.term),
                     )
                 })?;
-                self.forward_only_if_unread(Self::applied(
+                self.forward_only_if_unread(self.applied(
                     &Ground::ctor("Cmd::Drive", vec![int(i64::from(self.command.drive()))]),
                     1,
                     vec![k(vec![hold(one())])],
@@ -1188,7 +1330,7 @@ impl Driver<'_> {
             ("desugar" | "alias", "subject" | "subject-typed") | ("desugar", "subject-beside") => {
                 let witness = self.witness()?;
                 literal(&witness.term)?;
-                self.forward_only_if_unread(Self::expanded(
+                self.forward_only_if_unread(self.expanded(
                     &self.command(fields(one(), witness.term)),
                     vec![k(vec![hold(one())])],
                     witness.status,
@@ -1197,24 +1339,24 @@ impl Driver<'_> {
             ("desugar" | "alias", "subject-root") => {
                 let witness = self.witness()?;
                 literal(&witness.term)?;
-                Self::expanded(&witness.term, vec![k(vec![go()])], witness.status)
+                self.expanded(&witness.term, vec![k(vec![go()])], witness.status)
             }
             ("alias", "subject-root-binding") => {
                 let witness = self.witness()?;
                 literal(&witness.term)?;
-                Self::expanded(&witness.term, vec![k(vec![hold(one())])], witness.status)
+                self.expanded(&witness.term, vec![k(vec![hold(one())])], witness.status)
             }
             ("desugar", "result-root") => {
                 let value = self.value()?;
-                Self::expanded(&reading(), vec![k(vec![value.term])], value.status)
+                self.expanded(&reading(), vec![k(vec![value.term])], value.status)
             }
             ("desugar", "result") => {
                 let value = self.value()?;
-                Self::expanded(&reading(), vec![k(vec![hold(value.term)])], value.status)
+                self.expanded(&reading(), vec![k(vec![hold(value.term)])], value.status)
             }
             ("alias", "result-root") => {
                 let value = self.value()?;
-                self.forward_only_if_computed(Self::expanded(
+                self.forward_only_if_computed(self.expanded(
                     &self.command(vec![one()]),
                     vec![k(vec![value.term])],
                     value.status,
@@ -1222,7 +1364,7 @@ impl Driver<'_> {
             }
             ("alias", "result-root-ground") => {
                 let value = self.value()?;
-                self.forward_only_if_computed(Self::expanded(
+                self.forward_only_if_computed(self.expanded(
                     &self.command(Vec::new()),
                     vec![k(vec![value.term])],
                     value.status,
@@ -1230,7 +1372,7 @@ impl Driver<'_> {
             }
             ("alias", "result") => {
                 let value = self.value()?;
-                self.forward_only_if_computed(Self::expanded(
+                self.forward_only_if_computed(self.expanded(
                     &self.command(vec![one()]),
                     vec![k(vec![pair(one(), value.term)])],
                     value.status,
@@ -1249,7 +1391,7 @@ impl Driver<'_> {
                     items.push(one());
                 }
                 items.push(item);
-                let mut run = Self::expanded(&go(), vec![k(items)], value.status)?;
+                let mut run = self.expanded(&go(), vec![k(items)], value.status)?;
                 if let (K7::Run(run), "variable-item") = (&mut run, position) {
                     let x = one().program().ok_or_else(|| {
                         K7::skip(SkipKind::Witness, format!("no program writes {}", one()))
@@ -1267,8 +1409,13 @@ impl Driver<'_> {
 
     /// A run of `program` that takes no step: the case's clause acts as the program is read, or
     /// its initializer as the configuration is built.
-    fn expanded(program: &Ground, cells: Vec<(&str, Ground)>, status: Status) -> Result<K7, K7> {
-        Self::applied(program, 0, cells, status)
+    fn expanded(
+        &self,
+        program: &Ground,
+        cells: Vec<(&str, Ground)>,
+        status: Status,
+    ) -> Result<K7, K7> {
+        self.applied(program, 0, cells, status)
     }
 
     /// `plan`, with the case's own command among the aliases no print writes where the case's

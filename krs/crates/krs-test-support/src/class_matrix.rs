@@ -555,9 +555,10 @@ pub struct Case {
     /// more), each of which must not apply the case's sentence; empty where the construct has
     /// none or its slot reads no witness.
     pub k7_counters: Vec<k7::Run>,
-    /// The case's plan at other values of `x`: at its spelling's second input, where the spelling
-    /// reads `x` and the input reaches the case's program ([`k7`]), each of which must run as it
-    /// states, as the plan must; empty for every other case.
+    /// The case's other runs, each of which must run as it states, as the plan must: its plan at
+    /// other values of `x`, its spelling's other inputs, where the spelling reads `x` and the
+    /// input reaches the case's program ([`k7`]); and a simplification's twin's run of the
+    /// equation's other side. Empty for every other case.
     pub k7_inputs: Vec<k7::Run>,
     /// Whether the case's sentence holds no command of its own: a subject's root, which can take
     /// what another case's program holds, so K7 runs it, and the cases beside it, on definitions
@@ -840,6 +841,17 @@ const UNAPPLIED: &str = "the plan states that the sentence does not apply here (
 /// does not.
 pub const BUILT_UNSTATED: &str = "the clause's result is the hole, which has no stated value, so the plan states only that the computation ends with one item, as the command unexpanded does; the twin check compares the term the clause builds with its rule twin's, whose run takes the rule's step";
 
+/// Why a simplification case's runs end the same without its lemma ([`k7::Removed::Unchanged`]).
+///
+/// A simplification is a lemma, not a definition: it states an equation the definition's own
+/// equations entail, which a prover may use, and a concrete run evaluates a function by its
+/// equations. So each template's function has a definitional equation the lemma follows from
+/// (`zero(a, b) = 0`, `kz(a) = 0`), and the case's runs are the lemma's twin: each side of the
+/// lemma evaluated at each input by those equations, which must be the value they give it, 0. A
+/// definition in which the lemma is false gives a side another value at some input, which a twin
+/// run shows. The lemma takes no part in such a run, so the run without it ends the same.
+pub const SIMPLIFICATION_TWIN: &str = "the case's runs are its simplification's twin, which evaluates each side of the lemma by the definition's equations, which the lemma follows from and does not change";
+
 /// The attribute case `case` without its attribute, which K7's dependency check runs the case's
 /// plans on ([`Removal::Attribute`]); `None` for a case of another family.
 #[must_use]
@@ -1041,12 +1053,12 @@ pub struct SpellingMeaning {
     pub reads_x: bool,
     /// Whether it matches `x`'s value, read as a pattern.
     pub matches_x: bool,
-    /// Where it reads `x`, the second value of `x` K7 runs its cases at and what it matches and
-    /// denotes there, or why there is none.
-    pub second: Result<SecondInput, &'static str>,
+    /// Where it reads `x`, the values of `x` besides 1 K7 runs its cases at and what it matches
+    /// and denotes at each, or why there is none.
+    pub inputs: Result<Vec<SecondInput>, &'static str>,
 }
 
-/// A spelling's second input ([`SpellingMeaning::second`]).
+/// One of a spelling's inputs besides 1 ([`SpellingMeaning::inputs`]).
 #[derive(Clone, Debug)]
 pub struct SecondInput {
     /// `x`'s value.

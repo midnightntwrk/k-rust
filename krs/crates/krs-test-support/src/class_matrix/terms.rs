@@ -26,35 +26,45 @@
 //!
 //! # Simplification equations
 //!
-//! A simplification states an equation a prover may use, so each template states one that is true
-//! in the definition it is emitted into for every spelling it holds: one the base's equations and
-//! the builtins' meanings entail, or one that alone speaks of a function at the case's own
-//! command, which nothing else in the definition gives a value there, so that it contradicts
-//! nothing. An equation between a term with a value and one without is false, and so is one
-//! between terms of two sorts (no `Int` is a `Stmt`). No K7 run checks them (a simplification
-//! rewrites only what a prover simplifies), so each is argued here.
+//! A simplification is a lemma, not a definition: it states an equation a prover may use, which
+//! must follow from the definition it is emitted into. So each template rewrites a function the
+//! base defines by an equation, and states an equation that equation entails for every spelling
+//! it holds, or one under the condition `false`, true of every spelling, where no definition makes
+//! it a consequence. An equation between a term with a value and one without is false, and so is
+//! one between terms of two sorts (no `Int` is a `Stmt`). K7 runs each template's twin
+//! ([`super::SIMPLIFICATION_TWIN`]): both sides evaluated at each input by the definition's
+//! equations, each of which must give the side the value they state.
 //!
 //! - `subject`, `Zero(Cmd::NAME(), HOLE) => 0`: `Zero`'s equation is `zero(a, b) = 0`, so the
 //!   equation holds wherever the hole has a value: for every pattern spelling (each instance it
 //!   matches is a value) and every built one, but those with no value at some `x` (a projection,
-//!   a refutable `let`, a record update, a lookup in the empty map), where the left side has
-//!   none. Those state the condition under which they have one ([`Spelling::domain`]) as the
-//!   equation's condition, so the equation states nothing where its left side has no value.
-//! - `guard`, `Zero(Cmd::NAME(), x) => 0` under the hole: true under every condition.
+//!   a refutable `let`, a record update, a lookup in the empty map, `Size`'s application), where
+//!   the left side has none. Those state the condition under which they have one
+//!   ([`Spelling::domain`]) as the equation's condition, so the equation states nothing where its
+//!   left side has no value (`Size(x)` none anywhere: `false`). The twin evaluates
+//!   `zero(cTAG, t)` at the term `t` the hole stands for at each input.
+//! - `guard`, `Zero(Cmd::NAME(), x) => 0` under the hole: true under every condition. The twin
+//!   evaluates `zero(cTAG, x)` at each input.
 //! - `result`, `Zero(Cmd::NAME(), x) => Kz(HOLE)`: `Kz`'s equation is `kz(a) = 0`, so the
 //!   equation holds wherever the hole has a value; the spellings with none at some `x` state their
 //!   condition as `subject`'s do. A spelling whose sort the lowering gives `x` (`x && true` sorts
-//!   it `Bool`) has a value wherever the equation's left side matches.
+//!   it `Bool`) has a value wherever the equation's left side matches. The twin evaluates
+//!   `zero(cTAG, x)` and `kz(v)`, `v` the hole's value, at each input where the hole has one.
 //! - `subject-root`, `HOLE => 0` under the condition `false`: the hole is the whole left side, and
 //!   only the spellings that apply a function stand there; the builtins' meanings fix their value
 //!   (`1 + 2` is 3), so no right side but the hole itself equals each, and a right side that
 //!   restated the hole would judge the spelling at a result too. Under `false` the equation is
 //!   true for every spelling, and no prover applies it.
-//! - `result-root`, `ProbeK(Cmd::NAME(), x) => HOLE`: `ProbeK` is a partial function of `KItem`
-//!   result that only the cases' own equations and simplifications state at their own commands,
-//!   so the equation alone states `ProbeK` at the case's command: a value of any sort (as a
-//!   `KItem`), or none where the hole has none. (`Probe`, of `Int` result, would equate an `Int`
-//!   with a `Stmt` for a spelling that builds one.)
+//! - `result-root`, `ProbeK(Cmd::NAME(), x) => HOLE` under the condition `false`: the hole is the
+//!   whole right side, so the equation would make `ProbeK` at the case's command equal to each
+//!   spelling's value, which no equation of the definition gives it (`ProbeK` is partial, and
+//!   the equations that define it are other cases'): no definition the template is emitted into
+//!   entails it. Under `false` it is true for every spelling. `ProbeK` is of `KItem` result, so
+//!   the equation is well-sorted for every spelling (`Probe`, of `Int` result, would equate an
+//!   `Int` with a `Stmt` for a spelling that builds one).
+//!
+//! The two templates under `false` still judge the hole's parse, lowering, sort and K record at
+//! their positions; they no longer state an equation a prover could apply.
 
 mod attributes;
 mod drivers;
@@ -127,6 +137,8 @@ pub enum Cmd {
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
+    #[k::syntax("callz({a}, {b})")] CallZ { a: KItem, b: KItem },
+    #[k::syntax("callkz({a})")] CallKz { a: KItem },
     #[k::syntax("sizeof({a})")] SizeOf { a: KItem },
     #[k::syntax("setenv({a})")] SetEnv { a: KItem },
     #[k::syntax("setstack({a})")] SetStack { a: KItem },
@@ -191,6 +203,8 @@ pub enum Cmd {
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
+    #[k::syntax("callz({a}, {b})")] CallZ { a: KItem, b: KItem },
+    #[k::syntax("callkz({a})")] CallKz { a: KItem },
     #[k::syntax("sizeof({a})")] SizeOf { a: KItem },
     #[k::syntax("setenv({a})")] SetEnv { a: KItem },
     #[k::syntax("setstack({a})")] SetStack { a: KItem },
@@ -358,7 +372,9 @@ const INITIALIZER: &str = r#"impl Machine {
 ///   before `b` in the computation cell, `setenv(m)`, `setstack(l)` and `setseq(s)` replace a
 ///   cell's content, `addmember`, `addtoken` and `addrow` add a collection's instance;
 /// - `call(a, b)`, `callk(a, b)` and `sizeof(a)`, which apply `Probe`, `ProbeK` and `Size` from a
-///   rule's result, as a rule applies a function the equation forms define;
+///   rule's result, as a rule applies a function the equation forms define, and `callz(a, b)` and
+///   `callkz(a)`, which apply `Zero` and `Kz`, the functions the simplifications' lemmas state
+///   equations of, so that their twins evaluate each side ([`super::SIMPLIFICATION_TWIN`]);
 /// - `lits(..)`, whose fields put the `String`, `Bool`, `Float` and `Bytes` literals in the
 ///   program grammar;
 /// - makers for the values the grammar has no syntax for, each of which builds exactly the value
@@ -508,6 +524,10 @@ k::rules! {
     #[k::rule(priority = 10)]
     call_k: Cmd::CallK(a, b) => Cmd::Hold(ProbeK(a, b));
     #[k::rule(priority = 10)]
+    call_z: Cmd::CallZ(a, b) => Cmd::Hold(Zero(a, b));
+    #[k::rule(priority = 10)]
+    call_kz: Cmd::CallKz(a) => Cmd::Hold(Kz(a));
+    #[k::rule(priority = 10)]
     size_of: Cmd::SizeOf(a) => Cmd::Hold(Size(a));
 }
 
@@ -596,10 +616,10 @@ struct Spelling {
     /// sentence ([`drivers`]).
     x_counter: Option<Ground>,
     /// Whether the spelling, read as a pattern, matches the value of `x`: what a `let` pattern or
-    /// a `k::matches!` over `x` decides. It holds at both inputs a case runs at: the spellings
+    /// a `k::matches!` over `x` decides. It holds at every input a case runs at: the spellings
     /// that read `x` and match 1 match every term (`x`, `x | 1`), and every other pattern spelling
-    /// that reads `x` matches no `Int`, which its second input is
-    /// (`every_spelling_that_reads_x_states_a_second_input_or_why_not`).
+    /// that reads `x` matches no `Int`, which each of its other inputs is
+    /// (`every_spelling_that_reads_x_states_its_inputs_or_why_not`).
     matches_x: bool,
     /// Where the spelling reads `x`: its witness as a function of `x`'s value, from which
     /// `witness` (at 1) is computed ([`Spelling::of_x`]).
@@ -607,14 +627,21 @@ struct Spelling {
     /// Where the spelling reads `x`: its meaning as a function of `x`'s value, from which `value`
     /// (at 1) is computed ([`Spelling::of_x`]).
     value_of_x: Option<OfX>,
-    /// Where the spelling reads `x`, the second value of `x` K7 runs its cases at, at which its
-    /// meaning differs from its meaning at 1, or why none is.
-    second: Result<Ground, &'static str>,
+    /// Where the spelling reads `x`, the other values of `x` K7 runs its cases at besides 1, at
+    /// each of which its meaning differs from its meaning at 1, and which together separate it
+    /// from every other operator of its class (`every_operator_spelling_differs_from_every_other_
+    /// operator_of_its_class_on_its_inputs`), or why there is none.
+    inputs: Result<Vec<Ground>, &'static str>,
     /// Where the spelling has no value at some `x` its sorts admit (a projection, a refutable
     /// `let`, a record update, a lookup of a key the map lacks), the condition over `x` under which
     /// it has one, which a simplification whose other side is defined states its equation under
     /// ([module docs](self), "Simplification equations").
     domain: Option<&'static str>,
+    /// The domain the spelling's operator narrows `x` to, if it narrows it (`x && true` to `Bool`,
+    /// the KRS operator table: an operand pins its operation's domain, and a binder is narrowed to
+    /// it), so that where `x` is not in it a sentence that binds `x` does not match, rather than
+    /// building a term with no value there ([`drivers`]).
+    narrows_x: Option<&'static str>,
     /// Whether the spelling stands only at the matched positions below a subject's root, as the
     /// applications of the static productions do ([`static_spellings`]).
     below_root_only: bool,
@@ -734,9 +761,9 @@ impl Spelling {
     /// from what the construct denotes (`x + 1` the sum of two `Int`s, a refutable `let` a value
     /// only where its pattern matches); it reads no lowering, no emitted K and no KRS table, so it
     /// is independent of the lowering K7 checks, and a lowering that computes another function of
-    /// `x` disagrees with it at some input. The second input ([`Spelling::at`]) is chosen to be
-    /// one where the lowerings that agree with it at 1 do not: a constant folded in, `x` dropped,
-    /// two operands swapped.
+    /// `x` disagrees with it at some input. The other inputs ([`Spelling::at`]) are chosen so that
+    /// the lowerings that agree with it at 1 do not at one of them: a constant folded in, `x`
+    /// dropped, two operands swapped, another operator of its class.
     fn of_x(self, value: fn(&Ground) -> Meaning) -> Self {
         Self {
             value: value(&int(1)),
@@ -777,10 +804,12 @@ impl Spelling {
         }
     }
 
-    /// The spelling, whose cases K7 runs at `x` = `second` too.
-    fn at(self, second: Ground) -> Self {
+    /// The spelling, whose cases K7 runs at `x` = `input` too, after the inputs it states already.
+    fn at(self, input: Ground) -> Self {
+        let mut inputs = self.inputs.unwrap_or_default();
+        inputs.push(input);
         Self {
-            second: Ok(second),
+            inputs: Ok(inputs),
             ..self
         }
     }
@@ -789,7 +818,7 @@ impl Spelling {
     /// is the same at every input.
     fn at_one_only(self, reason: &'static str) -> Self {
         Self {
-            second: Err(reason),
+            inputs: Err(reason),
             ..self
         }
     }
@@ -806,6 +835,14 @@ impl Spelling {
     fn value_at(&self, x: &Ground) -> Meaning {
         self.value_of_x
             .map_or_else(|| self.value.clone(), |value| value.at(x))
+    }
+
+    /// The spelling, whose operator narrows `x` to `domain` ([`Spelling::narrows_x`]).
+    fn narrowing_x(self, domain: &'static str) -> Self {
+        Self {
+            narrows_x: Some(domain),
+            ..self
+        }
     }
 
     /// The spelling, which has a value exactly where `condition`, a condition over `x`, holds
@@ -866,8 +903,9 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
         matches_x: false,
         witness_of_x: None,
         value_of_x: None,
-        second: Err("no second input is stated"),
+        inputs: Err("no other input is stated"),
         domain: None,
+        narrows_x: None,
         below_root_only: false,
         static_only: false,
     }
@@ -890,14 +928,28 @@ fn pair(a: Ground, b: Ground) -> Ground {
     Ground::ctor("Cmd::Pair", vec![a, b])
 }
 
-/// The second value of `x` the cases of an `Int` spelling that reads `x` run at ([`Spelling::at`]).
-/// At -2 each operation the spellings apply differs from its value at 1 and from the lowerings
-/// that agree with it there: `x + 1` is -1, not `2 * x`'s -4, `x`'s -2 or a folded 2; `x & 1` is
-/// 0, not `x` or a folded 1; `x << 1` is -4, not `1 << x`'s; `x < 1` is true, not `1 < x`'s or a
-/// folded false; `x | 1` is -1, not `x`, 1 or `x & 1`'s 0; `x == 1` and `!(x < 1)` are false. At
-/// 3, `x & 1` and a folded 1, `x < 1` and a folded false, `x | 1` and `x` would agree; at 0, `x |
-/// 1` and 1, `x << 1` and `x`.
+/// The input besides 1 that the cases of an `Int` spelling that reads `x` run at
+/// ([`Spelling::at`]). At -2 each operation the spellings apply differs from its value at 1 and
+/// from the lowerings that agree with it there: `x + 1` is -1, not `2 * x`'s -4, `x`'s -2 or a
+/// folded 2; `x & 1` is 0, not `x` or a folded 1; `x << 1` is -4, not `1 << x`'s; `x < 1` is true,
+/// not `1 < x`'s or a folded false; `x | 1` is -1, not `x`, 1 or `x & 1`'s 0. At 3, `x & 1` and a
+/// folded 1, `x < 1` and a folded false, `x | 1` and `x` would agree; at 0, `x | 1` and 1, `x << 1`
+/// and `x`. Each spelling's inputs together separate it from every other operator of its class
+/// (`every_operator_spelling_differs_from_every_other_operator_of_its_class_on_its_inputs`); one
+/// input does not do that for every class ([`ABOVE`], [`ODD_NEGATIVE`]).
 const SECOND: i64 = -2;
+
+/// The comparisons' input besides 1 and [`SECOND`]: of `x < 1`, `x <= 1`, `x > 1`, `x >= 1`,
+/// `x == 1` and `x != 1`, at 1 and -2 `<` and `!=` agree (false, then true) and so do `==` and
+/// `>=` (true, then false); at 3 each pair parts (`x < 1` is false and `x != 1` true, `x == 1`
+/// false and `x >= 1` true).
+const ABOVE: i64 = 3;
+
+/// The input besides 1 of a division, a remainder and a right shift: an odd negative `Int`, where
+/// truncating and Euclidean (flooring) rounding part. `-3 / 2` is -1 truncating and -2 Euclidean,
+/// `-3 % 2` -1 and 1, and the arithmetic shift `-3 >> 1` is -2, where a truncating division by 2
+/// would be -1. At -2 each pair agrees.
+const ODD_NEGATIVE: i64 = -3;
 
 /// `x`'s value as an `Int`, where it is one.
 const fn int_of(x: &Ground) -> Option<i64> {
@@ -988,11 +1040,14 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Reference, &[FunctionArgument]),
             ],
         )
+        // A partial function has a value only where its equations give one, and the base gives
+        // `Size` none: its application has no value at any `x`.
         .unmatched(COMPUTED)
-        .unstated(
-            "Size is partial and the base gives it no equation, so the definition names no value of its application",
+        .undefined(
+            "Size is partial and the base gives it no equation, so its application has no value: a function has a value only where its equations give one",
         )
-        .at_one_only("Size's application has no stated value at any input"),
+        .at_one_only("Size's application has no value at any input")
+        .defined_where("false"),
         // Literal: Int, negative Int, Bool, String, Float.
         spelling("1", &[node(C::Literal, &[])]).refuting(int(2))
             .value(int(1))
@@ -1250,14 +1305,32 @@ fn spellings() -> Vec<Spelling> {
             .unmatched(COMPUTED)
             .of_x(|x| on_int(x, |x| int(x << 1)))
             .at(int(SECOND)),
+        // A division, a remainder and a right shift, each of an `Int` by a literal its domain
+        // holds (a divisor not 0, an amount not negative), so each has a value at every `Int`:
+        // `/` and `%` truncate, as Rust's `i64` operators do, and `>>` is the arithmetic shift,
+        // Rust's on `i64` (the KRS operator table).
+        binary("x / 2", Notation::Arithmetic)
+            .unmatched(COMPUTED)
+            .of_x(|x| on_int(x, |x| int(x / 2)))
+            .at(int(ODD_NEGATIVE)),
+        binary("x % 2", Notation::Arithmetic)
+            .unmatched(COMPUTED)
+            .of_x(|x| on_int(x, |x| int(x % 2)))
+            .at(int(ODD_NEGATIVE)),
+        binary("x >> 1", Notation::Shift)
+            .unmatched(COMPUTED)
+            .of_x(|x| on_int(x, |x| int(x >> 1)))
+            .at(int(ODD_NEGATIVE)),
         binary("x < 1", Notation::Comparison)
             .unmatched(COMPUTED)
             .of_x(|x| on_int(x, |x| Ground::Bool(x < 1)))
-            .at(int(SECOND)),
+            .at(int(SECOND))
+            .at(int(ABOVE)),
         binary("x == 1", Notation::Equality)
             .unmatched(COMPUTED)
             .of_x(|x| on_int(x, |x| Ground::Bool(x == 1)))
-            .at(int(SECOND)),
+            .at(int(SECOND))
+            .at(int(ABOVE)),
         spelling(
             "x && true",
             &[
@@ -1268,6 +1341,7 @@ fn spellings() -> Vec<Spelling> {
         )
         .unmatched(COMPUTED)
         .of_x(|x| on_bool(x, |x| x))
+        .narrowing_x("Bool")
         .at(Ground::Bool(false)),
         spelling(
             "x || true",
@@ -1279,6 +1353,7 @@ fn spellings() -> Vec<Spelling> {
         )
         .unmatched(COMPUTED)
         .of_x(|x| on_bool(x, |_| true))
+        .narrowing_x("Bool")
         .at(Ground::Bool(false)),
         spelling(
             "!(x < 1)",
@@ -1291,7 +1366,8 @@ fn spellings() -> Vec<Spelling> {
         )
         .unmatched(COMPUTED)
         .of_x(|x| on_int(x, |x| Ground::Bool(x >= 1)))
-        .at(int(SECOND)),
+        .at(int(SECOND))
+        .at(int(ABOVE)),
         spelling(
             "-(x + 1)",
             &[
@@ -1504,10 +1580,14 @@ fn collection_meaning(spelling: Spelling) -> Spelling {
             .denoting(Ground::Bool(false))
             .at_one_only("the empty map holds no key at any x"),
         "map![x -> 1, 2 -> 3]"
-        | "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)" => {
+        | "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)" =>
+        {
+            // Of two keys that are equal the later entry is the map's: at 2 the map is `{2 ↦ 3}`,
+            // where entries written in the other order would make it `{2 ↦ 1}`.
             computed
                 .denoting_x(|x| Ground::map(vec![(x.clone(), int(1)), (int(2), int(3))]))
                 .at(int(SECOND))
+                .at(int(2))
         }
         "map![0 -> 1]" | "k::builtin::map::update(k::builtin::map::empty(), 0, 1)" => {
             computed.denoting(Ground::map(vec![(int(0), one())]))
@@ -2723,7 +2803,7 @@ fn slots() -> Vec<Slot> {
             Side::Result,
             (Simplification, Part::Result, &[]),
             concat!(
-                "#[k::simplification]\nfn case_TAG(k::term![ProbeK(Cmd::NAME(), x)",
+                "#[k::simplification]\n#[k::requires(false)]\nfn case_TAG(k::term![ProbeK(Cmd::NAME(), x)",
                 "]: Term<KItem>) -> Term<KItem> {\n",
                 "    HOLE\n}\n"
             ),
@@ -3583,10 +3663,15 @@ pub(super) fn meanings() -> Vec<super::SpellingMeaning> {
                 family,
                 text: spelling.text,
                 reads_x: reads_x(spelling.text),
-                second: spelling.second.clone().map(|x| super::SecondInput {
-                    witness: spelling.witness_at(&x),
-                    value: spelling.value_at(&x),
-                    x,
+                inputs: spelling.inputs.clone().map(|inputs| {
+                    inputs
+                        .into_iter()
+                        .map(|x| super::SecondInput {
+                            witness: spelling.witness_at(&x),
+                            value: spelling.value_at(&x),
+                            x,
+                        })
+                        .collect()
                 }),
                 witness: spelling.witness,
                 value: spelling.value,
@@ -3674,12 +3759,14 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let tag = spec.tag();
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(slot.marker);
-    let (plan, inputs) = drivers::at_second_input(
+    let (plan, inputs) = drivers::at_inputs(
         slot,
         spelling,
         &command,
         drivers::plan(slot, spelling, &command),
     );
+    let mut inputs = inputs;
+    inputs.extend(drivers::twin_left_sides(slot, spelling, &command));
     let counters = drivers::counter_plans(slot, spelling, &command);
     let template = slot_template(slot, spelling)
         .replace("TAG", &tag)
@@ -3743,6 +3830,9 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
         && states_one_item_only(&case.k7)
     {
         case.removed = Removed::Unchanged(super::BUILT_UNSTATED);
+    }
+    if slot.form == "simplification" && matches!(case.k7, K7::Run(_)) {
+        case.removed = Removed::Unchanged(super::SIMPLIFICATION_TWIN);
     }
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.

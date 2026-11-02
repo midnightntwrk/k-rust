@@ -657,7 +657,7 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "notation-in-pattern",
         forms: &[
-            r"`{int::lt(..),int::eq(..),int::bit_and(..),int::shift_left(..),int::bit_not(..),int::sub(0\, ..),bool::and_then(..),bool::or_else(..)}`",
+            r"`{int::lt(..),int::eq(..),int::bit_and(..),int::shift_left(..),int::div(..),int::rem(..),int::shift_right(..),int::bit_not(..),int::sub(0\, ..),bool::and_then(..),bool::or_else(..)}`",
         ],
         shards: &["terms"],
         reason: "the advice is the builtin call an operator denotes, at the placeholder `..`, which no case writes; the class's advised case writes `int::add(x, 1)` only (an advised case per operator is a generator follow-up)",

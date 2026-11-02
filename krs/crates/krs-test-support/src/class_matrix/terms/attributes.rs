@@ -674,6 +674,20 @@ fn removed(form: Form, attribute: Attribute, plan: &K7, counter: Option<&Run>) -
     }
 }
 
+/// The slot's plan an attribute case's runs start from. A simplification's attribute changes only
+/// what a prover simplifies, and the attribute's template states no lemma of the terms base's
+/// functions, which the term slots' twins evaluate ([`super::super::SIMPLIFICATION_TWIN`]), so a
+/// simplification's attribute case has none.
+fn attribute_base(form: Form, slot: &Slot, spelling: &Spelling, cmd: &Command) -> K7 {
+    if form.name == "simplification" {
+        return K7::skip(
+            SkipKind::Form,
+            "a simplification only rewrites what a prover simplifies, and needs a prover",
+        );
+    }
+    drivers::plan(slot, spelling, cmd)
+}
+
 /// [`plan`]'s runs.
 fn attribute_plan(
     form: Form,
@@ -682,7 +696,7 @@ fn attribute_plan(
     spelling: &Spelling,
     cmd: &Command,
 ) -> (K7, Option<Run>) {
-    let base = drivers::plan(slot, spelling, cmd);
+    let base = attribute_base(form, slot, spelling, cmd);
     if matches!(base, K7::Skip(_)) {
         return (base, None);
     }
@@ -815,7 +829,7 @@ fn extra_plan(
             Removed::Changes,
         );
     }
-    let base = drivers::plan(slot, spelling, cmd);
+    let base = attribute_base(form, slot, spelling, cmd);
     if matches!(base, K7::Skip(_)) {
         return (base, None, Removed::Changes);
     }
