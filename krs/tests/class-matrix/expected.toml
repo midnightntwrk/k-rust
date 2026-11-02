@@ -359,7 +359,7 @@ advice = "none"
 
 [class.map-read-value-binder]
 code = "krs::syntax::rust-syntax"
-doc = "a readable map read whose value is not a fresh binder: the value names what the entry maps to"
+doc = "a readable map read at a record's top level whose value is not a fresh binder: the value names what the entry maps to. A stated limitation of the readable record's top-level route; inside an instance record the map read's value is matched (P5)"
 advice = "none"
 
 [class.map-read-value-bound]
@@ -5049,4 +5049,4 @@ principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, 
 principle = "E3"
 
 [cell-exception.'{claim,readable}/subject/typed/map/{1,Go(),Unit()}']
-principle = "C-lim: a readable map read's value is a fresh binder; P5 gives a constant value its meaning (the entry maps to it)"
+principle = "C-lim: a readable record's top-level map read takes its value as a binder; inside an instance record the value is matched (P5), as `readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }` shows"

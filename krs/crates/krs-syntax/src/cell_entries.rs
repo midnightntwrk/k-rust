@@ -107,8 +107,9 @@ pub enum Refusal {
     /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
     /// record's top-level route).
     MapReadInResult,
-    /// A readable map read at the entry's head whose value is not a fresh binder (a stated
-    /// limitation).
+    /// A readable map read at a record's top level whose value is not a fresh binder (a stated
+    /// limitation of the readable record's top-level route; inside an instance record the value
+    /// is matched, P5).
     MapReadValueBinder,
 }
 
