@@ -601,8 +601,8 @@ fn injected_sort(item: &Pattern) -> Option<String> {
     }
 }
 
-/// A term as two prints of it are compared: its value, constructors with their instances,
-/// collections as collections; an application no KRS declaration describes by its symbol, its
+/// A term as two prints of it are compared: its value, constructors with their instances and
+/// by their overload family ([`ValueIndex::overload_family`]), collections as collections; an application no KRS declaration describes by its symbol, its
 /// instance and its arguments, below the injections the reader puts around a term; a token by
 /// its text, and by its sort where `typed`.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -646,8 +646,12 @@ fn value_shape(index: &ValueIndex, value: &Value, typed: bool) -> Shape {
             .collect()
     };
     match value {
+        // A constructor by its overload family: the definition's overload axioms equate the
+        // family's applications over the same arguments, which a reader builds as the grammar
+        // reads them (`tick , 2` is an `Exps` list throughout, where a run that evaluated its
+        // tail holds a `Vals` one there).
         Value::Ctor(ctor) => Shape::Ctor {
-            decl: ctor.decl().to_string(),
+            decl: index.overload_family(ctor.decl()).to_string(),
             instance: ctor.sort_args().iter().map(ToString::to_string).collect(),
             fields: ctor
                 .fields()
@@ -691,6 +695,29 @@ fn opaque_shape(index: &ValueIndex, pattern: &Pattern, typed: bool) -> Shape {
             match arguments.as_slice() {
                 [argument] => shape(index, argument, typed),
                 _ => Shape::Pattern(pattern.to_string()),
+            }
+        }
+        // An application of an overloaded constructor that decodes as no value (an overload
+        // axiom still rewrites it to its overload: `expsCons(inj(2), expsNil)`, a reading of
+        // `2` as an `Exps` list) is the value the axiom gives, by its family.
+        Pattern::Application { symbol, arguments } if symbol.sort_parameters.is_empty() => {
+            match index.overloaded_constructor(&symbol.name) {
+                Some(family) => Shape::Ctor {
+                    decl: family.to_string(),
+                    instance: Vec::new(),
+                    fields: arguments
+                        .iter()
+                        .map(|argument| shape(index, argument, typed))
+                        .collect(),
+                },
+                None => Shape::Application {
+                    symbol: symbol.name.clone(),
+                    instance: Vec::new(),
+                    arguments: arguments
+                        .iter()
+                        .map(|argument| shape(index, argument, typed))
+                        .collect(),
+                },
             }
         }
         Pattern::Application { symbol, arguments }

@@ -716,6 +716,9 @@ pub struct ValueIndex {
     builders: [CollectionSymbols; 3],
     cells: Vec<CellNode>,
     top: String,
+    /// Each overloaded constructor's declaration, beside the one declaration its overload
+    /// family is known by ([`Self::overload_family`]).
+    overload_families: HashMap<Decl, Decl>,
 }
 
 /// Whether an application of an equation head (a constructor an `anywhere` rule rewrites) is a
@@ -759,6 +762,51 @@ impl EquationHeadData {
         let heads = self.heads.get_or_init(|| self.definition.data_heads());
         self.definition.is_data(&term, heads)
     }
+}
+
+/// The overload families of the constructors `ctors` holds by KORE symbol
+/// ([`ValueIndex::overload_family`]): each overloaded constructor's declaration, beside the
+/// declaration of the first symbol of the constructors the backend's overload relation joins it
+/// to.
+fn overload_families(
+    backend: &BackendDefinition,
+    ctors: &HashMap<String, Arc<CtorInfo>>,
+) -> HashMap<Decl, Decl> {
+    let overloads = backend.overloads();
+    let mut symbols = ctors
+        .keys()
+        .filter(|symbol| overloads.is_overloaded(&Arc::<str>::from(symbol.as_str())))
+        .cloned()
+        .collect::<Vec<_>>();
+    symbols.sort();
+    // Each symbol's family, by the index of its first member; a family is merged into the
+    // other one's first member whenever one of its symbols overloads one of the other's.
+    let mut first = (0..symbols.len()).collect::<Vec<_>>();
+    let root = |first: &[usize], mut index: usize| {
+        while first[index] != index {
+            index = first[index];
+        }
+        index
+    };
+    for greater in 0..symbols.len() {
+        for lesser in 0..symbols.len() {
+            if overloads.is_overloading(
+                &Arc::<str>::from(symbols[greater].as_str()),
+                &Arc::<str>::from(symbols[lesser].as_str()),
+            ) {
+                let (left, right) = (root(&first, greater), root(&first, lesser));
+                first[left.max(right)] = left.min(right);
+            }
+        }
+    }
+    (0..symbols.len())
+        .map(|index| {
+            (
+                ctors[&symbols[index]].decl.clone(),
+                ctors[&symbols[root(&first, index)]].decl.clone(),
+            )
+        })
+        .collect()
 }
 
 const fn collection_slot(collection: Collection) -> usize {
@@ -862,7 +910,9 @@ impl ValueIndex {
             .filter_map(|(name, sort)| Some((name.to_string(), sort.hook.as_ref()?.to_string())))
             .collect();
         let symbols = BackendSymbols::scan(backend);
+        let overload_families = overload_families(backend, &ctors_by_symbol);
         Self {
+            overload_families,
             ctors_by_symbol,
             ctors_by_decl,
             sorts_by_kore,
@@ -881,6 +931,28 @@ impl ValueIndex {
             cells,
             top: kore_symbol_name(k_rust::kast::GeneratedCell::Top.label()),
         }
+    }
+
+    /// The declaration `decl`'s overload family is known by: of the constructors the
+    /// definition's overload axioms relate to it, directly or through others, the one with the
+    /// first KORE symbol; `decl` itself where it is overloaded by none and overloads none. The
+    /// axioms equate an application of a constructor with one of its overload over the same
+    /// arguments, injections aside (`expsCons(inj(2), inj(valsNil))` is
+    /// `inj(valsCons(2, valsNil))`, where `Vals` is the `Exps` overload of K's `Vals` idiom),
+    /// so two terms that differ only in which overload of a family each applies are one value.
+    #[must_use]
+    pub fn overload_family<'d>(&'d self, decl: &'d Decl) -> &'d Decl {
+        self.overload_families.get(decl).unwrap_or(decl)
+    }
+
+    /// The overload family ([`Self::overload_family`]) of the constructor whose KORE symbol is
+    /// `symbol`, where it is an overloaded constructor without sort parameters.
+    pub(crate) fn overloaded_constructor(&self, symbol: &str) -> Option<&Decl> {
+        let info = self.ctors_by_symbol.get(symbol)?;
+        if info.parameters > 0 {
+            return None;
+        }
+        self.overload_families.get(&info.decl)
     }
 
     /// The constructor named by `name`: its full path or a `::`-aligned suffix of it
@@ -1555,6 +1627,7 @@ mod tests {
             builders: symbols.builders,
             cells: Vec::new(),
             top: String::new(),
+            overload_families: HashMap::new(),
         }
     }
 

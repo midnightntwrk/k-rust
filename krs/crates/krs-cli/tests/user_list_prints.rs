@@ -297,3 +297,134 @@ fn a_user_list_prints_in_its_program_spelling() {
         .unwrap_or_else(|| panic!("{state}"));
     assert_eq!((items.trim(), warnings(&stderr)), ("", vec![]), "{state}");
 }
+
+/// K's `Vals` idiom: the strict list `Exps` and its value list `Vals`, a subsort of it in the
+/// same overload family.
+const STRICT: &str = r#"use k::KResult;
+use k::Term;
+use k::builtin::{Id, Int, KSequence, int};
+
+k::sorts! {
+    Exp;
+    Val: Exp + KResult;
+    impl Val for Int;
+    impl Exps for Vals;
+    impl KResult for Vals;
+}
+
+#[k::syntax_list(separator = ",", result = KResult)]
+pub enum Exps {
+    #[k::seqstrict]
+    Cons { head: Exp, tail: Exps },
+    Nil(),
+}
+
+#[k::syntax_list(separator = ",")]
+pub enum Vals {
+    Cons { head: Val, tail: Vals },
+    Nil(),
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Tick, Call))]
+#[rustfmt::skip]
+pub enum Syntax {
+    #[k::syntax("tick")] Tick(),
+    #[k::syntax("{callee}({args})")] #[k::strict(args)]
+    Call { callee: Id, args: Exps },
+}
+
+#[k::function(partial, sort = Int, syntax = "count({values}, {acc})")]
+pub struct Count {
+    pub values: Term<Vals>,
+    pub acc: Term<Int>,
+}
+
+#[k::equation]
+fn count_done(acc: Term<Int>, k::term![Count(Vals::Nil(), acc)]: Term<Int>) -> Term<Int> {
+    acc
+}
+
+#[k::equation]
+fn count_more(
+    value: Term<Val>,
+    rest: Term<Vals>,
+    acc: Term<Int>,
+    k::term![Count(Vals::Cons(value, rest), acc)]: Term<Int>,
+) -> Term<Int> {
+    Count(rest, int::add(acc, 1))
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub counter: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm], counter: 1 }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use Syntax::*;
+
+    tick: { k: [Tick(), ..], counter: c } => { k: [c, ..], counter: int::add(c, 1) };
+}
+
+k::rules! {
+    for Exp;
+    use Syntax::*;
+
+    call: Call { callee: _, args } => crate::Count(args, 0) where args: Vals;
+}
+"#;
+
+/// Every state a strict list's evaluation passes through reads back. Evaluating an argument
+/// list leaves an `Exps` whose evaluated tail is a `Vals` (`expsCons(tick, inj(valsCons(2,
+/// valsNil)))`), which the list's program spelling, `tick , 2`, writes only as an `Exps`
+/// throughout: the definition's overload axioms equate the two, so the print is the state, and
+/// its last element is the one before the injected `Vals` terminator.
+#[test]
+fn a_strict_lists_evaluated_tail_prints_and_reads_back_through_its_overloads() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        &temporary.path().join("strict"),
+        STRICT,
+        "ORG-KRS-USER-LIST-OVERLOADS",
+    );
+    let program = temporary.path().join("program.txt");
+    let mut heads = Vec::new();
+    for written in ["f(tick, 2)", "g(f(tick, 2), tick)", "g(tick, f(), tick)"] {
+        fs::write(&program, format!("{written}\n")).unwrap();
+        for depth in 0..12 {
+            let depth = depth.to_string();
+            let (ran, state, stderr) = krs(
+                target.path(),
+                &manifest,
+                "run",
+                Some(&program),
+                &["--depth", &depth],
+            );
+            assert!(ran, "{written} at depth {depth}: {state}{stderr}");
+            assert_eq!(warnings(&stderr), Vec::<&str>::new(), "{written}");
+            heads.push(format!("{written} {depth}: {}", computation(&state)));
+        }
+    }
+    let heads = heads.join("\n");
+    assert!(heads.contains("f(tick, 2) 1: tick , 2 ~> "), "{heads}");
+    assert!(
+        heads.contains("g(f(tick, 2), tick) 1: f(tick , 2) , tick ~> "),
+        "{heads}"
+    );
+    assert!(
+        heads.contains("g(tick, f(), tick) 1: tick , f() , tick ~> "),
+        "{heads}"
+    );
+}
