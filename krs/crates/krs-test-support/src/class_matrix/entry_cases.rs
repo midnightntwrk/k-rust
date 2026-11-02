@@ -321,8 +321,12 @@ fn group(name: &str, children: Vec<(&str, Vec<Layer>)>) -> Layer {
 /// Panics if the bases declare no cell `cell`.
 #[must_use]
 pub fn machine_stack(cell: &str) -> Vec<Layer> {
+    machine_stack_of(cell).unwrap_or_else(|| panic!("the machine base has no cell `{cell}`"))
+}
+
+fn machine_stack_of(cell: &str) -> Option<Vec<Layer>> {
     let int = || vec![leaf(Notation::Plain)];
-    match cell {
+    Some(match cell {
         "k" | "prog" | "code" => vec![Layer::Computation],
         "pc" => int(),
         "stack" => vec![leaf(Notation::List)],
@@ -340,8 +344,8 @@ pub fn machine_stack(cell: &str) -> Vec<Layer> {
                 vec![("key", int()), ("m", vec![leaf(Notation::Map)])],
             ),
         ],
-        _ => panic!("the machine base has no cell `{cell}`"),
-    }
+        _ => return None,
+    })
 }
 
 /// The stack of the typed base's cell `cell`.
@@ -351,8 +355,12 @@ pub fn machine_stack(cell: &str) -> Vec<Layer> {
 /// Panics if the typed base declares no cell `cell`.
 #[must_use]
 pub fn typed_stack(cell: &str) -> Vec<Layer> {
+    typed_stack_of(cell).unwrap_or_else(|| panic!("the typed base has no cell `{cell}`"))
+}
+
+fn typed_stack_of(cell: &str) -> Option<Vec<Layer>> {
     let plain = || vec![leaf(Notation::Plain)];
-    match cell {
+    Some(match cell {
         "leaf" | "stmt" | "any" => plain(),
         "list" => vec![leaf(Notation::List)],
         "map" => vec![leaf(Notation::Map)],
@@ -362,8 +370,8 @@ pub fn typed_stack(cell: &str) -> Vec<Layer> {
             Layer::Instances(Order::List),
             group("Slot", vec![("item", plain())]),
         ],
-        _ => panic!("the typed base has no cell `{cell}`"),
-    }
+        _ => return None,
+    })
 }
 
 /// P5: a `*` cell's initializer value is one instance's template.
@@ -804,6 +812,19 @@ fn typed_initializer(case: &Case, slot: &str) -> EntryCase {
         entries,
         vec![("pgm".to_owned(), true), ("any".to_owned(), false)],
     )
+}
+
+/// Whether the test side declares `case`'s base's cell `cell` as a stack of its own: every cell
+/// an entry of the base's templates names. A plain group the base's sentences name only on the
+/// way to its children (`queue`, `shelf`, the typed base's `slots`, the main bases' `frame`) is
+/// not one: its record is read as its children's entries.
+#[must_use]
+pub fn declares(case: &Case, cell: &str) -> bool {
+    match case.base {
+        Base::Typed => cell == "k" || typed_stack_of(cell).is_some(),
+        Base::MainCell | Base::MainK => matches!(cell, "prog" | "k" | "code"),
+        _ => machine_stack_of(cell).is_some(),
+    }
 }
 
 /// The declared stack of `case`'s cell `cell`, before an initializer reads a collection's

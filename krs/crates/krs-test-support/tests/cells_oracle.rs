@@ -1,7 +1,10 @@
 //! The cells oracle's checks (design S5, §3): the table's cell-entry rows against the principles
-//! (checks 0, 1, 1r), the product's admission against the table (check 2), the readable form
-//! against the `cells!` form it abbreviates (check 3), the advice of a missing layer (check 4),
-//! and the generated coverage of the domain (check 5).
+//! (checks 0, 1, 1r), the product's admission against the table, with the test-side templates
+//! against the rendered sentences (check 2), the readable form against the `cells!` form it
+//! abbreviates (check 3), the advice of a missing layer (check 4), the generated coverage of the
+//! domain (check 5), and the recorded K's frames against P6 (check 6). Outside the generated
+//! cases: the review's probes, and the sweep of `outcome` over the whole domain, checked in as
+//! `cells-outcome-sweep.tsv`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -560,6 +563,401 @@ fn parsed_entry(case: &Case, entry: &EntryCase) -> Result<EntrySpelling, String>
     Ok(value)
 }
 
+/// A rendered sentence as the product reads it, independently of the test-side template: its
+/// entries (each `key: value` field, a plain group's record read as its children's entries),
+/// the names its parameters bind, whether it states a guard, and an initializer's
+/// configuration variables with whether each is the main one.
+#[derive(Debug, Default)]
+struct Rendered {
+    sentence: Option<class_matrix::cells_oracle::Sentence>,
+    entries: Vec<(String, Side, EntrySpelling)>,
+    parameters: BTreeSet<String>,
+    guard: bool,
+    variables: Vec<(String, bool)>,
+}
+
+/// Skips one token tree.
+fn skip(input: syn::parse::ParseStream<'_>) -> syn::Result<()> {
+    input.step(|cursor| {
+        cursor
+            .token_tree()
+            .map(|(_, next)| ((), next))
+            .ok_or_else(|| cursor.error("a token"))
+    })
+}
+
+/// A record's or a `cells!` body's fields: `key: value`, and the frames `name @ ..`, `..name`
+/// and `..`, which name no cell.
+fn rendered_fields(
+    reading: EntryReading<'_>,
+    input: syn::parse::ParseStream<'_>,
+    side: Side,
+    out: &mut Vec<(String, Side, EntrySpelling)>,
+) -> syn::Result<()> {
+    while !input.is_empty() {
+        if input.peek(syn::Token![..]) {
+            input.parse::<syn::Token![..]>()?;
+            if input.peek(syn::Ident) {
+                input.parse::<syn::Ident>()?;
+            }
+        } else if input.peek(syn::Ident) && input.peek2(syn::Token![@]) {
+            input.parse::<syn::Ident>()?;
+            input.parse::<syn::Token![@]>()?;
+            input.parse::<syn::Token![..]>()?;
+        } else {
+            let (key, value) = reading.parse_field(input)?;
+            let cell = key
+                .segments
+                .last()
+                .map(|segment| segment.ident.to_string())
+                .unwrap_or_default();
+            out.push((cell, side, value));
+        }
+        if !input.is_empty() {
+            input.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(())
+}
+
+/// A readable rule or claim: `k::rules! { for M; use ..; #[..] label: { .. } => { .. }; }`.
+fn rendered_readable(form: EntryForm, input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
+    use class_matrix::cells_oracle::Sentence;
+    let mut rendered = Rendered::default();
+    let path = input.call(syn::Path::parse_mod_style)?;
+    rendered.sentence = Some(
+        if path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "claims")
+        {
+            Sentence::Claim
+        } else {
+            Sentence::Rule
+        },
+    );
+    input.parse::<syn::Token![!]>()?;
+    let body;
+    syn::braced!(body in input);
+    let reading = EntryReading::new(form, &[]);
+    while !body.is_empty() {
+        if body.peek(syn::Token![for]) {
+            while !body.peek(syn::Token![;]) {
+                skip(&body)?;
+            }
+            body.parse::<syn::Token![;]>()?;
+            continue;
+        }
+        if body.peek(syn::Token![use]) {
+            body.parse::<syn::ItemUse>()?;
+            continue;
+        }
+        body.call(syn::Attribute::parse_outer)?;
+        body.parse::<syn::Ident>()?;
+        body.parse::<syn::Token![:]>()?;
+        let subject;
+        syn::braced!(subject in body);
+        rendered_fields(reading, &subject, Side::Subject, &mut rendered.entries)?;
+        body.parse::<syn::Token![=>]>()?;
+        let result;
+        syn::braced!(result in body);
+        rendered_fields(reading, &result, Side::Result, &mut rendered.entries)?;
+        while !body.peek(syn::Token![;]) {
+            rendered.guard = true;
+            skip(&body)?;
+        }
+        body.parse::<syn::Token![;]>()?;
+    }
+    Ok(rendered)
+}
+
+/// A `cells!` rule: `#[k::rule(..)] pub fn f(x: T, .., k::cells! { .. }: M) -> M { k::cells! { .. } }`.
+fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
+    let mut rendered = Rendered {
+        sentence: Some(class_matrix::cells_oracle::Sentence::Rule),
+        ..Rendered::default()
+    };
+    let reading = EntryReading::new(EntryForm::Cells, &[]);
+    input.call(syn::Attribute::parse_outer)?;
+    input.parse::<syn::Visibility>()?;
+    input.parse::<syn::Token![fn]>()?;
+    input.parse::<syn::Ident>()?;
+    let parameters;
+    syn::parenthesized!(parameters in input);
+    while !parameters.is_empty() {
+        if parameters.peek(syn::Ident) && parameters.peek2(syn::Token![::]) {
+            parameters.call(syn::Path::parse_mod_style)?;
+            parameters.parse::<syn::Token![!]>()?;
+            let subject;
+            syn::braced!(subject in parameters);
+            rendered_fields(reading, &subject, Side::Subject, &mut rendered.entries)?;
+        } else {
+            rendered
+                .parameters
+                .insert(parameters.parse::<syn::Ident>()?.to_string());
+        }
+        parameters.parse::<syn::Token![:]>()?;
+        parameters.parse::<syn::Type>()?;
+        if !parameters.is_empty() {
+            parameters.parse::<syn::Token![,]>()?;
+        }
+    }
+    input.parse::<syn::Token![->]>()?;
+    input.parse::<syn::Type>()?;
+    let body;
+    syn::braced!(body in input);
+    body.call(syn::Path::parse_mod_style)?;
+    body.parse::<syn::Token![!]>()?;
+    let result;
+    syn::braced!(result in body);
+    rendered_fields(reading, &result, Side::Result, &mut rendered.entries)?;
+    Ok(rendered)
+}
+
+/// An initializer: `impl M { #[k::init] pub fn init(#[k::config_var(..)] v: S, ..) -> Self {
+/// Self { .. } } }`.
+fn rendered_initializer(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
+    let mut rendered = Rendered {
+        sentence: Some(class_matrix::cells_oracle::Sentence::Initializer),
+        ..Rendered::default()
+    };
+    input.parse::<syn::Token![impl]>()?;
+    input.parse::<syn::Type>()?;
+    let item;
+    syn::braced!(item in input);
+    item.call(syn::Attribute::parse_outer)?;
+    item.parse::<syn::Visibility>()?;
+    item.parse::<syn::Token![fn]>()?;
+    item.parse::<syn::Ident>()?;
+    let parameters;
+    syn::parenthesized!(parameters in item);
+    while !parameters.is_empty() {
+        let mut main = false;
+        for attribute in parameters.call(syn::Attribute::parse_outer)? {
+            attribute.parse_nested_meta(|meta| {
+                if meta.path.is_ident("main") {
+                    main = true;
+                } else if meta.input.peek(syn::Token![=]) {
+                    meta.value()?.parse::<syn::Lit>()?;
+                }
+                Ok(())
+            })?;
+        }
+        let name = parameters.parse::<syn::Ident>()?.to_string();
+        parameters.parse::<syn::Token![:]>()?;
+        parameters.parse::<syn::Type>()?;
+        rendered.parameters.insert(name.clone());
+        rendered.variables.push((name, main));
+        if !parameters.is_empty() {
+            parameters.parse::<syn::Token![,]>()?;
+        }
+    }
+    item.parse::<syn::Token![->]>()?;
+    item.parse::<syn::Type>()?;
+    let body;
+    syn::braced!(body in item);
+    body.parse::<syn::Token![Self]>()?;
+    let fields;
+    syn::braced!(fields in body);
+    let variables = rendered
+        .variables
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    let reading = EntryReading::new(EntryForm::Initializer, &variables);
+    rendered_fields(reading, &fields, Side::Initializer, &mut rendered.entries)?;
+    Ok(rendered)
+}
+
+/// The case's whole sentence as the product reads it from the rendered source, a plain group's
+/// record read as its children's entries.
+fn rendered_sentence(case: &Case, entry: &EntryCase) -> Result<Rendered, String> {
+    let rendered = case.render();
+    let text = &rendered.source[rendered.cases[0].item.clone()];
+    let form = entry_form(entry.form);
+    let parsed = match entry.form {
+        Form::Readable | Form::Claim => {
+            (|input: syn::parse::ParseStream<'_>| rendered_readable(form, input)).parse_str(text)
+        }
+        Form::Cells => rendered_cells.parse_str(text),
+        Form::Init => rendered_initializer.parse_str(text),
+    };
+    let mut sentence = parsed.map_err(|error| format!("`{text}`: {error}"))?;
+    let mut flat = Vec::new();
+    let mut pending = std::mem::take(&mut sentence.entries);
+    while let Some((cell, side, value)) = pending.pop() {
+        match value {
+            EntrySpelling::Record(record) if !entry_cases::declares(case, &cell) => {
+                pending.extend(
+                    record
+                        .fields
+                        .into_iter()
+                        .map(|(child, value)| (child, side, value)),
+                );
+            }
+            value => flat.push((cell, side, value)),
+        }
+    }
+    flat.reverse();
+    sentence.entries = flat;
+    Ok(sentence)
+}
+
+/// The names a spelling binds: its binders, its aliases' names and its named rests.
+fn names(spelling: &Spelling, out: &mut BTreeSet<String>) {
+    match spelling {
+        Spelling::Binder(name) | Spelling::Alias(name, _) => {
+            out.insert(name.clone());
+        }
+        _ => {}
+    }
+    let rest = match spelling {
+        Spelling::Brackets(seq)
+        | Spelling::Braces(seq)
+        | Spelling::KCell(seq)
+        | Spelling::InstList(seq)
+        | Spelling::InstSet(seq)
+        | Spelling::KMacro(seq) => seq.rest.as_ref().map(|(rest, _)| rest),
+        Spelling::MapRead(entries) | Spelling::MapLit(entries) => entries.rest.as_ref(),
+        _ => None,
+    };
+    if let Some(Rest::Named(name)) = rest {
+        out.insert(name.clone());
+    }
+    for inner in class_matrix::cells_oracle::children(spelling) {
+        names(inner, out);
+    }
+}
+
+/// R9: the case's test-side template agrees with the rendered sentence, read independently: the
+/// same other entries (cell, side, spelling, and the cell's stacks as `CellKind` reads them),
+/// the same sentence, guard and configuration variables; for a subject, whether the result
+/// writes its cell; for a result, whether and how the subject matches its cell; and, in a
+/// readable form (the only one whose outcome reads them), for each name the entry holds, whether
+/// the sentence binds it outside the entry.
+fn template_agreement(
+    case: &Case,
+    entry: &EntryCase,
+    configuration: &Configuration,
+) -> Result<(), String> {
+    let rendered = rendered_sentence(case, entry)?;
+    let (cell, side) = (&entry.entry.cell, entry.entry.side);
+    let mut others = rendered.entries.clone();
+    let own = others
+        .iter()
+        .position(|(at, on, _)| at == cell && *on == side)
+        .ok_or_else(|| format!("the rendered sentence has no {side:?} entry of `{cell}`"))?;
+    others.remove(own);
+    let shown = |entries: &mut Vec<(String, Side, Spelling)>| {
+        entries.sort_by_key(|entry| format!("{entry:?}"));
+        format!("{entries:?}")
+    };
+    let mut read = others
+        .iter()
+        .map(|(cell, side, value)| (cell.clone(), *side, declared_as(value)))
+        .collect::<Vec<_>>();
+    let mut written = entry
+        .template
+        .entries
+        .iter()
+        .map(|other| (other.cell.clone(), other.side, other.spelling.clone()))
+        .collect::<Vec<_>>();
+    let (read, written) = (shown(&mut read), shown(&mut written));
+    if read != written {
+        return Err(format!(
+            "the template's other entries are {written}, the rendered sentence's {read}"
+        ));
+    }
+    template_stacks_and_sentence(entry, &rendered, configuration)?;
+    let on = |want: Side| {
+        others
+            .iter()
+            .find(|(at, on, _)| at == cell && *on == want)
+            .map(|(_, _, value)| declared_as(value))
+    };
+    match side {
+        Side::Subject if entry.context.written != on(Side::Result).is_some() => {
+            return Err(format!(
+                "the template says the result writes `{cell}`: {}, the rendered sentence {}",
+                entry.context.written,
+                on(Side::Result).is_some()
+            ));
+        }
+        Side::Result if entry.context.other != on(Side::Subject) => {
+            return Err(format!(
+                "the template's subject entry of `{cell}` is {:?}, the rendered sentence's {:?}",
+                entry.context.other,
+                on(Side::Subject)
+            ));
+        }
+        _ => {}
+    }
+    if matches!(entry.form, Form::Readable | Form::Claim) {
+        let mut bound = rendered.parameters.clone();
+        for (_, on, value) in &others {
+            if *on == Side::Subject {
+                names(&declared_as(value), &mut bound);
+            }
+        }
+        let mut held = BTreeSet::new();
+        names(&entry.entry.spelling, &mut held);
+        for name in held {
+            if entry.context.bound.contains(&name) != bound.contains(&name) {
+                return Err(format!(
+                    "the template says the sentence binds `{name}` outside the entry: {}, the \
+                     rendered sentence {}",
+                    entry.context.bound.contains(&name),
+                    bound.contains(&name)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The template's entries' stacks are the ones `CellKind` reads, and its sentence, guard and
+/// configuration variables are the rendered sentence's.
+fn template_stacks_and_sentence(
+    entry: &EntryCase,
+    rendered: &Rendered,
+    configuration: &Configuration,
+) -> Result<(), String> {
+    for other in &entry.template.entries {
+        let kind = configuration.kind(&other.cell);
+        let mut own = kind.own.layers.iter().map(oracle_layer).collect::<Vec<_>>();
+        if other.side == Side::Initializer && matches!(own.first(), Some(Layer::Instances(_))) {
+            own.remove(0);
+        }
+        let path = kind
+            .path
+            .layers
+            .iter()
+            .map(oracle_layer)
+            .collect::<Vec<_>>();
+        if own != other.stack || path != other.path {
+            return Err(format!(
+                "the template's entry of `{}` has the stacks {:?} then {:?}, CellKind reads {path:?} \
+                 then {own:?}",
+                other.cell, other.path, other.stack
+            ));
+        }
+    }
+    if rendered.sentence != Some(entry.template.sentence) || rendered.guard != entry.template.guard
+    {
+        return Err(format!(
+            "the template is a {:?} with guard {}, the rendered sentence a {:?} with guard {}",
+            entry.template.sentence, entry.template.guard, rendered.sentence, rendered.guard
+        ));
+    }
+    if rendered.variables != entry.template.variables {
+        return Err(format!(
+            "the template's configuration variables are {:?}, the rendered initializer's {:?}",
+            entry.template.variables, rendered.variables
+        ));
+    }
+    Ok(())
+}
+
 const fn product_side(side: Side) -> EntrySide {
     match side {
         Side::Subject => EntrySide::Subject,
@@ -611,9 +1009,11 @@ fn product_outcome(
 /// case a `[cell-exception]` names, the table's: the exception is a stated departure in which the
 /// table is authoritative. There is no pending list.
 ///
-/// Two agreements come first: the stack `CellKind` reads equals the test-side stack of every
-/// fixture cell an entry names (kind agreement), and the spelling the product parses is the one
-/// the generator declares (spelling agreement).
+/// Three agreements come first: the stack `CellKind` reads equals the test-side stack of every
+/// fixture cell an entry names (kind agreement); the case's template (its other entries, what the
+/// result writes, whether the subject matches the cell, the names bound) is the rendered
+/// sentence's, read by the product's reader (template agreement, [`template_agreement`]); and the
+/// spelling the product parses is the one the generator declares (spelling agreement).
 #[test]
 fn check_2_the_product_admits_as_the_table_says() {
     let exceptions = exceptions();
@@ -647,6 +1047,13 @@ fn check_2_the_product_admits_as_the_table_says() {
                     case.base, entry.entry.path
                 ));
             }
+        }
+        match template_agreement(case, entry, configuration) {
+            Ok(()) => *counts.entry("template agrees".to_owned()).or_default() += 1,
+            Err(error) => failures.push(format!(
+                "{}: the template and the rendered sentence disagree: {error}",
+                case.id
+            )),
         }
         let spelling = match parsed_entry(case, entry) {
             Ok(spelling) => spelling,
@@ -1652,4 +2059,242 @@ fn the_outcome_sweep_is_the_golden() {
             sweep.lines().nth(line)
         );
     }
+}
+
+/// Every content root an entry's spelling writes, with its cell's name: the entry's own content
+/// where its cell's content is a computation or a list or map leaf (P6's content roots), below
+/// presence, and the children of the group or instance records it writes, each judged as its
+/// own cell's entry (P1). A collection's own instances are not looked at: K's configuration
+/// abstraction leaves their frame implicit.
+fn content_roots<'s>(
+    cell: &str,
+    stack: &[Layer],
+    spelling: &'s Spelling,
+    out: &mut Vec<(String, &'s Spelling)>,
+) {
+    let spelling = match spelling {
+        Spelling::Alias(_, inner) => inner,
+        other => other,
+    };
+    let records = |items: &'s [Spelling], group: &Group, out: &mut Vec<(String, &'s Spelling)>| {
+        for item in items {
+            let item = match item {
+                Spelling::Alias(_, inner) => inner,
+                other => other,
+            };
+            if let Spelling::Record(record) | Spelling::Fragment(record) = item
+                && record.head == group.name
+            {
+                for (name, value) in &record.fields {
+                    if let Some((_, child)) = group.children.iter().find(|(child, _)| child == name)
+                    {
+                        content_roots(name, child, value, out);
+                    }
+                }
+            }
+        }
+    };
+    match (stack, spelling) {
+        ([Layer::Optional, rest @ ..], Spelling::Present(inner) | Spelling::Absent(inner)) => {
+            content_roots(cell, rest, inner, out);
+        }
+        (
+            [Layer::Instances(_), Layer::Group(group)],
+            Spelling::Brackets(seq)
+            | Spelling::Braces(seq)
+            | Spelling::InstList(seq)
+            | Spelling::InstSet(seq),
+        ) => records(&seq.items, group, out),
+        ([Layer::Group(group)], _) => records(std::slice::from_ref(spelling), group, out),
+        (
+            [Layer::Computation | Layer::Leaf(Notation::List | Notation::Cons | Notation::Map)],
+            _,
+        ) => {
+            out.push((cell.to_owned(), spelling));
+        }
+        _ => {}
+    }
+}
+
+/// The contents of every `<cell>` .. `</cell>` in a recorded K text, in order.
+fn k_cells<'k>(k: &'k str, cell: &str) -> Vec<&'k str> {
+    let (open, close) = (format!("<{cell}"), format!("</{cell}>"));
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(start) = k[at..].find(&open).map(|start| start + at) {
+        let after = &k[start + open.len()..];
+        if !after.starts_with('>') && !after.starts_with(' ') {
+            at = start + open.len();
+            continue;
+        }
+        let Some(body) = after.find('>').map(|end| start + open.len() + end + 1) else {
+            break;
+        };
+        let Some(end) = k[body..].find(&close).map(|end| end + body) else {
+            break;
+        };
+        found.push(k[body..end].trim());
+        at = end + close.len();
+    }
+    found
+}
+
+/// The rest variables of a K cell content: a variable of a collection's or a computation's sort
+/// (`V3:Map`) standing at the content's top level beside other content (a variable alone is the
+/// whole content, and one inside an application's parentheses is an argument, no rest).
+fn rest_variables(content: &str) -> BTreeSet<&str> {
+    let content = content.trim();
+    let mut depth = 0_usize;
+    let mut top = Vec::new();
+    let mut start = None;
+    for (at, c) in content.char_indices() {
+        let separator = c.is_whitespace() || matches!(c, '(' | ')' | ',');
+        if separator {
+            if let Some(from) = start.take()
+                && depth == 0
+            {
+                top.push(&content[from..at]);
+            }
+            match c {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        } else if start.is_none() {
+            start = Some(at);
+        }
+    }
+    if let Some(from) = start
+        && depth == 0
+    {
+        top.push(&content[from..]);
+    }
+    top.into_iter()
+        .filter(|token| {
+            token.strip_prefix('V').is_some_and(|tail| {
+                tail.split_once(':').is_some_and(|(number, sort)| {
+                    !number.is_empty()
+                        && number.bytes().all(|byte| byte.is_ascii_digit())
+                        && matches!(sort, "List" | "Map" | "Set" | "K")
+                })
+            }) && *token != content
+        })
+        .collect()
+}
+
+/// P6 read off one K cell content for an entry's content root on `side`: whether the K keeps a
+/// frame (`...`, or a rest variable) exactly where the root keeps the rest. A subject's `..` or
+/// `name @ ..` matches the unwritten rest, so its side has a frame; an exact subject has none. A
+/// result's `..` keeps the subject's rest (`...`, or the subject's rest variable written again),
+/// `..name` puts a rest back, an exact result keeps none. An initializer's value is complete.
+fn frame_agrees(
+    side: Side,
+    root: &class_matrix::cells_oracle::Root,
+    content: &str,
+) -> Result<(), String> {
+    use class_matrix::cells_oracle::Root;
+    let dots = content.split_whitespace().any(|token| token == "...");
+    let (subject, result) = content
+        .split_once(" => ")
+        .map_or((content, content), |(subject, result)| (subject, result));
+    let subject_rests = rest_variables(subject);
+    let kept = rest_variables(result)
+        .into_iter()
+        .any(|variable| subject_rests.contains(variable));
+    let framed = match side {
+        Side::Subject => dots || !subject_rests.is_empty(),
+        Side::Result => dots || kept,
+        _ => dots,
+    };
+    let keeps = match (side, root) {
+        (Side::Subject, Root::Rest(Rest::Anon | Rest::Named(_)))
+        | (Side::Result, Root::Rest(Rest::Anon | Rest::Splice(_))) => true,
+        (Side::Initializer, _) | (_, Root::Rest(_) | Root::Exact) => false,
+        // A whole binder that nothing reads matches every content, which K writes `...` alone;
+        // otherwise a whole binder or a value writes no rest, and frames nothing.
+        (Side::Subject, Root::Whole) if content.trim() == "..." => return Ok(()),
+        (_, Root::Whole | Root::Value) => {
+            return if dots {
+                Err("a frame `...`".to_owned())
+            } else {
+                Ok(())
+            };
+        }
+    };
+    match (keeps, framed) {
+        (true, false) => Err("no frame".to_owned()),
+        (false, true) => Err("a frame".to_owned()),
+        _ => Ok(()),
+    }
+}
+
+/// Check 6 (P6 in the recorded K, independent of classes): every accepted cell-entry case with
+/// recorded K keeps a frame in its K exactly where its entry's content roots keep the rest. The
+/// K is the product's, recorded by `--record`; this judges it against the principle, so a
+/// lowering that keeps a rest an exact entry does not write (S5-D2's) or drops one a `..` keeps
+/// fails here, whatever the row's class.
+#[test]
+fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
+    use class_matrix::cells_oracle::root;
+    let mut failures = Vec::new();
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for (case, entry) in ENTRIES.iter() {
+        let Some(Expected::Accept(accepted)) = EXPECTED.get(&case.id) else {
+            continue;
+        };
+        let Some(k) = accepted.k.as_deref() else {
+            *counts.entry("accepted, no K recorded").or_default() += 1;
+            continue;
+        };
+        // The case's own sentence (or configuration) is the K text's first paragraph; the base's
+        // sentences follow it.
+        let k = k.trim_start().split("\n\n").next().unwrap_or_default();
+        let mut roots = Vec::new();
+        content_roots(
+            &entry.entry.cell,
+            &entry.entry.stack,
+            &entry.entry.spelling,
+            &mut roots,
+        );
+        if roots.is_empty() {
+            *counts.entry("accepted, no content root").or_default() += 1;
+            continue;
+        }
+        let mut cells = BTreeMap::<&str, Vec<&Spelling>>::new();
+        for (cell, spelling) in &roots {
+            cells.entry(cell.as_str()).or_default().push(spelling);
+        }
+        for (cell, spellings) in cells {
+            let contents = k_cells(k, cell);
+            if contents.len() != spellings.len() {
+                failures.push(format!(
+                    "{}: the entry writes {} content roots of `{cell}`, its K has {} cells \
+                     `<{cell}>`",
+                    case.id,
+                    spellings.len(),
+                    contents.len()
+                ));
+                continue;
+            }
+            for (spelling, content) in spellings.into_iter().zip(contents) {
+                *counts.entry("content roots judged").or_default() += 1;
+                if let Err(found) = frame_agrees(entry.entry.side, &root(spelling), content) {
+                    failures.push(format!(
+                        "{}: `<{cell}> {content} </{cell}>` has {found}, where P6 says the \
+                         content root {:?} on the {:?} side {}",
+                        case.id,
+                        root(spelling),
+                        entry.entry.side,
+                        if found == "no frame" {
+                            "keeps the rest"
+                        } else {
+                            "keeps none"
+                        }
+                    ));
+                }
+            }
+        }
+    }
+    println!("{counts:#?}");
+    assert!(failures.is_empty(), "{failures:#?}");
 }
