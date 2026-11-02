@@ -65,6 +65,11 @@ fn krs(
         .args(extra)
         .env("NO_COLOR", "1")
         .env("KRS_STAGE_CACHE_DIR", target.join("stages"))
+        // These tests run `krs expand` themselves, and some of their packages are ones expand
+        // refuses by design (`private-module`, `dependency-path`, `source-selection`): with the
+        // sweep's `KRS_CHECK_EXPANDS=1` set, their `krs check` would fail before the test reaches
+        // the refusal it asserts.
+        .env_remove("KRS_CHECK_EXPANDS")
         .output()
         .unwrap();
     (
