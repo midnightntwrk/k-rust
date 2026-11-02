@@ -1461,6 +1461,26 @@ pub(crate) fn condition_definedness(
     conditions: Vec<Predicate>,
     known: &[Predicate],
 ) -> Result<Vec<Predicate>, DeferredOutcome> {
+    stated_condition_definedness(definition, conditions, known, Bindings::State)
+}
+
+/// Whether [`stated_condition_definedness`] hoists the obligations of a binding's term.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Bindings {
+    /// As of every other atom: the obligations are facts that stay stated when a caller
+    /// eliminates the binding, as a match eliminates the state's bindings from its knowledge.
+    State,
+    /// Not for a conjunct `X = t` with `X` an element variable, which states `\ceil(t)` itself
+    /// ([`hoist_condition_definedness`]).
+    Implied,
+}
+
+fn stated_condition_definedness(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+    bindings: Bindings,
+) -> Result<Vec<Predicate>, DeferredOutcome> {
     if predicates_are_ceil_free(&conditions) {
         return Ok(conditions);
     }
@@ -1472,6 +1492,7 @@ pub(crate) fn condition_definedness(
             definition,
             condition,
             known,
+            bindings,
             &mut obligations,
         )?);
     }
@@ -1720,10 +1741,24 @@ pub(crate) fn atom_definedness(
 }
 
 /// A conjunct of the condition: an atom keeps its shape and its obligations are hoisted.
+///
+/// With [`Bindings::Implied`], a binding `X = t` (either orientation) of an element variable
+/// states no obligation of `t`:
+/// it already states `\ceil(t)`, since `X` denotes an element and an equality between an element
+/// and `\bottom` is false, and `\ceil(t)` implies the definedness of every subterm of `t`. This
+/// holds only for a conjunct of the condition, where the binding holds wherever the condition
+/// does; under a negation or a disjunction the binding may fail, and its obligations are stated
+/// in place ([`nested_condition_definedness`]). A set variable may denote the empty set, so a
+/// binding of one states nothing about `t`. The simplifier drops such obligations beside the
+/// binding for the same reason, so a request's definedness-explicit list and the simplifier
+/// agree on the binding's form ([`request_definedness`]). A pattern's knowledge keeps them
+/// ([`Bindings::State`]): a match eliminates the state's bindings, and the definedness they
+/// stated must stay known after that.
 fn hoist_condition_definedness(
     definition: &BackendDefinition,
     predicate: &Predicate,
     known: &[Predicate],
+    bindings: Bindings,
     obligations: &mut Vec<Predicate>,
 ) -> Result<Predicate, DeferredOutcome> {
     if let Predicate::And(conjuncts) = predicate {
@@ -1731,16 +1766,26 @@ fn hoist_condition_definedness(
             conjuncts
                 .iter()
                 .map(|conjunct| {
-                    hoist_condition_definedness(definition, conjunct, known, obligations)
+                    hoist_condition_definedness(definition, conjunct, known, bindings, obligations)
                 })
                 .collect::<Result<_, _>>()?,
         ));
+    }
+    if bindings == Bindings::Implied && element_binding(predicate) {
+        return Ok(predicate.clone());
     }
     if let Some(term) = condition_atom_term(definition, predicate, known) {
         obligations.extend(ceil_term_walk(definition, term, AtCeilFree::Skip)?);
         return Ok(predicate.clone());
     }
     nested_condition_definedness(definition, predicate, known, None)
+}
+
+/// Whether `predicate` is an equality with an element variable as one side: a binding, which
+/// states the definedness of its other side ([`hoist_condition_definedness`]).
+fn element_binding(predicate: &Predicate) -> bool {
+    let is_element = |term: &Term| matches!(term.kind(), TermKind::Variable(variable) if variable.kind == VariableKind::Element);
+    matches!(predicate, Predicate::Equals(left, right) if is_element(left) || is_element(right))
 }
 
 /// A predicate below a connective other than a top-level conjunction: an atom becomes
@@ -1920,9 +1965,12 @@ impl From<PredicateDefinednessFailure> for crate::simplify::SimplificationError 
 /// conjunction of `ceil_term(t)` ([`faithful_equalities`]): two terms that each denote at most
 /// one element are equal exactly where both denote the same element or both denote nothing,
 /// and each disjunct states the definedness of its own atoms. Then [`condition_definedness`]
-/// states the definedness of every other atom where it stands. Neither drops an instance on
-/// which a term of the predicates is undefined: under a negation such an atom keeps holding
-/// there. A definedness-explicit list is a fixed point.
+/// states the definedness of every other atom where it stands, except of the term of a binding
+/// `X = t` of an element variable that is a conjunct of the list, which states `\ceil(t)` itself
+/// (an element is defined, and an equality with `\bottom` is false; [`Bindings::Implied`]).
+/// Neither drops an instance on which a term of the predicates is undefined: under a negation
+/// such an atom keeps holding there. A definedness-explicit list is a fixed point, and so is a
+/// list the simplifier leaves without an obligation its bindings imply.
 ///
 /// Instantiated definition conditions use the same equality conversion before they are
 /// simplified or decided. The predicates are returned as they are, after one read of the
@@ -1932,7 +1980,8 @@ pub(crate) fn request_definedness(
     predicates: Vec<Predicate>,
 ) -> Result<Vec<Predicate>, PredicateDefinednessFailure> {
     let faithful = faithful_conditions(definition, predicates)?;
-    condition_definedness(definition, faithful, &[]).map_err(PredicateDefinednessFailure::Deferred)
+    stated_condition_definedness(definition, faithful, &[], Bindings::Implied)
+        .map_err(PredicateDefinednessFailure::Deferred)
 }
 
 /// State the both-empty case of equalities before any simplification may totalize a partial
@@ -2785,6 +2834,67 @@ mod tests {
             internal(definition, key),
             internal(definition, rest),
         )
+    }
+
+    /// GAP K18: in a request's definedness-explicit form, a conjunct `X = t`, `X` an element
+    /// variable, states `\ceil(t)` itself, so none of `t`'s obligations is hoisted for it, in
+    /// either orientation and inside a top-level conjunction. The same term beside a value, the
+    /// binding under a negation, a binding of a set variable (which may denote the empty set),
+    /// and another conjunct over `t` still state them, and so does a pattern's knowledge
+    /// (`condition_definedness`), whose bindings a match eliminates.
+    #[test]
+    fn a_binding_of_an_element_variable_states_its_terms_definedness_itself() {
+        let definition = definition("");
+        let parse = |source| {
+            definition
+                .internalize_term(&parse_pattern(source).unwrap(), &[])
+                .unwrap()
+        };
+        let partial_y = parse("partial{}(Y:SortS{})");
+        let x = parse("X:SortS{}");
+        let set_x = Term::variable(Variable::set("@X", partial_y.sort()));
+        let value = parse(r#"\dv{SortS{}}("v")"#);
+        let ceil_y = Predicate::Ceil(partial_y.clone());
+        let binds = Predicate::Equals(x.clone(), partial_y.clone());
+        let bound = Predicate::Equals(partial_y.clone(), x);
+        let stated =
+            |predicates: Vec<Predicate>| request_definedness(&definition, predicates).unwrap();
+
+        assert_eq!(stated(vec![binds.clone()]), vec![binds.clone()]);
+        assert_eq!(stated(vec![bound.clone()]), vec![bound.clone()]);
+        let conjunction = Predicate::And(vec![binds.clone()].into());
+        assert_eq!(stated(vec![conjunction.clone()]), vec![conjunction]);
+        // A pattern's knowledge keeps the binding's obligation as a fact.
+        assert_eq!(
+            condition_definedness(&definition, vec![binds.clone()], &[]).unwrap(),
+            vec![ceil_y.clone(), binds.clone()]
+        );
+        // Not a binding: an equality with a value.
+        let equals_value = Predicate::Equals(partial_y.clone(), value.clone());
+        assert_eq!(
+            stated(vec![equals_value.clone()]),
+            vec![ceil_y.clone(), equals_value]
+        );
+        // A set variable's equality is an equality of two possibly undefined sides: its faithful
+        // form states the definedness of each.
+        let binds_set = Predicate::Equals(set_x, partial_y.clone());
+        let faithful = stated(vec![binds_set.clone()]);
+        assert_ne!(faithful, vec![binds_set], "{faithful:?}");
+        assert!(format!("{faithful:?}").contains("Ceil("), "{faithful:?}");
+        // Under a negation the binding may fail, so its obligation is stated in place.
+        let negated = Predicate::Not(Arc::new(binds.clone()));
+        assert_eq!(
+            stated(vec![negated]),
+            vec![Predicate::Not(Arc::new(Predicate::And(
+                vec![ceil_y.clone(), binds.clone()].into()
+            )))]
+        );
+        // Another conjunct over `t` keeps its own obligation, which is the same fact.
+        let wrapped = Predicate::Equals(parse("wrap{}(partial{}(Y:SortS{}))"), value);
+        assert_eq!(
+            stated(vec![binds.clone(), wrapped.clone()]),
+            vec![ceil_y, binds, wrapped]
+        );
     }
 
     /// Without a membership function, a key's absence from the rest of its map, and an
