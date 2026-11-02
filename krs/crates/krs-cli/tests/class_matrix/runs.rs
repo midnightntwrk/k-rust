@@ -316,7 +316,9 @@ pub fn twin_end(semantics: &mut Semantics, run: &Run, root: bool, limit: Duratio
         }
         Err(deviation) => return deviation,
     };
-    if report.steps < run.steps && report.halt == Halt::Undefined {
+    // The result has no value: the backend decided it undefined, before the step it would have
+    // ended in, or the state the run reached holds a term with no value, at any step.
+    if report.steps <= run.steps && report.halt == Halt::Undefined {
         return "has no value".to_owned();
     }
     if report.steps == 0 && run.steps > 0 && report.halt == Halt::Stuck {

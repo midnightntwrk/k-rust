@@ -1,0 +1,3 @@
+# The slots of UtxoRelConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
+# `NAME | hand` is proved in UtxoRelConf/Hand.lean as `hand.NAME`, a name alone is a premise of `terminal_unique`.
+join.open.spawn.spawn | hand

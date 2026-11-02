@@ -1970,6 +1970,24 @@ module TICKETS
     terminals{}("1101"),
     total{}()
   ]
+  symbol LblpoolMono'LParUndsCommUndsRParUnds'TICKETS'Unds'Bool'Unds'PoolCell'Unds'PoolCell{}(
+    SortPoolCell{},
+    SortPoolCell{}
+  ) : SortBool{}
+  [
+    format{}("%cpoolMono%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,19,48,65)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/tickets/tickets.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'issued'-GT-'{}(SortMap{}) : SortIssuedCell{}
   [
     cell{}(),

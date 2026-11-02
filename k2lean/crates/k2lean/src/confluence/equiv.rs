@@ -13,7 +13,9 @@
 //! no relaxed cell either, so it would apply at the first configuration too (`k2l_pri_other`,
 //! `KPrelude/OtherRun.lean`). The views' and slots' statements are then
 //! moved onto `Equiv` (`apply`): the joins are modulo `Equiv`, the theorem is `Equiv n₁ n₂`, and the
-//! observation's corollary follows by `obs_of_equiv`.
+//! observation's corollary follows by `obs_of_equiv`. With `--threads`, a shared cell it relaxes is
+//! changed by a function of what it holds (`changes`), so two steps that write it commute up to
+//! its relation and the views' generic joins are modulo `Equiv` too.
 
 use super::{Lib, fail, is_cell};
 use crate::lower::L;
@@ -245,6 +247,77 @@ fn list_of(l: &L, v: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// The number of occurrences of `v` in `l`.
+fn count(l: &L, v: &str) -> usize {
+    match l {
+        L::Var(x) => usize::from(x == v),
+        L::App(_, a) => a.iter().map(|x| count(x, v)).sum(),
+        L::Raw(_) => usize::from(occurs(l, v)),
+        L::Typed(x, _) => count(x, v),
+    }
+}
+
+/// A list built by the list hooks around one occurrence of `v`: what `v` holds and some items, up
+/// to order (`KPrelude.PCh`), as an append or a push; not a list that drops `v`'s items or doubles
+/// them.
+fn adds_items(y: &L, v: &str) -> bool {
+    count(y, v) == 1 && list_of(y, v)
+}
+
+/// A rule's change of a relaxed cell, as the views state it (`KPrelude.ACh`, `PCh`): the cell's
+/// new content with `k2l_x` for what it held, and under `perm` the items it adds (`δ`, the new
+/// content made from an empty list).
+pub(crate) struct Change {
+    pub body: L,
+    pub delta: Option<L>,
+}
+
+/// A relaxed cell of the views: how it is compared, and each rule's change of it (`changes`).
+pub(crate) type Relaxed = (Rel, Vec<Option<Change>>);
+
+/// The views' relaxed cell `label` (`--threads`): how it is compared and each rule's change of it
+/// (`None`: the rule leaves it alone), when every change is a function of what the cell holds that
+/// the cell's relation lets commute. Under `any` every change is; under `perm` one that adds items
+/// (the content's variable once, under the list hooks) is, not one that drops or doubles them, and
+/// then the cell stays a precondition of the steps, as a cell compared by equality (`None`).
+/// Assumes `check` holds of every rule.
+pub(crate) fn changes(eq: &Equiv, rules: &[Rule], label: &str) -> Option<Relaxed> {
+    let rel = eq.cells.iter().find(|c| c.label == label)?.rel?;
+    let x = L::Var("k2l_x".into());
+    let mut out = vec![];
+    for r in rules {
+        let leaves = rule_leaves(eq, r);
+        let (_, a, b) = leaves.iter().find(|(n, _, _)| n == label)?;
+        if a.render() == b.render() {
+            out.push(None);
+            continue;
+        }
+        let L::App(_, ys) = b else { return None };
+        let [y] = ys.as_slice() else { return None };
+        let (body, v) = match a {
+            L::App(_, xs) => match xs.as_slice() {
+                [L::Var(v)] => (y.subst(&[(v.clone(), x.clone())].into()), Some(v)),
+                _ => return None,
+            },
+            L::Var(_) => (y.clone(), None),
+            _ => return None,
+        };
+        let delta = match rel {
+            Rel::Any => None,
+            Rel::Perm => {
+                let v = v?;
+                if !adds_items(y, v) {
+                    return None;
+                }
+                let unit = L::app("KPrelude.ListHook.unit", vec![]);
+                Some(y.subst(&[(v.clone(), unit)].into()))
+            }
+        };
+        out.push(Some(Change { body, delta }));
+    }
+    Some((rel, out))
 }
 
 /// Why rule `r` is not generically a bisimulation step of `Equiv`, if it is not: it reads a
@@ -685,5 +758,22 @@ mod tests {
             "L"
         ));
         assert!(!list_of(&app("f", vec![var("L")]), "L"));
+    }
+
+    #[test]
+    fn a_change_that_adds_items_keeps_the_list_once() {
+        let item = app("KPrelude.ListHook.element", vec![var("W")]);
+        let appended = app("KPrelude.ListHook.concat", vec![var("L"), item.clone()]);
+        assert!(adds_items(&appended, "L"));
+        assert!(adds_items(
+            &app("KPrelude.ListHook.push", vec![var("W"), appended.clone()]),
+            "L"
+        ));
+        // a list made anew, or the list twice: not an addition
+        assert!(!adds_items(&item, "L"));
+        assert!(!adds_items(
+            &app("KPrelude.ListHook.concat", vec![var("L"), var("L")]),
+            "L"
+        ));
     }
 }

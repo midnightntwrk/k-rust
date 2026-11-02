@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, tickets, fuel, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, twoparamvals, ledger, escrow, tickets, fuel, the step
+# properties' racelogstep and ledgersupply, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
 
@@ -17,7 +18,8 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;; ledger) echo Ledger ;; escrow) echo Escrow ;; tickets) echo Tickets ;; fuel) echo Fuel ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;; twoparamvals) echo TwoParam ;; ledger|ledgersupply) echo Ledger ;; escrow) echo Escrow ;; tickets) echo Tickets ;; fuel) echo Fuel ;;
+    racelogstep) echo Racelog ;;
     simpleinv|simplestore|simplet|simpleenvs) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -74,10 +76,16 @@ gen_invariants() {
             --out "$o" --name TwoParam --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant wf@T --invariant valsOk@T) ;;
     # value conserved, a sum over a map (tests/fixtures/ledger: balances in a map cell, written by
-    # patterns and by the map hooks; tests/fixtures/escrow: two sums, one over a cell collection)
+    # patterns and by the map hooks; tests/fixtures/escrow: two sums, one over a cell collection);
+    # ledger also has the step property `feesUp` (INV-21: the fees never decrease, by `fee`'s
+    # requires), and ledgersupply its false `supplyUp` (`burn` lowers the supply: the case stays
+    # open, refuted in the tracked hand module Ledger/StepPropHand.lean)
     ledger) GEN_ARGS=(--kore "$FIXTURES/ledger/definition.kore" --runtime "$FIXTURES/ledger/runtime.json"
             --out "$o" --name Ledger --prelude ../../lean --open-obligations "$o/open-obligations.txt"
-            --invariant conserved@books) ;;
+            --invariant conserved@books --step-property feesUp@fees) ;;
+    ledgersupply) GEN_ARGS=(--kore "$FIXTURES/ledger/definition.kore" --runtime "$FIXTURES/ledger/runtime.json"
+            --out "$o" --name Ledger --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --step-property supplyUp@supply) ;;
     escrow) GEN_ARGS=(--kore "$FIXTURES/escrow/definition.kore" --runtime "$FIXTURES/escrow/runtime.json"
             --out "$o" --name Escrow --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant conserved@T) ;;
@@ -85,10 +93,17 @@ gen_invariants() {
     # measure counts what was issued while the rules check what is left, so it is nonnegative only by
     # the invariant relating them (a sum over a map); fuel, tasks paying for each step from their own
     # fuel, the measure summed over the <task> cell collection and nonnegative only by the invariant
-    # on every task's fuel (`MapHook.sumOf_nonneg_on`)
+    # on every task's fuel (`MapHook.sumOf_nonneg_on`); tickets also has the step property `poolMono`
+    # over its whole <pool> cell and its transitivity (INV-21)
     tickets) GEN_ARGS=(--kore "$FIXTURES/tickets/definition.kore" --runtime "$FIXTURES/tickets/runtime.json"
             --out "$o" --name Tickets --prelude ../../lean --open-obligations "$o/open-obligations.txt"
-            --invariant pool@pool --measure todo@pool --measure-invariant) ;;
+            --invariant pool@pool --measure todo@pool --measure-invariant
+            --step-property poolMono@pool --step-property-trans) ;;
+    # a step property and its transitivity, with no invariant, in a definition whose rule matches a
+    # cell map (INV-21: tests/fixtures/racelog's `accUp`, the accumulated work never decreases)
+    racelogstep) GEN_ARGS=(--kore "$FIXTURES/racelog/definition.kore" --runtime "$FIXTURES/racelog/runtime.json"
+            --out "$o" --name Racelog --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --step-property accUp@acc --step-property-trans) ;;
     fuel) GEN_ARGS=(--kore "$FIXTURES/fuel/definition.kore" --runtime "$FIXTURES/fuel/runtime.json"
             --out "$o" --name Fuel --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant nonneg@fuel --measure work@tasks --measure-invariant) ;;
@@ -202,9 +217,51 @@ meascases() { # DIR NAME: build NAME.Measure, at most three attempts; the last l
   done
   bad "measure $d" "$L/build-$d-meas.log"; unbuilt "$o" "$L/build-$d-meas.log" "$n.Measure"; return 1
 }
+stepcases() { # DIR NAME: build NAME.StepProp, at most three attempts; the last log is build-DIR-step.log
+  local d=$1 n=$2 o=$GEN/$1 k
+  for k in 1 2 3; do
+    if lbuild "$o" "build-$d-step-$k" "$n.StepProp"; then
+      cp "$L/build-$d-step-$k.log" "$L/build-$d-step.log"; ok "step property $d" "$L/build-$d-step.log"; return 0
+    fi
+    cp "$L/build-$d-step-$k.log" "$L/build-$d-step.log"
+    [ "$k" = 3 ] && break
+    "$G" open-from-log "$o/$n/StepProp.lean" "$L/build-$d-step-$k.log" "$o/open-step-cases.txt" >> "$L/gen-$d.log" 2>&1
+    genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
+  done
+  bad "step property $d" "$L/build-$d-step.log"; unbuilt "$o" "$L/build-$d-step.log" "$n.StepProp"; return 1
+}
+step_false() { # DIR NAME: a false step property (its tracked open list and the refutation in its
+  # tracked hand module): the refutation builds, and NAME.StepProp does not, for no reason but the
+  # open cases, which have no hand proof (each `StepProp.hand.r` unknown, and `StepProp.step` on
+  # `sorryAx` for them): every other rule's case is still proved by `k2l_step`
+  local d=$1 n=$2 o=$GEN/$1
+  if lbuild "$o" "build-$d-step-hand" "$n.StepPropHand"; then
+    ok "step property $d refuted" "$L/build-$d-step-hand.log"
+  else bad "step property $d refuted" "$L/build-$d-step-hand.log"; unbuilt "$o" "$L/build-$d-step-hand.log" "$n.StepPropHand"; fi
+  if lbuild "$o" "build-$d-step" "$n.StepProp"; then
+    bad "step property $d is false, but StepProp built" "$L/build-$d-step.log"
+  elif python3 -I - "$o/open-step-cases.txt" "$L/build-$d-step.log" "$n" <<'PY'
+import re, sys
+cases, log, ns = sys.argv[1], sys.argv[2], sys.argv[3]
+opened = {l.split(" | ")[0].strip() for l in open(cases) if l.strip() and not l.startswith("#")}
+errors = {re.sub(r"^\s*error: (\S+:\d+:\d+: )?", "", l).strip() for l in open(log, errors="replace")
+          if re.match(r"\s*error: ", l)}
+named = {m.group(1) for e in errors if (m := re.fullmatch(r"Unknown identifier `StepProp\.hand\.(.+)`", e))}
+allowed = {f"{ns}.StepProp.step depends on disallowed axioms [sorryAx]", "build failed"}
+other = sorted(e for e in errors if e not in allowed and not re.fullmatch(r"Unknown identifier `StepProp\.hand\..+`", e))
+for e in other:
+    print(f"step_false: an error other than the open cases': {e}", file=sys.stderr)
+if named != opened:
+    print(f"step_false: the missing hand proofs {sorted(named)} are not the open cases {sorted(opened)}", file=sys.stderr)
+sys.exit(1 if other or named != opened else 0)
+PY
+  then ok "step property $d does not build, at its open cases only" "$L/build-$d-step.log"
+  else bad "step property $d does not build, at its open cases only" "$L/build-$d-step.log"; fi
+}
 inv_reset() { # DIR: GATE_RETRY_OPEN also retries the open invariant cases
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-invariant-cases.txt"
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$GEN/$1/open-measure-cases.txt" ] && : > "$GEN/$1/open-measure-cases.txt"
+  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$GEN/$1/open-step-cases.txt" ] && : > "$GEN/$1/open-step-cases.txt"
   return 0
 }
 inv_lib() { # DIR NAME [keep]: a library built only as far as its invariant needs (its Equations, for
@@ -324,12 +381,24 @@ gate_invariants() {
   # twoparam's outputs behind their process's count in <procs> (tests/fixtures/twoparam's `valsOk`)
   runs lib twoparamvals && inv_lib twoparamvals TwoParam
   # value conserved, a sum over a map (tests/fixtures/ledger, tests/fixtures/escrow; closer 2b)
-  runs lib ledger && inv_lib ledger Ledger
+  runs lib ledger && inv_lib ledger Ledger && stepcases ledger Ledger
   runs lib escrow && inv_lib escrow Escrow
   # a measure under the invariant (tests/fixtures/tickets, tests/fixtures/fuel; INV-20): the
   # invariant first, then `Measure.lean`, which imports it
-  runs lib tickets && inv_lib tickets Tickets && meascases tickets Tickets
+  runs lib tickets && inv_lib tickets Tickets && meascases tickets Tickets && stepcases tickets Tickets
   runs lib fuel && inv_lib fuel Fuel && meascases fuel Fuel
+  # step properties with no invariant (INV-21): racelog's, generic; ledger's false `supplyUp`, its
+  # `burn` case open and refuted by hand (library ledgersupply, tracked open list and hand module)
+  if runs lib racelogstep; then
+    phase "lib racelogstep"; lib_open racelogstep
+    if genlib racelogstep; then eqns racelogstep Racelog && stepcases racelogstep Racelog
+    else bad "gen racelogstep" "$L/gen-racelogstep.log"; fi
+  fi
+  if runs lib ledgersupply; then
+    phase "lib ledgersupply"; lib_open ledgersupply; seed_lake ledgersupply ledger
+    if genlib ledgersupply; then eqns ledgersupply Ledger && step_false ledgersupply Ledger
+    else bad "gen ledgersupply" "$L/gen-ledgersupply.log"; fi
+  fi
   runs negative krsimp-ill-typed && negative_ill_typed
   # SIMPLE with the K function `holdsOk` (demos/k/simple-inv), as for kimpinv; "every store value
   # is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's top cell

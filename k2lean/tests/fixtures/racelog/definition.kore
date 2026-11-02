@@ -1241,6 +1241,19 @@ module RACELOG
   ]
   symbol LblisPgm{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol Lblproject'Coln'Pgm{}(SortK{}) : SortPgm{} [function{}()]
+  symbol LblaccUp'LParUndsCommUndsRParUnds'RACELOG'Unds'Bool'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/racelog/racelog.k)"
+    ),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),
@@ -2060,6 +2073,18 @@ module RACELOG
       \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortPgm{}, SortKItem{}}(From:SortPgm{}))
     )
     [subsort{SortPgm{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblaccUp'LParUndsCommUndsRParUnds'RACELOG'Unds'Bool'Unds'Int'Unds'Int{}(
+          K0:SortInt{},
+          K1:SortInt{}
+        )
+      )
+    )
+    [functional{}()]
   axiom{R}
     \exists{R}(
       Val:SortKCell{},
@@ -6400,6 +6425,33 @@ module RACELOG
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInt{}, R}(X0:SortInt{}, VarA1:SortInt{}),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarA2:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblaccUp'LParUndsCommUndsRParUnds'RACELOG'Unds'Bool'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds-LT-Eqls'Int'Unds'{}(VarA1:SortInt{}, VarA2:SortInt{}),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b111f3511c4a4f9020befebe655be0bb54848ad430c10998602aaadc34c266f1"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,36)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/racelog/racelog.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())),
       \equals{SortKCell{}, R}(
         LblinitKCell{}(X0:SortMap{}),
@@ -9641,7 +9693,7 @@ module RACELOG
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,37,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,42,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/racelog/racelog.k)"
   )

@@ -41,6 +41,9 @@
 //!   `KRS_CLASS_RUN_SECONDS` is its time limit per program (default 60);
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`;
+//! - `KRS_CLASS_K_OUT`: a directory for the K text of each batch's accepted cases, together and
+//!   each alone, which `scripts/krs-class-reference-frontend.sh` reads with the reference
+//!   frontend (NT-42); no verdict of the class matrix depends on it;
 //! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that the table does not refuse
 //!   gets its K written into `expected.toml`, or a term family's into `accepted-terms.toml`
 //!   (`[accept."ID"].k`, [`closure::case_k`]), its entry created when the table has none; the K is
@@ -290,6 +293,7 @@ fn settings() -> (Settings, Option<tempfile::TempDir>) {
             Some("0") => false,
             Some(other) => panic!("KRS_CLASS_DEPENDS={other:?} is not 0 or 1"),
         },
+        k_text: variable("KRS_CLASS_K_OUT").map(PathBuf::from),
     };
     let mut settings = settings;
     if settings.native == NativeMode::Off && settings.run.is_some() {
@@ -1659,6 +1663,7 @@ fn k7_bounds_a_program_whose_expansion_or_run_does_not_end() {
         refused_by_table: BTreeSet::new(),
         run: Some(limit),
         depends: false,
+        k_text: None,
     };
     let spin = bound_source(
         "    #[k::syntax(\"spin({a})\")] #[k::desugar] Spin { a: KItem },\n",

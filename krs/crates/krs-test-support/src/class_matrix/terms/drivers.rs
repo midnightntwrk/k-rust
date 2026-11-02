@@ -80,6 +80,23 @@ fn taken(program: &Ground) -> Ground {
     }
 }
 
+/// The plan of a run of the base's `call` where the case's equation does not apply: no
+/// equation of the partial `Probe` applies to the call's application, which so has no value, and
+/// neither has the call's result, `hold(probe(..))`: the call's step reaches no state, and the
+/// run ends undefined after the steps before it ([`Status::UndefinedResult`]), as for any
+/// sentence whose result has no value.
+fn unapplied_equation(plan: K7) -> K7 {
+    match plan {
+        K7::Run(run) => K7::Run(Run {
+            steps: run.steps.saturating_sub(1),
+            cells: Vec::new(),
+            status: Status::UndefinedResult,
+            ..run
+        }),
+        skip @ K7::Skip(_) => skip,
+    }
+}
+
 /// Why a form has no driver, if it has none.
 fn undriven(slot: &Slot) -> Option<&'static str> {
     Some(match slot.form {
@@ -209,7 +226,8 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
     // An equation whose function context reads the configuration leaves, where it does not
     // apply, its application with the configuration it read, which the generator does not state.
     if undriven(slot).is_some()
-        || matches!(slot.form, "desugar" | "alias" | "simplification")
+        || (matches!(slot.form, "desugar" | "alias" | "simplification")
+            && slot.position != "result-guarded")
         || (slot.form, slot.position) == ("equation", "context-map-key")
     {
         return Vec::new();
@@ -604,6 +622,22 @@ impl Driver<'_> {
             }
             Some("let-pattern") => Meaning::Undefined(super::LET_UNMATCHED),
             Some("matches-pattern") => Meaning::Value(Ground::Bool(self.spelling.matches_x)),
+            // `k::matches!(HOLE, _)` holds where the hole has a value and has none where the hole
+            // has none; an x-counter's `x` is a value, which a reading that ignored the hole's
+            // meaning would test in its place.
+            Some("matches-subject") => {
+                // Where a condition reads the test, an x-counter's value decides whether the
+                // sentence applies; a result's test decides nothing.
+                if self.x_counter
+                    && (self.slot.side == Side::Guard || self.slot.position == "result-guarded")
+                {
+                    self.read_witness.set(true);
+                }
+                match spelling {
+                    Meaning::Value(_) | Meaning::Unstated(_) => Meaning::Value(Ground::Bool(true)),
+                    other => other.clone(),
+                }
+            }
             Some("function-argument") => wrapped(|value| Ground::ctor("Wrap", vec![value])),
             // `Cmd::Pair { a: HOLE, ..p }` over the matched `p`, `pair(5, 6)`.
             Some("update-field") => wrapped(|value| pair(value, int(6))),
@@ -1196,8 +1230,10 @@ impl Driver<'_> {
                 "the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
             )),
             // `Probe(Cmd::NAME(), ..)`, applied by the base's rule `call(a, b) => hold(probe(a, b))`.
-            // `Probe(Cmd::NAME(), HOLE)`: the call's result is 0 where the equation applies; a
-            // counter-witness leaves the application of `Probe` as written.
+            // `Probe(Cmd::NAME(), HOLE)`: the call's result is 0 where the equation applies. At a
+            // counter-witness no equation of `Probe` applies, and `Probe` is partial, defined by
+            // its equations alone, so the application, and the call's result, has no value: the
+            // run ends undefined before the call's step ([`unapplied_equation`]).
             ("equation" | "table", "subject" | "subject-depth-2") => {
                 let witness = self.witness()?;
                 let argument = if position == "subject" {
@@ -1205,17 +1241,17 @@ impl Driver<'_> {
                 } else {
                     hold(witness.term)
                 };
-                let result = if self.countering() {
-                    Ground::unevaluated("probe", vec![self.command(Vec::new()), argument.clone()])
-                } else {
-                    int(0)
-                };
-                self.applied(
+                let plan = self.applied(
                     &call(argument),
                     1,
-                    vec![k(vec![hold(result)])],
+                    vec![k(vec![hold(int(0))])],
                     witness.status,
-                )
+                );
+                if self.countering() {
+                    plan.map(unapplied_equation)
+                } else {
+                    plan
+                }
             }
             // `ProbeK(Cmd::NAME(), x) => Wk(HOLE)`, applied by the base's rule
             // `callk(a, b) => hold(probek(a, b))`: `Wk`'s equation makes the result
@@ -1242,23 +1278,16 @@ impl Driver<'_> {
                 )
             }
             ("equation", "guard") => {
-                let unapplied = Ground::unevaluated("probe", vec![self.command(Vec::new()), one()]);
-                let mut run = self.guarded(
-                    &call(one()),
-                    1,
-                    vec![k(vec![hold(int(0))])],
-                    vec![k(vec![hold(unapplied)])],
-                )?;
-                // The rule applies `Probe` either way: one step, so the run ends at its bound,
-                // and an equation that does not apply, its condition false or with no value, shows
-                // as the application it leaves, which the cells state.
-                if let K7::Run(run) = &mut run {
-                    run.steps = 1;
-                    if run.status == Status::Undefined {
-                        run.status = Status::Value;
+                let run = self.guarded(&call(one()), 1, vec![k(vec![hold(int(0))])], Vec::new())?;
+                // An equation that does not apply, its condition false or with no value, leaves
+                // `Probe`'s application, which no other equation of the partial `Probe` gives a
+                // value: the call's result has none ([`unapplied_equation`]).
+                Ok(match run {
+                    K7::Run(run) if !run.applies => {
+                        unapplied_equation(K7::Run(Run { steps: 1, ..run }))
                     }
-                }
-                Ok(run)
+                    other => other,
+                })
             }
             // The equation's subject is the function's application: `Size(x)`, which the base's
             // rule `sizeof(a) => hold(size(a))` applies.
@@ -1354,6 +1383,14 @@ impl Driver<'_> {
                 let value = self.value()?;
                 self.expanded(&reading(), vec![k(vec![hold(value.term)])], value.status)
             }
+            // The clause's result is `when(V)`, which the base's `when` takes in one step to
+            // `hold(V)` where `V` matches `true`, and leaves where it does not or has no value.
+            ("desugar", "result-guarded") => self.guarded(
+                &reading(),
+                1,
+                vec![k(vec![hold(Ground::Bool(true))])],
+                Vec::new(),
+            ),
             ("alias", "result-root") => {
                 let value = self.value()?;
                 self.forward_only_if_computed(self.expanded(

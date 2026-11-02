@@ -203,6 +203,9 @@ pub struct Settings {
     /// Whether K7 also runs each conforming case on a definition without what it states
     /// ([`Worker::check_dependency`]).
     pub depends: bool,
+    /// Where to write the K text of each batch's accepted cases, for a reference frontend to read
+    /// ([`write_k_text`]); `None` writes none.
+    pub k_text: Option<PathBuf>,
 }
 
 /// What K2 makes of a case's judgement, for judging a batched verdict again alone
@@ -373,6 +376,7 @@ pub fn collect_source(
         builds: &builds,
         closure: false,
         native: None,
+        k_text: None,
     };
     fs::create_dir_all(&worker.root).expect("the directory is created");
     worker.collect(source)
@@ -473,6 +477,8 @@ struct Worker<'a> {
     closure: bool,
     /// K6's settings, when the run judges it.
     native: Option<NativeRun<'a>>,
+    /// [`Settings::k_text`].
+    k_text: Option<&'a Path>,
 }
 
 impl<'w> Worker<'w> {
@@ -488,6 +494,7 @@ impl<'w> Worker<'w> {
             root: settings.scratch.join(format!("worker-{index}")),
             builds,
             closure: settings.closure,
+            k_text: settings.k_text.as_deref(),
             native: (settings.native != NativeMode::Off).then_some(NativeRun {
                 refused_by_table: &settings.refused_by_table,
                 cost,
@@ -530,6 +537,7 @@ impl<'w> Worker<'w> {
             builds: self.builds,
             closure: false,
             native: None,
+            k_text: None,
         };
         let culprits = bisect(neighbours, |others| {
             beside(&k2_only, others).is_some_and(|judged| k2(&judged).observed != verdict)
@@ -580,6 +588,9 @@ impl<'w> Worker<'w> {
                             back_half(&collected, &rendered.cases, placed, base.as_deref())
                         })
                         .collect::<Vec<_>>();
+                    if let Some(directory) = self.k_text {
+                        write_k_text(directory, &collected, &rendered.cases, &judged);
+                    }
                     self.check_native(&collected, &rendered.cases, base.as_deref(), &mut judged);
                     if self.closure {
                         self.check_closure(&rendered.cases, &mut judged);
@@ -2135,6 +2146,93 @@ pub fn write_package(directory: &Path, name: &str, source: &str) -> PathBuf {
     )
     .expect("the manifest is written");
     manifest
+}
+
+/// Writes the K text of the cases of a collected batch that KRS accepted under `directory`, for
+/// a reference frontend to read (`scripts/krs-class-reference-frontend.sh`): their definition
+/// together, `<hash>/definition.k`, and each case's own, `<hash>/cases/<hash>/definition.k`
+/// beside its `id`. Nothing the class matrix judges reads it.
+///
+/// An emission that fails or panics leaves cases without K text, which no frontend then judges:
+/// each is recorded under `dropped/` (`<hash>.txt`: the reason on its first line, then the case
+/// IDs, one per line), the batch's when its joint emission fails, a case's when its own does, so
+/// that the frontend's run counts them and fails rather than reading their absence as a verdict.
+fn write_k_text(
+    directory: &Path,
+    collected: &CollectedDefinition,
+    all: &[Placed<'_>],
+    judged: &[Judged],
+) {
+    let accepted = judged
+        .iter()
+        .filter(|judged| !judged.observed.refused())
+        .map(|judged| judged.id.as_str())
+        .collect::<BTreeSet<_>>();
+    if accepted.is_empty() {
+        return;
+    }
+    let emit = |bundle| match catch_unwind(AssertUnwindSafe(|| collected.emit_k(bundle))) {
+        Ok(Ok(emitted)) => Ok(emitted.definition),
+        Ok(Err(error)) => Err(format!("the emission failed: {error}")),
+        Err(panic) => Err(format!("the emission panicked: {}", panic_message(&*panic))),
+    };
+    let dropped = |reason: &str, ids: &[&str]| {
+        let mut record = reason.replace('\n', " ");
+        for id in ids {
+            record.push('\n');
+            record.push_str(id);
+        }
+        record.push('\n');
+        let dropped = directory.join("dropped");
+        let path = dropped.join(format!("{:016x}.txt", fnv1a64(&record)));
+        let written = fs::create_dir_all(&dropped).and_then(|()| fs::write(&path, &record));
+        if let Err(error) = written {
+            panic!(
+                "the dropped record is written at {}: {error}",
+                path.display()
+            );
+        }
+    };
+    let together = sub_bundle_of(&collected.bundle, all, |placed| {
+        accepted.contains(placed.case.id.as_str())
+    });
+    let definition = match emit(together) {
+        Ok(definition) => definition,
+        Err(reason) => {
+            dropped(
+                &format!("batch: {reason}"),
+                &accepted.iter().copied().collect::<Vec<_>>(),
+            );
+            return;
+        }
+    };
+    let batch = directory.join(format!("{:016x}", fnv1a64(&definition)));
+    let written = fs::create_dir_all(batch.join("cases"))
+        .and_then(|()| fs::write(batch.join("definition.k"), &definition));
+    if let Err(error) = written {
+        panic!("the K text is written under {}: {error}", batch.display());
+    }
+    for placed in all
+        .iter()
+        .filter(|placed| accepted.contains(placed.case.id.as_str()))
+    {
+        let definition = match emit(sub_bundle(&collected.bundle, all, Some(placed))) {
+            Ok(definition) => definition,
+            Err(reason) => {
+                dropped(&format!("case: {reason}"), &[placed.case.id.as_str()]);
+                continue;
+            }
+        };
+        let case = batch
+            .join("cases")
+            .join(format!("{:016x}", fnv1a64(&placed.case.id)));
+        let written = fs::create_dir_all(&case)
+            .and_then(|()| fs::write(case.join("definition.k"), &definition))
+            .and_then(|()| fs::write(case.join("id"), &placed.case.id));
+        if let Err(error) = written {
+            panic!("the K text is written under {}: {error}", case.display());
+        }
+    }
 }
 
 /// The 64-bit FNV-1a hash, which names a batch package after its source.

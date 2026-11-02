@@ -2083,12 +2083,20 @@ fn disclosure(a: &crate::soundness::Lib, cell: &str) -> Disclosure {
     }
 }
 
-/// The sort of the values of the holes: the greatest sort below both `KResult` and the holes'.
+/// The sort of the values of the holes: the greatest sort below the holes' whose every leaf is below
+/// `KResult`, whether it is declared below `KResult` itself (`KResult ::= Value`) or only its leaves
+/// are (`KResult ::= Int | Bool` beside `Value ::= Int | Bool`).
 fn value_sort(m: &crate::model::Model, hole: &str) -> String {
     let below: Vec<&String> = m
         .sorts
         .keys()
-        .filter(|s| *s != hole && m.subsort_closure(s, "SortKResult") && m.subsort_closure(s, hole))
+        .filter(|s| {
+            let ls = &m.sort(s).leaves;
+            *s != hole
+                && m.subsort_closure(s, hole)
+                && !ls.is_empty()
+                && ls.iter().all(|l| m.subsort_closure(l, "SortKResult"))
+        })
         .collect();
     let top: Vec<&String> = below
         .iter()
@@ -2097,7 +2105,9 @@ fn value_sort(m: &crate::model::Model, hole: &str) -> String {
         .collect();
     match top.as_slice() {
         [v] => (*v).clone(),
-        _ => fail("the values of the holes are expected to be one sort below KResult"),
+        _ => fail(
+            "the values of the holes are expected to be one sort, the greatest whose leaves are below KResult",
+        ),
     }
 }
 

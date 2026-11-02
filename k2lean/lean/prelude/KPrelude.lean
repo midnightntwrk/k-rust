@@ -33,3 +33,4 @@ import KPrelude.Defined
 import KPrelude.Scaffold
 import KPrelude.Flush
 import KPrelude.Measure
+import KPrelude.StepProp

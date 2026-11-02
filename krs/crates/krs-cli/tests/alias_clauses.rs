@@ -967,6 +967,26 @@ fn make10(k::term![Rv::Make(10)]: Term<Value>) -> Term<Value> {
 fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
     Data::Two(12, [])
 }
+
+#[k::rule]
+fn make15(k::term![Rv::Make(15)]: Term<Value>) -> Term<Value> {
+    Rv::Su(set::item(2))
+}
+
+#[k::rule]
+fn make17(k::term![Rv::Make(17)]: Term<Value>) -> Term<Value> {
+    Rv::Mu(k::map![3 -> 4])
+}
+
+#[k::rule]
+fn make19(k::term![Rv::Make(19)]: Term<Value>) -> Term<Value> {
+    Rv::Mt(3)
+}
+
+#[k::rule]
+fn make20(k::term![Rv::Make(20)]: Term<Value>) -> Term<Value> {
+    Rv::Lt(Data::Box(4))
+}
 "#;
 
 /// Each construct an alias result writes, by whether it constructs: a list's items and unit, a
@@ -977,36 +997,25 @@ fn make12(k::term![Rv::Make(12)]: Term<Value>) -> Term<Value> {
 /// productions are placed in the semantics module, and `elems` and `items` write `SetItem` and
 /// `ListItem`; their prints would read back as nothing, so `two(2, ..)` prints as it is. A
 /// concatenation of two named lists (`lc`) computes: `[5, 6, 7]` is the concatenation of four
-/// splits, and the one printed
-/// would come from how the list nests, not from a term the author wrote. So do a set union
-/// (`su`), a map update (`mu`), a projection (`prj`), `k::matches!` (`mt`) and `let` (`lt`):
-/// where the program writes the alias, the state holds the result's own application, stuck on an
-/// argument no equation decides (`noset(red)`, `nomap(red)`, `noval(red)`, `size(red)`), and it
-/// prints expanded, as the state holds it. A subject's token is judged by the text a reversal
-/// prints, the clause's own `1.5` (a run prints the floats it holds as `0.15000000000000000e1`),
-/// which reads back as that `Float`, so `fz` prints backwards; the `Id` `$x` lexes in no program,
-/// so `xd` does not.
+/// splits, and the one printed would come from how the list nests, not from a term the author
+/// wrote. So do a set union (`su`), a map update (`mu`), a projection (`prj`), `k::matches!`
+/// (`mt`) and `let` (`lt`): a state holding the value one computes prints expanded, as the state
+/// holds it (`bs(5, ..)` though `SetItem(1) |Set S` matches its set, `bm(7, ..)` though
+/// `S [1 <- 2]` is its map, `tag(3)`, `fl(9, true)`, `tag(4)`), since a value that equals the
+/// result's is no term the author wrote the alias for. Where such a result holds an application
+/// no equation decides (`noset(red)`, `nomap(red)`, `size(red)`, `noval(red)`), the state that
+/// would hold it has no value (NT-42), so it is never printed: the run is undefined after the
+/// steps before it, at `make(..)`, or at its first state where the program writes the alias
+/// (`prj(noval(red))`), and names the application. A subject's token is judged by the text a
+/// reversal prints, the clause's own `1.5` (a run prints the floats it holds as
+/// `0.15000000000000000e1`), which reads back as that `Float`, so `fz` prints backwards; the `Id`
+/// `$x` lexes in no program, so `xd` does not.
 #[test]
 fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(temporary.path(), &format!("{OTHER_CLAUSES}{CONSTRUCTS}"));
-    let printed = [
-        "make(1)",
-        "make(2)",
-        "make(3)",
-        "make(4)",
-        "make(5)",
-        "make(6)",
-        "make(7)",
-        "make(9)",
-        "make(10)",
-        "make(12)",
-        "prj(noval(red))",
-        "box(5)",
-        "fl(5, false)",
-    ]
-    .map(|program| {
+    let run = |program: &str| {
         let file = manifest.with_file_name("program.txt");
         fs::write(&file, program).unwrap();
         let (_, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
@@ -1019,21 +1028,63 @@ fn printing_reverses_a_result_only_through_the_constructs_that_write_a_term() {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(!state.is_empty(), "{program}: {stdout}\n{stderr}");
-        format!("{program} => {state}")
-    })
+        (state, stderr)
+    };
+    for (program, last, valueless) in [
+        ("make(5)", "make(5) ~> .K", "noset ( zero() )"),
+        ("make(7)", "make(7) ~> .K", "nomap ( zero() )"),
+        ("make(9)", "make(9) ~> .K", "size ( zero() )"),
+        ("make(10)", "make(10) ~> .K", "noval ( zero() )"),
+        (
+            "prj(noval(red))",
+            "tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K",
+            "noval ( zero() )",
+        ),
+    ] {
+        let (state, stderr) = run(program);
+        let mut lines = stderr.lines();
+        assert_eq!(
+            lines.next().and_then(|line| line.split(';').next()),
+            Some("krs run: undefined after 0 steps"),
+            "{program}: {stderr}"
+        );
+        assert_eq!(state, last, "{program}: {stderr}");
+        assert!(
+            lines.next().is_some_and(|note| note.starts_with(&format!(
+                "note: `{valueless}` has no value: its function is partial"
+            ))),
+            "{program}: {stderr}"
+        );
+    }
+    let printed = [
+        "make(1)",
+        "make(2)",
+        "make(3)",
+        "make(4)",
+        "make(15)",
+        "make(6)",
+        "make(17)",
+        "prj(3)",
+        "make(19)",
+        "make(20)",
+        "make(12)",
+        "box(5)",
+        "fl(5, false)",
+    ]
+    .map(|program| format!("{program} => {}", run(program).0))
     .join("\n");
     expect_test::expect![[r"
         make(1) => two(1, ListItem ( 5 ) ListItem ( 6 ) ListItem ( 7 )) ~> .K
         make(2) => two(2, ListItem ( 5 ) ListItem ( 6 ) ListItem ( 7 )) ~> .K
         make(3) => si(5) ~> .K
         make(4) => se() ~> .K
-        make(5) => bs(5, noset ( zero() ) |Set SetItem ( 1 )) ~> .K
+        make(15) => bs(5, SetItem ( 1 ) SetItem ( 2 )) ~> .K
         make(6) => me() ~> .K
-        make(7) => bm(7, nomap ( zero() ) [ 1 <- 2 ]) ~> .K
-        make(9) => fl(9, krsLocal_7b8c5f3e9747e8111440424d ( size ( zero() ) )) ~> .K
-        make(10) => tag(#lambdaX__2 ( noval ( zero() ) )) ~> .K
+        make(17) => bm(7, 1 |-> 2 3 |-> 4) ~> .K
+        prj(3) => tag(3) ~> .K
+        make(19) => fl(9, true) ~> .K
+        make(20) => tag(4) ~> .K
         make(12) => le() ~> .K
-        prj(noval(red)) => tag(project:Int ( noval ( zero() ) ~> .K )) ~> .K
         box(5) => fz(5, 1.5) ~> .K
         fl(5, false) => fl(5, false) ~> .K"]]
     .assert_eq(&printed);

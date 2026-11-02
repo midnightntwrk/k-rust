@@ -852,6 +852,12 @@ pub const BUILT_UNSTATED: &str = "the clause's result is the hole, which has no 
 /// run shows. The lemma takes no part in such a run, so the run without it ends the same.
 pub const SIMPLIFICATION_TWIN: &str = "the case's runs are its simplification's twin, which evaluates each side of the lemma by the definition's equations, which the lemma follows from and does not change";
 
+/// Why an equation case whose result has no value at the run's input changes no run without it
+/// ([`k7::Removed::Unchanged`]): the equation gives its function's application its result, which
+/// has none, so the application has no value with it, as without it, where no equation of the
+/// partial function applies; either way the base's `callk` reaches no state.
+pub const EQUATION_WITHOUT_VALUE: &str = "the equation's result has no value, so its function's application has none with the equation as without it, where no equation of the partial function applies; the base's call reaches no state either way";
+
 /// The attribute case `case` without its attribute, which K7's dependency check runs the case's
 /// plans on ([`Removal::Attribute`]); `None` for a case of another family.
 #[must_use]
@@ -952,10 +958,18 @@ pub fn run_readings(case: &Case) -> Option<Result<Vec<Reading>, &'static str>> {
 #[must_use]
 pub fn twins<'c>(cases: impl IntoIterator<Item = &'c Case>) -> Vec<(&'c Case, &'c Case)> {
     let cases = cases.into_iter().collect::<Vec<_>>();
+    // The same construct at the same openings: a construct an opener holds pairs only with the
+    // same opener's, by the constructs the hole holds.
     let key = |case: &Case| {
         let term = case.term.as_ref()?;
-        (term.position.slot == positions::Slot::Result)
-            .then(|| (case.family, term.path.clone(), case.construct.clone()))
+        (term.position.slot == positions::Slot::Result).then(|| {
+            (
+                case.family,
+                term.path.clone(),
+                case.construct.clone(),
+                format!("{:?}", term.nodes),
+            )
+        })
     };
     let rules = cases
         .iter()

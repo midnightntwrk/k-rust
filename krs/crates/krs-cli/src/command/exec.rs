@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    CompiledStage, ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions,
+    CompiledStage, ConfigInputs, ExecError, Halt, PrintStyle, Printed, ProgramInput, ProveOptions,
     REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText,
     SpecStage, Step, StepOrigin, Term, Verdict,
 };
@@ -487,6 +487,27 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         if report.steps == 1 { "" } else { "s" }
     );
     stderr.push('\n');
+    if request.output != TermOutput::Json {
+        let notation = match request.output {
+            TermOutput::None => TermOutput::Pretty,
+            output => output,
+        };
+        for term in &report.valueless {
+            let printed = print(semantics, term, notation, false, &mut stderr)?;
+            let printed = printed.trim();
+            let _ = if report.halt == Halt::Undefined {
+                writeln!(
+                    stderr,
+                    "note: `{printed}` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it"
+                )
+            } else {
+                writeln!(
+                    stderr,
+                    "note: a rule's condition reads `{printed}`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply"
+                )
+            };
+        }
+    }
     let exit_code = match report.exit_code {
         Some(code) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
         _ => i32::from(!report.halt.is_complete()),
@@ -875,6 +896,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,
+        ExecError::Undecided(_) => codes::exec::UNDECIDED,
     }
 }
 

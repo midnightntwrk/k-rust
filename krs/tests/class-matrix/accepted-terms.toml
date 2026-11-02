@@ -1853,6 +1853,20 @@ context [case-TAG]: cTAG ( V0:KItem , V1:KItem , hold ( V1:KItem ) )
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
 """
 
+[accept."import/desugar/result-guarded/Go()"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."import/desugar/result-guarded/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."import/desugar/result-root/Go()"]
 k = """
 rule cTAG ( V0:KItem , _ ) => go [label(krsRule_DIGEST)]
@@ -7113,6 +7127,65 @@ k = """
 context [case-TAG]: cTAG ( V0:KItem , V1:KItem , V1:KItem )
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."terms/desugar/result-guarded/k::is!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( isInt(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/result-guarded/matches-subject/1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( krsLocal_DIGEST ( ) ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( ) => false
+requires notBool ( _ :=K 1 ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( ) => true
+requires ( _ :=K 1 ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/result-guarded/matches-subject/k::project!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( krsLocal_DIGEST ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires isInt(V0:KItem) andThenBool (notBool ( _ :=K V0:KItem )) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires isInt(V0:KItem) andThenBool ( _ :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/result-guarded/matches-subject/x"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( krsLocal_DIGEST ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires notBool ( _ :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires ( _ :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/desugar/result-guarded/true"]
+k = """
+rule cTAG ( V0:KItem , _ ) => when ( true ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
 
 [accept."terms/desugar/result-root/-(x + 1)"]
@@ -13923,6 +13996,30 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
 requires ( true :=K V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/matches-subject/1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( _ :=K 1 ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/matches-subject/k::project!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires isInt(V0:KItem) andThenBool ( _ :=K V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/matches-subject/x"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( _ :=K V0:KItem ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -25898,7 +25995,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty().contains_key(x)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule V0:KItem in_keys(.Map) => 0
+rule V0:KItem in_keys(.Map) => false
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -25907,7 +26004,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty().update(x, 1)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] => 0
+rule .Map [ V0:KItem <- 1 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -25932,7 +26029,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule V0:KItem in_keys(.Map) => 0
+rule V0:KItem in_keys(.Map) => false
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -25940,7 +26037,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] => 0
+rule .Map [ V0:KItem <- 1 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -25949,7 +26046,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::set::item(x).to_list()"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule Set2List(SetItem(V0:KItem)) => 0
+rule Set2List(SetItem(V0:KItem)) => .List
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -25957,7 +26054,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule Set2List(SetItem(V0:KItem)) => 0
+rule Set2List(SetItem(V0:KItem)) => .List
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -31337,7 +31434,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0
+rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -31345,7 +31442,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 k = """
-rule .Set |Set SetItem(V0:KItem) => 0
+rule .Set |Set SetItem(V0:KItem) => .Set
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -31353,7 +31450,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 k = """
-rule SetItem(V0:KItem) |Set SetItem(1) => 0
+rule SetItem(V0:KItem) |Set SetItem(1) => .Set
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -32778,6 +32875,35 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 same_k_as = ["notation/rule/result/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( .Map [ V0:KItem <- 1 ] ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/matches-subject/1"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( _ :=K 1 ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/matches-subject/k::project!(Int, x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( krsLocal_DIGEST ( V0:KItem ) ) [label(case-TAG)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => false
+requires isInt(V0:KItem) andThenBool (notBool ( _ :=K V0:KItem )) [label(krsRule_DIGEST)]
+
+rule krsLocal_DIGEST ( V0:KItem ) => true
+requires isInt(V0:KItem) andThenBool ( _ :=K V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Bool ::= "krsLocal_DIGEST" "(" KItem ")" [symbol(krsLocal_DIGEST), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/result/matches-subject/x"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( ( _ :=K V0:KItem ) ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -34885,7 +35011,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """
-rule .Map [ 0 <- 1 ] => 0
+rule .Map [ 0 <- 1 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]

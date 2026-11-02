@@ -335,6 +335,11 @@ pub struct RunReport {
     /// omitted when empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
+    /// The terms with no value a rule's condition read, which the backend could not evaluate:
+    /// those the state holds, which make an `undefined` run's state have none, or else those the
+    /// condition built, where the rule did not apply; omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub valueless: Vec<Term>,
 }
 
 /// One final state of a search.

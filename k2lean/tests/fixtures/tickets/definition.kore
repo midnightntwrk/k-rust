@@ -1224,6 +1224,19 @@ module TICKETS
     ),
     total{}()
   ]
+  symbol LblpoolMono'LParUndsCommUndsRParUnds'TICKETS'Unds'Bool'Unds'PoolCell'Unds'PoolCell{}(
+    SortPoolCell{},
+    SortPoolCell{}
+  ) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,19,48,65)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/tickets/tickets.k)"
+    ),
+    total{}()
+  ]
   symbol Lbl'-LT-'issued'-GT-'{}(SortMap{}) : SortIssuedCell{}
   [
     cell{}(),
@@ -1896,6 +1909,18 @@ module TICKETS
       \equals{SortInt{}, R}(
         Val:SortInt{},
         Lbltodo'LParUndsRParUnds'TICKETS'Unds'Int'Unds'PoolCell{}(K0:SortPoolCell{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblpoolMono'LParUndsCommUndsRParUnds'TICKETS'Unds'Bool'Unds'PoolCell'Unds'PoolCell{}(
+          K0:SortPoolCell{},
+          K1:SortPoolCell{}
+        )
       )
     )
     [functional{}()]
@@ -5757,6 +5782,55 @@ module TICKETS
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPoolCell{}, R}(
+            X0:SortPoolCell{},
+            Lbl'-LT-'pool'-GT-'{}(
+              Lbl'-LT-'issued'-GT-'{}(Var'Unds'Gen0:SortMap{}),
+              Lbl'-LT-'left'-GT-'{}(VarL1:SortInt{}),
+              Lbl'-LT-'cap'-GT-'{}(Var'Unds'Gen1:SortInt{}),
+              Lbl'-LT-'next'-GT-'{}(VarN1:SortInt{})
+            )
+          ),
+          \and{R}(
+            \in{SortPoolCell{}, R}(
+              X1:SortPoolCell{},
+              Lbl'-LT-'pool'-GT-'{}(
+                Lbl'-LT-'issued'-GT-'{}(Var'Unds'Gen2:SortMap{}),
+                Lbl'-LT-'left'-GT-'{}(VarL2:SortInt{}),
+                Lbl'-LT-'cap'-GT-'{}(Var'Unds'Gen3:SortInt{}),
+                Lbl'-LT-'next'-GT-'{}(VarN2:SortInt{})
+              )
+            ),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblpoolMono'LParUndsCommUndsRParUnds'TICKETS'Unds'Bool'Unds'PoolCell'Unds'PoolCell{}(
+          X0:SortPoolCell{},
+          X1:SortPoolCell{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds'andBool'Unds'{}(
+            Lbl'Unds-LT-Eqls'Int'Unds'{}(VarN1:SortInt{}, VarN2:SortInt{}),
+            Lbl'Unds-LT-Eqls'Int'Unds'{}(VarL2:SortInt{}, VarL1:SortInt{})
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2f4c98648ebbd1cc93db980d7e394c2dc5fb89c4b8624f374f74d658c53533f8"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,51,39)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/tickets/tickets.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \top{R}()),
       \equals{SortIssuedCell{}, R}(
         LblinitIssuedCell{}(),
@@ -7889,7 +7963,7 @@ module TICKETS
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,45,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,52,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/tickets/tickets.k)"
   )

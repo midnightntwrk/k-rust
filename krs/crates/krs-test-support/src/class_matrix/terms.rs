@@ -50,11 +50,14 @@
 //!   condition as `subject`'s do. A spelling whose sort the lowering gives `x` (`x && true` sorts
 //!   it `Bool`) has a value wherever the equation's left side matches. The twin evaluates
 //!   `zero(cTAG, x)` and `kz(v)`, `v` the hole's value, at each input where the hole has one.
-//! - `subject-root`, `HOLE => 0` under the condition `false`: the hole is the whole left side, and
+//! - `subject-root`, `HOLE => V` under the condition `false`: the hole is the whole left side, and
 //!   only the spellings that apply a function stand there; the builtins' meanings fix their value
 //!   (`1 + 2` is 3), so no right side but the hole itself equals each, and a right side that
 //!   restated the hole would judge the spelling at a result too. Under `false` the equation is
-//!   true for every spelling, and no prover applies it.
+//!   true for every spelling, and no prover applies it. `V` is a constant of the application's
+//!   sort ([`root_value`]: the empty map for `map::update(..)`, `false` for `in_keys(..)`, `0` for
+//!   an `Int` or a `KItem`), so the equation is well-sorted for every spelling: one of another
+//!   sort (an `Int` equal to a `Map`) states an equality no value satisfies, which KRS refuses.
 //! - `result-root`, `ProbeK(Cmd::NAME(), x) => HOLE` under the condition `false`: the hole is the
 //!   whole right side, so the equation would make `ProbeK` at the case's command equal to each
 //!   spelling's value, which no equation of the definition gives it (`ProbeK` is partial, and
@@ -109,8 +112,9 @@ pub struct Word(pub String);
 /// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
 /// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path, and the aliases
 /// that are there for printing (`Ah`, `Am`, `Av`, `Ac`, `Bp`, `Bq`, `Ak`, `An`, below the driver
-/// base's clauses), and K7's driver commands (below the initializer, and `Drive`, which a case's
-/// own rule writes its witness from), then one command per case.
+/// base's clauses), and K7's driver commands (below the initializer, `Drive`, which a case's
+/// own rule writes its witness from, and `When`, whose rule's condition reads what a static
+/// clause's result writes in it), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -134,6 +138,7 @@ pub enum Cmd {
     #[k::syntax("pb({a})")] #[k::desugar] Pb { a: KItem },
     #[k::syntax("qb({a})")] #[k::desugar] Qb { a: KItem },
     #[k::syntax("drive({a})")] Drive { a: Int },
+    #[k::syntax("when({a})")] When { a: KItem },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
@@ -175,8 +180,9 @@ pub struct Word(pub String);
 /// two clauses, `Rc` recursive, `Tw` of one clause of a plain name, `Lp` that never ends, and
 /// `Pb` and `Qb`, whose expansion would apply `pb`'s clause twice on one path, and the aliases
 /// that are there for printing (`Ah`, `Am`, `Av`, `Ac`, `Bp`, `Bq`, `Ak`, `An`, below the driver
-/// base's clauses), and K7's driver commands (below the initializer, and `Drive`, which a case's
-/// own rule writes its witness from), then one command per case.
+/// base's clauses), and K7's driver commands (below the initializer, `Drive`, which a case's
+/// own rule writes its witness from, and `When`, whose rule's condition reads what a static
+/// clause's result writes in it), then one command per case.
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum Cmd {
@@ -200,6 +206,7 @@ pub enum Cmd {
     #[k::syntax("pb({a})")] #[k::desugar] Pb { a: KItem },
     #[k::syntax("qb({a})")] #[k::desugar] Qb { a: KItem },
     #[k::syntax("drive({a})")] Drive { a: Int },
+    #[k::syntax("when({a})")] When { a: KItem },
     #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
     #[k::syntax("call({a}, {b})")] Call { a: KItem, b: KItem },
     #[k::syntax("callk({a}, {b})")] CallK { a: KItem, b: KItem },
@@ -514,6 +521,9 @@ k::rules! {
     add_token: { k: [Cmd::AddToken(a), ..], token: { .. } } => { k: [..], token: { Token { mark: a }, .. } };
     #[k::rule(priority = 10)]
     add_row: { k: [Cmd::AddRow(a, b), ..], row: { .. } } => { k: [..], row: { Row { id: a, value: b }, .. } };
+    #[k::rule(priority = 10)]
+    #[k::requires(k::matches!(a, true))]
+    when: { k: [Cmd::When(a), ..] } => { k: [Cmd::Hold(a), ..] };
 }
 
 k::rules! {
@@ -2152,6 +2162,36 @@ const RULE_SUBJECT: &str = concat!(
 
 const ALIAS_SUBJECT: &str = "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
+/// A `#[k::rule]` fn's result: the command's application becomes `Cmd::Hold(HOLE)`.
+const RULE_RESULT: &str = concat!(
+    "#[k::rule(label = \"case-TAG\")]\n",
+    "fn case_TAG(k::term![Cmd::NAME(x, _)",
+    "]: Term<Stmt>) -> Term<Stmt> {\n",
+    "    Cmd::Hold(HOLE)\n}\n"
+);
+
+/// A desugar clause's result below `Cmd::When`, which the base's `when` rule reads in its
+/// condition ([`STATIC_GUARDED_HOLDS`]).
+fn static_guarded() -> Slot {
+    slot(
+        "desugar",
+        "result-guarded",
+        Side::Result,
+        (Desugar, Part::Result, &[Argument]),
+        "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, _)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::When(HOLE)\n}\n",
+    )
+    .parsed_by_rustc()
+    .marked("#[k::desugar]")
+    .holding(Holds::Only(STATIC_GUARDED_HOLDS))
+}
+
+/// The Bool spellings `static_guarded`'s result holds, each `true` where `x` is 1.
+const STATIC_GUARDED_HOLDS: &[&str] = &["true", "k::is!(Int, x)"];
+
+/// The subjects `k::matches!(HOLE, _)` holds: a name, a value, and a projection, which has no
+/// value where `x` is not an `Int`, where the test has none either.
+const MATCHED_SUBJECTS: &[&str] = &["x", "1", "k::project!(Int, x)"];
+
 const DESUGAR_SUBJECT: &str = "#[k::desugar]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
 /// [`DESUGAR_SUBJECT`] beside a second clause of the case's production, whose subject holds a
@@ -2318,12 +2358,7 @@ fn slots() -> Vec<Slot> {
             "result",
             Side::Result,
             (RuleFn, Part::Result, &[Argument]),
-            concat!(
-                "#[k::rule(label = \"case-TAG\")]\n",
-                "fn case_TAG(k::term![Cmd::NAME(x, _)",
-                "]: Term<Stmt>) -> Term<Stmt> {\n",
-                "    Cmd::Hold(HOLE)\n}\n"
-            ),
+            RULE_RESULT,
         )
         .parsed_by_rustc(),
         slot(
@@ -2769,7 +2804,7 @@ fn slots() -> Vec<Slot> {
             "subject-root",
             Side::Subject,
             (Simplification, Part::Subject, &[]),
-            "#[k::simplification]\n#[k::requires(false)]\nfn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n    0\n}\n",
+            "#[k::simplification]\n#[k::requires(false)]\nfn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n    ROOT_VALUE\n}\n",
         )
         .arity(0),
         slot(
@@ -2890,6 +2925,10 @@ fn slots() -> Vec<Slot> {
         )
         .parsed_by_rustc()
         .marked("#[k::desugar]"),
+        // A result a rule's condition then reads: the base's `when` takes a step where its item
+        // matches `true`, so a run shows the result's value through a condition, also where the
+        // result has none.
+        static_guarded(),
         slot(
             "alias",
             "subject",
@@ -3449,6 +3488,18 @@ fn openers() -> Vec<Slot> {
             &[],
         )
     };
+    // `k::matches!(HOLE, _)`: the test holds where the subject has a value, and has none where
+    // the subject has none (finding NT-37-1: a projection there).
+    let matches_subject = |host: &Slot| {
+        host.open(
+            "matches-subject",
+            "k::matches!(HOLE, _)",
+            &[node(C::Matches, &[])],
+            &[MatchesSubject],
+            &[node(C::Wildcard, &[MatchesPattern])],
+        )
+        .holding(Holds::Only(MATCHED_SUBJECTS))
+    };
     let or_branch = |host: &Slot| {
         host.open(
             "or-branch",
@@ -3589,6 +3640,20 @@ fn openers() -> Vec<Slot> {
         matches_pattern(&built),
         matches_pattern(&guard),
         matches_pattern(&evaluated),
+        matches_subject(&guard),
+        matches_subject(&static_guarded()),
+        // The static result's twin: the same test at a rule's result, which is not tested and
+        // keeps the projection.
+        matches_subject(
+            &slot(
+                "rule",
+                "result",
+                Side::Result,
+                (RuleFn, Part::Result, &[Argument]),
+                RULE_RESULT,
+            )
+            .parsed_by_rustc(),
+        ),
         local.open(
             "rewrite-left",
             "k::rewrite!(HOLE => Cmd::Go())",
@@ -3736,8 +3801,47 @@ fn slot_template(slot: &Slot, spelling: &Spelling) -> String {
             &format!("#[k::simplification]\n#[k::requires({domain})]\n"),
             1,
         ),
+        ("simplification", "subject-root", _) => {
+            slot.template.replace("ROOT_VALUE", root_value(spelling))
+        }
         _ => slot.template.clone(),
     }
+}
+
+/// A value of the sort of the application `spelling` writes, for the result of a simplification
+/// rooted at it. The equation states that the application equals its result, so the result's
+/// sort is the application's or below it (an equation of another sort states an equality no
+/// value satisfies, `krs::analysis::invalid-term`); under `requires(false)` the equation holds
+/// whatever the value, so it is a constant of that sort, not the spelling itself, which a result
+/// would judge at a result's position. The sort is read from the spelling's value at 1, which is
+/// of its sort or below it: an empty collection of a collection, `false` of a `Bool`, and `0`
+/// otherwise (an `Int`, or a `KItem` such as a collection's read).
+fn root_value(spelling: &Spelling) -> &'static str {
+    match &spelling.value {
+        Meaning::Value(Ground::Map(_)) => "k::builtin::map::empty()",
+        Meaning::Value(Ground::Set(_)) => "k::builtin::set::empty()",
+        Meaning::Value(Ground::List(_)) => "k::builtin::list::empty()",
+        Meaning::Value(Ground::Bool(_)) => "false",
+        Meaning::Value(Ground::String(_)) => "\"\"",
+        _ => "0",
+    }
+}
+
+/// What a run of a case of `slot` with plan `plan` shows without the case's sentence, where the
+/// form says it is the same ([`Removed::Unchanged`]): a simplification's runs are its lemma's
+/// twin, and an equation whose result has no value leaves its application with none, as no
+/// equation does.
+fn removed_unchanged(slot: &Slot, plan: &K7) -> Option<Removed> {
+    let K7::Run(run) = plan else {
+        return None;
+    };
+    if slot.form == "simplification" {
+        return Some(Removed::Unchanged(super::SIMPLIFICATION_TWIN));
+    }
+    (matches!(slot.form, "equation" | "table")
+        && slot.side == Side::Result
+        && run.status == super::k7::Status::UndefinedResult)
+        .then_some(Removed::Unchanged(super::EQUATION_WITHOUT_VALUE))
 }
 
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
@@ -3831,8 +3935,8 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     {
         case.removed = Removed::Unchanged(super::BUILT_UNSTATED);
     }
-    if slot.form == "simplification" && matches!(case.k7, K7::Run(_)) {
-        case.removed = Removed::Unchanged(super::SIMPLIFICATION_TWIN);
+    if let Some(removed) = removed_unchanged(slot, &case.k7) {
+        case.removed = removed;
     }
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.

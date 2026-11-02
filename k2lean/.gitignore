@@ -12,19 +12,22 @@ lake-manifest.json
 # NS/InvariantsHand.lean (those proofs), NS/DivergesHand.lean (the divergence proofs of the
 # least fixed points), and open-progress-cases.txt with NS/ProgressHand.lean (the cases of
 # `progress` proved or refuted by hand), open-defined-rules.txt with NS/DefinedHand.lean (the rules
-# whose right-hand side is shown defined or refuted by hand, SND-20), which `k2lean gen` writes once
-# and never overwrites.
+# whose right-hand side is shown defined or refuted by hand, SND-20), and open-step-cases.txt with
+# NS/StepPropHand.lean (the cases of a step property proved, or the property refuted, by hand,
+# INV-21), which `k2lean gen` writes once and never overwrites.
 /generated/*/*
 !/generated/*/open-obligations.txt
 !/generated/*/open-invariant-cases.txt
 !/generated/*/open-progress-cases.txt
 !/generated/*/open-defined-rules.txt
+!/generated/*/open-step-cases.txt
 !/generated/*/*/
 /generated/*/*/*
 !/generated/*/*/InvariantsHand.lean
 !/generated/*/*/DivergesHand.lean
 !/generated/*/*/ProgressHand.lean
 !/generated/*/*/DefinedHand.lean
+!/generated/*/*/StepPropHand.lean
 /generated/*/.lake/
 
 # What `k2lean relate` writes into the demos (demos/regen.sh and tests/gate.sh regenerate it).
@@ -113,6 +116,11 @@ lake-manifest.json
 /demos/JobsRmConf/confluence.toml
 /demos/JobsDropConf/JobsDropConf/
 /demos/JobsDropConf/confluence.toml
+/demos/JobsSubConf/JobsSubConf/
+/demos/JobsSubConf/confluence.toml
+/demos/UtxoRelConf/UtxoRelConf/Views.lean
+/demos/UtxoRelConf/UtxoRelConf/Slots.lean
+/demos/UtxoRelConf/confluence.toml
 /demos/TwoParamOkConf/TwoParamOkConf/Views.lean
 /demos/TwoParamOkConf/TwoParamOkConf/Slots.lean
 /demos/TwoParamOkConf/confluence.toml
@@ -173,6 +181,13 @@ lake-manifest.json
 /demos/ContractEnvNI/ContractEnvNI/Stack.lean
 /demos/ContractEnvNI/ContractEnvNI/Proof.lean
 /demos/ContractEnvNI/noninterference.toml
+/demos/ContractValsNI/ContractValsNI/Tr.lean
+/demos/ContractValsNI/ContractValsNI/NI.lean
+/demos/ContractValsNI/ContractValsNI/Spec.lean
+/demos/ContractValsNI/ContractValsNI/Levels.lean
+/demos/ContractValsNI/ContractValsNI/Stack.lean
+/demos/ContractValsNI/ContractValsNI/Proof.lean
+/demos/ContractValsNI/noninterference.toml
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean

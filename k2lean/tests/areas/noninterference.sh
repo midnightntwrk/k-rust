@@ -9,7 +9,9 @@
 # ContractObsNI: the fixture contract with a checker that releases nothing,
 # tests/contractsec-norelease.py, library contractsecnr; with a related store input beside the
 # disclosure cell, ContractEnvNI: the fixture contract with `<env> $ENV:Map </env>`,
-# tests/contract-env.py, library contractenv). Registry: noninterference.py.
+# tests/contract-env.py, library contractenv; with several sorts of values, ContractValsNI: the
+# fixture contract with `KResult ::= Int | Bool`, tests/contract-values.py, library contractvals).
+# Registry: noninterference.py.
 
 kore_noninterference() {
   case $1 in
@@ -43,6 +45,10 @@ kore_noninterference() {
     contract-env) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/contract-env.py" "$FIXTURES/contract/contract.k" "$2.src/contract.k" || return 2
       f=$2.src/contract.k m=CONTRACT s=CONTRACT-SYNTAX inc=$2.src ;;
+    # the fixture contract with its values two sorts below `KResult` (tests/contract-values.py)
+    contract-values) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/contract-values.py" "$FIXTURES/contract/contract.k" "$2.src/contract.k" || return 2
+      f=$2.src/contract.k m=CONTRACT s=CONTRACT-SYNTAX inc=$2.src ;;
     *) return 1 ;;
   esac
 }
@@ -59,6 +65,7 @@ name_noninterference() {
     impsecp) echo KImpSecP ;;
     contractsecnr) echo ContractSecNR ;;
     contractenv) echo ContractEnv ;;
+    contractvals) echo ContractVals ;;
     *) return 1 ;;
   esac
 }
@@ -95,6 +102,9 @@ gen_noninterference() {
     contractenv) GEN_ARGS=(--kore "$(kore_dir contract-env)/definition.kore" --runtime "$(kore_dir contract-env)/runtime.json"
             --out "$o" --name ContractEnv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant storeOk@env) ;;
+    contractvals) GEN_ARGS=(--kore "$(kore_dir contract-values)/definition.kore" --runtime "$(kore_dir contract-values)/runtime.json"
+            --out "$o" --name ContractVals --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant storeOk@env) ;;
     *) return 1 ;;
   esac
   return 0
@@ -113,6 +123,8 @@ relate_noninterference() {
     ContractObsNI) na=Contract ka=$(libs_fixture contract) nb=ContractSecNR kd=$(kore_dir contractsec-norelease)
       extra=(--roots "SortStmt,SortExpr") ;;
     ContractEnvNI) na=ContractEnv ka=$(kore_dir contract-env) nb=ContractSec kd=$(libs_fixture contractsec)
+      extra=(--roots "SortStmt,SortExpr") ;;
+    ContractValsNI) na=ContractVals ka=$(kore_dir contract-values) nb=ContractSec kd=$(libs_fixture contractsec)
       extra=(--roots "SortStmt,SortExpr") ;;
     *) return 1 ;;
   esac
@@ -181,6 +193,16 @@ libs_noninterference() {
         --checker-kore "$(libs_fixture contractsec)/definition.kore" --checker-name ContractSec \
         --lev lev --sec sec --conf conf --quiet quiet \
         --open "$DEMOS/ContractEnvNI/open.txt" --out-dir "$DEMOS/ContractEnvNI/ContractEnvNI" ;;
+    # several sorts of values (design.md, section 3.7): ContractNI's command over the fixture
+    # contract with `KResult ::= Int | Bool`
+    ContractValsNI) "$G" noninterference --kore "$(kore_dir contract-values)/definition.kore" --name ContractVals \
+        --ns ContractValsNI --store-cell env --program-sort SortStmt --params "(G : ContractSec.SortMap)" \
+        --store-ok storeOk --inputs "LEDGER=public,WIT=private" \
+        --observe "ledger,transcript" --disclosed disclosed \
+        --out "$DEMOS/ContractValsNI/ContractValsNI/NI.lean" --report "$DEMOS/ContractValsNI/noninterference.toml" \
+        --checker-kore "$(libs_fixture contractsec)/definition.kore" --checker-name ContractSec \
+        --lev lev --sec sec --conf conf --quiet quiet \
+        --open "$DEMOS/ContractValsNI/open.txt" --out-dir "$DEMOS/ContractValsNI/ContractValsNI" ;;
     *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -246,5 +268,14 @@ gate_noninterference() {
     rel ContractEnvNI
     scaffold noninterference-ContractEnvNI libs_noninterference ContractEnvNI
     dbuild ContractEnvNI
+  fi
+  # several sorts of values (section 3.7): the fixture contract with `KResult ::= Int | Bool`
+  # (tests/contract-values.py, library contractvals), the fixture checker contractsec
+  if runs demo ContractValsNI; then
+    phase "scaffold ContractValsNI"
+    kc contract-values && partlib contractvals ContractVals && partlib contractsec ContractSec.Functions
+    rel ContractValsNI
+    scaffold noninterference-ContractValsNI libs_noninterference ContractValsNI
+    dbuild ContractValsNI
   fi
 }

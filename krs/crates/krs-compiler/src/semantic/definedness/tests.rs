@@ -279,3 +279,48 @@ fn a_let_s_names_are_tested_inside_it_or_through_its_value() {
         "{refused}"
     );
 }
+
+/// A `k::matches!` over a projection is stated on the projection's operand after its test, also
+/// below a negation and where an earlier conjunct states the test; a projection below a function
+/// in the subject keeps its place.
+#[test]
+fn a_match_over_a_projection_is_stated_on_its_operand() {
+    let matches = |subject: SemanticTerm| {
+        SemanticTerm::matches(
+            origin("matches"),
+            sort(BuiltinSort::Bool),
+            subject,
+            lit("1"),
+            Vec::new(),
+        )
+    };
+    expect_test::expect!["(isInt(A) andThenBool (1 :=K A))"]
+        .assert_eq(&guarded(matches(project("A"))).unwrap());
+    expect_test::expect!["(isInt(A) andThenBool (notBool (1 :=K A)))"].assert_eq(
+        &guarded(boolean(
+            BuiltinOperation::BoolNot,
+            vec![matches(project("A"))],
+        ))
+        .unwrap(),
+    );
+    let tested = SemanticTerm::application(
+        origin("is"),
+        sort(BuiltinSort::Bool),
+        ApplicationRef::Generated(GeneratedOperation::SortPredicate(sort(BuiltinSort::Int))),
+        vec![var("A", k_item())],
+    );
+    expect_test::expect!["(isInt(A) andThenBool (1 :=K A))"].assert_eq(
+        &guarded(boolean(
+            BuiltinOperation::BoolAndThen,
+            vec![tested, matches(project("A"))],
+        ))
+        .unwrap(),
+    );
+    let sum = apply(
+        BuiltinOperation::IntAdd,
+        sort(BuiltinSort::Int),
+        vec![project("A"), lit("1")],
+    );
+    expect_test::expect!["(isInt(A) andThenBool (1 :=K ({A}:>Int +Int 1)))"]
+        .assert_eq(&guarded(matches(sum)).unwrap());
+}

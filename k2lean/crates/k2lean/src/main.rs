@@ -43,6 +43,7 @@ mod render;
 mod rulename;
 mod rules;
 mod soundness;
+mod stepprop;
 mod survey;
 mod template;
 mod termination;
@@ -378,6 +379,19 @@ fn main() {
             });
             if let Some(f) = &measure_sym {
                 roots.insert(f.clone());
+            }
+            // the step property (`stepprop.rs`): its function is generated too
+            let step_spec: Option<invariants::Spec> = a
+                .rest
+                .iter()
+                .position(|x| x == "--step-property")
+                .map(|i| invariants::parse_spec(&a.rest[i + 1]));
+            if let Some(s) = &step_spec {
+                roots.insert(
+                    invariants::resolve(&def, &s.name).unwrap_or_else(|e| {
+                        panic!("{}", e.replace("--invariant", "--step-property"))
+                    }),
+                );
             }
             // no stuck states (`progress.rs`): the ending's function is generated too
             let progress_on = a.rest.iter().any(|x| x == "--progress");
@@ -954,6 +968,64 @@ fn main() {
                     }
                     eprintln!(
                         "measure: {} open cases",
+                        o.open_list
+                            .lines()
+                            .filter(|l| invariants::case_token(l).is_some())
+                            .count()
+                    );
+                }
+            }
+            // the step property: `StepPropDefs.lean`, `StepProp.lean`, `open-step-cases.txt`
+            match &step_spec {
+                None => {
+                    for f in ["StepPropDefs.lean", "StepProp.lean"] {
+                        stepprop::remove_generated(&out.join(ns).join(f));
+                    }
+                }
+                Some(spec) => {
+                    let open_path = match a.rest.iter().position(|x| x == "--open-step-cases") {
+                        Some(i) => PathBuf::from(&a.rest[i + 1]),
+                        None => out.join("open-step-cases.txt"),
+                    };
+                    let open_cases = invariants::read_open(&open_path);
+                    let stated_names: std::collections::BTreeSet<String> =
+                        stated.iter().map(|s| s.name.clone()).collect();
+                    let hand = out.join(ns).join("StepPropHand.lean");
+                    let cx = invariants::Ctx {
+                        def: &def,
+                        m: &m,
+                        fns: &fgen.fns,
+                        eqs: &eqs,
+                        stated: &stated_names,
+                        open_eqns: &open,
+                        recursive: &fgen.recursive,
+                        defs: &fgen.unfold,
+                        ctors: &pctors,
+                        top: &top,
+                        ns,
+                        init: None,
+                    };
+                    let trans = a.rest.iter().any(|x| x == "--step-property-trans");
+                    let o = stepprop::emit(&cx, spec, &stated, &open_cases, hand.exists(), trans)
+                        .unwrap_or_else(|e| panic!("step property: {e}"));
+                    write(
+                        &out.join(ns).join("StepPropDefs.lean"),
+                        &with_hooks(o.defs.clone(), ns, &fgen.params),
+                    );
+                    write(
+                        &out.join(ns).join("StepProp.lean"),
+                        &with_hooks(o.theorems.clone(), ns, &fgen.params),
+                    );
+                    write(&open_path, &o.open_list);
+                    if let Some(sk) = &o.hand_skeleton {
+                        write(&hand, sk);
+                        eprintln!(
+                            "note: wrote the hand-proof skeleton {} (it is never overwritten)",
+                            hand.display()
+                        );
+                    }
+                    eprintln!(
+                        "step property: {} open cases",
                         o.open_list
                             .lines()
                             .filter(|l| invariants::case_token(l).is_some())

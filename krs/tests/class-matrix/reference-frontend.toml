@@ -1,0 +1,14 @@
+# The known refusals of the reference frontend (Java K's kompile) over the K text the class matrix
+# emits: `scripts/krs-class-reference-frontend.sh` reads this file. One table per case ID, the
+# case refused when its definition is kompiled alone:
+#
+#    ["terms/rule/result/matches-subject/k::project!(Int, x)"]
+#    finding = "NT-42-1"
+#    refusal = "a fragment of the frontend's first `[Error]` line"
+#
+# - `finding`: a table of `findings.toml`, which says what is wrong and who owns it.
+# - `refusal`: text the frontend's first `[Error]` line contains.
+#
+# A refusal is evidence about the K text, to reason about from what the sentence means; it is not a
+# rule. The pins make each one owned: the script fails on a refusal no pin lists and on a pinned
+# case the frontend now accepts, so a fix removes its pin.

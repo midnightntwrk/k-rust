@@ -11,8 +11,9 @@ use k_rust::{
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, check_final_state,
-    config_variables, log_lines, one_path, result_sort_hooks, search_backend, term,
+    ConfigVariable, ExecError, Halt, OnePath, PathError, SearchMode, SearchOptions,
+    check_final_state, config_variables, log_lines, one_path, result_sort_hooks, search_backend,
+    term, valueless,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -109,20 +110,33 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
     let mut backend = branching_backend();
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.strategy = ExecutionStrategy::Any;
-    let end = one_path(backend.execute(request).unwrap().leaves).unwrap();
+    let end = one_path(backend.execute(request).unwrap().leaves, &Named::default())
+        .unwrap()
+        .leaf;
     assert_eq!(end.reason, HaltReasonOutput::Stuck);
-    check_final_state(&mut backend, &end.state, "the run ended stuck").unwrap();
+    check_final_state(
+        &mut backend,
+        &Named::default(),
+        &end.state,
+        "the run ended stuck",
+    )
+    .unwrap();
 
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.max_depth = Some(0);
-    let start = one_path(backend.execute(request).unwrap().leaves).unwrap();
+    let start = one_path(backend.execute(request).unwrap().leaves, &Named::default())
+        .unwrap()
+        .leaf;
     let reported = ExecutionLeaf {
         reason: HaltReasonOutput::Stuck,
         ..start
     };
-    let Err(ExecError::Result(message)) =
-        check_final_state(&mut backend, &reported.state, "the run ended stuck")
-    else {
+    let Err(ExecError::Result(message)) = check_final_state(
+        &mut backend,
+        &Named::default(),
+        &reported.state,
+        "the run ended stuck",
+    ) else {
         panic!("a state two rules leave is no stuck end");
     };
     assert!(
@@ -429,27 +443,41 @@ fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
         [HaltReasonOutput::Stuck, HaltReasonOutput::Trivial]
     );
 
-    let leaf = one_path(split).unwrap();
-    assert_eq!(Halt::from_backend(leaf.reason), Halt::Stuck);
-    assert_eq!(leaf.depth, 1);
+    let path = one_path(split.clone(), &Named::default()).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(path.leaf.depth, 1);
     assert_eq!(
-        term(&leaf.state, &hooks).unwrap().kore().to_string(),
+        term(&path.leaf.state, &hooks).unwrap().kore().to_string(),
         "wrap{}(undef{}())"
     );
+    assert!(path.valueless.is_empty());
+
+    // `undef` is partial and has no equation, so `undef()` has no value, and neither has the
+    // state that holds it: the run is undefined there, and names the term.
+    let path = one_path(split, &Named::partial(&["undef"])).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.leaf.depth, 1);
+    assert_eq!(path.valueless, [pattern("undef{}()")]);
 }
 
 #[test]
 fn a_run_is_undefined_only_when_every_leaf_is() {
     let mut backend = partial_backend();
-    let leaf = one_path(leaves(&mut backend, "empty{}()", ExecutionStrategy::Any)).unwrap();
+    let leaf = one_path(
+        leaves(&mut backend, "empty{}()", ExecutionStrategy::Any),
+        &Named::default(),
+    )
+    .unwrap()
+    .leaf;
     assert_eq!(Halt::from_backend(leaf.reason), Halt::Undefined);
 
+    // Two leaves under no condition break a run's contract: the internal error stays.
     let mut backend = branching_backend();
-    let error = one_path(leaves(&mut backend, "initial{}()", ExecutionStrategy::All)).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "a run must end in exactly one state; the backend returned 2 defined states"
+    let error = one_path(
+        leaves(&mut backend, "initial{}()", ExecutionStrategy::All),
+        &Named::default(),
     );
+    assert!(matches!(error, Err(PathError::Several(2))), "{error:?}");
 }
 
 #[test]
@@ -532,4 +560,215 @@ endmodule
         json["leaves"][0]["contradicted_total"]["undefined"]["format"],
         "KAST"
     );
+}
+
+/// Heads named by hand: the partial functions defined by their equations alone, and the data.
+#[derive(Default)]
+struct Named {
+    partial: Vec<&'static str>,
+}
+
+impl Named {
+    fn partial(partial: &[&'static str]) -> Self {
+        Self {
+            partial: partial.to_vec(),
+        }
+    }
+}
+
+impl valueless::Heads for Named {
+    fn is_equational_partial(&self, symbol: &str) -> bool {
+        self.partial.contains(&symbol)
+    }
+
+    fn is_data(&self, symbol: &str) -> bool {
+        matches!(
+            symbol,
+            "inj" | "flag" | "done" | "test" | "acc" | "state" | "go"
+        )
+    }
+}
+
+fn pattern(text: &str) -> k_rust::kore::ast::Pattern {
+    parse_pattern(text).unwrap()
+}
+
+/// A defined leaf at `depth` holding `state`, from a run of the partial backend.
+fn leaf(state: &str, depth: u64) -> ExecutionLeaf {
+    let mut backend = partial_backend();
+    let mut leaf = leaves(&mut backend, "initial{}()", ExecutionStrategy::Any)
+        .into_iter()
+        .find(|leaf| leaf.reason == HaltReasonOutput::Stuck)
+        .expect("a stuck leaf");
+    leaf.state = k_rust::kore::json::to_value(&pattern(state)).unwrap();
+    leaf.depth = depth;
+    leaf.trace.clear();
+    leaf
+}
+
+fn state(path: &OnePath) -> String {
+    super::kore_pattern(&path.leaf.state).unwrap().to_string()
+}
+
+const F_TRUE: &str = r#"f{}(\dv{SortBool{}}("true"))"#;
+
+/// The two leaves the backend returns where a rule's condition reads `f(true)`, the application
+/// of a partial function defined by its equations alone, none of which applies at `true`
+/// (finding NT-37-2): the rule applied where `f(true)` is defined and `true`, and the state left
+/// where it is not `true`.
+fn split_over(term: &str, held: &str) -> Vec<ExecutionLeaf> {
+    vec![
+        leaf(
+            &format!(
+                r#"\and{{SortState{{}}}}(done{{}}(), \ceil{{SortBool{{}}, SortState{{}}}}({term}), \equals{{SortBool{{}}, SortState{{}}}}(\dv{{SortBool{{}}}}("true"), {term}))"#
+            ),
+            1,
+        ),
+        leaf(
+            &format!(
+                r#"\and{{SortState{{}}}}({held}, \not{{SortState{{}}}}(\equals{{SortBool{{}}, SortState{{}}}}(\dv{{SortBool{{}}}}("true"), {term})))"#
+            ),
+            0,
+        ),
+    ]
+}
+
+/// A condition over a term with no value does not hold: the leaf where it holds is no state, and
+/// the state the other leaf is holds the term, so it has none; the run is undefined there, with
+/// any number of leaves (finding NT-42-2: one leaf).
+#[test]
+fn a_state_holding_a_term_with_no_value_has_none() {
+    let heads = Named::partial(&["f"]);
+    let held = format!("flag{{}}({F_TRUE})");
+    let path = one_path(split_over(F_TRUE, &held), &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.leaf.depth, 0);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+    // The condition the reading decided holds: the state is its configuration.
+    assert_eq!(state(&path), held);
+
+    let path = one_path(vec![leaf(&held, 0)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+
+    // A state whose condition gives the term a value is no state: alone, the run is undefined.
+    let applied = split_over(F_TRUE, &held).remove(0);
+    let path = one_path(vec![applied], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+}
+
+/// Where the condition built the term with no value and the state does not hold it, the rule
+/// whose condition read it did not apply: the run ends as the other leaf does, naming the term.
+#[test]
+fn a_condition_over_a_term_with_no_value_does_not_hold() {
+    let heads = Named::partial(&["f"]);
+    let path = one_path(split_over(F_TRUE, "go{}()"), &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(path.leaf.depth, 0);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+    assert_eq!(state(&path), "go{}()");
+}
+
+/// A term the backend left unevaluated that may have a value is no witness: a symbolic value
+/// (an existential's `?V`), or a function that is not partial (`total`) or is hooked. A split
+/// over it is the definition's, and the run names it rather than choosing a state.
+#[test]
+fn a_split_over_a_term_that_may_have_a_value_is_undecided() {
+    let symbolic = r"VarV:SortInt{}";
+    for (term, heads) in [
+        (symbolic, Named::partial(&["f"])),
+        (r#"opaque{}(\dv{SortInt{}}("1"))"#, Named::partial(&["f"])),
+        // `f` applied to a symbolic argument: its equations' matching is not decided.
+        (r"f{}(VarV:SortInt{})", Named::partial(&["f"])),
+    ] {
+        let held = format!("test{{}}({term})");
+        let Err(PathError::Undecided { states, over }) = one_path(split_over(term, &held), &heads)
+        else {
+            panic!("a split over `{term}` is no one path");
+        };
+        assert_eq!(states, 2);
+        assert_eq!(over, [pattern(term)]);
+    }
+    let error = one_path(split_over(symbolic, "test{}()"), &Named::default());
+    assert!(matches!(error, Err(PathError::Undecided { .. })));
+}
+
+/// Where the leaves that are no state leave one whose condition the reading does not decide,
+/// that leaf is the path, and its state keeps its condition.
+#[test]
+fn a_kept_leaf_keeps_the_condition_the_reading_does_not_decide() {
+    let heads = Named::partial(&["f"]);
+    let mut leaves = split_over(F_TRUE, "go{}()");
+    let open = format!(
+        r#"\and{{SortState{{}}}}(go{{}}(), \not{{SortState{{}}}}(\equals{{SortBool{{}}, SortState{{}}}}(\dv{{SortBool{{}}}}("true"), {F_TRUE})), \equals{{SortInt{{}}, SortState{{}}}}(VarV:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
+    );
+    leaves[1] = leaf(&open, 0);
+    let path = one_path(leaves, &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(state(&path), pattern(&open).to_string());
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+
+    // One leaf whose condition reads a term with a value the backend left (`#Ceil(b ; c)` under
+    // a withdrawn equation head) is printed as it is.
+    let residual =
+        r"\and{SortState{}}(go{}(), \ceil{SortState{}, SortState{}}(seq{}(go{}(), go{}())))";
+    let path = one_path(vec![leaf(residual, 1)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(state(&path), pattern(residual).to_string());
+    assert!(path.valueless.is_empty());
+}
+
+/// The backend states a projection's definedness as `#Exists V . {t #Equals V}`, a predicate: a
+/// term with no value has no value `V` is equal to, so the condition does not hold where `t`
+/// holds one, and the state is its configuration. Read so, the state's configuration is read
+/// too, so a term with no value beside a projection whose operand may have one (`opaque(1)`) is
+/// found there (`prj(noval(red))`, `duo(prj(opq(1)), size(red))`, `alias_clauses`).
+#[test]
+fn a_projection_s_definedness_is_a_condition_read_as_any_other() {
+    let heads = Named::partial(&["f"]);
+    let defined = |term: &str| {
+        format!(
+            r"\exists{{SortState{{}}}}(VarK:SortInt{{}}, \equals{{SortInt{{}}, SortState{{}}}}({term}, VarK:SortInt{{}}))"
+        )
+    };
+    let projected = format!("test{{}}(project{{}}({F_TRUE}))");
+    let path = one_path(
+        vec![leaf(
+            &format!(r"\and{{SortState{{}}}}({projected}, {})", defined(F_TRUE)),
+            0,
+        )],
+        &heads,
+    )
+    .unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+    assert_eq!(state(&path), projected);
+
+    let opaque = r#"opaque{}(\dv{SortInt{}}("1"))"#;
+    let beside = format!(
+        r"\and{{SortState{{}}}}(test{{}}(project{{}}({opaque}), {F_TRUE}), {})",
+        defined(opaque)
+    );
+    let path = one_path(vec![leaf(&beside, 0)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+
+    // Alone, the projection of a term that may have a value is a state, its condition printed.
+    let open = format!(
+        r"\and{{SortState{{}}}}(test{{}}(project{{}}({opaque})), {})",
+        defined(opaque)
+    );
+    let path = one_path(vec![leaf(&open, 0)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(state(&path), pattern(&open).to_string());
+    assert!(path.valueless.is_empty());
+    // Two such leaves are undecided over the operand, not over the bound `V`.
+    let Err(PathError::Undecided { over, .. }) = one_path(
+        vec![leaf(&open, 0), leaf(&open.replace("test{}(", "go{}("), 0)],
+        &heads,
+    ) else {
+        panic!("two leaves over `opaque(1)` are no one path");
+    };
+    assert_eq!(over, [pattern(opaque)]);
 }

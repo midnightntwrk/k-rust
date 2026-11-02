@@ -2018,6 +2018,24 @@ module RACELOG
     right{}(),
     terminals{}("1101")
   ]
+  symbol LblaccUp'LParUndsCommUndsRParUnds'RACELOG'Unds'Bool'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortBool{}
+  [
+    format{}("%caccUp%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/racelog/racelog.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),

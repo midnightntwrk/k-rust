@@ -19,11 +19,13 @@ mod cell_types;
 mod claims;
 mod configuration;
 mod console;
+mod decided;
 mod origin;
 mod read_back;
 mod report;
 mod reversal;
 mod stage;
+mod valueless;
 mod values;
 mod view;
 
@@ -345,6 +347,9 @@ pub enum ExecError {
     Unavailable(String),
     /// The backend returned a result KRS cannot read.
     Result(String),
+    /// A run reaches several states under conditions over terms that may have values, which it
+    /// cannot decide ([`one_path`]); the message names them.
+    Undecided(String),
     /// A configuration value that is no term of the definition, or not of its variable's sort.
     Value {
         /// The variable, without `$`.
@@ -361,7 +366,10 @@ impl fmt::Display for ExecError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Compile(error) => error.fmt(formatter),
-            Self::Backend(message) | Self::Unavailable(message) | Self::Result(message) => {
+            Self::Backend(message)
+            | Self::Unavailable(message)
+            | Self::Result(message)
+            | Self::Undecided(message) => {
                 formatter.write_str(message)
             }
             Self::StrayProgram => formatter
@@ -1143,7 +1151,9 @@ impl Semantics {
     ///
     /// # Errors
     ///
-    /// Returns [`ExecError::Backend`] when the backend fails, or [`ExecError::Result`] when more than one leaf has a defined state.
+    /// Returns [`ExecError::Backend`] when the backend fails, [`ExecError::Undecided`] when the run
+    /// reaches several states under conditions it cannot decide, or [`ExecError::Result`] when the
+    /// backend returns several states under no condition, or none.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
         let mut request = ExecuteRequest::new(state.0.clone());
         request.strategy = ExecutionStrategy::Any;
@@ -1151,12 +1161,37 @@ impl Semantics {
         let ExecutionResult {
             leaves,
             implementation_chosen_values,
+            unsupported_hooks,
             ..
         } = self.backend.execute(request)?;
-        let leaf = one_path(leaves)?;
-        if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
-            check_final_state(&mut self.backend, &leaf.state, "the run ended stuck")?;
+        // A hook the backend left unevaluated may leave an equation's condition open, so no
+        // application is decided to have no value ([`decided`]).
+        let decides = unsupported_hooks.is_empty();
+        let path = one_path(leaves, self.heads(decides));
+        let OnePath {
+            mut leaf,
+            valueless,
+            held,
+        } = match path {
+            Ok(path) => path,
+            Err(error) => return Err(self.path_error(error)),
+        };
+        if held && leaf.depth > 0 {
+            leaf = self.before_valueless(state, leaf, decides)?;
         }
+        if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
+            // The definition's heads, borrowed beside the backend ([`Self::heads`]).
+            let heads: &dyn valueless::Heads = if decides {
+                self.values.as_ref()
+            } else {
+                &valueless::Undecided
+            };
+            check_final_state(&mut self.backend, heads, &leaf.state, "the run ended stuck")?;
+        }
+        let valueless = valueless
+            .into_iter()
+            .map(|kore| self.term(kore))
+            .collect::<Result<Vec<_>, _>>()?;
         let trace = if options.trace {
             self.steps(&leaf.trace)
         } else {
@@ -1183,7 +1218,86 @@ impl Semantics {
             exit_code,
             log: log_lines(&leaf.effects),
             implementation_chosen_values,
+            valueless,
         })
+    }
+
+    /// The heads a run's reading asks about ([`valueless::Heads`]): the definition's, or, where
+    /// `decides` is false, heads of which no application is decided to have no value.
+    fn heads(&self, decides: bool) -> &dyn valueless::Heads {
+        if decides {
+            self.values.as_ref()
+        } else {
+            &valueless::Undecided
+        }
+    }
+
+    /// The end of a run whose path reached, after `leaf.depth` steps, a state with no value
+    /// ([`one_path`]): the step into it reached no state, so the run is undefined after the
+    /// steps before it, at the last state with a value, as where the backend finds a step's
+    /// result undefined. The run is followed again to each earlier depth until a state with a
+    /// value is found, or the first state, which then has none.
+    fn before_valueless(
+        &mut self,
+        state: &State,
+        mut leaf: ExecutionLeaf,
+        decides: bool,
+    ) -> Result<ExecutionLeaf, ExecError> {
+        let mut depth = leaf.depth;
+        while depth > 0 {
+            depth -= 1;
+            let mut request = ExecuteRequest::new(state.0.clone());
+            request.strategy = ExecutionStrategy::Any;
+            request.max_depth = Some(depth);
+            let leaves = self.backend.execute(request)?.leaves;
+            let earlier = match one_path(leaves, self.heads(decides)) {
+                Ok(earlier) => earlier,
+                Err(error) => return Err(self.path_error(error)),
+            };
+            let mut earlier_leaf = earlier.leaf;
+            earlier_leaf.reason = HaltReasonOutput::Vacuous;
+            leaf = earlier_leaf;
+            if !earlier.held {
+                break;
+            }
+        }
+        Ok(leaf)
+    }
+
+    /// The error of a run whose leaves are no one path ([`one_path`]).
+    fn path_error(&self, error: PathError) -> ExecError {
+        match error {
+            PathError::None => ExecError::Result(
+                "a run must end in exactly one state; the backend returned none".to_owned(),
+            ),
+            PathError::Several(states) => ExecError::Result(format!(
+                "a run must end in exactly one state; the backend returned {states} defined states"
+            )),
+            PathError::Unread(error) => error,
+            PathError::Undecided { states, over } => {
+                let terms = over
+                    .into_iter()
+                    .map(|kore| {
+                        let symbolic = valueless::is_symbolic(&kore);
+                        let printed = self.term(kore).map_or_else(
+                            |error| format!("a term that does not print ({error})"),
+                            |term| format!("`{}`", self.unparse(&term, false).text.trim()),
+                        );
+                        if symbolic {
+                            format!("{printed}, which holds a value the run has not fixed")
+                        } else {
+                            format!(
+                                "{printed}, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition"
+                            )
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                ExecError::Undecided(format!(
+                    "the run reaches {states} states, under conditions over {}; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition",
+                    terms.join(" and ")
+                ))
+            }
+        }
     }
 
     /// A run or search result with each binary32 and binary64 Float as `krun` prints it in every
@@ -1229,6 +1343,7 @@ impl Semantics {
                 if options.depth.is_none_or(|bound| solution.depth < bound) {
                     check_final_state(
                         &mut self.backend,
+                        &valueless::Undecided,
                         &solution.state,
                         "the search found a final state",
                     )?;
@@ -1651,8 +1766,16 @@ fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
 /// trying every rule, must take none and give back that state: a step, a successor, or another
 /// state means the report states what does not hold of the state. The cost is one
 /// simplification and one rule attempt per state checked.
+///
+/// The step's leaves are read with `heads` as a run reads its own ([`one_path`]): a rule whose
+/// condition reads a term with no value does not apply, so the leaf where the backend took it
+/// under that condition is no state, and the leaf where it did not is the state, its
+/// configuration where the reading decided its condition holds. A run reads with the
+/// definition's heads; a search, which prints the backend's states with their conditions, with
+/// [`valueless::Undecided`], under which every leaf is read as returned.
 fn check_final_state(
     backend: &mut Backend,
+    heads: &dyn valueless::Heads,
     state: &serde_json::Value,
     what: &str,
 ) -> Result<(), ExecError> {
@@ -1664,9 +1787,27 @@ fn check_final_state(
     request.strategy = ExecutionStrategy::All;
     request.max_depth = Some(1);
     let again = backend.execute(request)?.leaves;
+    let mut states = Vec::new();
+    for end in &again {
+        let pattern = kore_pattern(&end.state)?;
+        let split = valueless::split(&pattern);
+        let mut read = Vec::new();
+        match valueless::read(&split.predicates, heads, &mut read) {
+            valueless::Reading::Fails => {}
+            reading => {
+                let decided = reading == valueless::Reading::Holds && !read.is_empty();
+                let reached = match split.configuration {
+                    Some(configuration) if decided => kore_json::to_value(configuration)
+                        .map_err(|error| ExecError::Result(error.to_string()))?,
+                    _ => end.state.clone(),
+                };
+                states.push((end, reached));
+            }
+        }
+    }
     let holds = matches!(
-        again.as_slice(),
-        [end] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && end.state == *state
+        states.as_slice(),
+        [(end, reached)] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && reached == state
     );
     if holds {
         return Ok(());
@@ -1695,7 +1836,25 @@ fn check_ends() -> bool {
 /// definedness and such an undefined leaf beside it; their disjunction is the defined leaf alone,
 /// so that leaf is the path.
 /// The run is undefined only when every leaf is.
-fn one_path(leaves: Vec<ExecutionLeaf>) -> Result<ExecutionLeaf, ExecError> {
+///
+/// A defined leaf's condition and configuration are read with every term [`valueless`] shows has
+/// no value (a ground application of a partial function defined by its equations alone, each
+/// decided at values ([`decided`]), which the backend left unevaluated):
+/// - A leaf whose condition gives such a term a value denotes no state: where the backend split
+///   a step on a rule's condition over it, the leaf where the condition holds is no state, and
+///   the leaf where it does not is the path, its condition printed where it holds a term the
+///   reading does not decide. Where every leaf is no state, the run is undefined at the first.
+/// - A path whose configuration holds such a term has no value: the run is undefined there
+///   (`Semantics::run` reports it at the last state with a value, `Semantics::before_valueless`).
+///   Otherwise, where its condition read one, the rule whose condition read it did not apply,
+///   and the run ends as the leaf does.
+///
+/// Either way the path names the terms with no value. Several leaves that remain are a split
+/// over terms that may have values, which the run does not decide ([`PathError::Undecided`]).
+fn one_path(
+    leaves: Vec<ExecutionLeaf>,
+    heads: &dyn valueless::Heads,
+) -> Result<OnePath, PathError> {
     let (undefined, defined): (Vec<_>, Vec<_>) = leaves.into_iter().partition(|leaf| {
         matches!(
             leaf.reason,
@@ -1703,20 +1862,127 @@ fn one_path(leaves: Vec<ExecutionLeaf>) -> Result<ExecutionLeaf, ExecError> {
         )
     });
     if defined.is_empty() {
-        return undefined.into_iter().next().ok_or_else(|| {
-            ExecError::Result(
-                "a run must end in exactly one state; the backend returned none".to_owned(),
-            )
+        return undefined
+            .into_iter()
+            .next()
+            .map(|leaf| OnePath {
+                leaf,
+                valueless: Vec::new(),
+                held: false,
+            })
+            .ok_or(PathError::None);
+    }
+    let several = defined.len();
+    let mut kept = Vec::new();
+    let mut failed = None;
+    let mut over = Vec::<Pattern>::new();
+    for leaf in defined {
+        let state = kore_pattern(&leaf.state).map_err(PathError::Unread)?;
+        let split = valueless::split(&state);
+        let mut read = Vec::new();
+        let reading = valueless::read(&split.predicates, heads, &mut read);
+        let read = read.into_iter().cloned().collect::<Vec<_>>();
+        let configuration = split.configuration.cloned();
+        match reading {
+            valueless::Reading::Fails => {
+                if failed.is_none() {
+                    failed = Some((leaf, configuration, read));
+                }
+            }
+            valueless::Reading::Holds => kept.push((leaf, configuration, read, true)),
+            valueless::Reading::Open { over: open } => {
+                for term in open {
+                    if !over.contains(term) {
+                        over.push(term.clone());
+                    }
+                }
+                kept.push((leaf, configuration, read, false));
+            }
+        }
+    }
+    let (mut leaf, configuration, read, holds) = match <[_; 1]>::try_from(kept) {
+        Ok([kept]) => kept,
+        Err(kept) if kept.is_empty() => {
+            // Every leaf gives a term with no value a value: the step has no state.
+            let (mut leaf, configuration, read) = failed.expect("a defined leaf");
+            if let Some(configuration) = configuration {
+                leaf.state = kore_json::to_value(&configuration)
+                    .map_err(|error| PathError::Unread(ExecError::Result(error.to_string())))?;
+            }
+            leaf.reason = HaltReasonOutput::Vacuous;
+            return Ok(OnePath {
+                leaf,
+                valueless: read,
+                held: true,
+            });
+        }
+        Err(kept) if over.is_empty() => {
+            return Err(PathError::Several(kept.len().max(several)));
+        }
+        Err(kept) => {
+            return Err(PathError::Undecided {
+                states: kept.len(),
+                over,
+            });
+        }
+    };
+    // A condition the reading decided holds is the state's: the state is its configuration.
+    if holds
+        && !read.is_empty()
+        && let Some(configuration) = &configuration
+    {
+        leaf.state = kore_json::to_value(configuration)
+            .map_err(|error| PathError::Unread(ExecError::Result(error.to_string())))?;
+    }
+    let mut held = Vec::new();
+    if let Some(configuration) = &configuration {
+        valueless::witnesses(configuration, heads, &mut held);
+    }
+    if held.is_empty() {
+        return Ok(OnePath {
+            leaf,
+            valueless: read,
+            held: false,
         });
     }
-    <[_; 1]>::try_from(defined)
-        .map(|[leaf]| leaf)
-        .map_err(|defined: Vec<_>| {
-            ExecError::Result(format!(
-                "a run must end in exactly one state; the backend returned {} defined states",
-                defined.len()
-            ))
-        })
+    let held = held.into_iter().cloned().collect();
+    leaf.reason = HaltReasonOutput::Vacuous;
+    Ok(OnePath {
+        leaf,
+        valueless: held,
+        held: true,
+    })
+}
+
+/// The path of a one-path run ([`one_path`]): its leaf, and the terms with no value it holds
+/// or its condition read.
+#[derive(Debug)]
+struct OnePath {
+    leaf: ExecutionLeaf,
+    valueless: Vec<Pattern>,
+    /// Whether the leaf's state has no value: it holds such a term, or its condition gives one a
+    /// value; the run is then undefined.
+    held: bool,
+}
+
+/// Why a run's leaves are no one path ([`one_path`]).
+#[derive(Debug)]
+enum PathError {
+    /// The backend returned no leaf.
+    None,
+    /// Several leaves under conditions that read no term: the backend broke a run's contract.
+    Several(usize),
+    /// `states` leaves remain under conditions over the terms `over`, which may have values.
+    Undecided { states: usize, over: Vec<Pattern> },
+    /// A leaf's state is no KORE pattern.
+    Unread(ExecError),
+}
+
+/// The KORE pattern of a backend result's JSON.
+fn kore_pattern(value: &serde_json::Value) -> Result<Pattern, ExecError> {
+    let source =
+        serde_json::to_string(value).map_err(|error| ExecError::Result(error.to_string()))?;
+    kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))
 }
 
 fn search_backend(

@@ -20,8 +20,10 @@ use std::sync::{Arc, OnceLock};
 
 use k_rust::{
     k_rust_backend::{
-        builtin::canonical_float_text, data_term::DataHeads, definition::BackendDefinition,
-        term::HeadRole,
+        builtin::canonical_float_text,
+        data_term::DataHeads,
+        definition::BackendDefinition,
+        term::{FunctionType, HeadRole, SymbolType},
     },
     kast::{Label, Sort as KastSort, Term as KastTerm, convert::Converter},
     kompile::{encode_kore_label, encode_kore_sort},
@@ -577,6 +579,12 @@ pub(crate) struct CellNode {
 struct BackendSymbols {
     known: HashSet<String>,
     free_constructors: HashSet<String>,
+    /// The partial functions whose definition is their equations alone: declared `function`,
+    /// not `total`, with no hook, `smt-hook` or `smtlib`, and evaluated by the definition's
+    /// equations, each of which is decided at values ([`crate::decided`], [`crate::valueless`]).
+    equational_partial: HashSet<String>,
+    /// The builtin collections' unit, element and concatenation symbols.
+    collection_builders: HashSet<String>,
     /// The constructors an `anywhere` rule rewrites: the backend evaluates their applications
     /// as a function's, so one is a value of its constructor only where it is data
     /// ([`EquationHeadData`]).
@@ -591,6 +599,8 @@ impl BackendSymbols {
     fn scan(backend: &BackendDefinition) -> Self {
         let mut known = HashSet::new();
         let mut free_constructors = HashSet::new();
+        let mut equational_partial = HashSet::new();
+        let mut collection_builders = HashSet::new();
         let mut equation_heads = HashSet::new();
         let mut result_sorts = HashMap::new();
         let mut collections = HashMap::new();
@@ -605,7 +615,19 @@ impl BackendSymbols {
                 HeadRole::EquationHead => {
                     equation_heads.insert(name.clone());
                 }
+                HeadRole::Function { declared: true, .. }
+                    if symbol.attributes.symbol_type
+                        == SymbolType::Function(FunctionType::Partial)
+                        && symbol.attributes.hook.is_none()
+                        && symbol.attributes.smt.is_none()
+                        && symbol.attributes.has_evaluators =>
+                {
+                    equational_partial.insert(name.clone());
+                }
                 HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {}
+            }
+            if symbol.attributes.collection.is_some() {
+                collection_builders.insert(name.clone());
             }
             if let k_rust::k_rust_backend::term::SortNode::Application {
                 name: sort,
@@ -657,9 +679,12 @@ impl BackendSymbols {
                 *target = Some(name);
             }
         }
+        let equational_partial = crate::decided::decided_at_values(backend, &equational_partial);
         Self {
             known,
             free_constructors,
+            equational_partial,
+            collection_builders,
             equation_heads,
             result_sorts,
             collections,
@@ -682,6 +707,8 @@ pub struct ValueIndex {
     kast_sort_hooks: HashMap<String, String>,
     known_symbols: HashSet<String>,
     free_constructors: HashSet<String>,
+    equational_partial: HashSet<String>,
+    collection_builders: HashSet<String>,
     equation_heads: HashSet<String>,
     equation_head_data: EquationHeadData,
     result_sorts: HashMap<String, String>,
@@ -758,6 +785,18 @@ fn decl_of(symbol: &SymbolIdentity) -> Option<Decl> {
         .map(|path| Decl(Arc::from(path.to_string())))
 }
 
+impl crate::valueless::Heads for ValueIndex {
+    fn is_equational_partial(&self, symbol: &str) -> bool {
+        self.equational_partial.contains(symbol)
+    }
+
+    fn is_data(&self, symbol: &str) -> bool {
+        symbol == WellKnownSymbol::Inj.as_str()
+            || self.free_constructors.contains(symbol)
+            || self.collection_builders.contains(symbol)
+    }
+}
+
 impl ValueIndex {
     /// Index the KRS declarations of `definition` against the backend's view of its compiled KORE.
     pub(crate) fn new(
@@ -832,6 +871,8 @@ impl ValueIndex {
             kast_sort_hooks: kast_sort_hooks.clone(),
             known_symbols: symbols.known,
             free_constructors: symbols.free_constructors,
+            equational_partial: symbols.equational_partial,
+            collection_builders: symbols.collection_builders,
             equation_heads: symbols.equation_heads,
             equation_head_data: EquationHeadData::new(Arc::clone(backend)),
             result_sorts: symbols.result_sorts,
@@ -1505,6 +1546,8 @@ mod tests {
             kast_sort_hooks: HashMap::new(),
             known_symbols: symbols.known,
             free_constructors: symbols.free_constructors,
+            equational_partial: symbols.equational_partial,
+            collection_builders: symbols.collection_builders,
             equation_heads: symbols.equation_heads,
             equation_head_data: EquationHeadData::new(definition),
             result_sorts: symbols.result_sorts,

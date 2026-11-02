@@ -210,8 +210,8 @@ const STATUSES: &[&str] = &[
     "5 no value: the condition's stated value, 1.5, is no Bool",
     "20 no value: the condition's stated value, 2, is no Bool",
     "5 no value: the condition's stated value, 3, is no Bool",
-    "15 no value: the condition's stated value, Cmd::Go(), is no Bool",
-    "10 no value: the condition's stated value, Cmd::Hold(1), is no Bool",
+    "16 no value: the condition's stated value, Cmd::Go(), is no Bool",
+    "11 no value: the condition's stated value, Cmd::Hold(1), is no Bool",
     "5 no value: the condition's stated value, Wrap(1), is no Bool",
     "10 no value: the condition's stated value, [1], is no Bool",
     "5 no value: the condition's stated value, b\"ab\", is no Bool",
@@ -240,12 +240,12 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "80 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1201 runs a counter-witness",
-    "2124 runs at another input",
+    "1203 runs a counter-witness",
+    "2131 runs at another input",
     "1630 runs, liveness",
     "245 runs, undefined",
-    "246 runs, undefined result",
-    "2782 runs, value",
+    "266 runs, undefined result",
+    "2773 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it
@@ -1426,7 +1426,7 @@ fn every_static_result_has_a_rule_twin_with_runs_on_each_witness() {
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
     assert_eq!(unpaired, Vec::<&str>::new());
-    assert_eq!(twins.len(), 322);
+    assert_eq!(twins.len(), 329);
     for (case, twin) in &twins {
         let witnesses = |case: &Case| {
             class_matrix::twin_runs(case)

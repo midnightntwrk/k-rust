@@ -34,4 +34,9 @@ module RACELOG
        <workers> (.Bag => <worker> <wid> I </wid> <todo> N </todo> </worker>) ... </workers>
        <next> I => I +Int 1 </next> [label(spawn)]
   rule <k> done => .K ... </k> [label(stop)]
+
+  // `gen --step-property accUp@acc --step-property-trans`: the accumulated work never decreases
+  // (`work` adds a worker's `C` under `C >Int 0`, matching the worker in the `<workers>` cell map)
+  syntax Bool ::= accUp(Int, Int) [function, total]
+  rule accUp(A1, A2) => A1 <=Int A2
 endmodule

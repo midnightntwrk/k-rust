@@ -2168,6 +2168,42 @@ module LEDGER
     terminals{}("1101"),
     total{}()
   ]
+  symbol LblfeesUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortBool{}
+  [
+    format{}("%cfeesUp%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,19,64,53)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/ledger/ledger.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
+  symbol LblsupplyUp'LParUndsCommUndsRParUnds'LEDGER'Unds'Bool'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortBool{}
+  [
+    format{}("%csupplyUp%r %c(%r %1 %c,%r %2 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,19,68,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/ledger/ledger.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("110101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),

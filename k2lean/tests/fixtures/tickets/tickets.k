@@ -42,4 +42,11 @@ module TICKETS
   syntax Int ::= todo(PoolCell) [function, total]
   rule todo(<pool> <issued> M </issued> <left> _ </left> <cap> C </cap> <next> _ </next> </pool>)
     => C -Int count(M)
+
+  // `gen --step-property poolMono@pool --step-property-trans`: at every step the next id never
+  // decreases and what is left never grows, one function of the whole `<pool>` cell before and after
+  syntax Bool ::= poolMono(PoolCell, PoolCell) [function, total]
+  rule poolMono(<pool> <issued> _ </issued> <left> L1 </left> <cap> _ </cap> <next> N1 </next> </pool>,
+                <pool> <issued> _ </issued> <left> L2 </left> <cap> _ </cap> <next> N2 </next> </pool>)
+    => N1 <=Int N2 andBool L2 <=Int L1
 endmodule
