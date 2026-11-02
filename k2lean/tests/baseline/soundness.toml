@@ -47,14 +47,14 @@ unwitnessed = 2
 
 [lib.vm]
 tier = "light"
-stated = 97
+stated = 106
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.vmstuck]
 tier = "light"
-stated = 97
+stated = 106
 open = []
 overlaps = 0
 unwitnessed = 0
@@ -75,6 +75,21 @@ open = []
 tier = "light"
 stated = 100
 open = []
+
+[vm-ends]
+tier = "light"
+measure = { cases = 12, auto = 12, open = [] }
+ends = { outcomes = [], defined = true, init = true }
+
+[vmstuck-ends]
+tier = "light"
+measure = { cases = 11, auto = 11, open = [] }
+ends = { outcomes = ["Progress.Refuted"], defined = true, init = true }
+
+[corout-ends]
+tier = "light"
+measure = { cases = 4, auto = 4, open = [] }
+ends = { outcomes = [], defined = false, init = true }
 
 [demo.ImpTypes]
 tier = "light"
@@ -137,7 +152,7 @@ cases = 31
 auto = 31
 open = []
 refuted = []
-guarded = 12
+guarded = 17
 defined = { rules = 1, auto = 1, open = [], unproved = [], refuted = [] }
 
 [prog.vmstuck]
@@ -146,7 +161,7 @@ cases = 31
 auto = 30
 open = []
 refuted = ["Progress.case.«Instr.pop»"]
-guarded = 13
+guarded = 18
 defined = { rules = 1, auto = 1, open = [], unproved = [], refuted = [] }
 
 [prog.vmpri]
@@ -190,7 +205,7 @@ cases = 26
 auto = 26
 open = []
 refuted = []
-guarded = 12
+guarded = 16
 defined = { rules = 1, auto = 1, open = [], unproved = [], refuted = [] }
 
 [prog.imptypes]
@@ -423,19 +438,22 @@ defined = { rules = 57, auto = 52, open = [], unproved = [
 "generated/vm/KVm/Determinism.lean" = { tier = "light", sha256 = "df54577bcba9408a6fe9a5d1f90097dcf6838e956959359dba1431eab6df4aa7" }
 "generated/vm/KVm/Determinism/L1.lean" = { tier = "light", sha256 = "491879999a8f6a137d7ea8c45ecc0179d90d1291ce7b8d7981bca502d69992b4" }
 "generated/vm/KVm/Determinism/Pre.lean" = { tier = "light", sha256 = "e818beb4a7d3c5b57be950cd44747d3d2be1c2c512e276a51789667c7f782fec" }
-"generated/vm/KVm/EqBase.lean" = { tier = "light", sha256 = "ff77ebaaead1bd891a6ac46061f0d9e396ecdd75674e975513837ffb8e9975a1" }
-"generated/vm/KVm/Equations.lean" = { tier = "light", sha256 = "6140f9a6486103589dccd5bdf9baa3ac34e41025595385e1ac629fd8182f8122" }
-"generated/vm/KVm/Functions.lean" = { tier = "light", sha256 = "2e94e3391068caeb8e4c548581170506d08165c3ad587a9f500d9244b687fdfb" }
+"generated/vm/KVm/Ends.lean" = { tier = "light", sha256 = "16c84da0355188e9de489fb30fae386c6e3efbb810073e75e2d8406bd90e3e61" }
+"generated/vm/KVm/EqBase.lean" = { tier = "light", sha256 = "c4a529d9107df3e41082c770bf10befc9626b56bf71e06ac5d365915cc3593e3" }
+"generated/vm/KVm/Equations.lean" = { tier = "light", sha256 = "ea283d080851949982d0d7b3b8dca7ee4adda6bdd4f52422c9b183b5e523e7f6" }
+"generated/vm/KVm/Functions.lean" = { tier = "light", sha256 = "c61e7e521bec2929754bbb6467dccdb97e7409e5334c4a945278f8e9967a4def" }
 "generated/vm/KVm/Init.lean" = { tier = "light", sha256 = "21ec4e977f27b11b04a741044b7abcd2193301dc3aab32255c1f61c80e41acca" }
 "generated/vm/KVm/InvariantDefs.lean" = { tier = "light", sha256 = "12d2edbdeadc55e51e29b980c668fda117932c043d451f9c9750851da11c40dd" }
 "generated/vm/KVm/Invariants.lean" = { tier = "light", sha256 = "2f06112db31e3422759aa59beb5d10db874dbcbf45beb17fa2f570f4cc9581f8" }
+"generated/vm/KVm/Measure.lean" = { tier = "light", sha256 = "c21e7b01c7432f817dda3e03ccbe8f6571c5f3027001c959ef0d80022bb9df24" }
+"generated/vm/KVm/MeasureDefs.lean" = { tier = "light", sha256 = "1388b8ecf20a91bb6831a072c0a5908e7be88c2e633ff21a43f28ed2f8816763" }
 "generated/vm/KVm/Preserves.lean" = { tier = "light", sha256 = "4381cf9b674bd7af292f38f461de0cc23aa1258e835409ab2d3da70796dd842f" }
 "generated/vm/KVm/Progress.lean" = { tier = "light", sha256 = "dc330e62bc4c6770014f0036fc7d0fa8b280cce1305ab35bb792bdd4e5de82cf" }
 "generated/vm/KVm/ProgressDefs.lean" = { tier = "light", sha256 = "863a408fe6e5094428fff669957e85ac5a2cad5452c711679bc9da58eafed5ac" }
 "generated/vm/KVm/Rules.lean" = { tier = "light", sha256 = "0a6779db8eda9adaba94db2420c17418b2d1c1bf50d8e67f163740201faedc1b" }
 "generated/vm/KVm/Terms.lean" = { tier = "light", sha256 = "67b3c81873a5e1fe780a805b57e222cae3ce1a4e21e169f084e307b9cee75682" }
 "generated/vm/KVmBench/Main.lean" = { tier = "light", sha256 = "c7bee06cb0d1656ce9a468ae65764326b4408b637412ad68f1b879d072ea1cdb" }
-"generated/vm/KVmTest/Axioms.lean" = { tier = "light", sha256 = "00f2f3e4ea69ef5ff8787f1771a1503f78105f6fd7bd317036e6def3a99ee7a7" }
+"generated/vm/KVmTest/Axioms.lean" = { tier = "light", sha256 = "0a340ec1615fe3e28e4f6f2ae447af60cda90fe96fd84354a4e7bfb96228d4e2" }
 "generated/vm/KVmTest/DetAxioms.lean" = { tier = "light", sha256 = "25d1992c07428a775d0b7c7b1abfa5e8597738ec9888fc7adb16113106ec1b41" }
 "generated/vm/KVmTest/Main.lean" = { tier = "light", sha256 = "601b658dd7fb18ff38c410313235b497c7c6abd32921e764deeae3ca2d014d37" }
 "generated/vm/invariant-unfold.txt" = { tier = "light", sha256 = "e6e5d5e1bd190a5294f30ca71a44a12f2f037662c7610274cc5c2812ce09a35b" }
@@ -475,19 +493,22 @@ defined = { rules = 57, auto = 52, open = [], unproved = [
 "generated/vmstuck/KVmStuck/Determinism.lean" = { tier = "light", sha256 = "8470bde659b865572231e08ad6cf94151193c9840d1ed524bbd55cd4e48e6511" }
 "generated/vmstuck/KVmStuck/Determinism/L1.lean" = { tier = "light", sha256 = "13b6db4d5a743fbe74834005a8bf5ebc31b9974a73bcc44ceaa02f254196964e" }
 "generated/vmstuck/KVmStuck/Determinism/Pre.lean" = { tier = "light", sha256 = "270a20812e1449f5621cff7e814afc449f3d4cbef0837f6fdb8703571dfaea4c" }
-"generated/vmstuck/KVmStuck/EqBase.lean" = { tier = "light", sha256 = "6c05562416d52b8f6758e2a418e1b860db9abea587ad6660c8319252df4fb784" }
-"generated/vmstuck/KVmStuck/Equations.lean" = { tier = "light", sha256 = "5afcd4bf639244cb869ed8131a41e8c7a4fc009c066f995db6d7e566907454f2" }
-"generated/vmstuck/KVmStuck/Functions.lean" = { tier = "light", sha256 = "4c5b8df5ba95ba41227e4909cfb93844fbb5d9da6098701ce7406cc5b989ee9d" }
+"generated/vmstuck/KVmStuck/Ends.lean" = { tier = "light", sha256 = "342436496ae8579ba7e5a301743d2113e3b2ac039a31f8b91d88692316fa4ea7" }
+"generated/vmstuck/KVmStuck/EqBase.lean" = { tier = "light", sha256 = "d930a9b97022978409cd4cf2ac07325a9ea04faae1167482454f2294834952fb" }
+"generated/vmstuck/KVmStuck/Equations.lean" = { tier = "light", sha256 = "1dc754dadcdd0377f1de147486a4ed74c77268320cb191750ef7166cacba9501" }
+"generated/vmstuck/KVmStuck/Functions.lean" = { tier = "light", sha256 = "ee5b53bec0a57f803c40f2dd576a6b1979a33b357acb83de71f0a5f1bca53412" }
 "generated/vmstuck/KVmStuck/Init.lean" = { tier = "light", sha256 = "b3690bc11677343553b176c32fe91f4eca97c440025c1ee00bae2eca5686959a" }
 "generated/vmstuck/KVmStuck/InvariantDefs.lean" = { tier = "light", sha256 = "5100f0b1262bf8cf5dc283617474f5391c01d05beaf53df9c4b57b7ef622ff92" }
 "generated/vmstuck/KVmStuck/Invariants.lean" = { tier = "light", sha256 = "c52130432b93affc6a624c3cffc52da14f9fdfa8d80357cdd8876da34764f27f" }
+"generated/vmstuck/KVmStuck/Measure.lean" = { tier = "light", sha256 = "1e82c0ea746f08076200e1b1f409df127ac6023eaede131345a332c1790d42b2" }
+"generated/vmstuck/KVmStuck/MeasureDefs.lean" = { tier = "light", sha256 = "bcaacd6e370618c6d20a74d64927b194779349905a5077545a8b361baa49a759" }
 "generated/vmstuck/KVmStuck/Preserves.lean" = { tier = "light", sha256 = "e64528850e101b38464c40c0a6165d0db4f83e8920461e477ef28aee4fb90a21" }
 "generated/vmstuck/KVmStuck/Progress.lean" = { tier = "light", sha256 = "9f363e63ae6bcfcfb9a1128eca867869296ba4ddfd321b250bcc09e84a70060b" }
 "generated/vmstuck/KVmStuck/ProgressDefs.lean" = { tier = "light", sha256 = "6d5624d516e22103d883fb9309f9d614bc9edeb6da48999cc29ed46ad9720c8b" }
 "generated/vmstuck/KVmStuck/Rules.lean" = { tier = "light", sha256 = "32f7c609492e7e2d737fd50e44fe8a9eadc2d14f206e3eb57d887922085136e0" }
 "generated/vmstuck/KVmStuck/Terms.lean" = { tier = "light", sha256 = "67bad84d53fb973b0bc27bde37d847a81d8baa549cf3dc8c92e8d5c5046e3a5e" }
 "generated/vmstuck/KVmStuckBench/Main.lean" = { tier = "light", sha256 = "af4b0bfa04089a1b725668da74e6fc7b0295f1bea612e28ddca2a17d45c1ac56" }
-"generated/vmstuck/KVmStuckTest/Axioms.lean" = { tier = "light", sha256 = "85c9f6dbb781345a36656aec111db885f60570811155d34746aa17e79071f8cd" }
+"generated/vmstuck/KVmStuckTest/Axioms.lean" = { tier = "light", sha256 = "8dcaf59fe3542d9b8f51937b39bf91dfa2f07991c002269046c124bfae9cdfc9" }
 "generated/vmstuck/KVmStuckTest/DetAxioms.lean" = { tier = "light", sha256 = "414e1f628ef8d58b756838b71dfff4603c1f992376766425a15627c0b51280fe" }
 "generated/vmstuck/KVmStuckTest/Main.lean" = { tier = "light", sha256 = "b7c531ec5c4ea63dc1cd32dce53650c6d0003a827a179320388359bdb9c357aa" }
 "generated/vmstuck/invariant-unfold.txt" = { tier = "light", sha256 = "0324c089682a4ae8f78fbc0405b3b4177f522ece473594119a1c0d524f67ef2e" }
