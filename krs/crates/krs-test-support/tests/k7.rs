@@ -245,7 +245,7 @@ const STATUSES: &[&str] = &[
     "1630 runs, liveness",
     "245 runs, undefined",
     "266 runs, undefined result",
-    "2772 runs, value",
+    "2773 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it
