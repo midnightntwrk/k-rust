@@ -37,6 +37,7 @@ It holds the SHA-256 digest of each pinned file, so it needs no K installation, 
 
 - the entries are numbered 1 to N in order, each once, and each has every field below, its `Ground` one of the two grounds;
 - undoing the marked lines of each embedded file as its entries say and removing its amendment module and the import of it gives the pinned file's digest, every marked line is one its entry lists, and each marked line, its mark removed, is the corresponding `+` line of its entry's upstream proposal;
+- every line of each embedded file before its amendment module is the pinned file's line of the same number, a marked line that replaces its upstream line and the line that ends with the module's import aside, so a citation `domains.md`:N names the same text in both and an amendment that inserts a line there fails;
 - every entry's quoted passage occurs verbatim at the location its `Upstream` field cites: in the pinned file of a builtin (the embedded copy with its marks undone and its amendment module removed), and for `krypto.md` in [kink's reference copy](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-native/reference/krypto.md) of the plugin's file at `651a2db5`, whose digest it also checks;
 - every `AM-<n>` in `crates/`, `docs/`, `docs-site/`, `krs/` and `kink/` names an entry.
 

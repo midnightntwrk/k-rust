@@ -3,8 +3,9 @@
 //! file of `crates/k-rust/builtin/` is the pinned K release's file byte for byte once its lines
 //! marked `// k-rust: AM-<n>` are undone as their entries say and its amendment module and the
 //! import of it are removed, and each marked line is the `+` line its entry's upstream proposal
-//! gives; every entry quotes its upstream passage verbatim at the location it cites; and every
-//! `AM-<n>` that `crates/`, `docs/`, `docs-site/`, `krs/` and `kink/` cite names an entry.
+//! gives; every line of an embedded file before its amendment module is the pinned file's line of
+//! the same number; every entry quotes its upstream passage verbatim at the location it cites; and
+//! every `AM-<n>` that `crates/`, `docs/`, `docs-site/`, `krs/` and `kink/` cite names an entry.
 
 use regex::Regex;
 use sha2::{Digest, Sha256};
@@ -442,6 +443,63 @@ fn every_builtin_file_is_the_pinned_file_once_its_marked_lines_are_undone() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect::<BTreeSet<_>>();
     assert_eq!(files, undone.keys().cloned().collect());
+}
+
+/// A citation `file`:N names the same line in the embedded file and the pinned one: every line of
+/// an embedded file before its amendment module is the pinned file's line of the same number, a
+/// marked line that replaces its upstream line in place and the line that ends with the module's
+/// import (the pinned line its prefix) aside. An amendment that inserts a line there, which would
+/// move every later line, fails here; its line belongs in the amendment module.
+#[test]
+fn every_line_before_the_amendment_module_is_the_pinned_line_of_the_same_number() {
+    let entries = amendments();
+    let in_place = entries
+        .iter()
+        .filter_map(marks)
+        .filter(|marks| marks.replaced.is_some())
+        .flat_map(|marks| {
+            let file = marks.file;
+            marks
+                .lines
+                .into_iter()
+                .map(move |line| (file.clone(), line))
+        })
+        .collect::<BTreeSet<_>>();
+    let mark = Regex::new(r" // k-rust: AM-\d+$").unwrap();
+    for (file, pinned) in pinned_builtins(&entries) {
+        let text = k_rust::builtin::embedded(&file).unwrap().text;
+        let embedded = text.lines().collect::<Vec<_>>();
+        let pinned = pinned.lines().collect::<Vec<_>>();
+        let import = AMENDMENT_MODULES
+            .iter()
+            .find(|(name, ..)| *name == file)
+            .map(|(_, _, import)| *import);
+        assert!(
+            embedded.len() >= pinned.len(),
+            "{file} is shorter than the pinned file"
+        );
+        for (index, (line, upstream)) in embedded.iter().zip(&pinned).enumerate() {
+            let number = index + 1;
+            let same = line == upstream
+                || (in_place.contains(&(file.clone(), number)) && mark.is_match(line))
+                || import.is_some_and(|import| line.strip_suffix(import) == Some(upstream));
+            assert!(
+                same,
+                "{file}:{number} is {line:?}, where the pinned file has {upstream:?}"
+            );
+        }
+        let rest = embedded[pinned.len()..].join("\n");
+        match import {
+            Some(_) => assert!(
+                rest.starts_with("\n```k\nmodule "),
+                "{file}: after the pinned file's last line comes its amendment module, not {rest:?}"
+            ),
+            None => assert!(
+                rest.is_empty(),
+                "{file} has lines after the pinned file's last"
+            ),
+        }
+    }
 }
 
 #[test]
