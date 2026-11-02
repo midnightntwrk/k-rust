@@ -3067,6 +3067,11 @@ symbol = "prove_claim"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
+symbol = "prepare_destinations"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
 symbol = "extend_frontier"
 
 [[node.sites]]
@@ -3096,7 +3101,7 @@ symbol = "ProofLeaf::with_contradicted_total"
 
 [[node.cost]]
 mode = "one proof"
-bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus, once per proof at its first implication check (prepare_destinations, again only after a stop there), one walk of each destination term down to its maximal ground subterms outside the operands a short-circuit hook may leave unevaluated and one simplification under no assumption of each distinct such subterm that lacks the evaluated mark, whose determined ground function steps no budget bounds (as in any simplification of the destination), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 
 [[node.cost]]
 mode = "facade evidence projection"
@@ -4383,6 +4388,11 @@ symbol = "simplify"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_with_solver"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_ground_subterms"
 
 [[node.sites]]
 crate = "k-rust-backend"

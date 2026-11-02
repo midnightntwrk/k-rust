@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.proof.search"
 //! name = "reachability-logic proof search"
-//! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim", "stuck_leaf", "ProofLeaf::proven_vacuously", "ProofLeaf::with_contradicted_total"]
+//! sites = ["prove_claim", "prepare_destinations", "extend_frontier", "finish_at_breadth_limit", "apply_claim", "stuck_leaf", "ProofLeaf::proven_vacuously", "ProofLeaf::with_contradicted_total"]
 //! variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
 //! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
 //! span = "per problem"
@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "one proof"
-//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus, once per proof at its first implication check (prepare_destinations, again only after a stop there), one walk of each destination term down to its maximal ground subterms outside the operands a short-circuit hook may leave unevaluated and one simplification under no assumption of each distinct such subterm that lacks the evaluated mark, whose determined ground function steps no budget bounds (as in any simplification of the destination), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 //!
 //! [[cost]]
 //! mode = "facade evidence projection"
@@ -55,8 +55,8 @@ use crate::{
     definition::BackendDefinition,
     fresh::FreshCounter,
     implication::{
-        Coverage, CoverageCondition, ImplicationCondition, ImplicationError, Instance,
-        check_disjunctive_implication_with_existentials,
+        Consequent, Coverage, CoverageCondition, ImplicationCondition, ImplicationError, Instance,
+        check_disjunctive_implication_of,
     },
     matching::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
@@ -345,6 +345,9 @@ pub fn prove_claim(
             .collect::<Vec<_>>(),
     );
     let mut explored_states = 0;
+    // The destination every implication check matches against: the claim's right-hand side with
+    // its ground subterms simplified, once, at the first check (`prepare_destinations`).
+    let mut destinations = None;
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
@@ -578,11 +581,24 @@ pub fn prove_claim(
         let mut current_target_refuted = false;
         let mut implication_remainder = None;
         if state.depth >= options.min_depth {
+            if destinations.is_none() {
+                destinations = match prepare_destinations(definition, claim, options, solver) {
+                    Ok(prepared) => Some(prepared),
+                    Err(stop) => publish_stop!(stop.into_cause()),
+                };
+            }
+            let destinations = destinations
+                .as_deref()
+                .expect("prepared above")
+                .iter()
+                .zip(&claim.rhs)
+                .map(|(checked, written)| Consequent { checked, written })
+                .collect::<Vec<_>>();
             measure::bump(Counter::ProofImplicationChecks);
-            let implication = match check_disjunctive_implication_with_existentials(
+            let implication = match check_disjunctive_implication_of(
                 definition,
                 &state.pattern,
-                &claim.rhs,
+                &destinations,
                 &claim.existentials,
                 SimplificationOptions {
                     max_iterations: options.max_simplification_iterations,
@@ -1068,6 +1084,63 @@ pub fn prove_claim(
     }
 
     Ok(finish_explored(leaves, explored_states, 0, forgone_stop))
+}
+
+/// The claim's destinations in the form every implication check of its proof matches against
+/// them: each with its maximal ground subterms that a simplification would evaluate simplified
+/// under no assumption, and the conditions of those simplifications conjoined to its constraints
+/// (`simplify::simplify_ground_subterms`).
+///
+/// Every check of the proof simplifies the same destinations under its state's constraints
+/// (`implication::Destination::prepare`). A ground subterm denotes the same element on every
+/// valuation, so its simplification needs no path condition and holds under each: it is taken
+/// once here and not again at every check, where an unevaluated ground application written in the
+/// claim (KEVM's `#computeValidJumpDests` of the program, say) would otherwise be evaluated anew.
+/// The destination this gives denotes the same set as the claim's on every valuation.
+///
+/// Each check is handed both forms (`implication::Consequent`): it simplifies the prepared form
+/// under the state's constraints, which leaves the simplified ground subterms as they are (a
+/// value, or a normal form the simplifier has marked) and applies whatever those constraints add,
+/// path-condition replacements included, also when the prepared form carries the evaluated mark;
+/// it keeps a destination unsimplified only where the written form carries the mark, and a failed
+/// simplification keeps the written form, as before. What can differ from a check of the written
+/// form is only what the ground simplifications decide with no path condition: a ground subterm's
+/// steps no longer share the check's iteration budget with the rest of the destination (the
+/// budget counts the steps that are not determined ground function steps), so a check whose
+/// written destination would exhaust it only through its ground parts now completes; the
+/// conditions of the ground parts come first among the conditions the check conjoins; and a
+/// condition on a ground term that the solver decides alone but not beside an inconsistent or
+/// hard path condition is decided. Each makes a check at least as decisive and none changes
+/// what a verdict states.
+///
+/// The proof prepares them at its first check, with the check's options, so that a proof that
+/// makes no check simplifies nothing more than before; a stop is returned for that check's state,
+/// and nothing is kept, so the next checking state prepares them again.
+fn prepare_destinations(
+    definition: &BackendDefinition,
+    claim: &ReachabilityClaim,
+    options: ProofOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Vec<Pattern>> {
+    let options = SimplificationOptions {
+        max_iterations: options.max_simplification_iterations,
+        ..SimplificationOptions::default()
+    };
+    claim
+        .rhs
+        .iter()
+        .map(|destination| {
+            let (term, conditions) = crate::simplify::simplify_ground_subterms(
+                definition,
+                &destination.term,
+                options,
+                solver,
+            )?;
+            let mut constraints = destination.constraints.clone();
+            extend_unique(&mut constraints, conditions);
+            Ok(Pattern { term, constraints })
+        })
+        .collect()
 }
 
 fn extend_frontier(
@@ -2581,6 +2654,7 @@ mod tests {
     use super::*;
     use crate::{
         diagnostic::{self, BackendDiagnostic},
+        implication::check_disjunctive_implication_with_existentials,
         simplify::BudgetSubject,
         smt::{NoSolver, Satisfiability},
         timeout::StepTimeoutMode,
@@ -5258,6 +5332,297 @@ mod tests {
                 "{result:#?}"
             );
         }
+    }
+
+    /// `pick` is a function with `pick(a) = b` and `pick(b) = c`; `a` rewrites to `b`, `b` to
+    /// `c`, `start(X)` to `state(X, b)` and `go(X)` to `triple(X, b, c)`. The claims' destinations apply `pick` to ground
+    /// arguments, which the proof simplifies once (`prepare_destinations`).
+    const GROUND_DESTINATIONS: &str = r#"
+        symbol pick{}(SortS{}) : SortS{} [function{}(), total{}()]
+        symbol start{}(SortS{}) : SortS{} [constructor{}()]
+        symbol state{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+        symbol go{}(SortS{}) : SortS{} [constructor{}()]
+        symbol triple{}(SortS{}, SortS{}, SortS{}) : SortS{} [constructor{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortS{}, R}(pick{}(a{}()), \and{SortS{}}(b{}(), \top{SortS{}}()))
+        ) [label{}("pick-a"), simplification{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortS{}, R}(pick{}(b{}()), \and{SortS{}}(c{}(), \top{SortS{}}()))
+        ) [label{}("pick-b"), simplification{}()]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(a{}(), \top{SortS{}}()),
+            \and{SortS{}}(b{}(), \top{SortS{}}())
+        ) [label{}("a-to-b")]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(b{}(), \top{SortS{}}()),
+            \and{SortS{}}(c{}(), \top{SortS{}}())
+        ) [label{}("b-to-c")]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(start{}(X:SortS{}), \top{SortS{}}()),
+            \and{SortS{}}(state{}(X:SortS{}, b{}()), \top{SortS{}}())
+        ) [label{}("start")]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(go{}(X:SortS{}), \top{SortS{}}()),
+            \and{SortS{}}(triple{}(X:SortS{}, b{}(), c{}()), \top{SortS{}}())
+        ) [label{}("go")]
+    "#;
+
+    fn ground_destination_claim(label: &str, left: &str, right: &str) -> String {
+        format!(
+            r#"claim{{}} \implies{{SortS{{}}}}(
+                \and{{SortS{{}}}}(\top{{SortS{{}}}}(), {left}),
+                weakAlwaysFinally{{SortS{{}}}}(\and{{SortS{{}}}}({right}, \top{{SortS{{}}}}()))
+            ) [label{{}}("{label}")]"#
+        )
+    }
+
+    /// A ground application in a destination is matched at its value, the one its equations give,
+    /// at every check: a state is in the destination exactly when it is that value. Each claim's
+    /// proof reaches its destination at the depth of the value's first state, and not before, so a
+    /// value other than the equations' (another claim's, or the application kept unevaluated)
+    /// would prove it at another depth or not at all.
+    #[test]
+    fn a_ground_application_in_a_destination_is_matched_at_its_value_at_every_check() {
+        let claims = [
+            ground_destination_claim("to-pick-a", "a{}()", "pick{}(a{}())"),
+            ground_destination_claim("to-pick-b", "a{}()", "pick{}(b{}())"),
+            ground_destination_claim("to-pick-pick-a", "a{}()", "pick{}(pick{}(a{}()))"),
+            ground_destination_claim(
+                "start-to-pick-a",
+                "start{}(X:SortS{})",
+                "state{}(X:SortS{}, pick{}(a{}()))",
+            ),
+            ground_destination_claim(
+                "start-to-pick-b",
+                "start{}(X:SortS{})",
+                "state{}(X:SortS{}, pick{}(b{}()))",
+            ),
+            ground_destination_claim(
+                "go-to-pick-a-pick-b",
+                "go{}(X:SortS{})",
+                "triple{}(X:SortS{}, pick{}(a{}()), pick{}(b{}()))",
+            ),
+            ground_destination_claim(
+                "go-to-pick-b-pick-a",
+                "go{}(X:SortS{})",
+                "triple{}(X:SortS{}, pick{}(b{}()), pick{}(a{}()))",
+            ),
+        ]
+        .join("\n");
+        let definition = definition(GROUND_DESTINATIONS, &claims);
+        let prove = |label| {
+            super::prove_claim(
+                &definition,
+                claim_with_label(&definition, label),
+                &[],
+                ProofOptions::default(),
+                &NoSolver,
+            )
+            .expect("claim should execute")
+        };
+        for (label, depth) in [("to-pick-a", 1), ("to-pick-b", 2), ("to-pick-pick-a", 2)] {
+            let result = prove(label);
+            assert_eq!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
+            let depths = result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.depth)
+                .collect::<Vec<_>>();
+            assert_eq!(depths, [depth], "{label}: {result:#?}");
+        }
+        let result = prove("start-to-pick-a");
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        // `state(X, b)` has no successor and is not `state(X, c)`.
+        let result = prove("start-to-pick-b");
+        assert_ne!(result.status, ProofStatus::Proven, "{result:#?}");
+        // Each of two ground applications beside a variable at its own value: `triple(X, b, c)`
+        // is `triple(X, pick(a), pick(b))` and not `triple(X, pick(b), pick(a))`.
+        let result = prove("go-to-pick-a-pick-b");
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        let result = prove("go-to-pick-b-pick-a");
+        assert_ne!(result.status, ProofStatus::Proven, "{result:#?}");
+    }
+
+    /// The destinations a proof matches against are the claim's with its ground subterms replaced
+    /// by their values: `pick(a)` and `pick(pick(a))` by `b` and `c`, each occurrence; a subterm
+    /// with a variable, `pick(X)`, is kept for each check to simplify under its state's
+    /// constraints, and so is the variable under the ground application's parent.
+    #[test]
+    fn a_proof_prepares_its_destinations_by_simplifying_their_ground_subterms() {
+        let claims = [ground_destination_claim(
+            "mixed",
+            "start{}(X:SortS{})",
+            "state{}(state{}(pick{}(X:SortS{}), pick{}(a{}())), \
+             state{}(pick{}(pick{}(a{}())), pick{}(a{}())))",
+        )]
+        .join("\n");
+        let definition = definition(GROUND_DESTINATIONS, &claims);
+        let destinations = prepare_destinations(
+            &definition,
+            claim_with_label(&definition, "mixed"),
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("no stop");
+        let expected = term(
+            &definition,
+            r#"state{}(state{}(pick{}(X:SortS{}), b{}()), state{}(c{}(), b{}()))"#,
+        );
+        assert_eq!(destinations.len(), 1);
+        assert_eq!(destinations[0].term, expected);
+        assert_eq!(
+            destinations[0].constraints,
+            claim_with_label(&definition, "mixed").rhs[0].constraints
+        );
+    }
+
+    /// Beside [`GROUND_DESTINATIONS`]: `undef` is a partial function with no equation, which `drop`
+    /// discards; `ite` is `KEQUAL.ite`; `expand` rewrites `expand(X)` to `expand(expand(X))`, so
+    /// its simplification exhausts any budget.
+    const PREPARED_DESTINATION_CASES: &str = r#"
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-symbol ite{}(SortBool{}, SortS{}, SortS{}) : SortS{}
+            [function{}(), total{}(), hook{}("KEQUAL.ite")]
+        symbol holds{}(SortBool{}) : SortS{} [constructor{}()]
+        symbol undef{}() : SortS{} [function{}()]
+        symbol drop{}(SortS{}) : SortS{} [function{}(), total{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortS{}, R}(drop{}(X:SortS{}), \and{SortS{}}(b{}(), \top{SortS{}}()))
+        ) [label{}("drop"), simplification{}()]
+    "#;
+
+    fn prepared_destination_definition(claims: &[String]) -> BackendDefinition {
+        definition(
+            &format!(
+                "{GROUND_DESTINATIONS}{PREPARED_DESTINATION_CASES}{NON_TERMINATING_SIMPLIFIER}"
+            ),
+            &claims.join("\n"),
+        )
+    }
+
+    fn prepared(definition: &BackendDefinition, label: &str, options: ProofOptions) -> Pattern {
+        let destinations = prepare_destinations(
+            definition,
+            claim_with_label(definition, label),
+            options,
+            &NoSolver,
+        )
+        .expect("no stop");
+        let [destination] = destinations.as_slice() else {
+            panic!("one destination: {destinations:#?}");
+        };
+        destination.clone()
+    }
+
+    /// A ground subterm whose simplification conjoins a condition: `drop(undef())` is `b` where
+    /// `undef()` is defined, so the prepared destination is `state(X, b)` with that definedness
+    /// among its constraints, and a state `state(X, b)` is not shown in it, since nothing defines
+    /// `undef()`. Without the condition the destination would hold every `state(X, b)`.
+    #[test]
+    fn a_prepared_destination_keeps_the_conditions_of_its_ground_subterms() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "start-to-drop-undef",
+            "start{}(X:SortS{})",
+            "state{}(X:SortS{}, drop{}(undef{}()))",
+        )]);
+        let claim = claim_with_label(&definition, "start-to-drop-undef");
+        let destination = prepared(&definition, "start-to-drop-undef", ProofOptions::default());
+        assert_eq!(
+            destination.term,
+            term(&definition, "state{}(X:SortS{}, b{}())")
+        );
+        assert!(
+            destination.constraints.len() > claim.rhs[0].constraints.len(),
+            "{destination:#?}"
+        );
+        let result =
+            super::prove_claim(&definition, claim, &[], ProofOptions::default(), &NoSolver)
+                .expect("claim should execute");
+        assert_ne!(result.status, ProofStatus::Proven, "{result:#?}");
+    }
+
+    /// The operands `#if` does not evaluate are not entered: in `state(ite(B, b, pick(a)),
+    /// ite(B, pick(a), c))` the deciding operand `B` is symbolic, so both `pick(a)` stay as
+    /// written (simplifying one could diverge where the conditional guards a recursion), while
+    /// the `pick(a)` beside them is prepared.
+    #[test]
+    fn a_prepared_destination_leaves_the_operands_a_conditional_does_not_evaluate() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "under-ite",
+            "holds{}(B:SortBool{})",
+            "state{}(state{}(ite{}(B:SortBool{}, b{}(), pick{}(a{}())), \
+             ite{}(B:SortBool{}, pick{}(a{}()), c{}())), pick{}(a{}()))",
+        )]);
+        let destination = prepared(&definition, "under-ite", ProofOptions::default());
+        assert_eq!(
+            destination.term,
+            term(
+                &definition,
+                "state{}(state{}(ite{}(B:SortBool{}, b{}(), pick{}(a{}())), \
+                 ite{}(B:SortBool{}, pick{}(a{}()), c{}())), b{}())"
+            )
+        );
+    }
+
+    /// A ground subterm whose simplification fails is kept as written: `expand(a())` exhausts
+    /// a budget of one iteration, and the prepared destination is the claim's.
+    #[test]
+    fn a_prepared_destination_keeps_a_ground_subterm_whose_simplification_fails() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "to-expand",
+            "start{}(X:SortS{})",
+            "state{}(X:SortS{}, expand{}(a{}()))",
+        )]);
+        let options = ProofOptions {
+            max_simplification_iterations: 1,
+            ..ProofOptions::default()
+        };
+        let destination = prepared(&definition, "to-expand", options);
+        assert_eq!(
+            destination,
+            claim_with_label(&definition, "to-expand").rhs[0]
+        );
+    }
+
+    /// A destination that its preparation evaluates whole, `state(X, pick(a))` to `state(X, b)`,
+    /// is still simplified under each state's constraints, as the claim's form is: under `X = a`
+    /// the check substitutes `a` for `X` and matches `state(a, b)` itself, so the proven leaf's
+    /// condition holds no binding of the universal `X`. Keeping the prepared form unsimplified
+    /// because it carries the evaluated mark would match `X` as a binding obligation instead.
+    #[test]
+    fn a_destination_evaluated_by_its_preparation_is_simplified_at_each_check() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "bound-start",
+            r#"\and{SortS{}}(start{}(X:SortS{}), \equals{SortS{}, SortS{}}(X:SortS{}, a{}()))"#,
+            "state{}(X:SortS{}, pick{}(a{}()))",
+        )]);
+        let claim = claim_with_label(&definition, "bound-start");
+        let destination = prepared(&definition, "bound-start", ProofOptions::default());
+        assert!(destination.term.attributes().evaluated, "{destination:#?}");
+        let result =
+            super::prove_claim(&definition, claim, &[], ProofOptions::default(), &NoSolver)
+                .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        let conditions = result
+            .leaves
+            .iter()
+            .map(|leaf| match &leaf.outcome {
+                ProofLeafOutcome::Proven(condition) => condition.clone(),
+                outcome => panic!("a proven leaf: {outcome:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            conditions,
+            [ImplicationCondition {
+                predicates: Vec::new(),
+                substitution: Substitution::new(),
+                witnesses: Substitution::new(),
+            }],
+            "{result:#?}"
+        );
     }
 
     #[test]

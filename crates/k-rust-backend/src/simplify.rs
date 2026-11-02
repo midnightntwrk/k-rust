@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts", "literal_candidate", "apply_literal_equation_instance", "classify_equation_instance", "apply_prepared_equation_instance"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_ground_subterms", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts", "literal_candidate", "apply_literal_equation_instance", "classify_equation_instance", "apply_prepared_equation_instance"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -427,6 +427,132 @@ pub fn simplify_with_solver(
 ) -> Stoppable<Result<Simplification, SimplificationError>> {
     simplify_with_optional_execution(definition, term, known_predicates, options, solver, None)
         .layered()
+}
+
+/// `term` with each of its maximal ground subterms that lacks the evaluated mark, and that a
+/// simplification of `term` would evaluate, replaced by its simplification under no assumption,
+/// and the conditions those simplifications conjoin to their terms, each once.
+///
+/// A ground term has no variable, so it denotes the same element (or none) under every
+/// valuation; a simplification under no assumption states `g = g'` together with its conditions
+/// on every valuation, so replacing `g` by `g'` and conjoining the conditions gives a term that
+/// denotes the same set as `term` everywhere, whatever path condition a later use reads it under.
+///
+/// The walk keeps the invariant of `crate::deferred`: the operands that `#if`, `andThenBool` and
+/// `orElseBool` do not evaluate are never simplified, only their definedness stated, since
+/// evaluating one could diverge where the conditional guards a recursion. Of a non-ground
+/// application of those hooks (`deferred::ShortCircuit`) the walk enters only the deciding
+/// operand, which every simplification of the application evaluates, and keeps the others as
+/// written; a ground one is simplified whole, by the simplifier, which keeps the invariant itself.
+/// Every other node's children are operands a simplification evaluates.
+///
+/// A subterm whose simplification fails (a budget the caller's options make a failure included)
+/// or performs a builtin effect is kept as written, for a later simplification to take up as it
+/// would have. Equal ground subterms are simplified once. A stop is returned.
+pub(crate) fn simplify_ground_subterms(
+    definition: &BackendDefinition,
+    term: &Term,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<(Term, Vec<Predicate>)> {
+    let mut conditions = Vec::new();
+    let mut simplified = FxHashMap::<Term, Term>::default();
+    // `None`: the term is still to be entered; `Some(count)`: its `count` children are rebuilt
+    // on top of `rebuilt`. The walk keeps its pending work on the heap, as
+    // `replace_terms_bottom_up` does; it enters no ground subterm.
+    let mut pending = vec![(term.clone(), None::<usize>)];
+    let mut rebuilt = Vec::<Term>::new();
+    while let Some((current, state)) = pending.pop() {
+        match state {
+            None if current.attributes().variables.is_empty() => {
+                let value = match simplified.get(&current) {
+                    Some(value) => value.clone(),
+                    None => {
+                        let value = simplify_ground_subterm(
+                            definition,
+                            &current,
+                            options,
+                            solver,
+                            &mut conditions,
+                        )?;
+                        simplified.insert(current, value.clone());
+                        value
+                    }
+                };
+                rebuilt.push(value);
+            }
+            None => {
+                // The children the walk enters; the operands a short-circuit hook may leave
+                // unevaluated are kept as written.
+                let entered = |index: usize| {
+                    crate::deferred::ShortCircuit::of(&current).is_none() || index == 0
+                };
+                let mut children = Vec::new();
+                let mut index = 0;
+                let _ = current.try_map_children(|child| {
+                    if entered(index) {
+                        children.push(child.clone());
+                    }
+                    index += 1;
+                    Ok::<_, std::convert::Infallible>(child.clone())
+                });
+                pending.push((current, Some(children.len())));
+                pending.extend(children.into_iter().rev().map(|child| (child, None)));
+            }
+            Some(count) => {
+                let mut children = rebuilt.split_off(rebuilt.len() - count).into_iter();
+                let short_circuit = crate::deferred::ShortCircuit::of(&current).is_some();
+                let mut index = 0;
+                let term = current
+                    .try_map_children(|child| {
+                        let entered = !short_circuit || index == 0;
+                        index += 1;
+                        Ok::<_, std::convert::Infallible>(if entered {
+                            children
+                                .next()
+                                .expect("one rebuilt child per entered child")
+                        } else {
+                            child.clone()
+                        })
+                    })
+                    .expect("an infallible term transformation cannot fail");
+                rebuilt.push(term);
+            }
+        }
+    }
+    let term = rebuilt.pop().expect("the walk rebuilds the root");
+    Ok((term, conditions))
+}
+
+/// One ground subterm for [`simplify_ground_subterms`]: its simplification under no
+/// assumption, with its conditions added to `conditions`, or the subterm itself.
+fn simplify_ground_subterm(
+    definition: &BackendDefinition,
+    term: &Term,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    conditions: &mut Vec<Predicate>,
+) -> Stoppable<Term> {
+    if term.attributes().evaluated {
+        return Ok(term.clone());
+    }
+    let Ok(simplification) = simplify_with_solver(definition, term, &[], options, solver)? else {
+        return Ok(term.clone());
+    };
+    let parts = simplification.into_parts();
+    // A partial result (`exhausted`) arises only under a keep-partial budget policy; under the
+    // proof's options an exhausted budget is a failure, kept as written above. A partial result
+    // is kept as written too, so that a caller with either policy prepares nothing a later
+    // simplification would not reach from the written form.
+    if !parts.effects.is_empty() || parts.exhausted.is_some() {
+        return Ok(term.clone());
+    }
+    for condition in parts.conditions.into_predicates() {
+        if !conditions.contains(&condition) {
+            conditions.push(condition);
+        }
+    }
+    Ok(parts.term)
 }
 
 pub(crate) fn simplify_in_execution_with_solver(
