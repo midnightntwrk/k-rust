@@ -4170,10 +4170,10 @@ fn read_stdin_for_stream() -> io::Result<Vec<u8>> {
 }
 
 /// The located load-time findings on the definition a Rust compilation emits, which is
-/// internalized as `krun` loads it: the ill-formed uses of every definition
-/// (`k_rust::backend::execution::ill_formed_use_diagnostics`), and with them the findings of the
-/// backend's critical-pair check for a definition with an `anywhere` symbol
-/// (`k_rust::backend::execution::value_claim_diagnostics`). Without an `anywhere` symbol the
+/// internalized as `krun` loads it: the ill-formed uses and the `smt-lemma`s the solver's prelude
+/// leaves out, of every definition (`k_rust::backend::execution::form_diagnostics`), and with
+/// them the findings of the backend's critical-pair check for a definition with an `anywhere`
+/// symbol (`k_rust::backend::execution::value_claim_diagnostics`). Without an `anywhere` symbol the
 /// definition declares no equation head, and the check reports only precondition rows and the
 /// equations the evaluator never applies, which a later load prints. A definition the backend
 /// does not internalize gets none (the load reports it).
@@ -4191,7 +4191,7 @@ fn value_claim_diagnostics(
     if artifacts.definition_kore.contains("anywhere{}()") {
         k_rust::backend::execution::value_claim_diagnostics(&definition, provenance)
     } else {
-        k_rust::backend::execution::ill_formed_use_diagnostics(&definition, provenance)
+        k_rust::backend::execution::form_diagnostics(&definition, provenance)
     }
 }
 

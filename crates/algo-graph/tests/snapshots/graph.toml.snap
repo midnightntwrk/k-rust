@@ -1332,6 +1332,20 @@ symbol = "Counter::SimplifyRounds"
 
 [[node]]
 kind = "observation"
+id = "SmtLemmasLeftOut"
+provenance = "table"
+area = "smt"
+name = "SmtLemmasLeftOut"
+table = "Counter::ALL"
+registry_name = "smt.lemmas_left_out"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtLemmasLeftOut"
+
+[[node]]
+kind = "observation"
 id = "SmtOpaqueAtomDomains"
 provenance = "table"
 area = "smt"
@@ -4741,6 +4755,11 @@ symbol = "TranslationState::operand_domain"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt.rs"
 symbol = "TranslationState::atom_with_domains"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt.rs"
+symbol = "SmtPrelude::from_definition"
 
 [[node.cost]]
 mode = "solver check"
@@ -12250,6 +12269,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.smt.cache"
 to = "SmtTypedCacheMisses"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.check"
+to = "SmtLemmasLeftOut"
 provenance = "declared"
 
 [[edge]]

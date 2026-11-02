@@ -20,7 +20,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 23;
+pub const COUNTER_SCHEMA_VERSION: u64 = 24;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -570,6 +570,11 @@ pub enum Counter {
     /// or an opaque `\ceil` atom) where it is first translated in a query: an atom over such an
     /// operand is decided only where that domain is known.
     SmtOpaqueAtomDomains,
+    /// `smt-lemma`s a solver prelude leaves out, counted where the prelude is built: those whose
+    /// `requires` reads an operand whose domain no closed formula states. One per lemma as
+    /// written (per unique id), as the load warning `SmtLemmaLeftOut` names them, not per
+    /// equation internalized from it.
+    SmtLemmasLeftOut,
     /// SMT queries that ran a solver instance.
     SmtSolverRuns,
     /// Z3 resource-limit units consumed by solver checks.
@@ -624,7 +629,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 103;
+    pub const COUNT: usize = 104;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -708,6 +713,7 @@ impl Counter {
         Counter::SmtTypedCacheMisses,
         Counter::SmtPreparedQueries,
         Counter::SmtOpaqueAtomDomains,
+        Counter::SmtLemmasLeftOut,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
         Counter::Allocations,
@@ -818,6 +824,7 @@ impl Counter {
             Counter::SmtTypedCacheMisses => "smt.typed_cache_misses",
             Counter::SmtPreparedQueries => "smt.prepared_queries",
             Counter::SmtOpaqueAtomDomains => "smt.opaque_atom_domains",
+            Counter::SmtLemmasLeftOut => "smt.lemmas_left_out",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",
             Counter::Allocations => "allocation.count",
