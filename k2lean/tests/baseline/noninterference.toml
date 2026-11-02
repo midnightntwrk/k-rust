@@ -40,6 +40,11 @@ tier = "light"
 guarded = 14
 preserve = []
 
+[demo.ContractValsNI]
+tier = "light"
+guarded = 13
+preserve = []
+
 [sources]
 
 [sources.sha256]
@@ -75,6 +80,14 @@ preserve = []
 "demos/ContractOwiseNI/ContractOwiseNI/Tr.lean" = { tier = "light", sha256 = "0fa86aa8ad0c98261e970ba11dade1adaa3ee3579b02899f6fc1a61e60ad86bb" }
 "demos/ContractOwiseNI/correspondence.toml" = { tier = "light", sha256 = "428ae48ed4b49a2cba812d69d8816a68fa9f7e0444024475a8d06fe1436d2d1a" }
 "demos/ContractOwiseNI/noninterference.toml" = { tier = "light", sha256 = "7c5663296e5a330ccbadec660ca6504734b42b816689236dc51fcb8308fbe94e" }
+"demos/ContractValsNI/ContractValsNI/Levels.lean" = { tier = "light", sha256 = "5699539155a7c98ae307c38540d90b7dcc87a7fd0e40ad2e367bb302d2f1a594" }
+"demos/ContractValsNI/ContractValsNI/NI.lean" = { tier = "light", sha256 = "0995480916e56e2103f2890f07dc9a35b19df9f8df325749a32f984452559b7f" }
+"demos/ContractValsNI/ContractValsNI/Proof.lean" = { tier = "light", sha256 = "2bf5211bf82ad8f746dd8212ad554225956718a793b9bff8970ea25737db6f38" }
+"demos/ContractValsNI/ContractValsNI/Spec.lean" = { tier = "light", sha256 = "63ccac4358ff544d8c1884d46e376798ee4801119b268a7a1ae85f0ead13b5d6" }
+"demos/ContractValsNI/ContractValsNI/Stack.lean" = { tier = "light", sha256 = "d1de2c5848bbbb43025769a68146061c7b60bf1638aac28bc27efb069b304a79" }
+"demos/ContractValsNI/ContractValsNI/Tr.lean" = { tier = "light", sha256 = "d2f0fb493bfa1e756c1a32d2a8bd16103a26bf88d845e983bb42e5eeade50d0a" }
+"demos/ContractValsNI/correspondence.toml" = { tier = "light", sha256 = "d0d1be7424c88e78479089ba8f833bb7c23dbecbe75ccac8e608a6ff42359af3" }
+"demos/ContractValsNI/noninterference.toml" = { tier = "light", sha256 = "4dad7e3215ea0a0a72f378e1c1d3a41c54048d5952ef6f760e95394f902d7f21" }
 "demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "68d4f9469815bd97005a0c12c23873123112b455807012b96281be939a32d52d" }
 "demos/ImpNI/ImpNI/NI.lean" = { tier = "light", sha256 = "04e452665528652e285642c1d90909bac0818ba77e3c690e0e0629f42d552d57" }
 "demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "cd651ea9e08a2bc60a9f71a6f54b91368ceb40e02c3ab286a90b7f0b877778b7" }
@@ -198,6 +211,27 @@ preserve = []
 "generated/contractsecnr/ContractSecNRTest/Main.lean" = { tier = "light", sha256 = "b56babbddf4bc6ec54125fa4ea48ebb5e418a86383c6d06d8e5a43e782a1b44d" }
 "generated/contractsecnr/lakefile.lean" = { tier = "light", sha256 = "3c57361c8bdc8996f9c030bc7470713b1e45cc08a7d8e12e1918d3cfa299e76f" }
 "generated/contractsecnr/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/contractvals/ContractVals.lean" = { tier = "light", sha256 = "68768f7d5c40d5fbe0f637c8e00fcd689343a03a51aad6b978a7632dcf62ca29" }
+"generated/contractvals/ContractVals/Adequacy.lean" = { tier = "light", sha256 = "d37fc6b8f5ac25d21bd6139170d28699cc19bc7b4465671b314aa2b238570ee1" }
+"generated/contractvals/ContractVals/Determinism.lean" = { tier = "light", sha256 = "a5fc91c020935643fe7c212ed0559d16a0b579e09d10534ea14eca3139c886dd" }
+"generated/contractvals/ContractVals/Determinism/L1.lean" = { tier = "light", sha256 = "47e26ea5273d908eb6426f9b00ee1a47c4d813bfa9f53188cfce9dc9954ef537" }
+"generated/contractvals/ContractVals/Determinism/Pre.lean" = { tier = "light", sha256 = "7ddc51fdfff294c34edab581b6af4522fe5ae65eaa8aa92e35cb93d917960967" }
+"generated/contractvals/ContractVals/EqBase.lean" = { tier = "light", sha256 = "4125c293b31900adeffbb2ce4bbb49de5539239c1c929f8fda12ce0086962f0a" }
+"generated/contractvals/ContractVals/Equations.lean" = { tier = "light", sha256 = "b47131f9c04c5ae8e7259f2c4c874d4e8bf74fca3e179976ecc6a5c70ad504a0" }
+"generated/contractvals/ContractVals/Functions.lean" = { tier = "light", sha256 = "3541c9cd0bcd9f6a0c5844030cdafec184bea76ebd6fc287f04ebd701ee792f7" }
+"generated/contractvals/ContractVals/Init.lean" = { tier = "light", sha256 = "b3ad6772c07a84983fcfd08230f13f664ed795c85d1b03942a33a2186ba2e258" }
+"generated/contractvals/ContractVals/InvariantDefs.lean" = { tier = "light", sha256 = "775473c2c87763aae70f33f98107d245ef0d6b17750fc5a8ca1d86a061822e5d" }
+"generated/contractvals/ContractVals/Invariants.lean" = { tier = "light", sha256 = "a6a9c6f0e09ae568d2153562d12ba09c20ee7b5a6c2b74c9f5f9a0d84f899335" }
+"generated/contractvals/ContractVals/Preserves.lean" = { tier = "light", sha256 = "912690605296ef3c308c77d4bbed6f1e7f28adec12c3745f1bceaeb10019389e" }
+"generated/contractvals/ContractVals/Rules.lean" = { tier = "light", sha256 = "933441c8a19c405ea2638b3a2fdeecbe2a9a29810b9b512f8946ff99901b6063" }
+"generated/contractvals/ContractVals/Terms.lean" = { tier = "light", sha256 = "ab7496e4561008238f7d40ca61f1cce1e9a2b995ce4d8310aa6b3b0527fbfe10" }
+"generated/contractvals/ContractValsBench/Main.lean" = { tier = "light", sha256 = "dc2466b75d8a2a892eba8106c5e24001d11b72b30da2b95631d9e398d5c8752b" }
+"generated/contractvals/ContractValsTest/Axioms.lean" = { tier = "light", sha256 = "9683680386103c11225448fe47a33a9057bd7802581edd744854b5a4d56fb8ce" }
+"generated/contractvals/ContractValsTest/DetAxioms.lean" = { tier = "light", sha256 = "d9e4cb139b24e6647cd95d5754f0ca9030a8a8e466a556bd6e66dd4a16e85592" }
+"generated/contractvals/ContractValsTest/Main.lean" = { tier = "light", sha256 = "ed7ec640ba50a263fa03915265bc6ed787c3802997972bebb96bdff5fedab357" }
+"generated/contractvals/invariant-unfold.txt" = { tier = "light", sha256 = "5f3cd6d58cd1066bd87ac580aaea0ece00999a563369afaca96590909dbe3204" }
+"generated/contractvals/lakefile.lean" = { tier = "light", sha256 = "69f1dd6a23e9ae44400c55dd2b0e0422ec99a65930bc54a0e56fa00a021cf899" }
+"generated/contractvals/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/impsec/KImpSec.lean" = { tier = "light", sha256 = "7c5b620ecd53e95bfd51539f0aa7e2fa1aadb463bdcfd758b3303882c2e6ffe0" }
 "generated/impsec/KImpSec/Adequacy.lean" = { tier = "light", sha256 = "d9e0d8487e9c8b57ae20a8a2f735821df3d9ed802926262ee0c7da2a7ae240c3" }
 "generated/impsec/KImpSec/Determinism.lean" = { tier = "light", sha256 = "606d4aa9a3ad4ac5216cbded59c383e4470b292da841e8dfd6153aecdc0b5bf1" }
