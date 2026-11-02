@@ -141,18 +141,25 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 /// - `solver-atoms-with-operand-definedness-4`: the solver reads every atom with its operands'
 ///   domains, so an atom over a partial term holds only where the term is defined, whatever form
 ///   the simplifier left the predicates in; and a conditional ceil equation's instance is a
-///   solver fact only where the terms it binds are defined. Under the previous reading an atom
-///   the simplifier had left without a `\ceil` of its partial operand was decided through the
-///   operation's total SMT value, and a ceil equation's instance at an undefined term forced that
-///   term's domain, so the solver could answer valid or unsatisfiable where K does not, and so
+///   solver fact only where the terms it binds are defined; and an `smt-lemma` is a solver fact
+///   only where its `requires` holds with its operands' domains, or is left out when no closed
+///   formula states them. Under the previous reading an atom the simplifier had left without a
+///   `\ceil` of its partial operand was decided through the operation's total SMT value, a ceil
+///   equation's instance at an undefined term forced that term's domain, and a lemma was
+///   asserted where its `requires`' total reading held and K's did not, so the solver could
+///   answer valid or unsatisfiable where K does not, and so
 ///   discharge a step or prune a branch, and prove a false claim, with neither the claim nor the
 ///   definition changed; every proof saved under the previous reading is set aside.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and
 /// `k_rust_backend::claim::with_explicit_definedness`); a change there that changes what a
-/// claim's KORE means must name a new reading here. A correction to the reading of definition
-/// conditions also changes what these proofs certify and must name a new reading.
+/// claim's KORE means must name a new reading here. More generally, any correction that can
+/// turn a `proven` answer for an unchanged claim, definition and assumptions into another answer
+/// must name a new reading: a correction to the reading of definition conditions, to the
+/// solver's reading of a predicate, or to the facts the solver is given. A change that only
+/// proves more (a completeness gain) need not, since every answer the previous reading gave
+/// still holds.
 const CLAIM_READING: &str = "solver-atoms-with-operand-definedness-4";
 
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
