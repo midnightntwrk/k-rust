@@ -41,21 +41,11 @@ def seg : TwoParam.Hooks where
 
 attribute [local instance] seg
 
-/-- A map literal of one binding is that binding. -/
-theorem ofEntries_one {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V] (k : K) (v : V) :
-    (MapHook.ofEntries [(k, v)] : M) = MapHook.element k v := by
-  simp [MapHook.ofEntries, MapHook.update_def, MapHook.element, MapHook.unit, ListIso.toList_ofList,
-    SAL.insert]
-
-/-- An empty map literal is the empty map. -/
-theorem ofEntries_nil {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V] :
-    (MapHook.ofEntries [] : M) = MapHook.unit := rfl
-
 /-- A configuration that is initial satisfies the invariant. -/
 theorem legal_of_init {c : SortGeneratedTopCell} (pgm : SortPgm) (h : c = init pgm) : Invariant c :=
   h ▸ Invariant.init_holds pgm
 
-local macro "init_legal" : tactic => `(tactic| (refine legal_of_init ?pgm ?h; case h => simp only [init, ofEntries_one, ofEntries_nil]; rfl))
+local macro "init_legal" : tactic => `(tactic| (refine legal_of_init ?pgm ?h; case h => simp only [init, MapHook.ofEntries_one, MapHook.ofEntries_nil]; rfl))
 
 theorem hand.witness.«two-news».legal : Invariant witness.«two-news» := by
   unfold witness.«two-news»; init_legal

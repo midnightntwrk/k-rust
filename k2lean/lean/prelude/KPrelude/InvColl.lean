@@ -48,6 +48,14 @@ variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
 /-- Every key of `m` satisfies `P`. -/
 def KeysOn (P : K → Prop) (m : M) : Prop := ∀ p ∈ toList m, P p.1
 
+/-- A map literal of one binding is that binding: what a configuration's map literal (`init`'s,
+a witness's) is, so that the lemmas about `element` read it. -/
+theorem ofEntries_one (k : K) (v : V) : (ofEntries [(k, v)] : M) = element k v := by
+  simp [ofEntries, update_def, element, unit, ListIso.toList_ofList, SAL.insert]
+
+/-- An empty map literal is the empty map. -/
+theorem ofEntries_nil : (ofEntries [] : M) = unit := rfl
+
 end
 
 variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
