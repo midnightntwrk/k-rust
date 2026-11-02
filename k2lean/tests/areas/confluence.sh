@@ -17,7 +17,9 @@
 # TwoParamTx (B's): every segment ends, and every order of a script ends in its run's result;
 # TwoLayerTx (B's): the same statement for the combined form, the fixture twolayer (its measure);
 # ImpPlusConf: IMP++'s threads joined up to the flush of K's stdout stream, its races refuted at
-# peaks of four programs (demos/ImpPlusConf/witnesses), library impplus). Registry: confluence.py.
+# peaks of four programs (demos/ImpPlusConf/witnesses), library impplus; RaceLogConf: modulo an
+# equivalence the author states, the fixture racelog, workers logging their steps, library racelog;
+# JobsConf: the same without threads, the fixture jobs, library jobs). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -29,6 +31,8 @@ name_confluence() {
     twolayer | twolayerout) echo TwoLayer ;;
     twoparam | twoparamok) echo TwoParam ;;
     corout) echo Corout ;;
+    racelog) echo RaceLog ;;
+    jobs) echo Jobs ;;
     *) return 1 ;;
   esac
 }
@@ -67,6 +71,12 @@ gen_confluence() {
     # code's end (`segEnd`; `gen --progress`, SND-19), so a segment never stops elsewhere
     corout) libs_fixture_args "$1"
       GEN_ARGS+=(--measure measure@T --invariant kOk@k --progress --ending segEnd@k) ;;
+    # the fixture race with each step logged and its worker written to a cell no rule reads
+    # (tests/fixtures/racelog), for `confluence --equiv`
+    racelog) libs_fixture_args "$1" ;;
+    # a map of jobs run in any order, each logged (tests/fixtures/jobs), for `confluence --equiv`
+    # without threads
+    jobs) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -199,6 +209,28 @@ libs_confluence() {
         --threads threads --obs output --slots "$DEMOS/ImpPlusConf/ImpPlusConf/Slots.lean" \
         --open-joins "$DEMOS/ImpPlusConf/open-joins.txt" --witnesses "$W/impplus-witnesses" \
         --out "$DEMOS/ImpPlusConf/ImpPlusConf/Views.lean" --report "$DEMOS/ImpPlusConf/confluence.toml" ;;
+    # by equality the slot of two workers' steps refuted at a peak of a program; modulo the order of
+    # the log and the last writer (`--equiv`, `RaceLogConf.Equiv`) every slot generic
+    RaceLogConf) "$G" confluence --kore "$(libs_fixture racelog)/definition.kore" --name RaceLog --ns RaceLogConf \
+        --threads workers --open-joins "$DEMOS/RaceLogConf/open-joins.txt" --witnesses "$(libs_fixture racelog)/witnesses" \
+        --slots "$DEMOS/RaceLogConf/RaceLogConf/Slots.lean" \
+        --out "$DEMOS/RaceLogConf/RaceLogConf/Views.lean" --report "$DEMOS/RaceLogConf/confluence.toml" &&
+      mkdir -p "$DEMOS/RaceLogConf/RaceLogConf/Equiv" &&
+      "$G" confluence --kore "$(libs_fixture racelog)/definition.kore" --name RaceLog --ns RaceLogConf.Equiv \
+        --threads workers --obs acc --equiv log=perm,last=any --views-module RaceLogConf.Equiv.Views \
+        --slots "$DEMOS/RaceLogConf/RaceLogConf/Equiv/Slots.lean" \
+        --out "$DEMOS/RaceLogConf/RaceLogConf/Equiv/Views.lean" --report "$DEMOS/RaceLogConf/equiv.toml" ;;
+    # the same without threads (every ordered pair of rules a slot): by equality the slot open, refuted
+    # with the others by two runs of a program (`Open.refuted`); modulo the order of `<done>` generic
+    JobsConf) "$G" confluence --kore "$(libs_fixture jobs)/definition.kore" --name Jobs --ns JobsConf \
+        --open-joins "$DEMOS/JobsConf/open-joins.txt" --witnesses "$(libs_fixture jobs)/witnesses" \
+        --slots "$DEMOS/JobsConf/JobsConf/Slots.lean" \
+        --out "$DEMOS/JobsConf/JobsConf/Views.lean" --report "$DEMOS/JobsConf/confluence.toml" &&
+      mkdir -p "$DEMOS/JobsConf/JobsConf/Equiv" &&
+      "$G" confluence --kore "$(libs_fixture jobs)/definition.kore" --name Jobs --ns JobsConf.Equiv \
+        --obs total --equiv done=perm --views-module JobsConf.Equiv.Views \
+        --slots "$DEMOS/JobsConf/JobsConf/Equiv/Slots.lean" \
+        --out "$DEMOS/JobsConf/JobsConf/Equiv/Views.lean" --report "$DEMOS/JobsConf/equiv.toml" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -364,6 +396,24 @@ gate_confluence() {
     phase "scaffold ImpPlusConf"
     kc impplus && partlib impplus KImpPlus.Preserves &&
       scaffold confluence-ImpPlusConf libs_confluence ImpPlusConf && dbuild_slots ImpPlusConf
+  fi
+  # confluence modulo an equivalence the author states (`confluence --equiv`, docs/design.md,
+  # section 3.6): the fixture racelog, whose workers log their steps, by worker; by equality the slot
+  # of two workers' steps is refuted at a peak of the program `two`, and modulo the order of `<log>`
+  # and the last writer `<last>` every slot is generic, each rule keeping the equivalence
+  # (`equiv.sim.r`)
+  if runs demo RaceLogConf; then
+    phase "scaffold RaceLogConf"
+    partlib racelog RaceLog.Adequacy
+    scaffold confluence-RaceLogConf libs_confluence RaceLogConf
+    dbuild_slots RaceLogConf
+  fi
+  # the same without threads: the fixture jobs, a map of jobs run in any order, each logged
+  if runs demo JobsConf; then
+    phase "scaffold JobsConf"
+    partlib jobs Jobs.Adequacy
+    scaffold confluence-JobsConf libs_confluence JobsConf
+    dbuild_slots JobsConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;

@@ -1,0 +1,5 @@
+# The slots of JobsConf, the theorem by equality (no `--equiv`), that the generic attempts do not
+# prove: two jobs' steps log in two orders, so they do not join. Left open, a field of `Open`, which
+# two runs of the program `two` (tests/fixtures/jobs/witnesses) refute (`Open.refuted`): they end with
+# `<done>` in two orders.
+join.open.run.run

@@ -99,6 +99,12 @@ lake-manifest.json
 /demos/HandoffRaceConf/HandoffRaceConf/Views.lean
 /demos/HandoffRaceConf/HandoffRaceConf/Slots.lean
 /demos/HandoffRaceConf/confluence.toml
+/demos/RaceLogConf/RaceLogConf/
+/demos/RaceLogConf/confluence.toml
+/demos/RaceLogConf/equiv.toml
+/demos/JobsConf/JobsConf/
+/demos/JobsConf/confluence.toml
+/demos/JobsConf/equiv.toml
 /demos/TwoParamOkConf/TwoParamOkConf/Views.lean
 /demos/TwoParamOkConf/TwoParamOkConf/Slots.lean
 /demos/TwoParamOkConf/confluence.toml

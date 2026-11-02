@@ -1,0 +1,4 @@
+# The slots of RaceLogConf, the theorem by equality (no `--equiv`), that the generic attempts do not
+# prove: two workers' steps log in two orders, so they do not join; refuted at a peak the program `two`
+# (tests/fixtures/racelog/witnesses) reaches (`k2l_peaks`).
+join.open.work.work | refuted two

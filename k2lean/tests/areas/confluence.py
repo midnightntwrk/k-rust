@@ -12,6 +12,25 @@ DEMOS = {
                                               "demos/RaceConf/RaceConf/Pairs/Slots.lean",
                                               "demos/RaceConf/confluence.toml", "demos/RaceConf/pairs.toml"],
                  "slots": {"prefixes": ["join.", "Pairs.join."]}},
+    # workers logging their steps: by equality the slot of two workers' steps refuted at a peak of a
+    # program, and modulo the order of the log and the last writer every slot generic
+    # (`confluence --equiv`, `RaceLogConf.Equiv`)
+    "RaceLogConf": {"tier": "light", "sources": ["generated/racelog",
+                                                 "demos/RaceLogConf/RaceLogConf/Views.lean",
+                                                 "demos/RaceLogConf/RaceLogConf/Slots.lean",
+                                                 "demos/RaceLogConf/RaceLogConf/Equiv/Views.lean",
+                                                 "demos/RaceLogConf/RaceLogConf/Equiv/Slots.lean",
+                                                 "demos/RaceLogConf/confluence.toml", "demos/RaceLogConf/equiv.toml"],
+                    "slots": {"prefixes": ["join.", "Equiv.join.", "Equiv.equiv."],
+                              "list": "demos/RaceLogConf/open-joins.txt"}},
+    # the same without threads: a map of jobs run in any order, each logged
+    "JobsConf": {"tier": "light", "sources": ["generated/jobs",
+                                              "demos/JobsConf/JobsConf/Views.lean", "demos/JobsConf/JobsConf/Slots.lean",
+                                              "demos/JobsConf/JobsConf/Equiv/Views.lean",
+                                              "demos/JobsConf/JobsConf/Equiv/Slots.lean",
+                                              "demos/JobsConf/confluence.toml", "demos/JobsConf/equiv.toml"],
+                 "slots": {"prefixes": ["join.", "Equiv.join.", "Equiv.equiv."],
+                           "list": "demos/JobsConf/open-joins.txt"}},
     # SIMPLE's steps of two threads joined generically, the joins they leave as slots, those the
     # generic attempts do not prove open (`confluence --threads threads --slots`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean",

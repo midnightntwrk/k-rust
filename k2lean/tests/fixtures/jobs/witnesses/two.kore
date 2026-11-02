@@ -1,0 +1,19 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'T'-GT-'{}(
+    Lbl'-LT-'jobs'-GT-'{}(
+      Lbl'Unds'Map'Unds'{}(
+        Lbl'UndsPipe'-'-GT-Unds'{}(
+          inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")),
+          inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))
+        ),
+        Lbl'UndsPipe'-'-GT-Unds'{}(
+          inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2")),
+          inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("false"))
+        )
+      )
+    ),
+    Lbl'-LT-'total'-GT-'{}(\dv{SortInt{}}("0")),
+    Lbl'-LT-'done'-GT-'{}(Lbl'Stop'List{}())
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)
