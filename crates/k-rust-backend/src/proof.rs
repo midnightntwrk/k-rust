@@ -6178,8 +6178,9 @@ mod tests {
 
     #[test]
     fn interrupts_an_equation_loop_at_the_step_deadline() {
-        // `spin(a) = spin(b)` and `spin(b) = spin(a)` never reach a value and call no hook; with
-        // no iteration bound only the step deadline ends the loop-head simplification.
+        // `spin(X) = spin(s(X))` never reaches a value, calls no hook and never reaches a term
+        // twice; with no iteration bound only the step deadline ends the loop-head
+        // simplification.
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -6188,19 +6189,16 @@ mod tests {
                 sort SortState{} []
                 symbol a{}() : SortT{} [constructor{}(), total{}()]
                 symbol b{}() : SortT{} [constructor{}(), total{}()]
+                symbol s{}(SortT{}) : SortT{} [constructor{}(), total{}()]
                 symbol spin{}(SortT{}) : SortInt{} [function{}()]
                 symbol state{}(SortInt{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
                 alias weakExistsFinally{S}(S) : S
                     where weakExistsFinally{S}(@X:S) := @X:S []
                 axiom{R} \implies{R}(
-                    \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, a{}()), \top{R}())),
-                    \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(b{}()), \top{SortInt{}}()))
-                ) [label{}("spin-a")]
-                axiom{R} \implies{R}(
-                    \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, b{}()), \top{R}())),
-                    \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(a{}()), \top{SortInt{}}()))
-                ) [label{}("spin-b")]
+                    \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, Y:SortT{}), \top{R}())),
+                    \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(s{}(Y:SortT{})), \top{SortInt{}}()))
+                ) [label{}("spin-s")]
                 claim{} \implies{SortState{}}(
                     \and{SortState{}}(\top{SortState{}}(), state{}(spin{}(a{}()))),
                     weakExistsFinally{SortState{}}(

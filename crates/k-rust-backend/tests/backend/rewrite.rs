@@ -7476,33 +7476,52 @@ fn a_search_match_is_not_reported_under_a_condition_on_a_result_above_the_size_b
     }
 }
 
-/// `spin(a) = spin(b)` and `spin(b) = spin(a)` are ground function equations that never reach a
-/// value and call no hook, so only the step deadline can end their simplification once the
+/// `spin(X) = spin(s(X))` is a ground function equation that never reaches a value, calls no hook
+/// and never reaches a term twice, so only the step deadline can end its simplification once the
 /// iteration budget does not. `go` exposes `spin(a)` to the simplifier after one rewrite step.
 fn tail_equation_loop_definition() -> BackendDefinition {
-    definition(
-        r#"
-            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-            sort SortT{} []
-            symbol a{}() : SortT{} [constructor{}(), total{}()]
-            symbol b{}() : SortT{} [constructor{}(), total{}()]
-            symbol spin{}(SortT{}) : SortInt{} [function{}()]
-            symbol start{}(SortT{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
-            symbol kbox{}(SortInt{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
-            axiom{R} \implies{R}(
+    spin_definition(
+        r#"axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, Y:SortT{}), \top{R}())),
+                \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(s{}(Y:SortT{})), \top{SortInt{}}()))
+            ) [label{}("spin-s")]"#,
+    )
+}
+
+/// `spin(a) = spin(b)` and `spin(b) = spin(a)` rewrite `spin(a)` back to itself after two ground
+/// steps, behind the same `go`.
+fn swapping_equation_definition() -> BackendDefinition {
+    spin_definition(
+        r#"axiom{R} \implies{R}(
                 \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, a{}()), \top{R}())),
                 \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(b{}()), \top{SortInt{}}()))
             ) [label{}("spin-a")]
             axiom{R} \implies{R}(
                 \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, b{}()), \top{R}())),
                 \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(a{}()), \top{SortInt{}}()))
-            ) [label{}("spin-b")]
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(start{}(T:SortT{}), \top{SortS{}}()),
-                kbox{}(spin{}(T:SortT{}))
-            ) [label{}("go")]
-            "#,
+            ) [label{}("spin-b")]"#,
     )
+}
+
+/// The `spin` signature and the rewrite `go`: `start(T) => kbox(spin(T))`, beside `equations`.
+fn spin_definition(equations: &str) -> BackendDefinition {
+    definition(&format!(
+        r#"
+            hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+            sort SortT{{}} []
+            symbol a{{}}() : SortT{{}} [constructor{{}}(), total{{}}()]
+            symbol b{{}}() : SortT{{}} [constructor{{}}(), total{{}}()]
+            symbol s{{}}(SortT{{}}) : SortT{{}} [constructor{{}}(), total{{}}()]
+            symbol spin{{}}(SortT{{}}) : SortInt{{}} [function{{}}()]
+            symbol start{{}}(SortT{{}}) : SortS{{}} [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
+            symbol kbox{{}}(SortInt{{}}) : SortS{{}} [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
+            {equations}
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(start{{}}(T:SortT{{}}), \top{{SortS{{}}}}()),
+                kbox{{}}(spin{{}}(T:SortT{{}}))
+            ) [label{{}}("go")]
+            "#
+    ))
 }
 
 /// Execute the tail-loop fixture with the given iteration budget and a short step deadline.
@@ -7513,11 +7532,30 @@ fn execute_tail_equation_loop(
     step_timeout: Duration,
     terminal_rules: BTreeSet<String>,
 ) -> ExecutionResult {
+    execute_spin(
+        false,
+        max_simplification_iterations,
+        step_timeout,
+        terminal_rules,
+    )
+}
+
+/// Execute `start(a)` over the growing loop or, with `cycle`, the swapping equations.
+fn execute_spin(
+    cycle: bool,
+    max_simplification_iterations: usize,
+    step_timeout: Duration,
+    terminal_rules: BTreeSet<String>,
+) -> ExecutionResult {
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("tail-equation-loop".into())
         .spawn(move || {
-            let definition = tail_equation_loop_definition();
+            let definition = if cycle {
+                swapping_equation_definition()
+            } else {
+                tail_equation_loop_definition()
+            };
             let a = Term::application(definition.symbols()["a"].clone(), Vec::new(), Vec::new());
             let initial = Pattern {
                 term: Term::application(definition.symbols()["start"].clone(), Vec::new(), vec![a]),
@@ -7612,6 +7650,26 @@ fn step_deadline_ends_an_equation_loop_after_a_terminal_rule() {
         ),
         "leaves: {:?}",
         result.leaves
+    );
+}
+
+#[test]
+fn a_successor_whose_evaluation_reaches_a_term_again_halts_with_the_cycle() {
+    // `go` builds `kbox(spin(a))`, and the swapping equations rewrite `spin(a)` back to itself:
+    // the successor has no normal form, so the step halts with the cycle long before the
+    // deadline, naming the term reached again, and reports no state it would have reached.
+    let result = execute_spin(true, usize::MAX, Duration::from_secs(60), BTreeSet::new());
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf, found {:?}", result.leaves);
+    };
+    assert!(
+        matches!(
+            &leaf.halt_reason,
+            HaltReason::Simplification(SimplificationError::EvaluationCycle { steps: 2, term })
+                if matches!(term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "spin")
+        ),
+        "{leaf:?}"
     );
 }
 

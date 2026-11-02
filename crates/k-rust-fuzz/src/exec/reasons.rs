@@ -782,7 +782,9 @@ fn incomplete_leaf(leaf: &LeafReport) -> Option<UnjudgedReason> {
 ///
 /// - A `simplification-error` halt: `iteration-limit` and `predicate-iteration-limit` are the
 ///   option bound ([`UnjudgedReason::HaltIterationLimit`]); `stack-exhausted` a lack of stack;
-///   `conflicting-results` and `unsupported-hook` constructs k-rust leaves undecided by design
+///   `conflicting-results`, `unsupported-hook` and `evaluation-cycle` (equations that rewrite a
+///   term back to itself, which have no normal form there) constructs k-rust leaves undecided by
+///   design
 ///   ([`UnjudgedReason::HaltUnsupportedConstruct`]); a solver failure is read as below. A
 ///   `builtin` failure or an `invalid-builtin-result-symbol` is internal: terms are sort-checked,
 ///   so a builtin hook meets arguments it does not take, or a result symbol it cannot build,
@@ -823,6 +825,7 @@ pub fn halt_cause(
                     Some(HaltCause::Unjudged(UnjudgedReason::HaltIterationLimit))
                 }
                 F::ConflictingResults { .. }
+                | F::EvaluationCycle { .. }
                 | F::UnsupportedHook { .. }
                 | F::UnstatedDefinedness { .. } => Some(HaltCause::Unjudged(
                     UnjudgedReason::HaltUnsupportedConstruct,
@@ -864,6 +867,7 @@ pub fn halt_cause(
             | F::InconsistentGroundTruth { .. }
             | F::IterationLimit { .. }
             | F::PredicateIterationLimit { .. }
+            | F::EvaluationCycle { .. }
             | F::InvalidBuiltinResultSymbol { .. }
             | F::UnsupportedHook { .. }
             | F::UnstatedDefinedness { .. }

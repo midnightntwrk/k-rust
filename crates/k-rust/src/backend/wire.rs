@@ -840,6 +840,13 @@ pub enum SearchFailureOutput<K = Value> {
         limit: usize,
         predicate: Option<K>,
     },
+    /// The evaluation of `term` reached it again after `steps` equation steps that are each a
+    /// function of the term they rewrite, so it repeats them without end: the term has no
+    /// normal form.
+    EvaluationCycle {
+        steps: usize,
+        term: K,
+    },
     InvalidBuiltinResultSymbol {
         hook: String,
         symbol: String,
@@ -1776,6 +1783,12 @@ fn simplification_failure_output<K: WireKore>(
                 term: Some(encode_term(&term)?),
             }
         }
+        SimplificationError::EvaluationCycle { steps, term } => {
+            SearchFailureOutput::EvaluationCycle {
+                steps,
+                term: encode_term(&term)?,
+            }
+        }
         SimplificationError::PredicateIterationLimit { limit, predicate } => {
             SearchFailureOutput::PredicateIterationLimit {
                 limit,
@@ -2636,6 +2649,13 @@ mod tests {
                 SearchFailureOutput::PredicateIterationLimit {
                     limit: 1,
                     predicate: None,
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::EvaluationCycle {
+                    steps: 2,
+                    term: Value::Null,
                 },
                 false,
             ),

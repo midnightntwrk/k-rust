@@ -984,6 +984,7 @@ export type SearchFailure =
   | { kind: 'inconsistent-ground-truth'; rule?: string }
   | { kind: 'iteration-limit'; limit: number; term: Kore | null }
   | { kind: 'predicate-iteration-limit'; limit: number; predicate: Kore | null }
+  | { kind: 'evaluation-cycle'; steps: number; term: Kore }
   | { kind: 'invalid-builtin-result-symbol'; hook: string; symbol: string }
   | { kind: 'unsupported-hook'; hook: string; reason: string; term: Kore }
   /** Unsupported unification remainder; an earlier unevaluated equation may still depend on a solver. */
