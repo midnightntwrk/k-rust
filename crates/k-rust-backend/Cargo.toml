@@ -56,7 +56,9 @@ serde_json.workspace = true
 
 [features]
 # Panic when a term marked evaluated or minted instance-normal is matched at its root by some
-# term equation of the definition (`term::head::check`). For tests; off in every normal build.
+# term equation of the definition (`term::head::check`), and when a simplification a proof's
+# record of normal forms serves differs from a new one (`simplify::normal_forms`). For tests;
+# off in every normal build.
 check-normal-forms = []
 # Expose `simplify::without_unspecified_reuse`, which turns off the reuse of `Unspecified`
 # evaluations so that a test can compare the simplifier with and without it. For tests; off in

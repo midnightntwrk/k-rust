@@ -328,6 +328,16 @@ impl EmissionKind {
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     static NEXT_POSITION: Cell<u64> = const { Cell::new(0) };
+    /// The diagnostics emitted on this thread ([`emitted`]).
+    static EMITTED: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many diagnostics this thread has emitted so far, whether or not a collector was open to
+/// record them, a buffered emission and a replayed one included, those of work run
+/// [`discarded`] excluded: work during which this does not move emitted nothing that a collector
+/// its caller opens around it would receive (`simplify::normal_forms`).
+pub(crate) fn emitted() -> u64 {
+    EMITTED.with(Cell::get)
 }
 
 /// A collected diagnostic with its position in the thread's emission order, so that lists
@@ -385,6 +395,7 @@ impl Sink {
 }
 
 fn record_in_sink(kind: EmissionKind) {
+    EMITTED.with(|emitted| emitted.set(emitted.get().wrapping_add(1)));
     SINK.with(|sink| {
         if let Some(sink) = sink.borrow_mut().as_mut() {
             let position = NEXT_POSITION.with(|next| next.replace(next.get() + 1));
@@ -676,6 +687,7 @@ impl Buffered {
         if self.0.is_empty() {
             return;
         }
+        EMITTED.with(|emitted| emitted.set(emitted.get().wrapping_add(self.0.len() as u64)));
         SINK.with(|sink| {
             if let Some(sink) = sink.borrow_mut().as_mut() {
                 for emission in &self.0 {
@@ -948,18 +960,19 @@ impl<'a> Occurrences<'a> {
 }
 
 /// Run `action`, work that explains no result, with every diagnostic it emits dropped and the
-/// thread's next emission position restored afterwards, also when it unwinds: no collection
-/// receives its emissions, and every later emission takes the position it would have taken
-/// without it, so the order in which collected lists merge and the "nothing emitted since"
-/// tests of the caller ([`next_position`]) are unchanged.
+/// thread's next emission position and count of emissions restored afterwards, also when it
+/// unwinds: no collection receives its emissions, and every later emission takes the position it
+/// would have taken without it, so the order in which collected lists merge and the "nothing
+/// emitted since" tests of the caller ([`next_position`], [`emitted`]) are unchanged.
 pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
-    struct Restore(u64);
+    struct Restore(u64, u64);
     impl Drop for Restore {
         fn drop(&mut self) {
             NEXT_POSITION.set(self.0);
+            EMITTED.set(self.1);
         }
     }
-    let _restore = Restore(NEXT_POSITION.get());
+    let _restore = Restore(NEXT_POSITION.get(), EMITTED.get());
     buffer(action).0
 }
 

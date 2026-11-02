@@ -290,6 +290,10 @@ pub fn prove_claim(
     // receive.
     let condition_memo = crate::simplify::condition_memo_scope(solver);
     let solver = condition_memo.solver();
+    // The proof's clean simplifications, kept until it ends (`simplify::normal_forms`): a
+    // destination checked again under equal state constraints is served its simplification. It
+    // reads the undecided answers the scope's solver counts.
+    let _normal_forms = crate::simplify::normal_forms::scope();
     let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
     if let Some(reason) = &claim.unstated {
         return Err(ProofError::UnstatedDefinedness(reason.clone()));
@@ -5481,6 +5485,46 @@ mod tests {
             destinations[0].constraints,
             claim_with_label(&definition, "mixed").rhs[0].constraints
         );
+    }
+
+    /// GAP K17: a proof records its destination's clean simplification under each state's
+    /// constraints (`simplify::normal_forms`), and a later check under equal constraints is
+    /// served it: `go(X)` and its successor `triple(X, b, c)` are checked against
+    /// `triple(X, drop(X), c)` under the same constraints, and `drop(X)`, which a prepared
+    /// destination keeps (it has a variable), is simplified to `b` at the first check only. The
+    /// result is the one the proof reaches with nothing recorded, and every served simplification
+    /// equals a new one (`check-normal-forms`).
+    #[test]
+    fn a_proof_simplifies_its_destination_once_under_equal_constraints() {
+        let definition = prepared_destination_definition(&[ground_destination_claim(
+            "go-to-drop",
+            "go{}(X:SortS{})",
+            "triple{}(X:SortS{}, drop{}(X:SortS{}), c{}())",
+        )]);
+        let prove = || {
+            let before = measure::snapshot();
+            let result = super::prove_claim(
+                &definition,
+                claim_with_label(&definition, "go-to-drop"),
+                &[],
+                ProofOptions::default(),
+                &NoSolver,
+            )
+            .expect("claim should execute");
+            let delta = measure::snapshot().delta(&before);
+            (
+                result,
+                delta.get(Counter::SimplifyNormalFormsRecorded),
+                delta.get(Counter::SimplifyNormalFormsServed),
+            )
+        };
+        let (result, recorded, served) = prove();
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert_eq!((recorded, served), (1, 1), "{result:#?}");
+        let (without, recorded, served) =
+            crate::simplify::normal_forms::without_normal_forms(prove);
+        assert_eq!((recorded, served), (0, 0));
+        assert_eq!(without, result);
     }
 
     /// Beside [`GROUND_DESTINATIONS`]: `undef` is a partial function with no equation, which `drop`

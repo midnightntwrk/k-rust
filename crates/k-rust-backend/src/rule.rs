@@ -4453,6 +4453,35 @@ pub(crate) fn with_apart_names_restored<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Whether an [`ApartScope`] is open on this thread, so that the `{name}!apart{counter}` counter
+/// only grows until the outermost one closes: no entry point inside restarts it.
+pub(crate) fn apart_scope_open() -> bool {
+    APART.with(|state| state.get().0 > 0)
+}
+
+/// The thread's next `{name}!apart{counter}` counter: the renamings between two readings
+/// minted the names numbered from the first to the second.
+pub(crate) fn apart_counter() -> u64 {
+    APART.with(|state| state.get().1)
+}
+
+/// Move the thread's `{name}!apart{counter}` counter on by `minted`, as the renamings of work
+/// that minted that many names would, where that work's result is reused in place of doing it
+/// again (`simplify::normal_forms`): the renamings after it mint the names they would have
+/// minted after the work.
+pub(crate) fn skip_apart_names(minted: u64) {
+    APART.with(|state| {
+        let (depth, next) = state.get();
+        state.set((depth, next + minted));
+    });
+}
+
+/// Whether `variable`'s name was minted by a renaming apart: the `!apart` marker is spelled by
+/// no other name source ([`rename_apart`]).
+pub(crate) fn is_apart_name(variable: &Variable) -> bool {
+    variable.name.contains("!apart")
+}
+
 fn next_apart_counter() -> u64 {
     APART.with(|state| {
         let (depth, next) = state.get();

@@ -5,7 +5,7 @@ It is the starting point for work that spans algorithms.
 Source discovery covers root `crates/*/src`; KRS, KINK and k2lean workspace members are outside this graph.
 It holds only what the algorithm graph declares on cards (`docs/algorithm-cards.md`), reads from tables (the kompile stage tables, `Counter::ALL`), or derives from both.
 An absent edge proves nothing: there is no call graph, and code that no card names belongs to no algorithm.
-Graph: nodes 134 algorithm, 3 contract, 3 invariant, 122 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 144 measured-by, 36 produces, 1 variant-of.
+Graph: nodes 135 algorithm, 3 contract, 3 invariant, 137 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 159 measured-by, 36 produces, 1 variant-of.
 
 - `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.
 - `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.
@@ -154,6 +154,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.search.paths — exponential in b and d, plus O(1) visited-set… — in: [rewrite result] — at backend/search.rs `search_paths_using`
 - backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result] — at backend/search.rs `search_pattern_using`
 - backend.simplify.condition_memo — no allocation: the key's own part (the rule id… +1 mode — at backend/simplify.rs `ConditionMemo::served`
+- backend.simplify.normal_forms — the context checks (thread flags); the record's… +1 mode — at backend/simplify/normal_forms.rs `NormalForms`
 - backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… +7 modes — in: [match result] — at backend/simplify.rs `simplify_predicates_with_solver`
 - backend.simplify.term — O(r x |t| x c), with the rounds that are not… +7 modes — in: [match result] — at backend/simplify.rs `simplify_with_optional_execution`
 - backend.smt.cache — O(L x log E) for the key comparison, after an… +3 modes — at backend/smt/z3.rs `Z3Solver::solve`
