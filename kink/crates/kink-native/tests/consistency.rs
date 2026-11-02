@@ -591,7 +591,15 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
 /// k-rust's element of an open literal is `f(h(256p8))` against `h(255p8)`, where it was
 /// `f(h(1.0e400))` against `h(MAX)` (every Float literal names one element, `docs/amendments.md`
 /// AM-8). No code changed, so the seeds, the closure and the counts kink reads are unchanged.
-const CONFLUENCE_RS: &str = "fb873f52dac2e51c3f75b9eee66a82cdd9838044211f66b76673febf8a6ed87f";
+/// GAP K18 (`draft/kink27/gap`, K18 C1 a6657972e): fb873f52 -> 6c867ace, documentation only:
+/// `CONDITION_POLLS` states that the path condition's walks of a simplification inside the
+/// check are charged to its poll budget (`stop::charge`, in `stop.rs` and `simplify.rs`), and
+/// that the 29-poll measurement predates the charge. No code of this file changed: the stages,
+/// the early return, the probe head and the counts kink reads are unchanged. The charge makes a
+/// simplification whose rounds walk a growing term reach the budget sooner, and one that
+/// reaches it decides nothing, so an overlap can only stay not joined where it was joined: the
+/// check lists at least the pairs it listed, and kink can only refuse more.
+const CONFLUENCE_RS: &str = "6c867ace7f768655110a4516c8ef73cc57b16ed9e563f2577d3511a0b7e2ee49";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
