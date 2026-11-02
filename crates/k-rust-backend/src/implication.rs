@@ -1862,23 +1862,41 @@ fn grade_outside(
 /// the check, and says nothing about the implication. So every fallback of the check, here and
 /// in its other steps, is written on the failure layer of a layered result, after `?` has
 /// propagated the stop to the check's owner.
+///
+/// The simplification goes through the proof's record of normal forms
+/// (`simplify::normal_forms`), keyed by `unrenamed`, the node `consequent`'s term is `renaming`
+/// of, and by the antecedent's constraints: a later check of the same destination under equal
+/// constraints, with the same renaming, is served the same simplification.
+#[allow(clippy::too_many_arguments)]
 fn simplify_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: Pattern,
     written: Pattern,
+    unrenamed: &crate::term::Term,
+    renaming: &Substitution,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> CheckResult<Pattern> {
     if written.term.attributes().evaluated {
         return Ok(written);
     }
-    match simplify_with_solver(
+    match crate::simplify::normal_forms::simplified_through_record(
         definition,
-        &consequent.term,
+        unrenamed,
+        renaming,
         &antecedent.constraints,
         options,
         solver,
+        || {
+            simplify_with_solver(
+                definition,
+                &consequent.term,
+                &antecedent.constraints,
+                options,
+                solver,
+            )
+        },
     )? {
         Ok(simplified) => {
             let simplified = simplified.into_parts();

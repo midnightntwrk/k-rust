@@ -396,6 +396,13 @@ pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
     action()
 }
 
+/// Whether a collection is open and no [`suspend`] is in effect, so that the work done now is
+/// reported to it.
+#[inline]
+pub(crate) fn collecting() -> bool {
+    OPEN.get()
+}
+
 /// Report that an instance of the axiom `id` was used ([`RunCoverage::applied`]), once more
 /// ([`RunCoverage::applied_counts`]).
 #[inline]
@@ -440,8 +447,9 @@ pub(crate) fn records_conditions() -> bool {
 /// the run, and leaves the counter of renamed-apart names as it was. Besides, it fills none of
 /// the memos the run is later served from: the results of pure hooks
 /// (`deferred::hook_values_aside`), the records of `Unspecified` evaluations
-/// (`simplify::unspecified_values_aside`) and the equation-condition verdicts
-/// (`simplify::condition_memo_aside`) are set aside, so a later evaluation of the run
+/// (`simplify::unspecified_values_aside`), the equation-condition verdicts
+/// (`simplify::condition_memo_aside`) and the recorded normal forms
+/// (`simplify::normal_forms::aside`) are set aside, so a later evaluation of the run
 /// computes, emits and notes what it would without this one; and a stop for lack of native stack
 /// inside it is counted by no scope (`stop::uncounted_stack_stops`). It takes nothing from the
 /// run's `FreshCounter`, which it is not given, and no solver. A stop of its own simplifications
@@ -476,7 +484,9 @@ fn isolate<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
                             crate::deferred::hook_values_aside(|| {
                                 crate::simplify::unspecified_values_aside(|| {
                                     crate::simplify::condition_memo_aside(|| {
-                                        crate::stop::uncounted_stack_stops(evaluation)
+                                        crate::simplify::normal_forms::aside(|| {
+                                            crate::stop::uncounted_stack_stops(evaluation)
+                                        })
                                     })
                                 })
                             })

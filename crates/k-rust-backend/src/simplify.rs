@@ -175,6 +175,7 @@ use crate::{
 };
 
 mod log;
+pub(crate) mod normal_forms;
 mod result;
 pub(crate) mod scan;
 

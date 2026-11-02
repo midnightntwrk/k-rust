@@ -1290,6 +1290,188 @@ symbol = "Counter::SimplifyNodesSkippedEvaluated"
 
 [[node]]
 kind = "observation"
+id = "SimplifyNormalFormsRecorded"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRecorded"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.recorded"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRecorded"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedApart"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedApart"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.apart"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedApart"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedConsole"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedConsole"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.console"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedConsole"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedCoverage"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedCoverage"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.coverage"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedCoverage"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedDiagnostic"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedDiagnostic"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.diagnostic"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedDiagnostic"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedEffect"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedEffect"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.effect"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedEffect"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedFailed"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedFailed"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.failed"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedFailed"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedPathFact"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedPathFact"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.path_fact"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedPathFact"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedStop"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedStop"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.stop"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedStop"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedUndecided"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedUndecided"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.undecided"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedUndecided"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedUnknown"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedUnknown"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.unknown"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedUnknown"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsRefusedUnspecified"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsRefusedUnspecified"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.refused_unclean.unspecified"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsRefusedUnspecified"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNormalFormsServed"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNormalFormsServed"
+table = "Counter::ALL"
+registry_name = "simplify.normal_forms.served"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNormalFormsServed"
+
+[[node]]
+kind = "observation"
 id = "SimplifyPredicateNodesVisited"
 provenance = "table"
 area = "simplify"
@@ -4121,6 +4303,91 @@ bound = "per kept verdict: its key's own part (q predicate handles, the anchor h
 
 [[node]]
 kind = "algorithm"
+id = "backend.simplify.normal_forms"
+provenance = "declared"
+area = "backend"
+name = "reuse of a clean simplification within a proof under an equal path condition"
+variable = "k = known predicates of the key; r = pairs of the key's renaming; c = conjuncts of a recorded simplification"
+invariant = "A recorded simplification ran inside a proof's scope, outside an execution and any run with a console, with no Unspecified attempt or lineage and no coverage collection open, did not stop or dismiss a stack stop, did not fail, emitted no diagnostic, noted no path fact, received no undecided solver answer, left no equation condition or attempt undecided, performed no effect, and holds no name its own renamings apart minted; its key holds the subject node, the renaming applied to it, the known predicates, the options, the definition, the solver and the thread's condition modes. It is served only under an equal key, and only where no path-fact record is open unless one was open when it was recorded."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendSimplifyNormalForms"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "NormalForms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "NormalForms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "NormalForms::served"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "NormalForms::record"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "simplified_through_record"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "Probe::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "Watch::start"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "Watch::refusal"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "holds_an_apart_name"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "scope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "aside"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "NormalFormsScope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "Refusal::counter"
+
+[[node.cost]]
+mode = "lookup (every simplification a caller routes through the record while a proof's scope is open)"
+bound = "the context checks (thread flags); the record's copy of the known list found by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference, and where that fails one hash lookup by content that hashes them; then a key with r cloned pairs and one map lookup, the subject compared by node and the known list by allocation. A hit clones the recorded simplification's shared handles and moves the renaming-apart counter on; a miss runs the simplification, which it pays, and then reads five thread counters, the result's effects, and, only where its renamings minted names, its variables (one cached set per term of the result and its c conjuncts)."
+
+[[node.cost]]
+mode = "retention"
+bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list), and the simplification's shared handles; per distinct known list, one copy (k predicate handles) shared by every key that names it, and at most 4,096 noted places of a caller's copy. At most 65,536 records and an estimate of 64 MiB of these allocations; reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
+
+[[node]]
+kind = "algorithm"
 id = "backend.simplify.predicates"
 provenance = "declared"
 area = "backend"
@@ -5463,6 +5730,18 @@ symbol = "crates/k-rust-backend/src/data_term/instance/tests.rs"
 
 [[node]]
 kind = "observation"
+id = "crates/k-rust-backend/src/implication/destination.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/implication/destination.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication/destination.rs"
+symbol = "crates/k-rust-backend/src/implication/destination.rs"
+
+[[node]]
+kind = "observation"
 id = "crates/k-rust-backend/src/instance_normal.rs"
 provenance = "declared"
 area = "backend"
@@ -5472,6 +5751,18 @@ name = "crates/k-rust-backend/src/instance_normal.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/instance_normal.rs"
 symbol = "crates/k-rust-backend/src/instance_normal.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/proof.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/proof.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "crates/k-rust-backend/src/proof.rs"
 
 [[node]]
 kind = "observation"
@@ -5496,6 +5787,18 @@ name = "crates/k-rust-backend/src/simplify.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "crates/k-rust-backend/src/simplify.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "crates/k-rust-backend/src/simplify/normal_forms.rs"
 
 [[node]]
 kind = "observation"
@@ -12169,6 +12472,102 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.simplify.condition_memo"
 to = "crates/k-rust-backend/src/simplify.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRecorded"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedApart"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedConsole"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedCoverage"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedDiagnostic"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedEffect"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedFailed"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedPathFact"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedStop"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedUndecided"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedUnknown"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsRefusedUnspecified"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "SimplifyNormalFormsServed"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "crates/k-rust-backend/src/implication/destination.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "crates/k-rust-backend/src/proof.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.normal_forms"
+to = "crates/k-rust-backend/src/simplify/normal_forms.rs"
 provenance = "declared"
 
 [[edge]]

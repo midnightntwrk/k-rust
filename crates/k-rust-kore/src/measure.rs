@@ -20,7 +20,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 24;
+pub const COUNTER_SCHEMA_VERSION: u64 = 25;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -306,6 +306,8 @@ algorithms! {
     BackendRewriteRefutationMemo => "backend.rewrite.refutation_memo",
     /// Reuse of an equation-condition verdict within a proof or an outermost condition.
     BackendSimplifyConditionMemo => "backend.simplify.condition_memo",
+    /// Reuse of a simplification recorded within a proof under an equal path condition.
+    BackendSimplifyNormalForms => "backend.simplify.normal_forms",
     /// Full confluence analysis and data-head classification.
     BackendDataHeads => "backend.data.heads",
     /// Ground data-term classification with instance-normal evidence.
@@ -558,6 +560,33 @@ pub enum Counter {
     /// Known predicates each conjunction simplification copies into its own assumptions,
     /// counted once per call.
     SimplifyKnownPredicates,
+    /// Simplifications `simplify::normal_forms` recorded for reuse within a proof.
+    SimplifyNormalFormsRecorded,
+    /// Simplifications `simplify::normal_forms` served from its record, each in place of a
+    /// simplification.
+    SimplifyNormalFormsServed,
+    /// Simplifications `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
+    SimplifyNormalFormsRefusedConsole,
+    /// Simplifications `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
+    SimplifyNormalFormsRefusedUnspecified,
+    /// Simplifications `simplify::normal_forms` did not record or look up because a coverage collection was open.
+    SimplifyNormalFormsRefusedCoverage,
+    /// Simplifications `simplify::normal_forms` did not record or look up because the simplification stopped, or dismissed a stop for lack of native stack.
+    SimplifyNormalFormsRefusedStop,
+    /// Simplifications `simplify::normal_forms` did not record or look up because the simplification failed.
+    SimplifyNormalFormsRefusedFailed,
+    /// Simplifications `simplify::normal_forms` did not record or look up because it emitted a diagnostic.
+    SimplifyNormalFormsRefusedDiagnostic,
+    /// Simplifications `simplify::normal_forms` did not record or look up because it noted a path fact.
+    SimplifyNormalFormsRefusedPathFact,
+    /// Simplifications `simplify::normal_forms` did not record or look up because it received an undecided solver answer.
+    SimplifyNormalFormsRefusedUnknown,
+    /// Simplifications `simplify::normal_forms` did not record or look up because it left an equation condition or an equation attempt undecided.
+    SimplifyNormalFormsRefusedUndecided,
+    /// Simplifications `simplify::normal_forms` did not record or look up because it performed a builtin effect.
+    SimplifyNormalFormsRefusedEffect,
+    /// Simplifications `simplify::normal_forms` did not record or look up because its result holds a name minted by a renaming apart while its own renamings minted names.
+    SimplifyNormalFormsRefusedApart,
     /// Prepared SMT subqueries issued, including script-result-cache hits.
     SmtQueries,
     /// API queries answered before preparation by the typed-input result cache.
@@ -629,7 +658,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 104;
+    pub const COUNT: usize = 117;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -708,6 +737,19 @@ impl Counter {
         Counter::SimplifyPredicateNodesVisited,
         Counter::SimplifyConjunctNodes,
         Counter::SimplifyKnownPredicates,
+        Counter::SimplifyNormalFormsRecorded,
+        Counter::SimplifyNormalFormsServed,
+        Counter::SimplifyNormalFormsRefusedConsole,
+        Counter::SimplifyNormalFormsRefusedUnspecified,
+        Counter::SimplifyNormalFormsRefusedCoverage,
+        Counter::SimplifyNormalFormsRefusedStop,
+        Counter::SimplifyNormalFormsRefusedFailed,
+        Counter::SimplifyNormalFormsRefusedDiagnostic,
+        Counter::SimplifyNormalFormsRefusedPathFact,
+        Counter::SimplifyNormalFormsRefusedUnknown,
+        Counter::SimplifyNormalFormsRefusedUndecided,
+        Counter::SimplifyNormalFormsRefusedEffect,
+        Counter::SimplifyNormalFormsRefusedApart,
         Counter::SmtQueries,
         Counter::SmtTypedCacheHits,
         Counter::SmtTypedCacheMisses,
@@ -819,6 +861,39 @@ impl Counter {
             Counter::SimplifyPredicateNodesVisited => "simplify.predicate_nodes_visited",
             Counter::SimplifyConjunctNodes => "simplify.conjunct_nodes",
             Counter::SimplifyKnownPredicates => "simplify.known_predicates",
+            Counter::SimplifyNormalFormsRecorded => "simplify.normal_forms.recorded",
+            Counter::SimplifyNormalFormsServed => "simplify.normal_forms.served",
+            Counter::SimplifyNormalFormsRefusedConsole => {
+                "simplify.normal_forms.refused_unclean.console"
+            }
+            Counter::SimplifyNormalFormsRefusedUnspecified => {
+                "simplify.normal_forms.refused_unclean.unspecified"
+            }
+            Counter::SimplifyNormalFormsRefusedCoverage => {
+                "simplify.normal_forms.refused_unclean.coverage"
+            }
+            Counter::SimplifyNormalFormsRefusedStop => "simplify.normal_forms.refused_unclean.stop",
+            Counter::SimplifyNormalFormsRefusedFailed => {
+                "simplify.normal_forms.refused_unclean.failed"
+            }
+            Counter::SimplifyNormalFormsRefusedDiagnostic => {
+                "simplify.normal_forms.refused_unclean.diagnostic"
+            }
+            Counter::SimplifyNormalFormsRefusedPathFact => {
+                "simplify.normal_forms.refused_unclean.path_fact"
+            }
+            Counter::SimplifyNormalFormsRefusedUnknown => {
+                "simplify.normal_forms.refused_unclean.unknown"
+            }
+            Counter::SimplifyNormalFormsRefusedUndecided => {
+                "simplify.normal_forms.refused_unclean.undecided"
+            }
+            Counter::SimplifyNormalFormsRefusedEffect => {
+                "simplify.normal_forms.refused_unclean.effect"
+            }
+            Counter::SimplifyNormalFormsRefusedApart => {
+                "simplify.normal_forms.refused_unclean.apart"
+            }
             Counter::SmtQueries => "smt.queries",
             Counter::SmtTypedCacheHits => "smt.typed_cache_hits",
             Counter::SmtTypedCacheMisses => "smt.typed_cache_misses",
