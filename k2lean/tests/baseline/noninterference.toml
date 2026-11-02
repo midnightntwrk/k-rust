@@ -10,108 +10,1762 @@ tier = "light"
 guarded = 9
 preserve = []
 
+[demo.ImpNI.slots]
+"cq.«! B»" = { status = "generic", id = "7e7be6a69265ec54" }
+"cq.«- X»" = { status = "generic", id = "19a7496231fb1e6e" }
+"cq.«B1 != B2»" = { status = "generic", id = "56b9250314242da4" }
+"cq.«B1 == B2»" = { status = "generic", id = "008f30da319bb221" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "28acf3c42c095aad" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "52dc748640e57588" }
+"cq.«CALC.assign»" = { status = "hand", id = "835478d7c0cf227f" }
+"cq.«CALC.step»" = { status = "generic", id = "e1c18f0963653de6" }
+"cq.«CALC.var»" = { status = "hand", id = "bc7ee15c148e1ff1" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "51f5c54824df50a0" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "39d616f112b96307" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "9992f6fb18548cdc" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "8a33522ea6973355" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "f3d73de49f744322" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "26a2f0302e17dfc1" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "c4a3787f04a400fc" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "131890d1e974d96b" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "28b1e20f5fc0d3e8" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "417f3874438e13cf" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "33ce4248a5260676" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "22b4342c05cc098d" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "abf407cac1700c91" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "59c9705b18431bf4" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "e5ee286cd9c7816d" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "38337437e7948d74" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "2004311d2a011c4f" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "636b15987f67c41e" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "19c67b4d855e7a71" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "fea7e32564bb5ec1" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d8221d14f74f3578" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "93e181b44f6aff09" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "14e144a929f67e38" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "36698891cb36891e" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3bbadac18f2532c6" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5326dc0e6ea6a542" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "02709e44f7b8d86d" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "df5b5499d581230e" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "13badf68203d95bf" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8d3b90228b2488c7" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "fba6092d4e8dd7ed" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "aa1eef3ba99a32d9" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d76ad32354f9776e" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "0ff61f5d05feb485" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "967701297163821c" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "0312ddfdc85e83c8" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "9e0fe1932b6ef082" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8a0ad999a789d211" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a3cef487638d53f9" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "32104bbf6f68ab14" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "264e77a50d03cc13" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "74c6d9487d7e3611" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8b6c7ad39a5be3ff" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5b45e58b818e1234" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "1d7b32e240645b18" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "320f4190804d6cd5" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "eff794009cd0cae1" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d25b419c1189b648" }
+"cq.«I1 != I2»" = { status = "generic", id = "661b03ce70d3396e" }
+"cq.«I1 < I2»" = { status = "generic", id = "431089ebd34f9774" }
+"cq.«I1 <= I2»" = { status = "generic", id = "6aa6a805711f4954" }
+"cq.«I1 == I2»" = { status = "generic", id = "ae94f793046ed0e6" }
+"cq.«I1 > I2»" = { status = "generic", id = "33cae6c6d667278f" }
+"cq.«I1 >= I2»" = { status = "generic", id = "7dfe85922697d0ca" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "46a8691d23b2b562" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "9d7a5fcd586ddcc5" }
+"cq.«IMP.block»" = { status = "generic", id = "4da0d6cad253b346" }
+"cq.«IMP.done»" = { status = "generic", id = "fd8b3c91668afa6a" }
+"cq.«IMP.if-else»" = { status = "generic", id = "0a0afb5a2894942c" }
+"cq.«IMP.if-false»" = { status = "generic", id = "2c49524db344e9a9" }
+"cq.«IMP.if-true»" = { status = "generic", id = "4ea6afbb89783ec1" }
+"cq.«IMP.while»" = { status = "generic", id = "0449a29cb43c328a" }
+"cq.«X * Y»" = { status = "generic", id = "b23f79df31ffc72b" }
+"cq.«X + Y»" = { status = "generic", id = "c46e2415755507aa" }
+"cq.«X - Y»" = { status = "generic", id = "1f1380f51c09f7b8" }
+"cq.«X / Y»" = { status = "generic", id = "a8fd4082aeaef3c6" }
+"cq.«false && _»" = { status = "generic", id = "b4fa17b002d42b53" }
+"cq.«false || B»" = { status = "generic", id = "374a69eda7a9125d" }
+"cq.«true && B»" = { status = "generic", id = "3740ee84f2164e59" }
+"cq.«true || _»" = { status = "generic", id = "aa83a5f333791be8" }
+"same.«! B»" = { status = "generic", id = "fbe29dc61957ec1f" }
+"same.«- X»" = { status = "generic", id = "aca4e4a201760568" }
+"same.«B1 != B2»" = { status = "generic", id = "8fd8a3b9b0949cb2" }
+"same.«B1 == B2»" = { status = "generic", id = "6cd2c446609ef39e" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "50b98e114851b1b9" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "afae5564fd7684c8" }
+"same.«CALC.assign»" = { status = "hand", id = "d180d557bc948d24" }
+"same.«CALC.step»" = { status = "generic", id = "0dacfae71d02fcab" }
+"same.«CALC.var»" = { status = "hand", id = "4289f30e90ef7a15" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "36c88fdaa0414a20" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "0eceb218d2ff9d73" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "3b5e7f22b8762801" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "2b21ee2c2760108f" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "36519765e2fe0124" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b2219ae146270f53" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a60a2ba8f2c4cdea" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9d16f619c325eaff" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "74b836408b7c3c19" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6275231de67507e2" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c06ad639f77d47d9" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "8587665157e4e532" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "56f0022e0a34e52d" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "73484171b82513a0" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "01388c5062bd60c3" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4d46e941adfb3733" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0852878e9ea06ec3" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "927a180e2692dd6e" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "607a7f4e53bb55e4" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "684812e43666cee7" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b53ed72c1c23967c" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "c46fc364ff60c878" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "00f4424dbced6058" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "7c3815b36c151cce" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8a2bfa5756cab3d2" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "78d92cb5754dfaed" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b8ff0e2b358e1d5f" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "412afe0e8e557d64" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d80fb473a63272ec" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9ec6487656dfff50" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "523cdb65f39f9898" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5a892e5f6e324991" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "fb5a4df22ada273b" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e79c45b3bbe66b5a" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "21b10ce41f013bae" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3d3e414d8dff991c" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "df49206f065267de" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "477ed3f0edc381bc" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b004b5e949482eb7" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "13e5c9713f90b02c" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8a42398933250161" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9968e8d9efdb9d44" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "aa9310c0418fc195" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "03d94105de245656" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "4e00fd8fb7c68a01" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a77209d14417ac8b" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "12618bed83951a17" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4fe45e8a29fb40ee" }
+"same.«I1 != I2»" = { status = "generic", id = "1a06d0bb2a590a8d" }
+"same.«I1 < I2»" = { status = "generic", id = "6068dcc81a17aa2e" }
+"same.«I1 <= I2»" = { status = "generic", id = "cc438f76f8d03168" }
+"same.«I1 == I2»" = { status = "generic", id = "c2ab8a68c5471682" }
+"same.«I1 > I2»" = { status = "generic", id = "19516f9e6f9c52b9" }
+"same.«I1 >= I2»" = { status = "generic", id = "b0afb747c040849b" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "c81f7a943b9aeb2e" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "ce60fcdd0c79fc6c" }
+"same.«IMP.block»" = { status = "generic", id = "b3b54d221fa05a23" }
+"same.«IMP.done»" = { status = "generic", id = "96b1a1ab7ba314ca" }
+"same.«IMP.if-else»" = { status = "generic", id = "f196352e08a861d8" }
+"same.«IMP.if-false»" = { status = "generic", id = "563ad736cac32e21" }
+"same.«IMP.if-true»" = { status = "generic", id = "b3f237551a7450eb" }
+"same.«IMP.while»" = { status = "generic", id = "f7c70a4b5888a5d0" }
+"same.«X * Y»" = { status = "generic", id = "bd1137361f718d75" }
+"same.«X + Y»" = { status = "generic", id = "fe5134258d00aeaf" }
+"same.«X - Y»" = { status = "generic", id = "dca01e978d7763ce" }
+"same.«X / Y»" = { status = "generic", id = "f3bc0d2404afa349" }
+"same.«false && _»" = { status = "generic", id = "3a09cd346fddd406" }
+"same.«false || B»" = { status = "generic", id = "0ee26ee61ecf2749" }
+"same.«true && B»" = { status = "generic", id = "3a685d8dd6a01cdd" }
+"same.«true || _»" = { status = "generic", id = "b65ff2bb56abc7c0" }
+"sq.«! B»" = { status = "generic", id = "d4527a8c4d8d37d9" }
+"sq.«- X»" = { status = "generic", id = "7dec1152f474c662" }
+"sq.«B1 != B2»" = { status = "generic", id = "f48fb04b6ff3a5fd" }
+"sq.«B1 == B2»" = { status = "generic", id = "f6dc1b7afde92085" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "9f251501977ac500" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "40f1452e3629eeb0" }
+"sq.«CALC.assign»" = { status = "generic", id = "15545641206f348a" }
+"sq.«CALC.step»" = { status = "generic", id = "9bf535aeaec89971" }
+"sq.«CALC.var»" = { status = "hand", id = "6373962aa2b2ba4e" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "41a8d97b0d6e9b35" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "0092eaba6af1f1ae" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "935b281e13daf7a8" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "a48da306e85b0f57" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "408071d84ece9e85" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "176bc824c71062ff" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "68a50ba819e4e1bc" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "0aa798b7ecc94d99" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "ab3f563d3df90b03" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4b4500310833d60d" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "30bd7e0dc2707ff0" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4d2ea022641c2892" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e036fb46fc995f0c" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "b70bad2c9784b6d8" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "81342f0b6b7796a0" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "cb521403a5a7aeed" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "04081ccc94b5bfc1" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "d70c7b74e6ffa3d9" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "71e19320003ee652" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "dbd007c1564eb23a" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "f92b82208366f0db" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "53acb3df1290bb68" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "70fa3464cd678ebd" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4b34dedbc504afb0" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "f5a32fd0d4445683" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "02200b2d987efc5a" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "9e74cc8d1af00fd1" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9f55d3370a97ba80" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a2b9a7dd19599170" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f20581acf0ecc53a" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3391e5727025afca" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3ac856f38256983b" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e407049162c2832f" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "297b477c87dc6793" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "cb3cb9809a5909ce" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "56017fa4905e0a00" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "5e715d9cc2337dbc" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9fa4f8037d3ff396" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a884722e09b6c8d3" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a6f96cafb1574220" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "089f5517af0cc24f" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "05c499fdd4b026a0" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "f937026bb8739221" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d0c70a98214295b7" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b3fda7dcd748d1c6" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "3839cf8b9c1c29b3" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "386a372d00bca9ed" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "0496b763c11989fc" }
+"sq.«I1 != I2»" = { status = "generic", id = "d0b0fa5f1c56cc1a" }
+"sq.«I1 < I2»" = { status = "generic", id = "d886483edb2dd19b" }
+"sq.«I1 <= I2»" = { status = "generic", id = "a8eb8cc030befff4" }
+"sq.«I1 == I2»" = { status = "generic", id = "d1307e5cc0e1044e" }
+"sq.«I1 > I2»" = { status = "generic", id = "09cbdc39299ed3eb" }
+"sq.«I1 >= I2»" = { status = "generic", id = "fb24c3d3dfcd63d8" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "796a023f28846e4f" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "0a05297b280cbe94" }
+"sq.«IMP.block»" = { status = "generic", id = "f41fb7feeeae9154" }
+"sq.«IMP.done»" = { status = "generic", id = "46be2ff973cc243f" }
+"sq.«IMP.if-else»" = { status = "generic", id = "102813547e84b30b" }
+"sq.«IMP.if-false»" = { status = "generic", id = "971894c422656ae5" }
+"sq.«IMP.if-true»" = { status = "generic", id = "c162415e61947d01" }
+"sq.«IMP.while»" = { status = "generic", id = "b16c240c9e1bcbfe" }
+"sq.«X * Y»" = { status = "generic", id = "dfc33fb0843a19f6" }
+"sq.«X + Y»" = { status = "generic", id = "c477cf5b607edd3b" }
+"sq.«X - Y»" = { status = "generic", id = "ef4c0797578cdb30" }
+"sq.«X / Y»" = { status = "generic", id = "b1e76d15fab3fd08" }
+"sq.«false && _»" = { status = "generic", id = "975634cef13a0d4d" }
+"sq.«false || B»" = { status = "generic", id = "33103c8c64a9fb99" }
+"sq.«true && B»" = { status = "generic", id = "835951b74367733c" }
+"sq.«true || _»" = { status = "generic", id = "a88b980c19275f0b" }
+
 [demo.ContractNI]
 tier = "light"
 guarded = 13
 preserve = []
+
+[demo.ContractNI.slots]
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3fced37acec1e2c2" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a80c271efdecdc1e" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "ed26a9be66036547" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "fa6c5f44bcc8fd4a" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "af88fc9e5d095fb7" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "93e6451b60384bb2" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a7664857b7e81fe9" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "02a497e9003401b7" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "935a7eeafd094a48" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "3d811f073acf6e71" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "36741dd39d6a91fe" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "2931d34a62fb0aac" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "2f2484584ab7462b" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "1f13a010ca47246a" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "2613cba7badaf11c" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "a31801acb61e0a26" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "3670024935c331ff" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "c1b9bf0b35a3662a" }
+"append.«CONTRACT.assign»" = { status = "generic", id = "bb4aa2c5c5193c07" }
+"append.«CONTRACT.block»" = { status = "generic", id = "1910ba6318b9b941" }
+"append.«CONTRACT.disclose»" = { status = "generic", id = "c0dcc5c5745fffbe" }
+"append.«CONTRACT.emit»" = { status = "generic", id = "5987c6382a19b55f" }
+"append.«CONTRACT.if-false»" = { status = "generic", id = "7e9da8345c3e138f" }
+"append.«CONTRACT.if-true»" = { status = "generic", id = "242ed791869b47d0" }
+"append.«CONTRACT.lt»" = { status = "generic", id = "0254187800c2a556" }
+"append.«CONTRACT.plus»" = { status = "generic", id = "1fcf5cee8da40980" }
+"append.«CONTRACT.read»" = { status = "generic", id = "2f03965a7b89d3a9" }
+"append.«CONTRACT.repeat-done»" = { status = "generic", id = "4364acead70cd22d" }
+"append.«CONTRACT.repeat»" = { status = "generic", id = "a7d5bc5c64d28535" }
+"append.«CONTRACT.seq»" = { status = "generic", id = "98573626eb83b2e4" }
+"append.«CONTRACT.skip»" = { status = "generic", id = "5ef3c271ec8c4999" }
+"append.«CONTRACT.var»" = { status = "generic", id = "408665392fb2f480" }
+"append.«CONTRACT.witness»" = { status = "generic", id = "8e4aa1796ca25495" }
+"append.«CONTRACT.write»" = { status = "generic", id = "0df58065cb402f89" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "197fabd35757623d" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "65329b48fd24e89a" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "50328938d12999e7" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "6fdf69e87419c1d0" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "cf501880eb7b4ca4" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ed1a06e3bced9583" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8ef380207c323f6b" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e77eeb0e1a163e02" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "e27b5a0e6c7c6f22" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "c032a2853c3438f1" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "504175cd390b8223" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "c43ea506f3e93307" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "26659ef190133ee7" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "907f33095f6c4313" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "b31e3a40b1d6ee88" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "051bd7e30e13b4d7" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "1fa96262c6aea6e0" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "c2263752e519aa28" }
+"cool.«CONTRACT.assign»" = { status = "generic", id = "0f4f946b1f1b678b" }
+"cool.«CONTRACT.block»" = { status = "generic", id = "e50492c9caf2bda8" }
+"cool.«CONTRACT.disclose»" = { status = "generic", id = "10746a590b894d37" }
+"cool.«CONTRACT.emit»" = { status = "generic", id = "59a3896974c63c90" }
+"cool.«CONTRACT.if-false»" = { status = "generic", id = "4617f410023266a9" }
+"cool.«CONTRACT.if-true»" = { status = "generic", id = "d84d0aca49c114f7" }
+"cool.«CONTRACT.lt»" = { status = "generic", id = "7eecfa9daa046993" }
+"cool.«CONTRACT.plus»" = { status = "generic", id = "7d5b59d3265933c8" }
+"cool.«CONTRACT.read»" = { status = "generic", id = "fde86b53dbde458e" }
+"cool.«CONTRACT.repeat-done»" = { status = "generic", id = "941b43c0e4c86bec" }
+"cool.«CONTRACT.repeat»" = { status = "generic", id = "6b868c22dcbd25a0" }
+"cool.«CONTRACT.seq»" = { status = "generic", id = "94e605d9d5117167" }
+"cool.«CONTRACT.skip»" = { status = "generic", id = "8c65fbe43144da6f" }
+"cool.«CONTRACT.var»" = { status = "generic", id = "4257e5611c754bba" }
+"cool.«CONTRACT.witness»" = { status = "generic", id = "324ab05976dba2b9" }
+"cool.«CONTRACT.write»" = { status = "generic", id = "a235a2633f184de4" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "54c3220924aec871" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "dd735080a041e1ff" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e61a5622a6912d9f" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "d7d0187791ba5818" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "32fdb7964c35b04a" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3a248d76ae7e33c4" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "328532fd4b02e745" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "b131e2e1703e9cd8" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "93c0d13b228cc60e" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "8cab15f3246dd3cc" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "95743c7846f91fc4" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "7712b4d3082afd9d" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "15778fee03709ad4" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "043e43aa385106ab" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "cae0b1484e68bfed" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "caaad21c0e45fa67" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "086b74f729d38a47" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "a82c91a20b7bba8a" }
+"cq.«CONTRACT.assign»" = { status = "hand", id = "aaf0994167a1c305" }
+"cq.«CONTRACT.block»" = { status = "generic", id = "d1702baba81afba6" }
+"cq.«CONTRACT.disclose»" = { status = "generic", id = "4476265402f5f89a" }
+"cq.«CONTRACT.emit»" = { status = "generic", id = "8f105858b6dab420" }
+"cq.«CONTRACT.if-false»" = { status = "generic", id = "426c507ce1e95d4c" }
+"cq.«CONTRACT.if-true»" = { status = "generic", id = "8bbdd8cc0fca4f56" }
+"cq.«CONTRACT.lt»" = { status = "generic", id = "ad72cecac89e56bc" }
+"cq.«CONTRACT.plus»" = { status = "generic", id = "e3de4d02ca52a572" }
+"cq.«CONTRACT.read»" = { status = "generic", id = "7c0f6f8fcbbc6daa" }
+"cq.«CONTRACT.repeat-done»" = { status = "generic", id = "f1aaccb863b086f2" }
+"cq.«CONTRACT.repeat»" = { status = "generic", id = "66f50e6107ae38ec" }
+"cq.«CONTRACT.seq»" = { status = "generic", id = "82d8e8069bc58266" }
+"cq.«CONTRACT.skip»" = { status = "generic", id = "2439ce45ddf0668f" }
+"cq.«CONTRACT.var»" = { status = "hand", id = "6a857d28bd5f4f91" }
+"cq.«CONTRACT.witness»" = { status = "generic", id = "6a9fa889a5654a93" }
+"cq.«CONTRACT.write»" = { status = "generic", id = "60597b35d4ddc351" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "7b5d37b6a68da78f" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "15c1ed22d97d2e4f" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "7400f41eb93a6127" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1c016f133c36e0dc" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3b090601f4f3735f" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "8a657803db8924a7" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e0e980626beaf9e5" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "d41e172600f1e657" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "5516b6a77c85ffe6" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "21f4d1f482226fa2" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "068427b633a19fba" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "2a2a2f596c1e5f8a" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "8d975e92c7cf58ff" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "be6aa6465df071be" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "c6d3ee0e6db046f3" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "d738bb1adb7eeb88" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "fcd33faf3fb1c6b3" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "f60b4c4514c87e1c" }
+"disc.«CONTRACT.assign»" = { status = "generic", id = "a2a61d9941e75690" }
+"disc.«CONTRACT.block»" = { status = "generic", id = "85c374b4dfd1309b" }
+"disc.«CONTRACT.disclose»" = { status = "generic", id = "3884ec5c0e2d0e21" }
+"disc.«CONTRACT.emit»" = { status = "generic", id = "6ce34c48125519d0" }
+"disc.«CONTRACT.if-false»" = { status = "generic", id = "b8e71c07a68b9f19" }
+"disc.«CONTRACT.if-true»" = { status = "generic", id = "61a723e18a5eea0d" }
+"disc.«CONTRACT.lt»" = { status = "generic", id = "d9ad8d4bb764e5a2" }
+"disc.«CONTRACT.plus»" = { status = "generic", id = "84ecbe5806287533" }
+"disc.«CONTRACT.read»" = { status = "generic", id = "4d24126d2c2bfa05" }
+"disc.«CONTRACT.repeat-done»" = { status = "generic", id = "16173d4aedc05ff4" }
+"disc.«CONTRACT.repeat»" = { status = "generic", id = "2fdb5c27975c3f05" }
+"disc.«CONTRACT.seq»" = { status = "generic", id = "4e2aa3448fc347c0" }
+"disc.«CONTRACT.skip»" = { status = "generic", id = "5132582df1ab72a3" }
+"disc.«CONTRACT.var»" = { status = "generic", id = "26ebec22f164e5b3" }
+"disc.«CONTRACT.witness»" = { status = "generic", id = "0bccdd611c44d47a" }
+"disc.«CONTRACT.write»" = { status = "generic", id = "b5865c6458966534" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "1b1f0631425c21c3" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3133b370239547fe" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "5234331e0a80eda6" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "501ff69c5c6f106f" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "16f8a18e2aa17dd2" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a5f0c479a9fc9990" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "856aa3cdbf764830" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a6819a287f73d3dd" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "2776959330065716" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "bd19b668e3f14469" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "df989f1d62b55214" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "f2777251d439d85b" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "c230e9834f9c5db0" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "e02dd9d7cd4268e5" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "f727df1b6d79b8aa" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "4dd38810e3e1ab31" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "d0762955cef3121b" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "e218906e330f358b" }
+"same.«CONTRACT.assign»" = { status = "hand", id = "101afb678cc1faa7" }
+"same.«CONTRACT.block»" = { status = "generic", id = "48f3e8eccdbf581d" }
+"same.«CONTRACT.disclose»" = { status = "generic", id = "4819295bef079f46" }
+"same.«CONTRACT.emit»" = { status = "generic", id = "fdcf431357450df3" }
+"same.«CONTRACT.if-false»" = { status = "generic", id = "81a3634a74f1edd1" }
+"same.«CONTRACT.if-true»" = { status = "generic", id = "4bc622d5a4f7d93f" }
+"same.«CONTRACT.lt»" = { status = "generic", id = "53c3784a1a7fed23" }
+"same.«CONTRACT.plus»" = { status = "generic", id = "e76f153f65d33ab0" }
+"same.«CONTRACT.read»" = { status = "generic", id = "17404669749e83d1" }
+"same.«CONTRACT.repeat-done»" = { status = "generic", id = "6e54847ef9400792" }
+"same.«CONTRACT.repeat»" = { status = "generic", id = "4e2d43f9814894bd" }
+"same.«CONTRACT.seq»" = { status = "generic", id = "e1b8015d3530597d" }
+"same.«CONTRACT.skip»" = { status = "generic", id = "d6de86ae58278d6a" }
+"same.«CONTRACT.var»" = { status = "hand", id = "e03eb973bc007249" }
+"same.«CONTRACT.witness»" = { status = "generic", id = "cc673ce37a924b74" }
+"same.«CONTRACT.write»" = { status = "generic", id = "fe547f38efc3d492" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a23dce2210e41ad2" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "00cbfda6119efa33" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3e84283908767a2b" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ea579d2fc33a8b8d" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5a19a1de5aa2e0a8" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "18720d3c62a24aaf" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "035062784d0b54a7" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "99eb4a0d5ff74bb3" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "be3aeaf79acc7e72" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "1cc00e11183d5276" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "af8de17e4a636f94" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "6289ccbfdbbddeab" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "d862916ef1a6d410" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "dee44cce14f122fd" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "6d8555894a83a29d" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "a43017f906a49b3b" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "3b0328bd82414fbe" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "0644f9e7d9b3ec4e" }
+"sq.«CONTRACT.assign»" = { status = "generic", id = "21a8cb65256025e7" }
+"sq.«CONTRACT.block»" = { status = "generic", id = "6f789638fc9a6ed7" }
+"sq.«CONTRACT.disclose»" = { status = "generic", id = "256e6503183c47d8" }
+"sq.«CONTRACT.emit»" = { status = "generic", id = "ff1edc950bf9b103" }
+"sq.«CONTRACT.if-false»" = { status = "generic", id = "2a567636d41acf15" }
+"sq.«CONTRACT.if-true»" = { status = "generic", id = "ba6acb2a50e87913" }
+"sq.«CONTRACT.lt»" = { status = "generic", id = "f0d7b73ba19e7797" }
+"sq.«CONTRACT.plus»" = { status = "generic", id = "86d4059d091dc26f" }
+"sq.«CONTRACT.read»" = { status = "generic", id = "79a02444c12e341b" }
+"sq.«CONTRACT.repeat-done»" = { status = "generic", id = "a4922f370aafddb2" }
+"sq.«CONTRACT.repeat»" = { status = "generic", id = "ea8d3cc7a595bb22" }
+"sq.«CONTRACT.seq»" = { status = "generic", id = "10511e54991c47e7" }
+"sq.«CONTRACT.skip»" = { status = "generic", id = "16c0b707ceb53397" }
+"sq.«CONTRACT.var»" = { status = "hand", id = "842093097cb7646e" }
+"sq.«CONTRACT.witness»" = { status = "generic", id = "d45d9ede29d39057" }
+"sq.«CONTRACT.write»" = { status = "generic", id = "ea6e5e32e36b2bd4" }
 
 [demo.ImpOwiseNI]
 tier = "light"
 guarded = 8
 preserve = []
 
+[demo.ImpOwiseNI.slots]
+"cq.«! B»" = { status = "generic", id = "00bef45df1853cd3" }
+"cq.«- X»" = { status = "generic", id = "0cf8854d3fc561e1" }
+"cq.«B1 != B2»" = { status = "generic", id = "165fe730671b0348" }
+"cq.«B1 == B2»" = { status = "generic", id = "2acabf53601ab14b" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "cb5cb20399ffff99" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b6865653c25065d2" }
+"cq.«CALC.assign»" = { status = "hand", id = "c3fa036d436de0ac" }
+"cq.«CALC.step»" = { status = "generic", id = "db62d2942078a07f" }
+"cq.«CALC.var»" = { status = "hand", id = "8bfc0105621df06b" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "7caf56b5f23bc3df" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "55e56141d94385a1" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "2ad615f2348ecc88" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "5b0ddf210375dba3" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "df85212e7f41c7e8" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "2471bbeec7094534" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "7cf05512e7c837af" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "c4d79bbd946ec6a3" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8d9f9bb505959190" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "66357b7e288b8cf0" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "bfbd32376a51e384" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "0fb16690da0ea815" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "497724ff8039cfcf" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "27ef4fb5302dc40d" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "cb1c777a04ac978c" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3f6b63078de5300b" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "2f220c2d8db2e814" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "00fb1ed7c790e0df" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "7f9f1df1e53a8f3c" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d2d6d1b961fd8f24" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "2a2eac996ef93d6a" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "15b49e725eb3ee72" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4817a443c314388a" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "897a29d604b8d914" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "86052e5317da5948" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ee0086c76163df51" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5a2c6427753a6003" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a6b0c2416139faff" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "25b7c8ed1407e699" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "02c0d7c579d1fa11" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5a0dbb7cad8919d3" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "8b1712c168793f8f" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "6aecb15aedac0176" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "6bff41387fa17544" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "61bfb1f027ffce92" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "7c5a77098be2ca20" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "5a6b439387912695" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9ef56a423a67feab" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "ed24040fdfd55d12" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d8d470d527c54256" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "582c1dd510be2a4f" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e2d4ce558c531139" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "f742a43f395005b9" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4d9a9143572a85d2" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "2b496c42a605a964" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ae37a94811dcc202" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "22df5f45445ccb5e" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "f3667b7a46889384" }
+"cq.«I1 != I2»" = { status = "generic", id = "c8fdb3c1c92b9a18" }
+"cq.«I1 < I2»" = { status = "generic", id = "4040ff983efdb520" }
+"cq.«I1 <= I2»" = { status = "generic", id = "65952ceed76ef373" }
+"cq.«I1 == I2»" = { status = "generic", id = "e9ce1e119f22c509" }
+"cq.«I1 > I2»" = { status = "generic", id = "2a9ad677010389ff" }
+"cq.«I1 >= I2»" = { status = "generic", id = "8c710bdf06f12793" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "1957dfee60f57260" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "b63072c49a83aaf2" }
+"cq.«IMP.block»" = { status = "generic", id = "1041e2873ec78dec" }
+"cq.«IMP.done»" = { status = "generic", id = "587105ba41647db2" }
+"cq.«IMP.if-else»" = { status = "generic", id = "7bb791d104a4f160" }
+"cq.«IMP.if-false»" = { status = "generic", id = "35b70bb7e71048f6" }
+"cq.«IMP.if-true»" = { status = "generic", id = "87195271a6057a5d" }
+"cq.«IMP.while»" = { status = "generic", id = "1ab52fd3cd8d2e94" }
+"cq.«X * Y»" = { status = "generic", id = "3d6a7b8222526765" }
+"cq.«X + Y»" = { status = "generic", id = "8d90435a855d8a1e" }
+"cq.«X - Y»" = { status = "generic", id = "ea60e106957076c0" }
+"cq.«X / Y»" = { status = "generic", id = "f499d3885108d751" }
+"cq.«_ && B»" = { status = "generic", id = "889c1b6e54495928" }
+"cq.«_ || B»" = { status = "generic", id = "335c8e5749dc23d9" }
+"cq.«false && _»" = { status = "generic", id = "81b9a2116cc8c09d" }
+"cq.«true || _»" = { status = "generic", id = "37d8d49ea822eda4" }
+"same.«! B»" = { status = "generic", id = "7b95524d84f6e650" }
+"same.«- X»" = { status = "generic", id = "59ec078622b6dd94" }
+"same.«B1 != B2»" = { status = "generic", id = "e9cc5d04e03b9ae2" }
+"same.«B1 == B2»" = { status = "generic", id = "bd5154b653772f48" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "bf071c50a94e8ffc" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "5e8d9a63af59015a" }
+"same.«CALC.assign»" = { status = "hand", id = "a67d1d947da6465b" }
+"same.«CALC.step»" = { status = "generic", id = "b60fabafdb372c44" }
+"same.«CALC.var»" = { status = "hand", id = "803be331220c02b5" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "96ac10c22cb566d6" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "96669e37363f8aca" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "2713102aa7c7f4a2" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "5b9329c6a5bb0b3f" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "334b1f81c79c6cf9" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "32c623faf190f23a" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "de393cf893b0ff69" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "91bcccee9df29308" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4a7bfcbb44437dfa" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "144afefbd1f1f258" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "69f98e16410488ec" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b88b1d54b0fd2157" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "c3a1830204d08ca3" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "49af366f693fb304" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "e2015d4fe443a10c" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d41dcc6618b80609" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "68c18d0343289064" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a7cdc9f4a697245a" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "2a721423ef541b86" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "e7a2c5bec31e218c" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "db2e08712ec1cd3d" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1e1b252294869e5a" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "f0ed85b2b9d25363" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "597ab4c9df76bb71" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "eca170e7b816b880" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e089c84f6b733844" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "809f175c024bd3b0" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "bb65e494cc6fc96b" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "be5dea46feeef2c5" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "07a656a73663c81f" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5c0298d7cd91c266" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ecefbd4bba81acc9" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0665cf55a5180b4e" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f32fbe46294b9561" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "45dffed3bdc0ce3d" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "80b59409771e1c03" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "571be2d68c8d761d" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "22cc71021450eae5" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "740010a585cfe7d7" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9f8b06f2f27c78c2" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "67b475bf3550129c" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e00b8e72fedf7a12" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "77a1ced665884abe" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "49cc6d112cc23d8e" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "255ba1beeb6bda43" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "4cdc519f715ba852" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "795ca24102a4ab88" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "21f9363fc764426c" }
+"same.«I1 != I2»" = { status = "generic", id = "926b82fbfbb486b6" }
+"same.«I1 < I2»" = { status = "generic", id = "f6d20babd8670ec7" }
+"same.«I1 <= I2»" = { status = "generic", id = "3b8de8927aab5cef" }
+"same.«I1 == I2»" = { status = "generic", id = "73c245623fde57da" }
+"same.«I1 > I2»" = { status = "generic", id = "a6a877a1d7cb8214" }
+"same.«I1 >= I2»" = { status = "generic", id = "1c033b49e176b292" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "f94b72935863c198" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "6f222227a09c9e48" }
+"same.«IMP.block»" = { status = "generic", id = "6f428d04cf29b8db" }
+"same.«IMP.done»" = { status = "generic", id = "e4c54283a1625ea3" }
+"same.«IMP.if-else»" = { status = "generic", id = "63a2a45e2b2d20a1" }
+"same.«IMP.if-false»" = { status = "generic", id = "eafbaff7db19ddba" }
+"same.«IMP.if-true»" = { status = "generic", id = "9a40ca9f4c45379a" }
+"same.«IMP.while»" = { status = "generic", id = "a2122912dd8f3eba" }
+"same.«X * Y»" = { status = "generic", id = "1fa1fc65248bb977" }
+"same.«X + Y»" = { status = "generic", id = "1b49c5543926092a" }
+"same.«X - Y»" = { status = "generic", id = "e3cdcf9a13e94e0e" }
+"same.«X / Y»" = { status = "generic", id = "c89cc3fbef8658b9" }
+"same.«_ && B»" = { status = "generic", id = "668ea2d9f4554265" }
+"same.«_ || B»" = { status = "generic", id = "00ddc9ca15de3fff" }
+"same.«false && _»" = { status = "generic", id = "9ef2dee6d0e7b0b3" }
+"same.«true || _»" = { status = "generic", id = "69abec497148e45b" }
+"sq.«! B»" = { status = "generic", id = "c20c49a70350dc9a" }
+"sq.«- X»" = { status = "generic", id = "5027364f2c75277a" }
+"sq.«B1 != B2»" = { status = "generic", id = "e326e447720279e9" }
+"sq.«B1 == B2»" = { status = "generic", id = "d9c635ba8ffe686a" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "aee241c21b66586b" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "0ac6b98dd57e5173" }
+"sq.«CALC.assign»" = { status = "generic", id = "4f14aed8fab17351" }
+"sq.«CALC.step»" = { status = "generic", id = "0d0221422345acf9" }
+"sq.«CALC.var»" = { status = "hand", id = "261d9e75381e6641" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "7ca5d9f97b6d2cc9" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "ae87e569d10c40d1" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "cdc17ae4daba5305" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "4fcf0a2a7ab5d4a9" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b63e111fc0f127b6" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "e4e10df2c9cb72a8" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "ca0c74c9a626c3d3" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "c6b7e72246130d96" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a67c7cfa347d1242" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b23da0f758e93177" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "ed62d36abfd4763a" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "68335e04b1d5597d" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "45ff0a5ee4bfb428" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f2e6ccb8ca6ea751" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8dc50f92a23cf59f" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "019cecbc2cb18447" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b8fe86674292140a" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "be1c6b27f92acd9e" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0b3d5390b2095e99" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3970b74df2dce930" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "9e15e2caec2d4d1b" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "3053991bb44fff75" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6c2d0f06ec0cd562" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "74d468e462bc4644" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "daff4eb2b400cd6e" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "938f79e4c80c0e17" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "9fbaa318bd709791" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5279a850a82104d1" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e57861fc745ce41b" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5d36d37ddf5d41e7" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c691ffa0fd13bcd7" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9e6d82e3e6aea32d" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "f477be3733786071" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e6e5e437ff15400e" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "525e9d3200f8a032" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "08c8b148c9d5c109" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0cbba749120fd64a" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "da61362e1d917f46" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0d74e203c2dff55a" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "adfd58594a45a446" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "edff92bc66f3a9ea" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "27adb4dbe62744e2" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "84eed6d754db60b8" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4f7ee9516f11e500" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0cd34dadb5dc96f8" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5f4e81b0a799027f" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "77408c10d5c8842a" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "20473d281419b728" }
+"sq.«I1 != I2»" = { status = "generic", id = "33c3140c2a969f37" }
+"sq.«I1 < I2»" = { status = "generic", id = "8734f530a94e0cf0" }
+"sq.«I1 <= I2»" = { status = "generic", id = "a48f2f9f3eacbcee" }
+"sq.«I1 == I2»" = { status = "generic", id = "627e76cbb447a590" }
+"sq.«I1 > I2»" = { status = "generic", id = "54dd9e607dc85b12" }
+"sq.«I1 >= I2»" = { status = "generic", id = "e573f9114f2d4ea9" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "277c2cf78ea47e0f" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "2e3c6d70b01983f8" }
+"sq.«IMP.block»" = { status = "generic", id = "a99900cf78c7c9cd" }
+"sq.«IMP.done»" = { status = "generic", id = "3b10d4406e43949c" }
+"sq.«IMP.if-else»" = { status = "generic", id = "d375f01ad536de99" }
+"sq.«IMP.if-false»" = { status = "generic", id = "8d07cec945fe7013" }
+"sq.«IMP.if-true»" = { status = "generic", id = "a4a6fd5df919a1ba" }
+"sq.«IMP.while»" = { status = "generic", id = "6b66962f04454a11" }
+"sq.«X * Y»" = { status = "generic", id = "6754fda5c39f3c9c" }
+"sq.«X + Y»" = { status = "generic", id = "2e9fefc93ea76036" }
+"sq.«X - Y»" = { status = "generic", id = "8718c75310e7166e" }
+"sq.«X / Y»" = { status = "generic", id = "eed939c9d417ff5c" }
+"sq.«_ && B»" = { status = "generic", id = "ab0c5661c8abf39b" }
+"sq.«_ || B»" = { status = "generic", id = "8b7316cbf4b45176" }
+"sq.«false && _»" = { status = "generic", id = "736ba1457c3e9275" }
+"sq.«true || _»" = { status = "generic", id = "9f159c011591a1ec" }
+
 [demo.ContractOwiseNI]
 tier = "light"
 guarded = 11
 preserve = []
+
+[demo.ContractOwiseNI.slots]
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "fbd8a342a0fc4306" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3e5d9a760cbc8daf" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "1b546d3faed07450" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8560b29dc267f69a" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "df9ab747d1be138d" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "fe62e035bb8a49f4" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "fc79095607928ea1" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f14938cf24793c7b" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "e48651b8fd0a5728" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "80072b6c8b1861e7" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "89899a18016c642d" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "20530708b904c544" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "ba6d6c609a5e6904" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "67aa04a56dcc6592" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "c9d72b3391b21748" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "a339065007e19099" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "cf2056faeb1dde75" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "32ecbc2ffe3c8876" }
+"append.«CONTRACT.assign»" = { status = "generic", id = "e5bde9194966b497" }
+"append.«CONTRACT.block»" = { status = "generic", id = "c8cca54c54568fcf" }
+"append.«CONTRACT.disclose»" = { status = "generic", id = "dc1114bc4217ab10" }
+"append.«CONTRACT.emit»" = { status = "generic", id = "38a5c8d65fd3c3bb" }
+"append.«CONTRACT.if-false»" = { status = "generic", id = "5d7f3432b0c69bcb" }
+"append.«CONTRACT.if-true»" = { status = "generic", id = "83636bb922473100" }
+"append.«CONTRACT.lt»" = { status = "generic", id = "a90cae622ecf738b" }
+"append.«CONTRACT.plus»" = { status = "generic", id = "f4a2568d705be6c3" }
+"append.«CONTRACT.read»" = { status = "generic", id = "0e161d396dc4c7d4" }
+"append.«CONTRACT.repeat-done»" = { status = "generic", id = "83aa04d76ca00210" }
+"append.«CONTRACT.repeat»" = { status = "generic", id = "eac48bfd9c9d0761" }
+"append.«CONTRACT.seq»" = { status = "generic", id = "d4beedec49b6ac36" }
+"append.«CONTRACT.skip»" = { status = "generic", id = "702f9e56ca81858c" }
+"append.«CONTRACT.var»" = { status = "generic", id = "0ada1ddf0c83b883" }
+"append.«CONTRACT.witness»" = { status = "generic", id = "c0cd79763abacbf6" }
+"append.«CONTRACT.write»" = { status = "generic", id = "2dccc726f7029d7d" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c1bab8d94f081899" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "f85efc5b82aa68be" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "21c93f3733f3aee4" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "2f2ab91fb9a7d02c" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "88c4d2d5727e378f" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "cd8a4b77bfe8a064" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "1d90dc0c55a51735" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "770458e12eb0e5d9" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "9bbead77d35de412" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "7faa53679296b9cb" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "0456cc2e6faa87c8" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "3ca901cc6c8efa3c" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "a0d063abce1a7384" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "47bfac4e5ce7f04c" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "1cde974942b21272" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "5d08caeb69b256c4" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "d2ee5feaa6349e39" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b6d2fc8369095cef" }
+"cool.«CONTRACT.assign»" = { status = "generic", id = "9e8762bbf57fe3a8" }
+"cool.«CONTRACT.block»" = { status = "generic", id = "c481aea6f2bad6ff" }
+"cool.«CONTRACT.disclose»" = { status = "generic", id = "b76787c142f96a3a" }
+"cool.«CONTRACT.emit»" = { status = "generic", id = "5327c7980cdac34b" }
+"cool.«CONTRACT.if-false»" = { status = "generic", id = "b8c4cb3faf1a2758" }
+"cool.«CONTRACT.if-true»" = { status = "generic", id = "1cff5fc17a7e29cd" }
+"cool.«CONTRACT.lt»" = { status = "generic", id = "be86712e609a779d" }
+"cool.«CONTRACT.plus»" = { status = "generic", id = "f02e4b864d6d3467" }
+"cool.«CONTRACT.read»" = { status = "generic", id = "72e9c9eae03c0512" }
+"cool.«CONTRACT.repeat-done»" = { status = "generic", id = "d4355c7dd42bad6c" }
+"cool.«CONTRACT.repeat»" = { status = "generic", id = "5d8d4358ac2efde1" }
+"cool.«CONTRACT.seq»" = { status = "generic", id = "59233d52a930b47f" }
+"cool.«CONTRACT.skip»" = { status = "generic", id = "739b50dc60cffd7f" }
+"cool.«CONTRACT.var»" = { status = "generic", id = "d01ec9ad14439151" }
+"cool.«CONTRACT.witness»" = { status = "generic", id = "ace97cfa5985355e" }
+"cool.«CONTRACT.write»" = { status = "generic", id = "c869d5f87a9c4673" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c30cfa451281517d" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ef1a55f0d777efb0" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e5ed28f38c9da768" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "dbe029347254a8e1" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3035fba7d9cb86fe" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6cda4bce741b7c3f" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "ad5af8427e3a238b" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e9aa783999fb933b" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "a2b9856c150cf1cf" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "bf4a68ef881f4e77" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "72e6ffcef21fba43" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "0aafd224906fb72a" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "426bb53354c8cee8" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "88b1e3bf6cd6a967" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "d4453f7fa5ef5797" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "4bb23d2f3b44d2e7" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "404f132f1efef076" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "76925ab2e03ea4ef" }
+"cq.«CONTRACT.assign»" = { status = "hand", id = "4121edb9b32efc81" }
+"cq.«CONTRACT.block»" = { status = "generic", id = "cbf8b2ca5bebc57e" }
+"cq.«CONTRACT.disclose»" = { status = "generic", id = "1885ef52cccf2e7f" }
+"cq.«CONTRACT.emit»" = { status = "generic", id = "100a4044d9b7335a" }
+"cq.«CONTRACT.if-false»" = { status = "generic", id = "284c54822b233194" }
+"cq.«CONTRACT.if-true»" = { status = "generic", id = "002876f4128b4c65" }
+"cq.«CONTRACT.lt»" = { status = "generic", id = "178f9c460e80c568" }
+"cq.«CONTRACT.plus»" = { status = "generic", id = "ff80b176f5146c1e" }
+"cq.«CONTRACT.read»" = { status = "generic", id = "dbd270a40973c7b3" }
+"cq.«CONTRACT.repeat-done»" = { status = "generic", id = "f972890282b75948" }
+"cq.«CONTRACT.repeat»" = { status = "generic", id = "aadd1759e0d7b8c6" }
+"cq.«CONTRACT.seq»" = { status = "generic", id = "ee84ece671257725" }
+"cq.«CONTRACT.skip»" = { status = "generic", id = "3c8601ba3fe1839b" }
+"cq.«CONTRACT.var»" = { status = "hand", id = "149692e64e3912bd" }
+"cq.«CONTRACT.witness»" = { status = "generic", id = "e3c80d1def6f4223" }
+"cq.«CONTRACT.write»" = { status = "generic", id = "615fda1af53be7e6" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c2b160f5aaca5de1" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "f81bea81fcd9d92c" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "640f1838d10ae22b" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "38a673762f7b68b0" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "e25b2fc1e003e6e5" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a9d649f1686abf66" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b05149978b57dfe5" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9291c25785ad2b48" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "11f6bc28145e80ce" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "a4aff4f56430ed0f" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "146ed37f154cb08a" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "9937de005baba225" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "a1f42eb6e00ab20a" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "0c807c6c57a17d28" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "6b1048060a24a67b" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "ddfe34493418a3b1" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "3ac7d54db1c7ae84" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "5c33b91986def64c" }
+"disc.«CONTRACT.assign»" = { status = "generic", id = "f38d077cae0194df" }
+"disc.«CONTRACT.block»" = { status = "generic", id = "7b365f6c88324aa9" }
+"disc.«CONTRACT.disclose»" = { status = "generic", id = "402e14689a169df5" }
+"disc.«CONTRACT.emit»" = { status = "generic", id = "9fde9ccb3f6fcd98" }
+"disc.«CONTRACT.if-false»" = { status = "generic", id = "9561f4dc6efb34bb" }
+"disc.«CONTRACT.if-true»" = { status = "generic", id = "4eb3e6f564920d84" }
+"disc.«CONTRACT.lt»" = { status = "generic", id = "2b1b0dc68ec95aff" }
+"disc.«CONTRACT.plus»" = { status = "generic", id = "5696a14721faeff4" }
+"disc.«CONTRACT.read»" = { status = "generic", id = "f3752543f9f60f9b" }
+"disc.«CONTRACT.repeat-done»" = { status = "generic", id = "5dd3f8a36570a58c" }
+"disc.«CONTRACT.repeat»" = { status = "generic", id = "30ccc47259a54fec" }
+"disc.«CONTRACT.seq»" = { status = "generic", id = "51137f51f97880f7" }
+"disc.«CONTRACT.skip»" = { status = "generic", id = "a8ca9b4a7af73808" }
+"disc.«CONTRACT.var»" = { status = "generic", id = "132b6ea7742cb3fa" }
+"disc.«CONTRACT.witness»" = { status = "generic", id = "b4e6b597b09b55a6" }
+"disc.«CONTRACT.write»" = { status = "generic", id = "451f4f2a2798013d" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "2824a8b3e7e4e812" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9e87f8fbe03d2766" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "564941ad8dc7ab5b" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "460f8c40b5e9d965" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "27a11aaa4becc5ac" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "bdc018f335965de6" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3fdafd2a42de5ff4" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "62168f3a51f6d540" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "79ca1520a9df6272" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "6054126858f961da" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "80ba0d8d5cab122e" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "30133cde8150e610" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "96df5f6d7dde0037" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "b2cbef2f6cb17316" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "a8272ba8b494db90" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "0997307ce95ef9d4" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "c40e60e8954c1885" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "0eb9fe72e5553940" }
+"same.«CONTRACT.assign»" = { status = "hand", id = "7b021e6715ea658e" }
+"same.«CONTRACT.block»" = { status = "generic", id = "18442d65bd74a8cc" }
+"same.«CONTRACT.disclose»" = { status = "generic", id = "1dc00f5535efd139" }
+"same.«CONTRACT.emit»" = { status = "generic", id = "6f8fe0884dbe5e07" }
+"same.«CONTRACT.if-false»" = { status = "generic", id = "d3d4b0db52ac3a05" }
+"same.«CONTRACT.if-true»" = { status = "generic", id = "7e59c96cebf6e28d" }
+"same.«CONTRACT.lt»" = { status = "generic", id = "5b3b56339f05efd3" }
+"same.«CONTRACT.plus»" = { status = "generic", id = "e7b16868b8e674ed" }
+"same.«CONTRACT.read»" = { status = "generic", id = "5812a5b347c4eb81" }
+"same.«CONTRACT.repeat-done»" = { status = "generic", id = "9554466edd84ea3a" }
+"same.«CONTRACT.repeat»" = { status = "generic", id = "5131e07d1e877bb7" }
+"same.«CONTRACT.seq»" = { status = "generic", id = "ad1d8daa88a38b5c" }
+"same.«CONTRACT.skip»" = { status = "generic", id = "7759802f0c4d1ff7" }
+"same.«CONTRACT.var»" = { status = "hand", id = "97eb33af5d43f9e9" }
+"same.«CONTRACT.witness»" = { status = "generic", id = "33bb7f587ae1d36b" }
+"same.«CONTRACT.write»" = { status = "generic", id = "2b6e40e5c5fd2bde" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "628c284542ff5758" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "1e9cda0745dcb209" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "dfd50839d47f0a9f" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "59920b75f7e85d2d" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "dac1c2f3f5545025" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "217a599771e33abf" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a25539c3b4d66c21" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e2261edcfa966b99" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "6260e86c7f5fda8e" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "ec67cd1046b5df7b" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "cf2a19adcf01a48d" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "41e170aac05e87f9" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "1416be3d9b7b826d" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "901917321b95a802" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "da1939577bfd2181" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "5873e63b57c6e359" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "792cdf111178b64e" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "fa6adddfc6698229" }
+"sq.«CONTRACT.assign»" = { status = "generic", id = "10adb489753fd6b1" }
+"sq.«CONTRACT.block»" = { status = "generic", id = "6b3d85ddeb9662c4" }
+"sq.«CONTRACT.disclose»" = { status = "generic", id = "ca4ba96dc2906e2f" }
+"sq.«CONTRACT.emit»" = { status = "generic", id = "aaf2f2419bc1a934" }
+"sq.«CONTRACT.if-false»" = { status = "generic", id = "2aa497c93668c439" }
+"sq.«CONTRACT.if-true»" = { status = "generic", id = "e74aafdcca28f4b1" }
+"sq.«CONTRACT.lt»" = { status = "generic", id = "825d7fc07ecb35af" }
+"sq.«CONTRACT.plus»" = { status = "generic", id = "60a2f883180f860c" }
+"sq.«CONTRACT.read»" = { status = "generic", id = "b246528086b883ec" }
+"sq.«CONTRACT.repeat-done»" = { status = "generic", id = "38a2a7ada6724cf4" }
+"sq.«CONTRACT.repeat»" = { status = "generic", id = "0590c629e82f3e87" }
+"sq.«CONTRACT.seq»" = { status = "generic", id = "9f33a6424e203e20" }
+"sq.«CONTRACT.skip»" = { status = "generic", id = "bd923699f6986a6b" }
+"sq.«CONTRACT.var»" = { status = "hand", id = "9326485b32712723" }
+"sq.«CONTRACT.witness»" = { status = "generic", id = "815e6097252101d1" }
+"sq.«CONTRACT.write»" = { status = "generic", id = "c8b7045c3a37a3dc" }
 
 [demo.ImpOutNI]
 tier = "light"
 guarded = 9
 preserve = []
 
+[demo.ImpOutNI.slots]
+"cq.«! B»" = { status = "generic", id = "f4ed6e50e07dd308" }
+"cq.«- X»" = { status = "generic", id = "dca527c9d7fd84e0" }
+"cq.«B1 != B2»" = { status = "generic", id = "ea5699bf4b25b60a" }
+"cq.«B1 == B2»" = { status = "generic", id = "f942e0c570521816" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "603c887bbf319363" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "e3ab33d552dac0c2" }
+"cq.«CALC-SYNTAX.print(_);_CALC-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "386954794b512e18" }
+"cq.«CALC-SYNTAX.print(_);_CALC-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "67d941fe6ab6d020" }
+"cq.«CALC.assign»" = { status = "hand", id = "dc1f6617b2e703ec" }
+"cq.«CALC.print»" = { status = "generic", id = "bc900ec6115e8945" }
+"cq.«CALC.step»" = { status = "generic", id = "05b068c8f79d4731" }
+"cq.«CALC.var»" = { status = "hand", id = "4ade6bdb695e8f6b" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "16c22ec7f0db7b15" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "10c7e46371c7f0d3" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "bab57a4018bf8b79" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "35fe02fec134f8b8" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "85ea8b88891fd8a2" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a98e8c7a42df31e8" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "31aa66f622a6b611" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "df9665eab5177aae" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "34a6080fb37fffb9" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "dd4490e740ec5ebf" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "fb4cae840ef7d726" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "f9cd24fd1dda9e8f" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b0917cd62fc8ec02" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "880edd90486aa8d8" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0fd090fd7e0497c8" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5142711ef9cf589d" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8b6fb338841d6805" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "2d764d403bab2296" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0c7d0fff18aaf9be" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "02ab616aa9f2f13d" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "29c194912aebf36e" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "2e722e6d822aaa96" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5c98c0dce7ff9b70" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "119f8d2ece49762b" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "1146e19768d6c273" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "dc7583c1239416bc" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0afca011f32dcfe5" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ae03091f05f03836" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d8b036f114f6dc20" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "99e1eab8ed9eb444" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8192f6cec2b3b9fa" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6320df969bc180ef" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "280f4ae58c0080a5" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e41675d0466fd8a9" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "d96a3cefad21535f" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "fbd46d0baf2deaf4" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0319214dead08d84" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "46c7823f2ea111a0" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8e1d7ab1e9f793a8" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "7f56b30b9bc48ed2" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e541a91998c88a66" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "6c503f5f037581b2" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6a33f2b4cdea9647" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5571cf5429b18401" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b4566a6d535bb2e7" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ab0417c04ece89f4" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a52f7987d4be3361" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "e5d11ea72dd415e9" }
+"cq.«I1 != I2»" = { status = "generic", id = "fa68335a9554f441" }
+"cq.«I1 < I2»" = { status = "generic", id = "197fad06cbc0e372" }
+"cq.«I1 <= I2»" = { status = "generic", id = "8609c1dfec8593ae" }
+"cq.«I1 == I2»" = { status = "generic", id = "c9461fc49daa051b" }
+"cq.«I1 > I2»" = { status = "generic", id = "4036165b1d3534ca" }
+"cq.«I1 >= I2»" = { status = "generic", id = "995b47d6db8b654c" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "c22e81e6f6aba9de" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "571f9c4a53c71e19" }
+"cq.«IMP.block»" = { status = "generic", id = "5950e2f2518256c5" }
+"cq.«IMP.done»" = { status = "generic", id = "564b6a2aca9ed3b5" }
+"cq.«IMP.if-else»" = { status = "generic", id = "da18725e262fafe5" }
+"cq.«IMP.if-false»" = { status = "generic", id = "eeee1a7d7e4e85fb" }
+"cq.«IMP.if-true»" = { status = "generic", id = "0bc72f83b36cf1ca" }
+"cq.«IMP.while»" = { status = "generic", id = "bf9b5f596dd8b71a" }
+"cq.«X * Y»" = { status = "generic", id = "e9e207b1f7917cc2" }
+"cq.«X + Y»" = { status = "generic", id = "58c65150b6eae117" }
+"cq.«X - Y»" = { status = "generic", id = "a452b868371153fc" }
+"cq.«X / Y»" = { status = "generic", id = "cc6e5047587ecbdc" }
+"cq.«false && _»" = { status = "generic", id = "667571eef62d7b85" }
+"cq.«false || B»" = { status = "generic", id = "ad79efcc99565491" }
+"cq.«true && B»" = { status = "generic", id = "dffac187eb5232fa" }
+"cq.«true || _»" = { status = "generic", id = "8bf376ae04099dc9" }
+"same.«! B»" = { status = "generic", id = "5a46c18907b45470" }
+"same.«- X»" = { status = "generic", id = "460715aec8aec863" }
+"same.«B1 != B2»" = { status = "generic", id = "a5e229a5a84d56b3" }
+"same.«B1 == B2»" = { status = "generic", id = "a27a7f710a3141b0" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "0a1fe1ccd553ffbd" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "15395dc8129d7c34" }
+"same.«CALC-SYNTAX.print(_);_CALC-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "bb4a5fd2ccfbe985" }
+"same.«CALC-SYNTAX.print(_);_CALC-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "6ce5ed253df65a09" }
+"same.«CALC.assign»" = { status = "hand", id = "a7732e9f18ecbfc2" }
+"same.«CALC.print»" = { status = "generic", id = "d1345beeebb58c64" }
+"same.«CALC.step»" = { status = "generic", id = "5fbdaf2d8f071427" }
+"same.«CALC.var»" = { status = "hand", id = "50b7f6d80e2e905e" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "dfb4330b0668282a" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "a711d1c4b47539d1" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "643d9b964a03517b" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "27916996af344e90" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6f1be3024f2694e1" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "f54cfa0d3a1018b7" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "68ae4e3678c37975" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "0f8a222307214fe1" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "bc015308ba0ee108" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "19d7de7c22b31bdf" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "64183b9cdf934d3e" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "939f86084e97d3eb" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "9026f8d60a1f18ef" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f57be12ff6b4874a" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "f9638621f72f0395" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9ef660e08e81261d" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "15559173eb16b8b9" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "de14b11c0e80d66f" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "1f2aa9780de91c03" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "26a20ba7edfb5d52" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "200f0127a85b0953" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "409e5d66d2fc4378" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "d124fbf4005c9351" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6ed70681125dd583" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a971b0b26f446a75" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ec7c731dc6efc817" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "15e5a8d5fcded1c2" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "1243ed11f8562b58" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "7b53b307371bd395" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "633fb65e1646ed2f" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "d91a65f0ecd2e167" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a1a68d3b7a8e8f64" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "57dacc0339121e4a" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e8a867c85bb4a5f2" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a473cebcf8aeb128" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3e71a7dffb7f9f8e" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "359234f81891e5ae" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a1c34e5a3b09adf3" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "ebbb5601aca791b7" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b8665e654a3aaa3a" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e766bb743c52f668" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "60c36ffbfec3e2c9" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5335883a8ebee5c9" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "e15842d7413aedf1" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "2a201959df1fcd17" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "34dee97fd8d01117" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "9f8881c5c6753968" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "930f1bb924750682" }
+"same.«I1 != I2»" = { status = "generic", id = "ad35e2aa75a3054f" }
+"same.«I1 < I2»" = { status = "generic", id = "eb225462cae793c8" }
+"same.«I1 <= I2»" = { status = "generic", id = "8af4a521eb859cc1" }
+"same.«I1 == I2»" = { status = "generic", id = "28cfc25b05183794" }
+"same.«I1 > I2»" = { status = "generic", id = "9c427c87825a0eb0" }
+"same.«I1 >= I2»" = { status = "generic", id = "ec6c3b058cbdbb30" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "2d30b99ff65d236f" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "5f6aa74963dc0efd" }
+"same.«IMP.block»" = { status = "generic", id = "496e6349bcf3952d" }
+"same.«IMP.done»" = { status = "generic", id = "6b4604d595f32919" }
+"same.«IMP.if-else»" = { status = "generic", id = "0cb16e1b8627c874" }
+"same.«IMP.if-false»" = { status = "generic", id = "c423488e7804d1ab" }
+"same.«IMP.if-true»" = { status = "generic", id = "2f6b2bf8b80908c0" }
+"same.«IMP.while»" = { status = "generic", id = "d1d4f2d9f3ab92ce" }
+"same.«X * Y»" = { status = "generic", id = "2f1e32e8f8405708" }
+"same.«X + Y»" = { status = "generic", id = "25a2ada8bb385e6c" }
+"same.«X - Y»" = { status = "generic", id = "a3da32a4226207ce" }
+"same.«X / Y»" = { status = "generic", id = "8ec61c0bcccc8df9" }
+"same.«false && _»" = { status = "generic", id = "ed69bc515bede31c" }
+"same.«false || B»" = { status = "generic", id = "ca686bb8cfee769e" }
+"same.«true && B»" = { status = "generic", id = "bbfd53a7fc644d5e" }
+"same.«true || _»" = { status = "generic", id = "827220af2a89bb54" }
+"sq.«! B»" = { status = "generic", id = "6db8cce470f71804" }
+"sq.«- X»" = { status = "generic", id = "4fd096245fb0ae6a" }
+"sq.«B1 != B2»" = { status = "generic", id = "dae5a8057160358b" }
+"sq.«B1 == B2»" = { status = "generic", id = "f882dd706bf87db9" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "95cb7d5d32118acb" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "3d8bfc01372237c2" }
+"sq.«CALC-SYNTAX.print(_);_CALC-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "2d5040c026e2221d" }
+"sq.«CALC-SYNTAX.print(_);_CALC-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "ba705f92cfb6551d" }
+"sq.«CALC.assign»" = { status = "generic", id = "25eb9a30e315b082" }
+"sq.«CALC.print»" = { status = "generic", id = "f4c25a3c1540615a" }
+"sq.«CALC.step»" = { status = "generic", id = "8e5747a9d2850f1d" }
+"sq.«CALC.var»" = { status = "hand", id = "0b91f2395af46ba1" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "425fb68c1f7f5447" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "ccb7e158a73130e1" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "b61dd0a15146d954" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "1110efb90bee42cb" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8928756a592f661a" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "8f484eb25fa93885" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "c1c95faa34b6e224" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "87b12c827318256d" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4470815e86d32345" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6325452a41256ba6" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "033b4328c66e415a" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3e8d62e5ed6d5a01" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "695e5777152e30d2" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "15975b620ae58194" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "9a77bbebae231374" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a638fcd11c75b86a" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a9a64b9c5b94dd7e" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "2320edcf9fd6347b" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4e3ef8c806683fde" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "de23ed0085cdc69a" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "cca1e16bf1493cb3" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a2babae57b52a264" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b1bfc8d9f2570d7b" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "823f719fc1f6aebe" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "9c9c060f39d850ab" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ee4ad4337be163d4" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "838fb63598e0f629" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "0f37ad2354b3e489" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d55144ccc157f58d" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f8643c9ffab3ace0" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "00326b12223e95ba" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "637df56c459f77ca" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "209e972a5d4475cd" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "436003eb02fc20ef" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "7f24a199eb6dbea7" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d32e9c55b51e565f" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "cfe488ba561bd903" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "cae9458326d09754" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "40db4df5450a2fdb" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4fcc2470bb3a56b8" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3cd0b4e424435abf" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e82588265a732918" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0225f383ce7c7fab" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "18e40ea81d7a24e4" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "aee3c851bfa1916a" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1e05019ef575a996" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8fcd7445f5854e97" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "df07f80d66c73565" }
+"sq.«I1 != I2»" = { status = "generic", id = "aaf9f744a6fbcf94" }
+"sq.«I1 < I2»" = { status = "generic", id = "919b693acd53c5fd" }
+"sq.«I1 <= I2»" = { status = "generic", id = "dd8dcceba6673195" }
+"sq.«I1 == I2»" = { status = "generic", id = "1969a55ba053a73e" }
+"sq.«I1 > I2»" = { status = "generic", id = "445fc3349dfb9548" }
+"sq.«I1 >= I2»" = { status = "generic", id = "e764e1e5b75aa908" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "d9a86021f630ef23" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "d0de10403c2d76ee" }
+"sq.«IMP.block»" = { status = "generic", id = "24a3a90726ff74d5" }
+"sq.«IMP.done»" = { status = "generic", id = "dff1a51647307b1c" }
+"sq.«IMP.if-else»" = { status = "generic", id = "84b3d1f94158bb68" }
+"sq.«IMP.if-false»" = { status = "generic", id = "90c2212e8ee96713" }
+"sq.«IMP.if-true»" = { status = "generic", id = "1fbed4ccf0cda125" }
+"sq.«IMP.while»" = { status = "generic", id = "cf53950a284ad078" }
+"sq.«X * Y»" = { status = "generic", id = "aa04d4fb7c0cc131" }
+"sq.«X + Y»" = { status = "generic", id = "e4e3e4702c9950d7" }
+"sq.«X - Y»" = { status = "generic", id = "e97a4b4a0ff071fe" }
+"sq.«X / Y»" = { status = "generic", id = "4bd951c602e79054" }
+"sq.«false && _»" = { status = "generic", id = "47a5d0e04d08fbbc" }
+"sq.«false || B»" = { status = "generic", id = "110581c6f4932696" }
+"sq.«true && B»" = { status = "generic", id = "ba075bc23e489cd1" }
+"sq.«true || _»" = { status = "generic", id = "4ff55fa594d89692" }
+
 [demo.ContractObsNI]
 tier = "light"
 guarded = 9
 preserve = []
+
+[demo.ContractObsNI.slots]
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "dd30c47b3b6ba29d" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "1421bb81c4b68021" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e4deaf29788bd0d0" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a9fb2f6707ff9e0c" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "45383060156a1a19" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d3ba2e6c8c2c5fca" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a26e02b2675f8750" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "915a940174cc7b11" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "0b35f1d000b183b6" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b3e863711c5f3dfc" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "69f8ef40d6e87f38" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "5b10a06c4f12e499" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "506a8089f2ec48ce" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "72c2d5b1ffeb8816" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "adf1993ce6e53477" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "564f9152beb78a1a" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "38dc622682e1ac3a" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "400151ac7f7985c3" }
+"cq.«CONTRACT.assign»" = { status = "hand", id = "bc8257318ecf56b0" }
+"cq.«CONTRACT.block»" = { status = "generic", id = "05e6205fe30667f4" }
+"cq.«CONTRACT.disclose»" = { status = "generic", id = "0668812d964eba97" }
+"cq.«CONTRACT.emit»" = { status = "generic", id = "7d311f153fac88da" }
+"cq.«CONTRACT.if-false»" = { status = "generic", id = "d3720b1544e94d83" }
+"cq.«CONTRACT.if-true»" = { status = "generic", id = "7b04f96607e080c1" }
+"cq.«CONTRACT.lt»" = { status = "generic", id = "9eda3c0f2837f5ea" }
+"cq.«CONTRACT.plus»" = { status = "generic", id = "bee914671f054b67" }
+"cq.«CONTRACT.read»" = { status = "generic", id = "8a8168b6d99771ed" }
+"cq.«CONTRACT.repeat-done»" = { status = "generic", id = "d38c8bfaa6612c5d" }
+"cq.«CONTRACT.repeat»" = { status = "generic", id = "46d60491c59b6f34" }
+"cq.«CONTRACT.seq»" = { status = "generic", id = "485ecd32f0518852" }
+"cq.«CONTRACT.skip»" = { status = "generic", id = "dfeb291fb76652f8" }
+"cq.«CONTRACT.var»" = { status = "hand", id = "b55e995616c52663" }
+"cq.«CONTRACT.witness»" = { status = "generic", id = "05c40a9e5fdf1658" }
+"cq.«CONTRACT.write»" = { status = "generic", id = "d03cabe0b832ef63" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "dfb094dc16cc5f2b" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "46073f57e92e435a" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "cac5e3fb699d64fe" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "3078085afe6172ec" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "26464091129b8fb1" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b8ddaf10b232cf10" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "9af165e5041f1ef3" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a7f1ac3bdc442875" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "ab38be28bd144dff" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "024b2a6458d086cf" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "1fc14f37d8595b9f" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "83c29441bd84bdbd" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "870ab71c3b820818" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "8beca1fca841402e" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "19ad5f2b950c1213" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "a9745e22331e1b93" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "04fc2aca57062b4b" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "50ecfbb9a5021703" }
+"same.«CONTRACT.assign»" = { status = "hand", id = "2e5da5502683de47" }
+"same.«CONTRACT.block»" = { status = "generic", id = "650e6ff3cb1ba4b2" }
+"same.«CONTRACT.disclose»" = { status = "generic", id = "f5b2efcff55ba5cb" }
+"same.«CONTRACT.emit»" = { status = "generic", id = "c083aeb869ffd765" }
+"same.«CONTRACT.if-false»" = { status = "generic", id = "cd7a8406dc98c394" }
+"same.«CONTRACT.if-true»" = { status = "generic", id = "579db1e93060bab7" }
+"same.«CONTRACT.lt»" = { status = "generic", id = "b31d489bc899f8e6" }
+"same.«CONTRACT.plus»" = { status = "generic", id = "bdff3c3f533f98c1" }
+"same.«CONTRACT.read»" = { status = "generic", id = "1ed178f9a3ea4fa6" }
+"same.«CONTRACT.repeat-done»" = { status = "generic", id = "0fd86ebd73a7a4ed" }
+"same.«CONTRACT.repeat»" = { status = "generic", id = "73c5e84c3b5f11fd" }
+"same.«CONTRACT.seq»" = { status = "generic", id = "42d6cb91268d0f84" }
+"same.«CONTRACT.skip»" = { status = "generic", id = "a435ef242af78a13" }
+"same.«CONTRACT.var»" = { status = "hand", id = "9cb20ee7de39e96b" }
+"same.«CONTRACT.witness»" = { status = "generic", id = "39ff20aabab1ae5b" }
+"same.«CONTRACT.write»" = { status = "generic", id = "f81c368d6897245c" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6c088d390ca28178" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6a701eaea1d501eb" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "6cc1ec8fa31d416f" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8dbc071cc07338bf" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6750dad5882c73b1" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "74305dc1abf63421" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "cb7c41edae5c464d" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "b3c011e8df14b303" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "8905e310a8ea352f" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "fa80c056e9236f03" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "296a5cb24820b119" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "700a919278f8db2a" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "a75917f3662e7f87" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "aa7a5729f11a1445" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "d24b9a9b3c2301d0" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "c508ab32c711711f" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "fe81ad60f2c0c6af" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "25006712d8b2a61c" }
+"sq.«CONTRACT.assign»" = { status = "generic", id = "e7d5ba72fcc1ed22" }
+"sq.«CONTRACT.block»" = { status = "generic", id = "3c693e2ca115b2a9" }
+"sq.«CONTRACT.disclose»" = { status = "generic", id = "55d71cb638fd4216" }
+"sq.«CONTRACT.emit»" = { status = "generic", id = "d76f13962c8d7a7e" }
+"sq.«CONTRACT.if-false»" = { status = "generic", id = "d8fc2e46527620dd" }
+"sq.«CONTRACT.if-true»" = { status = "generic", id = "caf890480409f583" }
+"sq.«CONTRACT.lt»" = { status = "generic", id = "20a2b989ba4f2d59" }
+"sq.«CONTRACT.plus»" = { status = "generic", id = "d122db6ad74a4c0e" }
+"sq.«CONTRACT.read»" = { status = "generic", id = "3e2663db73a1f473" }
+"sq.«CONTRACT.repeat-done»" = { status = "generic", id = "7f1037d761cd731c" }
+"sq.«CONTRACT.repeat»" = { status = "generic", id = "2601a36995a21965" }
+"sq.«CONTRACT.seq»" = { status = "generic", id = "7ab76cc5a78a9244" }
+"sq.«CONTRACT.skip»" = { status = "generic", id = "000d36a6ab4e2d0e" }
+"sq.«CONTRACT.var»" = { status = "hand", id = "6ffb55d5599bb749" }
+"sq.«CONTRACT.witness»" = { status = "generic", id = "017bc899766a1824" }
+"sq.«CONTRACT.write»" = { status = "generic", id = "6b8b63f94f8967ff" }
 
 [demo.ContractEnvNI]
 tier = "light"
 guarded = 14
 preserve = []
 
+[demo.ContractEnvNI.slots]
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "e75fd09ee90959d2" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a820fa4656ddd652" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0b90e64522870e9b" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "b0c5b66aefbc83b9" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "aa2ed75e532e8d99" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a8bf42da6bd1177d" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "ecd35e42a86f8ba3" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1b525ff38023fb05" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "6c51f7f84d69d0e5" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "af666b24ad876ebf" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "214c278b35bb47de" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "5cda8da75d757499" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "ddd01ebd08eb8930" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "aad645092afb265d" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "86d18d12f5658486" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "c4f9d497ab743536" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "1dcf4fe66f5da9d9" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "dfdcb140b684fa13" }
+"append.«CONTRACT.assign»" = { status = "generic", id = "d31caeeadbad80df" }
+"append.«CONTRACT.block»" = { status = "generic", id = "15d56db287ba5bd7" }
+"append.«CONTRACT.disclose»" = { status = "generic", id = "3cd4f06c5d85bceb" }
+"append.«CONTRACT.emit»" = { status = "generic", id = "6a6d57ec1bc75529" }
+"append.«CONTRACT.if-false»" = { status = "generic", id = "e91233ae18401dff" }
+"append.«CONTRACT.if-true»" = { status = "generic", id = "10ecdf572a3a275f" }
+"append.«CONTRACT.lt»" = { status = "generic", id = "c563584079f68a94" }
+"append.«CONTRACT.plus»" = { status = "generic", id = "5f97ee2b88b1e32c" }
+"append.«CONTRACT.read»" = { status = "generic", id = "827a1792e6716622" }
+"append.«CONTRACT.repeat-done»" = { status = "generic", id = "78f3aa3b79d6af5a" }
+"append.«CONTRACT.repeat»" = { status = "generic", id = "c6ecf8b50de20063" }
+"append.«CONTRACT.seq»" = { status = "generic", id = "8eb1c67a3dfbeedd" }
+"append.«CONTRACT.skip»" = { status = "generic", id = "4d18eae68e3b97fb" }
+"append.«CONTRACT.var»" = { status = "generic", id = "f6b31c3a0ecbc8ea" }
+"append.«CONTRACT.witness»" = { status = "generic", id = "7a4c2b5f2efe5dfd" }
+"append.«CONTRACT.write»" = { status = "generic", id = "461727ab8e01db72" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "64310c8db915cf51" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b63600d4e9d11760" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d1695e767b9e6613" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "707d4dfa24516ae6" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "16ff362119dd4d64" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6a63dcb6970591e7" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "5f2fac94e19927ee" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5a1669099cea5c76" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "c6610a3c765b8e8a" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "26eeee117749bb86" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "ba80f21b3fcc6a6c" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "3c201d231de35831" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "38448e48bf50bb53" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "4b13ad85b1d5cbf0" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "af38c10ac7856620" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "b325c0f0571b4e6d" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "60ce2d6ccbe5fc62" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "59f25fe8dfc1fdc1" }
+"cool.«CONTRACT.assign»" = { status = "generic", id = "7602ec4b663bde16" }
+"cool.«CONTRACT.block»" = { status = "generic", id = "2d6ffcc1457ceff8" }
+"cool.«CONTRACT.disclose»" = { status = "generic", id = "e89655cc654db241" }
+"cool.«CONTRACT.emit»" = { status = "generic", id = "3036fbc1866d48e7" }
+"cool.«CONTRACT.if-false»" = { status = "generic", id = "92d830390c562d7b" }
+"cool.«CONTRACT.if-true»" = { status = "generic", id = "36f813d43e531add" }
+"cool.«CONTRACT.lt»" = { status = "generic", id = "fdc9070573d1ec91" }
+"cool.«CONTRACT.plus»" = { status = "generic", id = "afefdea941a9add4" }
+"cool.«CONTRACT.read»" = { status = "generic", id = "fe001d908d3eb362" }
+"cool.«CONTRACT.repeat-done»" = { status = "generic", id = "69a9a90c675f5d8d" }
+"cool.«CONTRACT.repeat»" = { status = "generic", id = "dbec075806e44e9e" }
+"cool.«CONTRACT.seq»" = { status = "generic", id = "6cf73e712f93d1cd" }
+"cool.«CONTRACT.skip»" = { status = "generic", id = "cba90987498f1263" }
+"cool.«CONTRACT.var»" = { status = "generic", id = "e972af3dbddafdb5" }
+"cool.«CONTRACT.witness»" = { status = "generic", id = "5b95e389d7ee1b01" }
+"cool.«CONTRACT.write»" = { status = "generic", id = "f394e1faef9cef3c" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "813f0d470da0c56b" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "1877bbfbf6ef3ff5" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "ba099e1e120e56e5" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "c152e5318ef1e1ad" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "18dcb4659d235fe9" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3e9da75b59ddc051" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "6769ea63ba8ee296" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "d26b9c54554c9ed8" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "8142e62c7608b303" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b894fe5b647d8f29" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "45aaa166af496717" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "bf24991beb0211d1" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "2857744a56bad509" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "5e2f5e54eb609132" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "bf532486ecc118df" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "de62252079076385" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "e82735c8583f3c6e" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "90af9aec03bae09f" }
+"cq.«CONTRACT.assign»" = { status = "hand", id = "338ca0439ccce7a5" }
+"cq.«CONTRACT.block»" = { status = "generic", id = "5c9d6b8f5289fd81" }
+"cq.«CONTRACT.disclose»" = { status = "generic", id = "6413f6750cccf6b4" }
+"cq.«CONTRACT.emit»" = { status = "generic", id = "e2a6289b24698571" }
+"cq.«CONTRACT.if-false»" = { status = "generic", id = "1cc4e5a3c979138b" }
+"cq.«CONTRACT.if-true»" = { status = "generic", id = "a843c7af7cb1ef4c" }
+"cq.«CONTRACT.lt»" = { status = "generic", id = "2222f9e5bb503a28" }
+"cq.«CONTRACT.plus»" = { status = "generic", id = "bf7c1edb7c76d78a" }
+"cq.«CONTRACT.read»" = { status = "generic", id = "05bbfa5e1a37f0f2" }
+"cq.«CONTRACT.repeat-done»" = { status = "generic", id = "3ec328438019c3fb" }
+"cq.«CONTRACT.repeat»" = { status = "generic", id = "daef391380278c07" }
+"cq.«CONTRACT.seq»" = { status = "generic", id = "a53224a1510a1b7d" }
+"cq.«CONTRACT.skip»" = { status = "generic", id = "44f6ca29f0f5951f" }
+"cq.«CONTRACT.var»" = { status = "hand", id = "09eecce999526431" }
+"cq.«CONTRACT.witness»" = { status = "generic", id = "c4accbc92abd4d26" }
+"cq.«CONTRACT.write»" = { status = "generic", id = "a401f4822aa26ade" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "d3824837131c1ca6" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "12c3aeb5463ed3f5" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "75900c488d077413" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "6cf846f78a0873b4" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "7e6b215171cf50cc" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "549ef002bdfa9982" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "dc345fe7c7367a20" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "521d1402507d0841" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "d841f4c179bb5d0d" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "38c906fdec935bba" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "ef22735d9842ba69" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "5dd82a2ec7105da2" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "519cd2ac83090a85" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "db4b37ca8c1329e8" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "e52009032fb87c7c" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "dba59e75f8d24792" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "1b3ed5f6eaf33a2a" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "a68f0273b9371cbb" }
+"disc.«CONTRACT.assign»" = { status = "generic", id = "fdbe8996bde4c908" }
+"disc.«CONTRACT.block»" = { status = "generic", id = "d3e4dfbda34535d0" }
+"disc.«CONTRACT.disclose»" = { status = "generic", id = "588c89138c913d2a" }
+"disc.«CONTRACT.emit»" = { status = "generic", id = "35b5df5e09ff408f" }
+"disc.«CONTRACT.if-false»" = { status = "generic", id = "f81326e6bda8f368" }
+"disc.«CONTRACT.if-true»" = { status = "generic", id = "14da54b8bafa866f" }
+"disc.«CONTRACT.lt»" = { status = "generic", id = "e842858fe9cb9920" }
+"disc.«CONTRACT.plus»" = { status = "generic", id = "6cfc871ee5b69159" }
+"disc.«CONTRACT.read»" = { status = "generic", id = "d2cfec0c2a818e54" }
+"disc.«CONTRACT.repeat-done»" = { status = "generic", id = "3a83741f5f02705f" }
+"disc.«CONTRACT.repeat»" = { status = "generic", id = "39bf81f0a6e633db" }
+"disc.«CONTRACT.seq»" = { status = "generic", id = "9e5df608ed3e654d" }
+"disc.«CONTRACT.skip»" = { status = "generic", id = "5bec2a61a2fd0606" }
+"disc.«CONTRACT.var»" = { status = "generic", id = "29bcea30f8c219d4" }
+"disc.«CONTRACT.witness»" = { status = "generic", id = "3e1b42b5f0dfa69b" }
+"disc.«CONTRACT.write»" = { status = "generic", id = "7b6c51533a144ea4" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "1ef328663efc3e41" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ebc49013b5a46e0e" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "c70973782a361b9e" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "d9454a27b40e7706" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "91c30bdd9b596db5" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "f2de78f62bc1bbcb" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e9e610883d7d8bca" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "190a4ca3e4551d40" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "97c287a74746c049" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "4594d00ec7034366" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "47a71d5ab5feaaf8" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "c3edec528b8e6658" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "92366055b616fff6" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "8d903a9e3fec208a" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "59291e761a36a9cb" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "e0439f34853b20e8" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "dd9b5a11dac585ab" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "3526414aafcecb8e" }
+"same.«CONTRACT.assign»" = { status = "hand", id = "2e57c502eeafa696" }
+"same.«CONTRACT.block»" = { status = "generic", id = "13b31562acbd43f7" }
+"same.«CONTRACT.disclose»" = { status = "generic", id = "0dc80bee60cbb7c0" }
+"same.«CONTRACT.emit»" = { status = "generic", id = "a7534e060668b8f9" }
+"same.«CONTRACT.if-false»" = { status = "generic", id = "d5b502b1dfef357f" }
+"same.«CONTRACT.if-true»" = { status = "generic", id = "bf6947a66cd9c7ab" }
+"same.«CONTRACT.lt»" = { status = "generic", id = "a984e42ec8ae7ad1" }
+"same.«CONTRACT.plus»" = { status = "generic", id = "0ab28836ae0010fe" }
+"same.«CONTRACT.read»" = { status = "generic", id = "6d6691c1ab9fe7f1" }
+"same.«CONTRACT.repeat-done»" = { status = "generic", id = "d409ca23ebe2127b" }
+"same.«CONTRACT.repeat»" = { status = "generic", id = "300ffe1ec435037f" }
+"same.«CONTRACT.seq»" = { status = "generic", id = "a829883d51c94bb1" }
+"same.«CONTRACT.skip»" = { status = "generic", id = "1b36b8117d082e76" }
+"same.«CONTRACT.var»" = { status = "hand", id = "247145880243425d" }
+"same.«CONTRACT.witness»" = { status = "generic", id = "554ccbced0afa9cc" }
+"same.«CONTRACT.write»" = { status = "generic", id = "ad355df633df4af6" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "20114c90b65d9750" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "bffb3075c0d288d0" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3034f5a237e144a5" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ecd2e19caf8e297b" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "68ed83e3cf299a2e" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "2fbc5b91613249cb" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0b5c1ffe2e5bec89" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "ece88b2c16fe316b" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "3a446986d162b260" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b871fab8ecfbbbe8" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "379dc327c737f859" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "d5bda0e9b16fa59a" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "b74b9d3d255f0303" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "f1346bd82db30d4a" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "39966a631852b847" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "b3a8f54b85d70ebc" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "b29fa01bc605e56f" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b14062ea2f17d607" }
+"sq.«CONTRACT.assign»" = { status = "generic", id = "82117aeb45eab055" }
+"sq.«CONTRACT.block»" = { status = "generic", id = "e06555827d627543" }
+"sq.«CONTRACT.disclose»" = { status = "generic", id = "d45e36bfe7acc8a9" }
+"sq.«CONTRACT.emit»" = { status = "generic", id = "aa4d14541759a5fb" }
+"sq.«CONTRACT.if-false»" = { status = "generic", id = "f13c44d2de5b2c48" }
+"sq.«CONTRACT.if-true»" = { status = "generic", id = "4866219b10600761" }
+"sq.«CONTRACT.lt»" = { status = "generic", id = "12605fbcdd1b5730" }
+"sq.«CONTRACT.plus»" = { status = "generic", id = "ba6ce6dee6a8211e" }
+"sq.«CONTRACT.read»" = { status = "generic", id = "be0a623f7fc41b70" }
+"sq.«CONTRACT.repeat-done»" = { status = "generic", id = "a39a24a1dcdf53f4" }
+"sq.«CONTRACT.repeat»" = { status = "generic", id = "4a87b7068590cca4" }
+"sq.«CONTRACT.seq»" = { status = "generic", id = "6a00ff0d365f6dcc" }
+"sq.«CONTRACT.skip»" = { status = "generic", id = "9dbab29b650d30c7" }
+"sq.«CONTRACT.var»" = { status = "hand", id = "936c091136f3a478" }
+"sq.«CONTRACT.witness»" = { status = "generic", id = "a8b3e4b5770f628a" }
+"sq.«CONTRACT.write»" = { status = "generic", id = "fd06c738a09a23bb" }
+
 [demo.ContractValsNI]
 tier = "light"
 guarded = 13
 preserve = []
+
+[demo.ContractValsNI.slots]
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "87a0b8d42afa525b" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "568cbd8f06d97cc6" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "c92db09eb5e8817c" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1785d325c1e159be" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "23d7ec4fe3fb7312" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "59241fc57b831b7e" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "4c23cffeb6115346" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "53955955d5b47ac3" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "142b3fce21c1c060" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "9d076c90c635767e" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "f22e05aaa9c050f3" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "72d8888593467b43" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "d5938152449f26ab" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "7a784194604d12d1" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "a7d926af49746146" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "a235fef5f324d7bf" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "652ac969016a36b3" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "d3937e4bcdb7d649" }
+"append.«CONTRACT.assign»" = { status = "generic", id = "a4b8c6ceb3cdb50c" }
+"append.«CONTRACT.block»" = { status = "generic", id = "50a3cc1c61d42951" }
+"append.«CONTRACT.disclose»" = { status = "generic", id = "7bc87ee331abc207" }
+"append.«CONTRACT.emit»" = { status = "generic", id = "2be599e9f47f3575" }
+"append.«CONTRACT.if-false»" = { status = "generic", id = "140b1872550f6b2a" }
+"append.«CONTRACT.if-true»" = { status = "generic", id = "3015bc6d6175b397" }
+"append.«CONTRACT.lt»" = { status = "generic", id = "c4481be7aff6d60e" }
+"append.«CONTRACT.plus»" = { status = "generic", id = "2baab49c66add43a" }
+"append.«CONTRACT.read»" = { status = "generic", id = "cfd685c2452f3c4d" }
+"append.«CONTRACT.repeat-done»" = { status = "generic", id = "5f26260d764f020d" }
+"append.«CONTRACT.repeat»" = { status = "generic", id = "7f68b18f3dc21e35" }
+"append.«CONTRACT.seq»" = { status = "generic", id = "aafb79b0c892fd32" }
+"append.«CONTRACT.skip»" = { status = "generic", id = "effa4913f2070566" }
+"append.«CONTRACT.var»" = { status = "generic", id = "038477276e1f76a5" }
+"append.«CONTRACT.witness»" = { status = "generic", id = "483a95bea1bda965" }
+"append.«CONTRACT.write»" = { status = "generic", id = "b9d2438c7421b775" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "04368ab9577dfbb8" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "2abecc61924ea7df" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "52f875a14969807c" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "405db686a0044ab3" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3aedf4d460b59aa1" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "2ee69cfafa795f96" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "77635b4b8061c8f7" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "cfc29da735478c8b" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "15e52934ad467c2f" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "2c9929de310959f7" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "8fbaca55d7e541de" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "f1b5b8dcd885a549" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "70baa802c2fd7b10" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "6cee6d23844e6fff" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "c6e1009ed2eeeeaa" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "be747e7ac3598775" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "2934e7c820fbafa9" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "5f62a2b7c1f643ab" }
+"cool.«CONTRACT.assign»" = { status = "generic", id = "4a212a079aa71295" }
+"cool.«CONTRACT.block»" = { status = "generic", id = "d950231e424b9ab4" }
+"cool.«CONTRACT.disclose»" = { status = "generic", id = "2bb09b63f3bd013a" }
+"cool.«CONTRACT.emit»" = { status = "generic", id = "1b8bbc8f97329077" }
+"cool.«CONTRACT.if-false»" = { status = "generic", id = "67182d588efa368a" }
+"cool.«CONTRACT.if-true»" = { status = "generic", id = "c826b0d76e979720" }
+"cool.«CONTRACT.lt»" = { status = "generic", id = "6241967bcf9b3f77" }
+"cool.«CONTRACT.plus»" = { status = "generic", id = "9c69b3f0d4628506" }
+"cool.«CONTRACT.read»" = { status = "generic", id = "c731cd4a020ce06b" }
+"cool.«CONTRACT.repeat-done»" = { status = "generic", id = "c283a2ddebea3f93" }
+"cool.«CONTRACT.repeat»" = { status = "generic", id = "144b3d0523a68c55" }
+"cool.«CONTRACT.seq»" = { status = "generic", id = "25ba74fd51398918" }
+"cool.«CONTRACT.skip»" = { status = "generic", id = "25d2c179f864f76b" }
+"cool.«CONTRACT.var»" = { status = "generic", id = "45a3474125f66de0" }
+"cool.«CONTRACT.witness»" = { status = "generic", id = "c686cd8ce8cb8331" }
+"cool.«CONTRACT.write»" = { status = "generic", id = "4f9f2291a231c87e" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "1ceb4a894a6b9ab0" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "2d10bc6c083c226e" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "7afaccf2c58cf28e" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "25930c8b0a7d2b9a" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "160f42b5f07def9f" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "de5d1f49b115b5d0" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "072040fa7c0e46c9" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "05b46d210b566cb5" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "0d555b5e3848c2f2" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "cd15517aa295f316" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "cb3d2a91cb47dea1" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "8e93726e4d6fea12" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "fba924d1a239552e" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "fe5ce0b83abcac9d" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "d04a96106d6f9f7a" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "e0f7f52784ca4cae" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "e17d63619b260bdc" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b303023a9ab68d34" }
+"cq.«CONTRACT.assign»" = { status = "hand", id = "dfc5e6faf910d6eb" }
+"cq.«CONTRACT.block»" = { status = "generic", id = "f06addff064320da" }
+"cq.«CONTRACT.disclose»" = { status = "generic", id = "1513816d5fce8ce7" }
+"cq.«CONTRACT.emit»" = { status = "generic", id = "846a0c325df1c654" }
+"cq.«CONTRACT.if-false»" = { status = "generic", id = "3ff6824220049a97" }
+"cq.«CONTRACT.if-true»" = { status = "generic", id = "c41f633668acad63" }
+"cq.«CONTRACT.lt»" = { status = "generic", id = "6940013da03b606b" }
+"cq.«CONTRACT.plus»" = { status = "generic", id = "587fb6bedc9364e2" }
+"cq.«CONTRACT.read»" = { status = "generic", id = "dd1493ef6722c31d" }
+"cq.«CONTRACT.repeat-done»" = { status = "generic", id = "dd092a32c5ad9815" }
+"cq.«CONTRACT.repeat»" = { status = "generic", id = "b176581e1e63733a" }
+"cq.«CONTRACT.seq»" = { status = "generic", id = "f19aaccc3582328f" }
+"cq.«CONTRACT.skip»" = { status = "generic", id = "6193d22168a45cca" }
+"cq.«CONTRACT.var»" = { status = "hand", id = "c97798f1d17cbd23" }
+"cq.«CONTRACT.witness»" = { status = "generic", id = "d7aa81c5362b029a" }
+"cq.«CONTRACT.write»" = { status = "generic", id = "faa655059455feee" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "94a7a9e6ea301d08" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "8a329208380d26a0" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8448182d7e73cb72" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1b93f91af702ec8b" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4826520c767dcb13" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ec13d9fd9dcd57e1" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "75725e9f2d8faa89" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "371f2a6220feabc3" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "78d874672aac16a4" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "93475eab128e3a5e" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "a25b1dde16b1de69" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "1399309b54164c0a" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "fed39c1d02904b58" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "e8fa8ec385803ab8" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "60301c3e4661fb2d" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "d0ff2ed35dd569e4" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "fc42203522792718" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "cb040a158a1ec670" }
+"disc.«CONTRACT.assign»" = { status = "generic", id = "0d8dec1a200f4229" }
+"disc.«CONTRACT.block»" = { status = "generic", id = "90c9cd5f906002a5" }
+"disc.«CONTRACT.disclose»" = { status = "generic", id = "d3780d468f7d86a2" }
+"disc.«CONTRACT.emit»" = { status = "generic", id = "5b8c71215503fb6e" }
+"disc.«CONTRACT.if-false»" = { status = "generic", id = "5435ac590519fd15" }
+"disc.«CONTRACT.if-true»" = { status = "generic", id = "62793f67c295ef7f" }
+"disc.«CONTRACT.lt»" = { status = "generic", id = "e465f6ea00816406" }
+"disc.«CONTRACT.plus»" = { status = "generic", id = "ca92e21f5632cc75" }
+"disc.«CONTRACT.read»" = { status = "generic", id = "48a61a42b3952f77" }
+"disc.«CONTRACT.repeat-done»" = { status = "generic", id = "f64628fac67383b8" }
+"disc.«CONTRACT.repeat»" = { status = "generic", id = "df2930f7a405a973" }
+"disc.«CONTRACT.seq»" = { status = "generic", id = "71755ee6c43ce595" }
+"disc.«CONTRACT.skip»" = { status = "generic", id = "f6417d04faf85c70" }
+"disc.«CONTRACT.var»" = { status = "generic", id = "39121acc7a455901" }
+"disc.«CONTRACT.witness»" = { status = "generic", id = "d6c576f6b25dff8f" }
+"disc.«CONTRACT.write»" = { status = "generic", id = "67675bb46612adc4" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "db103d232a3165e1" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "68dabf460a63ea7b" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "95288f8d512d2429" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5d20c62dafb67055" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "451f421efac4e0a7" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "8fd215d629a76a9b" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0983c9962dd83a4f" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "91693fc942165e6c" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "df4016871db3df58" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "6261c3a68aaf321d" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "5382bbb62387f412" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "fb7d7be7ac5407ec" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "d0ee6f4701c2ac7d" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "51d0b60f8dc4509a" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "0de7c38a3226eede" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "c7162ef8cbc45cc4" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "2294757cc2acf5f3" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "f22160c9be2a9748" }
+"same.«CONTRACT.assign»" = { status = "hand", id = "ccea0130dcb2d21e" }
+"same.«CONTRACT.block»" = { status = "generic", id = "ceffbe24c68dd5ee" }
+"same.«CONTRACT.disclose»" = { status = "generic", id = "863adc8c853eb102" }
+"same.«CONTRACT.emit»" = { status = "generic", id = "b85654cb5d1a5868" }
+"same.«CONTRACT.if-false»" = { status = "generic", id = "2ac513e8478517c7" }
+"same.«CONTRACT.if-true»" = { status = "generic", id = "99791f6a7417d95a" }
+"same.«CONTRACT.lt»" = { status = "generic", id = "d2c51dd3185f1822" }
+"same.«CONTRACT.plus»" = { status = "generic", id = "099acf50cf50a696" }
+"same.«CONTRACT.read»" = { status = "generic", id = "88f7d82e4ec8f223" }
+"same.«CONTRACT.repeat-done»" = { status = "generic", id = "6065d46054fdda29" }
+"same.«CONTRACT.repeat»" = { status = "generic", id = "e77f52199ada98bd" }
+"same.«CONTRACT.seq»" = { status = "generic", id = "1a80586d800a0a17" }
+"same.«CONTRACT.skip»" = { status = "generic", id = "839fd88338328e3e" }
+"same.«CONTRACT.var»" = { status = "hand", id = "f20b51379efac314" }
+"same.«CONTRACT.witness»" = { status = "generic", id = "97600874e4c80251" }
+"same.«CONTRACT.write»" = { status = "generic", id = "4f8eb723cc057bb1" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c21f70f190cf4ff0" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "0777410ff404170a" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "059ac1fa886a400f" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9341fb6e85fffe21" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c612caf9413049b9" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "e22f9b027ddb26b5" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "54cae6ebd89d49d8" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f8786f3f14d5c54c" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "b31a6c10e1be0e2b" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "3ef4da3107380eca" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "cce0554bf0d59f9d" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "68ab3f29cb73863c" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "9f38ad5eaf0c8eec" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "ebe33e07ab5c8e0f" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "6db4e9e119ed1b03" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "f6ce6e01b9b61ba5" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "81023389ef39105d" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "0dc873b0e89d9201" }
+"sq.«CONTRACT.assign»" = { status = "generic", id = "4dc17b52d23cad3d" }
+"sq.«CONTRACT.block»" = { status = "generic", id = "d3cb88f247dad0bc" }
+"sq.«CONTRACT.disclose»" = { status = "generic", id = "7f8f616cb744d766" }
+"sq.«CONTRACT.emit»" = { status = "generic", id = "ed95cb27148abb43" }
+"sq.«CONTRACT.if-false»" = { status = "generic", id = "ca48681d82a8e53a" }
+"sq.«CONTRACT.if-true»" = { status = "generic", id = "1b15e6addc68251d" }
+"sq.«CONTRACT.lt»" = { status = "generic", id = "ea53e96808959a17" }
+"sq.«CONTRACT.plus»" = { status = "generic", id = "a39f5c561b805930" }
+"sq.«CONTRACT.read»" = { status = "generic", id = "4c46ed7f2f215719" }
+"sq.«CONTRACT.repeat-done»" = { status = "generic", id = "f744cb9d830812c8" }
+"sq.«CONTRACT.repeat»" = { status = "generic", id = "63133395bcd01555" }
+"sq.«CONTRACT.seq»" = { status = "generic", id = "c323a011d7cd5fb9" }
+"sq.«CONTRACT.skip»" = { status = "generic", id = "2d82f600d98cb1d8" }
+"sq.«CONTRACT.var»" = { status = "hand", id = "85b9a78e9c7b6371" }
+"sq.«CONTRACT.witness»" = { status = "generic", id = "b3d60b33b33c5534" }
+"sq.«CONTRACT.write»" = { status = "generic", id = "e050e81db27d2c61" }
 
 [sources]
 
 [sources.sha256]
 "demos/ContractEnvNI/ContractEnvNI/Levels.lean" = { tier = "light", sha256 = "96c48d072c7690853d03bb632b764860ce56636c8122299fc1b57cc8ba77c3fb" }
 "demos/ContractEnvNI/ContractEnvNI/NI.lean" = { tier = "light", sha256 = "2dd857581f4b43670ba123a8684a0b48aba086bc260c0a70d8ec2359cfe5b439" }
-"demos/ContractEnvNI/ContractEnvNI/Proof.lean" = { tier = "light", sha256 = "25155b3dcad250ae303ddc5cdc1db9c9bb7a8c968983da684af0d65844b7654e" }
+"demos/ContractEnvNI/ContractEnvNI/Proof.lean" = { tier = "light", sha256 = "17e1acbaaebc62f9145330ec6f6f65c8bc50f117cf921b2ac4e166648bf03ef5" }
 "demos/ContractEnvNI/ContractEnvNI/Spec.lean" = { tier = "light", sha256 = "4eb42888d56f142f97288f5999f889e6e7ba6c50e77880a8e2704f1e2dd51a06" }
 "demos/ContractEnvNI/ContractEnvNI/Stack.lean" = { tier = "light", sha256 = "5bd373624663e1a5322dc51461d598486b2b69bda8c975ac1810c40df1b77a43" }
 "demos/ContractEnvNI/ContractEnvNI/Tr.lean" = { tier = "light", sha256 = "2078a5073a188436dc661c3e7b7906761dfb56eebe33db8fe43758b65614dab7" }
 "demos/ContractEnvNI/correspondence.toml" = { tier = "light", sha256 = "b2be4aeab530e05f80ce96e8712a526caf8ca01cd50bc84879b6054f6dcc3a5b" }
-"demos/ContractEnvNI/noninterference.toml" = { tier = "light", sha256 = "50e6f9850b84456d319242a2edf2ee2da47a803903307be3af3c9bfb2f465ccf" }
+"demos/ContractEnvNI/noninterference.toml" = { tier = "light", sha256 = "670c156da990a586fe35934c98a52b61f4d867ca53a671e7d4ffac672d7a9180" }
 "demos/ContractNI/ContractNI/Levels.lean" = { tier = "light", sha256 = "c82b5d06ea685a48efc396c932958fd403c74149dba133c02ae721e038b432e7" }
 "demos/ContractNI/ContractNI/NI.lean" = { tier = "light", sha256 = "90b356685645d3bd7156e580b14cce027d467cf8bf78cba71b130df6a4568dcf" }
-"demos/ContractNI/ContractNI/Proof.lean" = { tier = "light", sha256 = "2c29aa5e3029ebd98022787fec2748c86fa77b4c92f21a8666e7d97f07182ff6" }
+"demos/ContractNI/ContractNI/Proof.lean" = { tier = "light", sha256 = "2df98b8c4cef9a38d38649d35c3f8481e23e6868ae755d6a47903520d5c1b706" }
 "demos/ContractNI/ContractNI/Spec.lean" = { tier = "light", sha256 = "e870fd8a161afdbb5db09708642620c59eea9f9693cb7e6b2293ef65e5ac3026" }
 "demos/ContractNI/ContractNI/Stack.lean" = { tier = "light", sha256 = "17dc579276715338bf99a4d33b7f221396e4fa6f89339f4be7742cd0553cbcfc" }
 "demos/ContractNI/ContractNI/Tr.lean" = { tier = "light", sha256 = "5c81e5256ba76dbc304c567f99cb3d2a5b8518007135b06d0daeb64f17b9a042" }
 "demos/ContractNI/correspondence.toml" = { tier = "light", sha256 = "297ab924cdf9c6b7352d25913466d92a513241ae6d9f2ae378dc7da51276b680" }
-"demos/ContractNI/noninterference.toml" = { tier = "light", sha256 = "952cb367df4bfe7977a18394ce9522ad46607477c4e385bbbde27187d9b116e3" }
+"demos/ContractNI/noninterference.toml" = { tier = "light", sha256 = "b04d0f01e4fea4460e8545575385a0945d97e9236bd7f67136f441e6b4d3ad67" }
 "demos/ContractObsNI/ContractObsNI/Levels.lean" = { tier = "light", sha256 = "fa2c2d46e938f6abb3b2c79cb4f51d62c7e4ddec6119591e1fd86414894db6c2" }
 "demos/ContractObsNI/ContractObsNI/NI.lean" = { tier = "light", sha256 = "de70d0b9970d0185b813811c0985fe34bbff0960ab4fe447ace3915338b8e299" }
-"demos/ContractObsNI/ContractObsNI/Proof.lean" = { tier = "light", sha256 = "561961b168408be4ed4397db098466276712e6082b7b63f7aa9643c46f6e7409" }
+"demos/ContractObsNI/ContractObsNI/Proof.lean" = { tier = "light", sha256 = "5693e6fbbb8ac5cb9b0c098b1695334d304788e8786ea948c9b06af7a1ef495d" }
 "demos/ContractObsNI/ContractObsNI/Spec.lean" = { tier = "light", sha256 = "1e2bf54410b75ebcb14e3d7240b70319f1975b0a7d8d5fe2db60ca851a0c3a5a" }
 "demos/ContractObsNI/ContractObsNI/Stack.lean" = { tier = "light", sha256 = "488d85cc7750ed5091d64407fdfcedfb82d683d1a818dfbe77b05689575ae1c9" }
 "demos/ContractObsNI/ContractObsNI/Tr.lean" = { tier = "light", sha256 = "b534e027d1d113ef391e235d640daba269ec78ff54ecc33f3d06f41487b2f214" }
 "demos/ContractObsNI/correspondence.toml" = { tier = "light", sha256 = "20085caad1b22165a9ee8141a3f4eb9f720f76a8416a160cda990ff28fde30b3" }
-"demos/ContractObsNI/noninterference.toml" = { tier = "light", sha256 = "cbd7cdf05772e428411d31a1cd1b9c0023451ee0de39f5921ff121889db465db" }
+"demos/ContractObsNI/noninterference.toml" = { tier = "light", sha256 = "815c7b0e117e38095b39b9649ba9e6ce25fe48fbdcf9248a17c825a21f79ace4" }
 "demos/ContractOwiseNI/ContractOwiseNI/Levels.lean" = { tier = "light", sha256 = "ed70c561c6b1de555d7e192892c6f05e04576f3ce7abc4341e07b3959741ac82" }
 "demos/ContractOwiseNI/ContractOwiseNI/NI.lean" = { tier = "light", sha256 = "8a4f9bd7e75dc5a8a3468424e6267a1184832dc8a9b39ec0c90d062842bcaaf7" }
-"demos/ContractOwiseNI/ContractOwiseNI/Proof.lean" = { tier = "light", sha256 = "34c0692b11dc6728c46f59e537f5bee9231e011cc716847c4b15c8d69e579ef1" }
+"demos/ContractOwiseNI/ContractOwiseNI/Proof.lean" = { tier = "light", sha256 = "b1b54886ffc608a9ed9bf703ee3ed8fa251f43d0388c49ca44d0627a69273246" }
 "demos/ContractOwiseNI/ContractOwiseNI/Spec.lean" = { tier = "light", sha256 = "43fcebc22aa4a61941fa8d0474067a6940d57113fdaeac932d485324e54ca4c8" }
 "demos/ContractOwiseNI/ContractOwiseNI/Stack.lean" = { tier = "light", sha256 = "0ecd92219700de71775764221b3146b019577e66fc0c1822e79bfc26c936c66d" }
 "demos/ContractOwiseNI/ContractOwiseNI/Tr.lean" = { tier = "light", sha256 = "0fa86aa8ad0c98261e970ba11dade1adaa3ee3579b02899f6fc1a61e60ad86bb" }
 "demos/ContractOwiseNI/correspondence.toml" = { tier = "light", sha256 = "428ae48ed4b49a2cba812d69d8816a68fa9f7e0444024475a8d06fe1436d2d1a" }
-"demos/ContractOwiseNI/noninterference.toml" = { tier = "light", sha256 = "7c5663296e5a330ccbadec660ca6504734b42b816689236dc51fcb8308fbe94e" }
+"demos/ContractOwiseNI/noninterference.toml" = { tier = "light", sha256 = "e08076991ae1712472c23da9849b71dfb39d53f2064aee1e7bb863a4bd55b253" }
 "demos/ContractValsNI/ContractValsNI/Levels.lean" = { tier = "light", sha256 = "5699539155a7c98ae307c38540d90b7dcc87a7fd0e40ad2e367bb302d2f1a594" }
 "demos/ContractValsNI/ContractValsNI/NI.lean" = { tier = "light", sha256 = "0995480916e56e2103f2890f07dc9a35b19df9f8df325749a32f984452559b7f" }
-"demos/ContractValsNI/ContractValsNI/Proof.lean" = { tier = "light", sha256 = "2bf5211bf82ad8f746dd8212ad554225956718a793b9bff8970ea25737db6f38" }
+"demos/ContractValsNI/ContractValsNI/Proof.lean" = { tier = "light", sha256 = "152b940a049279421a475175ff5323321e40f816e653c91adbfaaacba4687bba" }
 "demos/ContractValsNI/ContractValsNI/Spec.lean" = { tier = "light", sha256 = "63ccac4358ff544d8c1884d46e376798ee4801119b268a7a1ae85f0ead13b5d6" }
 "demos/ContractValsNI/ContractValsNI/Stack.lean" = { tier = "light", sha256 = "d1de2c5848bbbb43025769a68146061c7b60bf1638aac28bc27efb069b304a79" }
 "demos/ContractValsNI/ContractValsNI/Tr.lean" = { tier = "light", sha256 = "d2f0fb493bfa1e756c1a32d2a8bd16103a26bf88d845e983bb42e5eeade50d0a" }
 "demos/ContractValsNI/correspondence.toml" = { tier = "light", sha256 = "d0d1be7424c88e78479089ba8f833bb7c23dbecbe75ccac8e608a6ff42359af3" }
-"demos/ContractValsNI/noninterference.toml" = { tier = "light", sha256 = "4dad7e3215ea0a0a72f378e1c1d3a41c54048d5952ef6f760e95394f902d7f21" }
+"demos/ContractValsNI/noninterference.toml" = { tier = "light", sha256 = "f2e90c5ac5e9a64f0ca41f23d7d4b6085b00bbb88dc93513533cd0110bb738bd" }
 "demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "68d4f9469815bd97005a0c12c23873123112b455807012b96281be939a32d52d" }
 "demos/ImpNI/ImpNI/NI.lean" = { tier = "light", sha256 = "04e452665528652e285642c1d90909bac0818ba77e3c690e0e0629f42d552d57" }
-"demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "cd651ea9e08a2bc60a9f71a6f54b91368ceb40e02c3ab286a90b7f0b877778b7" }
+"demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "1ba4e57e5dfd8c79ba9c9581b50886834ad8209f53e280c5688aa974af319534" }
 "demos/ImpNI/ImpNI/Spec.lean" = { tier = "light", sha256 = "c9d6dbbf8ffce6c55f57f8b2beed60c90d25a9b22b8709e0756758927a9cda92" }
 "demos/ImpNI/ImpNI/Stack.lean" = { tier = "light", sha256 = "502b2c3d46ca934a96096a93dfdc0f0f9d7ebf2864c64782c0b9e9ddd6f2ef7a" }
 "demos/ImpNI/ImpNI/Tr.lean" = { tier = "light", sha256 = "b5b7e1f6083135654c57b495820ffec17cdfc9b998c35157830ecea45e37a055" }
 "demos/ImpNI/correspondence.toml" = { tier = "light", sha256 = "496f900d29a89ceaf57e4f4f072e24c310bb0b727fc157b5d1ff65726bc82fcd" }
-"demos/ImpNI/noninterference.toml" = { tier = "light", sha256 = "30d245d282367c7d486657f0172da77047540ceeb3a3f9d22a9bd1c01e52dbd9" }
+"demos/ImpNI/noninterference.toml" = { tier = "light", sha256 = "5c3097e9b5abcc85142d9bf0505e5e83ecbe5750509d283d4a1f82d17fc7a882" }
 "demos/ImpOutNI/ImpOutNI/Levels.lean" = { tier = "light", sha256 = "cd975179da7c2f12c2507cc8b20c904a6d748263e9d7ce9ecc0848a0b6ae9a42" }
 "demos/ImpOutNI/ImpOutNI/NI.lean" = { tier = "light", sha256 = "72b2421397c78d9431956c847ff508cc17551ec7f97381af48861bb5e11e2da3" }
-"demos/ImpOutNI/ImpOutNI/Proof.lean" = { tier = "light", sha256 = "0e064493005f2c4abb2130a885e2e9f7f82f5f76820b120ed7b2aba756d3f702" }
+"demos/ImpOutNI/ImpOutNI/Proof.lean" = { tier = "light", sha256 = "c191bb792485bf3edd03c3fb044810f50a45a2592d47159c01bd8f59f1e17bbb" }
 "demos/ImpOutNI/ImpOutNI/Spec.lean" = { tier = "light", sha256 = "45b7e1bf74181a658d4b691b66ffdbd7550c8f7d4d63f4b090e0d7aece4bfb16" }
 "demos/ImpOutNI/ImpOutNI/Stack.lean" = { tier = "light", sha256 = "b7d9dbbd3d1331820175a711d8750003a816ec8669d2129d9b069c81c3bd4f9b" }
 "demos/ImpOutNI/ImpOutNI/Tr.lean" = { tier = "light", sha256 = "1b42bd399643531e959be6cdc07db244db4ce8443329320a428385927e093aca" }
 "demos/ImpOutNI/correspondence.toml" = { tier = "light", sha256 = "40569bf9cff021b25eef6d6aa4b113211c72a5fcce0bc5af490a0a6dea40f00d" }
-"demos/ImpOutNI/noninterference.toml" = { tier = "light", sha256 = "c27ca8abf0de428939ced1f4a41cebbcc205b87777788f71d29c71c5c620f4b6" }
+"demos/ImpOutNI/noninterference.toml" = { tier = "light", sha256 = "4242e24957b0a494e2577ae64a9a73acdb93e66045a204312eb181bd56eb5ec8" }
 "demos/ImpOwiseNI/ImpOwiseNI/Levels.lean" = { tier = "light", sha256 = "5be12818b8024f8cf24f9cfbd84b7d2a4f9ddef507e8aad6969e6f78e9c83e79" }
 "demos/ImpOwiseNI/ImpOwiseNI/NI.lean" = { tier = "light", sha256 = "23604d479727089c04e7f5331459f47df7492fe3f9c383aec84ab6403b5061e2" }
-"demos/ImpOwiseNI/ImpOwiseNI/Proof.lean" = { tier = "light", sha256 = "a1ee44a37e88a7f1bcbc5c45498735147560567b8c6e205b5287f02985bbaf58" }
+"demos/ImpOwiseNI/ImpOwiseNI/Proof.lean" = { tier = "light", sha256 = "c0a0ca65ada31f6700e0b4d397b675d91c7574eb3f003be0a62a2108cd6043a6" }
 "demos/ImpOwiseNI/ImpOwiseNI/Spec.lean" = { tier = "light", sha256 = "71c2f3c7441f4f22338a09c48e9eb8d7e2ee4ae8002f5c1e61bdfcd28e0dde1a" }
 "demos/ImpOwiseNI/ImpOwiseNI/Stack.lean" = { tier = "light", sha256 = "45dab3a89435572a2e3a23ee99ec800eeba3bdb6767db13a8a5af78ae5ad9c1e" }
 "demos/ImpOwiseNI/ImpOwiseNI/Tr.lean" = { tier = "light", sha256 = "58832bbfeb49e6a8aca713df5fff9bfb020267af0f4f3ca9366af88d95f7081a" }
 "demos/ImpOwiseNI/correspondence.toml" = { tier = "light", sha256 = "285d24e8de00c6603aa595a5cca96aed0ff4d8e4f99ac920c24a20a6fc2c4e3f" }
-"demos/ImpOwiseNI/noninterference.toml" = { tier = "light", sha256 = "a8cfc84d231b2f9b79c93dba77a1ebcf28c68f8bc11308ed27356b8a5240d799" }
+"demos/ImpOwiseNI/noninterference.toml" = { tier = "light", sha256 = "f35d603b9ea393c6561903e4f24426f72ecd8d6a0e98ba74c94c33a15ad236c6" }
 "generated/contract/Contract.lean" = { tier = "light", sha256 = "15320faebd3aa1af2b4ac2e7219b6b943b98da9de0f582b2a388bdaf3f18ebbd" }
 "generated/contract/Contract/Adequacy.lean" = { tier = "light", sha256 = "78b8a438320c9c5a4cdff523c9801e07ae8e912c5430a25f5fe0302d17bb5477" }
 "generated/contract/Contract/Determinism.lean" = { tier = "light", sha256 = "d69f7411f9aa6293a5067cdcd110b127566e8d150e5554a70f6d74f11c443a4f" }
