@@ -33,9 +33,9 @@
 //!
 //! By default 512 cases from a fixed seed. Run deeper with `PROPTEST_CASES=20000`, from another
 //! seed with `SOLVER_TRANSLATION_SEED=<u64>`, with a longer Z3 check bound with
-//! `SOLVER_TRANSLATION_TIMEOUT_MS` (default 100), with symbolic `^Int` exponents (which can make
-//! a Z3 check that no bound stops, see `power_exponent`) with
-//! `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS=1`, and print every case and its time with
+//! `SOLVER_TRANSLATION_TIMEOUT_MS` (default 100), with literal `^Int` exponents only with
+//! `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS=0` (see `power_exponent`), and print every case and its
+//! time with
 //! `SOLVER_TRANSLATION_TRACE=1`. A failure prints the shrunk case, the answer, and the
 //! counter-valuation with each predicate's truth there.
 
@@ -45,6 +45,7 @@ use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    num::NonZeroU32,
     sync::Arc,
 };
 
@@ -965,23 +966,23 @@ fn power_base() -> BoxedStrategy<Box<IntT>> {
     .boxed()
 }
 
-/// An exponent of `^Int`: a literal in `[-2, 2]`, or, with `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS`
-/// set, also a base-like symbolic term.
+/// An exponent of `^Int`: a literal in `[-2, 2]`, or a base-like symbolic term, unless
+/// `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS=0` leaves only the literals.
 ///
-/// A symbolic exponent is off by default because no bound of this test or of k-rust stops the
-/// query it can make: the translation states `X ^Int E` with a non-numeral `E` as Z3's `^` under
-/// `guard_powers`' condition (smt.rs), and Z3's nonlinear arithmetic then evaluates the power at
-/// its candidate model values, a bignum product that polls neither its timeout nor its resource
-/// limit. The query `known: [even(half(-1) ^Int half(Y)) = (Y in_keys(.Map)) \or (#if (N
-/// in_keys(.Map)) #then N +Int -1 #else Y #fi +Int divInt((2 +Int Y) ^Int half(N), -2)) = 2],
-/// checked: \ceil(divInt(X, Y))` ran past 40 s under a 100 ms timeout, and one generated case ran
-/// 2 h 20 min inside Z3's `mpn_manager::mul` (GAP K19 report). Without the bound, a power of a
-/// symbolic power exhausted 8 GiB under resource units alone, and a nested power ran 362 s. Those
-/// are solver cost, not answers to check; the literal exponents keep `^Int`'s domain (negative
-/// exponents, the bases 1 and -1, `0 ^Int 0`) in every run.
+/// The literals keep `^Int`'s domain (negative exponents, the bases 1 and -1, `0 ^Int 0`) in
+/// every run; a symbolic exponent covers the translation's reading of a power whose exponent is
+/// not a numeral (`guard_powers` in smt.rs), `0 ^Int Y` at `Y = 0` included (GAP K16). Before GAP
+/// K32 that reading was Z3's own power, whose nonlinear arithmetic evaluates the power at the
+/// values its candidate models give the operands, a bignum computation that polls neither its
+/// timeout nor its resource limit, so symbolic exponents were off by default: the query
+/// `known: [even(half(-1) ^Int half(Y)) = (Y in_keys(.Map)) \or (#if (N in_keys(.Map)) #then N
+/// +Int -1 #else Y #fi +Int divInt((2 +Int Y) ^Int half(N), -2)) = 2], checked:
+/// \ceil(divInt(X, Y))` ran past 40 s under a 100 ms timeout, and one generated case ran 2 h 20
+/// min (GAP K19 report). Those queries are now a test of their own
+/// (`the_symbolic_power_queries_k19_found_return_under_either_bound`).
 fn power_exponent() -> BoxedStrategy<Box<IntT>> {
     let literal = (-2i8..=2).prop_map(|value| Box::new(IntT::Lit(value)));
-    if std::env::var_os("SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS").is_some() {
+    if std::env::var_os("SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS").is_none_or(|value| value != "0") {
         prop_oneof![1 => literal, 1 => power_base()].boxed()
     } else {
         literal.boxed()
@@ -1605,4 +1606,133 @@ fn the_oracles_model_agrees_with_ground_evaluation_of_the_hooked_symbols() {
         decided > ground.len(),
         "the backend decided too few ground applications: {decided}"
     );
+}
+
+/// The queries over symbolic `^Int` exponents that GAP K19 found no bound stopped (K32): the
+/// reported reproduction, the generated case it was shrunk from (case 8,455 of seed 19), a power
+/// of a symbolic power beside a map equality, and `Y = (2 +Int Y) ^Int N` beside one.
+fn unbounded_power_cases() -> Vec<(&'static str, Case)> {
+    use IntVar::{N, X, Y};
+    let int = |value: i8| Box::new(IntT::Lit(value));
+    let var = |var: IntVar| Box::new(IntT::Var(var));
+    let empty_has = |key: IntVar| Box::new(BoolT::InKeys(var(key), Box::new(MapT::Unit)));
+    let reported_known = Pred::Or(
+        Box::new(Pred::Eq(
+            AnyT::Bool(BoolT::Even(Box::new(IntT::Pow(
+                Box::new(IntT::Half(int(-1))),
+                Box::new(IntT::Half(var(Y))),
+            )))),
+            AnyT::Bool(*empty_has(Y)),
+        )),
+        Box::new(Pred::Eq(
+            AnyT::Int(IntT::Add(
+                Box::new(IntT::Ite(
+                    empty_has(N),
+                    Box::new(IntT::Add(var(N), int(-1))),
+                    var(Y),
+                )),
+                Box::new(IntT::Div(
+                    Box::new(IntT::Pow(
+                        Box::new(IntT::Add(int(2), var(Y))),
+                        Box::new(IntT::Half(var(N))),
+                    )),
+                    int(-2),
+                )),
+            )),
+            AnyT::Int(IntT::Lit(2)),
+        )),
+    );
+    let quotient = || AnyT::Int(IntT::Div(var(X), var(Y)));
+    let map_of = |key: IntVar, value: Box<IntT>| {
+        Pred::Eq(AnyT::Map(MapT::Var), AnyT::Map(MapT::Item(var(key), value)))
+    };
+    vec![
+        (
+            "the reported reproduction",
+            Case {
+                known: vec![reported_known.clone()],
+                checked: Pred::Ceil(quotient()),
+                binding: None,
+            },
+        ),
+        (
+            "generated case 8,455 of seed 19",
+            Case {
+                known: vec![reported_known],
+                checked: Pred::Or(
+                    Box::new(Pred::Eq(AnyT::Int(IntT::Lit(-2)), AnyT::Int(IntT::Var(N)))),
+                    Box::new(Pred::Eq(quotient(), AnyT::Int(IntT::Lit(-2)))),
+                ),
+                binding: None,
+            },
+        ),
+        (
+            "a power of a symbolic power beside a map equality",
+            Case {
+                known: vec![map_of(
+                    X,
+                    Box::new(IntT::Pow(
+                        Box::new(IntT::Pow(int(2), var(X))),
+                        Box::new(IntT::Ite(Box::new(BoolT::Lit(true)), var(X), int(2))),
+                    )),
+                )],
+                checked: Pred::Eq(AnyT::Int(IntT::Var(X)), AnyT::Int(IntT::Lit(1))),
+                binding: None,
+            },
+        ),
+        (
+            "Y = (2 +Int Y) ^Int N beside a map equality",
+            Case {
+                known: vec![
+                    Pred::Eq(
+                        AnyT::Int(IntT::Var(Y)),
+                        AnyT::Int(IntT::Pow(Box::new(IntT::Add(int(2), var(Y))), var(N))),
+                    ),
+                    map_of(N, var(Y)),
+                ],
+                checked: Pred::Eq(AnyT::Int(IntT::Var(N)), AnyT::Int(IntT::Lit(0))),
+                binding: None,
+            },
+        ),
+    ]
+}
+
+/// Each query of [`unbounded_power_cases`] returns, under the wall clock and under resource units
+/// alone, and with no bound on Z3's memory but the backend's own (`bound_z3_memory` in z3.rs);
+/// its decided answers agree with K truth on the domain. Before GAP K32 the first two ran past
+/// 30 s in both modes, and the last past 30 s under resource units: the translation read each
+/// power as Z3's own, whose evaluation at model values nothing stopped. A regression hangs here.
+#[test]
+fn the_symbolic_power_queries_k19_found_return_under_either_bound() {
+    let backend = Backend::new();
+    let stats = Stats::default();
+    let modes = [
+        (
+            "the wall clock",
+            Z3Options {
+                timeout_ms: 100,
+                retry_limit: 0,
+                resource_limit: None,
+            },
+        ),
+        (
+            "resource units",
+            Z3Options {
+                timeout_ms: 100,
+                retry_limit: 1,
+                resource_limit: NonZeroU32::new(500_000),
+            },
+        ),
+    ];
+    for (mode, options) in modes {
+        let solver = Z3Solver::with_options(&backend.definition, options)
+            .expect("the solver loads the definition");
+        for (name, case) in unbounded_power_cases() {
+            let started = std::time::Instant::now();
+            check_case(&backend, &solver, &case, &stats)
+                .unwrap_or_else(|failure| panic!("{mode}, {name}: {failure}"));
+            eprintln!("{mode}, {name}: {:.2} s", started.elapsed().as_secs_f64());
+        }
+    }
+    eprintln!("{stats}");
 }

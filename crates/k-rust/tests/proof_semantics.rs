@@ -3469,12 +3469,10 @@ endmodule
 /// where it gives `\bottom`. Where it gives a value and the production has an `smt-hook` (`^Int`,
 /// `^%Int`, `divInt`), the solver, given the operands' values as known equalities, must find the
 /// application on the symbolic operands equal to that value: the term's `smt-hook` encoding
-/// (with the power guarded, `guard_powers` in `smt.rs`) agrees with the evaluator wherever the
-/// operation is defined. The one exception is a power of the base 0 at an exponent that is 0
-/// but not written as the numeral 0, where the encoding is Z3's uninterpreted `(^ 0 0)` and the
-/// solver finds the value consistent without deciding it (`Contingent`; `^%Int` by 1 or -1 is
-/// decided, every residue being 0): it never refutes an evaluated value. `log2Int` and `bitRangeInt` have no `smt-hook`. Every disagreement is
-/// collected before the assertion, so a failure lists them all.
+/// (with the power guarded and read by its value's cases, `guard_powers` in `smt.rs`) agrees
+/// with the evaluator wherever the operation is defined, `0 ^Int 0` at an exponent not written as
+/// the numeral 0 included (GAP K16). `log2Int` and `bitRangeInt` have no `smt-hook`. Every
+/// disagreement is collected before the assertion, so a failure lists them all.
 #[test]
 fn power_log2_ediv_and_bit_range_domains_agree_with_the_evaluators_on_a_grid() {
     use k_rust::kore::parser::{parse_definition, parse_pattern};
@@ -3664,21 +3662,7 @@ endmodule
             let answer = solver
                 .check_predicates(&known, &Substitution::new(), &checked)
                 .expect("no stop is armed");
-            // `0 ^Int 0` is 1, and Z3 leaves `(^ 0 0)` uninterpreted; the guard reads a power
-            // whose exponent is the numeral 0 as 1, but here the exponent is a variable, so the
-            // solver finds the value consistent without deciding it, unless the remainder by a
-            // modulus of 1 or -1 makes every power's residue 0.
-            let zero_power = match operation {
-                "^Int" => point == [0, 0],
-                "^%Int" => point[..2] == [0, 0] && point[2].abs() != 1,
-                _ => false,
-            };
-            let expected = if zero_power {
-                Validity::Contingent
-            } else {
-                Validity::Valid
-            };
-            if answer != Ok(expected) {
+            if answer != Ok(Validity::Valid) {
                 wrong.push(format!(
                     "{operation} {point:?}: the evaluator gives {value:?}, the solver on the smt-hook answers {answer:?}"
                 ));
