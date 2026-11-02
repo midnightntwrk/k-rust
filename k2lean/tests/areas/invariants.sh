@@ -231,14 +231,32 @@ stepcases() { # DIR NAME: build NAME.StepProp, at most three attempts; the last 
   bad "step property $d" "$L/build-$d-step.log"; unbuilt "$o" "$L/build-$d-step.log" "$n.StepProp"; return 1
 }
 step_false() { # DIR NAME: a false step property (its tracked open list and the refutation in its
-  # tracked hand module): the refutation builds, and NAME.StepProp does not
+  # tracked hand module): the refutation builds, and NAME.StepProp does not, for no reason but the
+  # open cases, which have no hand proof (each `StepProp.hand.r` unknown, and `StepProp.step` on
+  # `sorryAx` for them): every other rule's case is still proved by `k2l_step`
   local d=$1 n=$2 o=$GEN/$1
   if lbuild "$o" "build-$d-step-hand" "$n.StepPropHand"; then
     ok "step property $d refuted" "$L/build-$d-step-hand.log"
   else bad "step property $d refuted" "$L/build-$d-step-hand.log"; unbuilt "$o" "$L/build-$d-step-hand.log" "$n.StepPropHand"; fi
   if lbuild "$o" "build-$d-step" "$n.StepProp"; then
     bad "step property $d is false, but StepProp built" "$L/build-$d-step.log"
-  else ok "step property $d does not build" "$L/build-$d-step.log"; fi
+  elif python3 -I - "$o/open-step-cases.txt" "$L/build-$d-step.log" "$n" <<'PY'
+import re, sys
+cases, log, ns = sys.argv[1], sys.argv[2], sys.argv[3]
+opened = {l.split(" | ")[0].strip() for l in open(cases) if l.strip() and not l.startswith("#")}
+errors = {re.sub(r"^\s*error: (\S+:\d+:\d+: )?", "", l).strip() for l in open(log, errors="replace")
+          if re.match(r"\s*error: ", l)}
+named = {m.group(1) for e in errors if (m := re.fullmatch(r"Unknown identifier `StepProp\.hand\.(.+)`", e))}
+allowed = {f"{ns}.StepProp.step depends on disallowed axioms [sorryAx]", "build failed"}
+other = sorted(e for e in errors if e not in allowed and not re.fullmatch(r"Unknown identifier `StepProp\.hand\..+`", e))
+for e in other:
+    print(f"step_false: an error other than the open cases': {e}", file=sys.stderr)
+if named != opened:
+    print(f"step_false: the missing hand proofs {sorted(named)} are not the open cases {sorted(opened)}", file=sys.stderr)
+sys.exit(1 if other or named != opened else 0)
+PY
+  then ok "step property $d does not build, at its open cases only" "$L/build-$d-step.log"
+  else bad "step property $d does not build, at its open cases only" "$L/build-$d-step.log"; fi
 }
 inv_reset() { # DIR: GATE_RETRY_OPEN also retries the open invariant cases
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-invariant-cases.txt"

@@ -1158,7 +1158,7 @@ Measured (2026-11-02, the light gate's libraries):
 - `ledger` (`<k>` and `<books>`, beside its invariant): `feesUp(F1, F2) => F1 <=Int F2` at `<fees>`, 9 of 9 rules by `k2l_step` (`fee` adds `X` under its `requires 0 <=Int X`).
 - `tickets` (one `<pool>` cell, beside its invariant and measure): `poolMono`, the next id never decreases and what is left never grows, a function of the whole `<pool>` cell; 2 of 2 and its transitivity.
 - `racelog` (a rule matching an element of a cell map): `accUp` at `<acc>`, 3 of 3 and its transitivity (library `racelogstep`).
-- `ledger`'s `supplyUp` at `<supply>` is false: its `burn` case stays open, and the tracked hand module of library `ledgersupply` refutes it, a step of `burn` from a supply of `0` to `-1` (`StepProp.burn_lowers`).
+- `ledger`'s `supplyUp` at `<supply>` is false: its `burn` case stays open, and the tracked hand module of library `ledgersupply` refutes it, a step of `burn` from a supply of `0` to `-1` (`StepProp.burn_lowers`). The gate checks that the refutation builds and that `StepProp.lean` fails at the open case only, so the other eight rules' cases are still proved by `k2l_step`.
 
 Each `StepProp.lean` builds in about a second, on Lean's three axioms.
 

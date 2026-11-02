@@ -38,6 +38,8 @@ The same holds along runs: `always : ∀ s, s 0 = init pgm env → Paths.IsRun S
 |---|---|
 | one program's loop keeps a property, possibly with symbolic inputs | a K claim with the property in a circularity's `requires` (`krust kprove`, or the Lean claims of `lean/claims/`) |
 | a property holds at every step of every program | a preserved invariant |
+| a relation between a cell before and after every step (a nonce never decreases) | a step property, `gen --step-property` (§3.6) |
+| every run ends | a measure that every step lowers, `gen --measure` (§3.6) |
 | a fact about sorts (`<env>` holds a `Map`) | nothing: the generated Lean types already say it |
 
 A K claim `φ ⇒ ψ` is a reachability statement about the paths from `φ`; "`P` holds at every reachable configuration" is a safety property, which a claim does not express.
@@ -364,6 +366,37 @@ $G gen --kore $KRS/definition.kore --out $GEN/krsimp --name KrsImp --prelude ../
 - `krs build` writes the sidecar as `k2lean-sidecar.json` beside `definition.kore`: one entry per configuration cell whose content is a `Map`, `List` or `Set` with declared element sorts, outside every repeated or optional cell; the recorded `$K/demos/k/krs-imp/k2lean-sidecar.json` is its output for KRS IMP (`krs/tests/imp/rust-definition`), whose KORE names it uses are those of the recorded `definition.kore`.
 - The generator refuses a sidecar cell that is not in the definition, whose content is not the named collection, whose sorts are unknown or not subsorts of the collection's element sort, or that lies inside a cell collection.
 - Nested arguments (`Map<Int, Set<Int>>`) have no field.
+
+### 3.6 Beside an invariant: a step property and a measure
+
+Two more facts are written in K the same way and generated into the same library. Each has its own flag, its own modules, open list and hand module, and the same open-case workflow as §3.4.
+
+**A step property** relates a cell's content before and after each step: "the fees never decrease" is not a fact of one configuration, so no invariant states it (`docs/design.md`, §3.12). Write a `Bool` function of two contents of one cell, or of the cell itself. The fixture `tests/fixtures/ledger`:
+
+```k
+  syntax Bool ::= feesUp(Int, Int) [function, total]
+  rule feesUp(F1, F2) => F1 <=Int F2
+```
+
+```text
+$G gen --kore $K/tests/fixtures/ledger/definition.kore --runtime $K/tests/fixtures/ledger/runtime.json \
+  --out $GEN/ledger --name Ledger --prelude ../../lean \
+  --open-obligations $GEN/ledger/open-obligations.txt --step-property feesUp@fees
+cd $GEN/ledger && lake build Ledger.StepProp
+```
+
+- The output ends with `step property: 0 open cases` and writes `Ledger/StepPropDefs.lean`, `Ledger/StepProp.lean` and `open-step-cases.txt`.
+- `StepPropDefs.lean` defines `StepProp.holds c c'`: `feesUp` holds of the `<fees>` contents of `c` and `c'`.
+- `StepProp.lean` has one theorem per rule, `theorem fee : Step.Rel.fee StepProp.holds := by k2l_stepp`. Here every rule's case closes, `fee`'s by its `requires 0 <=Int X`. It then gathers them: `StepProp.step : Step c c' → StepProp.holds c c'`.
+- A rule that leaves the cell alone has the case `feesUp(F, F)`, so a strict relation (`<Int`) fails at every such rule, as it should.
+- With `--step-property-trans`, `gen` also states that the function is transitive (`StepProp.trans`, an obligation over the cell's contents, never assumed) and gives `StepProp.plus : Relation.TransGen Step c c' → StepProp.holds c c'`: the fees at every later configuration are at least the fees now.
+- A false property shows up as an open case: `supplyUp@supply` (the supply never decreases) leaves `burn` open, since `burn` lowers the supply. No hand proof of a false case exists, so `StepProp.lean` does not build. The gate's library `generated/ledgersupply` keeps the refutation instead (`StepProp.burn_lowers`, a step of `burn` from a supply of `0` to `-1`).
+- Not supported: a cell inside a cell collection (refused: state the property over the collection's cell); a property true only under the invariant; more than one property per library (conjoin them in one function over a common parent cell).
+
+**A measure** is an `Int` function of one cell that every step lowers, so every run ends (`docs/design.md`, §3.10). `gen --measure NAME@CELL` writes `NS/MeasureDefs.lean` and `NS/Measure.lean`: one case per rule, `Step.Rel.r (Lower Measure.value)` (where the measure is defined at the source, it is defined at the target, nonnegative there and smaller), gathered as `Measure.lower`, and `Measure.terminates`: no infinite run starts where the measure is defined.
+- Facts the measure needs about the functions it calls (`mu(C) >=Int 0`, `mu(app(A, B)) => mu(A) +Int mu(B)`) are K simplification rules, stated as obligations and used once proved.
+- `--measure-invariant` puts the measure under the kind 1 invariant: `Measure.bound` once (nonnegative where the invariant holds), then each rule's decrease from where it holds (the fixture `tests/fixtures/tickets`).
+- A library with a kind 1 invariant, `gen --progress` (no stuck states) and a measure also gets `NS/Ends.lean`: from the start, every run ends in an acceptable ending (`docs/design.md`, §3.11).
 
 ## 4. Kind 2: an invariant written in Lean
 
