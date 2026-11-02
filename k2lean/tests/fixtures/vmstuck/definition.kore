@@ -1352,6 +1352,36 @@ module VMSTUCK
     ),
     total{}()
   ]
+  symbol Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(SortK{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,18,50,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(SortKItem{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,18,51,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(SortPgm{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,18,52,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+    ),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),
@@ -2247,6 +2277,33 @@ module VMSTUCK
       \equals{SortBool{}, R}(
         Val:SortBool{},
         Lblhalted'LParUndsRParUnds'VMSTUCK'Unds'Bool'Unds'K{}(K0:SortK{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(K0:SortK{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(K0:SortKItem{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(K0:SortPgm{})
       )
     )
     [functional{}()]
@@ -6561,6 +6618,242 @@ module VMSTUCK
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, dotk{}()), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(X0:SortK{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("a08aa982081f58fd1543b317be45e1e229ca1751f8b60c83f1c96624e8c95a17"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,3,53,22)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(VarI:SortKItem{}, VarK:SortK{})), \top{R}())
+      ),
+      \equals{SortInt{}, R}(
+        Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(X0:SortK{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(VarI:SortKItem{}),
+            Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(VarK:SortK{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("8e39fdccd2ce15cea8f0603d6d4640590ffa2f78a7225847b96a6076748859aa"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,45)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(
+            X0:SortKItem{},
+            inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen0:SortInstr{})
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("754810f3bb5fa0b1237496dcf587915cea4a11cac02fcdb634f7b1d0e1d94e59"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,25)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(X0:SortKItem{}, inj{SortPgm{}, SortKItem{}}(VarP:SortPgm{})),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortInt{}}(
+          Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(VarP:SortPgm{}),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("589e302fae703ee9b63e729b27290306819d90fdaee299a92c7cfdbcb6814780"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,29)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen1:SortInstr{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortKItem{}, R}(
+                    X0:SortKItem{},
+                    inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen1:SortInstr{})
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \or{R}(
+              \exists{R}(
+                Var'Unds'Gen2:SortPgm{},
+                \and{R}(
+                  \top{R}(),
+                  \and{R}(
+                    \in{SortKItem{}, R}(
+                      X0:SortKItem{},
+                      inj{SortPgm{}, SortKItem{}}(Var'Unds'Gen2:SortPgm{})
+                    ),
+                    \top{R}()
+                  )
+                )
+              ),
+              \bottom{R}()
+            )
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortKItem{}, R}(X0:SortKItem{}, Var'Unds'Gen0:SortKItem{}), \top{R}())
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("f09997d98ffbb6564612f7824534fa8ff2042c4fe7237ca8efc366dc11b87b78"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,57,27)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'VMSTUCK-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}()
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("def9459f6d783873dbefeb86b77518535148ec790b20a833cdf89ab377271c3d"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'UndsSClnUndsUnds'VMSTUCK-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm{}(
+              Var'Unds'Gen0:SortInstr{},
+              VarP:SortPgm{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            \dv{SortInt{}}("2"),
+            Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(VarP:SortPgm{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("c6267f75a4625166d3823160106367be9ead06a358dbbfcd4a27742fd29568c0"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(Var'Unds'Gen0:SortPgm{}),
+          \dv{SortInt{}}("0")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("89b02a22ca9a739e72e90bea1a7ea3269d32eb28d03627f2361be936f73df519"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,48)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(Var'Unds'Gen0:SortK{}),
+          \dv{SortInt{}}("0")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("de6c1af788b263450d67bdd79b05a28e6c6d4a998fd690df439ea714ede0b6e0"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,49)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())),
       \equals{SortKCell{}, R}(
         LblinitKCell{}(X0:SortMap{}),
@@ -8144,7 +8437,7 @@ module VMSTUCK
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,46,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,62,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
   )

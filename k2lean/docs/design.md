@@ -1027,6 +1027,43 @@ Not supported:
 - **A measure read from a cell inside a cell collection** (the generator stops). A measure is one number for the configuration, so over every element it is a sum over the collection, which the author writes in K over the collection's cell (`work(<tasks>)` above). The refusal says so.
 - **A lexicographic measure.** It is needed only for a step termination that one linear `Int` cannot state, for example a round or retry counter that resets unbounded work. One `Int` then needs a bound on the inner work and a nonlinear product (`R *Int (B +Int 1) +Int mu(K)`). It waits for a definition that needs it.
 
+
+### 3.11 Every run ends, in an acceptable ending (`Ends.lean`)
+
+A library with all three of a kind 1 invariant (`--invariant`), progress to a step under it (`--progress` with its step forms, §3.9) and a measure (`--measure`, §3.10) gets their composition, `NS/Ends.lean` (SND-21):
+
+```lean
+theorem ends (c : Top) (hI : Invariant c) (hμ : (Measure.value c).isSome) :
+    KPrelude.Ends.Every Step c fun e => Ending e ∨ O₁ e ∨ …
+theorem ends_init (pgm : …) (hμ : (Measure.value (init pgm)).isSome) :
+    KPrelude.Ends.Every Step (init pgm) fun e => Ending e ∨ O₁ e ∨ …
+```
+
+- `Every S a R` (`KPrelude/Ends.lean`): every maximal run from `a` reaches a configuration that does not step, and that configuration satisfies `R`. An ending that can still step does not stop a run: the run ends later.
+- **The proof.** Where the invariant holds and the measure is defined, no run is infinite (`Measure.terminates`). The invariant holds at the configuration a run ends at (`Invariant.preserved`). There, `progress_step` cannot give a step, so it gives an ending or one of its outcomes (`KPrelude.Ends.every_of_progress`).
+- **The outcomes** `Oᵢ` are those of `progress_step`: `Undefined`, `Unproved`, `Progress.Refuted`. They stay in the statement, so it says no more than its parts. With none, every run ends in an ending. Under `--measure-invariant`, `Measure.terminates` takes the same invariant.
+- **The measure's definedness** is a hypothesis unless the measure is defined at every configuration. `Measure.defined` then states that, and `ends` and `ends_init` drop `hμ`. This holds when:
+  - the measure's generated function is not partial; or
+  - a proved lemma gives every call of that function a value. Two forms count: its nonnegativity as a simplification (`f(_) >=Int 0 => true`), or its totality (`Total.f`).
+- `ends_init` starts from the initial configuration, by `Invariant.init_holds`. It takes that theorem's hypotheses, where it has any.
+
+Measured (2026-11-02, light gate):
+- `vm`: the measure `steps@k` counts what is left to run (an instruction one, a program twice its instructions plus one, a halt nothing). Its 12 rules are all proved to lower it, and it is defined everywhere by `steps(_) >=Int 0`. So `ends_init (pgm) : Every Step (init pgm) Ending`: every program halts, and nothing is assumed.
+- `vmstuck`: the same with its refuted head, `Every Step (init pgm) (Ending ∨ Progress.Refuted)`.
+- `corout`: its measure `measure(<T>)` has no lemma about every call of its own function (the one about `mu` is below it), so `ends_init` takes `hμ`.
+
+All are on Lean's three axioms; `Ends.lean` builds in about a second.
+
+Not supported yet. `gen` says why and writes no `Ends.lean`; each waits for a library that has the combination and a measure:
+- progress under a kind 2 invariant (`--assume-invariant`), or written to another package (`--progress-out`): no initial statement, and the modules are outside the library. `Ends.lean` is the library's own; a module of that name elsewhere, such as a demo's, is never touched, and in the library `gen` removes only one it wrote;
+- `<k>` in a cell map (`Progress.Keys`, which has no initial statement);
+- a library with parameters (`class Hooks`);
+- `--no-step-forms`: at a configuration that does not step, `App` alone would give `Ending ∨ App`, a weaker result under the same name.
+
+The equations' generic attempts do not prove two kinds of lemma, so the measure's definedness stays a hypothesis there:
+- a lemma about a function that tests an item's sort (`isz(_:Instr)`, `isz(P:Pgm)`, `[owise]`);
+- a lemma about a function whose rule calls a partial function inside its match (corout's `measure(_) >=Int 0`).
+
 ## 4. Commands
 
 | command | does |

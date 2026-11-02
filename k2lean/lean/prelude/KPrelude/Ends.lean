@@ -51,6 +51,13 @@ theorem every_of {a : α} {Res : α → Prop} (h : Paths.Terminates S a)
   obtain ⟨n, ht⟩ := ends_of_terminates h h0 hs
   exact ⟨n, ht, hres _ (h0 ▸ Paths.IsRun.star hs n) ht⟩
 
+/-- Termination from `a`, where a preserved `H` holds, and what a terminal configuration satisfying
+`H` is (`R`: progress under `H` says that a configuration is in `R` or steps): every run from `a` ends
+in `R`. -/
+theorem every_of_progress {H R : α → Prop} (hH : Preserved S H) {a : α} (ha : H a)
+    (ht : Paths.Terminates S a) (hp : ∀ c, H c → Terminal S c → R c) : Every S a R :=
+  every_of ht fun b hb hbt => hp b (hH.star hb ha) hbt
+
 /-- Some terminal configuration is reached from a configuration that terminates. -/
 theorem exists_terminal_of_terminates {a : α} (h : Paths.Terminates S a) :
     ∃ b, Star S a b ∧ Terminal S b := by

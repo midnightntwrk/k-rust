@@ -2212,6 +2212,51 @@ module VMSTUCK
     terminals{}("1101"),
     total{}()
   ]
+  symbol Lblsteps'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'K{}(SortK{}) : SortInt{}
+  [
+    format{}("%csteps%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,18,50,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblisz'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'KItem{}(SortKItem{}) : SortInt{}
+  [
+    format{}("%cisz%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,18,51,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
+  symbol Lblplen'LParUndsRParUnds'VMSTUCK'Unds'Int'Unds'Pgm{}(SortPgm{}) : SortInt{}
+  [
+    format{}("%cplen%r %c(%r %1 %c)%r"),
+    function{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,18,52,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vmstuck/vmstuck.k)"
+    ),
+    priorities{}(),
+    right{}(),
+    terminals{}("1101"),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),

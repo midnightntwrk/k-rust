@@ -66,7 +66,10 @@ gen_soundness() {
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable") ;;
     # no stuck states: the machine's well-formedness `kOk` (only instructions, programs and halts on
     # `<k>`), its acceptable endings `halted`
-    vm|vmstuck|vmpri) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k) ;;
+    # vm and vmstuck also state a measure, what is left to run (the machine has no jump), so that
+    # every run ends, in a halt or, for vmstuck, at its refuted head (`Ends.lean`, SND-21)
+    vm|vmstuck) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k --measure steps@k) ;;
+    vmpri) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k) ;;
     coro|corojoin) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending ended@k) ;;
     *) return 1 ;;
   esac
@@ -77,20 +80,23 @@ gen_soundness() {
 # case (`open-from-log` into open-progress-cases.txt) and the library is regenerated, so the case is
 # then taken from the hand module (proved, or refuted: a third outcome of `progress`, `Progress.Refuted`),
 # as for invariants.
-progcases() { # DIR NAME: build NAME.Progress and NAME.Defined (its step forms, SND-20), at most three
-  # attempts; the last log is build-DIR-prog.log
-  local d=$1 n=$2 o=$GEN/$1 k
+progcases() { # DIR NAME: build NAME.Progress and NAME.Defined (its step forms, SND-20), and NAME.Ends
+  # where the library also has a measure (every run ends, SND-21), at most three attempts; the last
+  # log is build-DIR-prog.log
+  local d=$1 n=$2 o=$GEN/$1 k t=("$2.Progress" "$2.Defined")
+  [ -f "$o/$n/Ends.lean" ] && t+=("$n.Ends")
   for k in 1 2 3; do
-    if lbuild "$o" "build-$d-prog-$k" "$n.Progress" "$n.Defined"; then
+    if lbuild "$o" "build-$d-prog-$k" "${t[@]}"; then
       cp "$L/build-$d-prog-$k.log" "$L/build-$d-prog.log"; ok "progress $d" "$L/build-$d-prog.log"; return 0
     fi
     cp "$L/build-$d-prog-$k.log" "$L/build-$d-prog.log"
     [ "$k" = 3 ] && break
     "$G" open-from-log "$o/$n/Progress.lean" "$L/build-$d-prog-$k.log" "$o/open-progress-cases.txt" >> "$L/gen-$d.log" 2>&1
     "$G" open-from-log "$o/$n/Defined.lean" "$L/build-$d-prog-$k.log" "$o/open-defined-rules.txt" >> "$L/gen-$d.log" 2>&1
+    [ -f "$o/$n/Measure.lean" ] && "$G" open-from-log "$o/$n/Measure.lean" "$L/build-$d-prog-$k.log" "$o/open-measure-cases.txt" >> "$L/gen-$d.log" 2>&1
     genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
   done
-  bad "progress $d" "$L/build-$d-prog.log"; unbuilt "$o" "$L/build-$d-prog.log" "$n.Progress" "$n.Defined"; return 1
+  bad "progress $d" "$L/build-$d-prog.log"; unbuilt "$o" "$L/build-$d-prog.log" "${t[@]}"; return 1
 }
 prog_reset() { # DIR: GATE_RETRY_OPEN also retries the open progress cases and rules (refuted ones are kept)
   local f

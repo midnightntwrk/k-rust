@@ -78,3 +78,35 @@ DEMOS = {
                                                     "demos/ImpPlusTypes/ImpPlusTypes/Typing.lean", "demos/ImpPlusTypes/ImpPlusTypes/Typed.lean",
                                                     "demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean", "demos/ImpPlusTypes/typed-unfold.txt"]},
 }
+
+
+def ends_meas(d, ns):
+    """Every run ends, in an acceptable ending (SND-21, `gen --progress --measure`, `d/NS/Ends.lean`):
+    the outcomes beside an ending that `ends` states, whether the measure is defined everywhere
+    (`Measure.defined`, else a hypothesis), and the measure's rule cases, those proved by
+    `k2l_measure`, and the open ones."""
+    def measure(c):
+        e = read(c.tree / "generated" / d / ns / "Ends.lean")
+        m = read(c.tree / "generated" / d / ns / "Measure.lean")
+        ol = read(c.tree / "generated" / d / "open-measure-cases.txt") or ""
+        r = {"measure": {"cases": len(re.findall(r"^theorem .* : Step\.Rel\.", m, re.M)) if m else None,
+                         "auto": len(re.findall(r"^theorem .* : Step\.Rel\..*:= by k2l_meas$", m, re.M)) if m else None,
+                         "open": sorted(l.split(" | ")[0].strip() for l in ol.splitlines()
+                                        if l.strip() and not l.startswith("#"))}}
+        s = re.search(r"^theorem ends .*\n *KPrelude\.Ends\.Every Step c fun e => (.*) :=$", e, re.M) if e else None
+        r["ends"] = None if not s else {
+            "outcomes": [o.strip()[:-2] for o in s.group(1).split(" ∨ ")[1:]],
+            "defined": bool(re.search(r"^theorem Measure\.defined ", e, re.M)),
+            "init": bool(re.search(r"^theorem ends_init", e, re.M))}
+        return r
+    return measure
+
+
+RECORDS = {
+    # every run ends (SND-21): the stack machine, in a halt; its variant without `pop`'s underflow
+    # rule, in a halt or at that refuted head; the two-layer prototype's coroutine language (the
+    # confluence area's library corout), in a segment end, where its measure is defined
+    "vm-ends": {"tier": "light", "measure": ends_meas("vm", "KVm"), "sources": []},
+    "vmstuck-ends": {"tier": "light", "measure": ends_meas("vmstuck", "KVmStuck"), "sources": []},
+    "corout-ends": {"tier": "light", "measure": ends_meas("corout", "Corout"), "sources": []},
+}

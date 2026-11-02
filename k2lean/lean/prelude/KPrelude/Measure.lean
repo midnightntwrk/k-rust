@@ -120,6 +120,13 @@ theorem terminates_inv {S : α → α → Prop} {H : α → Prop} (hH : Preserve
       omega)
     c ⟨hc, hs⟩
 
+/-- A call that a lemma states something of, `Option.bind o g = some b` (its totality `Total.f`, or a
+simplification such as `f(_) >=Int 0 => true`), has a value: where the lemma is about every call of
+the measure's function, the measure is defined at every configuration. -/
+theorem isSome_of_bind {β γ : Type u} {o : Option β} {g : β → Option γ} {b : γ}
+    (h : o.bind g = some b) : o.isSome := by
+  cases o <;> simp_all
+
 /-- A terminal configuration reachable from `a` is the first one on the way: a configuration with a
 step is not terminal. -/
 theorem firstReach_of_star {S : α → α → Prop} {a b : α} (h : Star S a b) (hb : Terminal S b) :

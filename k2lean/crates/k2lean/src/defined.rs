@@ -56,6 +56,9 @@ pub struct Out {
     /// Rules with an obligation, and how many of them are open (refuted included).
     pub obligations: usize,
     pub open: usize,
+    /// The outcomes of `progress_step` beside an ending and a step, in its order (`Undefined`,
+    /// `Unproved`, `Progress.Refuted`): what a run may also end at (`ends.rs`).
+    pub outcomes: Vec<String>,
 }
 
 /// A rule's obligation: the binders and hypotheses of its `App` constructor, and the premises its
@@ -477,11 +480,12 @@ theorem app_step (c : {top}) (hI : {inv} c){hk} (h : {app_hyp}) : {concl_a} := b
     ));
 
     // `progress_step`, `no_stuck_step`, `always_step`
-    let mut outs = vec!["Ending c".to_string(), "∃ c', Step c c'".to_string()];
-    outs.extend(groups.iter().map(|(g, _, _)| format!("{g} c")));
+    let mut outcomes: Vec<String> = groups.iter().map(|(g, _, _)| g.to_string()).collect();
     if shape.refuted {
-        outs.push("Progress.Refuted c".into());
+        outcomes.push("Progress.Refuted".into());
     }
+    let mut outs = vec!["Ending c".to_string(), "∃ c', Step c c'".to_string()];
+    outs.extend(outcomes.iter().map(|g| format!("{g} c")));
     let n = outs.len();
     let concl = outs
         .iter()
@@ -641,5 +645,6 @@ set_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\
         hand_skeleton,
         obligations: needs.len(),
         open: hand_names.len() + unproved.len(),
+        outcomes,
     })
 }

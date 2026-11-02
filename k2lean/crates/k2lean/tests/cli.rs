@@ -2120,6 +2120,125 @@ fn measure_states_one_case_per_rule_with_the_authors_lemmas_and_a_listed_case_by
     assert!(!d.join("Corout/Measure.lean").exists() && !d.join("Corout/MeasureDefs.lean").exists());
 }
 
+/// Every run ends, in an acceptable ending (SND-21): with a kind 1 invariant, progress to a step and
+/// a measure, `gen` writes `Ends.lean`. vm's measure has a proved lemma about every call of its
+/// function (`steps(_) >=Int 0`), so it is defined everywhere and nothing is assumed from the
+/// start; vmstuck's refuted head stays an outcome; corout's measure has no such lemma, so its
+/// definedness is a hypothesis. Without a kind 1 invariant, or without the step forms, there is no
+/// `Ends.lean`, and `gen` says why.
+#[test]
+fn ends_composes_the_invariant_progress_and_the_measure() {
+    let d = tmp("cli-ends");
+    let vm = [
+        "--invariant",
+        "kOk@k",
+        "--progress",
+        "--ending",
+        "halted@k",
+        "--measure",
+        "steps@k",
+    ];
+    let o = gen_progress("vm", &d, "KVm", &vm);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("ends: written (0 outcomes)"));
+    let e = std::fs::read_to_string(d.join("KVm/Ends.lean")).unwrap();
+    assert!(e.contains(
+        "theorem Measure.defined (c : SortGeneratedTopCell) : (Measure.value c).isSome := by\n  simp only [Measure.value]\n  exact KPrelude.Measure.isSome_of_bind (Simp.s_"
+    ), "{e}");
+    assert!(e.contains(
+        "theorem ends_init (pgm : SortPgm) :\n    KPrelude.Ends.Every Step (init pgm) fun e => Ending e :=\n  ends (init pgm) (Invariant.init_holds pgm)\n"
+    ), "{e}");
+    assert!(e.contains("#k2l_assert_axioms Measure.defined ends ends_init"));
+
+    let d = tmp("cli-ends-stuck");
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(
+        d.join("open-progress-cases.txt"),
+        "Progress.case.«Instr.pop» | refuted hand\n",
+    )
+    .unwrap();
+    let o = gen_progress("vmstuck", &d, "KVmStuck", &vm);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let e = std::fs::read_to_string(d.join("KVmStuck/Ends.lean")).unwrap();
+    assert!(e.contains(
+        "theorem ends_init (pgm : SortPgm) :\n    KPrelude.Ends.Every Step (init pgm) fun e => Ending e ∨ Progress.Refuted e :="
+    ), "{e}");
+
+    let d = tmp("cli-ends-corout");
+    let co = [
+        "--measure",
+        "measure@T",
+        "--invariant",
+        "kOk@k",
+        "--progress",
+        "--ending",
+        "segEnd@k",
+    ];
+    let o = gen_progress("corout", &d, "Corout", &co);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let e = std::fs::read_to_string(d.join("Corout/Ends.lean")).unwrap();
+    assert!(!e.contains("Measure.defined"), "{e}");
+    assert!(e.contains(
+        "theorem ends (c : SortGeneratedTopCell) (hI : Invariant c) (hμ : (Measure.value c).isSome) :"
+    ), "{e}");
+    assert!(
+        e.contains(
+            "theorem ends_init (pgm : SortStmts) (hμ : (Measure.value (init pgm)).isSome) :"
+        ),
+        "{e}"
+    );
+
+    let o = gen_progress(
+        "corout",
+        &d,
+        "Corout",
+        &[&co[..], &["--no-step-forms"]].concat(),
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains(
+        "note: no Ends.lean (every run ends): progress has no step forms (--no-step-forms)"
+    ));
+    assert!(!d.join("Corout/Ends.lean").exists());
+    let o = gen_progress(
+        "corout",
+        &d,
+        "Corout",
+        &[
+            "--measure",
+            "measure@T",
+            "--progress",
+            "--ending",
+            "segEnd@k",
+        ],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains(
+        "note: no Ends.lean (every run ends): the library has no kind 1 invariant (--invariant)"
+    ));
+    let o = gen_progress("corout", &d, "Corout", &[]);
+    assert!(o.status.success());
+    assert!(!d.join("Corout/Ends.lean").exists());
+    // a module of that name that `gen` did not write is kept by a generation that writes none
+    std::fs::write(d.join("Corout/Ends.lean"), "-- by hand\n").unwrap();
+    for args in [
+        &[][..],
+        &[
+            "--measure",
+            "measure@T",
+            "--progress",
+            "--ending",
+            "segEnd@k",
+        ][..],
+    ] {
+        let o = gen_progress("corout", &d, "Corout", args);
+        assert!(o.status.success());
+        assert_eq!(
+            std::fs::read_to_string(d.join("Corout/Ends.lean")).unwrap(),
+            "-- by hand\n"
+        );
+    }
+}
+
 /// A measure that sums a weight over a cell map (`gen --measure` on `twoparam`, the work left of
 /// each task summed over `<tasks>`): the fold is recognized as a sum, and `MeasureDefs.lean` states
 /// its test of a binding (the key read twice: a cell map binds each task under its own `<tid>`), its

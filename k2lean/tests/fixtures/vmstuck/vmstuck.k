@@ -43,4 +43,20 @@ module VMSTUCK
   rule halted(.K) => true
   rule halted(#halt(_) ~> _) => true
   rule halted(_) => false [owise]
+
+  // `gen --measure steps@k`: what is left to run, so every program halts (the machine has no jump).
+  // An instruction counts one; a program twice its instructions plus one (`seq` takes one step per
+  // instruction, `end` one); a halt counts nothing.
+  syntax Int ::= steps(K) [function, total]
+               | isz(KItem) [function, total]
+               | plen(Pgm) [function, total]
+  rule steps(.K) => 0
+  rule steps(I ~> K) => isz(I) +Int steps(K)
+  rule isz(_:Instr) => 1
+  rule isz(P:Pgm) => plen(P)
+  rule isz(_) => 0 [owise]
+  rule plen(.Pgm) => 1
+  rule plen(_ ; P) => 2 +Int plen(P)
+  rule plen(_) >=Int 0 => true [simplification]
+  rule steps(_) >=Int 0 => true [simplification]
 endmodule

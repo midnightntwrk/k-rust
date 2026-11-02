@@ -1352,6 +1352,36 @@ module VM
     ),
     total{}()
   ]
+  symbol Lblsteps'LParUndsRParUnds'VM'Unds'Int'Unds'K{}(SortK{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,18,53,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vm/vm.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblisz'LParUndsRParUnds'VM'Unds'Int'Unds'KItem{}(SortKItem{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,18,54,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vm/vm.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(SortPgm{}) : SortInt{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,18,55,45)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/vm/vm.k)"
+    ),
+    total{}()
+  ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),
@@ -2217,6 +2247,33 @@ module VM
       \equals{SortBool{}, R}(
         Val:SortBool{},
         Lblhalted'LParUndsRParUnds'VM'Unds'Bool'Unds'K{}(K0:SortK{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblsteps'LParUndsRParUnds'VM'Unds'Int'Unds'K{}(K0:SortK{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblisz'LParUndsRParUnds'VM'Unds'Int'Unds'KItem{}(K0:SortKItem{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(
+        Val:SortInt{},
+        Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(K0:SortPgm{})
       )
     )
     [functional{}()]
@@ -6570,6 +6627,242 @@ module VM
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, dotk{}()), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lblsteps'LParUndsRParUnds'VM'Unds'Int'Unds'K{}(X0:SortK{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("58bb60ebf0771e6b194925ebc3d31e97aaf7eafd56fee8152cbd273d570ed21e"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,22)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(VarI:SortKItem{}, VarK:SortK{})), \top{R}())
+      ),
+      \equals{SortInt{}, R}(
+        Lblsteps'LParUndsRParUnds'VM'Unds'Int'Unds'K{}(X0:SortK{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            Lblisz'LParUndsRParUnds'VM'Unds'Int'Unds'KItem{}(VarI:SortKItem{}),
+            Lblsteps'LParUndsRParUnds'VM'Unds'Int'Unds'K{}(VarK:SortK{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("ce0bcdd726799b0ea2ef448e0f473fe5f549f61669c9c8d9f2679e8e4f29a8fe"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,57,45)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(
+            X0:SortKItem{},
+            inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen0:SortInstr{})
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblisz'LParUndsRParUnds'VM'Unds'Int'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("f002643fa02f9f78c679e643094f1b9bbc356e4c1086fcd165cab354e6957141"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,25)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(X0:SortKItem{}, inj{SortPgm{}, SortKItem{}}(VarP:SortPgm{})),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblisz'LParUndsRParUnds'VM'Unds'Int'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortInt{}}(
+          Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(VarP:SortPgm{}),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("cebfa1c2e13579763c912b9278f9d6a0d57b01ce8e271636cee0bad2dd27d94c"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,29)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen1:SortInstr{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortKItem{}, R}(
+                    X0:SortKItem{},
+                    inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen1:SortInstr{})
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \or{R}(
+              \exists{R}(
+                Var'Unds'Gen2:SortPgm{},
+                \and{R}(
+                  \top{R}(),
+                  \and{R}(
+                    \in{SortKItem{}, R}(
+                      X0:SortKItem{},
+                      inj{SortPgm{}, SortKItem{}}(Var'Unds'Gen2:SortPgm{})
+                    ),
+                    \top{R}()
+                  )
+                )
+              ),
+              \bottom{R}()
+            )
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortKItem{}, R}(X0:SortKItem{}, Var'Unds'Gen0:SortKItem{}), \top{R}())
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblisz'LParUndsRParUnds'VM'Unds'Int'Unds'KItem{}(X0:SortKItem{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("942f68cc8aacb81e3490c9fa7f4ff6f1f271721eb1677bc6b32256c2ed9ee4c7"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,27)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'VM-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}()
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b306c24b83eb45c2bd10f88fb23facaceddd05d984c8958c444a15e64fce71ae"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'UndsSClnUndsUnds'VM-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm{}(
+              Var'Unds'Gen0:SortInstr{},
+              VarP:SortPgm{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            \dv{SortInt{}}("2"),
+            Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(VarP:SortPgm{})
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d7ddb9eae888d4c8460ca8896496a512f96401445be40749373d9201ece28cac"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,3,62,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lblplen'LParUndsRParUnds'VM'Unds'Int'Unds'Pgm{}(Var'Unds'Gen0:SortPgm{}),
+          \dv{SortInt{}}("0")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("7db889c600105c403cf07693b85791ca6032c29c7cead8c85aba0cd42435729a"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,63,48)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortBool{}, R}(
+        Lbl'Unds-GT-Eqls'Int'Unds'{}(
+          Lblsteps'LParUndsRParUnds'VM'Unds'Int'Unds'K{}(Var'Unds'Gen0:SortK{}),
+          \dv{SortInt{}}("0")
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("a40b9c1edf2d424a7b43ad50830b355387235ae5d9796b746b3f373537b1fabc"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,3,64,49)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/vm/vm.k)"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())),
       \equals{SortKCell{}, R}(
         LblinitKCell{}(X0:SortMap{}),
@@ -8153,7 +8446,7 @@ module VM
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,1,49,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,1,65,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/vm/vm.k)"
   )

@@ -2742,6 +2742,21 @@ pub struct Out {
     /// The skeleton of the hand module, when it does not exist and some case is open.
     pub hand_skeleton: Option<String>,
     pub notes: Vec<String>,
+    /// `Invariant.init_holds`'s signature, where it is stated.
+    pub init: Option<InitSig>,
+}
+
+/// The binders and arguments of `Invariant.init_holds`: its configuration variables and the
+/// hypotheses about them, so that a theorem from the initial configuration can take them too.
+pub struct InitSig {
+    /// ` (pgm : SortStmts)`…
+    pub params: String,
+    /// ` (h : …)`…
+    pub hyps: String,
+    /// ` pgm`…
+    pub args: String,
+    /// ` h`…
+    pub hargs: String,
 }
 
 /// The path from the elements of each collection of a lifted part to the next collection, or,
@@ -4841,6 +4856,7 @@ local macro \"k2l_inv\" : tactic => `(tactic| k2l_preserve [{}]{sums_arg})\n\nna
     }
     t.push('\n');
     let mut guarded = vec!["Invariant.preserved".to_string()];
+    let mut init_sig = None;
     if init_ok {
         let (_, params) = cx.init.as_ref().unwrap();
         let ps: String = params
@@ -4889,6 +4905,12 @@ theorem Invariant.always{psi}{hs} :\n    ∀ s, s 0 = init{args} → Paths.IsRun
             vars_doc.join(", "),
             if init_hyps.is_empty() { String::new() } else { " when the configuration variables satisfy their cells' parts".to_string() }
         ));
+        init_sig = Some(InitSig {
+            params: ps,
+            hyps: hs,
+            args,
+            hargs,
+        });
         guarded.extend([
             "Invariant.init_holds".to_string(),
             "Invariant.star".into(),
@@ -4963,6 +4985,7 @@ namespace {ns}\n\nopen KPrelude\n\n{skel}end {ns}\n",
         unfold_list,
         hand_skeleton,
         notes,
+        init: init_sig,
     })
 }
 

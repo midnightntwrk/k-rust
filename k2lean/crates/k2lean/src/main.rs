@@ -13,6 +13,7 @@ mod defined;
 mod det2;
 mod diverges;
 mod drivers;
+mod ends;
 mod eqns;
 mod fndiff;
 mod fuel;
@@ -371,11 +372,12 @@ fn main() {
                 .iter()
                 .position(|x| x == "--measure")
                 .map(|i| invariants::parse_spec(&a.rest[i + 1]));
-            if let Some(s) = &measure_spec {
-                roots.insert(
-                    invariants::resolve(&def, &s.name)
-                        .unwrap_or_else(|e| panic!("{}", e.replace("--invariant", "--measure"))),
-                );
+            let measure_sym: Option<String> = measure_spec.as_ref().map(|s| {
+                invariants::resolve(&def, &s.name)
+                    .unwrap_or_else(|e| panic!("{}", e.replace("--invariant", "--measure")))
+            });
+            if let Some(f) = &measure_sym {
+                roots.insert(f.clone());
             }
             // no stuck states (`progress.rs`): the ending's function is generated too
             let progress_on = a.rest.iter().any(|x| x == "--progress");
@@ -827,6 +829,7 @@ fn main() {
             // kind 1 invariants: `InvariantDefs.lean`, `Invariants.lean`, `open-invariant-cases.txt`,
             // `invariant-unfold.txt`
             let mut inv_unfold: Option<Vec<String>> = None;
+            let mut inv_init: Option<invariants::InitSig> = None;
             if specs.is_empty() && declared.is_empty() {
                 for f in ["InvariantDefs.lean", "Invariants.lean"] {
                     let _ = std::fs::remove_file(out.join(ns).join(f));
@@ -886,6 +889,7 @@ fn main() {
                         hand.display()
                     );
                 }
+                inv_init = o.init;
                 eprintln!(
                     "invariant: {} open cases",
                     o.open_list
@@ -1123,6 +1127,7 @@ fn main() {
                         let _ = std::fs::remove_file(pmod.join(f));
                     }
                 }
+                let mut step_outcomes: Option<Vec<String>> = None;
                 if step_forms {
                     let dopen_path = match a.rest.iter().position(|x| x == "--open-defined-rules") {
                         Some(i) => PathBuf::from(&a.rest[i + 1]),
@@ -1160,11 +1165,62 @@ fn main() {
                         "defined: {} rules with right-hand-side premises, {} open",
                         d.obligations, d.open
                     );
+                    step_outcomes = Some(d.outcomes);
+                }
+                // every run ends, in an acceptable ending (SND-21): `Ends.lean`, where the library
+                // has its kind 1 invariant, progress to a step under it, and a measure
+                // (into the library only; a module of that name elsewhere, such as a demo's own,
+                // is never touched)
+                let ends_path = out.join(ns).join("Ends.lean");
+                ends::remove_generated(&ends_path);
+                if let Some(f) = &measure_sym {
+                    let why = if cx.kind2.is_some() {
+                        Some("progress is under a kind 2 invariant (--assume-invariant)")
+                    } else if pmod != out.join(ns) {
+                        Some("progress is written to another package (--progress-out)")
+                    } else if inv_unfold.is_none() {
+                        Some("the library has no kind 1 invariant (--invariant)")
+                    } else if o.shape.coll {
+                        Some("`<k>` is in a cell map (`Progress.Keys`), not supported yet")
+                    } else if !fgen.params.is_empty() {
+                        Some("the library has parameters (`class Hooks`), not supported yet")
+                    } else if step_outcomes.is_none() {
+                        Some("progress has no step forms (--no-step-forms)")
+                    } else {
+                        None
+                    };
+                    match why {
+                        Some(w) => eprintln!("note: no Ends.lean (every run ends): {w}"),
+                        None => {
+                            // the measure is defined everywhere where its function is not
+                            // partial, or a proved lemma gives every call of it a value
+                            let defined = fgen.fns.get(f).and_then(|sig| {
+                                if !sig.partial {
+                                    return Some("rfl".to_string());
+                                }
+                                ends::defined_by_lemma(&sig.lean, &stated, &open)
+                            });
+                            let outcomes = step_outcomes.unwrap_or_default();
+                            write(
+                                &ends_path,
+                                &ends::emit(&ends::Inputs {
+                                    ns,
+                                    top: &top,
+                                    outcomes: &outcomes,
+                                    measure_inv: a.rest.iter().any(|x| x == "--measure-invariant"),
+                                    defined,
+                                    init: inv_init.as_ref(),
+                                }),
+                            );
+                            eprintln!("ends: written ({} outcomes)", outcomes.len());
+                        }
+                    }
                 }
             } else {
                 for f in ["ProgressDefs.lean", "Progress.lean"] {
                     let _ = std::fs::remove_file(out.join(ns).join(f));
                 }
+                ends::remove_generated(&out.join(ns).join("Ends.lean"));
             }
             if multi {
                 write(
