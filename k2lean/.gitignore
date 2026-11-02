@@ -63,21 +63,48 @@ lake-manifest.json
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Refine.lean
+/demos/ImpUnroll/ImpUnroll/RefineDefs.lean
 /demos/ImpUnroll/refine.toml
 /demos/VmPopRefine/VmPopRefine/Tr.lean
 /demos/VmPopRefine/VmPopRefine/Refine.lean
+/demos/VmPopRefine/VmPopRefine/RefineDefs.lean
 /demos/VmPopRefine/refine.toml
 /demos/ImpPrintRefine/ImpPrintRefine/Tr.lean
 /demos/ImpPrintRefine/ImpPrintRefine/Refine.lean
+/demos/ImpPrintRefine/ImpPrintRefine/RefineDefs.lean
 /demos/ImpPrintRefine/refine.toml
 /demos/ImpUnrollMut/ImpUnrollMut/Tr.lean
 /demos/ImpUnrollMut/ImpUnrollMut/Refine.lean
+/demos/ImpUnrollMut/ImpUnrollMut/RefineDefs.lean
 /demos/ImpUnrollMut/ImpUnrollMut/Witnesses.lean
 /demos/ImpUnrollMut/refine.toml
 /demos/VmPopMut/VmPopMut/Tr.lean
 /demos/VmPopMut/VmPopMut/Refine.lean
+/demos/VmPopMut/VmPopMut/RefineDefs.lean
 /demos/VmPopMut/VmPopMut/Witnesses.lean
 /demos/VmPopMut/refine.toml
+/demos/VmEmptyRefine/VmEmptyRefine/Tr.lean
+/demos/VmEmptyRefine/VmEmptyRefine/Refine.lean
+/demos/VmEmptyRefine/VmEmptyRefine/RefineDefs.lean
+/demos/VmEmptyRefine/refine.toml
+/demos/RangeIncRefine/RangeIncRefine/Tr.lean
+/demos/RangeIncRefine/RangeIncRefine/Refine.lean
+/demos/RangeIncRefine/RangeIncRefine/RefineDefs.lean
+/demos/RangeIncRefine/refine.toml
+/demos/VmEmptyOpen/VmEmptyOpen/Tr.lean
+/demos/VmEmptyOpen/VmEmptyOpen/Refine.lean
+/demos/VmEmptyOpen/VmEmptyOpen/RefineDefs.lean
+/demos/VmEmptyOpen/VmEmptyOpen/Witnesses.lean
+/demos/VmEmptyOpen/refine.toml
+/demos/VmPopLegal/VmPopLegal/Tr.lean
+/demos/VmPopLegal/VmPopLegal/Refine.lean
+/demos/VmPopLegal/VmPopLegal/RefineDefs.lean
+/demos/VmPopLegal/refine.toml
+/demos/VmEmptyMut/VmEmptyMut/Tr.lean
+/demos/VmEmptyMut/VmEmptyMut/Refine.lean
+/demos/VmEmptyMut/VmEmptyMut/RefineDefs.lean
+/demos/VmEmptyMut/VmEmptyMut/Witnesses.lean
+/demos/VmEmptyMut/refine.toml
 /demos/RaceConf/RaceConf/Views.lean
 /demos/RaceConf/RaceConf/Slots.lean
 /demos/RaceConf/RaceConf/Pairs/
@@ -218,6 +245,8 @@ lake-manifest.json
 # the witness programs' initial configurations (krust's `krun --depth 0`, `ni_witnesses` in
 # tests/areas/noninterference.sh, `rel_witnesses` in tests/areas/relational.sh)
 /demos/*/witnesses/*.kore
+# a witness that no program reaches is written by hand, not by krust (REL-9)
+!/demos/VmEmptyOpen/witnesses/wrong-cache.kore
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean

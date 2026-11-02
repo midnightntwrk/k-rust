@@ -3,17 +3,25 @@
 //! The printer reads the two artifacts every K compilation writes beside `definition.kore`:
 //! `syntaxDefinition.kore`, whose symbol declarations carry each production's `format`,
 //! `terminals`, `colors`, priorities and associativities, and `macros.kore`, the macro and alias
-//! rules. It is a port, step for step, of the printer `krun --output pretty` runs on an LLVM
-//! definition (`kprint` of the LLVM backend 0.1.140 shipped with K 7.1.337):
+//! rules. Its pipeline is the one of the printer `krun --output pretty` runs on an LLVM
+//! definition (`kprint` of the LLVM backend 0.1.140 shipped with K 7.1.337), with two steps of
+//! its own (4 and 5), so that a print is text its grammar reads back as the term:
 //!
 //! 1. n-ary `\and`/`\or` become binary;
 //! 2. aliases are reversed (bottom-up, `macros.kore` order; a non-recursive alias at most once on
 //!    one chain, `alias-rec` repeatedly; `macro` and `macro-rec` rules are never reversed);
 //! 3. associative-commutative collections are sorted by their printed items (alphanumerically);
-//! 4. in [`Mode::Pretty`], equations binding an anonymous variable that occurs nowhere else are
+//!    in [`Mode::Pretty`], equations binding an anonymous variable that occurs nowhere else are
 //!    dropped and identical disjuncts printed once;
-//! 5. brackets are inserted by K's simple algorithm, injections removed;
-//! 6. each application is printed through its `format` (`%N %n %i %d %c %r`, assoc dedent),
+//! 4. a parametric application whose instance its text does not fix is printed as its KORE text
+//!    ([`Warning::Instance`]);
+//! 5. each user list is written in its program spelling, `1 , 2` for `List{Int, ","}` and the
+//!    empty list as no text, where that reads back as the list; elsewhere its terminator keeps
+//!    K's text (`.Ints`, [`Warning::EmptyList`]). `kprint` writes K's spelling throughout, which
+//!    no program grammar reads;
+//! 6. brackets are inserted by K's simple algorithm, injections removed; where a sort needs a
+//!    bracket the definition does not declare, the print says so (below);
+//! 7. each application is printed through its `format` (`%N %n %i %d %c %r`, assoc dedent),
 //!    with colours as 256-colour ANSI codes when enabled.
 //!
 //! [`Mode::Pretty`] first rewrites each binary32 and binary64 Float domain value in the form the
@@ -34,10 +42,17 @@
 //! ([`Printed::grouped`]), which a value's grammar has only at `K`, and warns for every other
 //! sort ([`Warning::Grouped`]).
 //!
+//! The other stated fallbacks: a parametric application whose instance its text does not fix is
+//! printed as its KORE text ([`Warning::Instance`]), and an empty user list where no text
+//! writes it keeps K's terminator text ([`Warning::EmptyList`]). The caller that reads a print
+//! back can ask for K's spelling throughout ([`ListSpelling::K`]), as `krs parse --output
+//! program` does for a print that does not read back.
+//!
 //! A reversal can put a child under a production that binds tighter than the child, where the
-//! term as it stands needs no bracket. A reversal that cannot be made to read back is not done:
-//! where a [`Mode::Pretty`] print groups a child in `( .. )` and the unreversed print groups
-//! none, the unreversed print is the print ([`Unparser::print_kore`]). A [`Mode::Program`]
+//! term as it stands needs no bracket, or an empty list where no text writes it. A reversal that
+//! cannot be made to read back is not done: where a [`Mode::Pretty`] print through aliases
+//! groups a child in `( .. )` or keeps an empty list's terminator, and the unreversed print does
+//! neither, the unreversed print is the print ([`Unparser::print_kore`]). A [`Mode::Program`]
 //! print's warning can be spurious (the bracket algorithm can ask for a bracket the text does
 //! not need), so the caller, which can read the text back, decides between the two prints.
 //!
@@ -56,6 +71,7 @@ mod format;
 mod instance;
 mod node;
 mod program;
+mod user_list;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -100,6 +116,19 @@ pub struct Options {
     pub reverse_aliases: bool,
     /// Sort the items of associative-commutative collections (maps, sets) by their printed text, as K always does.
     pub sort_collections: bool,
+    /// How user lists are written.
+    pub list_spelling: ListSpelling,
+}
+
+/// How a print writes user lists.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ListSpelling {
+    /// In their program spelling where it reads back as the term, else K's, which the print
+    /// states ([`Warning::EmptyList`]).
+    #[default]
+    Program,
+    /// In K's spelling throughout (`1 , .Ints`), which the print states.
+    K,
 }
 
 impl Options {
@@ -111,6 +140,7 @@ impl Options {
             color: false,
             reverse_aliases: true,
             sort_collections: true,
+            list_spelling: ListSpelling::Program,
         }
     }
 
@@ -151,6 +181,12 @@ pub enum Warning {
     /// [`Mode::Pretty`]: children of these sorts (K names, `K` aside) are grouped in K's default
     /// bracket `( .. )`, which neither a program nor a configuration value reads.
     Grouped(Vec<String>),
+    /// Empty user lists of these sorts (K names) stand where no text writes them: a program
+    /// writes an empty `List` as no text, and a list's end as no text after its last element,
+    /// which read back as the term only where nothing around them reads them otherwise (module
+    /// documentation), and writes no empty `NeList`. Each is printed as its
+    /// terminator's K text (`.Ints`), which no grammar of a program or a value reads.
+    EmptyList(Vec<String>),
 }
 
 fn sorts(names: &[String]) -> String {
@@ -211,6 +247,11 @@ impl fmt::Display for Warning {
             Self::Grouped(names) => write!(
                 formatter,
                 "priority, associativity or a sort requires a bracket around a child of sort {}, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
+                sorts(names)
+            ),
+            Self::EmptyList(names) => write!(
+                formatter,
+                "an empty list of sort {} stands where no text writes it: a program writes an empty list, and the end of a list after its last element, as no text, which does not read back as the term there (beside other text, where the text has another reading, or before text that would continue the list), and writes no empty `NeList`; printed as its terminator, which neither a program nor a configuration value reads",
                 sorts(names)
             ),
             Self::ReversalBound(symbol) => write!(
@@ -327,6 +368,7 @@ pub struct Unparser {
     data: PrintData,
     macros: Vec<Macro>,
     program: ProgramFormats,
+    lists: user_list::Spelling,
 }
 
 impl Unparser {
@@ -344,13 +386,18 @@ impl Unparser {
             data,
             macros,
             program: ProgramFormats::new(),
+            lists: user_list::Spelling::default(),
         }
     }
 
-    /// Read the authored formats [`Mode::Program`] prints with from the frontend definition the program grammar was built from.
+    /// Read the program grammar's spellings from the frontend definition it was built from: the
+    /// authored formats [`Mode::Program`] prints with, and the user lists, which every print
+    /// writes in their program spelling where it reads back as the term (`1 , 2` for
+    /// `List{Int, ","}`, the empty list as no text: [`Warning::EmptyList`]).
     #[must_use]
     pub fn with_program_grammar(mut self, frontend: &k_rust::definition::Definition) -> Self {
         self.program = program::program_productions(frontend);
+        self.lists = user_list::Spelling::new(&self.data, program::user_lists(frontend));
         self
     }
 
@@ -482,20 +529,20 @@ impl Unparser {
 
     /// Print a KORE pattern.
     ///
-    /// A [`Mode::Pretty`] print through aliases that groups a child in K's default bracket,
-    /// which no value's grammar reads ([`Warning::Grouped`]), is no print of the term: where the
-    /// term printed without reversing an alias groups none, that is the print (module
-    /// documentation).
+    /// A [`Mode::Pretty`] print through aliases that writes a part no value's grammar reads (a
+    /// child grouped in K's default bracket, [`Warning::Grouped`], or an empty list where no
+    /// text writes it, [`Warning::EmptyList`]) is no print of the term: where the term printed
+    /// without reversing an alias writes none, that is the print (module documentation).
     #[must_use]
     pub fn print_kore(&self, pattern: &Pattern, options: &Options) -> Printed {
-        let printed = self.print_once(pattern, *options);
-        if options.mode == Mode::Pretty
-            && options.reverse_aliases
-            && printed
+        let unread = |printed: &Printed| {
+            printed
                 .warnings
                 .iter()
-                .any(|warning| matches!(warning, Warning::Grouped(_)))
-        {
+                .any(|warning| matches!(warning, Warning::Grouped(_) | Warning::EmptyList(_)))
+        };
+        let printed = self.print_once(pattern, *options);
+        if options.mode == Mode::Pretty && options.reverse_aliases && unread(&printed) {
             let unreversed = self.print_once(
                 pattern,
                 Options {
@@ -503,11 +550,7 @@ impl Unparser {
                     ..*options
                 },
             );
-            if !unreversed
-                .warnings
-                .iter()
-                .any(|warning| matches!(warning, Warning::Grouped(_)))
-            {
+            if !unread(&unreversed) {
                 return unreversed;
             }
         }
@@ -554,6 +597,16 @@ impl Unparser {
         instantiate(&mut node, &self.data.declarations);
         let mut unfixed = BTreeSet::new();
         instance::fix_instances(&self.data, &mut node, &mut unfixed);
+        // Each user list in its program spelling, before brackets: its last element is printed
+        // alone, so it stands beside what follows the list.
+        let mut empty_lists = BTreeSet::new();
+        user_list::spell(
+            &self.data,
+            &self.lists,
+            &mut node,
+            &mut empty_lists,
+            options.list_spelling == ListSpelling::Program,
+        );
         let brackets = Brackets::new(&self.data, fallback);
         node = brackets.add(&node, None, None);
         let unbracketed = brackets.unbracketed();
@@ -585,6 +638,9 @@ impl Unparser {
         }
         if !unfixed.is_empty() {
             warnings.push(Warning::Instance(list(&unfixed)));
+        }
+        if !empty_lists.is_empty() {
+            warnings.push(Warning::EmptyList(list(&empty_lists)));
         }
         let grouped = match fallback {
             Fallback::Nothing => {

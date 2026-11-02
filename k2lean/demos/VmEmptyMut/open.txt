@@ -1,0 +1,14 @@
+# KVmEmptyStale's `pop-last` leaves the cache as it was (tests/refine-mutant.py vm-empty-stale), and
+# its underflow rules read the cache: the four rules have no counterpart, so their parts at a
+# translation are open, and so is `add`'s (KVmEmptyStale's `add-underflow0` reads the cache, so its
+# priority lemma is not generated). Refuted together by `stale-pop`'s runs (`Open.refuted`,
+# Witnesses.lean), from an initial configuration, which satisfies the invariant.
+fwd_tr.«add»
+fwd_tr.«add-underflow0»
+fwd_tr.«div-underflow0»
+fwd_tr.«pop-last»
+fwd_tr.«pop-underflow»
+bwd_tr.«add-underflow0»
+bwd_tr.«div-underflow0»
+bwd_tr.«pop-last»
+bwd_tr.«pop-underflow»

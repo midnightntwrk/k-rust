@@ -279,8 +279,8 @@ pub struct ProgramParser {
     /// The identities of the parametric productions of the catalog the grammar was built from:
     /// a label a parse builds from one of them carries sort arguments that inference supplied.
     parametric_productions: BTreeSet<ProductionIdentity>,
-    /// The labels of the grammar's productions with a program spelling: the symbols program text
-    /// written for them builds ([`Self::has_label`]).
+    /// The labels of the grammar's productions: the symbols program text written for them builds
+    /// ([`Self::has_label`]).
     labels: BTreeSet<String>,
     /// What locating a parse needs; `None` when no sort of the grammar declares `[locations]`.
     locations: Option<Locations>,
@@ -468,25 +468,12 @@ impl ProgramParser {
             })
             .map(|(id, _)| source_catalog.identity(id))
             .collect();
-        // A user list's terminator (`intsNil`, declared with the terminal `.Ints`) is spelled by
-        // no text in a program: the parser erases its terminal, so a program writes the empty
-        // list as nothing, and no text written for it reads back as an application of it; a
-        // print names it by its `.`-name (`.Ints`), which no program spelling has.
         let labels = sentences
             .iter()
             .filter_map(|sentence| match sentence {
                 Sentence::Production {
-                    label: Some(label),
-                    items,
-                    attributes,
-                    ..
-                } if !(attributes.has(AttributeKey::UserList)
-                    && !items.iter().any(|item| {
-                        matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
-                    })) =>
-                {
-                    Some(label.name.clone())
-                }
+                    label: Some(label), ..
+                } => Some(label.name.clone()),
                 _ => None,
             })
             .collect();
@@ -504,11 +491,12 @@ impl ProgramParser {
         &self.module
     }
 
-    /// Whether a production of this parser's grammar with a program spelling has the label
-    /// `name` (a K label name, `SetItem`): whether program text written for it reads as a term
-    /// applying it. A user list's terminator is not counted: a program spells the empty list as
-    /// no text, and a print writes its `.`-name (`.Ints`), which no program spelling has. A bracket's label is listed too,
-    /// though no term applies it, since the parser erases a bracket.
+    /// Whether a production of this parser's grammar has the label `name` (a K label name,
+    /// `SetItem`): whether program text written for it reads as a term applying it. A user
+    /// list's terminator is counted: the parser puts it in where a list's elements end, and
+    /// reads no text at a `List`'s position as it, though no program writes its terminal
+    /// (`.Ints`). A bracket's label is listed too, though no term applies it, since the parser
+    /// erases a bracket.
     pub fn has_label(&self, name: &str) -> bool {
         self.labels.contains(name)
     }
@@ -1383,10 +1371,10 @@ mod tests {
         ProgramParser::from_resolved(loaded.resolved(), "MAIN").unwrap()
     }
 
-    /// A user list's terminator is spelled by no program text (the parser erases its `.Ints`),
-    /// so it is no label a program's text writes; the list's cons and other productions are.
+    /// A user list's terminator is a label program text writes, though not by its terminal
+    /// `.Ints`: the parser reads it where a list's elements end, and as no text at all.
     #[test]
-    fn a_user_list_terminator_is_no_label_program_text_writes() {
+    fn a_user_list_terminator_is_a_label_program_text_writes() {
         let parser = parser_with_prelude(
             r#"
 module MAIN
@@ -1399,7 +1387,7 @@ endmodule
         assert!(parser.has_label("intsCons"));
         assert!(parser.has_label("nest"));
         assert!(parser.has_label("nil"));
-        assert!(!parser.has_label("intsNil"));
+        assert!(parser.has_label("intsNil"));
     }
 
     /// `A ::= A "λλ" A` is a prediction that no later token lets advance, but `A` matches the

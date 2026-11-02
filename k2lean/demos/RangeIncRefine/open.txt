@@ -1,0 +1,7 @@
+# `inc` checks that the stored value is nonnegative in KRangeInc and not in KRangeIncOpt
+# (tests/refine-mutant.py range-inc-opt): the rule has no counterpart, so its parts at a translation
+# are the hand module's (Hand.lean), under the invariant that every stored value is a nonnegative
+# integer (`--assume-invariant KRangeInc.Invariant`), which makes the check redundant. Without it
+# `bwd_tr.«inc»` is false, at a store holding a negative value, which no program reaches.
+fwd_tr.«inc» | hand
+bwd_tr.«inc» | hand

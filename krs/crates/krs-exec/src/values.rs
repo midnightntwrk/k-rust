@@ -716,6 +716,8 @@ pub struct ValueIndex {
     builders: [CollectionSymbols; 3],
     cells: Vec<CellNode>,
     top: String,
+    /// The definition's overload axioms, which a printed term is compared modulo.
+    overloads: crate::overloads::Overloads,
 }
 
 /// Whether an application of an equation head (a constructor an `anywhere` rule rewrites) is a
@@ -863,6 +865,7 @@ impl ValueIndex {
             .collect();
         let symbols = BackendSymbols::scan(backend);
         Self {
+            overloads: crate::overloads::Overloads::new(backend.axioms()),
             ctors_by_symbol,
             ctors_by_decl,
             sorts_by_kore,
@@ -881,6 +884,11 @@ impl ValueIndex {
             cells,
             top: kore_symbol_name(k_rust::kast::GeneratedCell::Top.label()),
         }
+    }
+
+    /// The definition's overload axioms ([`crate::overloads`]).
+    pub(crate) const fn overloads(&self) -> &crate::overloads::Overloads {
+        &self.overloads
     }
 
     /// The constructor named by `name`: its full path or a `::`-aligned suffix of it
@@ -1496,15 +1504,54 @@ fn cell_nodes(
         .collect()
 }
 
+/// The index of the KORE definition `text` (main module `MAIN`), whose KRS declarations are the
+/// constructors `ctors` (symbol, `t::S::` name, fields), and no sort or cell.
+#[cfg(test)]
+pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueIndex {
+    use k_rust::backend::{Backend, BackendOptions};
+
+    let mut backend = Backend::new(text, "MAIN", BackendOptions::default()).unwrap();
+    let definition = backend.select_definition(None).unwrap();
+    let symbols = BackendSymbols::scan(&definition);
+    let mut ctors_by_symbol = HashMap::new();
+    let mut ctors_by_decl = HashMap::new();
+    for (symbol, name, fields) in ctors {
+        let info = Arc::new(CtorInfo {
+            decl: Decl(format!("t::S::{name}").into()),
+            symbol: (*symbol).to_owned(),
+            fields: fields.iter().map(|field| Arc::from(*field)).collect(),
+            parameters: 0,
+        });
+        ctors_by_symbol.insert((*symbol).to_owned(), info.clone());
+        ctors_by_decl.insert(info.decl.clone(), info);
+    }
+    ValueIndex {
+        ctors_by_symbol,
+        ctors_by_decl,
+        sorts_by_kore: HashMap::new(),
+        kore_by_sort: HashMap::new(),
+        sort_hooks: HashMap::new(),
+        kast_sort_hooks: HashMap::new(),
+        known_symbols: symbols.known,
+        free_constructors: symbols.free_constructors,
+        equational_partial: symbols.equational_partial,
+        collection_builders: symbols.collection_builders,
+        equation_heads: symbols.equation_heads,
+        overloads: crate::overloads::Overloads::new(definition.axioms()),
+        equation_head_data: EquationHeadData::new(definition),
+        result_sorts: symbols.result_sorts,
+        collections: symbols.collections,
+        builders: symbols.builders,
+        cells: Vec::new(),
+        top: String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
-    use k_rust::backend::{Backend, BackendOptions};
     use k_rust::kore::parser::parse_pattern;
 
-    use super::{BackendSymbols, CtorInfo, Decl, EquationHeadData, Float, Value, ValueIndex};
+    use super::{Decl, Float, Value, ValueIndex, index_of};
 
     /// `c` is a constructor an `anywhere` rule rewrites, `c(a) => c(b)`: `c(b)`, which no
     /// equation reduces, is a value of `c`; `c(a)`, which the rule still reduces, is none.
@@ -1522,40 +1569,10 @@ mod tests {
 
     /// The index of [`ANYWHERE`], whose KRS declarations are `t::S::A`, `t::S::B` and `t::S::C`.
     fn anywhere_index() -> ValueIndex {
-        let mut backend = Backend::new(ANYWHERE, "MAIN", BackendOptions::default()).unwrap();
-        let definition = backend.select_definition(None).unwrap();
-        let symbols = BackendSymbols::scan(&definition);
-        let mut ctors_by_symbol = HashMap::new();
-        let mut ctors_by_decl = HashMap::new();
-        for (symbol, name, fields) in [("a", "A", &[][..]), ("b", "B", &[]), ("c", "C", &["x"])] {
-            let info = Arc::new(CtorInfo {
-                decl: Decl(format!("t::S::{name}").into()),
-                symbol: symbol.to_owned(),
-                fields: fields.iter().map(|field| Arc::from(*field)).collect(),
-                parameters: 0,
-            });
-            ctors_by_symbol.insert(symbol.to_owned(), info.clone());
-            ctors_by_decl.insert(info.decl.clone(), info);
-        }
-        ValueIndex {
-            ctors_by_symbol,
-            ctors_by_decl,
-            sorts_by_kore: HashMap::new(),
-            kore_by_sort: HashMap::new(),
-            sort_hooks: HashMap::new(),
-            kast_sort_hooks: HashMap::new(),
-            known_symbols: symbols.known,
-            free_constructors: symbols.free_constructors,
-            equational_partial: symbols.equational_partial,
-            collection_builders: symbols.collection_builders,
-            equation_heads: symbols.equation_heads,
-            equation_head_data: EquationHeadData::new(definition),
-            result_sorts: symbols.result_sorts,
-            collections: symbols.collections,
-            builders: symbols.builders,
-            cells: Vec::new(),
-            top: String::new(),
-        }
+        index_of(
+            ANYWHERE,
+            &[("a", "A", &[][..]), ("b", "B", &[]), ("c", "C", &["x"])],
+        )
     }
 
     #[test]

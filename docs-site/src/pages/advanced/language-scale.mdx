@@ -79,7 +79,7 @@ The grammar-lexing gate's `layout` fixture, where `;` starts a comment and `//` 
 It reads like the Rust Book's cons list, with K's twists.
 Programs write `1, 2, 3`: the terminator is implicit, and the empty program text is the empty list.
 `non_empty` makes the list K's `NeList`, which programs cannot write empty, and `separator = ""` is a list without separator.
-Rules match the variants: `Ints::Cons(i, is)` and `Ints::Nil()`, which the emitted K shows as `I , Is` and `.Ints`; `.Ints` is rule syntax, so a program cannot write it.
+Rules match the variants: `Ints::Cons(i, is)` and `Ints::Nil()`, which the emitted K shows as `I , Is` and `.Ints`; `.Ints` is rule syntax, so a program cannot write it, and `krs run` prints a list as a program writes it (`sum(1 , 2 , 3)`, the empty list as no text).
 The KMIR port declares its call and aggregate `Operands` this way, as upstream's `List{Operand, ""}`: its corpus writes arguments one after another, `copy(..) move(..)`, and a call without arguments leaves the position empty.
 
 The enum is the whole definition of a closed sort: exactly one cons variant with two fields, the second of the list's own sort, and one terminator `Nil()`.

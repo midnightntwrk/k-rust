@@ -37,7 +37,7 @@ pub(crate) struct Brackets<'a> {
 }
 
 /// `get_nt_position_in_prod`: the item index of the `position`-th non-terminal.
-fn item_position(terminals: &[u8], position: usize) -> usize {
+pub(crate) fn item_position(terminals: &[u8], position: usize) -> usize {
     let mut nonterminal = 0;
     for (index, item) in terminals.iter().enumerate() {
         if *item == b'0' {
@@ -72,8 +72,14 @@ impl<'a> Brackets<'a> {
         self.unbracketed.into_inner()
     }
 
+    /// `sym`'s production items, `1` a terminal and `0` a non-terminal. A list's last element
+    /// prints as the element alone, and the empty list as no text ([`crate::user_list`]).
     fn terminals(&self, sym: &Sym) -> Option<&'a [u8]> {
-        self.data.terminals.get(&sym.name).map(String::as_bytes)
+        match sym.name.as_str() {
+            crate::user_list::LAST => Some(b"0"),
+            crate::user_list::EMPTY => Some(b""),
+            name => self.data.terminals.get(name).map(String::as_bytes),
+        }
     }
 
     /// The fixity of the `position`-th argument within `sym`'s production.
@@ -314,7 +320,7 @@ const SAME_SORT_CONNECTIVES: &[&str] = &[
 ];
 
 /// The K name of `sort`, a KORE sort (`Map` for `SortMap{}`).
-fn sort_name(sort: Option<&Sort>) -> String {
+pub(crate) fn sort_name(sort: Option<&Sort>) -> String {
     match sort {
         Some(Sort::Application { name, arguments }) if arguments.is_empty() => name
             .strip_prefix("Sort")

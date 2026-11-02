@@ -277,7 +277,7 @@
           "parse": "accepted",
           "run": ".K",
           "cells": {
-            "env": "x |-> pair(1, pair(2, nil))"
+            "env": "x |-> nest(1 , 2)"
           }
         },
         "java": {
@@ -941,7 +941,7 @@
           "parse": "accepted",
           "run": ".K",
           "cells": {
-            "env": "x |-> pair(1, pair(2, nil))"
+            "env": "x |-> nest(1 , 2)"
           }
         },
         "java": {

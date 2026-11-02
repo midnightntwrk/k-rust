@@ -3,7 +3,9 @@
 # self-relations PeanoRel, CellMapRel and PickRel, SimpleRel outside the gate) and `refine` (ImpUnroll, with
 # the library kunroll; with priority ranks, VmPopRefine, libraries vmpop and vmpop1, and ImpPrintRefine,
 # libraries kprint and kprintu; refuted by two runs, ImpUnrollMut and VmPopMut, libraries kunrollle and
-# vmpop1skip). Registry: relational.py.
+# vmpop1skip; under a legality, VmEmptyRefine, RangeIncRefine and VmEmptyMut, libraries vmempty,
+# vmemptyopt, vmemptystale, rangeinc and rangeincopt, and VmPopLegal, library vmpopinv; with no
+# legality, refuted at a configuration no program reaches, VmEmptyOpen). Registry: relational.py.
 
 kore_relational() {
   case $1 in
@@ -35,6 +37,18 @@ kore_relational() {
     vmpop1-skip) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/refine-mutant.py" vm-pop-skip "$FIXTURES/vmpop1/vmpop1.k" "$2.src/vmpop1.k" || return 2
       f=$2.src/vmpop1.k m=VMPOP1 s=VMPOP1-SYNTAX inc=$2.src ;;
+    # vmpri with a cache `<empty>` of whether the stack is empty, and the same whose underflow rules
+    # read the cache (tests/refine-mutant.py vm-empty, vm-empty-opt): the sides of demos/VmEmptyRefine;
+    # and the same whose `pop-last` leaves the cache stale (vm-empty-stale), the other side of
+    # demos/VmEmptyMut
+    vm-empty|vm-empty-opt|vm-empty-stale) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/refine-mutant.py" "$1" "$FIXTURES/vmpri/vmpri.k" "$2.src/vmpri.k" || return 2
+      f=$2.src/vmpri.k m=VMPRI s=VMPRI-SYNTAX inc=$2.src ;;
+    # range with `inc(L)`, with and without its check that the value is nonnegative
+    # (tests/refine-mutant.py range-inc, range-inc-opt): the sides of demos/RangeIncRefine
+    range-inc|range-inc-opt) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/refine-mutant.py" "$1" "$FIXTURES/range/range.k" "$2.src/range.k" || return 2
+      f=$2.src/range.k m=RANGE s=RANGE-SYNTAX inc=$2.src ;;
     # SIMPLE written differently (tests/simple-variant.py: constructors with other symbols, rules
     # in another order), the other side of the relation demos/SimpleRel
     simple-variant) mkdir -p "$2.src" &&
@@ -51,6 +65,8 @@ name_relational() {
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;;
     pick) echo Pick ;; pickb) echo PickB ;; vmpop) echo KVmPop ;; vmpop1) echo KVmPop1 ;;
     kunrollle) echo KUnrollLe ;; vmpop1skip) echo KVmPop1Skip ;;
+    vmempty) echo KVmEmpty ;; vmemptyopt) echo KVmEmptyOpt ;; vmemptystale) echo KVmEmptyStale ;;
+    rangeinc) echo KRangeInc ;; rangeincopt) echo KRangeIncOpt ;; vmpopinv) echo KVmPopInv ;;
     *) return 1 ;;
   esac
 }
@@ -66,6 +82,26 @@ gen_relational() {
     kunrollle|vmpop1skip) local k=kimp-unroll-le; [ "$1" = vmpop1skip ] && k=vmpop1-skip
       GEN_ARGS=(--kore "$(kore_dir $k)/definition.kore" --runtime "$(kore_dir $k)/runtime.json"
             --out "$o" --name "$(libs_name "$1")" --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    # the sides of demos/VmEmptyRefine; the first with its invariant, the cache is right (`emptyOk`),
+    # which `refine --assume-invariant` reads
+    vmempty) GEN_ARGS=(--kore "$(kore_dir vm-empty)/definition.kore" --runtime "$(kore_dir vm-empty)/runtime.json"
+            --out "$o" --name KVmEmpty --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant emptyOk@T) ;;
+    vmemptyopt|vmemptystale) local k=vm-empty-opt; [ "$1" = vmemptystale ] && k=vm-empty-stale
+      GEN_ARGS=(--kore "$(kore_dir $k)/definition.kore" --runtime "$(kore_dir $k)/runtime.json"
+            --out "$o" --name "$(libs_name "$1")" --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    # the fixture vmpop with its invariant (`kOk`, every item of `<k>` an instruction, a program or a
+    # halt), the first side of demos/VmPopLegal
+    vmpopinv) local fx; fx=$(libs_fixture vmpop)
+      GEN_ARGS=(--kore "$fx/definition.kore" --runtime "$fx/runtime.json"
+            --out "$o" --name KVmPopInv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant kOk@k) ;;
+    # the sides of demos/RangeIncRefine; the first with the fixture's invariant (`storeNat`)
+    rangeinc) GEN_ARGS=(--kore "$(kore_dir range-inc)/definition.kore" --runtime "$(kore_dir range-inc)/runtime.json"
+            --out "$o" --name KRangeInc --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant storeNat@store) ;;
+    rangeincopt) GEN_ARGS=(--kore "$(kore_dir range-inc-opt)/definition.kore" --runtime "$(kore_dir range-inc-opt)/runtime.json"
+            --out "$o" --name KRangeIncOpt --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     kprint|kprintu) local k=kimp-print; [ "$1" = kprintu ] && k=kimp-print-unroll
       GEN_ARGS=(--kore "$(kore_dir $k)/definition.kore" --runtime "$(kore_dir $k)/runtime.json"
             --out "$o" --name "$(libs_name "$1")" --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
@@ -97,6 +133,11 @@ relate_relational() {
     VmPopRefine) na=KVmPop ka=$(libs_fixture vmpop) nb=KVmPop1 kd=$(libs_fixture vmpop1) extra=(--per-rule true) ;;
     ImpUnrollMut) nb=KUnrollLe kd=$(kore_dir kimp-unroll-le) extra=(--per-rule true) ;;
     VmPopMut) na=KVmPop ka=$(libs_fixture vmpop) nb=KVmPop1Skip kd=$(kore_dir vmpop1-skip) extra=(--per-rule true) ;;
+    VmEmptyRefine) na=KVmEmpty ka=$(kore_dir vm-empty) nb=KVmEmptyOpt kd=$(kore_dir vm-empty-opt) extra=(--per-rule true) ;;
+    VmEmptyOpen) na=KVmEmpty ka=$(kore_dir vm-empty) nb=KVmEmptyOpt kd=$(kore_dir vm-empty-opt) extra=(--per-rule true) ;;
+    VmPopLegal) na=KVmPopInv ka=$(libs_fixture vmpop) nb=KVmPop1 kd=$(libs_fixture vmpop1) extra=(--per-rule true) ;;
+    VmEmptyMut) na=KVmEmpty ka=$(kore_dir vm-empty) nb=KVmEmptyStale kd=$(kore_dir vm-empty-stale) extra=(--per-rule true) ;;
+    RangeIncRefine) na=KRangeInc ka=$(kore_dir range-inc) nb=KRangeIncOpt kd=$(kore_dir range-inc-opt) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
     CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
@@ -125,6 +166,44 @@ libs_refine() {
         --kore-b "$(libs_fixture vmpop1)/definition.kore" --name-b KVmPop1 --ns VmPopRefine \
         --correspondence "$DEMOS/VmPopRefine/correspondence.toml" --hand-module none \
         --out "$DEMOS/VmPopRefine/VmPopRefine/Refine.lean" --report "$DEMOS/VmPopRefine/refine.toml" ;;
+    # under a legality: vmpri with a cache, against the same whose underflow rules read it
+    # (tests/refine-mutant.py vm-empty, vm-empty-opt), under the invariant that the cache is right;
+    # the underflow rules' parts by hand (NS/Hand.lean, listed in NS/open.txt)
+    VmEmptyRefine) "$G" refine --kore-a "$(kore_dir vm-empty)/definition.kore" --name-a KVmEmpty \
+        --kore-b "$(kore_dir vm-empty-opt)/definition.kore" --name-b KVmEmptyOpt --ns VmEmptyRefine \
+        --correspondence "$DEMOS/VmEmptyRefine/correspondence.toml" --open "$DEMOS/VmEmptyRefine/open.txt" \
+        --hand-module VmEmptyRefine.Hand --assume-invariant KVmEmpty.Invariant \
+        --out "$DEMOS/VmEmptyRefine/VmEmptyRefine/Refine.lean" --report "$DEMOS/VmEmptyRefine/refine.toml" ;;
+    # the same with no legality (REL-9): the parts that need it open, refuted by a configuration no
+    # program reaches (NS/witnesses/wrong-cache.kore, written from a run with the cache made wrong)
+    VmEmptyOpen) "$G" refine --kore-a "$(kore_dir vm-empty)/definition.kore" --name-a KVmEmpty \
+        --kore-b "$(kore_dir vm-empty-opt)/definition.kore" --name-b KVmEmptyOpt --ns VmEmptyOpen \
+        --correspondence "$DEMOS/VmEmptyOpen/correspondence.toml" --open "$DEMOS/VmEmptyOpen/open.txt" \
+        --hand-module none --witnesses "$DEMOS/VmEmptyOpen/witnesses" \
+        --out "$DEMOS/VmEmptyOpen/VmEmptyOpen/Refine.lean" --report "$DEMOS/VmEmptyOpen/refine.toml" ;;
+    # VmPopRefine's split under vmpop's invariant (`kOk`): the legality threaded through the split's
+    # parts (`split_bwd`, and `A`'s state after `X_next` by the invariant's preservation)
+    VmPopLegal) "$G" refine --kore-a "$(libs_fixture vmpop)/definition.kore" --name-a KVmPopInv \
+        --kore-b "$(libs_fixture vmpop1)/definition.kore" --name-b KVmPop1 --ns VmPopLegal \
+        --correspondence "$DEMOS/VmPopLegal/correspondence.toml" --hand-module none \
+        --assume-invariant KVmPopInv.Invariant \
+        --out "$DEMOS/VmPopLegal/VmPopLegal/Refine.lean" --report "$DEMOS/VmPopLegal/refine.toml" ;;
+    # a wrong optimization under the legality: the cache left stale by `pop-last`
+    # (tests/refine-mutant.py vm-empty-stale); the rules that differ have their parts open
+    # (NS/open.txt), refuted together by a program's runs from an initial configuration, which
+    # satisfies the invariant (`witness.NAME.legal`; rel_witnesses first)
+    VmEmptyMut) "$G" refine --kore-a "$(kore_dir vm-empty)/definition.kore" --name-a KVmEmpty \
+        --kore-b "$(kore_dir vm-empty-stale)/definition.kore" --name-b KVmEmptyStale --ns VmEmptyMut \
+        --correspondence "$DEMOS/VmEmptyMut/correspondence.toml" --open "$DEMOS/VmEmptyMut/open.txt" \
+        --hand-module none --assume-invariant KVmEmpty.Invariant --witnesses "$DEMOS/VmEmptyMut/witnesses" \
+        --out "$DEMOS/VmEmptyMut/VmEmptyMut/Refine.lean" --report "$DEMOS/VmEmptyMut/refine.toml" ;;
+    # a check the invariant makes redundant: range's `inc`, and the same without its check
+    # (tests/refine-mutant.py range-inc, range-inc-opt), under the fixture's invariant (`storeNat`)
+    RangeIncRefine) "$G" refine --kore-a "$(kore_dir range-inc)/definition.kore" --name-a KRangeInc \
+        --kore-b "$(kore_dir range-inc-opt)/definition.kore" --name-b KRangeIncOpt --ns RangeIncRefine \
+        --correspondence "$DEMOS/RangeIncRefine/correspondence.toml" --open "$DEMOS/RangeIncRefine/open.txt" \
+        --hand-module RangeIncRefine.Hand --assume-invariant KRangeInc.Invariant \
+        --out "$DEMOS/RangeIncRefine/RangeIncRefine/Refine.lean" --report "$DEMOS/RangeIncRefine/refine.toml" ;;
     # the two mutants (tests/refine-mutant.py): the mutated rule's parts open (NS/open.txt), refuted
     # together by the witnesses' runs (`--witnesses`, NS/Witnesses.lean; rel_witnesses first)
     ImpUnrollMut) "$G" refine --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
@@ -230,6 +309,49 @@ gate_relational() {
     scaffold witnesses-VmPopMut rel_witnesses "$DEMOS/VmPopMut/witnesses" "$(kore_dir vmpop-run)"
     scaffold refine-VmPopMut libs_refine VmPopMut
     dbuild_slots VmPopMut
+  fi
+  # under a legality (REL-8): vmpri with a cache against the same whose underflow rules read it,
+  # and range's `inc` against the same without its check, each under the first side's invariant
+  # (`gen --invariant`, the cache is right; every stored value is nonnegative), the parts that need
+  # it by hand (NS/Hand.lean); and the cache left stale by `pop-last`, refuted by a program from an
+  # initial configuration, which satisfies the invariant
+  if runs demo VmEmptyRefine; then
+    phase "scaffold VmEmptyRefine"
+    kc vm-empty && kc vm-empty-opt && partlib vmempty KVmEmpty.Invariants && partlib vmemptyopt KVmEmptyOpt.Preserves
+    rel VmEmptyRefine
+    scaffold refine-VmEmptyRefine libs_refine VmEmptyRefine
+    dbuild_slots VmEmptyRefine
+  fi
+  if runs demo RangeIncRefine; then
+    phase "scaffold RangeIncRefine"
+    kc range-inc && kc range-inc-opt && partlib rangeinc KRangeInc.Invariants && partlib rangeincopt KRangeIncOpt.Preserves
+    rel RangeIncRefine
+    scaffold refine-RangeIncRefine libs_refine RangeIncRefine
+    dbuild_slots RangeIncRefine
+  fi
+  # the same pair with no legality (REL-9): a configuration whose cache is wrong, which no program
+  # reaches, refutes the parts that need the legality
+  if runs demo VmEmptyOpen; then
+    phase "scaffold VmEmptyOpen"
+    kc vm-empty && kc vm-empty-opt && partlib vmempty KVmEmpty.Adequacy && partlib vmemptyopt KVmEmptyOpt.Adequacy
+    rel VmEmptyOpen
+    scaffold refine-VmEmptyOpen libs_refine VmEmptyOpen
+    dbuild_slots VmEmptyOpen
+  fi
+  if runs demo VmPopLegal; then
+    phase "scaffold VmPopLegal"
+    partlib vmpopinv KVmPopInv.Invariants && partlib vmpop1 KVmPop1.Preserves
+    rel VmPopLegal
+    scaffold refine-VmPopLegal libs_refine VmPopLegal
+    dbuild_slots VmPopLegal
+  fi
+  if runs demo VmEmptyMut; then
+    phase "scaffold VmEmptyMut"
+    kc vm-empty && kc vm-empty-stale && partlib vmempty KVmEmpty.Invariants && partlib vmemptystale KVmEmptyStale.Adequacy
+    rel VmEmptyMut
+    scaffold witnesses-VmEmptyMut rel_witnesses "$DEMOS/VmEmptyMut/witnesses" "$(kore_dir vm-empty)"
+    scaffold refine-VmEmptyMut libs_refine VmEmptyMut
+    dbuild_slots VmEmptyMut
   fi
   phase "diff relational"
   diffs kmut

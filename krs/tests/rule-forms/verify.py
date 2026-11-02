@@ -63,9 +63,10 @@ the outcomes must agree:
   divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
   state that holds the macro symbol `sugarDeclareOnce`, by contract: k-rust
   `docs/compatibility.md`, "Macro applications that survive expansion"); and
-  `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which Java K shows
-  backwards as `nest(1 , 2 , .Ints)` and k-rust as it is, since `.Ints` reads
-  back as no program (a pinned divergence, NT-36-2); the desugars `twin` and `anyPair` are
+  `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both show
+  backwards, k-rust as a program writes it, `nest(1 , 2)`, and Java K as
+  `nest(1 , 2 , .Ints)`, whose `.Ints` no program reads (a pinned
+  divergence, NT-44); the desugars `twin` and `anyPair` are
   written in rule patterns, and their clauses list `unbound_variables`
   (K's `unboundVariables(N, Rest)` and `unboundVariables(_)`): `twin`
   matches `pair(3, pair(3, 7))` but not `pair(3, pair(4, 7))`, and `anyPair`
@@ -244,12 +245,12 @@ MACROS_PROGRAMS = (
     # left in the program. Java K runs `var x;` and stops at it; k-rust
     # refuses to execute a state that still holds a macro symbol.
     Program("decl-one-step", "decl x, y, z;", "accepted", "decl y , z , .Ids;"),
-    # A pinned divergence: `nest(1, 2)` runs forward as `pair(1, pair(2, nil))`.
-    # Java K prints it backwards as `nest(1 , 2 , .Ints)`, which does not read
-    # back as a program: a program spells the empty `Ints` as no text, and no
-    # program grammar reads `.Ints`. k-rust reverses an alias only where its
-    # subject is program text, so `nest_nil`, whose subject writes the list's
-    # terminator, runs forward only and the value prints as it is (NT-36-2).
+    # A pinned divergence: `nest(1, 2)` runs forward as `pair(1, pair(2, nil))`,
+    # which both print backwards through `nest_nil` and `nest_cons`. k-rust
+    # prints the list as a program writes it, `nest(1 , 2)`, which reads back;
+    # Java K prints its terminator, `nest(1 , 2 , .Ints)`, which does not: a
+    # program spells the empty `Ints` as no text, and no program grammar reads
+    # `.Ints` (NT-44).
     Program(
         "nest", "x = nest(1, 2);", "accepted", ".K",
         cells=(("env", "x |-> nest(1 , 2 , .Ints)"),),
