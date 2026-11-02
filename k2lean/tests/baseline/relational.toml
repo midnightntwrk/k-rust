@@ -1457,6 +1457,82 @@ preserve = []
 "fwd_x.set" = { status = "generic", id = "21218da297520e0e" }
 "fwd_x.«seq(C1, C2)»" = { status = "generic", id = "14817e4a2ad8222c" }
 
+[demo.VmEmptyOpen]
+tier = "light"
+guarded = 92
+preserve = []
+
+[demo.VmEmptyOpen.slots]
+"bwd_tr.add" = { status = "generic", id = "0371c034cd963926" }
+"bwd_tr.div" = { status = "generic", id = "a1ee52728bcf29b6" }
+"bwd_tr.end" = { status = "generic", id = "0f72bf6bc9f59fc9" }
+"bwd_tr.pop" = { status = "generic", id = "fd52907817551fa1" }
+"bwd_tr.push" = { status = "generic", id = "7395bec8545d7fd4" }
+"bwd_tr.seq" = { status = "generic", id = "2095e55858ab9c22" }
+"bwd_tr.«add-underflow0»" = { status = "open", id = "dd3b783faa9836b1" }
+"bwd_tr.«add-underflow1»" = { status = "generic", id = "79bbc30801d7163c" }
+"bwd_tr.«div-underflow0»" = { status = "open", id = "4755cc7755ab796e" }
+"bwd_tr.«div-underflow1»" = { status = "generic", id = "0083254b9318f55e" }
+"bwd_tr.«div-zero»" = { status = "generic", id = "a8afcf676c1469f0" }
+"bwd_tr.«pop-last»" = { status = "generic", id = "65d231090f196a84" }
+"bwd_tr.«pop-underflow»" = { status = "open", id = "9ea1973491414963" }
+"bwd_x.add" = { status = "generic", id = "9280a20412332601" }
+"bwd_x.div" = { status = "generic", id = "944ea9c0a71527a2" }
+"bwd_x.end" = { status = "generic", id = "5ecc97ca082ca7cb" }
+"bwd_x.pop" = { status = "generic", id = "d626eeccaa82fbee" }
+"bwd_x.push" = { status = "generic", id = "3be5f081d950c76f" }
+"bwd_x.seq" = { status = "generic", id = "45afbba687a65808" }
+"bwd_x.«add-underflow0»" = { status = "generic", id = "8579f1d164d80b74" }
+"bwd_x.«add-underflow1»" = { status = "generic", id = "52b0c7a545b102de" }
+"bwd_x.«div-underflow0»" = { status = "generic", id = "ff2cc503319ce2ec" }
+"bwd_x.«div-underflow1»" = { status = "generic", id = "eea1467eb244100d" }
+"bwd_x.«div-zero»" = { status = "generic", id = "14d3e81115f76171" }
+"bwd_x.«pop-last»" = { status = "generic", id = "81791fac7dc74380" }
+"bwd_x.«pop-underflow»" = { status = "generic", id = "1242ef82e0beaea3" }
+"fwd_tr.add" = { status = "open", id = "e9f0cf375fc3b507" }
+"fwd_tr.div" = { status = "generic", id = "fe17c711fe59a9bc" }
+"fwd_tr.end" = { status = "generic", id = "cce1dcbb8119b237" }
+"fwd_tr.pop" = { status = "generic", id = "cc898184a164def9" }
+"fwd_tr.push" = { status = "generic", id = "d45d4b53c9544f69" }
+"fwd_tr.seq" = { status = "generic", id = "16f985ece84694a8" }
+"fwd_tr.«add-underflow0»" = { status = "open", id = "1b1fa6b98f3d0a3a" }
+"fwd_tr.«add-underflow1»" = { status = "generic", id = "4569179425a30d26" }
+"fwd_tr.«div-underflow0»" = { status = "open", id = "afe7c7c7dbb8f4bb" }
+"fwd_tr.«div-underflow1»" = { status = "generic", id = "fb565209e1397838" }
+"fwd_tr.«div-zero»" = { status = "generic", id = "6a94fa1165b561ac" }
+"fwd_tr.«pop-last»" = { status = "generic", id = "17c7135c4a41c39e" }
+"fwd_tr.«pop-underflow»" = { status = "open", id = "816ff0dffbc72386" }
+"fwd_x.add" = { status = "generic", id = "33aeebcac4fb2702" }
+"fwd_x.div" = { status = "generic", id = "f899819876d3f9a1" }
+"fwd_x.end" = { status = "generic", id = "6bc9bd8848a0a93a" }
+"fwd_x.pop" = { status = "generic", id = "e8fe29a78e700101" }
+"fwd_x.push" = { status = "generic", id = "28d4ed465bf5bb3c" }
+"fwd_x.seq" = { status = "generic", id = "af985ed9def51bc3" }
+"fwd_x.«add-underflow0»" = { status = "generic", id = "0ba7b5e4009b0005" }
+"fwd_x.«add-underflow1»" = { status = "generic", id = "a76ec25a6c9e8984" }
+"fwd_x.«div-underflow0»" = { status = "generic", id = "dea1f7de7707ad58" }
+"fwd_x.«div-underflow1»" = { status = "generic", id = "9d7429f7fb5aa79e" }
+"fwd_x.«div-zero»" = { status = "generic", id = "237f5eb3f985046c" }
+"fwd_x.«pop-last»" = { status = "generic", id = "390b6e3941f0d5a8" }
+"fwd_x.«pop-underflow»" = { status = "generic", id = "15498789c998ef3e" }
+"pri_bwd.add" = { status = "generic", id = "c5e51ae16c23c146" }
+"pri_bwd.div" = { status = "generic", id = "acb80e92b0daa5cf" }
+"pri_bwd.end" = { status = "generic", id = "9a708a4d2b01ffd9" }
+"pri_bwd.pop" = { status = "generic", id = "c7dfd96e3f3ab037" }
+"pri_bwd.push" = { status = "generic", id = "a1e62b8d02977b3d" }
+"pri_bwd.seq" = { status = "generic", id = "9c760f8634f4017b" }
+"pri_bwd.«div-underflow1»" = { status = "generic", id = "0d72bd3b726670f5" }
+"pri_bwd.«div-zero»" = { status = "generic", id = "bc9ba41fc0746751" }
+"pri_bwd.«pop-last»" = { status = "generic", id = "f351b3fd196b8f2a" }
+"pri_fwd.div" = { status = "generic", id = "6d976dcfa73a6c8f" }
+"pri_fwd.end" = { status = "generic", id = "0235094b12c0ec35" }
+"pri_fwd.pop" = { status = "generic", id = "0e46e960d247e4fd" }
+"pri_fwd.push" = { status = "generic", id = "fed0a8039cb1540a" }
+"pri_fwd.seq" = { status = "generic", id = "73116e5c63aa57e8" }
+"pri_fwd.«div-underflow1»" = { status = "generic", id = "cb3f5b80b8eb3dd5" }
+"pri_fwd.«div-zero»" = { status = "generic", id = "165265006049485a" }
+"pri_fwd.«pop-last»" = { status = "generic", id = "5214239655024223" }
+
 [demo.VmPopLegal]
 tier = "light"
 guarded = 110
@@ -1634,7 +1710,7 @@ preserve = []
 "demos/ImpUnrollMut/ImpUnrollMut/Refine.lean" = { tier = "light", sha256 = "2e466c55dce52beb0576e8702388b75bc55b847ecfb9575d983476cdf243d6d5" }
 "demos/ImpUnrollMut/ImpUnrollMut/RefineDefs.lean" = { tier = "light", sha256 = "e10c88c0b70f6d4de2f95af0cf7d04aa55544969191016dc8da579706404c7a2" }
 "demos/ImpUnrollMut/ImpUnrollMut/Tr.lean" = { tier = "light", sha256 = "f27d4fad6ebda587a35e367630dc0b9c26376989fd48bdaaf8433d9696d8580b" }
-"demos/ImpUnrollMut/ImpUnrollMut/Witnesses.lean" = { tier = "light", sha256 = "965eb2ffba4093e0e37f63672fb515a86667fe6a03b0732ae8c06fcff285d8d1" }
+"demos/ImpUnrollMut/ImpUnrollMut/Witnesses.lean" = { tier = "light", sha256 = "38699ff8c6ddb57383f167700b2bc9535a338f9087a148f002ab8f5a25c9f525" }
 "demos/ImpUnrollMut/correspondence.toml" = { tier = "light", sha256 = "870979dd630ee7ca7cba596cd42381b7120aefb25b827e488db0b3e932a99d1f" }
 "demos/ImpUnrollMut/refine.toml" = { tier = "light", sha256 = "e540d281843c0a089e2fe467995f03e9d5b53fc8228d275412dc56416c6d1d04" }
 "demos/PeanoRel/PeanoRel/Bisim.lean" = { tier = "light", sha256 = "d043e99d82c476b5311e61b09153980b8bdf86a664ac251dc8d843b059f6d8a9" }
@@ -1650,9 +1726,15 @@ preserve = []
 "demos/VmEmptyMut/VmEmptyMut/Refine.lean" = { tier = "light", sha256 = "05dfb585f7a920dddc3839b6252fb9994697ede586c9d4fe703910940c869719" }
 "demos/VmEmptyMut/VmEmptyMut/RefineDefs.lean" = { tier = "light", sha256 = "946db5dd4de2796d0403dc3ac2d2d9d25ac433355b93e6565f74b027910c09ab" }
 "demos/VmEmptyMut/VmEmptyMut/Tr.lean" = { tier = "light", sha256 = "8731527a0dd8954aaced7b824dbcfdb0b5ac2f9d4db6aefd0bc24c29253e79c1" }
-"demos/VmEmptyMut/VmEmptyMut/Witnesses.lean" = { tier = "light", sha256 = "b04e3c59372bf6b9b413e672fd57120e89ec14cc870789df679ecf8c136b852f" }
+"demos/VmEmptyMut/VmEmptyMut/Witnesses.lean" = { tier = "light", sha256 = "143d49ebcc89786ddf7708c8b7870eb5cb0a9f6c679bf9d23c53bc309981c50e" }
 "demos/VmEmptyMut/correspondence.toml" = { tier = "light", sha256 = "fbfb19e95104083b00c53d48ec9af847ed0004af2a1acb2b7555eff90e7a23bf" }
 "demos/VmEmptyMut/refine.toml" = { tier = "light", sha256 = "3e8d25c41814fff8c20e3ea3c9562152cbd8d9f103bc7c4f6ed3d4657e7ca1ac" }
+"demos/VmEmptyOpen/VmEmptyOpen/Refine.lean" = { tier = "light", sha256 = "6381820a761cefad0c0c4bcc0115a62815ee243d3a1c872777961cc67b4533f4" }
+"demos/VmEmptyOpen/VmEmptyOpen/RefineDefs.lean" = { tier = "light", sha256 = "974b75f1ab692bd5cb345ac49f60e521b2510c3e6b8041914f390b70ec64117c" }
+"demos/VmEmptyOpen/VmEmptyOpen/Tr.lean" = { tier = "light", sha256 = "b6d54bcfda5fd652a9045252bf1bce664c823b90014addb36ddba9e461b39adc" }
+"demos/VmEmptyOpen/VmEmptyOpen/Witnesses.lean" = { tier = "light", sha256 = "2ab241979f50145de3cae9350165f6bb8ceab8af313c44746fbc84217d89be2a" }
+"demos/VmEmptyOpen/correspondence.toml" = { tier = "light", sha256 = "d432572923cfed5713db84964337d0ee03535de4742567059653152245b16b60" }
+"demos/VmEmptyOpen/refine.toml" = { tier = "light", sha256 = "d61697f0a1490b4ada79e804b2d58ec9da60778305a953bc202179d885b6f13f" }
 "demos/VmEmptyRefine/VmEmptyRefine/Hand.lean" = { tier = "light", sha256 = "fe4634a241957b0b6174920a42fd4df749e7540994a31ac77f561d04708941e0" }
 "demos/VmEmptyRefine/VmEmptyRefine/Refine.lean" = { tier = "light", sha256 = "d5501f9532947dc2bb2bea4216b1cdac56dedc27db0ff707c62cc275f666a87e" }
 "demos/VmEmptyRefine/VmEmptyRefine/RefineDefs.lean" = { tier = "light", sha256 = "044c4d02ac3637750c0c04748b07ad79d27b8797e936dfae419650f6f8abee3b" }
@@ -1667,7 +1749,7 @@ preserve = []
 "demos/VmPopMut/VmPopMut/Refine.lean" = { tier = "light", sha256 = "cbf5eb566fd58b1e9a21ed423f79d81a5437d30582a54622b4a673281af015b3" }
 "demos/VmPopMut/VmPopMut/RefineDefs.lean" = { tier = "light", sha256 = "ec092e708897bf2de68332096296f64161c986df20dba4898404a55c27c39d56" }
 "demos/VmPopMut/VmPopMut/Tr.lean" = { tier = "light", sha256 = "c5bed403aa56df9dcd38295cf13037d7027f87cb2612136efa6e319b57170419" }
-"demos/VmPopMut/VmPopMut/Witnesses.lean" = { tier = "light", sha256 = "710a991c6a71487d948167b5c441c3272c0098458aa9002722b324ba3972a597" }
+"demos/VmPopMut/VmPopMut/Witnesses.lean" = { tier = "light", sha256 = "23957474de87cc611273a4b2ba1738f01d3b68f07ab6971433f9b68178404665" }
 "demos/VmPopMut/correspondence.toml" = { tier = "light", sha256 = "07f2e9c12d6ceb8f0d41877dfaed80686ae038dba6773626664cbf9c7e588f53" }
 "demos/VmPopMut/refine.toml" = { tier = "light", sha256 = "339b763fd403b364a229dfcc792c8d1b8160500c203c290c283670001713a7f1" }
 "demos/VmPopRefine/VmPopRefine/Refine.lean" = { tier = "light", sha256 = "a5eaa15d3c3e35e303a66bb30a61616deed7d938bd273015252135bef782d4cd" }
