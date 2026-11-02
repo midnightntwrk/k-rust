@@ -442,8 +442,9 @@ pub fn layout(input: TokenStream) -> TokenStream {
 /// List }` and one terminator `Nil()`.
 ///
 /// The enum is the whole definition of its sort. Programs write `1, 2, 3`
-/// and the empty text for the empty list; rules match the variants, which K
-/// prints as `I , Is` and `.Ints`.
+/// and the empty text for the empty list, and `krs run` prints a list so;
+/// rules match the variants, which the emitted K writes as `I , Is` and
+/// `.Ints`.
 #[proc_macro_attribute]
 pub fn syntax_list(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::SyntaxList, attributes, item)

@@ -866,8 +866,7 @@ impl Semantics {
         };
         let reversed = print(&self.unparser, true, false);
         let unreversed = print(&self.unparser, false, false);
-        let (reverse_aliases, printed) =
-            self.program_print(sort, &presented, &expanded, reversed, unreversed)?;
+        let (reverse_aliases, printed) = self.program_print(sort, &expanded, reversed, unreversed);
         // The prints are judged without colour, which no grammar reads.
         if !color {
             return Ok(printed);
@@ -900,25 +899,19 @@ impl Semantics {
                 ..options
             },
         );
-        self.program_print(sort, &presented, &expanded, reversed, unreversed)
-            .map(|(_, printed)| printed)
+        Ok(self.program_print(sort, &expanded, reversed, unreversed).1)
     }
 
-    /// Of `reversed` and `unreversed`, the prints of the program `presented` at `sort` whose
-    /// expansion is `expanded`, the one [`Self::unparse_program`] prints, beside whether it is
-    /// `reversed`. Where the program holds a part no program text writes (a user list's
-    /// terminator), no print reads back, and the print through the aliases is printed.
+    /// Of `reversed` and `unreversed`, the prints of a program at `sort` whose expansion is
+    /// `expanded`, the one [`Self::unparse_program`] prints, beside whether it is
+    /// `reversed`.
     fn program_print(
         &mut self,
         sort: Option<&str>,
-        presented: &Pattern,
         expanded: &Pattern,
         reversed: Printed,
         unreversed: Printed,
-    ) -> Result<(bool, Printed), ExecError> {
-        if self.unwritten_program_part(presented)?.is_some() {
-            return Ok((true, reversed));
-        }
+    ) -> (bool, Printed) {
         let reads = |semantics: &mut Self, printed: &Printed| {
             semantics.program_read_back(sort, expanded, printed) == ReadBack::Reads
         };
@@ -929,12 +922,12 @@ impl Semantics {
             printed
         };
         if reads(self, &reversed) {
-            return Ok((true, without_ungrouped(reversed)));
+            return (true, without_ungrouped(reversed));
         }
         if reversed.text != unreversed.text && reads(self, &unreversed) {
-            return Ok((false, without_ungrouped(unreversed)));
+            return (false, without_ungrouped(unreversed));
         }
-        Ok((false, unreversed))
+        (false, unreversed)
     }
 
     /// The two KORE forms of one reading of the program `input` at `sort` (by default `$PGM`'s):

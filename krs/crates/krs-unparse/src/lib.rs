@@ -56,6 +56,7 @@ mod format;
 mod instance;
 mod node;
 mod program;
+mod user_list;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -151,6 +152,11 @@ pub enum Warning {
     /// [`Mode::Pretty`]: children of these sorts (K names, `K` aside) are grouped in K's default
     /// bracket `( .. )`, which neither a program nor a configuration value reads.
     Grouped(Vec<String>),
+    /// Empty user lists of these sorts (K names) stand where no text writes them: a program
+    /// writes an empty `List` as no text, which reads back as it only where no other text or
+    /// reading competes for it, and a `NeList` not at all. Each is printed
+    /// as its terminator's K text (`.Ints`), which no grammar of a program or a value reads.
+    EmptyList(Vec<String>),
 }
 
 fn sorts(names: &[String]) -> String {
@@ -211,6 +217,11 @@ impl fmt::Display for Warning {
             Self::Grouped(names) => write!(
                 formatter,
                 "priority, associativity or a sort requires a bracket around a child of sort {}, and the definition declares no bracket that takes it: grouped in K's default bracket `( .. )`, which neither a program nor a configuration value reads",
+                sorts(names)
+            ),
+            Self::EmptyList(names) => write!(
+                formatter,
+                "an empty list of sort {} stands where no text writes it: a program writes an empty list as no text, which does not read back as it there (beside other text, as a list's one element, or where another list reads no text too), and writes no empty `NeList`; printed as its terminator, which neither a program nor a configuration value reads",
                 sorts(names)
             ),
             Self::ReversalBound(symbol) => write!(
@@ -327,6 +338,7 @@ pub struct Unparser {
     data: PrintData,
     macros: Vec<Macro>,
     program: ProgramFormats,
+    lists: user_list::UserLists,
 }
 
 impl Unparser {
@@ -344,13 +356,18 @@ impl Unparser {
             data,
             macros,
             program: ProgramFormats::new(),
+            lists: user_list::UserLists::default(),
         }
     }
 
-    /// Read the authored formats [`Mode::Program`] prints with from the frontend definition the program grammar was built from.
+    /// Read the program grammar's spellings from the frontend definition it was built from: the
+    /// authored formats [`Mode::Program`] prints with, and the user lists, which every print
+    /// writes in their program spelling (`1 , 2` for `List{Int, ","}`, the empty list as no
+    /// text: [`Warning::EmptyList`]).
     #[must_use]
     pub fn with_program_grammar(mut self, frontend: &k_rust::definition::Definition) -> Self {
         self.program = program::program_productions(frontend);
+        self.lists = program::user_lists(frontend);
         self
     }
 
@@ -482,20 +499,20 @@ impl Unparser {
 
     /// Print a KORE pattern.
     ///
-    /// A [`Mode::Pretty`] print through aliases that groups a child in K's default bracket,
-    /// which no value's grammar reads ([`Warning::Grouped`]), is no print of the term: where the
-    /// term printed without reversing an alias groups none, that is the print (module
-    /// documentation).
+    /// A [`Mode::Pretty`] print through aliases that writes a part no value's grammar reads (a
+    /// child grouped in K's default bracket, [`Warning::Grouped`], or an empty list where no
+    /// text writes it, [`Warning::EmptyList`]) is no print of the term: where the term printed
+    /// without reversing an alias writes none, that is the print (module documentation).
     #[must_use]
     pub fn print_kore(&self, pattern: &Pattern, options: &Options) -> Printed {
-        let printed = self.print_once(pattern, *options);
-        if options.mode == Mode::Pretty
-            && options.reverse_aliases
-            && printed
+        let unread = |printed: &Printed| {
+            printed
                 .warnings
                 .iter()
-                .any(|warning| matches!(warning, Warning::Grouped(_)))
-        {
+                .any(|warning| matches!(warning, Warning::Grouped(_) | Warning::EmptyList(_)))
+        };
+        let printed = self.print_once(pattern, *options);
+        if options.mode == Mode::Pretty && options.reverse_aliases && unread(&printed) {
             let unreversed = self.print_once(
                 pattern,
                 Options {
@@ -503,11 +520,7 @@ impl Unparser {
                     ..*options
                 },
             );
-            if !unreversed
-                .warnings
-                .iter()
-                .any(|warning| matches!(warning, Warning::Grouped(_)))
-            {
+            if !unread(&unreversed) {
                 return unreversed;
             }
         }
@@ -554,6 +567,10 @@ impl Unparser {
         instantiate(&mut node, &self.data.declarations);
         let mut unfixed = BTreeSet::new();
         instance::fix_instances(&self.data, &mut node, &mut unfixed);
+        // Each user list in its program spelling, before brackets: its last element is printed
+        // alone, so it stands beside what follows the list.
+        let mut empty_lists = BTreeSet::new();
+        user_list::spell(&self.data, &self.lists, &mut node, &mut empty_lists);
         let brackets = Brackets::new(&self.data, fallback);
         node = brackets.add(&node, None, None);
         let unbracketed = brackets.unbracketed();
@@ -585,6 +602,9 @@ impl Unparser {
         }
         if !unfixed.is_empty() {
             warnings.push(Warning::Instance(list(&unfixed)));
+        }
+        if !empty_lists.is_empty() {
+            warnings.push(Warning::EmptyList(list(&empty_lists)));
         }
         let grouped = match fallback {
             Fallback::Nothing => {

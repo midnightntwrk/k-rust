@@ -37,6 +37,85 @@ impl ProgramProduction {
     }
 }
 
+/// The user lists of `definition` ([`crate::user_list`]): each sort whose `userList` productions
+/// are one cons `Elem "sep" Sort` and one terminator, by the cons's KORE symbol name. A list of
+/// another shape (a parametric one, or a left-recursive `NeList`) is left out, and prints in K's
+/// spelling.
+pub(crate) fn user_lists(definition: &Definition) -> crate::user_list::UserLists {
+    type Productions<'d> = (Vec<&'d Sentence>, Vec<&'d Sentence>);
+    let mut by_sort = BTreeMap::<String, Productions<'_>>::new();
+    for module in &definition.modules {
+        for sentence in &module.local_sentences {
+            let Sentence::Production {
+                parameters,
+                sort,
+                items,
+                attributes,
+                ..
+            } = &**sentence
+            else {
+                continue;
+            };
+            if !parameters.is_empty()
+                || attributes.get("userList").is_none()
+                || attributes.get("userListTerminator").is_some()
+            {
+                continue;
+            }
+            let nonterminals = items
+                .iter()
+                .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                .count();
+            let (conses, terminators) = by_sort.entry(sort.name.clone()).or_default();
+            match nonterminals {
+                2 => conses.push(sentence),
+                0 => terminators.push(sentence),
+                _ => {}
+            }
+        }
+    }
+    let mut lists = crate::user_list::UserLists::default();
+    for (sort, (conses, terminators)) in by_sort {
+        let (
+            [
+                Sentence::Production {
+                    label: Some(cons),
+                    items,
+                    attributes,
+                    ..
+                },
+            ],
+            [
+                Sentence::Production {
+                    label: Some(terminator),
+                    ..
+                },
+            ],
+        ) = (conses.as_slice(), terminators.as_slice())
+        else {
+            continue;
+        };
+        let [
+            ProductionItem::NonTerminal { .. },
+            ProductionItem::Terminal(separator),
+            ProductionItem::NonTerminal { sort: tail, .. },
+        ] = items.as_slice()
+        else {
+            continue;
+        };
+        if tail.name != sort {
+            continue;
+        }
+        lists.insert(
+            encode_kore_label(cons).name,
+            encode_kore_label(terminator).name,
+            !separator.is_empty(),
+            attributes.get_str("userList") == Some("+"),
+        );
+    }
+    lists
+}
+
 /// The first production of each label that carries an authored `format` and is not `unparseAvoid`, by KORE symbol name.
 pub(crate) fn program_productions(definition: &Definition) -> BTreeMap<String, ProgramProduction> {
     let mut productions = BTreeMap::new();

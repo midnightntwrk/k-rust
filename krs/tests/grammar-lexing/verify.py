@@ -76,7 +76,7 @@ partition end to end on both routes:
   definition, like the emitted K, leaves the field `items` unnamed, so K's
   record form `sum(... items: 1, 2)` is rejected on both routes, and the
   `format` of `sum` and `count` in `syntaxDefinition.kore` agrees (pinned),
-  so a stuck `sum()` prints as `sum ( .Ints )`;
+  so a stuck `sum()` prints as `sum (  )`, the empty list as a program writes it;
 - `symbols`: a production's symbol depends only on its own declaration:
   `Ops::Dot` is `opsDot` and `Other::Dot` is `otherDot`, the unshared
   `Ops::Solo` is still `opsSolo`, the struct `Plain` is `plain`, and

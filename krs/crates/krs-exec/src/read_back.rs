@@ -30,7 +30,8 @@
 //! grammar reads back as itself (the `Id` `$x`).
 //!
 //! Where a cell's print says a part of it is no program text (a warning: a symbol printed as
-//! KAST, an application whose instance no text fixes printed as KORE, a child grouped in K's
+//! KAST, an application whose instance no text fixes printed as KORE, an empty user list printed
+//! as its terminator where no text writes it, a child grouped in K's
 //! default bracket `( .. )` where the definition declares no bracket, which neither grammar has:
 //! a map whose key is a map, as `_|->_` is non-associative and no bracket groups a map, so
 //! neither grammar writes that term at all), only that part is skipped: each largest part of
@@ -46,9 +47,9 @@
 //! through an alias reads back as the program written without it. It is not read back where its
 //! print says it is no program text ([`unparse::Warning::Ungrouped`]: a child that needs a
 //! bracket the definition does not declare, printed bare, where neither the print through the
-//! aliases nor the one without them reads back, [`Semantics::unparse_program`]), nor where the
-//! parsed program holds a part no program text writes (a user list's terminator, which the
-//! parser puts in where the text writes nothing).
+//! aliases nor the one without them reads back, [`Semantics::unparse_program`]). A program the
+//! grammar parsed holds only what program text writes, its user lists' terminators included,
+//! which the parser puts in where a list's elements end and which a print writes as no text.
 //!
 //! [`Configuration::parse_program_forms`]: crate::configuration::Configuration::parse_program_forms
 
@@ -344,23 +345,8 @@ impl Semantics {
         if let Some(reason) = stated_fallback(printed) {
             return Ok(ReadBack::Skipped(reason));
         }
-        let (presented, expanded) = self.program_forms(sort, input)?;
-        if let Some(part) = self.unwritten_program_part(&presented)? {
-            return Ok(ReadBack::Skipped(format!(
-                "it holds {part}, which the program grammar does not write"
-            )));
-        }
+        let (_, expanded) = self.program_forms(sort, input)?;
         Ok(self.program_read_back(sort, &expanded, printed))
-    }
-
-    /// The first part of `presented`, a parsed program, that no program text writes, as
-    /// [`Self::unwritten`] names it: a part the parser puts in where the text writes nothing (a
-    /// user list's terminator). No print of such a program reads back.
-    pub(crate) fn unwritten_program_part(
-        &mut self,
-        presented: &Pattern,
-    ) -> Result<Option<String>, ExecError> {
-        self.unwritten(Reader::Program, presented, false)
     }
 
     /// How `printed`, a print of a program at `sort` whose expansion is `expanded`, reads back

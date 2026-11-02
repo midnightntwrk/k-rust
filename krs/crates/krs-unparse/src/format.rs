@@ -185,6 +185,16 @@ impl<'a> Printer<'a> {
             }
             return;
         }
+        // A list's last element is printed alone, and the empty list as no text.
+        if name == crate::user_list::LAST {
+            if let Some(element) = app.args.first() {
+                self.print(element);
+            }
+            return;
+        }
+        if name == crate::user_list::EMPTY {
+            return;
+        }
         if let Some(production) = self.program.and_then(|program| program.get(name)) {
             self.authored_format(app, production);
             return;
