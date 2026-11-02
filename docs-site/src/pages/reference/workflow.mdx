@@ -75,7 +75,9 @@ krs emit-k --package my-semantics --definition main --output target/krs-k
 ```
 
 `expand` prints the deterministic explicit Rust-facing reference surface.
-It reads every module file of the package's library crate, from its root through each `mod name;`, and replaces each readable form by its long form in the file and module that hold it, so the printed package keeps the authored module structure and every path resolves as it did.
+It reads every module file of the package's library crate, from its root through each `mod name;`, and replaces each readable form by its long form in the file and module that hold it, so the printed package keeps the authored module structure, and every path the authored items write resolves as it did.
+A long form also writes paths the readable form leaves implicit, such as a binder's sort: `expand` prints such a path only where the source shows it compiles there (an item of the package whose modules and own declaration are visible from the printing module, the path the clause writes, or a dependency's module that a `use` or a readable macro of the crate names), and otherwise refuses the package, naming the item.
+Stdout does not say which file it holds: a consumer that overlays it on the crate root must check that the crate root is the one file that changed, or use `--output`.
 When exactly one file changes, `expand` prints it on stdout (the crate root when none changes); when several do, it refuses and asks for `--output`:
 
 ```console
@@ -83,7 +85,7 @@ krs expand --package my-semantics --definition main --output target/krs-expanded
 ```
 
 `--output` takes an absent or empty directory and writes only the files the expansion changes, each at its path relative to the package, such as `target/krs-expanded/src/rules.rs`, and stdout lists those paths, one per line.
-The printed package is the authored one with exactly those files replaced: copy the package, copy the directory over it, and `krs check` and `krs emit-k` judge the printed source as they judge yours.
+The printed package is the authored one with exactly those files replaced: copy the package (a relative `path` dependency must still reach its package from the copy), copy the directory over it, and `krs check` and `krs emit-k` judge the printed source as they judge yours.
 `emit-k` writes the generated K definition and sidecars, including stable symbol and source attribution data.
 Claims go to a separate `spec.k` beside `definition.k`, the layout `kompile` and `kprove` expect.
 These outputs are audit artifacts, not a second source file to edit.

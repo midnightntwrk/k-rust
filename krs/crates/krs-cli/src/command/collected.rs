@@ -17,7 +17,7 @@ use krs_ir_levels::DefinitionIr;
 
 use super::collector::{build_collector_measured, generate_collector, run_collector};
 use super::{
-    CommandError, CommandRequest, LoadVisit, check_verdict, definition_warnings, expand,
+    CommandError, CommandRequest, LoadVisit, check_verdict, definition_warnings, expansion,
     plan_collector, prepare_bundle, render_emitted, validate_request,
 };
 use crate::metadata::cargo_metadata_in;
@@ -141,17 +141,29 @@ impl CollectedDefinition {
             .map_err(|error| error.warned(definition_warnings(&prepared)))
     }
 
-    /// The reference source `krs expand` prints for `bundle`, this definition's or a subset of it.
+    /// The crate root `krs expand` prints for `bundle`, this definition's or a subset of it.
     ///
     /// # Errors
     ///
-    /// Fails as `krs expand` fails after collection.
+    /// Fails as `krs expand` fails after collection, and where the expansion changes a module
+    /// file other than the crate root, which the crate root alone does not print.
     pub fn expand(&self, bundle: DescriptorBundle) -> Result<String, CommandError> {
         let mut measurement = Measurement::disabled();
         let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
         let warnings = definition_warnings(&prepared);
-        let outcome =
-            expand(&prepared, &self.plan, None).map_err(|error| error.warned(warnings))?;
-        Ok(String::from_utf8_lossy(outcome.stdout()).into_owned())
+        let expanded = expansion(&prepared, &self.plan).map_err(|error| error.warned(warnings))?;
+        match expanded.changed.as_slice() {
+            [] => Ok(expanded.root.text),
+            [file] if file.path == expanded.root.path => Ok(file.text.clone()),
+            files => Err(CommandError::Usage(format!(
+                "krs expand changes module files other than the crate root {} ({}), which its printed crate root does not hold",
+                expanded.root.path,
+                files
+                    .iter()
+                    .map(|file| file.path.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
+        }
     }
 }

@@ -897,3 +897,79 @@ fn a_dependency_path_rustc_never_resolved_from_the_crate_name_is_no_evidence() {
         );
     }
 }
+
+const STRICT_USING: &str = r#"
+use k::KResult;
+use k::builtin::{Bool, Int, KSequence, int};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Op {
+    #[k::syntax("twice({operand})")]
+    #[k::strict(using = evaluating)]
+    Twice { operand: Exp },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub evaluate: Bool,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp, evaluate: Bool) -> Self {
+        Self {
+            k: k::k![pgm],
+            evaluate,
+        }
+    }
+}
+
+/// Arguments are evaluated only while `evaluate` is true.
+#[k::context_alias(name = evaluating, here = site)]
+fn evaluating(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        evaluate: k::configuration::Cell(true),
+        state @ ..
+    }: Machine,
+) {
+}
+
+k::rules! {
+    for Exp;
+    use Op::*;
+
+    twice: Twice(operand) => int::add(operand, operand) where operand: Int;
+}
+"#;
+
+/// A strictness through a context alias prints as the reference strictness that names the alias:
+/// without it, the printed variant would heat through the default context, and the printed
+/// package would emit another context. The class matrix has no place for it: strictness is a
+/// declaration attribute, outside the attribute axis (`DECLARATION_MACROS`), and the term axis
+/// varies terms in sentences, not a family's attributes.
+#[test]
+fn a_strictness_through_a_context_alias_round_trips() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let workspace = temporary.path().join("workspace");
+    write_package(
+        &workspace,
+        "using",
+        "",
+        true,
+        &[("src/lib.rs", STRICT_USING)],
+    );
+    let (_, printed, _) = round_trip(target.path(), &workspace, "using", &[]);
+    let root = collapsed(printed_file(&printed, "src/lib.rs"));
+    assert!(root.contains("#[k::strict(using=evaluating"), "{root}");
+}

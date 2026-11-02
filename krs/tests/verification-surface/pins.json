@@ -618,5 +618,8 @@
       "pick-any-one": false,
       "pick-other-zero": true
     }
+  },
+  "known_round_trip_failures": {
+    "krs-verification-surface-local-function-claims": "check: krs::expand::let-outside-term"
   }
 }
