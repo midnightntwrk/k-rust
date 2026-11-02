@@ -3,13 +3,14 @@
 //! An anywhere rule replaces the application its subject matches wherever it
 //! occurs. `stutter` (single-body) and `stutter_long` (its result written
 //! apart) write `go` where their subject has any first argument, so their
-//! result is a term their subject matches again: the rewriting has no end, and
-//! no state of a run is final. `swap_ab` and `swap_ba` rewrite into each
-//! other, a two-cycle, which has no end either. The gate pins what k-rust's
-//! run reports for each, a known wrong output (NT-41-1): it ends the one-rule
-//! rewrites after one application and reports the state stuck, at a term the
-//! rule still matches, and it runs the two-cycle without end, `--depth`
-//! notwithstanding.
+//! result is a term their subject matches again, with the rule's instance
+//! there `t = t`. `swap_ab` and `swap_ba` rewrite into each other, a
+//! two-cycle. The gate pins what k-rust's run reports for each (NT-41-1): it
+//! ends the one-rule rewrites after one application, stuck (known wrong
+//! outputs, under the ruling NT-41-1 is owned for), and it refuses the
+//! two-cycle as an evaluation that reaches a term again, `--depth`
+//! notwithstanding, since `--depth` bounds rewrite steps and an anywhere rule
+//! is applied as an equation.
 
 use k::Term;
 use k::builtin::KSequence;
