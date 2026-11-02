@@ -951,6 +951,41 @@ pub(crate) fn counting_stack_stops<T>(action: impl FnOnce() -> T) -> (T, usize) 
     (value, count)
 }
 
+/// An open count of stack stops on this thread: [`counting_stack_stops`] as a guard, for a
+/// caller that cannot run its work inside a closure (the term simplifier's routed level,
+/// `simplify::simplify_on_stack`, keeps the record's state off its recursive frame). The count
+/// is closed by [`StackStopCount::finish`], or by the drop, also when the work unwinds; counts
+/// close in the reverse order they start.
+pub(crate) struct StackStopCount {
+    /// The enclosing count, restored at the close with this one's added.
+    previous: Option<Cell<usize>>,
+}
+
+impl StackStopCount {
+    pub(crate) fn start() -> Self {
+        Self {
+            previous: REGISTRY
+                .with(|registry| registry.borrow_mut().stack_stops.replace(Cell::new(0))),
+        }
+    }
+
+    /// The stops counted since [`StackStopCount::start`], closing the count.
+    pub(crate) fn finish(self) -> usize {
+        REGISTRY.with(|registry| registry.borrow().stack_stops.as_ref().map_or(0, Cell::get))
+    }
+}
+
+impl Drop for StackStopCount {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        REGISTRY.with(|registry| {
+            let mut registry = registry.borrow_mut();
+            let inner = registry.stack_stops.take().map_or(0, Cell::into_inner);
+            registry.stack_stops = previous.map(|outer| Cell::new(outer.get() + inner));
+        });
+    }
+}
+
 /// Runs `action` with at most `polls` polls of [`check`] passing on this thread: every later poll
 /// raises `StopCause::Deadline(mode)`, as a passed deadline of that mode would, so every site the
 /// stop crosses treats it as it treats a deadline. Unlike a deadline, the budget is spent by the

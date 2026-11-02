@@ -5527,6 +5527,108 @@ mod tests {
         assert_eq!(without, result);
     }
 
+    /// GAP K17 part b: `h(X) = a` under `hcond(X)`, which the solver leaves undecided on
+    /// decided answers (every satisfiability check `Sat`, every validity check `Contingent`, as on
+    /// KEVM's `#bufStrict`), so `h(X)` is neither evaluated nor marked. The configuration
+    /// `cfg(_, h(X))` steps `a` to `b` to `c` (whose rule ensures `flag()`) to `d`, carrying the
+    /// same node `h(X)`; the destination `cfg(d, T)` does not hold it. With the condition memo
+    /// set aside, each step's simplification of the configuration enters `h(X)` again, and the
+    /// proof's record of normal forms serves it under the path condition it was recorded under:
+    /// `hcond(X)` is decided once under the claim's constraints and once under those with
+    /// `flag()`, where with nothing recorded it is decided at every step. The result is the one
+    /// the proof reaches with the memo on and with nothing recorded.
+    #[test]
+    fn a_configuration_subterm_left_undecided_is_decided_once_per_path_condition_across_steps() {
+        /// Every satisfiability check `Sat`, every validity check `Contingent`.
+        struct Contingent;
+        impl SmtSolver for Contingent {
+            fn is_sat(
+                &self,
+                _predicates: &[crate::rule::Predicate],
+                _substitution: &Substitution,
+            ) -> Stoppable<Result<Satisfiability, SmtError>> {
+                Ok(Ok(Satisfiability::Sat))
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[crate::rule::Predicate],
+                _substitution: &Substitution,
+                _checked: &[crate::rule::Predicate],
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(Validity::Contingent))
+            }
+        }
+        let rules = r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol hcond{}(SortS{}) : SortBool{} [function{}(), total{}()]
+            symbol flag{}() : SortBool{} [function{}(), total{}()]
+            symbol h{}(SortS{}) : SortS{} [function{}(), total{}()]
+            symbol d{}() : SortS{} [constructor{}()]
+            symbol cfg{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            axiom{R} \implies{R}(
+                \equals{SortBool{}, R}(hcond{}(X:SortS{}), \dv{SortBool{}}("true")),
+                \equals{SortS{}, R}(h{}(X:SortS{}), \and{SortS{}}(a{}(), \top{SortS{}}()))
+            ) [label{}("h-if-hcond"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(cfg{}(a{}(), T:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(cfg{}(b{}(), T:SortS{}), \top{SortS{}}())
+            ) [label{}("a-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(cfg{}(b{}(), T:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(
+                    cfg{}(c{}(), T:SortS{}),
+                    \equals{SortBool{}, SortS{}}(flag{}(), \dv{SortBool{}}("true"))
+                )
+            ) [label{}("b-c")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(cfg{}(c{}(), T:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(cfg{}(d{}(), T:SortS{}), \top{SortS{}}())
+            ) [label{}("c-d")]
+        "#;
+        let claim = r#"claim{} \implies{SortS{}}(
+                \and{SortS{}}(\top{SortS{}}(), cfg{}(a{}(), h{}(X:SortS{}))),
+                weakAlwaysFinally{SortS{}}(
+                    \exists{SortS{}}(
+                        T:SortS{},
+                        \and{SortS{}}(cfg{}(d{}(), T:SortS{}), \top{SortS{}}())
+                    )
+                )
+            ) [label{}("carry")]"#;
+        let definition = definition(rules, claim);
+        // `h-if-hcond` is the definition's only equation, so its attempts are the decisions of
+        // `hcond(X)` (the served-simplification check's own work is not counted).
+        let prove = || {
+            let before = measure::snapshot();
+            let result = super::prove_claim(
+                &definition,
+                claim_with_label(&definition, "carry"),
+                &[],
+                ProofOptions::default(),
+                &Contingent,
+            )
+            .expect("claim should execute");
+            let delta = measure::snapshot().delta(&before);
+            (
+                result,
+                delta.get(Counter::SimplifyEquationAttempts),
+                delta.get(Counter::SimplifyNormalFormsSubtermServed),
+            )
+        };
+        let (memo_on, _, _) = prove();
+        let (result, decided, served) = crate::simplify::without_condition_memo(prove);
+        let (fresh, decided_fresh, served_fresh) = crate::simplify::without_condition_memo(|| {
+            crate::simplify::normal_forms::without_normal_forms(prove)
+        });
+        assert_eq!(result, memo_on);
+        assert_eq!(fresh, memo_on);
+        assert!(served > 0 && served_fresh == 0, "{served} {served_fresh}");
+        // With nothing recorded, the configuration's simplification at `a`, `b` and `c` decides
+        // `hcond(X)` each time; with the record, at `a` (the claim's constraints) and at `c`
+        // (with `flag()`), and `b`'s is served.
+        assert_eq!((decided, decided_fresh), (2, 3), "{result:#?}");
+    }
+
     /// Beside [`GROUND_DESTINATIONS`]: `undef` is a partial function with no equation, which `drop`
     /// discards; `ite`, `andThenBool`, `orElseBool` and `log` are `KEQUAL.ite`, `BOOL.andThen`,
     /// `BOOL.orElse` and `IO.logString`; `isb(b)` is `true`; `sel(X)` is `b` where the function
