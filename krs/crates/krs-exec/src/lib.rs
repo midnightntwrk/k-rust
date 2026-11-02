@@ -1151,6 +1151,9 @@ impl Semantics {
             ..
         } = self.backend.execute(request)?;
         let leaf = one_path(leaves)?;
+        if leaf.reason == HaltReasonOutput::Stuck && check_ends() {
+            check_stuck_end(&mut self.backend, &leaf)?;
+        }
         let trace = if options.trace {
             self.steps(&leaf.trace)
         } else {
@@ -1626,6 +1629,44 @@ fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
             EffectOutput::UserLog { message } => message.clone(),
         })
         .collect()
+}
+
+/// `KRS_CHECK_ENDS=1`: a run reported stuck at `leaf` ended where no rule applies, at a state
+/// that is its own value. One more step from the state the run printed, trying every rule,
+/// must take none and give back that state: a step, a successor, or another state means the
+/// report states what does not hold of the state. The cost is one simplification and one rule
+/// attempt per run.
+fn check_stuck_end(backend: &mut Backend, leaf: &ExecutionLeaf) -> Result<(), ExecError> {
+    let source =
+        serde_json::to_string(&leaf.state).map_err(|error| ExecError::Result(error.to_string()))?;
+    let state =
+        kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
+    let mut request = ExecuteRequest::new(state);
+    request.strategy = ExecutionStrategy::All;
+    request.max_depth = Some(1);
+    let again = backend.execute(request)?.leaves;
+    let holds = matches!(
+        again.as_slice(),
+        [end] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && end.state == leaf.state
+    );
+    if holds {
+        return Ok(());
+    }
+    Err(ExecError::Result(format!(
+        "KRS_CHECK_ENDS: the run ended stuck at a state that a step from it does not leave as \
+         it is: {}",
+        again
+            .iter()
+            .map(|end| format!("{:?} after {} step(s)", end.reason, end.depth))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )))
+}
+
+/// Whether `KRS_CHECK_ENDS=1` asks every run reported stuck to be checked to end where no rule
+/// applies ([`check_stuck_end`]).
+fn check_ends() -> bool {
+    std::env::var_os("KRS_CHECK_ENDS").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
 /// The leaf that is the path of a one-path run.

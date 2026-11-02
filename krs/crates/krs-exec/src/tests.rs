@@ -11,8 +11,8 @@ use k_rust::{
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, config_variables, log_lines,
-    one_path, result_sort_hooks, search_backend, term,
+    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, check_stuck_end, config_variables,
+    log_lines, one_path, result_sort_hooks, search_backend, term,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -98,6 +98,35 @@ fn search_bounds_solutions_and_depth() {
         .kore()
         .to_string(),
         "initial{}()"
+    );
+}
+
+/// `KRS_CHECK_ENDS`'s check: a state reported stuck where no rule applies passes (`left`, an end
+/// of the branching run); one a rule leaves (`initial`, the start the rules rewrite) fails,
+/// naming the steps taken from it.
+#[test]
+fn a_stuck_end_holds_only_where_no_rule_applies() {
+    let mut backend = branching_backend();
+    let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
+    request.strategy = ExecutionStrategy::Any;
+    let end = one_path(backend.execute(request).unwrap().leaves).unwrap();
+    assert_eq!(end.reason, HaltReasonOutput::Stuck);
+    check_stuck_end(&mut backend, &end).unwrap();
+
+    let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
+    request.max_depth = Some(0);
+    let start = one_path(backend.execute(request).unwrap().leaves).unwrap();
+    let reported = ExecutionLeaf {
+        reason: HaltReasonOutput::Stuck,
+        ..start
+    };
+    let Err(ExecError::Result(message)) = check_stuck_end(&mut backend, &reported) else {
+        panic!("a state two rules leave is no stuck end");
+    };
+    assert!(
+        message.starts_with("KRS_CHECK_ENDS: the run ended stuck at a state")
+            && message.contains("after 1 step(s)"),
+        "{message}"
     );
 }
 

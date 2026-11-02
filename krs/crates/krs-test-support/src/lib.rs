@@ -270,13 +270,20 @@ impl CargoFixture {
 /// The process reads back every state `krs run`, `search` and `prove` print through the
 /// definition's grammar, and every program `krs parse --output program` prints
 /// (`KRS_CHECK_PRINTS=1`): a print that does not read back as its state or program fails the
-/// command, so every test that prints one checks that it reads back.
+/// command, so every test that prints one checks that it reads back. It also checks every run
+/// reported stuck to end where no rule applies (`KRS_CHECK_ENDS=1`).
 #[must_use]
 pub fn krs_command(binary: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(binary);
     command.env(CHECK_PRINTS, "1");
+    command.env(CHECK_ENDS, "1");
     command
 }
+
+/// The environment variable that makes `krs run` take one more step, trying every rule, from a
+/// state it reports stuck, and fail where that step does not leave the state as it is: a rule
+/// applies there, or the state is not its own value.
+pub const CHECK_ENDS: &str = "KRS_CHECK_ENDS";
 
 /// The environment variable that makes `krs run`, `search` and `prove` read every state they
 /// print through the definition's grammar back, and `krs parse --output program` the program it
