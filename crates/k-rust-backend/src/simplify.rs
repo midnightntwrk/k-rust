@@ -6011,12 +6011,20 @@ struct Lineage {
 /// cost of one term comparison per step. Any other round starts the watch over.
 #[derive(Default)]
 struct Recurrence {
-    /// The term saved, the budget left and the console's position when it was saved.
-    saved: Option<(Term, usize, Option<(usize, usize)>)>,
+    /// The state saved.
+    saved: Option<Reached>,
     /// The steps since `saved` was saved.
     steps: usize,
     /// The steps after which the next term is saved instead of `saved`.
     power: usize,
+}
+
+/// What a determined round of a lineage reached: its term, the budget left and the console's
+/// position after it ([`Recurrence`]).
+struct Reached {
+    term: Term,
+    remaining: usize,
+    console: Option<(usize, usize)>,
 }
 
 impl Recurrence {
@@ -6030,15 +6038,19 @@ impl Recurrence {
         console: Option<(usize, usize)>,
     ) -> Option<usize> {
         self.steps += 1;
-        if let Some((saved, saved_remaining, saved_console)) = &self.saved
-            && *saved_remaining == remaining
-            && *saved_console == console
-            && (saved.ptr_eq(term) || saved == term)
+        if let Some(saved) = &self.saved
+            && saved.remaining == remaining
+            && saved.console == console
+            && (saved.term.ptr_eq(term) || saved.term == *term)
         {
             return Some(self.steps);
         }
         if self.saved.is_none() || self.steps == self.power {
-            self.saved = Some((term.clone(), remaining, console));
+            self.saved = Some(Reached {
+                term: term.clone(),
+                remaining,
+                console,
+            });
             self.power = self.power.max(1) * 2;
             self.steps = 0;
         }
