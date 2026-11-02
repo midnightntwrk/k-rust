@@ -58,6 +58,11 @@ decided_by = "docs/compatibility.md#anywhere-rules"
 meaning = "The port intentionally supports anywhere rules that the K Haskell frontend rejects."
 
 [[category]]
+id = "partial-equation-restriction"
+decided_by = "docs/compatibility.md#anywhere-rules"
+meaning = "A `concrete` or `symbolic` attribute on a function's equation chooses where the evaluator uses the equation, not what it states: where the restriction sets the equation aside and its `requires` is not refuted, the evaluator keeps the application, and no equation of a lower priority (an `owise` one) applies in its place. So a restriction on one equation of a function and not on another, or on some of its variables only, gives no equation a value it does not state, and the port compiles it; the reference frontend refuses it (KRS states that refusal as the Java routes' `PartialEquationRestriction` limit)."
+
+[[category]]
 id = "compiler-added-grammar"
 decided_by = "docs/compatibility.md#grammar-scope-of-token-precedence"
 meaning = "The reference judges the main module's grammar together with modules that compilation adds to it and rejects a conflict that only those modules create; the port judges each module's syntax in the view its own imports give it."
@@ -314,7 +319,7 @@ accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "The accepted whole-case compile measurement matches. Earlier investigation recorded a checkFuncWithContext.k rejection mismatch; it does not describe the accepted result. Both toolchains reject the undeclared MInt{32} width in checkMIntLiteral.k. invalidPrec.k and invalidConstantExp.k are the recipes excluded below."
+reason = "The accepted whole-case compile measurement matches. Earlier investigation recorded a checkFuncWithContext.k rejection mismatch; it does not describe the accepted result. Both toolchains reject the undeclared MInt{32} width in checkMIntLiteral.k. Both reject concrete.k: the port refuses its three rules that restrict one variable both `concrete` and `symbolic`, which no term satisfies, and accepts the five that restrict an equation beside unrestricted ones of its function, which the reference also refuses; such a restriction chooses where the equation is used, not what it states, and the evaluator keeps an application it sets aside rather than apply a lower-priority equation (category partial-equation-restriction), so the error lists differ in count and the step still matches. invalidPrec.k and invalidConstantExp.k are the recipes excluded below."
 step_exclusions = [
   { step = "kompile", out = "invalidConstantExp.k.out", exclusion = "undefined-constant-unfolded", reason = "invalidConstantExp.k's only rule is `rule 0 => 1 /Int 0`. `1 /Int 0` is an application of a partial hook outside its domain, so the rule's right-hand side denotes #Bottom; the definition is well formed and the rule is one no state can take. Constant folding replaces a term only by a token that denotes the same value and never changes whether a definition compiles, so the port leaves the application for execution and accepts the definition, where the reference rejects it for a division by zero during folding (docs/compatibility.md#constant-folding)." },
   { step = "kompile", out = "invalidPrec.k.out", exclusion = "compiler-added-grammar", reason = "invalidPrec.k declares `syntax Foo ::= r\"[0-9]+\" [token]` in a module that imports nothing. The reference rejects it for an inconsistent precedence with Int's `[0-9]+` (prec 2), which only modules added by compilation bring into the main module; in the module's own view there is no conflict, and the port rejects the same production beside `imports INT-SYNTAX` (docs/compatibility.md#grammar-scope-of-token-precedence)." },
@@ -1243,8 +1248,9 @@ accepted_verdict = "match"
 accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
-exclusion = ""
-reason = ""
+exclusion = "partial-equation-restriction"
+reason = "The expected output is a kompile rejection of `f(A) => b requires A ==K a [concrete]` beside `f(_) => c [owise]`. The definition means: at a ground `A` the restricted equation applies, so `f(a)` is `b` and `f(b)` is `c` (its `requires` refuted); at a symbolic `A` the restriction sets it aside, and since `A ==K a` is undecided there, `f(A)` is kept and the `owise` equation does not apply, which it may not, since its premise excludes the instances the restricted equation states; under a path condition `A =/=K a` the `requires` is refuted and `f(A)` is `c`. Each of these is what the two equations state, so the port compiles the definition (docs/compatibility.md#anywhere-rules), where the reference rejects it (measured mismatch at kompile, 2026-11-02)."
+whole_case_reason = "The recipe's only step is the compile the reference refuses, so no step is independent of it."
 
 [[case]]
 name = "issue-3446"
