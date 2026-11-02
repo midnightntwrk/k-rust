@@ -94,7 +94,7 @@ open = []
 
 [lib.ledger]
 tier = "light"
-stated = 90
+stated = 91
 open = []
 overlaps = 0
 unwitnessed = 0
@@ -108,7 +108,7 @@ unwitnessed = 0
 
 [lib.tickets]
 tier = "light"
-stated = 91
+stated = 92
 open = []
 overlaps = 1
 unwitnessed = 1
@@ -117,6 +117,18 @@ unwitnessed = 1
 tier = "light"
 stated = 91
 open = []
+
+[lib.racelogstep]
+tier = "light"
+stated = 90
+open = []
+
+[lib.ledgersupply]
+tier = "light"
+stated = 89
+open = []
+overlaps = 0
+unwitnessed = 0
 
 [lib.simpleinv]
 tier = "heavy"
@@ -173,6 +185,36 @@ cases = 3
 auto = 3
 open = []
 bound = "auto"
+
+[ledger-step]
+tier = "light"
+cases = 9
+auto = 9
+open = []
+hand = []
+
+[tickets-step]
+tier = "light"
+cases = 2
+auto = 2
+open = []
+trans = "auto"
+hand = []
+
+[racelog-step]
+tier = "light"
+cases = 3
+auto = 3
+open = []
+trans = "auto"
+hand = []
+
+[ledgersupply-step]
+tier = "light"
+cases = 9
+auto = 8
+open = ["burn"]
+hand = ["StepProp.burn_lowers"]
 
 [demo.KrsImpTyping]
 tier = "light"
@@ -616,21 +658,43 @@ tier = "light"
 "generated/ledger/Ledger/Determinism/L1.lean" = { tier = "light", sha256 = "94dc4905eedb8c7a3c6a0009b0ec13acff6f4ada30af7229902172ca48bcbb63" }
 "generated/ledger/Ledger/Determinism/Pre.lean" = { tier = "light", sha256 = "e24038762c68dc01d805c8a34b8f6f932eb01a7d3f6878e944bf1b5f7c99b408" }
 "generated/ledger/Ledger/EqBase.lean" = { tier = "light", sha256 = "dedcf5180bc8cc65215975ae7d27f7b1004d9bcd50a7bd9ff0a465fa92e90aed" }
-"generated/ledger/Ledger/Equations.lean" = { tier = "light", sha256 = "b6e49532c83fbe8d36be5d5c04eb1cf069389de1ff9c9e3a4cea4b2eb0580108" }
-"generated/ledger/Ledger/Functions.lean" = { tier = "light", sha256 = "4fe069d8e64e0210f4d45d773326173185d7c02220592cb7d8fa3658779c0cff" }
+"generated/ledger/Ledger/Equations.lean" = { tier = "light", sha256 = "2504278480b0c280595d923673ab9ff29aecd117b263eaa70f6d05e3df1370ed" }
+"generated/ledger/Ledger/Functions.lean" = { tier = "light", sha256 = "196886dcbdae7a89cff979f187d8a4dffbbdba2164781da51fdd2e0a8ccef4f9" }
 "generated/ledger/Ledger/Init.lean" = { tier = "light", sha256 = "884228841ae39a203a19d51651414cc8906ba2950d8b55c7ca8e85709fe8b4a2" }
 "generated/ledger/Ledger/InvariantDefs.lean" = { tier = "light", sha256 = "4a079ce6aa7050d259395b108a9021fc8ef748c8f08e926a5048906b4c89fb60" }
 "generated/ledger/Ledger/Invariants.lean" = { tier = "light", sha256 = "e328addb92176e90db780dc6f27fd8af3acc14721e70ca0372b6252df0fb7d48" }
 "generated/ledger/Ledger/Preserves.lean" = { tier = "light", sha256 = "b3b1c57f24245b98acc03a56435f1612311919e1b2ea65315e23e2814b057ae3" }
 "generated/ledger/Ledger/Rules.lean" = { tier = "light", sha256 = "0df943efafeb5220b955434dc7c2182b1f170bbd56dea799570557d50413d3a2" }
+"generated/ledger/Ledger/StepProp.lean" = { tier = "light", sha256 = "e9cb56243abc05749a134ab12915ce1be567965c58e31edfdf1697171526879d" }
+"generated/ledger/Ledger/StepPropDefs.lean" = { tier = "light", sha256 = "d521de7070f011c9f4b52fdfca65df148691791ebb8c9e5060d0869bf2195045" }
 "generated/ledger/Ledger/Terms.lean" = { tier = "light", sha256 = "0631d67c79ce8c07b2fbd29db34eff1346bd702a3b2809af13fdf6a627c3ee76" }
 "generated/ledger/LedgerBench/Main.lean" = { tier = "light", sha256 = "ee37cbc8b39217d4ca5dde07986d2777d4a0b40b47351eaddb7610422d77e761" }
-"generated/ledger/LedgerTest/Axioms.lean" = { tier = "light", sha256 = "2b4c10ddd581ebb16e23f4b3410e7ee335085c83041a7c135da3b2b0d9e059c6" }
+"generated/ledger/LedgerTest/Axioms.lean" = { tier = "light", sha256 = "d68a60ade55c937840c0f278d2029c33e166517d8a3801a4bfd9a753070f9c6d" }
 "generated/ledger/LedgerTest/DetAxioms.lean" = { tier = "light", sha256 = "d4de8d78fe02d53b4b32f780d68250f6ddfa413544d6d6c671403f382dc305c3" }
 "generated/ledger/LedgerTest/Main.lean" = { tier = "light", sha256 = "aa7e53d8fa637266ecaf97e57f811799df0a765f09c279db33fd97951958a838" }
 "generated/ledger/invariant-unfold.txt" = { tier = "light", sha256 = "4c2aada1790b14453934c8f66a946439b0ed94a0128981eb6e19af5720a0e70a" }
 "generated/ledger/lakefile.lean" = { tier = "light", sha256 = "3bcfbb38dada48de8b433f09b3198431ca7f3e98a087c972ae69bb6ba3b38d78" }
 "generated/ledger/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/ledgersupply/Ledger.lean" = { tier = "light", sha256 = "ac6da4f957d5ad1b697f23f807fcb07265a3ada571487f03872247ee6d8a8da3" }
+"generated/ledgersupply/Ledger/Adequacy.lean" = { tier = "light", sha256 = "790f6be5b2dadb9da95cac9ae1b4b97c74ce6af18ed29e28b901cb6ae53f4cf7" }
+"generated/ledgersupply/Ledger/Determinism.lean" = { tier = "light", sha256 = "e4df1ef734acefac1e9b5fd42b7b77b9b9702cbb4b5b28b7a0bf56e593674c77" }
+"generated/ledgersupply/Ledger/Determinism/L1.lean" = { tier = "light", sha256 = "94dc4905eedb8c7a3c6a0009b0ec13acff6f4ada30af7229902172ca48bcbb63" }
+"generated/ledgersupply/Ledger/Determinism/Pre.lean" = { tier = "light", sha256 = "e24038762c68dc01d805c8a34b8f6f932eb01a7d3f6878e944bf1b5f7c99b408" }
+"generated/ledgersupply/Ledger/EqBase.lean" = { tier = "light", sha256 = "136a34385b159f768f8103c369b1012a39f9e8455d73a82adaa97ef983e93fb1" }
+"generated/ledgersupply/Ledger/Equations.lean" = { tier = "light", sha256 = "ac8f9e6703d39d89468c8281723742e10b2eb47457e02d23a956126724cf13f5" }
+"generated/ledgersupply/Ledger/Functions.lean" = { tier = "light", sha256 = "d30489fc92c6f5b098db8b873cbc26bd8cfb18198a346d9df861e09ebd9200a2" }
+"generated/ledgersupply/Ledger/Init.lean" = { tier = "light", sha256 = "884228841ae39a203a19d51651414cc8906ba2950d8b55c7ca8e85709fe8b4a2" }
+"generated/ledgersupply/Ledger/Preserves.lean" = { tier = "light", sha256 = "b3b1c57f24245b98acc03a56435f1612311919e1b2ea65315e23e2814b057ae3" }
+"generated/ledgersupply/Ledger/Rules.lean" = { tier = "light", sha256 = "0df943efafeb5220b955434dc7c2182b1f170bbd56dea799570557d50413d3a2" }
+"generated/ledgersupply/Ledger/StepProp.lean" = { tier = "light", sha256 = "c293b91d8388b9bfed552862ca8dc9603076082f46df81f14b532120e635fa6e" }
+"generated/ledgersupply/Ledger/StepPropDefs.lean" = { tier = "light", sha256 = "d1d293f790ce6ee38daa77569f3275ff4db862e3b3f385c501d3cfd0eb14d939" }
+"generated/ledgersupply/Ledger/Terms.lean" = { tier = "light", sha256 = "0631d67c79ce8c07b2fbd29db34eff1346bd702a3b2809af13fdf6a627c3ee76" }
+"generated/ledgersupply/LedgerBench/Main.lean" = { tier = "light", sha256 = "ee37cbc8b39217d4ca5dde07986d2777d4a0b40b47351eaddb7610422d77e761" }
+"generated/ledgersupply/LedgerTest/Axioms.lean" = { tier = "light", sha256 = "b2e3cca70f68dc96ca39bb4bb5f34732ad54c71713b96ec12e82ac37535367d5" }
+"generated/ledgersupply/LedgerTest/DetAxioms.lean" = { tier = "light", sha256 = "d4de8d78fe02d53b4b32f780d68250f6ddfa413544d6d6c671403f382dc305c3" }
+"generated/ledgersupply/LedgerTest/Main.lean" = { tier = "light", sha256 = "aa7e53d8fa637266ecaf97e57f811799df0a765f09c279db33fd97951958a838" }
+"generated/ledgersupply/lakefile.lean" = { tier = "light", sha256 = "3bcfbb38dada48de8b433f09b3198431ca7f3e98a087c972ae69bb6ba3b38d78" }
+"generated/ledgersupply/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/nested/KNested.lean" = { tier = "light", sha256 = "c399c868458ae84ed008d42ac01ef1bb699f362e5f780b5daa6f8c086f898f1f" }
 "generated/nested/KNested/Adequacy.lean" = { tier = "light", sha256 = "5cf1307fef081f1402c923cbbc8874691d499e326e695f0a354e5ae7e2830dfd" }
 "generated/nested/KNested/Determinism.lean" = { tier = "light", sha256 = "f119452bebbb3e8691cfdc8c02992f8c2ad93eab651ba6c836d7a33403e227ed" }
@@ -652,6 +716,24 @@ tier = "light"
 "generated/nested/invariant-unfold.txt" = { tier = "light", sha256 = "a75dc2ff022f97f6401251229a8c3013e0ac7c1777bc487643df13f2a541ad5f" }
 "generated/nested/lakefile.lean" = { tier = "light", sha256 = "83992ac41e5b3c595b04633fdab1dc0f5d7a353ade3f3be6085c6df4cda5a94c" }
 "generated/nested/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/racelogstep/Racelog.lean" = { tier = "light", sha256 = "e3c4762ffb6f86c1d17cf409b9119834d5c128a03144e6cc73b7f624f1e45f78" }
+"generated/racelogstep/Racelog/Adequacy.lean" = { tier = "light", sha256 = "5759a06e0da0e38fa1dd23976a0943dd87e91983c2f49651c5ca9f9214bda5d6" }
+"generated/racelogstep/Racelog/Determinism.lean" = { tier = "light", sha256 = "2bdd2c9ddc0480fd73227b4e9e46708ba1ff7afc5317a6ed720c398dcaf82579" }
+"generated/racelogstep/Racelog/EqBase.lean" = { tier = "light", sha256 = "e27195fa12dbfea46ca613c56e56f0a0fb9d28ff15c3087d95b809342c75997b" }
+"generated/racelogstep/Racelog/Equations.lean" = { tier = "light", sha256 = "2e0c9e688d5fd76225e272aad061187ceef6efc955283d65395c3a942667d4bb" }
+"generated/racelogstep/Racelog/Functions.lean" = { tier = "light", sha256 = "75dc89f1c947df45e74d2a23dede628765fd92ab025da202ad219d8a3e03232b" }
+"generated/racelogstep/Racelog/Init.lean" = { tier = "light", sha256 = "941531d1e19c990d6ad612116c4fc5176e960a178e083894253833ba81405592" }
+"generated/racelogstep/Racelog/Preserves.lean" = { tier = "light", sha256 = "d56c547a2ce0ae98d4111be768c000277d03ba46afb553c76e8c02b41c8cb85c" }
+"generated/racelogstep/Racelog/Rules.lean" = { tier = "light", sha256 = "9964c75b2797078a511ef4484ff3cdc9e3368efa05005752d6e596362666d98f" }
+"generated/racelogstep/Racelog/StepProp.lean" = { tier = "light", sha256 = "f444b5e965d86a421fe84890a416a616a06b3f0a2cd6c96e0d9d54454e4aaec7" }
+"generated/racelogstep/Racelog/StepPropDefs.lean" = { tier = "light", sha256 = "af482d37c9cb1f7a020b371887cfcd0afab16ab6d2a6d776faa6806277b45e3f" }
+"generated/racelogstep/Racelog/Terms.lean" = { tier = "light", sha256 = "e4ab34388596c2d8cb57ad56d97c084cd5d877fa30aeac31bc4536af09156245" }
+"generated/racelogstep/RacelogBench/Main.lean" = { tier = "light", sha256 = "8abc32739e8a28e80953c760a046d6627c3efb69abab60c7b73b33352e141bcd" }
+"generated/racelogstep/RacelogBench/Programs.lean" = { tier = "light", sha256 = "f54c68127c16337c55119a54c941b780736e9005df61cfc2136b0bdc5d1e7a37" }
+"generated/racelogstep/RacelogTest/Axioms.lean" = { tier = "light", sha256 = "2d50235766c42fb392a0b39145c4e0f83341584664db210d804973b8b1b0c554" }
+"generated/racelogstep/RacelogTest/Main.lean" = { tier = "light", sha256 = "e52dfe32513eca0374385b340589ae64706ea0011cfb7177b73bc2d7b18a1109" }
+"generated/racelogstep/lakefile.lean" = { tier = "light", sha256 = "528f8777999b1586472461deb801fcdf50962bc125a751371a7f0a60d1ca7dae" }
+"generated/racelogstep/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/range/KRange.lean" = { tier = "light", sha256 = "09759235b708f7ee24e31f69d3c2f5250278de4a7718677a7db67ea7f0b8618b" }
 "generated/range/KRange/Adequacy.lean" = { tier = "light", sha256 = "95537eabeab009b73a27739587651f81ee9fab32d26aeb780d1cdff1596da4c0" }
 "generated/range/KRange/Determinism.lean" = { tier = "light", sha256 = "e7997f70b0eceb5e71946a210fd32af820023f9d755a2dd99ddb264f2d83dac0" }
@@ -764,8 +846,8 @@ tier = "light"
 "generated/tickets/Tickets/Determinism/Pre.lean" = { tier = "light", sha256 = "9d72042399b7e59f6948bd0a6322122c1c0cd06aaa8b313eaab97da9215fbce7" }
 "generated/tickets/Tickets/Determinism/Witness.lean" = { tier = "light", sha256 = "0dfb40868fd072e1eed4ca3c541a8297bcbf8d7f0022cfb3099b2916cfc3c150" }
 "generated/tickets/Tickets/EqBase.lean" = { tier = "light", sha256 = "2a1f92631ed583df2fde50dd243fd5beec6758c7be6059356321585cb8e95a6b" }
-"generated/tickets/Tickets/Equations.lean" = { tier = "light", sha256 = "33df45dbed2503937b51c500bc43ddb4f2a5daee40c6e35a5094ada7ca148027" }
-"generated/tickets/Tickets/Functions.lean" = { tier = "light", sha256 = "04229190b3c3494ac30120e00f4cfba13bc7632a4f9c1f07411e21bb8b8f6745" }
+"generated/tickets/Tickets/Equations.lean" = { tier = "light", sha256 = "8a7c21e71a2b847ad7dcf48dd7d9f5dca431d36c912ea9326f2f1020c23266d4" }
+"generated/tickets/Tickets/Functions.lean" = { tier = "light", sha256 = "32d05c943d6effc546fb9730ed5c29a1e9cc1b21812acb3cc3379f6a849f6e98" }
 "generated/tickets/Tickets/Init.lean" = { tier = "light", sha256 = "8faea2623cd3990b8974f14d3924962a2d7c2b94324804c67dd87272aff451b4" }
 "generated/tickets/Tickets/InvariantDefs.lean" = { tier = "light", sha256 = "39f579759162698568853eae99a552643527dac6abfdf719b45f6451d67adae4" }
 "generated/tickets/Tickets/Invariants.lean" = { tier = "light", sha256 = "adcdd4c00146e67e0bece5364717b044cdbe13c3e0c98283d56998cfef454365" }
@@ -773,9 +855,11 @@ tier = "light"
 "generated/tickets/Tickets/MeasureDefs.lean" = { tier = "light", sha256 = "dfa267edc1d3468ee04541fbaab206d4b65e1e6d276f3c79abe3cc9eda534469" }
 "generated/tickets/Tickets/Preserves.lean" = { tier = "light", sha256 = "8e91ad537281bc4ad5bf593ba737c639098cb22bf10ffa3de97f58f57eda54a7" }
 "generated/tickets/Tickets/Rules.lean" = { tier = "light", sha256 = "93f0f04b70d7880fb95f4aa0df10ac70565266658f949281287ede0b3faec627" }
+"generated/tickets/Tickets/StepProp.lean" = { tier = "light", sha256 = "077664ce2bd24cdbdf6959ccc0f309066a53ea34dc533bd162f61295d113e155" }
+"generated/tickets/Tickets/StepPropDefs.lean" = { tier = "light", sha256 = "920eb2e24891b8967f05244912eabc7fcf108ae0802940bd965487ed79167914" }
 "generated/tickets/Tickets/Terms.lean" = { tier = "light", sha256 = "3c8ee09276fae4c24a33682200103652cf9e1ff75c96c69b41ffe6c6a48dda92" }
 "generated/tickets/TicketsBench/Main.lean" = { tier = "light", sha256 = "59922bac985553a07123d5a7d3ec90233a781ffcc7f6b3bb4e75f12cf5ed8dc3" }
-"generated/tickets/TicketsTest/Axioms.lean" = { tier = "light", sha256 = "b510326506b5b5a0bb441fb879b782a0d7e9b119df8b53f27fc2fdca89da24f6" }
+"generated/tickets/TicketsTest/Axioms.lean" = { tier = "light", sha256 = "6bca2fd53b225efe9231babbfecb5b6e3f2a889b554c7b43bdbb26fca9a93c72" }
 "generated/tickets/TicketsTest/DetAxioms.lean" = { tier = "light", sha256 = "bfae096a1fbeedea0706458a67985150a1f6b68aa9920f57700cb4533b0cf1f2" }
 "generated/tickets/TicketsTest/Main.lean" = { tier = "light", sha256 = "0113007cf1242877dd5b722f6a81fa2709fb210c10f0011bf6202d13a3206081" }
 "generated/tickets/invariant-unfold.txt" = { tier = "light", sha256 = "16a32a346a3e75958bdc898433e946ec5fb6ed0ff2292763b6e4516e400bf448" }
