@@ -67,7 +67,7 @@
 //!
 //! [[cost]]
 //! mode = "opaque \\ceil or absence expansion (expansion_obligations)"
-//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
+//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then builtin::evaluated_definedness evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
 //!
 //! [[cost]]
 //! mode = "further pass of a \\ceil or absence atom's arm (settled)"
@@ -126,7 +126,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     builtin::{
-        BuiltinEffect, BuiltinError, BuiltinResult, UnsupportedHookReason,
+        BuiltinEffect, BuiltinError, BuiltinResult, HookDefinedness, UnsupportedHookReason,
         evaluate_in_definition as evaluate_builtin,
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
@@ -941,19 +941,18 @@ fn expansion_obligations(
 }
 
 /// Whether the application `term`, a partial one whose `\ceil` no ceil theory states, is defined
-/// wherever its arguments are, by k-rust's reading of its hook: a listing only an execution
-/// evaluates is defined exactly when its collection is (`defined_uncomputed`); an application
-/// whose value the definition leaves to the implementation is when its class says the
-/// description gives it one (`ChosenValue::defined`); and a hook whose text gives every argument
-/// of its sorts a value is (`builtin::defined_on_every_argument`).
+/// wherever its arguments are, by k-rust's reading of its hook
+/// ([`crate::builtin::hook_definedness`], which the solver's domain of the application reads
+/// too). A failure of the hook's evaluator is reported.
 fn defined_where_its_arguments_are(
     definition: &BackendDefinition,
     term: &Term,
 ) -> SimplifyResult<bool> {
-    // The two readings of the hook's text first: `defined_uncomputed` may evaluate the hook.
-    Ok(crate::builtin::defined_on_every_argument(definition, term)
-        || crate::builtin::implementation_chosen(term).is_some_and(|chosen| chosen.defined)
-        || defined_uncomputed(definition, term)?)
+    Ok(matches!(
+        crate::builtin::hook_definedness(definition, term)?
+            .map_err(SimplificationError::Builtin)?,
+        HookDefinedness::Defined
+    ))
 }
 
 /// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
@@ -3914,40 +3913,6 @@ fn normalize_injection_equality(
     }
 }
 
-/// Whether `term`, a hooked application on constructor-like arguments that term simplification
-/// left unevaluated, is defined by its evaluator's verdict, so that its `\ceil` holds although
-/// its value is not computed: the evaluator gives a value (left unevaluated outside an execution
-/// where only an execution chooses it, `crate::evaluation`), a result above a result size bound
-/// (`ResultTooLarge`, reported only where the hook has a value), or one of several values the
-/// definition admits (`Unspecified` with `defined`). The verdict does not depend on the
-/// evaluation mode. `false` for any other term or outcome.
-fn defined_uncomputed(definition: &BackendDefinition, term: &Term) -> SimplifyResult<bool> {
-    let TermKind::Application {
-        symbol, arguments, ..
-    } = term.kind()
-    else {
-        return Ok(false);
-    };
-    if symbol.attributes.hook.is_none()
-        || !arguments
-            .iter()
-            .all(|argument| argument.attributes().constructor_like)
-    {
-        return Ok(false);
-    }
-    // Only the application's own definedness is read, which a value the definition leaves open
-    // has in every model: the evaluation marks no path (`crate::path_facts`).
-    Ok(matches!(
-        crate::path_facts::suspend(|| evaluate_builtin(term, definition))?
-            .map_err(SimplificationError::Builtin)?,
-        BuiltinResult::Value(_)
-            | BuiltinResult::Unsupported(
-                UnsupportedHookReason::ResultTooLarge { .. }
-                    | UnsupportedHookReason::Unspecified { defined: true, .. }
-            )
-    ))
-}
-
 /// Whether the backend leaves an application of the hooked `symbol` on constructor-like
 /// arguments, which neither its evaluator nor an equation reduced, unevaluated with the
 /// `UnsupportedHookUnevaluated` warning and refuses it only where a run uses its value
@@ -4055,7 +4020,7 @@ fn uncomputed_refusal(
 /// carried and so never reaches this check.
 ///
 /// The `\ceil` of such an application is not a use of its value: it holds (an evaluator reports
-/// a size bound only where the hook is defined, `defined_uncomputed`, and the other kind is
+/// a size bound only where the hook is defined, `builtin::evaluated_definedness`, and the other kind is
 /// `total`), and term simplification leaves it as the obligation of a discarded partial subterm
 /// (`false andBool (2 ^Int N >Int 0)` is `false` under `\ceil(2 ^Int N)`).
 ///
@@ -4118,7 +4083,11 @@ fn push_predicate_terms(
         Predicate::Ceil(term) => {
             let total = matches!(term.kind(), TermKind::Application { symbol, .. }
                 if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total));
-            if !total && !defined_uncomputed(definition, term)? {
+            if !total
+                && crate::builtin::evaluated_definedness(definition, term)?
+                    .map_err(SimplificationError::Builtin)?
+                    != HookDefinedness::Defined
+            {
                 pending.push(term.clone());
             }
         }
@@ -12131,6 +12100,174 @@ mod tests {
             membership(k, &open, true),
             vec![Predicate::Term(open_membership)]
         );
+    }
+
+    /// GAP K25: the simplifier (`defined_where_its_arguments_are`) and the solver's domain of an
+    /// application (`builtin::hook_domain`) read one judgement, `builtin::hook_definedness`, so
+    /// they agree on every class it reads: an evaluator's value, a result above a size bound, one
+    /// of several values the definition admits with a value (`Unspecified` with `defined`), and a
+    /// stated `\bottom` on literal arguments; a digest, which has a value for every byte string,
+    /// and a value the definition leaves to the implementation that its class defines, on
+    /// symbolic arguments. A value the definition leaves open with no value guaranteed, the
+    /// `\bottom` outside the inputs a description covers, and symbolic arguments no reading
+    /// decides are of unknown definedness: the simplifier does not read them as defined and the
+    /// solver leaves them open.
+    #[test]
+    fn the_simplifier_and_the_solver_read_one_hook_definedness() {
+        use crate::{
+            builtin::{HookDefinedness, Undefinedness},
+            evaluation::{EvaluationMode, with_evaluation},
+        };
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+                hooked-sort SortKVar{} [hook{}("KVAR.KVar"), hasDomainValues{}()]
+                sort SortExp{} []
+                symbol inj{From, To}(From) : To [sortInjection{}()]
+                symbol lambda{}(SortKVar{}, SortExp{}) : SortExp{} [constructor{}(), binder{}()]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow")]
+                hooked-symbol digest{}(SortBytes{}) : SortBytes{}
+                    [function{}(), hook{}("KRYPTO.keccak256raw")]
+                hooked-symbol base2string{}(SortInt{}, SortInt{}) : SortString{}
+                    [function{}(), hook{}("STRING.base2string")]
+                hooked-symbol string2int{}(SortString{}) : SortInt{}
+                    [function{}(), hook{}("STRING.string2int")]
+                hooked-symbol substOne{}(SortExp{}, SortExp{}, SortKVar{}) : SortExp{}
+                    [function{}(), hook{}("SUBSTITUTION.substOne")]
+                axiom{R}
+                    \exists{R}(
+                        Val:SortExp{},
+                        \equals{SortExp{}, R}(
+                            Val:SortExp{},
+                            inj{SortKVar{}, SortExp{}}(From:SortKVar{})
+                        )
+                    )
+                    [subsort{SortKVar{}, SortExp{}}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let int = |value: &str| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        let pow = |base: &str, exponent: &str| format!("pow{{}}({}, {})", int(base), int(exponent));
+        let not_a_number = r#"string2int{}(\dv{SortString{}}("abc"))"#;
+        let too_large = pow("2", &(1_u64 << 40).to_string());
+        let letter_digit = format!("base2string{{}}({}, {})", int("255"), int("16"));
+        let evaluator_classes = [
+            (
+                pow("2", "3"),
+                EvaluationMode::Proof,
+                HookDefinedness::Defined,
+            ),
+            (too_large, EvaluationMode::Proof, HookDefinedness::Defined),
+            (
+                letter_digit,
+                EvaluationMode::Proof,
+                HookDefinedness::Defined,
+            ),
+            (
+                not_a_number.to_owned(),
+                EvaluationMode::Proof,
+                HookDefinedness::Unknown,
+            ),
+            (
+                pow("2", "-1"),
+                EvaluationMode::Proof,
+                HookDefinedness::Undefined,
+            ),
+            (
+                not_a_number.to_owned(),
+                EvaluationMode::Execution,
+                HookDefinedness::Unknown,
+            ),
+        ];
+        // Each literal case reaches the evaluator class it stands for.
+        let outcome = |source: &str, mode| {
+            with_evaluation(mode, || {
+                crate::builtin::evaluate_in_definition(&term(&definition, source), &definition)
+            })
+            .expect("evaluation should not stop")
+            .expect("evaluation should not fail")
+        };
+        let classes = evaluator_classes
+            .iter()
+            .map(|(source, mode, _)| outcome(source, *mode))
+            .collect::<Vec<_>>();
+        assert!(matches!(classes[0], BuiltinResult::Value(_)), "{classes:?}");
+        assert!(
+            matches!(
+                classes[1],
+                BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge { .. })
+            ),
+            "{classes:?}"
+        );
+        assert!(
+            matches!(
+                classes[2],
+                BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                    defined: true,
+                    ..
+                })
+            ),
+            "{classes:?}"
+        );
+        assert!(
+            matches!(
+                classes[3],
+                BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified {
+                    defined: false,
+                    ..
+                })
+            ),
+            "{classes:?}"
+        );
+        assert_eq!(classes[4], BuiltinResult::Bottom(Undefinedness::Stated));
+        assert_eq!(
+            classes[5],
+            BuiltinResult::Bottom(Undefinedness::Undescribed)
+        );
+        let symbolic = [
+            ("digest{}(B:SortBytes{})", HookDefinedness::Defined),
+            (
+                r#"substOne{}(lambda{}(\dv{SortKVar{}}("y"), E:SortExp{}), V:SortExp{}, \dv{SortKVar{}}("x"))"#,
+                HookDefinedness::Defined,
+            ),
+            ("pow{}(X:SortInt{}, Y:SortInt{})", HookDefinedness::Unknown),
+        ]
+        .map(|(source, expected)| (source.to_owned(), EvaluationMode::Proof, expected));
+        for (source, mode, expected) in evaluator_classes.into_iter().chain(symbolic) {
+            let application = term(&definition, &source);
+            let (shared, simplifier, solver) = with_evaluation(mode, || {
+                (
+                    crate::builtin::hook_definedness(&definition, &application)
+                        .expect("the judgement should not stop")
+                        .expect("the judgement should not fail"),
+                    unstopped(defined_where_its_arguments_are(&definition, &application).layered())
+                        .expect("the simplifier's judgement should not fail"),
+                    crate::builtin::hook_domain(&definition, &application)
+                        .expect("the solver's judgement should not stop"),
+                )
+            });
+            assert_eq!(
+                simplifier,
+                expected == HookDefinedness::Defined,
+                "the simplifier on {source} in {mode:?}"
+            );
+            assert_eq!(
+                solver,
+                match expected {
+                    HookDefinedness::Defined => Some(true),
+                    HookDefinedness::Undefined => Some(false),
+                    HookDefinedness::Unknown => None,
+                },
+                "the solver on {source} in {mode:?}"
+            );
+            assert_eq!(shared, expected, "{source} in {mode:?}");
+        }
     }
 }
 

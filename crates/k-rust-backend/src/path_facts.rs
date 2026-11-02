@@ -1131,7 +1131,7 @@ pub(crate) fn aside<T>(action: impl FnOnce() -> T) -> T {
 /// anywhere else, because it can steer the definedness the evaluation decides: the
 /// definedness-only fold of a pure hook reads an allowance refusal as "not defined without a
 /// value" (`deferred::defined_without_value`), where a larger allowance gives the value and the
-/// application is defined; one that reads a refusal as defined (`simplify::defined_uncomputed`)
+/// application is defined; one that reads a refusal as defined (`builtin::evaluated_definedness`)
 /// over-reports it, which is sound. Restored on every exit.
 pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
     struct Restore(bool);
