@@ -1332,6 +1332,34 @@ endmodule
         found
     }
 
+    /// With `assume_state_defined: true` the subject `sti(X /Int Y)` is assumed defined, so
+    /// `Y =/=Int 0` holds on every instance, and on each of them `X /Int Y >Int 5` or
+    /// `X /Int Y <=Int 5` holds: the `owise` rule `sti-c` applies to none. The conditions of
+    /// `sti-a` and `sti-b` are decided knowing the assumption, and so is the remainder they leave
+    /// to `sti-c`; without it, `\not(true = X /Int Y >Int 5) /\ \not(true = X /Int Y <=Int 5)`
+    /// is satisfiable at `Y = 0` alone, where the subject is `\bottom`. Without the assumption
+    /// the run states `Y =/=Int 0` itself and the same two leaves remain.
+    #[test]
+    fn an_owise_rule_takes_no_instance_the_assumed_definedness_excludes() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let program = top(&format!("Lblsti{{}}({})", quotient()));
+        for assume in [false, true] {
+            let reached = routes(&mut backend, &program, assume)
+                .into_iter()
+                .map(|(route, state)| (route.depth, print(&state)))
+                .collect::<Vec<_>>();
+            assert!(
+                reached.len() == 2
+                    && reached.iter().all(|(depth, state)| *depth == 1
+                        && (state.contains("Lbla{}()") || state.contains("Lblb{}()"))),
+                "sti(X /Int Y) assume={assume}: expected the a and b leaves only: {reached:#?}"
+            );
+        }
+    }
+
     /// The leaf contract (docs/backend-port.md, `ExecutionLeaf`): the constraints of every leaf
     /// are definedness-explicit, so a solver `Unsat` on them would show that the leaf has no
     /// instance. For the rule-produced programs and the requests above, every leaf has an
