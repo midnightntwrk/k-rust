@@ -8,7 +8,7 @@
 // and the run lists admit the comparison.
 // GAP K1: the zero every quotient divides by is `Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11)`
 // from `go(1)`, 1.0 minus 1.0, which `fp.sub` under roundNearestTiesToEven fixes as +0.0
-// (domains.md 1572); it was `Int2Float(0, 53, 11)` from `go(0)`, whose sign no text fixes (k-rust
+// (domains.md 1570); it was `Int2Float(0, 53, 11)` from `go(0)`, whose sign no text fixes (k-rust
 // marks it `float-rounding`). +0.0 is the element that conversion picked, so every quotient below
 // (and the mutant's) is the element it was, in every model, and the kill stands as before.
 module ONENAN-SYNTAX

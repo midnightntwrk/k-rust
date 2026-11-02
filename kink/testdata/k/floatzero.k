@@ -1,6 +1,6 @@
 // R3-ADMIT-FLOAT: Float literals are compared by value. `start(I)` reaches `chk` with
 // `Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11)`, from `start(1)` the binary64 +0.0 (`fp.sub`
-// of two equal finite values under roundNearestTiesToEven, domains.md 1572); `point` matches the
+// of two equal finite values under roundNearestTiesToEven, domains.md 1570); `point` matches the
 // binary64 zero. A respelling of `0.0` that names the
 // same element (`0.00e5`, `0e+00p53x11`) is the baseline's rule. `0.0f` names the binary32 zero,
 // another element by K's text (the suffix fixes the format, and `precisionFloat` is a function).
@@ -11,7 +11,7 @@
 // R3-ADMIT-FLOAT fix round 1 (TB-03 without the census): the rows below reach NaN, Infinity,
 // `==K`, a function equation and the route V5b through `Int2Float` of 1 (the one binary64 element
 // of value 1) and (since kink27 GK-0) one-format `/Float` and `-Float`, whose values their
-// `smt-hook`s fix (domains.md 1568, 1572), so no rule applies a hook the census reads and no run
+// `smt-hook`s fix (domains.md 1566, 1570), so no rule applies a hook the census reads and no run
 // takes a value k-rust marks.
 // kompile folds `fold`'s `0.1 +Float 0.2` into a literal, so no `FLOAT.add` application is left;
 // FLOATMIXED's sum of a binary32 and a binary64 literal is not folded, and its run is marked.
@@ -54,7 +54,7 @@ module FLOATZERO
   rule [point]: chk(0.0) => done(7)
   rule [pointow]: chk(_) => done(0) [owise]
   // F8: the binary64 NaN, `(1.0 -Float 1.0) /Float (1.0 -Float 1.0)`, +0.0 over +0.0 (`fp.sub`,
-  // `fp.div`, domains.md 1572, 1568).
+  // `fp.div`, domains.md 1570, 1566).
   rule [nans]: nans(I) => nanc((Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11)) /Float (Int2Float(I, 53, 11) -Float Int2Float(I, 53, 11)))
   rule [nanp]: nanc(NaN) => done(7)
   rule [nanow]: nanc(_) => done(0) [owise]

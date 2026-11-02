@@ -96,7 +96,7 @@
 //! - [`Exclusion::ShortCircuitReading`]: the run's result can depend on whether `andBool`,
 //!   `orBool`, `impliesBool`, `#if`, `andThenBool` or `orElseBool` skip an operand that may be
 //!   undefined
-//!   (re-pin decision 1 applied to domains.md lines 1115-1117 and 2319-2322; R0c review 1 minor):
+//!   (re-pin decision 1 applied to domains.md lines 1115-1117 and 2314-2317; R0c review 1 minor):
 //!   k-rust evaluates every operand (an application is strict in all its arguments, k-rust
 //!   `deferred.rs`), so such a step is undefined where a short-circuiting backend gives a value.
 //!   A `Trivial` leaf of a rewrite rule whose right-hand side applies one makes the run
@@ -246,7 +246,7 @@ pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 /// 1398 by three, and none of the three changes moved the set of open hooks.
 ///
 /// - The pair `String2Bytes`/`Bytes2String` names no encoding (domains.md names one only for
-///   `encodeBytes`/`decodeBytes`, which take it as an argument, line 2017); k-rust reads each
+///   `encodeBytes`/`decodeBytes`, which take it as an argument, line 2012); k-rust reads each
 ///   byte as the code point of the same number, "its chosen reading" (`bytes.rs:64-73`).
 /// - `Float2String`'s string is "determined by the backend"; with a format it is what
 ///   `mpfr_printf` gives.
@@ -257,8 +257,8 @@ pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 ///   the environment are "largely unsupported"; and every I/O hook returns what "the underlying
 ///   system call" gives.
 ///
-/// `Base2String`'s letter case ("determined by the backend", domains.md 1834-1836) and the count
-/// a `#read` returns ("fewer characters than requested", 2553-2554) were kink-side hooks until
+/// `Base2String`'s letter case ("determined by the backend", domains.md 1829-1831) and the count
+/// a `#read` returns ("fewer characters than requested", 2548-2549) were kink-side hooks until
 /// re-pin L-1; k-rust's classifier names both since KINK-17/2, so they are on
 /// [`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`] (each hook is on one list).
 ///

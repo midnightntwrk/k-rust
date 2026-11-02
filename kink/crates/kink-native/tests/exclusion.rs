@@ -749,14 +749,14 @@ fn builtin_files_leave_these_hook_values_open() {
             "BUFFER.empty",
             "domains.md: the empty StringBuffer (impure for mutability)",
         ),
-        ("IO.log", "domains.md:2665-2695: returns `.K` (returnsUnit)"),
+        ("IO.log", "domains.md:2660-2690: returns `.K` (returnsUnit)"),
         (
             "IO.logString",
-            "domains.md:2665-2695: returns `.K` (returnsUnit)",
+            "domains.md:2660-2690: returns `.K` (returnsUnit)",
         ),
         (
             "IO.traceTerm",
-            "domains.md:2665-2695: returns `.K` (returnsUnit)",
+            "domains.md:2660-2690: returns `.K` (returnsUnit)",
         ),
         ("K.K", "kast.md: a sort hook, no value"),
         ("K.KItem", "kast.md: a sort hook, no value"),

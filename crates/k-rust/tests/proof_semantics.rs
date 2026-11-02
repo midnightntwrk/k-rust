@@ -3425,9 +3425,9 @@ endmodule
 /// AM-10 and AM-12 (`docs/amendments.md`) on a grid, by a route that shares no code with the
 /// evaluators of the five operations: the definedness condition is what the simplifier makes of
 /// `\ceil` of the application on symbolic operands, which the definition's equations decide:
-/// `INT-SYMBOLIC-KORE`'s ceil equation of the operation (`domains.md`:1395, :1399-1401), and for
-/// `bitRangeInt` its unconditional defining equation (:1443) with the ceil equations of `>>Int`,
-/// `<<Int` and `modInt`, of which AM-10's `bitRangeInt` rule (:1398) is a theorem (a stricter
+/// `INT-SYMBOLIC-KORE`'s ceil equation of the operation (`domains.md`:3080, :3082-3084), and for
+/// `bitRangeInt` its unconditional defining equation (:1438) with the ceil equations of `>>Int`,
+/// `<<Int` and `modInt`, of which AM-10's `bitRangeInt` rule (:3081) is a theorem (a stricter
 /// copy of that rule changes no answer here, while one of each other rule does). At each point
 /// of the grid (every operand in [-3, 3], `bitRangeInt`'s offset and length in [-2, 3]) that
 /// condition with the point's literals substituted is decided by the `BOOL` and `INT` comparison

@@ -380,7 +380,7 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                 .filter(|(end, start)| start <= end)
                 .map(|(end, start)| Bytes(bytes[start..end].to_vec())),
         ),
-        // `#False` if `index + N` is no valid index (`0 <= i < length`, :2106-2107), read
+        // `#False` if `index + N` is no valid index (`0 <= i < length`, :2104-2105), read
         // literally; the value clause gives the replaced bytes up to the end. Where the two
         // disagree (the range ends at the length), and at a negative start whose end is inside
         // the value, which the text does not describe, the outcome is open (`outside-domain`).
