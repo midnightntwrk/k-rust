@@ -3641,6 +3641,20 @@ fn states_one_item_only(plan: &K7) -> bool {
                 [(cell, Ground::Seq(items))] if cell == "k" && items.as_slice() == [Ground::Any]))
 }
 
+/// The template of `slot` for `spelling`: a simplification over a spelling with no value at some
+/// `x` states its equation where the spelling has one ([module docs](self), "Simplification
+/// equations").
+fn slot_template(slot: &Slot, spelling: &Spelling) -> String {
+    match (slot.form, slot.position, spelling.domain) {
+        ("simplification", "subject" | "result", Some(domain)) => slot.template.replacen(
+            "#[k::simplification]\n",
+            &format!("#[k::simplification]\n#[k::requires({domain})]\n"),
+            1,
+        ),
+        _ => slot.template.clone(),
+    }
+}
+
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let construct = spelling.text(slot.at.form);
     let imported = family == Family::Import;
@@ -3667,17 +3681,7 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
         drivers::plan(slot, spelling, &command),
     );
     let counters = drivers::counter_plans(slot, spelling, &command);
-    // A simplification over a spelling with no value at some `x` states its equation where the
-    // spelling has one ([module docs](self), "Simplification equations").
-    let template = match (slot.form, slot.position, spelling.domain) {
-        ("simplification", "subject" | "result", Some(domain)) => slot.template.replacen(
-            "#[k::simplification]\n",
-            &format!("#[k::simplification]\n#[k::requires({domain})]\n"),
-            1,
-        ),
-        _ => slot.template.clone(),
-    };
-    let template = template
+    let template = slot_template(slot, spelling)
         .replace("TAG", &tag)
         .replace("DRIVE", &command.drive().to_string())
         .replace(
