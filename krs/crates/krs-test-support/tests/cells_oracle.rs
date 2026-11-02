@@ -1783,6 +1783,203 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// Each probe's outcome, from the oracle and from the product alike, against `want`.
+fn probes_agree(probes: &[(Probe<'_>, Outcome)]) {
+    let mut failures = Vec::new();
+    for (probe, want) in probes {
+        for (who, got) in [("oracle", probe.oracle()), ("product", probe.product())] {
+            if got != *want {
+                failures.push(format!(
+                    "{:?} {:?} below {:?} on {:?}: `{}` over {:?}: the {who} says {got:?}, the \
+                     principles {want:?}",
+                    probe.form, probe.side, probe.path, probe.stack, probe.text, probe.other
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+const fn result_probe<'p>(
+    form: Form,
+    stack: &'p [Layer],
+    text: &'p str,
+    other: Option<&'p str>,
+) -> Probe<'p> {
+    Probe {
+        form,
+        side: Side::Result,
+        path: &[],
+        stack,
+        text,
+        other,
+        written: false,
+        bound: &["x", "y", "z"],
+    }
+}
+
+/// F1: a result `None` over a `?` cell the subject matches present removes the cell, and with it
+/// all its content, its rest included (P5); it writes no content root, so P6 pairs no rest.
+#[test]
+fn a_result_none_over_a_matched_optional_cell_pairs_no_rest() {
+    let list = [Layer::Optional, Layer::Leaf(Notation::List)];
+    let map = [Layer::Optional, Layer::Leaf(Notation::Map)];
+    let ok = Outcome::Admit { lint: None };
+    probes_agree(&[
+        (
+            result_probe(Form::Readable, &list, "None", Some("Some([y, ..])")),
+            ok,
+        ),
+        (
+            result_probe(Form::Claim, &map, "None", Some("Some({ z -> y, .. })")),
+            ok,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &list,
+                "None",
+                Some("Some(k::configuration::Cell([y, ..]))"),
+            ),
+            ok,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &map,
+                "None",
+                Some("Some(k::configuration::Cell(k::map![z -> y, ..]))"),
+            ),
+            ok,
+        ),
+        // A result that writes the content pairs its rest with the subject's.
+        (
+            result_probe(Form::Readable, &list, "Some(x)", Some("Some([y, ..])")),
+            Outcome::Refuse("rest-mismatch"),
+        ),
+        (
+            result_probe(Form::Readable, &list, "None", None),
+            Outcome::Refuse("unmatched-optional-result"),
+        ),
+    ]);
+}
+
+/// F2: `name @ P` stands in a pattern only (§2.3 step 1), and a rest is no exception: a result
+/// writes `..` or `..name` (P6), at every content root, before the path is judged.
+#[test]
+fn a_named_rest_in_a_result_is_refused_at_the_form() {
+    let refused = Outcome::Refuse("alias-outside-pattern");
+    let list = [Layer::Leaf(Notation::List)];
+    let map = [Layer::Leaf(Notation::Map)];
+    let computation = [Layer::Computation];
+    let instances = [Layer::Instances(Order::List), group_g()];
+    let mut below = result_probe(Form::Readable, &list, "[x, r @ ..]", Some("[y, ..]"));
+    below.path = &[Layer::Optional];
+    probes_agree(&[
+        (
+            result_probe(Form::Readable, &list, "[x, r @ ..]", Some("[y, ..]")),
+            refused,
+        ),
+        (
+            result_probe(Form::Readable, &list, "[x, r @ ..]", None),
+            refused,
+        ),
+        (
+            result_probe(Form::Claim, &computation, "[x, r @ ..]", Some("[y, ..]")),
+            refused,
+        ),
+        (
+            result_probe(Form::Readable, &map, "{ y -> x, r @ .. }", None),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &computation,
+                "k::configuration::KCell(x, r @ ..)",
+                Some("k::configuration::KCell(y, ..)"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &list,
+                "k::configuration::Cell([x, r @ ..])",
+                None,
+            ),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &instances,
+                "[k::fragment![crate::G { a: x, .. }], r @ ..]",
+                Some("[k::fragment![crate::G { a: y, .. }], ..]"),
+            ),
+            refused,
+        ),
+        (below, refused),
+    ]);
+}
+
+/// F3: a bare `..` in a result is Rust's default fields, which only a created instance has (its
+/// template, P6): refused on a group the subject matches, admitted on an instance record.
+#[test]
+fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
+    let refused = Outcome::Refuse("open-record-outside-pattern");
+    let group = [group_g()];
+    let optional = [Layer::Optional, group_g()];
+    let set = [Layer::Instances(Order::Set), group_g()];
+    probes_agree(&[
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, .. }",
+                Some("G { a: y, .. }"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Claim,
+                &group,
+                "G { a: x, .. }",
+                Some("G { a: y, .. }"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &optional,
+                "Some(G { a: x, .. })",
+                Some("Some(G { a: y, .. })"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, b: 0 }",
+                Some("G { a: y, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &set,
+                "{ G { a: x, .. }, .. }",
+                Some("{ G { a: y, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
 /// Where the sweep of [`outcome`] is kept, checked in so that a change to `outcome` shows as a
 /// diff (`KRS_CELLS_SWEEP_RECORD=1` rewrites it).
 const SWEEP_FILE: &str = "cells-outcome-sweep.tsv";

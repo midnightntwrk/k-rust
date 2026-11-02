@@ -12,8 +12,8 @@
 //! [`outcome`] answers steps 1–3 of the design's §2.3 for one entry:
 //!
 //! 1. **form**: what the spelling and its side alone refuse (`_` in a result or an initializer,
-//!    `None` or an anonymous rest in an initializer, an anonymous rest in a map literal outside a
-//!    `cells!` pattern);
+//!    a named rest `name @ ..` in a result, `None` or an anonymous rest in an initializer, an
+//!    anonymous rest in a map literal outside a `cells!` pattern);
 //! 2. **kind**: first the path (S1 (b)): an entry naming a cell below a `?` or `*` ancestor is
 //!    refused for the outermost such ancestor, whatever it spells, since the ancestor's presence
 //!    and the instance meant are written at the ancestor's level, never in the entry (a mark in
@@ -23,7 +23,8 @@
 //!    layer's mark, or a value where the outermost layer has a mark, gives the missing layer's
 //!    class;
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
-//!    subject does not match, [`Context::other`] `None`), Q3.
+//!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
+//!    record over a matched group (P6: Rust's default fields, which a matched group lacks).
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -340,8 +341,9 @@ pub struct Refusal {
 pub const NO_EFFECT_ENTRY: &str = "no-effect-entry";
 
 /// The classes [`outcome`] answers with.
-pub const ENTRY_CLASSES: [&str; 17] = [
+pub const ENTRY_CLASSES: [&str; 19] = [
     "absence-test-without-creation",
+    "alias-outside-pattern",
     "anonymous-rest-in-map-literal",
     "bracket-reading",
     "cell-wrapper",
@@ -352,6 +354,7 @@ pub const ENTRY_CLASSES: [&str; 17] = [
     "instances-on-plain-cell",
     "map-notation-at-non-map",
     "none-in-initializer",
+    "open-record-outside-pattern",
     "optional-without-presence",
     "presence-on-plain-cell",
     "record-missing-children",
@@ -373,11 +376,12 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 22] = [
+pub const CODES: [(&str, &str); 24] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
     ),
+    ("alias-outside-pattern", "krs::syntax::invalid-pattern-as"),
     ("always-enabled-rule", "krs::analysis::always-enabled-rule"),
     (
         "anonymous-rest-in-map-literal",
@@ -405,6 +409,10 @@ pub const CODES: [(&str, &str); 22] = [
     (
         "none-in-initializer",
         "krs::syntax::unsupported-initializer-body",
+    ),
+    (
+        "open-record-outside-pattern",
+        "krs::syntax::invalid-record-update",
     ),
     (
         "optional-without-presence",
@@ -727,6 +735,15 @@ impl Judge<'_> {
             Spelling::Missing if initializer => {
                 return refuse("none-in-initializer", Step::Form, depth);
             }
+            // §2.3 step 1: `name @ P` names what a pattern matched, so it stands in a pattern
+            // only, and a rest is no exception. A result keeps the subject's anonymous rest with
+            // `..` and puts a named one back with `..name` (P6); the subject drops a rest by
+            // naming it `_rest @ ..` and not putting it back.
+            _ if self.side == Side::Result
+                && matches!(sequence(spelling), Some((_, Some(Rest::Named(_))))) =>
+            {
+                return refuse("alias-outside-pattern", Step::Form, depth);
+            }
             // P5: an initializer's value is complete.
             Spelling::KMacro(seq) | Spelling::Brackets(seq)
                 if initializer && matches!(seq.rest, Some((Rest::Anon, _))) =>
@@ -947,6 +964,16 @@ impl Judge<'_> {
                         _ => Ok(None),
                     };
                 };
+                // P5: `None` removes the cell, and with it all its content, its rest included;
+                // it writes no content root, so P6 has no rest to pair.
+                if *spelling == Spelling::Missing {
+                    return Ok(None);
+                }
+                // P6: a bare `..` in a result is Rust's default fields, which only a created
+                // instance has (its template); a matched group has none.
+                if open_record_over_match(stack, spelling, other) {
+                    refuse("open-record-outside-pattern", Step::Pairing, 0)?;
+                }
                 // P6: a result rest is the subject's rest of the same cell, and a subject's
                 // anonymous rest is kept only by a result `..` (D2).
                 let (result, subject) = (root(spelling), root(other));
@@ -958,6 +985,37 @@ impl Judge<'_> {
             }
             Side::Guard | Side::Initializer => Ok(None),
         }
+    }
+}
+
+/// Whether a result `spelling` over the matched subject `other` writes a group record with a
+/// bare `..` for a group that exists: the cell's own group, or the group inside a `?` cell the
+/// subject matches present, and their group children. A collection's instance record is a
+/// created instance's, and a `?` cell over a subject `None` is created, so neither is.
+fn open_record_over_match(stack: &[Layer], spelling: &Spelling, other: &Spelling) -> bool {
+    fn existing(stack: &[Layer], spelling: &Spelling) -> bool {
+        let (Some(Layer::Group(group)), Spelling::Record(record)) = (stack.first(), spelling)
+        else {
+            return false;
+        };
+        record.head == group.name
+            && (record.rest == RecordRest::Open
+                || record.fields.iter().any(|(name, value)| {
+                    child(group, name).is_some_and(|stack| existing(stack, value))
+                }))
+    }
+    fn unaliased(spelling: &Spelling) -> &Spelling {
+        match spelling {
+            Spelling::Alias(_, inner) => inner,
+            other => other,
+        }
+    }
+    match (stack.first(), unaliased(spelling), unaliased(other)) {
+        (Some(Layer::Optional), Spelling::Present(inner), Spelling::Present(_)) => {
+            existing(&stack[1..], inner)
+        }
+        (Some(Layer::Group(_)), spelling, _) => existing(stack, spelling),
+        _ => false,
     }
 }
 
