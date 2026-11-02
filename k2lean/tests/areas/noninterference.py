@@ -70,4 +70,15 @@ DEMOS = {
                                                    "demos/ContractEnvNI/ContractEnvNI/Proof.lean",
                                                    "demos/ContractEnvNI/correspondence.toml",
                                                    "demos/ContractEnvNI/noninterference.toml"]},
+    # several sorts of values (NI-8(c)): the fixture contract with `KResult ::= Int | Bool`
+    "ContractValsNI": {"tier": "light", "sources": ["generated/contractvals",
+                                                    "generated/contractsec",
+                                                    "demos/ContractValsNI/ContractValsNI/Tr.lean",
+                                                    "demos/ContractValsNI/ContractValsNI/NI.lean",
+                                                    "demos/ContractValsNI/ContractValsNI/Spec.lean",
+                                                    "demos/ContractValsNI/ContractValsNI/Levels.lean",
+                                                    "demos/ContractValsNI/ContractValsNI/Stack.lean",
+                                                    "demos/ContractValsNI/ContractValsNI/Proof.lean",
+                                                    "demos/ContractValsNI/correspondence.toml",
+                                                    "demos/ContractValsNI/noninterference.toml"]},
 }
