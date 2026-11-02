@@ -25995,7 +25995,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty().contains_key(x)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule V0:KItem in_keys(.Map) => 0
+rule V0:KItem in_keys(.Map) => false
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -26004,7 +26004,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty().update(x, 1)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] => 0
+rule .Map [ V0:KItem <- 1 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -26029,7 +26029,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule V0:KItem in_keys(.Map) => 0
+rule V0:KItem in_keys(.Map) => false
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -26037,7 +26037,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] => 0
+rule .Map [ V0:KItem <- 1 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -26046,7 +26046,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::set::item(x).to_list()"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule Set2List(SetItem(V0:KItem)) => 0
+rule Set2List(SetItem(V0:KItem)) => .List
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -26054,7 +26054,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule Set2List(SetItem(V0:KItem)) => 0
+rule Set2List(SetItem(V0:KItem)) => .List
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -31434,7 +31434,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0
+rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -31442,7 +31442,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 k = """
-rule .Set |Set SetItem(V0:KItem) => 0
+rule .Set |Set SetItem(V0:KItem) => .Set
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -31450,7 +31450,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 k = """
-rule SetItem(V0:KItem) |Set SetItem(1) => 0
+rule SetItem(V0:KItem) |Set SetItem(1) => .Set
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
@@ -35011,7 +35011,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """
-rule .Map [ 0 <- 1 ] => 0
+rule .Map [ 0 <- 1 ] => .Map
 requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]

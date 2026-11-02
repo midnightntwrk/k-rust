@@ -50,11 +50,14 @@
 //!   condition as `subject`'s do. A spelling whose sort the lowering gives `x` (`x && true` sorts
 //!   it `Bool`) has a value wherever the equation's left side matches. The twin evaluates
 //!   `zero(cTAG, x)` and `kz(v)`, `v` the hole's value, at each input where the hole has one.
-//! - `subject-root`, `HOLE => 0` under the condition `false`: the hole is the whole left side, and
+//! - `subject-root`, `HOLE => V` under the condition `false`: the hole is the whole left side, and
 //!   only the spellings that apply a function stand there; the builtins' meanings fix their value
 //!   (`1 + 2` is 3), so no right side but the hole itself equals each, and a right side that
 //!   restated the hole would judge the spelling at a result too. Under `false` the equation is
-//!   true for every spelling, and no prover applies it.
+//!   true for every spelling, and no prover applies it. `V` is a constant of the application's
+//!   sort ([`root_value`]: the empty map for `map::update(..)`, `false` for `in_keys(..)`, `0` for
+//!   an `Int` or a `KItem`), so the equation is well-sorted for every spelling: one of another
+//!   sort (an `Int` equal to a `Map`) states an equality no value satisfies, which KRS refuses.
 //! - `result-root`, `ProbeK(Cmd::NAME(), x) => HOLE` under the condition `false`: the hole is the
 //!   whole right side, so the equation would make `ProbeK` at the case's command equal to each
 //!   spelling's value, which no equation of the definition gives it (`ProbeK` is partial, and
@@ -2801,7 +2804,7 @@ fn slots() -> Vec<Slot> {
             "subject-root",
             Side::Subject,
             (Simplification, Part::Subject, &[]),
-            "#[k::simplification]\n#[k::requires(false)]\nfn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n    0\n}\n",
+            "#[k::simplification]\n#[k::requires(false)]\nfn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n    ROOT_VALUE\n}\n",
         )
         .arity(0),
         slot(
@@ -3798,7 +3801,29 @@ fn slot_template(slot: &Slot, spelling: &Spelling) -> String {
             &format!("#[k::simplification]\n#[k::requires({domain})]\n"),
             1,
         ),
+        ("simplification", "subject-root", _) => {
+            slot.template.replace("ROOT_VALUE", root_value(spelling))
+        }
         _ => slot.template.clone(),
+    }
+}
+
+/// A value of the sort of the application `spelling` writes, for the result of a simplification
+/// rooted at it. The equation states that the application equals its result, so the result's
+/// sort is the application's or below it (an equation of another sort states an equality no
+/// value satisfies, `krs::analysis::invalid-term`); under `requires(false)` the equation holds
+/// whatever the value, so it is a constant of that sort, not the spelling itself, which a result
+/// would judge at a result's position. The sort is read from the spelling's value at 1, which is
+/// of its sort or below it: an empty collection of a collection, `false` of a `Bool`, and `0`
+/// otherwise (an `Int`, or a `KItem` such as a collection's read).
+fn root_value(spelling: &Spelling) -> &'static str {
+    match &spelling.value {
+        Meaning::Value(Ground::Map(_)) => "k::builtin::map::empty()",
+        Meaning::Value(Ground::Set(_)) => "k::builtin::set::empty()",
+        Meaning::Value(Ground::List(_)) => "k::builtin::list::empty()",
+        Meaning::Value(Ground::Bool(_)) => "false",
+        Meaning::Value(Ground::String(_)) => "\"\"",
+        _ => "0",
     }
 }
 
