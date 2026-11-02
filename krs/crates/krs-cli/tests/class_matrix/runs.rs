@@ -486,6 +486,16 @@ fn steps_deviation(run: &Run, report: &RunReport, shown: &str) -> Option<String>
             report.steps, run.steps,
         ));
     }
+    // Where the construct has no value the sentence does not apply: no rule applies after the
+    // steps before it, and the run ends stuck, not at an undefined state (a sentence that applied
+    // to a term with no value) or another halt.
+    if run.status == Status::Undefined && report.halt != Halt::Stuck {
+        return Some(format!(
+            "ended {} after {} steps, where the construct has no value, so the sentence does not apply and the run ends stuck{cells}",
+            report.halt.as_str(),
+            report.steps,
+        ));
+    }
     None
 }
 

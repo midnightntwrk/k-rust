@@ -11,6 +11,13 @@
 //!   `x + 1` is 2, `map![x -> 1, 2 -> 3]` the map `{1 ↦ 1, 2 ↦ 3}`.
 //! - A spelling with no witness (no ground term matches it) or no stated value says why
 //!   ([`Meaning`]); K7 then checks only that the sentence applied, or nothing ([`Status`]).
+//! - A spelling that reads `x` states its witness and its value as functions of `x`'s value,
+//!   from what the construct means, and a second input at which its meaning differs from its
+//!   meaning at 1; K7 runs the case's plan at both ([`super::Case::k7_inputs`]), so a lowering
+//!   that agrees with the construct at 1 only (a constant folded in, `x` dropped, two operands
+//!   swapped) does not run as stated at both.
+//! - Where the construct a condition or a key computes has no value at the input, the sentence
+//!   does not apply ([`Status::Undefined`]): the run ends stuck before the sentence's step.
 //!
 //! Each slot of the term families has a *driver* (`terms::drivers`): the program that applies the
 //! case's command to the witness, or writes the case's alias or desugar subject, and the cells the
@@ -367,7 +374,8 @@ pub enum Meaning {
     Unstated(&'static str),
     /// No value: the term is undefined under the binders' values, with the reason. K7 checks
     /// nothing at a position that builds it, but where it is a condition, which then does not
-    /// hold, so the sentence must not apply.
+    /// hold, or a key or a set's element a pattern computes and looks up, which then looks up
+    /// nothing: either way the sentence must not apply ([`Status::Undefined`]).
     Undefined(&'static str),
     /// No term: a pattern-only construct, a predicate, an anonymous variable or a cell fragment,
     /// which builds no value of the position, with the reason. K7 checks nothing where it is built.
@@ -391,6 +399,11 @@ pub enum Status {
     /// its time limit; a run that reports a final state reports a state at which the sentence
     /// still applies.
     Endless,
+    /// The construct a condition or a key computes has no value at the run's input, so the
+    /// sentence does not apply: the run takes the steps before the sentence's and ends stuck
+    /// there, as no rule applies, not at an undefined state, which would be a sentence that
+    /// applied to a term with no value, nor at an error.
+    Undefined,
 }
 
 impl Status {
@@ -402,6 +415,7 @@ impl Status {
             Self::Liveness => "liveness",
             Self::Unexpanded => "unexpanded",
             Self::Endless => "endless",
+            Self::Undefined => "undefined",
         }
     }
 }

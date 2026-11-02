@@ -62,10 +62,10 @@ const MISSING: &[&str] = &[
     "no value: a pattern, which names or tests a term and builds none: terms _ | terms y @ Cmd::Hold(_) | terms Cmd::Go() | Cmd::Hold(_) | terms Cmd::Pair { a: x, .. } | terms [x, ..] | terms Cmd::Tw(y @ Cmd::Hold(x)) | terms Cmd::Pair(1 | 2, 3 | 4)",
     "no value: an anonymous variable, which names no value: terms k::anonymous!(Int, \"_V\")",
     "no value: its expansion depends on what a program writes, or there is none: terms Cmd::Dn(x) | terms Cmd::Tw(_) | terms Cmd::Dn(2) | terms Cmd::Lp(0) | terms Cmd::Pb(Cmd::Go())",
-    "no value: the empty map has no entry at 1: notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x)",
-    "no value: the let's pattern does not match x = 1: terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }",
-    "no value: the update's base, x = 1, is no Pair: terms Cmd::Pair { a: x, ..x }",
-    "no value: x = 1 is no Bool: terms x && true | terms x || true",
+    "no value: the empty map has no entry at x: notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x)",
+    "no value: the let's pattern does not match x: terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }",
+    "no value: the update's base, x, is no Pair: terms Cmd::Pair { a: x, ..x }",
+    "no value: x is no Bool: terms x && true | terms x || true",
     "no witness: a cell's value, which a program writes no syntax for: terms k::fragment![crate::Frame { ret: 1 }]",
     "no witness: a computed term, which no evaluated term is: terms k::builtin::int::add(1, 2) | terms Size(x) | terms k::or_bool!(true, false) | terms k::is!(Int, x) | terms k::project!(Int, x) | terms k::matches!(x, Cmd::Hold(_)) | terms { let y = x; y } | terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms Cmd::Pair { a: x, ..x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } } | terms x + 1 | terms x & 1 | terms x << 1 | terms x < 1 | terms x == 1 | terms x && true | terms x || true | terms !(x < 1) | terms -(x + 1) | terms x.add::<Int>(1) | terms k::builtin::int::add(x, 1) | terms k::map![x -> 1] | terms map![x -> 1] | notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x) | notation k::builtin::list::item(x)[0] | notation k::builtin::list::get(k::builtin::list::item(x), 0) | notation k::builtin::map::empty().update(x, 1) | notation k::builtin::map::update(k::builtin::map::empty(), x, 1) | notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x)) | notation k::builtin::set::item(x).to_list() | notation k::builtin::set::to_list(k::builtin::set::item(x)) | notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty()) | notation map![x -> 1, 2 -> 3] | notation k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3) | notation map![x -> 1, ..k::builtin::map::empty()] | notation map![0 -> 1] | notation k::builtin::map::update(k::builtin::map::empty(), 0, 1) | notation set![x, 1] | notation k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1)) | notation set![x, ..k::builtin::set::empty()] | notation k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
     "no witness: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
@@ -119,9 +119,9 @@ const UNDRIVEN: &[&str] = &[
     "the function is internal: it has no program syntax, and no base sentence can name the case's function: shorthand/result-root | shorthand/result",
 ];
 
-/// Every case's K7 status, a skip by its kind and reason, with its count, and the cases that
-/// run a counter-witness: a change that moves cases into a skip, or out of a counter run, fails
-/// here, whatever reason the skip gives.
+/// Every case's K7 status, a skip by its kind and reason, with its count, the cases that run a
+/// counter-witness, and those that run at a second input: a change that moves cases into a skip,
+/// or out of a counter run or a second input, fails here, whatever reason the skip gives.
 #[test]
 fn every_cases_k7_status_is_counted() {
     let cases = class_matrix::cases();
@@ -136,6 +136,11 @@ fn every_cases_k7_status_is_counted() {
         if !case.k7_counters.is_empty() {
             *statuses
                 .entry("runs a counter-witness".to_owned())
+                .or_default() += 1;
+        }
+        if !case.k7_inputs.is_empty() {
+            *statuses
+                .entry("runs at a second input".to_owned())
                 .or_default() += 1;
         }
     }
@@ -215,12 +220,12 @@ const STATUSES: &[&str] = &[
     "35 no value: the condition's stated value, set{1}, is no Bool",
     "10 no value: the condition's stated value, set{}, is no Bool",
     "5 no value: the condition's stated value, word, is no Bool",
-    "56 no value: the empty map has no entry at 1",
-    "224 no value: the let's pattern does not match x = 1",
-    "28 no value: the update's base, x = 1, is no Pair",
-    "56 no value: x = 1 is no Bool",
+    "50 no value: the empty map has no entry at x",
+    "79 no value: the let's pattern does not match x",
+    "3 no value: the update's base, x, is no Pair",
+    "6 no value: x is no Bool",
     "43 no witness: a cell's value, which a program writes no syntax for",
-    "1792 no witness: a computed term, which no evaluated term is",
+    "1760 no witness: a computed term, which no evaluated term is",
     "43 no witness: a matching-logic predicate, which only a prover reads",
     "4 no witness: a program writes $x only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "4 no witness: a program writes Wrap(1) only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
@@ -234,9 +239,73 @@ const STATUSES: &[&str] = &[
     "77 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "6 no witness: the program would hold a value the generator does not state",
     "1198 runs a counter-witness",
+    "1735 runs at a second input",
     "1 runs, endless",
     "1654 runs, liveness",
-    "2508 runs, value",
+    "236 runs, undefined",
+    "2530 runs, value",
+];
+
+/// Every spelling that reads `x` states the second value of `x` its cases run at, or why it has
+/// none; at the second input its witness or its value differs from its witness or value at 1, so
+/// that the run there can fail where the run at 1 conforms. A pattern spelling that reads `x` and
+/// does not match 1 has an `Int` second input, which it does not match either (its `matches_x`
+/// holds at both inputs), and those that match 1 are the binder and its alternative, which match
+/// every term.
+#[test]
+fn every_spelling_that_reads_x_states_a_second_input_or_why_not() {
+    let mut none = BTreeMap::<&str, Vec<String>>::new();
+    let mut matching = Vec::new();
+    for meaning in class_matrix::spelling_meanings() {
+        let name = format!("{} {}", meaning.family.name(), meaning.text);
+        if meaning.reads_x && meaning.matches_x {
+            matching.push(name.clone());
+        }
+        match &meaning.second {
+            Err(reason) if meaning.reads_x => {
+                assert_ne!(*reason, "no second input is stated", "{name}");
+                none.entry(reason).or_default().push(name);
+            }
+            Err(_) => {}
+            Ok(second) => {
+                assert!(
+                    meaning.reads_x,
+                    "{name} states a second input but reads no x"
+                );
+                assert_ne!(second.x, Ground::Int(1), "{name}");
+                let witness_differs = meaning.witness.is_ok() && meaning.witness != second.witness;
+                let value_differs = matches!(
+                    (&meaning.value, &second.value),
+                    (Meaning::Value(_) | Meaning::Undefined(_), Meaning::Value(_))
+                        | (Meaning::Value(_), Meaning::Undefined(_))
+                ) && meaning.value != second.value;
+                assert!(
+                    witness_differs || value_differs,
+                    "{name}: at {} it matches {:?} and denotes {:?}, as at 1",
+                    second.x,
+                    second.witness,
+                    second.value
+                );
+                if meaning.witness.is_ok() && !meaning.matches_x {
+                    assert!(matches!(second.x, Ground::Int(_)), "{name}: {}", second.x);
+                }
+            }
+        }
+    }
+    assert_eq!(matching, ["terms x", "terms x | 1"]);
+    let listed = none
+        .iter()
+        .map(|(reason, spellings)| format!("{reason}: {}", spellings.join(" | ")))
+        .collect::<Vec<_>>();
+    assert_eq!(listed, AT_ONE_ONLY, "{listed:#?}");
+}
+
+const AT_ONE_ONLY: &[&str] = &[
+    "Size's application has no stated value at any input: terms Size(x)",
+    "a one-element list's size is 1 at every x: notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x))",
+    "its expansion depends on what a program writes at every x: terms Cmd::Dn(x)",
+    "the empty map has no entry at any x: notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x)",
+    "the empty map holds no key at any x: notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty())",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern
@@ -490,9 +559,94 @@ fn the_drivers_write_their_programs_and_cells() {
             "NAME(1, 0)".to_owned(),
             0,
             k("Cmd::NAME(1, 0)"),
+            Status::Undefined
+        )
+    );
+    // A computed key with no value looks nothing up, though the map holds `x`: the rule must not
+    // apply, and the run ends stuck after the setup's two steps.
+    assert_eq!(
+        plan("notation/cells/map-key/k::builtin::map::empty()[x]"),
+        (
+            "then(setenv(mput(mput(memp, 1, 0), 99, 0)), NAME(1, 0))".to_owned(),
+            2,
+            String::new(),
+            Status::Undefined
+        )
+    );
+    // A construct with no value at 1 has one at its second input, where the case runs.
+    assert_eq!(
+        plan("terms/rule/result/{ let y @ Cmd::Hold(_) = x; y }"),
+        (
+            "NAME(hold(-2), 0)".to_owned(),
+            1,
+            k("Cmd::Hold(Cmd::Hold(-2))"),
             Status::Value
         )
     );
+    // The second input: the plan at x = -2, with the value the spelling denotes there.
+    let at_second = |id: &str| {
+        let case = term_case(&cases, id);
+        let (terminal, path) = case.command().map_or_else(
+            || ("NAME".to_owned(), "Cmd::NAME".to_owned()),
+            |command| (command.terminal(), format!("Cmd::{}", command.name)),
+        );
+        case.k7_inputs
+            .iter()
+            .map(|run| {
+                (
+                    run.program.replace(&terminal, "NAME"),
+                    run.steps,
+                    run.cells
+                        .iter()
+                        .map(|(cell, term)| format!("{cell} = {term}").replace(&path, "Cmd::NAME"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    run.status,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        at_second("terms/rule/result/x + 1"),
+        [(
+            "NAME(-2, 0)".to_owned(),
+            1,
+            k("Cmd::Hold(-1)"),
+            Status::Value
+        )]
+    );
+    assert_eq!(
+        at_second("terms/readable/map-key/x & 1"),
+        [(
+            "then(setenv(mput(mput(memp, 0, 0), 99, 0)), NAME(-2, 0))".to_owned(),
+            3,
+            k(""),
+            Status::Value
+        )]
+    );
+    // `x < 1` holds at -2: the rule applies there.
+    assert_eq!(
+        at_second("terms/rule/guard/x < 1"),
+        [(
+            "NAME(-2, 0)".to_owned(),
+            1,
+            k("Cmd::Hold(-2)"),
+            Status::Value
+        )]
+    );
+    assert_eq!(
+        at_second("terms/init/variable-item/x + 1"),
+        [(
+            "go".to_owned(),
+            0,
+            k("Cmd::Go(), -2, Cmd::Hold(-1)"),
+            Status::Value
+        )]
+    );
+    // A clause's own rule writes the witness at 1 into the source: no second input reaches it.
+    assert!(at_second("terms/alias/subject-written/Cmd::Hold(x)").is_empty());
+    // A spelling that does not read `x` runs at 1 only.
+    assert!(at_second("terms/rule/result/1").is_empty());
     // A counter-witness's run stops before the case's sentence.
     let case = term_case(&cases, "terms/rule/subject/Cmd::Hold(x)");
     let counter = case

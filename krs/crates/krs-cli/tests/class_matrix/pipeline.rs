@@ -858,6 +858,17 @@ impl<'w> Worker<'w> {
                     ));
                 }
             }
+            for input in &placed.case.k7_inputs {
+                if !matches!(verdict, Ran::Conforms(_)) {
+                    break;
+                }
+                if let Ran::Deviates(deviation) = once(input) {
+                    verdict = Ran::Deviates(format!(
+                        "at the second input, `{}`: {deviation}",
+                        input.program
+                    ));
+                }
+            }
             let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
             run.cost.runs.fetch_add(1, Ordering::Relaxed);
             run.cost.run_nanos.fetch_add(elapsed, Ordering::Relaxed);

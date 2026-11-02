@@ -2449,14 +2449,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."import/simplification/result-root/Go()"]
 k = """
-rule probe ( cTAG , V0:KItem ) => go [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => go [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."import/simplification/result-root/Hold(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => hold ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => hold ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -15683,182 +15683,182 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/result-root/!(x < 1)"]
 k = """
-rule probe ( cTAG , V0:Int ) => notBool (V0:Int <Int 1) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => notBool (V0:Int <Int 1) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept.'terms/simplification/result-root/"s"']
 k = '''
-rule probe ( cTAG , V0:KItem ) => #token("\"s\"","String") [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => #token("\"s\"","String") [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/simplification/result-root/-(x + 1)"]
 k = """
-rule probe ( cTAG , V0:Int ) => 0 -Int (V0:Int +Int 1) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => 0 -Int (V0:Int +Int 1) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/-1"]
 k = """
-rule probe ( cTAG , V0:KItem ) => -1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => -1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/1"]
 k = """
-rule probe ( cTAG , V0:KItem ) => 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/1.5"]
 k = """
-rule probe ( cTAG , V0:KItem ) => 1.5 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => 1.5 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/Cmd::Go"]
 k = """
-rule probe ( cTAG , V0:KItem ) => go [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => go [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/Cmd::Go()"]
 k = """
-rule probe ( cTAG , V0:KItem ) => go [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => go [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/Cmd::Hold(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => hold ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => hold ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/Size(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => size ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => size ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/Wrap::<dyn k::KItemSort>(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => wrap ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => wrap ( V0:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/k::builtin::int::add(1, 2)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => 1 +Int 2 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => 1 +Int 2 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/k::builtin::int::add(x, 1)"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int +Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int +Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/k::builtin::set::item(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept.'terms/simplification/result-root/k::bytes!(b"ab")']
 k = '''
-rule probe ( cTAG , V0:KItem ) => #token("b\"ab\"","Bytes") [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => #token("b\"ab\"","Bytes") [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/simplification/result-root/k::fragment![crate::Frame { ret: 1 }]"]
 k = """
-rule probe ( cTAG , V0:KItem ) => <frame> <ret> 1 </ret> </frame> [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => <frame> <ret> 1 </ret> </frame> [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept.'terms/simplification/result-root/k::id!("$x")']
 k = """
-rule probe ( cTAG , V0:KItem ) => #token("$x","Id") [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => #token("$x","Id") [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/k::is!(Int, x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => isInt(V0:KItem) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => isInt(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept.'terms/simplification/result-root/k::lexeme!(Word, "word")']
 k = """
-rule probe ( cTAG , V0:KItem ) => #token("word","Word") [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => #token("word","Word") [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/k::matches!(x, Cmd::Hold(_))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => ( hold ( _ ) :=K V0:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/k::project!(Int, x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => {V0:KItem}:>Int [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => {V0:KItem}:>Int [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/true"]
 k = """
-rule probe ( cTAG , V0:KItem ) => true [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => true [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x"]
 k = """
-rule probe ( cTAG , V0:KItem ) => V0:KItem [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => V0:KItem [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x & 1"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int &Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int &Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x && true"]
 k = """
-rule probe ( cTAG , V0:Bool ) => V0:Bool andThenBool true [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Bool ) => V0:Bool andThenBool true [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x + 1"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int +Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int +Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -15866,42 +15866,42 @@ same_k_as = ["terms/simplification/result-root/k::builtin::int::add(x, 1)"]
 
 [accept."terms/simplification/result-root/x < 1"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int <Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int <Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x << 1"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int <<Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int <<Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x == 1"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int ==Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int ==Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x | 1"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int |Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int |Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x || true"]
 k = """
-rule probe ( cTAG , V0:Bool ) => V0:Bool orElseBool true [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Bool ) => V0:Bool orElseBool true [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/x.add::<Int>(1)"]
 k = """
-rule probe ( cTAG , V0:Int ) => V0:Int +Int 1 [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:Int ) => V0:Int +Int 1 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -15909,14 +15909,14 @@ same_k_as = ["terms/simplification/result-root/k::builtin::int::add(x, 1)"]
 
 [accept."terms/simplification/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 k = """
-rule probe ( cTAG , V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/result-root/{ let y = x; y }"]
 k = """
-rule probe ( cTAG , V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => ( #let V1:KItem = V0:KItem #in V1:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16063,7 +16063,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/result/k::project!(Int, x)"]
 k = """
-rule zero ( cTAG , V0:KItem ) => kz ( {V0:KItem}:>Int ) [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , V0:KItem ) => kz ( {V0:KItem}:>Int )
+requires isInt(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16149,7 +16150,8 @@ same_k_as = ["terms/simplification/result/k::builtin::int::add(x, 1)"]
 
 [accept."terms/simplification/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 k = """
-rule zero ( cTAG , V0:KItem ) => kz ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) ) [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , V0:KItem ) => kz ( ( #let pair ( _ , V1:KItem ) = V0:KItem #in pair ( 1 , V1:KItem ) ) )
+requires ( pair ( _ , _ ) :=K V0:KItem ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16163,21 +16165,24 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/subject-root/Size(x)"]
 k = """
-rule size ( V0:KItem ) => 0 [simplification, label(krsRule_DIGEST)]
+rule size ( V0:KItem ) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/subject-root/k::builtin::int::add(1, 2)"]
 k = """
-rule 1 +Int 2 => 0 [simplification, label(krsRule_DIGEST)]
+rule 1 +Int 2 => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/simplification/subject-root/k::builtin::int::add(x, 1)"]
 k = """
-rule V0:Int +Int 1 => 0 [simplification, label(krsRule_DIGEST)]
+rule V0:Int +Int 1 => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16317,7 +16322,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."terms/simplification/subject/k::project!(Int, x)"]
 k = """
-rule zero ( cTAG , {V0:KItem}:>Int ) => 0 [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , {V0:KItem}:>Int ) => 0
+requires isInt(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24907,7 +24913,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/result-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => (ListItem(V0:KItem) [ 0 ]) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => (ListItem(V0:KItem) [ 0 ]) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24915,7 +24921,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/k::builtin::list::item(x).len()"]
 same_k_as = ["notation/simplification/result-root/k::builtin::list::size(k::builtin::list::item(x))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => size(ListItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => size(ListItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24923,14 +24929,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/k::builtin::list::item(x)[0]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => (ListItem(V0:KItem) [ 0 ]) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => (ListItem(V0:KItem) [ 0 ]) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::list::size(k::builtin::list::item(x))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => size(ListItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => size(ListItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24938,7 +24944,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/k::builtin::map::empty().contains_key(x)"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule probe ( cTAG , V0:KItem ) => V0:KItem in_keys(.Map) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => V0:KItem in_keys(.Map) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24946,7 +24952,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/k::builtin::map::empty().update(x, 1)"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24954,28 +24960,28 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => (.Map [ V0:KItem ]) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => (.Map [ V0:KItem ]) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => (.Map [ V0:KItem ]) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => (.Map [ V0:KItem ]) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule probe ( cTAG , V0:KItem ) => V0:KItem in_keys(.Map) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => V0:KItem in_keys(.Map) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -24983,14 +24989,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/k::builtin::set::item(x).to_list()"]
 same_k_as = ["notation/simplification/result-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => Set2List(SetItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => Set2List(SetItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => Set2List(SetItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => Set2List(SetItem(V0:KItem)) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25044,14 +25050,16 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/simplification/result/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule zero ( cTAG , V0:KItem ) => kz ( (.Map [ V0:KItem ]) ) [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , V0:KItem ) => kz ( (.Map [ V0:KItem ]) )
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule zero ( cTAG , V0:KItem ) => kz ( (.Map [ V0:KItem ]) ) [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , V0:KItem ) => kz ( (.Map [ V0:KItem ]) )
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25087,7 +25095,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
-rule (ListItem(V0:KItem) [ 0 ]) => 0 [simplification, label(krsRule_DIGEST)]
+rule (ListItem(V0:KItem) [ 0 ]) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25095,7 +25104,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::list::item(x).len()"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::list::size(k::builtin::list::item(x))"]
 k = """
-rule size(ListItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+rule size(ListItem(V0:KItem)) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25103,14 +25113,16 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::list::item(x)[0]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 k = """
-rule (ListItem(V0:KItem) [ 0 ]) => 0 [simplification, label(krsRule_DIGEST)]
+rule (ListItem(V0:KItem) [ 0 ]) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::list::size(k::builtin::list::item(x))"]
 k = """
-rule size(ListItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+rule size(ListItem(V0:KItem)) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25118,7 +25130,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty().contains_key(x)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule V0:KItem in_keys(.Map) => 0 [simplification, label(krsRule_DIGEST)]
+rule V0:KItem in_keys(.Map) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25126,7 +25139,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty().update(x, 1)"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+rule .Map [ V0:KItem <- 1 ] => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25134,28 +25148,32 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule (.Map [ V0:KItem ]) => 0 [simplification, label(krsRule_DIGEST)]
+rule (.Map [ V0:KItem ]) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule (.Map [ V0:KItem ]) => 0 [simplification, label(krsRule_DIGEST)]
+rule (.Map [ V0:KItem ]) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
 k = """
-rule V0:KItem in_keys(.Map) => 0 [simplification, label(krsRule_DIGEST)]
+rule V0:KItem in_keys(.Map) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+rule .Map [ V0:KItem <- 1 ] => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25163,14 +25181,16 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject-root/k::builtin::set::item(x).to_list()"]
 same_k_as = ["notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule Set2List(SetItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+rule Set2List(SetItem(V0:KItem)) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
 k = """
-rule Set2List(SetItem(V0:KItem)) => 0 [simplification, label(krsRule_DIGEST)]
+rule Set2List(SetItem(V0:KItem)) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -25224,14 +25244,16 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/subject/k::builtin::map::empty()[x]"]
 same_k_as = ["notation/simplification/subject/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule zero ( cTAG , (.Map [ V0:KItem ]) ) => 0 [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , (.Map [ V0:KItem ]) ) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject/k::builtin::map::get(k::builtin::map::empty(), x)"]
 k = """
-rule zero ( cTAG , (.Map [ V0:KItem ]) ) => 0 [simplification, label(krsRule_DIGEST)]
+rule zero ( cTAG , (.Map [ V0:KItem ]) ) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30370,35 +30392,35 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."notation/simplification/result-root/k::builtin::map::empty()"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::set::empty()"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Set [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Set [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Set |Set SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Set |Set SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) |Set SetItem(1) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => SetItem(V0:KItem) |Set SetItem(1) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30406,7 +30428,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/map![]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::empty()"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30414,7 +30436,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/map![x -> 1, ..k::builtin::map::empty()]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30422,7 +30444,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/map![x -> 1, 2 -> 3]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30430,7 +30452,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/set![]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::set::empty()"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Set [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Set [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30438,7 +30460,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/set![x, ..k::builtin::set::empty()]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Set |Set SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Set |Set SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30446,7 +30468,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/set![x, 1]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 k = """
-rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) |Set SetItem(1) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => SetItem(V0:KItem) |Set SetItem(1) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -30536,21 +30558,24 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 k = """
-rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0 [simplification, label(krsRule_DIGEST)]
+rule .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 k = """
-rule .Set |Set SetItem(V0:KItem) => 0 [simplification, label(krsRule_DIGEST)]
+rule .Set |Set SetItem(V0:KItem) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 k = """
-rule SetItem(V0:KItem) |Set SetItem(1) => 0 [simplification, label(krsRule_DIGEST)]
+rule SetItem(V0:KItem) |Set SetItem(1) => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -32037,7 +32062,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."terms/simplification/result-root/k::map![x -> 1]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -32045,7 +32070,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."terms/simplification/result-root/map![x -> 1]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ V0:KItem <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -34015,14 +34040,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ 0 <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ 0 <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."notation/simplification/result-root/k::builtin::set::item(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -34030,7 +34055,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/map![0 -> 1]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => .Map [ 0 <- 1 ] [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => .Map [ 0 <- 1 ] [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -34038,7 +34063,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."notation/simplification/result-root/set![x]"]
 same_k_as = ["notation/simplification/result-root/k::builtin::set::item(x)"]
 k = """
-rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+rule probek ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -34075,7 +34100,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 k = """
-rule .Map [ 0 <- 1 ] => 0 [simplification, label(krsRule_DIGEST)]
+rule .Map [ 0 <- 1 ] => 0
+requires false [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

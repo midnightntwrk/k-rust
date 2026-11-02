@@ -51,10 +51,16 @@ struct Driver<'a> {
     command: &'a Command,
     counter: Option<Ground>,
     extra: bool,
-    /// In an x-counter run ([`Spelling::x_counter`]), `x`'s value, which is also the counter.
-    x: Option<Ground>,
+    /// `x`'s value: 1, the spelling's second input ([`Spelling::second`]), or in an x-counter
+    /// run ([`Spelling::x_counter`]) the counter.
+    x: Ground,
+    /// Whether the run is an x-counter run, which reads the hole as `x` itself.
+    x_counter: bool,
     /// Whether the plan read the hole's witness, the only reading a counter-witness replaces.
     read_witness: Cell<bool>,
+    /// Whether the plan read a key or a set's element that has no value at `x`, so that the
+    /// sentence does not apply ([`Status::Undefined`]).
+    undefined: Cell<bool>,
 }
 
 /// Why a form has no driver, if it has none.
@@ -87,6 +93,47 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
     Driver::new(slot, spelling, command, None, false)
         .plan()
         .unwrap_or_else(|skip| skip)
+}
+
+/// K7's plan for `spelling` at `slot` at the spelling's second input ([`Spelling::second`]),
+/// beside `plan`, its plan at 1: the case's plan, and its plans at other inputs. Where the plan at
+/// 1 has no value to check (its construct has none there) and the plan at the second input runs,
+/// that run is the case's plan. There is none where the spelling states no second input, where
+/// the slot's program does not take `x` ([`takes_x`]), or where the plan at the second input is
+/// the plan at 1.
+pub(super) fn at_second_input(
+    slot: &Slot,
+    spelling: &Spelling,
+    command: &Command,
+    plan: K7,
+) -> (K7, Vec<Run>) {
+    let Ok(second) = &spelling.second else {
+        return (plan, Vec::new());
+    };
+    if undriven(slot).is_some() || !takes_x(slot) {
+        return (plan, Vec::new());
+    }
+    let driver = Driver {
+        x: second.clone(),
+        ..Driver::new(slot, spelling, command, None, false)
+    };
+    let Ok(K7::Run(run)) = driver.plan() else {
+        return (plan, Vec::new());
+    };
+    match plan {
+        K7::Run(first) if first == run => (K7::Run(first), Vec::new()),
+        K7::Run(first) => (K7::Run(first), vec![run]),
+        K7::Skip(skip) if skip.kind == SkipKind::Value => (K7::Run(run), Vec::new()),
+        skip @ K7::Skip(_) => (skip, Vec::new()),
+    }
+}
+
+/// Whether the program of `slot`'s driver takes `x`'s value: every slot's but a static clause's
+/// `subject-written`, whose own rule writes the witness at 1 into the source ([`super::DRIVE_RULE`]),
+/// and an initializer's that binds no `x` (all but `variable-item`, whose run binds the
+/// configuration variable `x`).
+fn takes_x(slot: &Slot) -> bool {
+    slot.position != "subject-written" && (slot.form != "init" || slot.position == "variable-item")
 }
 
 /// K7's counter plans for `spelling` at `slot`: the case's program on each of the spelling's
@@ -130,7 +177,8 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
         && let Some(x) = &spelling.x_counter
     {
         drivers.push(Driver {
-            x: Some(x.clone()),
+            x: x.clone(),
+            x_counter: true,
             ..Driver::new(slot, spelling, command, Some(x.clone()), false)
         });
     }
@@ -146,7 +194,9 @@ pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command)
             let K7::Run(mut run) = driver.plan().ok()? else {
                 return None;
             };
-            if driver.counter.is_some() && !driver.read_witness.get() {
+            // A counter run on a hole with no value is the plan's own: the sentence does not
+            // apply there either.
+            if (driver.counter.is_some() && !driver.read_witness.get()) || driver.undefined.get() {
                 return None;
             }
             if matches!(slot.form, "equation" | "table") {
@@ -342,8 +392,10 @@ impl<'a> Driver<'a> {
             command,
             counter,
             extra,
-            x: None,
+            x: int(1),
+            x_counter: false,
             read_witness: Cell::new(false),
+            undefined: Cell::new(false),
         }
     }
 
@@ -366,27 +418,42 @@ impl Driver<'_> {
             return Ok(counter.clone());
         }
         self.spelling
-            .witness
-            .clone()
+            .witness_at(&self.x)
             .map_err(|reason| K7::skip(SkipKind::Witness, reason))
     }
 
     /// A set's element where a pattern reads it, which reads as a key does (decision D2): the
-    /// spelling's value, looked up, where it denotes one, and its witness otherwise.
+    /// spelling's value, looked up, where it denotes one; where it has none, nothing is looked
+    /// up ([`Self::undefined_hole`]); and its witness otherwise.
     fn element(&self) -> Read {
-        if self.counter.is_none()
-            && let Meaning::Value(value) = &self.spelling.value
-            && *value != Ground::Any
-        {
-            return Ok(Hole {
-                term: value.clone(),
-                status: Status::Value,
-            });
+        if self.counter.is_none() {
+            match self.spelling.value_at(&self.x) {
+                Meaning::Value(value) if value != Ground::Any => {
+                    return Ok(Hole {
+                        term: value,
+                        status: Status::Value,
+                    });
+                }
+                Meaning::Undefined(_) => return Ok(self.undefined_hole()),
+                _ => {}
+            }
         }
         Ok(Hole {
             term: self.own_witness()?,
             status: Status::Liveness,
         })
+    }
+
+    /// A key or a set's element that a pattern computes and that has no value at `x`: the
+    /// collection holds `x` there, the term the construct reads its value from, so that a
+    /// lowering that read the construct as its operand, dropping the test of its definedness,
+    /// would find it; the sentence must not apply ([`Status::Undefined`]).
+    fn undefined_hole(&self) -> Hole {
+        self.undefined.set(true);
+        Hole {
+            term: self.x.clone(),
+            status: Status::Undefined,
+        }
     }
 
     /// The witness of the hole, where a pattern reads it: the spelling's, inside what the opener
@@ -438,8 +505,11 @@ impl Driver<'_> {
     /// What the hole denotes where it is built: the spelling's meaning, inside what the opener
     /// writes around it.
     fn meaning(&self) -> Result<Meaning, K7> {
-        let x_value = self.x.clone().map(Meaning::Value);
-        let spelling = x_value.as_ref().unwrap_or(&self.spelling.value);
+        let spelling = &if self.x_counter {
+            Meaning::Value(self.x.clone())
+        } else {
+            self.spelling.value_at(&self.x)
+        };
         // `Wk(HOLE)` reads the hole inside an application of `Wk`, whose equation in the base
         // makes it `Wrap::<KItem>` of the hole's value.
         let wrapped = |wrap: fn(Ground) -> Ground| match spelling {
@@ -449,16 +519,16 @@ impl Driver<'_> {
         };
         Ok(match self.slot.opener {
             None | Some("let-body" | "rewrite-right") => spelling.clone(),
-            // `{ let HOLE = x; BODY }` is BODY where the pattern matches x = 1, and undefined
-            // where it does not.
+            // `{ let HOLE = x; BODY }` is BODY, `true` in a condition and `x` elsewhere, where the
+            // pattern matches x, and undefined where it does not.
             Some("let-pattern") if self.spelling.matches_x => {
                 Meaning::Value(if self.slot.side == Side::Guard {
                     Ground::Bool(true)
                 } else {
-                    int(1)
+                    self.x.clone()
                 })
             }
-            Some("let-pattern") => Meaning::Undefined("the let's pattern does not match x = 1"),
+            Some("let-pattern") => Meaning::Undefined(super::LET_UNMATCHED),
             Some("matches-pattern") => Meaning::Value(Ground::Bool(self.spelling.matches_x)),
             Some("function-argument") => wrapped(|value| Ground::ctor("Wrap", vec![value])),
             // `Cmd::Pair { a: HOLE, ..p }` over the matched `p`, `pair(5, 6)`.
@@ -505,22 +575,28 @@ impl Driver<'_> {
     fn key(&self) -> Read {
         // An x-counter is read where the hole is looked up: the key a reading that ignored the
         // hole's meaning would compute from `x`.
-        if self.x.is_some() {
+        if self.x_counter {
             self.read_witness.set(true);
         }
         match self.slot.opener {
             None => self.element(),
             Some("as-body" | "or-branch" | "beside-fresh") => self.witness(),
+            Some(_)
+                if self.counter.is_none() && matches!(self.meaning()?, Meaning::Undefined(_)) =>
+            {
+                Ok(self.undefined_hole())
+            }
             Some(_) => self.value(),
         }
     }
 
-    /// The condition's value, a `Bool` the driver predicts the sentence by. A condition with no
-    /// value under the binders' values does not hold, so the sentence must not apply.
-    fn guard(&self) -> Result<bool, K7> {
+    /// The condition's value, a `Bool` the driver predicts the sentence by, and what the run
+    /// checks. A condition with no value under the binders' values does not hold, so the
+    /// sentence must not apply ([`Status::Undefined`]).
+    fn guard(&self) -> Result<(bool, Status), K7> {
         match self.meaning()? {
-            Meaning::Value(Ground::Bool(value)) => Ok(value),
-            Meaning::Undefined(_) => Ok(false),
+            Meaning::Value(Ground::Bool(value)) => Ok((value, Status::Value)),
+            Meaning::Undefined(_) => Ok((false, Status::Undefined)),
             Meaning::Value(other) => Err(K7::skip(
                 SkipKind::Value,
                 format!("the condition's stated value, {other}, is no Bool"),
@@ -575,12 +651,12 @@ impl Driver<'_> {
         cells: Vec<(&str, Ground)>,
         unapplied: Vec<(&str, Ground)>,
     ) -> Result<K7, K7> {
-        let holds = self.guard()?;
+        let (holds, status) = self.guard()?;
         let mut run = match Self::applied(
             program,
             steps,
             if holds { cells } else { unapplied },
-            Status::Value,
+            status,
         )? {
             K7::Run(run) => run,
             skip @ K7::Skip(_) => return Ok(skip),
@@ -620,14 +696,45 @@ impl Driver<'_> {
         Self::applied(&program, 5, vec![("k", Ground::Seq(Vec::new()))], status)
     }
 
-    /// The plan of the case.
+    /// The plan of the case, where a key or a set's element it reads has a value; where one has
+    /// none ([`Self::undefined_hole`]), the sentence must not apply: the run takes the steps
+    /// before the sentence's, and ends stuck ([`Status::Undefined`]). An equation's function
+    /// context that looks nothing up leaves its application with the configuration it read,
+    /// which the generator does not state.
+    fn plan(&self) -> Result<K7, K7> {
+        let plan = self.planned()?;
+        let K7::Run(mut run) = plan else {
+            return Ok(plan);
+        };
+        if !self.undefined.get() {
+            return Ok(K7::Run(run));
+        }
+        if matches!(self.slot.form, "equation" | "table") {
+            return Err(K7::skip(
+                SkipKind::Value,
+                "the function context looks up a key with no value, and an equation that does not apply leaves its application with the configuration it read, which the generator does not state",
+            ));
+        }
+        run.steps = run.steps.checked_sub(1).ok_or_else(|| {
+            K7::skip(
+                SkipKind::Value,
+                "the construct has no value, and the plan takes no step to leave out",
+            )
+        })?;
+        run.cells = Vec::new();
+        run.status = Status::Undefined;
+        run.applies = false;
+        Ok(K7::Run(run))
+    }
+
+    /// The plan of the case, with each hole read at `x` ([`Self::plan`]).
     #[expect(
         clippy::too_many_lines,
         reason = "One match of the closed slot set; each arm is one slot's driver."
     )]
-    fn plan(&self) -> Result<K7, K7> {
-        // `x`'s value: 1, or an x-counter's.
-        let one = || self.x.clone().unwrap_or_else(|| int(1));
+    fn planned(&self) -> Result<K7, K7> {
+        // `x`'s value: 1, the second input or an x-counter's.
+        let one = || self.x.clone();
         let k = |items: Vec<Ground>| ("k", Ground::Seq(items));
         let fields = |a: Ground, b: Ground| vec![a, b];
         // The case's command over `x` = 1 and a second field the template does not read.
@@ -802,6 +909,7 @@ impl Driver<'_> {
                     witness.status,
                 )
             }
+            // `map![HOLE -> 1]`: the entry's value is the literal 1, whatever `x` is.
             ("cells", "result-map-key") => {
                 let value = self.value()?;
                 Self::applied(
@@ -809,7 +917,7 @@ impl Driver<'_> {
                     1,
                     vec![
                         k(empty_items()),
-                        ("env", Ground::map(vec![(value.term, one())])),
+                        ("env", Ground::map(vec![(value.term, int(1))])),
                     ],
                     value.status,
                 )
@@ -843,7 +951,7 @@ impl Driver<'_> {
                     value.status,
                 )
             }
-            // `map![x -> HOLE, ..m]` over the whole map `m`, `{1 ↦ 0, 2 ↦ 0}`: the entry is written
+            // `map![x -> HOLE, ..m]` over the whole map `m`, `{x ↦ 0, 2 ↦ 0}`: the entry is written
             // over it.
             ("cells", "result-map-whole") => {
                 let value = self.value()?;
@@ -864,7 +972,8 @@ impl Driver<'_> {
                 )
             }
             // `map![HOLE -> 1, ..rest]` over the remainder `{2 ↦ 0}` the subject's `x -> v` leaves
-            // of `{1 ↦ 0, 2 ↦ 0}`: the entry is written over the remainder.
+            // of `{x ↦ 0, 2 ↦ 0}`: the entry, whose value is the literal 1, is written over the
+            // remainder.
             ("cells", "result-map-framed-key") => {
                 let key = self.value()?;
                 Self::set_up(
@@ -877,7 +986,7 @@ impl Driver<'_> {
                         k(empty_items()),
                         (
                             "env",
-                            Ground::map(vec![(int(2), int(0)), (key.term, one())]),
+                            Ground::map(vec![(int(2), int(0)), (key.term, int(1))]),
                         ),
                     ],
                     key.status,
@@ -1137,7 +1246,10 @@ impl Driver<'_> {
                 items.push(item);
                 let mut run = Self::expanded(&go(), vec![k(items)], value.status)?;
                 if let (K7::Run(run), "variable-item") = (&mut run, position) {
-                    run.variables.push(("x".to_owned(), "1".to_owned()));
+                    let x = one().program().ok_or_else(|| {
+                        K7::skip(SkipKind::Witness, format!("no program writes {}", one()))
+                    })?;
+                    run.variables.push(("x".to_owned(), x));
                 }
                 Ok(run)
             }

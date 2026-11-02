@@ -555,6 +555,10 @@ pub struct Case {
     /// more), each of which must not apply the case's sentence; empty where the construct has
     /// none or its slot reads no witness.
     pub k7_counters: Vec<k7::Run>,
+    /// The case's plan at other values of `x`: at its spelling's second input, where the spelling
+    /// reads `x` and the input reaches the case's program ([`k7`]), each of which must run as it
+    /// states, as the plan must; empty for every other case.
+    pub k7_inputs: Vec<k7::Run>,
     /// Whether the case's sentence holds no command of its own: a subject's root, which can take
     /// what another case's program holds, so K7 runs it, and the cases beside it, on definitions
     /// apart.
@@ -1033,9 +1037,28 @@ pub struct SpellingMeaning {
     pub value: k7::Meaning,
     /// Ground terms it must not match where a pattern reads it, or why none is stated.
     pub counter: Result<Vec<k7::Ground>, &'static str>,
+    /// Whether it reads the name `x`.
+    pub reads_x: bool,
+    /// Whether it matches `x`'s value, read as a pattern.
+    pub matches_x: bool,
+    /// Where it reads `x`, the second value of `x` K7 runs its cases at and what it matches and
+    /// denotes there, or why there is none.
+    pub second: Result<SecondInput, &'static str>,
 }
 
-/// What every spelling of the term families matches and denotes, `x` being 1.
+/// A spelling's second input ([`SpellingMeaning::second`]).
+#[derive(Clone, Debug)]
+pub struct SecondInput {
+    /// `x`'s value.
+    pub x: k7::Ground,
+    /// What the spelling matches there, or why nothing.
+    pub witness: Result<k7::Ground, &'static str>,
+    /// What it denotes there.
+    pub value: k7::Meaning,
+}
+
+/// What every spelling of the term families matches and denotes, `x` being 1, and at its second
+/// input.
 #[must_use]
 pub fn spelling_meanings() -> Vec<SpellingMeaning> {
     terms::meanings()
@@ -1148,6 +1171,7 @@ impl CaseSpec {
                  (a claim needs a prover besides)",
             ),
             k7_counters: Vec::new(),
+            k7_inputs: Vec::new(),
             unkeyed: false,
             attribute: None,
             removed: k7::Removed::Changes,

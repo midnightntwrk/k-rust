@@ -379,12 +379,37 @@ the descriptors of the base and its own. A case is judged by
   (`StateView::value`) and compared with the plan's terms. A deviation is keyed `k7/<case ID>`:
   `not applied: N of M steps, then HALT; CELLS`, `no defined result: ..` (a sentence matched and
   its result has no value), `applied where it should not`, `counter-witness `PROGRAM`: ..` (the
-  counter run's deviation), `failed: ERROR`
+  counter run's deviation), `at the second input, `PROGRAM`: ..` (the run at the spelling's
+  second input, below), `ended HALT after N steps, where the construct has no value ..` (a
+  construct with no value whose run did not end stuck), `failed: ERROR`
   (the program's parse or expansion, or the run), `time limit: ..`, `no configuration
   (\bottom)`, or `another value: CELLS, where the plan states CELLS`. Each shard prints how many
   programs K7 ran, in how much worker time, and what it checked of each case K6 accepted: a
-  stated `value`, `liveness` only (a witness, or a value the generator does not state), or why
-  nothing (`no driver`, `no witness`, `no value`). `KRS_CLASS_RUN=0` skips K7; without K6
+  stated `value`, `liveness` only (a witness, or a value the generator does not state),
+  `undefined` (below), or why nothing (`no driver`, `no witness`, `no value`).
+
+  *Two inputs* (NT-43). A value stated at one input shows only that the lowering computes the
+  construct's value there: a lowering that folded in a constant, dropped `x`, or swapped two
+  operands that agree at 1 (`x << 1` and `1 << x`) conforms at `x = 1`. So each spelling that
+  reads `x` states its witness and its value as functions of `x`'s value (a Rust function per
+  spelling, written from what the construct denotes, which reads no lowering or emitted K), the
+  value at 1 computed from it, and a second input at which its meaning differs from its meaning
+  at 1 (`terms.rs` `SECOND`, -2, for the `Int` spellings, at which each operation differs from the
+  lowerings that agree with it at 1; `go`, `Cmd::Hold(-2)` or `pair(5, 6)` where the meaning
+  turns on the term's shape; `false` for the `Bool` ones), or why it has none (a value the same at
+  every `x`, a construct with no value at any). Each case whose spelling has one runs its plan
+  there too (`Case::k7_inputs`), where the slot's program takes `x` (not a static clause's
+  `subject-written`, whose rule writes the witness at 1 into the source); a case whose construct
+  has no value at 1 but has one there is planned there. `tests/k7.rs`
+  `every_spelling_that_reads_x_states_a_second_input_or_why_not` requires the meaning to differ.
+
+  *Constructs with no value* (NT-43). Where a condition, or a key or a set's element a pattern
+  computes and looks up, has no value at the input (a lookup in the empty map, a refutable `let`
+  whose pattern fails, a projection of a term of another sort), the sentence does not apply: the
+  plan (`Status::Undefined`) takes the steps before the sentence's, the collection holding `x`,
+  the term the construct reads its value from, and the run must end stuck there, not at an
+  undefined state (a sentence that applied to a term with no value) or an error. Its counterfactual
+  is the run without the sentence (`Run::applies` is false). `KRS_CLASS_RUN=0` skips K7; without K6
   (`KRS_CLASS_NATIVE=0`) it does not run, and says so.
 
   *The dependency check* (`Worker::check_dependency`). A run is evidence of what a case states
@@ -406,9 +431,8 @@ the descriptors of the base and its own. A case is judged by
   It does not show that the run's value depends on how the construct at the hole is lowered: for
   a rule, removing the sentence mostly removes the step, and the old `hold(size(v))` witnesses,
   which stated an application no equation evaluates, would have passed it. That is shown, for a
-  value the generator states, by the value itself; where the stated value is computed from the
-  input `x` (1), a second input would show it depends on `x`, which the generator does not state
-  (filed as NT-39-1).
+  value the generator states, by the value itself, and where it is computed from `x`, by the run
+  at the second input (*Two inputs*, above).
 
   Dependence is shown only by a run that completes and ends otherwise (`depends: ..`). A run that
   ends as stated deviates (`the runs end as stated without what the case states too`). A run that
