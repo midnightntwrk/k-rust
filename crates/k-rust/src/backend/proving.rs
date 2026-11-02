@@ -137,14 +137,23 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 /// - `definition-condition-equalities-with-definedness-3`: definition conditions use the same
 ///   faithful reading of partial equalities before simplification or SMT, including equality
 ///   of two empty terms. Previously the negation of such an equality could enable a rule
-///   incorrectly and prove a false claim; proofs of unchanged claims are therefore invalidated.
+///   incorrectly and prove a false claim; proofs of unchanged claims are therefore invalidated;
+/// - `solver-atoms-with-operand-definedness-4`: the solver reads every atom with its operands'
+///   domains, so an atom over a partial term holds only where the term is defined, whatever form
+///   the simplifier left the predicates in; and a conditional ceil equation's instance is a
+///   solver fact only where the terms it binds are defined. Under the previous reading an atom
+///   the simplifier had left without a `\ceil` of its partial operand was decided through the
+///   operation's total SMT value, and a ceil equation's instance at an undefined term forced that
+///   term's domain, so the solver could answer valid or unsatisfiable where K does not, and so
+///   discharge a step or prune a branch, and prove a false claim, with neither the claim nor the
+///   definition changed; every proof saved under the previous reading is set aside.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and
 /// `k_rust_backend::claim::with_explicit_definedness`); a change there that changes what a
 /// claim's KORE means must name a new reading here. A correction to the reading of definition
 /// conditions also changes what these proofs certify and must name a new reading.
-const CLAIM_READING: &str = "definition-condition-equalities-with-definedness-3";
+const CLAIM_READING: &str = "solver-atoms-with-operand-definedness-4";
 
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
 /// compiled definition ([`saved_proofs_digest`]).

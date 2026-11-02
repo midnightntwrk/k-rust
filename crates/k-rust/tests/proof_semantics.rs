@@ -3258,6 +3258,37 @@ fn partial_condition_correction_invalidates_saved_proofs_from_the_previous_readi
     assert_ne!(current, previous);
 }
 
+/// GAP K18: the solver's reading of an atom over a partial operand changed (each atom is read
+/// with its operands' domains, and a ceil equation's instance holds only at defined bindings), so
+/// a proof saved under the previous reading may rest on a solver answer K does not give, and is
+/// not reused: the digests differ for the same definition and assumptions.
+#[test]
+fn solver_definedness_correction_invalidates_saved_proofs_from_the_previous_reading() {
+    use k_rust::backend::proving::{
+        ProofAssumptions, saved_proofs_digest, saved_proofs_digest_under_reading,
+    };
+    let kore = compile(
+        proof_sources::PARTIAL_EQUALITY_CONDITIONS,
+        "PARTIAL-CONDITIONS-SPEC",
+        "PARTIAL-CONDITIONS",
+    );
+    let definition = k_rust::kore::parser::parse_definition(&kore).unwrap();
+    let trusted = std::collections::BTreeSet::new();
+    let assumptions = ProofAssumptions {
+        trusted: &trusted,
+        smt_prelude: None,
+        allow_vacuous: false,
+    };
+    let previous = saved_proofs_digest_under_reading(
+        &definition,
+        "PARTIAL-CONDITIONS-SPEC",
+        &assumptions,
+        Some("definition-condition-equalities-with-definedness-3"),
+    );
+    let current = saved_proofs_digest(&definition, "PARTIAL-CONDITIONS-SPEC", &assumptions);
+    assert_ne!(current, previous);
+}
+
 /// Value readings must not discard the domain of an untaken strict branch or of a consumed
 /// operand. The source state is nonempty even when the destination is undefined.
 #[test]
