@@ -10,7 +10,10 @@
 # tests/contractsec-norelease.py, library contractsecnr; with a related store input beside the
 # disclosure cell, ContractEnvNI: the fixture contract with `<env> $ENV:Map </env>`,
 # tests/contract-env.py, library contractenv; with several sorts of values, ContractValsNI: the
-# fixture contract with `KResult ::= Int | Bool`, tests/contract-values.py, library contractvals).
+# fixture contract with `KResult ::= Int | Bool`, tests/contract-values.py, library contractvals;
+# refuted by two runs, with checkers that miss a flow, ContractLeakNI: the fixture contract under
+# tests/contractsec-leaky.py, library contractsecleak, and ImpLeakNI: kimp under
+# tests/imp-sec-leaky.py, library impsecleak).
 # Registry: noninterference.py.
 
 kore_noninterference() {
@@ -41,6 +44,18 @@ kore_noninterference() {
     contractsec-norelease) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/contractsec-norelease.py" "$FIXTURES/contractsec/contractsec.k" "$2.src/contractsec.k" || return 2
       f=$2.src/contractsec.k m=CONTRACTSEC s=CONTRACTSEC-SYNTAX inc=$FIXTURES/contract ;;
+    # checkers that miss a flow: the fixture contract's, `emit` under a private branch
+    # (tests/contractsec-leaky.py), and kimp's, any assignment under a high branch
+    # (tests/imp-sec-leaky.py)
+    contractsec-leaky) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/contractsec-leaky.py" "$FIXTURES/contractsec/contractsec.k" "$2.src/contractsec.k" || return 2
+      f=$2.src/contractsec.k m=CONTRACTSEC s=CONTRACTSEC-SYNTAX inc=$FIXTURES/contract ;;
+    imp-sec-leaky) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/imp-sec-leaky.py" "$DEMOS/k/imp-sec.k" "$2.src/imp-sec.k" || return 2
+      f=$2.src/imp-sec.k m=IMP-SEC s=IMP-SEC-SYNTAX inc=$KIMP ;;
+    # the fixture contract compiled whole, a runnable definition for its witness programs'
+    # initial configurations (`ni_witnesses`; the library is the fixture's checked-in KORE)
+    contract-run) f=$FIXTURES/contract/contract.k m=CONTRACT s=CONTRACT-SYNTAX inc=$FIXTURES/contract ;;
     # the fixture contract with its store an input (tests/contract-env.py)
     contract-env) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/contract-env.py" "$FIXTURES/contract/contract.k" "$2.src/contract.k" || return 2
@@ -66,6 +81,8 @@ name_noninterference() {
     contractsecnr) echo ContractSecNR ;;
     contractenv) echo ContractEnv ;;
     contractvals) echo ContractVals ;;
+    contractsecleak) echo ContractSecLeak ;;
+    impsecleak) echo KImpSecLeak ;;
     *) return 1 ;;
   esac
 }
@@ -105,6 +122,13 @@ gen_noninterference() {
     contractvals) GEN_ARGS=(--kore "$(kore_dir contract-values)/definition.kore" --runtime "$(kore_dir contract-values)/runtime.json"
             --out "$o" --name ContractVals --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant storeOk@env) ;;
+    contractsecleak) GEN_ARGS=(--kore "$(kore_dir contractsec-leaky)/definition.kore"
+            --runtime "$(kore_dir contractsec-leaky)/runtime.json"
+            --out "$o" --name ContractSecLeak --prelude ../../lean
+            --open-obligations "$o/open-obligations.txt" --extra-fns "lev,sec,conf,quiet") ;;
+    impsecleak) GEN_ARGS=(--kore "$(kore_dir imp-sec-leaky)/definition.kore" --runtime "$(kore_dir imp-sec-leaky)/runtime.json"
+            --out "$o" --name KImpSecLeak --prelude ../../lean
+            --open-obligations "$o/open-obligations.txt" --extra-fns "lev,sec,conf") ;;
     *) return 1 ;;
   esac
   return 0
@@ -126,8 +150,29 @@ relate_noninterference() {
       extra=(--roots "SortStmt,SortExpr") ;;
     ContractValsNI) na=ContractVals ka=$(kore_dir contract-values) nb=ContractSec kd=$(libs_fixture contractsec)
       extra=(--roots "SortStmt,SortExpr") ;;
+    ContractLeakNI) na=Contract ka=$(libs_fixture contract) nb=ContractSecLeak kd=$(kore_dir contractsec-leaky)
+      extra=(--roots "SortStmt,SortExpr") ;;
+    ImpLeakNI) na=KImpNI ka=$(kore_dir imp-ni) nb=KImpSecLeak kd=$(kore_dir imp-sec-leaky) extra=(--roots "SortStmt,SortExpr") ;;
     *) return 1 ;;
   esac
+}
+
+# ni_witnesses DIR KORE: the two initial configurations of each witness program DIR/NAME.EXT of a
+# demo (`noninterference --witnesses`), NAME.1.kore and NAME.2.kore: krust's `krun --depth 0` of
+# the program in definition KORE (a krust kcompile directory) with the configuration variables of
+# NAME.1.vars and NAME.2.vars (one VAR=VALUE a line), parsed at the sort of `$PGM`.
+ni_witnesses() {
+  local p n sort run a
+  sort=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["configuration_variables"]["PGM"])' "$2/runtime.json") || return 2
+  for p in "$1"/*; do
+    case $p in *.kore | *.vars | *.lab | *'*') continue ;; esac
+    n=${p%.*}
+    for run in 1 2; do
+      a=()
+      while IFS= read -r l; do [ -n "$l" ] && a+=(-c "$l"); done < "$n.$run.vars"
+      "$KRUST" krun --definition "$2" --depth 0 --sort "$sort" "${a[@]}" "$p" > "$n.$run.kore" < /dev/null || return 2
+    done
+  done
 }
 
 # libs_noninterference NS: the noninterference scaffold of demo NS (ImpNI: kimp, as kimpni, with
@@ -203,6 +248,26 @@ libs_noninterference() {
         --checker-kore "$(libs_fixture contractsec)/definition.kore" --checker-name ContractSec \
         --lev lev --sec sec --conf conf --quiet quiet \
         --open "$DEMOS/ContractValsNI/open.txt" --out-dir "$DEMOS/ContractValsNI/ContractValsNI" ;;
+    # refuted by two runs (design.md, section 3.7): ContractNI's and ImpNI's commands under
+    # checkers that miss a flow, the cases the flow breaks open, and witness programs whose two
+    # runs leak (`Witnesses.lean`)
+    ContractLeakNI) ni_witnesses "$DEMOS/ContractLeakNI/witnesses" "$(kore_dir contract-run)" || return 2
+      "$G" noninterference --kore "$(libs_fixture contract)/definition.kore" --name Contract \
+        --ns ContractLeakNI --store-cell env --program-sort SortStmt --params "(G : ContractSecLeak.SortMap)" \
+        --store-ok storeOk --inputs "LEDGER=public,WIT=private" \
+        --observe "ledger,transcript" --disclosed disclosed \
+        --out "$DEMOS/ContractLeakNI/ContractLeakNI/NI.lean" --report "$DEMOS/ContractLeakNI/noninterference.toml" \
+        --checker-kore "$(kore_dir contractsec-leaky)/definition.kore" --checker-name ContractSecLeak \
+        --lev lev --sec sec --conf conf --quiet quiet \
+        --open "$DEMOS/ContractLeakNI/open.txt" --out-dir "$DEMOS/ContractLeakNI/ContractLeakNI" \
+        --witnesses "$DEMOS/ContractLeakNI/witnesses" ;;
+    ImpLeakNI) ni_witnesses "$DEMOS/ImpLeakNI/witnesses" "$(kore_dir imp-ni)" || return 2
+      "$G" noninterference --kore "$(kore_dir imp-ni)/definition.kore" --name KImpNI --ns ImpLeakNI \
+        --store-cell env --program-sort SortStmt --params "(G : KImpSecLeak.SortMap)" --store-ok storeOk \
+        --out "$DEMOS/ImpLeakNI/ImpLeakNI/NI.lean" --report "$DEMOS/ImpLeakNI/noninterference.toml" \
+        --checker-kore "$(kore_dir imp-sec-leaky)/definition.kore" --checker-name KImpSecLeak --lev lev --sec sec --conf conf \
+        --open "$DEMOS/ImpLeakNI/open.txt" --out-dir "$DEMOS/ImpLeakNI/ImpLeakNI" \
+        --witnesses "$DEMOS/ImpLeakNI/witnesses" ;;
     *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -277,5 +342,23 @@ gate_noninterference() {
     rel ContractValsNI
     scaffold noninterference-ContractValsNI libs_noninterference ContractValsNI
     dbuild_slots ContractValsNI
+  fi
+  # refuted by two runs (section 3.7): the fixture contract and kimp under checkers that miss a
+  # flow (tests/contractsec-leaky.py, library contractsecleak; tests/imp-sec-leaky.py, library
+  # impsecleak), the witnesses' initial configurations by krust
+  if runs demo ContractLeakNI; then
+    phase "scaffold ContractLeakNI"
+    kc contract-run && kc contractsec-leaky && partlib contract Contract &&
+      partlib contractsecleak ContractSecLeak.Functions
+    rel ContractLeakNI
+    scaffold noninterference-ContractLeakNI libs_noninterference ContractLeakNI
+    dbuild_slots ContractLeakNI
+  fi
+  if runs demo ImpLeakNI; then
+    phase "scaffold ImpLeakNI"
+    kc imp-ni && kc imp-sec-leaky && partlib kimpni KImpNI && partlib impsecleak KImpSecLeak.Functions
+    rel ImpLeakNI
+    scaffold noninterference-ImpLeakNI libs_noninterference ImpLeakNI
+    dbuild_slots ImpLeakNI
   fi
 }

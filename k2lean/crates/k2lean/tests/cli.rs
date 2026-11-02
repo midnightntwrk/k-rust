@@ -3473,6 +3473,89 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
         rep.contains("hand = 4") && rep.contains("open = 1\nopen_cases = [\"cq.«CONTRACT.var»\"]"),
         "{rep}"
     );
+    // refutations by two runs (NI-10): a witness's labelling, program and two initial
+    // configurations, its checker verdict, its two runs and `Open.refuted`
+    let w = d.join("witnesses");
+    std::fs::create_dir_all(&w).unwrap();
+    let kore = |wit: &str, bound: &str| {
+        concat!(
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortStmt{},SortKItem{}}(Lbl'Un"#,
+        r#"dsUndsUnds'CONTRACT-SYNTAX'Unds'Stmt'Unds'Stmt'Unds'Stmt{}(Lbl'UndsEqlsUndsSClnUnds'CONTRA"#,
+        r#"CT-SYNTAX'Unds'Stmt'Unds'Id'Unds'Expr{}(\dv{SortId{}}("h"),Lblwitness'LParRParUnds'CONTRAC"#,
+        r#"T-SYNTAX'Unds'Expr{}()),Lblif'LParUndsRParUnds'else'UndsUnds'CONTRACT-SYNTAX'Unds'Stmt'Und"#,
+        r#"s'Expr'Unds'Stmt'Unds'Stmt{}(Lbl'Unds-LT-UndsUnds'CONTRACT-SYNTAX'Unds'Expr'Unds'Expr'Unds"#,
+        r#"'Expr{}(inj{SortId{},SortExpr{}}(\dv{SortId{}}("h")),inj{SortInt{},SortExpr{}}(\dv{SortInt"#,
+        r#"{}}("@BOUND@"))),Lbl'LBraUndsRBraUnds'CONTRACT-SYNTAX'Unds'Stmt'Unds'Stmt{}(Lblemit'LParUn"#,
+        r#"dsRParSClnUnds'CONTRACT-SYNTAX'Unds'Stmt'Unds'Expr{}(inj{SortInt{},SortExpr{}}(\dv{SortInt"#,
+        r#"{}}("1")))),Lbl'LBraRBraUnds'CONTRACT-SYNTAX'Unds'Stmt{}()))),dotk{}())),Lbl'-LT-'env'-GT-"#,
+        r#"'{}(Lbl'Stop'Map{}()),Lbl'-LT-'ledger'-GT-'{}(Lbl'Stop'Map{}()),Lbl'-LT-'wit'-GT-'{}(LblLi"#,
+        r#"stItem{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("@WIT@")))),Lbl'-LT-'transcript'-GT-'{}"#,
+        r#"(Lbl'Stop'List{}()),Lbl'-LT-'disclosed'-GT-'{}(Lbl'Stop'List{}()),Lbl'-LT-'generatedCounte"#,
+        r#"r'-GT-'{}(\dv{SortInt{}}("0")))"#,
+    )
+        .replace("@WIT@", wit)
+        .replace("@BOUND@", bound)
+    };
+    std::fs::write(w.join("implicit-emit.1.kore"), kore("1", "5")).unwrap();
+    std::fs::write(w.join("implicit-emit.2.kore"), kore("7", "5")).unwrap();
+    std::fs::write(w.join("implicit-emit.lab"), "h |-> hi\n").unwrap();
+    std::fs::write(
+        w.join("implicit-emit.contract"),
+        "h = witness(); if (h < 5) { emit(1); } else { }\n",
+    )
+    .unwrap();
+    let wd = w.to_str().unwrap();
+    let o = run(&[&full[..], &["--witnesses", wd]].concat());
+    assert!(o.status.success(), "{}", err(&o));
+    let (wit, rep) = (read("Witnesses.lean"), read("ni.toml"));
+    for x in [
+        "import CN.Proof\nimport Contract.Adequacy\nimport KPrelude.TwoStarts\n",
+        "/-! ## The witness `implicit-emit`:\n```\nh = witness(); if (h < 5) { emit(1); } else { }\n``` -/",
+        "def witness.«implicit-emit».lab : Lab :=\n  open Contract in KPrelude.MapHook.ofEntries [(ContractSec.SortKItem.inj_Id (tr_SortId (SortId.mk \"h\")), ContractSec.SortKItem.inj_Level ContractSec.SortLevel.hi)]",
+        "def witness.«implicit-emit».L : Contract.SortMap :=",
+        "def witness.«implicit-emit».W₂ : Contract.SortList :=\n  open Contract in (KPrelude.ListHook.ofElems [SortKItem.inj_Int (7 : Int)] : SortList)",
+        "theorem witness.«implicit-emit».secure : secure witness.«implicit-emit».lab witness.«implicit-emit».program := by",
+        "¬ RelatedFrom Contract.Step fin (fun f₁ f₂ => discOf f₁ = discOf f₂ → pubOf f₁ = pubOf f₂)",
+        "(Contract.init witness.«implicit-emit».program witness.«implicit-emit».L witness.«implicit-emit».W₁)",
+        "(fun a b => decide (discOf a = discOf b) && (!decide (pubOf a = pubOf b))), (fun _ _ => not_imp_of not_of_decide)",
+        "theorem Open.refuted : ¬ Open := fun O =>\n  witness.«implicit-emit».leaks fun h₁ hf₁ h₂ hf₂ hd =>\n    contract_noninterference (G := witness.«implicit-emit».lab) O witness.«implicit-emit».secure h₁",
+    ] {
+        assert!(wit.contains(x), "{x}\n{wit}");
+    }
+    assert!(
+        rep.contains("[witnesses]") && rep.contains("names = [\"implicit-emit\"]"),
+        "{rep}"
+    );
+    // refused: a labelling that is not `KEY |-> LEVEL` pairs, a level the checker does not have,
+    // none; two configurations of different programs; no open case to refute
+    for (lab, msg) in [
+        ("h hi\n", "a labelling is `KEY |-> LEVEL` pairs"),
+        ("h |-> mid\n", "`mid` is not a level of the checker"),
+    ] {
+        std::fs::write(w.join("implicit-emit.lab"), lab).unwrap();
+        let o = run(&[&full[..], &["--witnesses", wd]].concat());
+        assert!(
+            !o.status.success() && err(&o).contains(msg),
+            "{lab}: {}",
+            err(&o)
+        );
+    }
+    std::fs::remove_file(w.join("implicit-emit.lab")).unwrap();
+    let o = run(&[&full[..], &["--witnesses", wd]].concat());
+    assert!(
+        !o.status.success() && err(&o).contains("has no `implicit-emit.lab`"),
+        "{}",
+        err(&o)
+    );
+    std::fs::write(w.join("implicit-emit.lab"), "h |-> hi\n").unwrap();
+    std::fs::write(w.join("implicit-emit.2.kore"), kore("7", "6")).unwrap();
+    let o = run(&[&full[..], &["--witnesses", wd]].concat());
+    assert!(
+        !o.status.success() && err(&o).contains("differ at $PGM"),
+        "{}",
+        err(&o)
+    );
+    std::fs::write(w.join("implicit-emit.2.kore"), kore("7", "5")).unwrap();
     // refused: a case marked refuted (sufficient for the relation, not necessary), the earlier
     // form `KIND RULE`, a rule that does not exist
     for (list, msg) in [
@@ -3536,6 +3619,17 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
     let o = run(&[&full[..], &["--secure", "secure G"]].concat());
     assert!(
         !o.status.success() && err(&o).contains("generated with --store-ok"),
+        "{}",
+        err(&o)
+    );
+    // refused: witnesses with no open case (the theorem holds, no two runs leak)
+    let o = run(&[
+        &full[..],
+        &["--witnesses", d.join("witnesses").to_str().unwrap()],
+    ]
+    .concat());
+    assert!(
+        !o.status.success() && err(&o).contains("no per-rule case is open"),
         "{}",
         err(&o)
     );

@@ -5,7 +5,7 @@ identifier the checker accepts a program whose high branch writes only the high 
 rejects an explicit flow, an implicit flow through `if` and one through `while`, and the empty
 stores are low-equal. The checker's functions are defined by well-founded recursion, which the
 kernel does not reduce, so its verdicts are computed through the inversion lemmas of
-`Levels.lean` (generated) and `lev_id` (`Store.lean`). -/
+`Levels.lean` (generated, `lev_id` among them). -/
 
 namespace ImpNI.Examples
 

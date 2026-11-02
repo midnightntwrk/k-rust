@@ -1,0 +1,11 @@
+# The per-rule cases of the noninterference relation (`k2lean noninterference --open`):
+# `KIND.«RULE» | hand`, proved by hand in ImpLeakNI/Store.lean (the cases that read or write the
+# store, as ImpNI's), KIND one of cq, sq, same; a name alone is open (a field of `Open`, the
+# theorem's premise). The checker (tests/imp-sec-leaky.py) accepts any assignment under a high
+# branch, so a confined assignment may write a low identifier: `cq.«CALC.assign»` is false, and
+# the witness `implicit-assign` refutes the open cases by two runs (`Witnesses.lean`).
+cq.«CALC.var» | hand
+cq.«CALC.assign»
+sq.«CALC.var» | hand
+same.«CALC.var» | hand
+same.«CALC.assign» | hand

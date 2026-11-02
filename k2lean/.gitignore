@@ -191,6 +191,25 @@ lake-manifest.json
 /demos/ContractValsNI/ContractValsNI/Stack.lean
 /demos/ContractValsNI/ContractValsNI/Proof.lean
 /demos/ContractValsNI/noninterference.toml
+/demos/ContractLeakNI/ContractLeakNI/Tr.lean
+/demos/ContractLeakNI/ContractLeakNI/NI.lean
+/demos/ContractLeakNI/ContractLeakNI/Spec.lean
+/demos/ContractLeakNI/ContractLeakNI/Levels.lean
+/demos/ContractLeakNI/ContractLeakNI/Stack.lean
+/demos/ContractLeakNI/ContractLeakNI/Proof.lean
+/demos/ContractLeakNI/ContractLeakNI/Witnesses.lean
+/demos/ContractLeakNI/noninterference.toml
+/demos/ImpLeakNI/ImpLeakNI/Tr.lean
+/demos/ImpLeakNI/ImpLeakNI/NI.lean
+/demos/ImpLeakNI/ImpLeakNI/Spec.lean
+/demos/ImpLeakNI/ImpLeakNI/Levels.lean
+/demos/ImpLeakNI/ImpLeakNI/Stack.lean
+/demos/ImpLeakNI/ImpLeakNI/Proof.lean
+/demos/ImpLeakNI/ImpLeakNI/Witnesses.lean
+/demos/ImpLeakNI/noninterference.toml
+# the witness programs' initial configurations (krust's `krun --depth 0`, `ni_witnesses` in
+# tests/areas/noninterference.sh)
+/demos/*/witnesses/*.kore
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean
