@@ -151,7 +151,7 @@ macro_rules! __krs_hook_operation_catalog {
                 }
             }
             /// Validate a concrete G1 point of the plugin's BN128 curve (`KRYPTO.bn128valid`).
-            /// The curve is alt_bn128 of EIP-196 and EIP-197, as amendment AM-3 of k-rust's
+            /// The curve is `alt_bn128` of EIP-196 and EIP-197, as amendment AM-3 of k-rust's
             /// `docs/amendments.md` reads `plugin/krypto.md`, so the BN128 values on points are
             /// determined; a sum, product or pairing of a non-point, which the plugin does not
             /// describe, is open, and k-rust marks the run there.
