@@ -1118,11 +1118,12 @@ impl TranslationState {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
             // `false`. A Boolean one is therefore an unrelated constant, as any term without a
-            // translation. That over-approximates only where the intersection is defined: under
-            // a negation, `\not(c = true) /\ \not(c = false)` has no model while it holds in K
-            // where the operands differ. A request with such an atom is refused (`Admitted`), and
-            // K source never writes one in a condition, so only a condition written in KORE can
-            // reach this unfaithful reading.
+            // translation. Every atom over it is read under its domain (`atom_with_domains`), an
+            // opaque `\ceil` here, so the constant is read only where the intersection is defined,
+            // where a model of the definition gives it the intersection's value: faithful in every
+            // polarity, `\not(c = true) /\ \not(c = false)` holding where the domain does not.
+            // A request or condition with such an atom states that domain beside it, the equality
+            // of the operands (`definedness::and_side`, GAP K30).
             TermKind::And(left, right)
                 if left.sort().is_builtin(BuiltinSort::Bool)
                     && right.sort().is_builtin(BuiltinSort::Bool) =>
@@ -2847,8 +2848,8 @@ impl SmtPrelude {
 /// internalization of a claim's constraints, `claim::with_explicit_definedness`) serve the
 /// simplifier, which may rewrite a term so that a partial subterm no longer shows; the solver
 /// does not rely on them (docs/compatibility.md, "Solver decisions over partial operations").
-/// An instantiated condition with an atom over a term-level conjunction is refused rather
-/// than decided with a totalized value.
+/// An atom over a term-level conjunction has its definedness stated too, the equality of the
+/// conjunction's sides (GAP K30).
 #[must_use]
 pub fn translation_exactness(predicates: &[Predicate]) -> Exactness {
     translate_query(predicates, &Substitution::new(), &[])

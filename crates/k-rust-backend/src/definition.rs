@@ -790,8 +790,10 @@ impl<'a> Admitted<'a> {
     /// equivalent form that prints back as the leaf did.
     ///
     /// A predicate whose definedness depends on an impure application in an operand a
-    /// conditional does not evaluate, or an atom over a term-level `\and`, has no such form and
-    /// is refused ([`DefinitionError::UnstatedDefinedness`]). A request with an `\equals` that
+    /// conditional does not evaluate has no such form and is refused
+    /// ([`DefinitionError::UnstatedDefinedness`]). An atom over a term-level `\and` has one: its
+    /// definedness is `ceil_term`'s, the equality of the conjunction's sides beside their own
+    /// obligations (GAP K30). A request with an `\equals` that
     /// would read a term as a predicate is refused before, by the reading of its predicates
     /// itself ([`crate::rule::PredicateReading`]), with
     /// [`UnstatedDefinedness::TermReadAsPredicate`].
@@ -1544,10 +1546,6 @@ pub enum UnstatedDefinedness {
     /// evaluate depends on an impure application (of the hook or symbol `hook`), which deciding
     /// it would perform, and a constraint must not hold one (`crate::deferred`).
     Impure { hook: String, detail: String },
-    /// An atom (a Boolean term, or a side of an equality) holds a term-level `\and`, whose
-    /// definedness is more than its operands' (`Y /\ Z` of two variables is empty unless
-    /// `Y = Z`), so the atom's definedness cannot be stated beside it.
-    TermConjunction,
     /// Not a definedness: a claim holds this literal, as written, whose element the definition
     /// leaves open (`crate::literal`, class `literal`), so the claim states one configuration
     /// per element, and no proof decision answers for all of them. It is refused as a claim
@@ -1573,9 +1571,6 @@ impl From<crate::definedness::PredicateDefinednessFailure> for UnstatedDefinedne
                 hook: outcome.hook().to_owned(),
                 detail: outcome.reason().to_string(),
             },
-            crate::definedness::PredicateDefinednessFailure::TermConjunction => {
-                Self::TermConjunction
-            }
         }
     }
 }
@@ -1588,9 +1583,6 @@ impl fmt::Display for UnstatedDefinedness {
                 formatter,
                 "the definedness of a predicate depends on an impure application: {detail} \
                  ({hook})"
-            ),
-            Self::TermConjunction => formatter.write_str(
-                "an atom holds a term-level \\and, whose definedness cannot be stated beside it",
             ),
             Self::TermReadAsPredicate => formatter.write_str(
                 "an \\equals whose operands are not both terms holds a term where a predicate is \
@@ -1889,10 +1881,6 @@ impl fmt::Display for DefinitionError {
             Self::UnstatedDefinedness(UnstatedDefinedness::RefusedReading(error)) => write!(
                 formatter,
                 "The predicates of the pattern cannot be read faithfully: {error}"
-            ),
-            Self::UnstatedDefinedness(UnstatedDefinedness::TermConjunction) => formatter.write_str(
-                "The definedness of a predicate of the request cannot be stated: an atom holds a \
-                 term-level \\and",
             ),
             Self::UnstatedDefinedness(reason @ UnstatedDefinedness::OpenLiteral(_)) => {
                 write!(formatter, "The pattern cannot be read faithfully: {reason}")

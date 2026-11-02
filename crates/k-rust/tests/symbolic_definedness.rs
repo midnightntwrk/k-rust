@@ -1285,27 +1285,67 @@ endmodule
     }
 
     /// A term-level `\and` denotes the intersection of its operands, `\bottom` where they differ,
-    /// so an atom over one has a definedness that its operands' does not state (`Z /\ W` of two
-    /// variables is empty unless `Z = W`). A request with such an atom is refused rather than
-    /// decided.
+    /// so an atom over one owes the equality of its operands beside their own definedness
+    /// (`Z /\ W` of two variables is empty unless `Z = W`). Such a request is admitted with that
+    /// obligation stated where the atom stands (GAP K30): under the negation here, so the
+    /// pattern keeps its instances where `Z` and `W` differ and is not shown empty.
     #[test]
-    fn a_request_atom_over_a_term_conjunction_is_refused() {
+    fn a_request_atom_over_a_term_conjunction_keeps_its_undefined_instances() {
         let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
         let intersection = format!(
             "Lbl'UndsPlus'Int'Unds'{{}}(\\and{{SortInt{{}}}}({Z}, {W}), {})",
             int(0)
         );
         let pattern = and(&pos3(), &not(&equals(&intersection, &int(0))));
-        let result = backend.implies(ImplicationRequest::new(
-            parse(&pattern),
-            parse(&format!("\\bottom{{{SORT}}}()")),
-        ));
-        assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| error.message().contains("term-level")),
-            "{result:?}"
+        assert_ne!(implies_bottom(&mut backend, &pattern), "valid");
+    }
+
+    /// GAP K30: `B /\ true ==Bool true` holds exactly where `B` is `true`, where the intersection
+    /// is `true`; elsewhere the intersection is `\bottom` and the atom is false. A request with
+    /// it is admitted, and `implies` decides it as `B = true` both ways, and shows its negation
+    /// where `B = false`. That the negation implies `B = false` is not shown (the solver reads the
+    /// intersection and its definedness as opaque, and the stated obligation `B = true` lies
+    /// inside the negation), but it is never refuted.
+    #[test]
+    fn a_request_atom_over_a_boolean_term_conjunction_is_decided_by_its_definedness() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let atom = holds(
+            r#"Lbl'UndsEqlsEqls'Bool'Unds'{}(\and{SortBool{}}(B:SortBool{}, \dv{SortBool{}}("true")), \dv{SortBool{}}("true"))"#,
         );
+        let is = |value: &str| {
+            format!(
+                "\\equals{{SortBool{{}}, {SORT}}}(B:SortBool{{}}, \\dv{{SortBool{{}}}}(\"{value}\"))"
+            )
+        };
+        let mut implies = |antecedent: &str, consequent: &str| {
+            backend
+                .implies(ImplicationRequest::new(
+                    parse(&and(&pos(), antecedent)),
+                    parse(&and(&pos(), consequent)),
+                ))
+                .map(|result| result.status)
+        };
+        for (case, antecedent, consequent) in [
+            ("the atom implies B = true", atom.clone(), is("true")),
+            ("B = true implies the atom", is("true"), atom.clone()),
+            ("B = false implies its negation", is("false"), not(&atom)),
+        ] {
+            let status = implies(&antecedent, &consequent);
+            assert_eq!(status.as_deref().ok(), Some("valid"), "{case}: {status:?}");
+        }
+        let status = implies(&not(&atom), &is("false"));
+        assert!(
+            status.as_deref().is_ok_and(|status| status != "invalid"),
+            "{status:?}"
+        );
+        let status = implies(&is("false"), &atom);
+        assert_ne!(status.as_deref().ok(), Some("valid"), "{status:?}");
     }
 
     /// An `\equals` whose operands are not both terms would be read as the `\iff` of its

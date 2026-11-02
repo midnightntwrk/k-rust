@@ -21,7 +21,8 @@
 //! seed with `SOLVER_TRANSLATION_SEED=<u64>`, with a longer Z3 check bound with
 //! `SOLVER_TRANSLATION_TIMEOUT_MS` (default 100), with literal `^Int` exponents only with
 //! `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS=0` (see `power_exponent`; symbolic exponents are on by
-//! default here since GAP K32), and print every case and its time with
+//! default here since GAP K32), without term-level `\and`s (on by default since GAP K30,
+//! `terms_with`) with `SOLVER_TRANSLATION_CONJUNCTIONS=0`, and print every case and its time with
 //! `SOLVER_TRANSLATION_TRACE=1`. A failure prints the shrunk case, the answer, and the
 //! counter-valuation with each predicate's truth there.
 
@@ -43,7 +44,7 @@ use proptest::test_runner::{TestCaseError, TestError};
 use solver_oracle::*;
 
 /// The prefix of this target's knobs (`SOLVER_TRANSLATION_SEED`, `_TIMEOUT_MS`,
-/// `_SYMBOLIC_EXPONENTS`, `_TRACE`).
+/// `_SYMBOLIC_EXPONENTS`, `_CONJUNCTIONS`, `_TRACE`).
 const KNOBS: &str = "SOLVER_TRANSLATION";
 
 // ---------------------------------------------------------------------------------------------
@@ -331,7 +332,11 @@ fn every_decided_solver_answer_agrees_with_k_truth_on_the_domain() {
     let trace = std::env::var_os("SOLVER_TRANSLATION_TRACE").is_some();
     // Cases run until the first failure, which counts generated cases: shrinking starts there.
     let (runs, first_failure) = (Cell::new(0usize), Cell::new(None));
-    let outcome = runner.run(&case(symbolic_exponents_unless_off(KNOBS)), |case| {
+    let strategy = case_with(
+        symbolic_exponents_unless_off(KNOBS),
+        conjunctions_unless_off(KNOBS),
+    );
+    let outcome = runner.run(&strategy, |case| {
         let before = std::time::Instant::now();
         if trace {
             eprintln!("case: {case}");
@@ -475,6 +480,12 @@ fn the_oracles_model_agrees_with_ground_evaluation_of_the_hooked_symbols() {
         decided > ground.len(),
         "the backend decided too few ground applications: {decided}"
     );
+}
+
+/// Term-level `\and`s of two Int or two Bool terms (GAP K30) are drawn in this target unless
+/// `SOLVER_TRANSLATION_CONJUNCTIONS=0`.
+fn conjunctions_unless_off(prefix: &str) -> bool {
+    std::env::var_os(format!("{prefix}_CONJUNCTIONS")).is_none_or(|value| value != "0")
 }
 
 /// Symbolic `^Int` exponents are on in this target unless `SOLVER_TRANSLATION_SYMBOLIC_EXPONENTS=0`

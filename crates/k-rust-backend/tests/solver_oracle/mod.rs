@@ -170,6 +170,9 @@ pub enum IntT {
     Ite(Box<BoolT>, Box<IntT>, Box<IntT>),
     G(Box<IntT>),
     Lookup(Box<MapT>, Box<IntT>),
+    /// A term-level `\and`: the intersection of its operands, their common value where both
+    /// are defined and equal, `\bottom` elsewhere (GAP K30).
+    And(Box<IntT>, Box<IntT>),
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +192,8 @@ pub enum BoolT {
     Gt(Box<IntT>, Box<IntT>),
     Ge(Box<IntT>, Box<IntT>),
     Or(Box<BoolT>, Box<BoolT>),
+    /// A term-level `\and` of two Booleans, read as `IntT::And` is (GAP K30).
+    And(Box<BoolT>, Box<BoolT>),
 }
 
 #[derive(Clone, Debug)]
@@ -260,7 +265,7 @@ impl IntT {
                 free.open = true;
                 a.free(free);
             }
-            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) => {
+            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) | Self::And(a, b) => {
                 a.free(free);
                 b.free(free);
             }
@@ -297,7 +302,7 @@ impl BoolT {
                 a.free(free);
                 b.free(free);
             }
-            Self::Or(a, b) => {
+            Self::Or(a, b) | Self::And(a, b) => {
                 a.free(free);
                 b.free(free);
             }
@@ -402,6 +407,7 @@ impl fmt::Display for IntT {
             Self::Ite(c, a, b) => write!(f, "#if {c} #then {a} #else {b} #fi"),
             Self::G(a) => write!(f, "g({a})"),
             Self::Lookup(m, k) => write!(f, "{m}[{k}]"),
+            Self::And(a, b) => write!(f, "({a} /\\ {b})"),
         }
     }
 }
@@ -421,6 +427,7 @@ impl fmt::Display for BoolT {
             Self::Gt(a, b) => write!(f, "({a} >Int {b})"),
             Self::Ge(a, b) => write!(f, "({a} >=Int {b})"),
             Self::Or(a, b) => write!(f, "({a} orBool {b})"),
+            Self::And(a, b) => write!(f, "({a} /\\ {b})"),
         }
     }
 }
@@ -501,6 +508,7 @@ impl IntT {
             }
             Self::G(a) => format!("g{{}}({})", a.kore()),
             Self::Lookup(m, k) => format!("lookup{{}}({}, {})", m.kore(), k.kore()),
+            Self::And(a, b) => format!("\\and{{SortInt{{}}}}({}, {})", a.kore(), b.kore()),
         }
     }
 }
@@ -520,6 +528,7 @@ impl BoolT {
             Self::Gt(a, b) => format!("gtInt{{}}({}, {})", a.kore(), b.kore()),
             Self::Ge(a, b) => format!("geInt{{}}({}, {})", a.kore(), b.kore()),
             Self::Or(a, b) => format!("orBool{{}}({}, {})", a.kore(), b.kore()),
+            Self::And(a, b) => format!("\\and{{SortBool{{}}}}({}, {})", a.kore(), b.kore()),
         }
     }
 }
@@ -779,6 +788,10 @@ pub fn eval_int(term: &IntT, env: &Env) -> Eval<i128> {
         IntT::Lookup(m, k) => {
             strict!(m = eval_map(m, env), k = eval_int(k, env) => m.get(&k).copied())
         }
+        // The intersection of two patterns that each denote at most one element.
+        IntT::And(a, b) => {
+            strict!(a = eval_int(a, env), b = eval_int(b, env) => (a == b).then_some(a))
+        }
     })
 }
 
@@ -817,6 +830,9 @@ pub fn eval_bool(term: &BoolT, env: &Env) -> Eval<bool> {
         BoolT::Ge(a, b) => strict!(a = eval_int(a, env), b = eval_int(b, env) => Some(a >= b)),
         // An application like any other: strict in both arguments, `\bottom` if either is.
         BoolT::Or(a, b) => strict!(a = eval_bool(a, env), b = eval_bool(b, env) => Some(a || b)),
+        BoolT::And(a, b) => {
+            strict!(a = eval_bool(a, env), b = eval_bool(b, env) => (a == b).then_some(a))
+        }
     })
 }
 
@@ -1044,6 +1060,13 @@ pub struct Terms {
 }
 
 pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
+    terms_with(depth, symbolic_exponents, false)
+}
+
+/// [`terms`], and with `conjunctions` also term-level `\and`s of two Int or two Bool terms
+/// (GAP K30), an Int one drawn as often as a sum and a Bool one as often as a negation; without
+/// it the draw is [`terms`]'s, case for case.
+pub fn terms_with(depth: u32, symbolic_exponents: bool, conjunctions: bool) -> Terms {
     let mut level = Terms {
         int: int_leaf(),
         bool: bool_leaf(),
@@ -1071,6 +1094,15 @@ pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
             2 => (map.clone().prop_map(Box::new), b(&int)).prop_map(|(m, k)| IntT::Lookup(m, k)),
         ]
         .boxed();
+        let next_int = if conjunctions {
+            prop_oneof![
+                29 => next_int,
+                1 => (b(&int), b(&int)).prop_map(|(a, c)| IntT::And(a, c)),
+            ]
+            .boxed()
+        } else {
+            next_int
+        };
         let next_bool = prop_oneof![
             5 => bool_leaf(),
             2 => (b(&int), b(&int)).prop_map(|(a, c)| BoolT::Eq(a, c)),
@@ -1080,6 +1112,16 @@ pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
             1 => (b(&int), map.clone().prop_map(Box::new)).prop_map(|(k, m)| BoolT::InKeys(k, m)),
         ]
         .boxed();
+        let next_bool = if conjunctions {
+            prop_oneof![
+                13 => next_bool,
+                1 => (bool.clone().prop_map(Box::new), bool.clone().prop_map(Box::new))
+                    .prop_map(|(a, c)| BoolT::And(a, c)),
+            ]
+            .boxed()
+        } else {
+            next_bool
+        };
         let next_map = prop_oneof![
             3 => map_leaf(),
             2 => (b(&int), b(&int)).prop_map(|(k, v)| MapT::Item(k, v)),
@@ -1189,8 +1231,13 @@ pub fn reuse(terms: &Terms) -> BoxedStrategy<Pred> {
 }
 
 pub fn case(symbolic_exponents: bool) -> impl Strategy<Value = Case> {
-    let terms = terms(3, symbolic_exponents);
-    let binding_terms = terms_at(2, symbolic_exponents);
+    case_with(symbolic_exponents, false)
+}
+
+/// [`case`] over [`terms_with`]'s terms, term-level `\and`s included with `conjunctions`.
+pub fn case_with(symbolic_exponents: bool, conjunctions: bool) -> impl Strategy<Value = Case> {
+    let terms = terms_with(3, symbolic_exponents, conjunctions);
+    let binding_terms = terms_with(2, symbolic_exponents, conjunctions).int;
     let predicate = predicate(&terms);
     let binding = (
         prop_oneof![Just(IntVar::X), Just(IntVar::Y), Just(IntVar::Z)],

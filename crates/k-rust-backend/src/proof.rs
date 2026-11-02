@@ -6493,7 +6493,7 @@ mod tests {
                 location: None,
                 sentence: 0,
             },
-            unstated: Some(crate::definition::UnstatedDefinedness::TermConjunction),
+            unstated: Some(crate::definition::UnstatedDefinedness::TermReadAsPredicate),
         };
         let refused = super::prove_claim(
             &definition,
@@ -6506,7 +6506,7 @@ mod tests {
             matches!(
                 refused,
                 Err(ProofError::UnstatedDefinedness(
-                    crate::definition::UnstatedDefinedness::TermConjunction
+                    crate::definition::UnstatedDefinedness::TermReadAsPredicate
                 ))
             ),
             "{refused:?}"
