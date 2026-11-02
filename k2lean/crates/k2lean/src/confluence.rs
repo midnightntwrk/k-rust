@@ -1555,6 +1555,7 @@ pub fn main(args: &[String]) {
                 &feet,
                 &rank,
                 slot_opts.as_ref(),
+                eqv.as_ref(),
             );
             let of = |k: usize| premises.slots.iter().filter(|s| s.k == k).count();
             let summary = format!(
@@ -1754,6 +1755,9 @@ mod views {
         Write,
         /// At some bindings of a map (`MCh`), for a cell every rule touches so.
         Keyed,
+        /// By a function of what it holds (`ACh`, `PCh`), for a cell `--equiv` relaxes and no
+        /// rule reads: two such changes commute up to the cell's relation.
+        Relaxed,
     }
 
     impl Touch {
@@ -1993,8 +1997,112 @@ mod views {
         pub views: String,
     }
 
+    /// With relaxed cells (`Touch::Relaxed`): `Shared.Rel`, the shared cells of configurations
+    /// `Equiv` relates; `Change.apply_comm` up to it (`ac`, each field's commutation, for the
+    /// fields compared by equality); and `mkc_rel`, the configurations of related shared cells.
+    #[allow(clippy::too_many_arguments)]
+    fn relaxed_comm(
+        o: &mut String,
+        eqv: &super::equiv::Equiv,
+        leaves: &[Leaf],
+        ti: usize,
+        shared: &[&Leaf],
+        relaxed: &[Option<super::equiv::Relaxed>],
+        ac: &[String],
+        tct: &str,
+    ) {
+        use super::equiv::Rel;
+        let n = shared.len();
+        let rel_of = |f: usize| relaxed[f].as_ref().map(|(r, _)| *r);
+        let tuple = |xs: &[String], sep: &str| {
+            if xs.len() == 1 {
+                xs[0].clone()
+            } else {
+                format!("⟨{}⟩", xs.join(sep))
+            }
+        };
+        // the fields `Shared.Rel` compares: all but those not compared (`any`)
+        let comps: Vec<usize> = (0..n).filter(|&f| rel_of(f) != Some(Rel::Any)).collect();
+        let parts: Vec<String> = comps
+            .iter()
+            .map(|&f| match rel_of(f) {
+                Some(_) => format!("ListHook.Perm s.{0} s'.{0}", shared[f].field),
+                None => format!("s.{0} = s'.{0}", shared[f].field),
+            })
+            .collect();
+        writeln!(o, "\n/-- The shared cells of two configurations `Equiv` relates: equal but in the cells it relaxes. -/\ndef Shared.Rel (s s' : Shared) : Prop :=\n  {}", if parts.is_empty() { "True".to_string() } else { parts.join(" ∧ ") }).unwrap();
+        let pfs: Vec<String> = comps
+            .iter()
+            .map(|&f| match rel_of(f) {
+                Some(_) => format!("PCh.apply_comm a.{0} b.{0} s.{0}", shared[f].field),
+                None => ac[f].clone(),
+            })
+            .collect();
+        let body = if pfs.is_empty() {
+            "trivial".to_string()
+        } else {
+            tuple(&pfs, ",\n    ")
+        };
+        writeln!(o, "\n/-- Two compatible changes commute, up to the relations of the cells `Equiv` relaxes. -/\ntheorem Change.apply_comm {{a b : Change}} {{s : Shared}} (h : a.Compat b) (ha : a.pre s) (hb : b.pre s) :\n    Shared.Rel (b.apply (a.apply s)) (a.apply (b.apply s)) :=\n  {body}").unwrap();
+        let xs: Vec<String> = (0..n).map(|i| format!("x{i}")).collect();
+        let ys: Vec<String> = (0..n).map(|i| format!("y{i}")).collect();
+        let pats: Vec<String> = comps
+            .iter()
+            .map(|&f| match rel_of(f) {
+                Some(_) => format!("h{f}"),
+                None => "rfl".into(),
+            })
+            .collect();
+        // `Equiv`'s conjuncts, cell by cell (`equiv::Equiv::conj`)
+        let mut eqs = vec![];
+        for (i, l) in leaves.iter().enumerate() {
+            let rel = eqv
+                .cells
+                .iter()
+                .find(|c| c.label == l.label)
+                .and_then(|c| c.rel);
+            match rel {
+                Some(Rel::Any) => {}
+                Some(Rel::Perm) if i != ti && rel_of(if i < ti { i } else { i - 1 }).is_some() => {
+                    eqs.push(format!("h{}", if i < ti { i } else { i - 1 }))
+                }
+                Some(Rel::Perm) => eqs.push("ListHook.Perm.refl _".into()),
+                None => eqs.push("rfl".into()),
+            }
+        }
+        let obtain_h = if pats.is_empty() {
+            String::new()
+        } else {
+            format!("  obtain {} := h\n", tuple(&pats, ", "))
+        };
+        writeln!(o, "\n/-- Configurations of the same threads and related shared cells are related by `Equiv`. -/\ntheorem mkc_rel {{tc : {tct}}} {{s s' : Shared}} (h : Shared.Rel s s') : Equiv (mkc tc s) (mkc tc s') := by\n  obtain ⟨{}⟩ := s\n  obtain ⟨{}⟩ := s'\n{obtain_h}  exact {}", xs.join(", "), ys.join(", "), tuple(&eqs, ", ")).unwrap();
+    }
+
+    /// A commutation lemma of the views (`mstep_comm`, `mstep_sstep_comm`, `sstep_comm`) with
+    /// relaxed cells: the two orders end in configurations related by `Equiv` (`mkc_rel`), not in
+    /// one.
+    fn relax_comm(t: &str) -> String {
+        let mut t = t
+            .replace("∃ c₁₂, ", "∃ c₁₂ c₂₁, ")
+            .replace(" c₂ c₁₂ := by", " c₂ c₂₁ ∧ Equiv c₁₂ c₂₁ := by")
+            .replace(
+                ", ?_⟩⟩\n  rw [Change.apply_comm hc hp₁ hp₂]",
+                ", rfl⟩,\n    mkc_rel (Change.apply_comm hc hp₁ hp₂)⟩",
+            );
+        for c in ["mk m'", "mk r₁", "mkc tc"] {
+            t = t.replace(
+                &format!("refine ⟨{c} (ch₂.apply (ch₁.apply s)), "),
+                &format!(
+                    "exact ⟨{c} (ch₂.apply (ch₁.apply s)), {c} (ch₁.apply (ch₂.apply s)),\n    "
+                ),
+            );
+        }
+        t
+    }
+
     /// The views of `lib`'s rules, the counts of what they leave, and with `slots` the slots
-    /// module and its report section.
+    /// module and its report section. With `eqv`, a shared cell it relaxes is changed by a function
+    /// of what it holds (`Touch::Relaxed`), and the generic joins are modulo `Equiv`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit(
         lib: &Lib,
@@ -2006,6 +2114,7 @@ mod views {
         feet: &[BTreeMap<String, (bool, bool)>],
         rank: &dyn Fn(&Rule) -> usize,
         slots: Option<&SlotOpts>,
+        eqv: Option<&super::equiv::Equiv>,
     ) -> (
         String,
         super::Counts,
@@ -2057,6 +2166,21 @@ mod views {
             })
         };
         let any_keyed = keyed.iter().any(|k| k.is_some());
+        // the shared cells `--equiv` relaxes, not keyed, whose every change is a function of what
+        // they hold that commutes up to their relation (`equiv::changes`): how each is compared,
+        // and each rule's change of it
+        let relaxed: Vec<Option<super::equiv::Relaxed>> = shared
+            .iter()
+            .enumerate()
+            .map(|(f, l)| {
+                if is_keyed(f) {
+                    return None;
+                }
+                super::equiv::changes(eqv?, &lib.rules, &l.label)
+            })
+            .collect();
+        let is_relaxed = |f: usize| relaxed[f].is_some();
+        let any_relaxed = relaxed.iter().any(|r| r.is_some());
         // a keyed cell's constructor and the map it holds
         let cell_of = |f: usize| -> (String, String) {
             let c = is_cell_sort(&lib.m, &shared[f].sort).unwrap();
@@ -2081,8 +2205,8 @@ mod views {
         )
         .unwrap();
         for (f, l) in shared.iter().enumerate() {
-            // a keyed cell by the map it holds
-            let t = if is_keyed(f) {
+            // a keyed cell by the map it holds, a relaxed one by its content
+            let t = if is_keyed(f) || is_relaxed(f) {
                 cell_of(f).1
             } else {
                 l.sort.clone()
@@ -2094,7 +2218,7 @@ mod views {
                 return "tc".to_string();
             }
             let f = if i < ti { i } else { i - 1 };
-            if is_keyed(f) {
+            if is_keyed(f) || is_relaxed(f) {
                 format!("({name}.{} s.{})", cell_of(f).0, leaves[i].field)
             } else {
                 format!("s.{}", leaves[i].field)
@@ -2102,20 +2226,36 @@ mod views {
         });
         writeln!(o, "\n/-- The configuration of the cell `<{threads}>` `tc` and the shared cells `s`. -/\ndef mkc (tc : {}) (s : Shared) : {topt} :=\n  {mk_body}\n", ty(&tcell.sort)).unwrap();
         writeln!(o, "/-- The configuration of the threads `m` and the shared cells `s`. -/\nabbrev mk (m : {}) (s : Shared) : {topt} := mkc ({name}.{} m) s\n", ty(&tmap), lib.m.ctor_path(&tctor)).unwrap();
-        if any_keyed {
+        if any_relaxed {
+            writeln!(o, "/-- A change of the shared cells: per cell, none, or the value it has and the value it gets; for a\ncell holding a map changed at some bindings, none or the bindings and what replaces them; for a cell\n`Equiv` relaxes, none or a function of what it holds (`ACh`, `PCh`). -/\nstructure Change where").unwrap();
+        } else if any_keyed {
             writeln!(o, "/-- A change of the shared cells: per cell, none, or the value it has and the value it gets; for a\ncell holding a map changed at some bindings, none or the bindings and what replaces them. -/\nstructure Change where").unwrap();
         } else {
             writeln!(o, "/-- A change of the shared cells: per cell, none, or the value it has and the value it gets. -/\nstructure Change where").unwrap();
         }
+        // the lemmas of a field's kind of change
+        let chn = |f: usize| match &relaxed[f] {
+            Some((super::equiv::Rel::Any, _)) => "ACh",
+            Some((super::equiv::Rel::Perm, _)) => "PCh",
+            None if is_keyed(f) => "MCh",
+            None => "Ch",
+        };
         for (f, l) in shared.iter().enumerate() {
             if is_keyed(f) {
                 writeln!(o, "  {} : MCh {} := none", l.field, ty(&cell_of(f).1)).unwrap();
+            } else if is_relaxed(f) {
+                writeln!(
+                    o,
+                    "  {} : {} {} := none",
+                    l.field,
+                    chn(f),
+                    ty(&cell_of(f).1)
+                )
+                .unwrap();
             } else {
                 writeln!(o, "  {} : Ch {} := none", l.field, ty(&l.sort)).unwrap();
             }
         }
-        // the lemmas of a field's kind of change
-        let chn = |f: usize| if is_keyed(f) { "MCh" } else { "Ch" };
         let conj = |f: &dyn Fn(&str) -> String| -> String {
             shared
                 .iter()
@@ -2230,7 +2370,10 @@ mod views {
                 )
             })
             .collect();
-        writeln!(o, "\ntheorem Change.apply_comm {{a b : Change}} {{s : Shared}} (h : a.Compat b) (ha : a.pre s) (hb : b.pre s) :\n    b.apply (a.apply s) = a.apply (b.apply s) := by\n  simp only [Change.apply, {}]", ac.join(",\n    ")).unwrap();
+        match eqv.filter(|_| any_relaxed) {
+            None => writeln!(o, "\ntheorem Change.apply_comm {{a b : Change}} {{s : Shared}} (h : a.Compat b) (ha : a.pre s) (hb : b.pre s) :\n    b.apply (a.apply s) = a.apply (b.apply s) := by\n  simp only [Change.apply, {}]", ac.join(",\n    ")).unwrap(),
+            Some(eqv) => relaxed_comm(&mut o, eqv, &leaves, ti, &shared, &relaxed, &ac, &ty(&tcell.sort)),
+        }
         // a step of one thread, and its frame
         let els = lib.m.sort(&tmap).elems.clone();
         let (kt, vt) = (ty(&els[0]), ty(&els[1]));
@@ -2245,11 +2388,25 @@ mod views {
         writeln!(o, "\ntheorem mk_inj {{m m' s s'}} (h : mk m s = mk m' s') : m = m' ∧ s = s' := by\n  cases s; cases s'; cases h; exact ⟨rfl, rfl⟩").unwrap();
         writeln!(o, "\n/-- Two steps at parts of the thread map with no key in common, one of them inserting no key,
 commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c₂ : {topt}}}\n    (h₁ : MStep a₁ b₁ ch₁ c c₁) (h₂ : MStep a₂ b₂ ch₂ c c₂)\n    (dA : ∀ k, MapHook.lookup a₁ k = none ∨ MapHook.lookup a₂ k = none)\n    (dB : MapHook.KeysIn b₁ a₁ ∨ MapHook.KeysIn b₂ a₂) (hc : ch₁.Compat ch₂) :\n    ∃ c₁₂, MStep a₂ b₂ ch₂ c₁ c₁₂ ∧ MStep a₁ b₁ ch₁ c₂ c₁₂ := by\n  obtain ⟨m, R₁, r₁, s, rfl, hm₁, hr₁, hp₁, rfl⟩ := h₁\n  obtain ⟨m₂, R₂, r₂, s₂, he, hm₂, hr₂, hp₂, rfl⟩ := h₂\n  obtain ⟨rfl, rfl⟩ := mk_inj he\n  obtain ⟨R₁₂, R₂₁, m', a₁, a₂, a₃, a₄⟩ := MapHook.concat_frame hm₁ hr₁ hm₂ hr₂ dA dB\n  refine ⟨mk m' (ch₂.apply (ch₁.apply s)), ⟨_, _, _, _, rfl, a₁, a₂, Change.pre_apply hc hp₁ hp₂, rfl⟩,\n    ⟨_, _, _, _, rfl, a₃, a₄, Change.pre_apply hc.symm hp₂ hp₁, ?_⟩⟩\n  rw [Change.apply_comm hc hp₁ hp₂]").unwrap();
+        if any_relaxed {
+            let i = o
+                .rfind("\n/-- Two steps at parts of the thread map")
+                .unwrap();
+            let t = relax_comm(&o[i..]);
+            o.truncate(i);
+            o.push_str(&t);
+        }
         // shared-only steps (the threads unchanged)
         writeln!(o, "\n/-- A step that leaves the threads alone and changes the shared cells by `ch`. -/\ndef SStep (ch : Change) (c c' : {topt}) : Prop :=\n  ∃ tc s, c = mkc tc s ∧ ch.pre s ∧ c' = mkc tc (ch.apply s)").unwrap();
         writeln!(o, "\ndef LocalS (i : Nat) (ch : Change) : Prop :=\n  ∀ d d', SStep ch d d' → (∀ j, j < i → ¬ {name}.App j d) → {name}.Step d d'").unwrap();
         writeln!(o, "\ntheorem mstep_sstep_comm {{a₁ b₁ ch₁ ch₂}} {{c c₁ c₂ : {topt}}}\n    (h₁ : MStep a₁ b₁ ch₁ c c₁) (h₂ : SStep ch₂ c c₂) (hc : ch₁.Compat ch₂) :\n    ∃ c₁₂, SStep ch₂ c₁ c₁₂ ∧ MStep a₁ b₁ ch₁ c₂ c₁₂ := by\n  obtain ⟨m, R₁, r₁, s, rfl, hm₁, hr₁, hp₁, rfl⟩ := h₁\n  obtain ⟨tc₂, s₂, he, hp₂, rfl⟩ := h₂\n  obtain ⟨rfl, rfl⟩ := mkc_inj he\n  refine ⟨mk r₁ (ch₂.apply (ch₁.apply s)), ⟨_, _, rfl, Change.pre_apply hc hp₁ hp₂, rfl⟩,\n    ⟨_, _, _, _, rfl, hm₁, hr₁, Change.pre_apply hc.symm hp₂ hp₁, ?_⟩⟩\n  rw [Change.apply_comm hc hp₁ hp₂]").unwrap();
         writeln!(o, "\ntheorem sstep_comm {{ch₁ ch₂}} {{c c₁ c₂ : {topt}}}\n    (h₁ : SStep ch₁ c c₁) (h₂ : SStep ch₂ c c₂) (hc : ch₁.Compat ch₂) :\n    ∃ c₁₂, SStep ch₂ c₁ c₁₂ ∧ SStep ch₁ c₂ c₁₂ := by\n  obtain ⟨tc, s, rfl, hp₁, rfl⟩ := h₁\n  obtain ⟨tc₂, s₂, he, hp₂, rfl⟩ := h₂\n  obtain ⟨rfl, rfl⟩ := mkc_inj he\n  refine ⟨mkc tc (ch₂.apply (ch₁.apply s)), ⟨_, _, rfl, Change.pre_apply hc hp₁ hp₂, rfl⟩,\n    ⟨_, _, rfl, Change.pre_apply hc.symm hp₂ hp₁, ?_⟩⟩\n  rw [Change.apply_comm hc hp₁ hp₂]").unwrap();
+        if any_relaxed {
+            let i = o.rfind("\ntheorem mstep_sstep_comm").unwrap();
+            let t = relax_comm(&o[i..]);
+            o.truncate(i);
+            o.push_str(&t);
+        }
         writeln!(o, "\n/-- Two steps that match one key of the thread map match one thread there. -/\ntheorem mstep_same {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c₂ : {topt}}} {{bs₁ bs₂ : List ({kt} × {vt})}}\n    (h₁ : MStep a₁ b₁ ch₁ c c₁) (h₂ : MStep a₂ b₂ ch₂ c c₂) (d₁ : MapHook.Binds a₁ bs₁)\n    (d₂ : MapHook.Binds a₂ bs₂) {{p q}} (hp : p ∈ bs₁) (hq : q ∈ bs₂) (e : p.1 = q.1) : p.2 = q.2 := by\n  obtain ⟨m, R₁, r₁, s, rfl, hm₁, -, -, rfl⟩ := h₁\n  obtain ⟨m₂, R₂, r₂, s₂, he, hm₂, -, -, rfl⟩ := h₂\n  obtain ⟨rfl, rfl⟩ := mk_inj he\n  exact MapHook.binds_same hm₁ hm₂ d₁ d₂ hp hq e").unwrap();
         // the key of a thread: its first `<k>` item
         let vctor = is_cell_sort(&lib.m, &els[1]);
@@ -2389,6 +2546,15 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     };
                 }
             }
+            for (f, x) in relaxed.iter().enumerate() {
+                if let Some((_, chs)) = x {
+                    touch[f] = if chs[ri].is_some() {
+                        Touch::Relaxed
+                    } else {
+                        Touch::None
+                    };
+                }
+            }
             let kind = match (&vroles[ri], &roles[ri], unknown, threads_touched) {
                 (Some(_), _, false, _) => Kind::Thread,
                 (None, MapRole::None, false, false) if !r.multi => Kind::Shared,
@@ -2440,7 +2606,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 .filter_map(|f| match c[f] {
                     Touch::None => Some(format!("ch.{} = none", shared[f].field)),
                     Touch::Read => Some(format!("(∃ x, ch.{} = some (x, x))", shared[f].field)),
-                    Touch::Write | Touch::Keyed => None,
+                    Touch::Write | Touch::Keyed | Touch::Relaxed => None,
                 })
                 .collect();
             writeln!(
@@ -2460,6 +2626,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     || b[f] == Touch::None
                     || (a[f] == Touch::Read && b[f] == Touch::Read)
                     || (a[f] == Touch::Keyed && b[f] == Touch::Keyed)
+                    || (a[f] == Touch::Relaxed && b[f] == Touch::Relaxed)
             })
         };
         writeln!(o, "\ndef compatTbl : Cls → Cls → Bool").unwrap();
@@ -2502,7 +2669,9 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 let pos = |c: &[Touch], f: usize| c[..f].iter().filter(|t| t.in_class()).count();
                 let fs: Vec<String> = (0..n)
                     .map(|f| {
-                        if a[f] == Touch::Keyed && b[f] == Touch::Keyed {
+                        if is_relaxed(f) {
+                            "trivial".to_string()
+                        } else if a[f] == Touch::Keyed && b[f] == Touch::Keyed {
                             let k = keyed_fs.iter().position(|&g| g == f).unwrap();
                             format!("hk{}", idx(k, keyed_fs.len()))
                         } else if a[f] == Touch::None {
@@ -2991,7 +3160,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     .filter_map(|f| match touch[f] {
                         Touch::None => Some("rfl"),
                         Touch::Read => Some("⟨_, rfl⟩"),
-                        Touch::Write | Touch::Keyed => None,
+                        Touch::Write | Touch::Keyed | Touch::Relaxed => None,
                     })
                     .collect();
                 if parts.is_empty() {
@@ -3006,7 +3175,22 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             let chlit = {
                 let fs: Vec<String> = (0..n)
                     .filter(|&i| touch[i] != Touch::None)
-                    .map(|i| format!("{} := some (_, _)", shared[i].field))
+                    .map(|i| match &relaxed[i] {
+                        // the function of what the cell holds, and the items it adds
+                        Some((_, chs)) => {
+                            let c = chs[ri].as_ref().unwrap();
+                            let f = format!("(open {name} in fun k2l_x => {})", c.body.render());
+                            match &c.delta {
+                                None => format!("{} := some {f}", shared[i].field),
+                                Some(d) => format!(
+                                    "{} := some ⟨{f}, (open {name} in {}), fun k2l_x => by k2l_perm⟩",
+                                    shared[i].field,
+                                    d.render()
+                                ),
+                            }
+                        }
+                        None => format!("{} := some (_, _)", shared[i].field),
+                    })
                     .collect();
                 if fs.is_empty() {
                     "{}".to_string()
@@ -3021,6 +3205,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                         format!("MCh.pre_of {hx} {hy}")
                     }
                     None if touch[i] == Touch::None => format!("{}.pre_none", chn(i)),
+                    None if touch[i] == Touch::Relaxed => "trivial".into(),
                     None => "Ch.pre_self".into(),
                 })
                 .collect();
@@ -3032,7 +3217,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             let mut applied = vec![];
             let mut keyed_eqs = String::new();
             let mut keyed_renames: Vec<(String, String)> = vec![];
-            for i in (0..n).filter(|&i| touch[i] != Touch::None) {
+            for i in (0..n).filter(|&i| touch[i] != Touch::None && touch[i] != Touch::Relaxed) {
                 match kr(i) {
                     Some(role) => {
                         let (hx, hy) = (format!("hx{i}"), format!("hy{i}"));
@@ -3059,13 +3244,15 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 .unwrap();
                 cases_pre.push_str(&keyed_eqs);
             }
-            // a variable standing for a whole keyed cell, split into the cell's constructor and
-            // the map it holds (`mkc` builds the cell from the map)
+            // a variable standing for a whole keyed or relaxed cell, split into the cell's
+            // constructor and what it holds (`mkc` builds the cell from it)
             let splits: String = r
                 .step
                 .binders
                 .iter()
-                .filter(|(_, t)| (0..n).any(|f| is_keyed(f) && *t == shared[f].sort))
+                .filter(|(_, t)| {
+                    (0..n).any(|f| (is_keyed(f) || is_relaxed(f)) && *t == shared[f].sort)
+                })
                 .map(|(v, _)| format!("  k2l_cases {v}\n"))
                 .collect();
             // that the keyed changes are the rule's, at one binding
@@ -3490,6 +3677,18 @@ def SameThreadJoins : Prop :=
                     1,
                 );
             }
+        }
+        if any_relaxed {
+            // the two orders end in configurations related by `Equiv` (`relax_comm`); where the
+            // shared step is the first, the lemma's first result is the second step's
+            js = js
+                .replace("obtain ⟨c₁₂, x, y⟩ :=", "obtain ⟨c₁₂, c₂₁, x, y, e⟩ :=")
+                .replace(
+                    "refine ⟨c₁₂, c₁₂, Or.inr (l₂ _ _ y ?_), Or.inr (l₁ _ _ x ?_), rfl⟩",
+                    "refine ⟨c₂₁, c₁₂, Or.inr (l₂ _ _ y ?_), Or.inr (l₁ _ _ x ?_), Equiv.symm' e⟩",
+                )
+                .replace("refine ⟨c₁₂, c₁₂,", "refine ⟨c₁₂, c₂₁,")
+                .replace("?_), rfl⟩", "?_), e⟩");
         }
         o.push_str(&js);
         o.push('\n');

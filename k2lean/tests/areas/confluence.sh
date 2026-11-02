@@ -23,7 +23,8 @@
 # RaceLogOwConf and JobsOwConf: the same modulo the equivalence over the fixtures with an `owise`
 # rule, tests/racelog-owise.py and tests/jobs-owise.py, libraries racelogow and jobsow; JobsRmConf and
 # JobsDropConf: jobs whose steps remove bindings of the map, tests/jobs-remove.py, libraries jobsrm
-# and jobsdrop). Registry: confluence.py.
+# and jobsdrop; UtxoRelConf: utxo with cells its processes write and no rule reads, by process modulo
+# the equivalence, tests/utxo-relaxed.py, library utxorel). Registry: confluence.py.
 
 kore_confluence() {
   case $1 in
@@ -42,6 +43,11 @@ kore_confluence() {
     jobs-remove | jobs-drop) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/jobs-remove.py" "$FIXTURES/jobs/jobs.k" "$2.src/jobs.k" "${1#jobs-}" || return 2
       f=$2.src/jobs.k m=JOBS s=JOBS-SYNTAX inc=$2.src ;;
+    # the fixture utxo with the last creator and a log of the outputs created and spent
+    # (tests/utxo-relaxed.py)
+    utxo-relaxed) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/utxo-relaxed.py" "$FIXTURES/utxo/utxo.k" "$2.src/utxo.k" || return 2
+      f=$2.src/utxo.k m=UTXO s=UTXO-SYNTAX inc=$2.src ;;
     *) return 1 ;;
   esac
 }
@@ -62,6 +68,7 @@ name_confluence() {
     jobsow) echo JobsOw ;;
     jobsrm) echo JobsRm ;;
     jobsdrop) echo JobsDrop ;;
+    utxorel) echo UtxoRel ;;
     *) return 1 ;;
   esac
 }
@@ -118,6 +125,10 @@ gen_confluence() {
             --out "$o" --name JobsRm --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     jobsdrop) GEN_ARGS=(--kore "$(kore_dir jobs-drop)/definition.kore" --runtime "$(kore_dir jobs-drop)/runtime.json"
             --out "$o" --name JobsDrop --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    # utxo with cells its processes write and no rule reads (tests/utxo-relaxed.py), for
+    # `confluence --threads --equiv`
+    utxorel) GEN_ARGS=(--kore "$(kore_dir utxo-relaxed)/definition.kore" --runtime "$(kore_dir utxo-relaxed)/runtime.json"
+            --out "$o" --name UtxoRel --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
   return 0
@@ -294,6 +305,14 @@ libs_confluence() {
         --obs total --equiv done=perm --views-module JobsDropConf.Views \
         --slots "$DEMOS/JobsDropConf/JobsDropConf/Slots.lean" \
         --out "$DEMOS/JobsDropConf/JobsDropConf/Views.lean" --report "$DEMOS/JobsDropConf/confluence.toml" ;;
+    # utxo with the last creator and a log, by process modulo `last` not compared and `log` up to
+    # order: two creations or spends at two keys of the ledger commute (relaxed cells in the views'
+    # classes)
+    UtxoRelConf) "$G" confluence --kore "$(kore_dir utxo-relaxed)/definition.kore" --name UtxoRel --ns UtxoRelConf \
+        --threads procs --obs ledger --equiv last=any,log=perm --views-module UtxoRelConf.Views \
+        --slots "$DEMOS/UtxoRelConf/UtxoRelConf/Slots.lean" --hand-module UtxoRelConf.Hand \
+        --open-joins "$DEMOS/UtxoRelConf/open-joins.txt" \
+        --out "$DEMOS/UtxoRelConf/UtxoRelConf/Views.lean" --report "$DEMOS/UtxoRelConf/confluence.toml" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -503,6 +522,13 @@ gate_confluence() {
     phase "scaffold JobsDropConf"
     kc jobs-drop && partlib jobsdrop JobsDrop.Adequacy &&
       scaffold confluence-JobsDropConf libs_confluence JobsDropConf && dbuild_slots JobsDropConf
+  fi
+  # relaxed cells in the views' classes: utxo whose creations and spends also write cells no rule
+  # reads, joined generically at two keys of the ledger modulo the equivalence
+  if runs demo UtxoRelConf; then
+    phase "scaffold UtxoRelConf"
+    kc utxo-relaxed && partlib utxorel UtxoRel.Preserves &&
+      scaffold confluence-UtxoRelConf libs_confluence UtxoRelConf && dbuild_slots UtxoRelConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;

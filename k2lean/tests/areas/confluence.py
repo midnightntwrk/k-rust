@@ -55,6 +55,15 @@ DEMOS = {
                                                   "demos/JobsDropConf/JobsDropConf/Slots.lean",
                                                   "demos/JobsDropConf/confluence.toml"],
                      "slots": {"prefixes": ["join.", "equiv."]}},
+    # utxo with cells its processes write and no rule reads (tests/utxo-relaxed.py), by process
+    # modulo the equivalence: creations and spends at two keys of the ledger commute (relaxed cells
+    # in the views' classes)
+    "UtxoRelConf": {"tier": "light", "sources": ["generated/utxorel",
+                                                 "demos/UtxoRelConf/UtxoRelConf/Views.lean",
+                                                 "demos/UtxoRelConf/UtxoRelConf/Slots.lean",
+                                                 "demos/UtxoRelConf/confluence.toml"],
+                    "slots": {"prefixes": ["join.", "equiv."],
+                              "list": "demos/UtxoRelConf/open-joins.txt"}},
     # SIMPLE's steps of two threads joined generically, the joins they leave as slots, those the
     # generic attempts do not prove open (`confluence --threads threads --slots`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean",

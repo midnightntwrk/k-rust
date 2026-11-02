@@ -1534,7 +1534,7 @@ fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
         "  sim he hs := RaceLog.Step.rel_of equiv.sim.work equiv.sim.spawn equiv.sim.stop hs _ he\n",
         "theorem obs_of_equiv {a b : RaceLog.SortGeneratedTopCell} (h : Equiv a b) : obs a = obs b := by\n",
         "MapHook.lookup a₁ k ≠ none → MapHook.lookup a₂ k ≠ none → DiamondMod RaceLog.Step Equiv c₁ c₂",
-        "Or.inr (l₁ _ _ y ?_), Equiv.refl' _⟩",
+        "Or.inr (l₁ _ _ y ?_), e⟩",
         "(t₂ : Terminal RaceLog.Step n₂) : Equiv n₁ n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) equiv_stepEquiv",
         "  obs_of_equiv (terminal_unique_of O S h₁ t₁ h₂ t₂)",
     ] {
@@ -1651,6 +1651,52 @@ fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
         "{}",
         err(&o)
     );
+}
+
+/// `confluence --threads --equiv` (CNF-39): a shared cell the equivalence relaxes is held by its
+/// content and changed by a function of it (`ACh` under `any`, `PCh`, a function that adds items,
+/// under `perm`), stated from the rule's right-hand side, with no precondition; two such changes are
+/// compatible, and the generic joins end in configurations related by `Equiv` (`Shared.Rel`,
+/// `mkc_rel`). On racelog, `work` writes both relaxed cells; `stop` leaves them alone.
+#[test]
+fn confluence_threads_relaxed_cells_change_by_a_function_of_their_content() {
+    let d = tmp("cli-confluence-relaxed");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(fx.join("racelog/definition.kore"))
+        .args(["--name", "RaceLog", "--ns", "EQ", "--threads", "workers"])
+        .args(["--obs", "acc", "--equiv", "log=perm,last=any", "--slots"])
+        .arg(d.join("Slots.lean"))
+        .arg("--out")
+        .arg(d.join("Views.lean"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let v = std::fs::read_to_string(d.join("Views.lean")).unwrap();
+    for x in [
+        "  log : RaceLog.SortList\n  last : RaceLog.SortInt\n",
+        "(RaceLog.SortLogCell.«<log>» s.log) (RaceLog.SortLastCell.«<last>» s.last)",
+        "  log : PCh RaceLog.SortList := none\n  last : ACh RaceLog.SortInt := none\n",
+        "def Shared.Rel (s s' : Shared) : Prop :=\n  s.k = s'.k ∧ s.acc = s'.acc ∧ ListHook.Perm s.log s'.log ∧ s.next = s'.next ∧ s.generatedCounter = s'.generatedCounter\n",
+        "    Shared.Rel (b.apply (a.apply s)) (a.apply (b.apply s)) :=\n",
+        "    PCh.apply_comm a.log b.log s.log,\n",
+        "theorem mkc_rel {tc : RaceLog.SortWorkersCell} {s s' : Shared} (h : Shared.Rel s s') : Equiv (mkc tc s) (mkc tc s') := by\n  obtain ⟨x0, x1, x2, x3, x4, x5⟩ := s\n  obtain ⟨y0, y1, y2, y3, y4, y5⟩ := s'\n  obtain ⟨rfl, rfl, h2, rfl, rfl⟩ := h\n  exact ⟨rfl, rfl, rfl, h2, rfl, rfl⟩\n",
+        "    ∃ c₁₂ c₂₁, MStep a₂ b₂ ch₂ c₁ c₁₂ ∧ MStep a₁ b₁ ch₁ c₂ c₂₁ ∧ Equiv c₁₂ c₂₁ := by\n",
+        "    mkc_rel (Change.apply_comm hc hp₁ hp₂)⟩",
+        // `work`'s change: an append to the log, a write of the last
+        "log := some ⟨(open RaceLog in fun k2l_x => KPrelude.ListHook.concat k2l_x (KPrelude.ListHook.element (SortKItem.inj_Int W))), (open RaceLog in KPrelude.ListHook.concat KPrelude.ListHook.unit (KPrelude.ListHook.element (SortKItem.inj_Int W))), fun k2l_x => by k2l_perm⟩, last := some (open RaceLog in fun k2l_x => W)",
+        "⟨Ch.pre_none, Ch.pre_self, trivial, trivial, Ch.pre_none, Ch.pre_none⟩",
+        // `stop` leaves them alone, its variables at them split into the cells' contents
+        "  k2l_cases Gen5\n  k2l_cases Gen4\n",
+        "⟨Ch.pre_self, Ch.pre_none, PCh.pre_none, ACh.pre_none, Ch.pre_none, Ch.pre_none⟩",
+        "refine ⟨c₂₁, c₁₂, Or.inr (l₂ _ _ y ?_), Or.inr (l₁ _ _ x ?_), Equiv.symm' e⟩",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    // the relaxed cells' replays have no precondition to take apart
+    assert!(!v.contains("cases (hpre.2.2.1 _ rfl)"), "{v}");
 }
 
 /// `confluence --threads --slots`: one obligation per pair of rules in a premise, its statement
