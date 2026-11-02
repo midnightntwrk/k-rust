@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    CompiledStage, ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions,
+    CompiledStage, ConfigInputs, ExecError, Halt, PrintStyle, Printed, ProgramInput, ProveOptions,
     REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText,
     SpecStage, Step, StepOrigin, Term, Verdict,
 };
@@ -487,6 +487,27 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         if report.steps == 1 { "" } else { "s" }
     );
     stderr.push('\n');
+    if request.output != TermOutput::Json {
+        let notation = match request.output {
+            TermOutput::None => TermOutput::Pretty,
+            output => output,
+        };
+        for term in &report.valueless {
+            let printed = print(semantics, term, notation, false, &mut stderr)?;
+            let printed = printed.trim();
+            let _ = if report.halt == Halt::Undefined {
+                writeln!(
+                    stderr,
+                    "note: `{printed}` has no value: no equation evaluates it, and a rule's condition reads it, so the state holding it has none"
+                )
+            } else {
+                writeln!(
+                    stderr,
+                    "note: a rule's condition reads `{printed}`, which no equation evaluates: it has no value, so the rule does not apply"
+                )
+            };
+        }
+    }
     let exit_code = match report.exit_code {
         Some(code) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
         _ => i32::from(!report.halt.is_complete()),

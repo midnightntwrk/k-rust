@@ -64,10 +64,6 @@ owner = "S6"
 kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
-["NT-37-2"]
-owner = "NT-42"
-kind = "bug"
-what = "`krs run` of a program whose static result has no value, which a rule's condition then reads, is an internal error (\"the backend returned 2 defined states\"): the backend keeps the rule's step under a condition over the application no equation evaluates beside the state it leaves, where the run is undefined"
 
 ["NT-42-2"]
 owner = "NT-42"

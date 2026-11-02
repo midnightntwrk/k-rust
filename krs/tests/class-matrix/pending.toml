@@ -3353,15 +3353,6 @@ finding = "NT-43-2"
 deviation = "ended depth-bound after 1 steps, where the sentence's result has no value, so the sentence applies and the run ends undefined after 0 steps"
 # the run does not show what the case's sentence denotes
 
-# NT-37-2 (K7): a static clause's result with no value, which a rule's condition then reads: the
-# lifted `k::matches!` over `k::project!(Int, x)` has no equation that applies where `x` is
-# `go`, and the backend keeps the `when` rule's step under a condition over that application
-# beside the state it leaves, which `krs run` reports as an internal error.
-
-["k7/terms/desugar/result-guarded/matches-subject/k::project!(Int, x)"]
-finding = "NT-37-2"
-deviation = "counter-witness `c2b88b53e(go, 0)`: failed: a run must end in exactly one state; the backend returned 2 defined states"
-
 # NT-42-2 (twin): a static result's lifted `k::matches!` over `k::project!(Int, x)` has no
 # equation that applies where `x` is `go`, an application the backend does not decide has no
 # value, so `krs run` prints the state holding it as a built term; the same test at a rule's

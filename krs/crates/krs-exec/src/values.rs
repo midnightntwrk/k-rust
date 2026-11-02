@@ -577,6 +577,8 @@ pub(crate) struct CellNode {
 struct BackendSymbols {
     known: HashSet<String>,
     free_constructors: HashSet<String>,
+    /// The function symbols, whose applications equations evaluate.
+    functions: HashSet<String>,
     /// The constructors an `anywhere` rule rewrites: the backend evaluates their applications
     /// as a function's, so one is a value of its constructor only where it is data
     /// ([`EquationHeadData`]).
@@ -591,6 +593,7 @@ impl BackendSymbols {
     fn scan(backend: &BackendDefinition) -> Self {
         let mut known = HashSet::new();
         let mut free_constructors = HashSet::new();
+        let mut functions = HashSet::new();
         let mut equation_heads = HashSet::new();
         let mut result_sorts = HashMap::new();
         let mut collections = HashMap::new();
@@ -605,7 +608,10 @@ impl BackendSymbols {
                 HeadRole::EquationHead => {
                     equation_heads.insert(name.clone());
                 }
-                HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {}
+                HeadRole::Function { .. } => {
+                    functions.insert(name.clone());
+                }
+                HeadRole::Uninterpreted | HeadRole::Residual => {}
             }
             if let k_rust::k_rust_backend::term::SortNode::Application {
                 name: sort,
@@ -660,6 +666,7 @@ impl BackendSymbols {
         Self {
             known,
             free_constructors,
+            functions,
             equation_heads,
             result_sorts,
             collections,
@@ -682,6 +689,7 @@ pub struct ValueIndex {
     kast_sort_hooks: HashMap<String, String>,
     known_symbols: HashSet<String>,
     free_constructors: HashSet<String>,
+    functions: HashSet<String>,
     equation_heads: HashSet<String>,
     equation_head_data: EquationHeadData,
     result_sorts: HashMap<String, String>,
@@ -832,6 +840,7 @@ impl ValueIndex {
             kast_sort_hooks: kast_sort_hooks.clone(),
             known_symbols: symbols.known,
             free_constructors: symbols.free_constructors,
+            functions: symbols.functions,
             equation_heads: symbols.equation_heads,
             equation_head_data: EquationHeadData::new(Arc::clone(backend)),
             result_sorts: symbols.result_sorts,
@@ -921,6 +930,11 @@ impl ValueIndex {
 
     pub(crate) fn cells(&self) -> &[CellNode] {
         &self.cells
+    }
+
+    /// Whether `symbol` names a function, whose applications equations evaluate.
+    pub(crate) fn is_function(&self, symbol: &str) -> bool {
+        self.functions.contains(symbol)
     }
 
     pub(crate) fn top_symbol(&self) -> &str {
@@ -1505,6 +1519,7 @@ mod tests {
             kast_sort_hooks: HashMap::new(),
             known_symbols: symbols.known,
             free_constructors: symbols.free_constructors,
+            functions: symbols.functions,
             equation_heads: symbols.equation_heads,
             equation_head_data: EquationHeadData::new(definition),
             result_sorts: symbols.result_sorts,

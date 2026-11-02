@@ -429,7 +429,7 @@ fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
         [HaltReasonOutput::Stuck, HaltReasonOutput::Trivial]
     );
 
-    let leaf = one_path(split).unwrap();
+    let leaf = one_path(split, &|_| false).unwrap().leaf;
     assert_eq!(Halt::from_backend(leaf.reason), Halt::Stuck);
     assert_eq!(leaf.depth, 1);
     assert_eq!(
@@ -441,11 +441,21 @@ fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
 #[test]
 fn a_run_is_undefined_only_when_every_leaf_is() {
     let mut backend = partial_backend();
-    let leaf = one_path(leaves(&mut backend, "empty{}()", ExecutionStrategy::Any)).unwrap();
+    let leaf = one_path(
+        leaves(&mut backend, "empty{}()", ExecutionStrategy::Any),
+        &|_| false,
+    )
+    .unwrap()
+    .leaf;
     assert_eq!(Halt::from_backend(leaf.reason), Halt::Undefined);
 
     let mut backend = branching_backend();
-    let error = one_path(leaves(&mut backend, "initial{}()", ExecutionStrategy::All)).unwrap_err();
+    let Err(error) = one_path(
+        leaves(&mut backend, "initial{}()", ExecutionStrategy::All),
+        &|_| false,
+    ) else {
+        panic!("two unconditional leaves are no one path");
+    };
     assert_eq!(
         error.to_string(),
         "a run must end in exactly one state; the backend returned 2 defined states"
@@ -532,4 +542,56 @@ endmodule
         json["leaves"][0]["contradicted_total"]["undefined"]["format"],
         "KAST"
     );
+}
+
+/// The two leaves the backend returns where a rule's condition reads `f(true)`, an application no
+/// equation evaluates (finding NT-37-2): the rule applied where `f(true)` is defined and `true`,
+/// and the state left where it is not `true`.
+#[test]
+fn a_condition_over_a_term_with_no_value_does_not_hold() {
+    use super::valueless::{Reading, read};
+    let applied = parse_pattern(
+        r#"\and{SortState{}}(done{}(), \ceil{SortBool{}, SortState{}}(f{}(\dv{SortBool{}}("true"))), \equals{SortBool{}, SortState{}}(\dv{SortBool{}}("true"), f{}(\dv{SortBool{}}("true"))))"#,
+    )
+    .unwrap();
+    assert_eq!(read(&applied), Reading::Fails);
+    let left = parse_pattern(
+        r#"\and{SortState{}}(flag{}(f{}(\dv{SortBool{}}("true"))), \not{SortState{}}(\equals{SortBool{}, SortState{}}(\dv{SortBool{}}("true"), f{}(\dv{SortBool{}}("true")))))"#,
+    )
+    .unwrap();
+    let configuration = parse_pattern(r#"flag{}(f{}(\dv{SortBool{}}("true")))"#).unwrap();
+    let undecided = parse_pattern(r#"f{}(\dv{SortBool{}}("true"))"#).unwrap();
+    assert_eq!(
+        read(&left),
+        Reading::Holds {
+            configuration: &configuration,
+            undecided: vec![&undecided],
+        }
+    );
+    // Two terms neither of which is a value: their equality is not read.
+    let open = parse_pattern(
+        r"\and{SortState{}}(done{}(), \equals{SortBool{}, SortState{}}(f{}(), g{}()))",
+    )
+    .unwrap();
+    assert_eq!(read(&open), Reading::Open);
+}
+
+/// The function applications a state holds that a condition read are the state's terms with no
+/// value; a state that holds none of them has its value, and the condition's rule did not apply.
+#[test]
+fn a_state_holding_a_term_a_condition_read_unevaluated_has_no_value() {
+    use super::valueless::read_applications;
+    let is_function = |symbol: &str| matches!(symbol, "f" | "g");
+    let read = [parse_pattern(r#"g{}(f{}(\dv{SortBool{}}("true")))"#).unwrap()];
+    let mut out = Vec::new();
+    let holding = parse_pattern(r#"flag{}(f{}(\dv{SortBool{}}("true")))"#).unwrap();
+    read_applications(&holding, &read, &is_function, &mut out);
+    assert_eq!(
+        out,
+        [parse_pattern(r#"f{}(\dv{SortBool{}}("true"))"#).unwrap()]
+    );
+    out.clear();
+    let other = parse_pattern(r#"flag{}(h{}(\dv{SortBool{}}("true")))"#).unwrap();
+    read_applications(&other, &read, &is_function, &mut out);
+    assert!(out.is_empty());
 }
