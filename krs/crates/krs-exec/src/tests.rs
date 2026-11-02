@@ -11,8 +11,8 @@ use k_rust::{
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, check_stuck_end, config_variables,
-    log_lines, one_path, result_sort_hooks, search_backend, term,
+    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, check_final_state,
+    config_variables, log_lines, one_path, result_sort_hooks, search_backend, term,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -111,7 +111,7 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
     request.strategy = ExecutionStrategy::Any;
     let end = one_path(backend.execute(request).unwrap().leaves).unwrap();
     assert_eq!(end.reason, HaltReasonOutput::Stuck);
-    check_stuck_end(&mut backend, &end).unwrap();
+    check_final_state(&mut backend, &end.state, "the run ended stuck").unwrap();
 
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.max_depth = Some(0);
@@ -120,7 +120,9 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
         reason: HaltReasonOutput::Stuck,
         ..start
     };
-    let Err(ExecError::Result(message)) = check_stuck_end(&mut backend, &reported) else {
+    let Err(ExecError::Result(message)) =
+        check_final_state(&mut backend, &reported.state, "the run ended stuck")
+    else {
         panic!("a state two rules leave is no stuck end");
     };
     assert!(

@@ -49,6 +49,11 @@ process, `krs` runs `emit-k`, `build` on each backend the check judged, and the
 run commands' definition load, and fails unless the check passed exactly when
 all of them accepted the fixture (`krs/crates/krs-cli/src/command/agreement.rs`).
 
+Every gate also sets `KRS_CHECK_ENDS=1` for its `krs` commands and `krs-gate` sessions, unless
+the environment sets `KRS_CHECK_ENDS=0`: a run reported stuck, and a final state of a `=>!`
+search, must be where no rule applies, at a state that is its own value, which one more step
+trying every rule shows (`check_final_state`, `krs/crates/krs-exec/src/lib.rs`).
+
 A gate constructed with `check_prints=True` also sets `KRS_CHECK_PRINTS=1` for its `krs`
 commands and `krs-gate` sessions: every state printed through the definition's grammar is read
 back, cell by cell, and so is every program `krs parse --output program` prints; a print that
@@ -171,6 +176,7 @@ class FixtureGate:
     that does not read back fails the command. A gate whose printed outputs are pinned opts in."""
 
     def __post_init__(self) -> None:
+        self.environment = {**self.environment, "KRS_CHECK_ENDS": os.environ.get("KRS_CHECK_ENDS", "1")}
         if self.check_prints:
             self.environment = {**self.environment, "KRS_CHECK_PRINTS": "1"}
 

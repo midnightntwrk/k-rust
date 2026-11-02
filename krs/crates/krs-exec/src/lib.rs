@@ -81,6 +81,9 @@ pub struct RunOptions {
     pub depth: Option<u64>,
     /// Record each rewrite step.
     pub trace: bool,
+    /// Check that a run reported stuck ended where no rule applies, at a state that is its own
+    /// value, as `KRS_CHECK_ENDS=1` asks of every run ([`check_final_state`]).
+    pub check_ends: bool,
 }
 
 /// K's search modes.
@@ -1151,8 +1154,8 @@ impl Semantics {
             ..
         } = self.backend.execute(request)?;
         let leaf = one_path(leaves)?;
-        if leaf.reason == HaltReasonOutput::Stuck && check_ends() {
-            check_stuck_end(&mut self.backend, &leaf)?;
+        if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
+            check_final_state(&mut self.backend, &leaf.state, "the run ended stuck")?;
         }
         let trace = if options.trace {
             self.steps(&leaf.trace)
@@ -1220,6 +1223,18 @@ impl Semantics {
             return Err(ExecError::SearchWithStreams);
         }
         let response = search_backend(&mut self.backend, state.0.clone(), options)?;
+        // A final state of `=>!` is one no rule applies to; one at the step bound may not be.
+        if options.mode == SearchMode::Final && check_ends() {
+            for solution in &response.states {
+                if options.depth.is_none_or(|bound| solution.depth < bound) {
+                    check_final_state(
+                        &mut self.backend,
+                        &solution.state,
+                        "the search found a final state",
+                    )?;
+                }
+            }
+        }
         let complete = response.incomplete.is_empty()
             && options
                 .max_solutions
@@ -1631,30 +1646,33 @@ fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
         .collect()
 }
 
-/// `KRS_CHECK_ENDS=1`: a run reported stuck at `leaf` ended where no rule applies, at a state
-/// that is its own value. One more step from the state the run printed, trying every rule,
-/// must take none and give back that state: a step, a successor, or another state means the
-/// report states what does not hold of the state. The cost is one simplification and one rule
-/// attempt per run.
-fn check_stuck_end(backend: &mut Backend, leaf: &ExecutionLeaf) -> Result<(), ExecError> {
+/// `KRS_CHECK_ENDS=1`: a run reported stuck, or a final state `=>!` search found, at `state`
+/// ended where no rule applies, at a state that is its own value. One more step from the state,
+/// trying every rule, must take none and give back that state: a step, a successor, or another
+/// state means the report states what does not hold of the state. The cost is one
+/// simplification and one rule attempt per state checked.
+fn check_final_state(
+    backend: &mut Backend,
+    state: &serde_json::Value,
+    what: &str,
+) -> Result<(), ExecError> {
     let source =
-        serde_json::to_string(&leaf.state).map_err(|error| ExecError::Result(error.to_string()))?;
-    let state =
+        serde_json::to_string(state).map_err(|error| ExecError::Result(error.to_string()))?;
+    let pattern =
         kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
-    let mut request = ExecuteRequest::new(state);
+    let mut request = ExecuteRequest::new(pattern);
     request.strategy = ExecutionStrategy::All;
     request.max_depth = Some(1);
     let again = backend.execute(request)?.leaves;
     let holds = matches!(
         again.as_slice(),
-        [end] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && end.state == leaf.state
+        [end] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && end.state == *state
     );
     if holds {
         return Ok(());
     }
     Err(ExecError::Result(format!(
-        "KRS_CHECK_ENDS: the run ended stuck at a state that a step from it does not leave as \
-         it is: {}",
+        "KRS_CHECK_ENDS: {what} at a state that a step from it does not leave as it is: {}",
         again
             .iter()
             .map(|end| format!("{:?} after {} step(s)", end.reason, end.depth))
@@ -1663,8 +1681,8 @@ fn check_stuck_end(backend: &mut Backend, leaf: &ExecutionLeaf) -> Result<(), Ex
     )))
 }
 
-/// Whether `KRS_CHECK_ENDS=1` asks every run reported stuck to be checked to end where no rule
-/// applies ([`check_stuck_end`]).
+/// Whether `KRS_CHECK_ENDS=1` asks every run reported stuck, and every final state of a `=>!`
+/// search, to be checked to end where no rule applies ([`check_final_state`]).
 fn check_ends() -> bool {
     std::env::var_os("KRS_CHECK_ENDS").as_deref() == Some(std::ffi::OsStr::new("1"))
 }

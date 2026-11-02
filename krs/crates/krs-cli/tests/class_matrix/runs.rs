@@ -388,6 +388,13 @@ fn hole(k: &Pattern, root: bool) -> Option<&Pattern> {
     }
 }
 
+/// Whether K7 checks that each run reported stuck ended where no rule applies, at a state that is
+/// its own value (`krs_exec::RunOptions::check_ends`): on unless `KRS_CHECK_ENDS=0`. A run that
+/// fails the check deviates with the check's message.
+fn check_ends() -> bool {
+    std::env::var_os(krs_test_support::CHECK_ENDS).as_deref() != Some(std::ffi::OsStr::new("0"))
+}
+
 /// Configure `inputs` and run the state within `depth` steps, both within `limit`: the program's
 /// parse and expansion and the run are one request of the backend's, cancelled from a watchdog
 /// thread at the limit. The report, or the deviation.
@@ -417,6 +424,7 @@ fn bounded(
                 RunOptions {
                     depth: Some(depth),
                     trace: false,
+                    check_ends: check_ends(),
                 },
             )
             .map_err(|error| format!("failed: {}", first_line(&error.to_string())))

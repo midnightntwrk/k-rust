@@ -440,6 +440,7 @@ impl Session {
                 .get("trace")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            ..RunOptions::default()
         };
         let pretty = match request.get("print") {
             None | Some(Value::Null) => false,

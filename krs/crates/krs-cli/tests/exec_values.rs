@@ -185,7 +185,7 @@ fn initial_cells(semantics: &mut Semantics, variables: Vec<(&str, ConfigValue)>)
             &state,
             RunOptions {
                 depth: Some(0),
-                trace: false,
+                ..RunOptions::default()
             },
         )
         .unwrap();
@@ -212,7 +212,7 @@ fn values_configure_and_read_back_by_krs_names() {
                 &state,
                 RunOptions {
                     depth: Some(0),
-                    trace: false,
+                    ..RunOptions::default()
                 },
             )
             .unwrap();
@@ -500,7 +500,7 @@ fn states_split_into_disjuncts_and_keep_their_constraints() {
                 &state,
                 RunOptions {
                     depth: Some(0),
-                    trace: false,
+                    ..RunOptions::default()
                 },
             )
             .unwrap();
@@ -562,7 +562,7 @@ fn what_has_no_krs_description_decodes_opaque_and_what_is_no_term_is_an_error() 
                 &state,
                 RunOptions {
                     depth: Some(0),
-                    trace: false,
+                    ..RunOptions::default()
                 },
             )
             .unwrap();
