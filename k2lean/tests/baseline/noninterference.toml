@@ -1699,10 +1699,465 @@ preserve = []
 "sq.«CONTRACT.witness»" = { status = "generic", id = "b3d60b33b33c5534" }
 "sq.«CONTRACT.write»" = { status = "generic", id = "e050e81db27d2c61" }
 
+[demo.ContractLeakNI]
+tier = "light"
+guarded = 14
+preserve = []
+
+[demo.ContractLeakNI.slots]
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0b3b37d1005519dc" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3ea0620d7f7f6675" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e82574d64d414e42" }
+"append.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5aa74f765d4a6faa" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "dcc47d16a7c1a9eb" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "c11625b19af37ab8" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "a6bb67014b655e2d" }
+"append.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8f1e8b39f29c31ef" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "90a818b6d9135451" }
+"append.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "c91bc2508e28618a" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "0591f64e5c0f3afe" }
+"append.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "95b98ed37f42e0fa" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "953ae0dd5750abc2" }
+"append.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "cbcfa737b4a01c5f" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "a65ad3a82c2b9b4d" }
+"append.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "ed9b83b259c81560" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "376557fb537a8803" }
+"append.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b7e12ec0ecf43bb9" }
+"append.«CONTRACT.assign»" = { status = "generic", id = "c42684b647b5b067" }
+"append.«CONTRACT.block»" = { status = "generic", id = "b2ea99c13c48bca5" }
+"append.«CONTRACT.disclose»" = { status = "generic", id = "79a260f40ccc1f5c" }
+"append.«CONTRACT.emit»" = { status = "generic", id = "29f42242b7078d1e" }
+"append.«CONTRACT.if-false»" = { status = "generic", id = "25a47a567b1af31f" }
+"append.«CONTRACT.if-true»" = { status = "generic", id = "3dc7e10e812cbece" }
+"append.«CONTRACT.lt»" = { status = "generic", id = "6066fe9cc11d735d" }
+"append.«CONTRACT.plus»" = { status = "generic", id = "0743084b24df4f68" }
+"append.«CONTRACT.read»" = { status = "generic", id = "48bf5f13b7a79977" }
+"append.«CONTRACT.repeat-done»" = { status = "generic", id = "1d10bb156e207125" }
+"append.«CONTRACT.repeat»" = { status = "generic", id = "5928920e3c2da3b5" }
+"append.«CONTRACT.seq»" = { status = "generic", id = "8368e86e230ed6ec" }
+"append.«CONTRACT.skip»" = { status = "generic", id = "42dbdca4041e9959" }
+"append.«CONTRACT.var»" = { status = "generic", id = "7a39098b21d50289" }
+"append.«CONTRACT.witness»" = { status = "generic", id = "8f08890352a97286" }
+"append.«CONTRACT.write»" = { status = "generic", id = "5ccc98f0dc081237" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b01428b612b243de" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9579359e04258b1f" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "dd9f4390198d15be" }
+"cool.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "3f5e575777001b23" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "827378aa20099adc" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "bef3c7d279cc4b5b" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "f9054e3576ae512e" }
+"cool.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9b3b9e9aa99bfb58" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "18568dd09eee2a4f" }
+"cool.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b4c9e2572fa8e556" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "d6cd04082d4a699a" }
+"cool.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "934a85ad65fe334f" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "cc4d45b2801b7586" }
+"cool.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "06c937d71f5e7fb0" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "904b1fea0c8d9285" }
+"cool.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "ba79a39ad6217dea" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "5d8a320b71c5852a" }
+"cool.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "33fa63eb0f58ea86" }
+"cool.«CONTRACT.assign»" = { status = "generic", id = "08c2d0e655ebaf15" }
+"cool.«CONTRACT.block»" = { status = "generic", id = "32fa0728e232168a" }
+"cool.«CONTRACT.disclose»" = { status = "generic", id = "0f27ccc9998c1249" }
+"cool.«CONTRACT.emit»" = { status = "generic", id = "8541c4566b3cf415" }
+"cool.«CONTRACT.if-false»" = { status = "generic", id = "277b97589c10a05c" }
+"cool.«CONTRACT.if-true»" = { status = "generic", id = "330e6cddca7e1eac" }
+"cool.«CONTRACT.lt»" = { status = "generic", id = "a16680c44e72b106" }
+"cool.«CONTRACT.plus»" = { status = "generic", id = "ec78ea392de2afba" }
+"cool.«CONTRACT.read»" = { status = "generic", id = "d15afec4a76c67aa" }
+"cool.«CONTRACT.repeat-done»" = { status = "generic", id = "9a8d2f9974e7833b" }
+"cool.«CONTRACT.repeat»" = { status = "generic", id = "f6b62c78caa5c8d7" }
+"cool.«CONTRACT.seq»" = { status = "generic", id = "53c1f15766b496ca" }
+"cool.«CONTRACT.skip»" = { status = "generic", id = "79799cc88011134e" }
+"cool.«CONTRACT.var»" = { status = "generic", id = "8ac977a89bc0adbe" }
+"cool.«CONTRACT.witness»" = { status = "generic", id = "175040ad21290131" }
+"cool.«CONTRACT.write»" = { status = "generic", id = "d40df2265e2e6f06" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "031921e21ec86975" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "bcf22552969c4b0c" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "ee09039927e82d6d" }
+"cq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "65923ad1ad815a25" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a497842fe1433d85" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6266cf87eb3b9ee7" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "f9186c455f818278" }
+"cq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "88452b9e2b298c64" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "b2e36fdd087aa58a" }
+"cq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "ec6b80ad362ebc0b" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "0e26035d1c159d25" }
+"cq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "1abc7f4c4c14f7b6" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "bcb28b60d9d6044b" }
+"cq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "f950ee3f50b183ba" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "323196fcc3052c9f" }
+"cq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "a89772bfb95076a8" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "e1c6ef3ea6cb39b8" }
+"cq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "197edb505440346b" }
+"cq.«CONTRACT.assign»" = { status = "hand", id = "4de4bbe33d173caf" }
+"cq.«CONTRACT.block»" = { status = "generic", id = "97efe838fe2d20fe" }
+"cq.«CONTRACT.disclose»" = { status = "generic", id = "98931503586c928c" }
+"cq.«CONTRACT.emit»" = { status = "open", id = "f75c9851f5cb3d1c" }
+"cq.«CONTRACT.if-false»" = { status = "generic", id = "f63c073ea9e8b310" }
+"cq.«CONTRACT.if-true»" = { status = "generic", id = "3764c15fa33391e9" }
+"cq.«CONTRACT.lt»" = { status = "generic", id = "4677ad227fe873b0" }
+"cq.«CONTRACT.plus»" = { status = "generic", id = "cb8b08867610f33c" }
+"cq.«CONTRACT.read»" = { status = "generic", id = "cdb8ef02d8c2bf74" }
+"cq.«CONTRACT.repeat-done»" = { status = "generic", id = "f16f2baa55977f3b" }
+"cq.«CONTRACT.repeat»" = { status = "generic", id = "a7e6dfda6656203b" }
+"cq.«CONTRACT.seq»" = { status = "generic", id = "2251d72da6767e6a" }
+"cq.«CONTRACT.skip»" = { status = "generic", id = "f1c7ab8fd93d55b8" }
+"cq.«CONTRACT.var»" = { status = "hand", id = "ea15614dab2e13bf" }
+"cq.«CONTRACT.witness»" = { status = "generic", id = "ac8a5851507dfcb3" }
+"cq.«CONTRACT.write»" = { status = "generic", id = "9aa42f207f1d24f6" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5cd5ea66782742e0" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "346f7b04e3de91e7" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "829dfecaf3c38946" }
+"disc.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "08dd3bc837df041f" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "83a1fb13ed77a7b9" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6286de4276bf57de" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "26cd936d16d37d41" }
+"disc.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "494ba072e4b73602" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "10472006741877c7" }
+"disc.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "b8645e04d6213164" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "be39b2f9b01dba8e" }
+"disc.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "c5a032a34aae1934" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "8875b04b484708cc" }
+"disc.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "d278b5524e4dba9e" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "d91543ebf79bf004" }
+"disc.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "b275e95d0fe37489" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "0e9eb607c999d881" }
+"disc.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "df372e92a59153b1" }
+"disc.«CONTRACT.assign»" = { status = "generic", id = "0bb9272cfaea5528" }
+"disc.«CONTRACT.block»" = { status = "generic", id = "d54f5029a2c74dbf" }
+"disc.«CONTRACT.disclose»" = { status = "generic", id = "bdd70dbc3ab86e4a" }
+"disc.«CONTRACT.emit»" = { status = "generic", id = "021970556b276f90" }
+"disc.«CONTRACT.if-false»" = { status = "generic", id = "b4ce4fadb21b6778" }
+"disc.«CONTRACT.if-true»" = { status = "generic", id = "b50334e6d7225745" }
+"disc.«CONTRACT.lt»" = { status = "generic", id = "49cf8f895450b558" }
+"disc.«CONTRACT.plus»" = { status = "generic", id = "023356ca88587a5b" }
+"disc.«CONTRACT.read»" = { status = "generic", id = "b6e5b365a78e1789" }
+"disc.«CONTRACT.repeat-done»" = { status = "generic", id = "e42701a90aaabc03" }
+"disc.«CONTRACT.repeat»" = { status = "generic", id = "9e6286f1bc6b1b91" }
+"disc.«CONTRACT.seq»" = { status = "generic", id = "fcf8e4a71db95b8a" }
+"disc.«CONTRACT.skip»" = { status = "generic", id = "594a91ba46826647" }
+"disc.«CONTRACT.var»" = { status = "generic", id = "e7f6d94aabc3d332" }
+"disc.«CONTRACT.witness»" = { status = "generic", id = "ece3f704a16127c1" }
+"disc.«CONTRACT.write»" = { status = "generic", id = "97255ca94f4b3fb3" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "76e6aa80aa8deefc" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3672dfb1dc842f37" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "82ec63894ab02114" }
+"same.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "e4453b75f9a73aeb" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "7ecf18f384416b21" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "40b3f6470ae4cf07" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b37e286c58b28d57" }
+"same.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "aab7416f7f0ec6e1" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "64d90fc8e2343a86" }
+"same.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "385746ad8c19ae7e" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "a72574616ce423d7" }
+"same.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "19a5747713feb812" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "21694802994f0341" }
+"same.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "154c16803f84d06e" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "4e971a0fdb652f5e" }
+"same.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "94c2c69500ab656b" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "83b0b151363ac21d" }
+"same.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "e92e76cdd2b0c9d1" }
+"same.«CONTRACT.assign»" = { status = "hand", id = "285cf10c252ec282" }
+"same.«CONTRACT.block»" = { status = "generic", id = "0429c116e7497db5" }
+"same.«CONTRACT.disclose»" = { status = "generic", id = "3cb1a4f2961ce605" }
+"same.«CONTRACT.emit»" = { status = "generic", id = "8664e894e94be03b" }
+"same.«CONTRACT.if-false»" = { status = "generic", id = "4c2b17005dfec38f" }
+"same.«CONTRACT.if-true»" = { status = "generic", id = "b092410783e21e98" }
+"same.«CONTRACT.lt»" = { status = "generic", id = "8cd2b1010ee0d245" }
+"same.«CONTRACT.plus»" = { status = "generic", id = "fdb3960e6a74de3f" }
+"same.«CONTRACT.read»" = { status = "generic", id = "e0e371a78a4be81d" }
+"same.«CONTRACT.repeat-done»" = { status = "generic", id = "b2e4a8fe3f8ab1ec" }
+"same.«CONTRACT.repeat»" = { status = "generic", id = "18f87862ada0aff8" }
+"same.«CONTRACT.seq»" = { status = "generic", id = "b64d375ea09852b8" }
+"same.«CONTRACT.skip»" = { status = "generic", id = "75bafea267645a91" }
+"same.«CONTRACT.var»" = { status = "hand", id = "c7f1b275ffd84adb" }
+"same.«CONTRACT.witness»" = { status = "generic", id = "135517990d1c5729" }
+"same.«CONTRACT.write»" = { status = "generic", id = "4ce27b6dc234b405" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6f11ec66ea371071" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "d96161b08aa4eaa6" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "7a50a4cfd70dd6f9" }
+"sq.«CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "606860560f311d23" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a09a3e6f1f67fea5" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "ffa5fd4e3df41e54" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "f557bffa8095258f" }
+"sq.«CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8a05e95f34005527" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "37b52c1a05c58c5e" }
+"sq.«CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "88f6282119f87d47" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "9e3d46e20efdfb90" }
+"sq.«CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "1e6e1f54d4b41ac5" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool»" = { status = "generic", id = "a12f7c31b0c5a227" }
+"sq.«CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat»" = { status = "generic", id = "4e774ef3948305dd" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "fde38d818cd6bd64" }
+"sq.«CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "dbb6a964c6e1aff7" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "b3eb769e37a19382" }
+"sq.«CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "623dc5ff88b20ae6" }
+"sq.«CONTRACT.assign»" = { status = "generic", id = "893b3f39c1cf444f" }
+"sq.«CONTRACT.block»" = { status = "generic", id = "e600603affa386d3" }
+"sq.«CONTRACT.disclose»" = { status = "generic", id = "ded40ea88a9084d3" }
+"sq.«CONTRACT.emit»" = { status = "generic", id = "42912cb1a732ccae" }
+"sq.«CONTRACT.if-false»" = { status = "generic", id = "8b3b5fa323a84246" }
+"sq.«CONTRACT.if-true»" = { status = "generic", id = "4fae0358feb742c0" }
+"sq.«CONTRACT.lt»" = { status = "generic", id = "14f636b550b20ffd" }
+"sq.«CONTRACT.plus»" = { status = "generic", id = "8cca0525b2a34e4c" }
+"sq.«CONTRACT.read»" = { status = "generic", id = "8282d55d5f1a35e8" }
+"sq.«CONTRACT.repeat-done»" = { status = "generic", id = "47670d11828b1fc7" }
+"sq.«CONTRACT.repeat»" = { status = "generic", id = "c3b120469de20c03" }
+"sq.«CONTRACT.seq»" = { status = "generic", id = "65fcb6f8ecb31fde" }
+"sq.«CONTRACT.skip»" = { status = "generic", id = "450ac5f3e0ea4599" }
+"sq.«CONTRACT.var»" = { status = "hand", id = "0ab7613d7694b6ef" }
+"sq.«CONTRACT.witness»" = { status = "generic", id = "4734c9b5c8db996f" }
+"sq.«CONTRACT.write»" = { status = "generic", id = "fcf35b8d77d3c49c" }
+
+[demo.ImpLeakNI]
+tier = "light"
+guarded = 12
+preserve = []
+
+[demo.ImpLeakNI.slots]
+"cq.«! B»" = { status = "generic", id = "172d63562a8690e8" }
+"cq.«- X»" = { status = "generic", id = "40df99711efe5abb" }
+"cq.«B1 != B2»" = { status = "generic", id = "693611bc1ed80bfe" }
+"cq.«B1 == B2»" = { status = "generic", id = "08d14ef9126ea498" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "13c4bac642d6e047" }
+"cq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "15133208ac0c512e" }
+"cq.«CALC.assign»" = { status = "open", id = "23d44fdd95ac5179" }
+"cq.«CALC.step»" = { status = "generic", id = "aa065c96b9f2db14" }
+"cq.«CALC.var»" = { status = "hand", id = "85a798f525b7f67c" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "c55dcf5091c3bd4d" }
+"cq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "cc2f098573337a9c" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "2fa5a670b50de314" }
+"cq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "883a008b9bc142e4" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "170de5b42e0bda74" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "45ac3515146d5f25" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "52ebd9896e72a89d" }
+"cq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "2a5d9e4e190939a4" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "adcf0f5a0a72e6b8" }
+"cq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "fff55636427fe56c" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "23a4737dbc30944e" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "b821d8c3a5492f6e" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "6eb60d5acc8afda3" }
+"cq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "46676658b22e14d7" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3612c5ed8c90a525" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6da2c402e2dce8d0" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e72dd08f41bce7ff" }
+"cq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "446ce82797da15ff" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "1191e8f43e15b6dc" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "512f99658f234e25" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "72d9b245029a99a1" }
+"cq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "472213c59627db51" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "2344508e9350f93d" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "cf231c8e02d8a0b7" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "5502cf28187ef79e" }
+"cq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "62b241704d7f8003" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5c5ed1960bb6c557" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "632b00461d6af2c9" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "1cc68a760d44cd8f" }
+"cq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "b496fa91fd468be4" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "ef6de248b1f71f8b" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6213bf00ecb425d9" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "914f794c0201f051" }
+"cq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8c25ba73d99d65cf" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "8fad7fc0125d6276" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "108da01dfde45e7b" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d72e6ff4a2310e88" }
+"cq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "7c956d5d8a030d02" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "be9093b804b7e50e" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "aff87b9f523906e7" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "be9cab1c22b9e597" }
+"cq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "9f9d5a5aacd26f41" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5187b692c3f022b1" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9dbcd466254ca95d" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "60ea112768608750" }
+"cq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "86a80b80e4ffa08c" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b2f4db91095b31a6" }
+"cq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5c4a087aafd33457" }
+"cq.«I1 != I2»" = { status = "generic", id = "54df2824c8d88bc7" }
+"cq.«I1 < I2»" = { status = "generic", id = "9deeab206e227cfa" }
+"cq.«I1 <= I2»" = { status = "generic", id = "901a55c3939b6ddd" }
+"cq.«I1 == I2»" = { status = "generic", id = "7e919cf134b077de" }
+"cq.«I1 > I2»" = { status = "generic", id = "a65da67694757695" }
+"cq.«I1 >= I2»" = { status = "generic", id = "4e4dbeadf6bfac12" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "1a37a8fe5024fcd2" }
+"cq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "563d141989b058bb" }
+"cq.«IMP.block»" = { status = "generic", id = "f98fd7da198f9da8" }
+"cq.«IMP.done»" = { status = "generic", id = "7d3bb7be87d76919" }
+"cq.«IMP.if-else»" = { status = "generic", id = "58282e77be391c6e" }
+"cq.«IMP.if-false»" = { status = "generic", id = "f84ae9ea4e0a4181" }
+"cq.«IMP.if-true»" = { status = "generic", id = "2363601be1ee8e67" }
+"cq.«IMP.while»" = { status = "generic", id = "4df0b081786fadfb" }
+"cq.«X * Y»" = { status = "generic", id = "19161b0be016a446" }
+"cq.«X + Y»" = { status = "generic", id = "473bbc0d9014b0d5" }
+"cq.«X - Y»" = { status = "generic", id = "731d5f4277aee345" }
+"cq.«X / Y»" = { status = "generic", id = "29a9d9e5ecb70ec0" }
+"cq.«false && _»" = { status = "generic", id = "5c842a7fa17aca97" }
+"cq.«false || B»" = { status = "generic", id = "b68aa555af63f931" }
+"cq.«true && B»" = { status = "generic", id = "4516db7063d472d2" }
+"cq.«true || _»" = { status = "generic", id = "adb2b2cb8c618152" }
+"same.«! B»" = { status = "generic", id = "8840446c1b0046a7" }
+"same.«- X»" = { status = "generic", id = "acdc762d960ff7ce" }
+"same.«B1 != B2»" = { status = "generic", id = "223173fa02f5ee30" }
+"same.«B1 == B2»" = { status = "generic", id = "469418ce782cd310" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "dcb2c0c87f3f0f78" }
+"same.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "5097e5be06c96157" }
+"same.«CALC.assign»" = { status = "hand", id = "e5b800cca41b0210" }
+"same.«CALC.step»" = { status = "generic", id = "5005ab40e6d23d4f" }
+"same.«CALC.var»" = { status = "hand", id = "a7613afeb420b9b3" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "56bb8b95d98bd193" }
+"same.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "3240e56acefc54fd" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "7b6a7eeb640a2964" }
+"same.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "38f2592571667a71" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "742a38e8c6caee47" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "dd6578577c9431e9" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8e9086f66102e045" }
+"same.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8dbc02ecf4566a81" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "148d225c8c0c6391" }
+"same.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "5a5ef4c37db1f346" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "69c721deb85ae7c7" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "0cc05f2e54a8ce7c" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "835c9301bccaf2c9" }
+"same.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "12d9b463c58b380f" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "b060d7e217b68e1c" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6c3499ce297bb204" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b00cda5984a8a72c" }
+"same.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "bf825ba19b768bbf" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "027fd352943b2491" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "a206b7900911326f" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3c27e98e4236d5a3" }
+"same.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "68bfb924fdbcac6b" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "0bd33be96fcd413b" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "115d300daf4f419b" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "837a0b5b7c49b526" }
+"same.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "f690938fed58c722" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "2bc612575fdd76f4" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "cf1b4f43aea324d2" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "662ff97cda4561a9" }
+"same.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "8f737fde4ec118f7" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4b147d13b5f39ba7" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "c6bb2296b130ac60" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d22af6b616a8f6af" }
+"same.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "74ed61bddfa447eb" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "3341e4ccdce11a9e" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "c4698e30a00d55c5" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "e9f53a41a4f50cd7" }
+"same.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "32dc61b6200e2621" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "c828a40f9d84122a" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "64688471a7d5ae41" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "d4bdc828c4614e3c" }
+"same.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "4ac081318bbc1ca2" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "21497d73cf841069" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "2e88912ac4757c12" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "07e2baf47201461b" }
+"same.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1fda242a0b92889d" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "874578eeb155b856" }
+"same.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "472cb5c0994ef012" }
+"same.«I1 != I2»" = { status = "generic", id = "cbe2d804a8222e17" }
+"same.«I1 < I2»" = { status = "generic", id = "e57aba3a8a15a0d7" }
+"same.«I1 <= I2»" = { status = "generic", id = "d550d714cc787ed8" }
+"same.«I1 == I2»" = { status = "generic", id = "2b7d0d5fd6f6cba2" }
+"same.«I1 > I2»" = { status = "generic", id = "41d6d4f02a833dcc" }
+"same.«I1 >= I2»" = { status = "generic", id = "e0f5364d7435a8a6" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "a0d3b91a5fa430b7" }
+"same.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "44038365221d8a99" }
+"same.«IMP.block»" = { status = "generic", id = "5c387cea93752d7d" }
+"same.«IMP.done»" = { status = "generic", id = "641dfcf302646fe6" }
+"same.«IMP.if-else»" = { status = "generic", id = "6a76a73ba86f0875" }
+"same.«IMP.if-false»" = { status = "generic", id = "51368e8147ba1815" }
+"same.«IMP.if-true»" = { status = "generic", id = "8d99c812dcb416a6" }
+"same.«IMP.while»" = { status = "generic", id = "baa0d71f704127fe" }
+"same.«X * Y»" = { status = "generic", id = "70522f22c7bf6989" }
+"same.«X + Y»" = { status = "generic", id = "3b9bc6c3c83893f6" }
+"same.«X - Y»" = { status = "generic", id = "0be9ffd482c0f4a2" }
+"same.«X / Y»" = { status = "generic", id = "3c28b55c2d2de2ff" }
+"same.«false && _»" = { status = "generic", id = "1ab4fb248828a6e2" }
+"same.«false || B»" = { status = "generic", id = "9ad83687a3560cf3" }
+"same.«true && B»" = { status = "generic", id = "ee90a07eff5dff1b" }
+"same.«true || _»" = { status = "generic", id = "268c1c3f2f8c8844" }
+"sq.«! B»" = { status = "generic", id = "32b3f3852e98c4c3" }
+"sq.«- X»" = { status = "generic", id = "369cc5215a45c471" }
+"sq.«B1 != B2»" = { status = "generic", id = "9afde437c5d7694b" }
+"sq.«B1 == B2»" = { status = "generic", id = "d4ddce8aeb465a9c" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool»" = { status = "generic", id = "91f01e46925f85bd" }
+"sq.«CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat»" = { status = "generic", id = "5a5fdff0278e468a" }
+"sq.«CALC.assign»" = { status = "generic", id = "c6b689d1ae696415" }
+"sq.«CALC.step»" = { status = "generic", id = "469734f812139f81" }
+"sq.«CALC.var»" = { status = "hand", id = "a3a9324a1d1a860b" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "472f5e5a0e605688" }
+"sq.«EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "c66e728bb5b17d8e" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool»" = { status = "generic", id = "dcb158077ef8d473" }
+"sq.«EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat»" = { status = "generic", id = "ced970c2aa5cc0d8" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "491bc38c9d10b393" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "c73b3f38f583e40d" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "61cba0c998068f1f" }
+"sq.«EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "bdb524c14257fdc8" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "5e36ef61c6d688a7" }
+"sq.«EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9589d93db5647674" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "22966f4210552f90" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "7234a1d53e77f952" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "c934e76329fc5cc5" }
+"sq.«EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "1945b7d47203fdd9" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "263083ae2c9dd24c" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9135925878957b38" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "92a90683b4863e2c" }
+"sq.«EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a7406c66d9b58f7d" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4a1fb51641d24cf7" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "4158e43bbb454dfb" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "b4bdd1d21562b856" }
+"sq.«EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "0111b71d27e3eaef" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "6924d4c1cfa442ec" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6dcb2e086fc4d044" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "0cd05bac40f098f1" }
+"sq.«EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "295dba6264a8fc61" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "e52d49165f132ad1" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "43f851ab2bd271fc" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "aeb2e28413eb0c65" }
+"sq.«EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "a990ab486328017b" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "f9919e2f84c60b64" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "9e8aad362efc2318" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "8fd599dc2ca23252" }
+"sq.«EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "52a24867510f32c2" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "4c13b6c5a12065d2" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "3fcdbc4eef4b77e9" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "deefb824dcd6e437" }
+"sq.«EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "cd4ebcfd84a86501" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "452bf826982c152a" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "6db15d4b1c8648af" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "5f30c296028de4c0" }
+"sq.«EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "5dbc8100c798384b" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "59ef530f2eaf1144" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "1ae1e29e2788a0b2" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool»" = { status = "generic", id = "3a5c93dbd012fe21" }
+"sq.«EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat»" = { status = "generic", id = "44cc97b9695a9bdf" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool»" = { status = "generic", id = "a4efe93d436d55c7" }
+"sq.«EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat»" = { status = "generic", id = "7eff26e044fd3f65" }
+"sq.«I1 != I2»" = { status = "generic", id = "c7ab752d24289d06" }
+"sq.«I1 < I2»" = { status = "generic", id = "181aea977ced9a09" }
+"sq.«I1 <= I2»" = { status = "generic", id = "0c113c017fbc0dcc" }
+"sq.«I1 == I2»" = { status = "generic", id = "06752b252305b548" }
+"sq.«I1 > I2»" = { status = "generic", id = "0d1c239537d1c116" }
+"sq.«I1 >= I2»" = { status = "generic", id = "5ec1ca6390a90859" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool»" = { status = "generic", id = "8e9104d2c7753f42" }
+"sq.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat»" = { status = "generic", id = "48f5768d6dd0eeb8" }
+"sq.«IMP.block»" = { status = "generic", id = "97b35a28129d9720" }
+"sq.«IMP.done»" = { status = "generic", id = "f002e4c26424f788" }
+"sq.«IMP.if-else»" = { status = "generic", id = "101bcb609689c539" }
+"sq.«IMP.if-false»" = { status = "generic", id = "5762ef21373b2a3c" }
+"sq.«IMP.if-true»" = { status = "generic", id = "e091982f7a34ec34" }
+"sq.«IMP.while»" = { status = "generic", id = "4d090536443dcb05" }
+"sq.«X * Y»" = { status = "generic", id = "f08c17939d212e20" }
+"sq.«X + Y»" = { status = "generic", id = "5d34e23c6dcadae8" }
+"sq.«X - Y»" = { status = "generic", id = "9f54979d224379e0" }
+"sq.«X / Y»" = { status = "generic", id = "128b3e1ccb6bc18a" }
+"sq.«false && _»" = { status = "generic", id = "d46f5f489bd33da3" }
+"sq.«false || B»" = { status = "generic", id = "8f53cd60ea78893f" }
+"sq.«true && B»" = { status = "generic", id = "b44655a50d8ea754" }
+"sq.«true || _»" = { status = "generic", id = "f34f53f97f90d305" }
+
 [sources]
 
 [sources.sha256]
-"demos/ContractEnvNI/ContractEnvNI/Levels.lean" = { tier = "light", sha256 = "96c48d072c7690853d03bb632b764860ce56636c8122299fc1b57cc8ba77c3fb" }
+"demos/ContractEnvNI/ContractEnvNI/Levels.lean" = { tier = "light", sha256 = "e8373b003a216080af3c9402dba2f3314ea83e00f7d162454bb4b473a3b71e79" }
 "demos/ContractEnvNI/ContractEnvNI/NI.lean" = { tier = "light", sha256 = "2dd857581f4b43670ba123a8684a0b48aba086bc260c0a70d8ec2359cfe5b439" }
 "demos/ContractEnvNI/ContractEnvNI/Proof.lean" = { tier = "light", sha256 = "17e1acbaaebc62f9145330ec6f6f65c8bc50f117cf921b2ac4e166648bf03ef5" }
 "demos/ContractEnvNI/ContractEnvNI/Spec.lean" = { tier = "light", sha256 = "4eb42888d56f142f97288f5999f889e6e7ba6c50e77880a8e2704f1e2dd51a06" }
@@ -1710,7 +2165,16 @@ preserve = []
 "demos/ContractEnvNI/ContractEnvNI/Tr.lean" = { tier = "light", sha256 = "2078a5073a188436dc661c3e7b7906761dfb56eebe33db8fe43758b65614dab7" }
 "demos/ContractEnvNI/correspondence.toml" = { tier = "light", sha256 = "b2be4aeab530e05f80ce96e8712a526caf8ca01cd50bc84879b6054f6dcc3a5b" }
 "demos/ContractEnvNI/noninterference.toml" = { tier = "light", sha256 = "670c156da990a586fe35934c98a52b61f4d867ca53a671e7d4ffac672d7a9180" }
-"demos/ContractNI/ContractNI/Levels.lean" = { tier = "light", sha256 = "c82b5d06ea685a48efc396c932958fd403c74149dba133c02ae721e038b432e7" }
+"demos/ContractLeakNI/ContractLeakNI/Levels.lean" = { tier = "light", sha256 = "f8fdd37e870a3d74b5be1ae6739bd08b62c0e32323660540b376f84093027bbf" }
+"demos/ContractLeakNI/ContractLeakNI/NI.lean" = { tier = "light", sha256 = "acd338795981d5e7e9f44d9a7cd17650d37999c782c2b97f2cac33b1b09884f9" }
+"demos/ContractLeakNI/ContractLeakNI/Proof.lean" = { tier = "light", sha256 = "3c79388a3aba292789e6e7b40403fa8ff00e3a8eccc91f2c27680c7d22ee1ee6" }
+"demos/ContractLeakNI/ContractLeakNI/Spec.lean" = { tier = "light", sha256 = "3fd5f8eea5cd549421754ca918e121393b45b29336f8c5455126f874c34a2ce5" }
+"demos/ContractLeakNI/ContractLeakNI/Stack.lean" = { tier = "light", sha256 = "4826e700b7fc1b0b21aa5aa1ca1043bcc12fff3807c95a1041e50ef30267b59c" }
+"demos/ContractLeakNI/ContractLeakNI/Tr.lean" = { tier = "light", sha256 = "9d484d86e1f5658187e1481a966c834a1cf7301351aec4d2a8c3cf2056a47f0b" }
+"demos/ContractLeakNI/ContractLeakNI/Witnesses.lean" = { tier = "light", sha256 = "e0c875d08ecb843db7f87099701d52a470a72a27c67171cda2a23dfeb3f853fa" }
+"demos/ContractLeakNI/correspondence.toml" = { tier = "light", sha256 = "9c8dc46bdd55e498692aaaf09288c4a98f6de81f60f52660b029497a42b651b0" }
+"demos/ContractLeakNI/noninterference.toml" = { tier = "light", sha256 = "e30ade2f3e77cdd5ee2caa276f1e6e62b39b64fc38cff67336a78308a4c0080e" }
+"demos/ContractNI/ContractNI/Levels.lean" = { tier = "light", sha256 = "0bd48df407b60ec2e81065618f6ed4cec7dbf6ffc3cecd80201c235ec3db341b" }
 "demos/ContractNI/ContractNI/NI.lean" = { tier = "light", sha256 = "90b356685645d3bd7156e580b14cce027d467cf8bf78cba71b130df6a4568dcf" }
 "demos/ContractNI/ContractNI/Proof.lean" = { tier = "light", sha256 = "2df98b8c4cef9a38d38649d35c3f8481e23e6868ae755d6a47903520d5c1b706" }
 "demos/ContractNI/ContractNI/Spec.lean" = { tier = "light", sha256 = "e870fd8a161afdbb5db09708642620c59eea9f9693cb7e6b2293ef65e5ac3026" }
@@ -1718,7 +2182,7 @@ preserve = []
 "demos/ContractNI/ContractNI/Tr.lean" = { tier = "light", sha256 = "5c81e5256ba76dbc304c567f99cb3d2a5b8518007135b06d0daeb64f17b9a042" }
 "demos/ContractNI/correspondence.toml" = { tier = "light", sha256 = "297ab924cdf9c6b7352d25913466d92a513241ae6d9f2ae378dc7da51276b680" }
 "demos/ContractNI/noninterference.toml" = { tier = "light", sha256 = "b04d0f01e4fea4460e8545575385a0945d97e9236bd7f67136f441e6b4d3ad67" }
-"demos/ContractObsNI/ContractObsNI/Levels.lean" = { tier = "light", sha256 = "fa2c2d46e938f6abb3b2c79cb4f51d62c7e4ddec6119591e1fd86414894db6c2" }
+"demos/ContractObsNI/ContractObsNI/Levels.lean" = { tier = "light", sha256 = "0222579fc0f7896ea297460fa4884b1e0b748539a67c93930415f84000bb494b" }
 "demos/ContractObsNI/ContractObsNI/NI.lean" = { tier = "light", sha256 = "de70d0b9970d0185b813811c0985fe34bbff0960ab4fe447ace3915338b8e299" }
 "demos/ContractObsNI/ContractObsNI/Proof.lean" = { tier = "light", sha256 = "5693e6fbbb8ac5cb9b0c098b1695334d304788e8786ea948c9b06af7a1ef495d" }
 "demos/ContractObsNI/ContractObsNI/Spec.lean" = { tier = "light", sha256 = "1e2bf54410b75ebcb14e3d7240b70319f1975b0a7d8d5fe2db60ca851a0c3a5a" }
@@ -1726,7 +2190,7 @@ preserve = []
 "demos/ContractObsNI/ContractObsNI/Tr.lean" = { tier = "light", sha256 = "b534e027d1d113ef391e235d640daba269ec78ff54ecc33f3d06f41487b2f214" }
 "demos/ContractObsNI/correspondence.toml" = { tier = "light", sha256 = "20085caad1b22165a9ee8141a3f4eb9f720f76a8416a160cda990ff28fde30b3" }
 "demos/ContractObsNI/noninterference.toml" = { tier = "light", sha256 = "815c7b0e117e38095b39b9649ba9e6ce25fe48fbdcf9248a17c825a21f79ace4" }
-"demos/ContractOwiseNI/ContractOwiseNI/Levels.lean" = { tier = "light", sha256 = "ed70c561c6b1de555d7e192892c6f05e04576f3ce7abc4341e07b3959741ac82" }
+"demos/ContractOwiseNI/ContractOwiseNI/Levels.lean" = { tier = "light", sha256 = "dc2d0cb762c99ecbc722a712564b9a496594dfd298ae6e86f793bb039e1d36bc" }
 "demos/ContractOwiseNI/ContractOwiseNI/NI.lean" = { tier = "light", sha256 = "8a4f9bd7e75dc5a8a3468424e6267a1184832dc8a9b39ec0c90d062842bcaaf7" }
 "demos/ContractOwiseNI/ContractOwiseNI/Proof.lean" = { tier = "light", sha256 = "b1b54886ffc608a9ed9bf703ee3ed8fa251f43d0388c49ca44d0627a69273246" }
 "demos/ContractOwiseNI/ContractOwiseNI/Spec.lean" = { tier = "light", sha256 = "43fcebc22aa4a61941fa8d0474067a6940d57113fdaeac932d485324e54ca4c8" }
@@ -1734,7 +2198,7 @@ preserve = []
 "demos/ContractOwiseNI/ContractOwiseNI/Tr.lean" = { tier = "light", sha256 = "0fa86aa8ad0c98261e970ba11dade1adaa3ee3579b02899f6fc1a61e60ad86bb" }
 "demos/ContractOwiseNI/correspondence.toml" = { tier = "light", sha256 = "428ae48ed4b49a2cba812d69d8816a68fa9f7e0444024475a8d06fe1436d2d1a" }
 "demos/ContractOwiseNI/noninterference.toml" = { tier = "light", sha256 = "e08076991ae1712472c23da9849b71dfb39d53f2064aee1e7bb863a4bd55b253" }
-"demos/ContractValsNI/ContractValsNI/Levels.lean" = { tier = "light", sha256 = "5699539155a7c98ae307c38540d90b7dcc87a7fd0e40ad2e367bb302d2f1a594" }
+"demos/ContractValsNI/ContractValsNI/Levels.lean" = { tier = "light", sha256 = "426b50edd13228d4f44c811dbabddcdfba55c4678b9d5cb52241f1fd907f0cf8" }
 "demos/ContractValsNI/ContractValsNI/NI.lean" = { tier = "light", sha256 = "0995480916e56e2103f2890f07dc9a35b19df9f8df325749a32f984452559b7f" }
 "demos/ContractValsNI/ContractValsNI/Proof.lean" = { tier = "light", sha256 = "152b940a049279421a475175ff5323321e40f816e653c91adbfaaacba4687bba" }
 "demos/ContractValsNI/ContractValsNI/Spec.lean" = { tier = "light", sha256 = "63ccac4358ff544d8c1884d46e376798ee4801119b268a7a1ae85f0ead13b5d6" }
@@ -1742,7 +2206,16 @@ preserve = []
 "demos/ContractValsNI/ContractValsNI/Tr.lean" = { tier = "light", sha256 = "d2f0fb493bfa1e756c1a32d2a8bd16103a26bf88d845e983bb42e5eeade50d0a" }
 "demos/ContractValsNI/correspondence.toml" = { tier = "light", sha256 = "d0d1be7424c88e78479089ba8f833bb7c23dbecbe75ccac8e608a6ff42359af3" }
 "demos/ContractValsNI/noninterference.toml" = { tier = "light", sha256 = "f2e90c5ac5e9a64f0ca41f23d7d4b6085b00bbb88dc93513533cd0110bb738bd" }
-"demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "68d4f9469815bd97005a0c12c23873123112b455807012b96281be939a32d52d" }
+"demos/ImpLeakNI/ImpLeakNI/Levels.lean" = { tier = "light", sha256 = "4b97c7187e2de7c07306286bda2da74e4461d62146f46633a23894cd5118b33c" }
+"demos/ImpLeakNI/ImpLeakNI/NI.lean" = { tier = "light", sha256 = "88ddb573da22d5e0b6b72b07e2f9417d4eb62c5c7b3814f2a693672fd6ed5748" }
+"demos/ImpLeakNI/ImpLeakNI/Proof.lean" = { tier = "light", sha256 = "276000c29fc5f9194db7cc55c631ba4582c0d29747e73c9672e7b94ae48bcf98" }
+"demos/ImpLeakNI/ImpLeakNI/Spec.lean" = { tier = "light", sha256 = "62ba703b87ca850e5ad2a51d866ea8eb33b1435b58bb0f356bb7612310b72ded" }
+"demos/ImpLeakNI/ImpLeakNI/Stack.lean" = { tier = "light", sha256 = "b8cc3301f81936d70bc7555a6f523f688d485e9163e56324bb81a3c0355e0e6b" }
+"demos/ImpLeakNI/ImpLeakNI/Tr.lean" = { tier = "light", sha256 = "f522cae1942a8aa001c65ed6126c79823a742e4c7b7d2a9a1e3dbd951cffdc9f" }
+"demos/ImpLeakNI/ImpLeakNI/Witnesses.lean" = { tier = "light", sha256 = "f61afe0fea38685c058974a7f55a259549f83af894bd497e5925c6abab89b9ff" }
+"demos/ImpLeakNI/correspondence.toml" = { tier = "light", sha256 = "a587aeb76216c2239140ca909008260b9ce65701b029ff23c1c08841a660e16a" }
+"demos/ImpLeakNI/noninterference.toml" = { tier = "light", sha256 = "ae3ad00494e3b243632f751e0b06f5941c06b9a726ff5061e70cda229c514d95" }
+"demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "31741125cfc281762a8703041d057933bfb203b38390254ecc70ffa8a9415044" }
 "demos/ImpNI/ImpNI/NI.lean" = { tier = "light", sha256 = "04e452665528652e285642c1d90909bac0818ba77e3c690e0e0629f42d552d57" }
 "demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "1ba4e57e5dfd8c79ba9c9581b50886834ad8209f53e280c5688aa974af319534" }
 "demos/ImpNI/ImpNI/Spec.lean" = { tier = "light", sha256 = "c9d6dbbf8ffce6c55f57f8b2beed60c90d25a9b22b8709e0756758927a9cda92" }
@@ -1750,7 +2223,7 @@ preserve = []
 "demos/ImpNI/ImpNI/Tr.lean" = { tier = "light", sha256 = "b5b7e1f6083135654c57b495820ffec17cdfc9b998c35157830ecea45e37a055" }
 "demos/ImpNI/correspondence.toml" = { tier = "light", sha256 = "496f900d29a89ceaf57e4f4f072e24c310bb0b727fc157b5d1ff65726bc82fcd" }
 "demos/ImpNI/noninterference.toml" = { tier = "light", sha256 = "5c3097e9b5abcc85142d9bf0505e5e83ecbe5750509d283d4a1f82d17fc7a882" }
-"demos/ImpOutNI/ImpOutNI/Levels.lean" = { tier = "light", sha256 = "cd975179da7c2f12c2507cc8b20c904a6d748263e9d7ce9ecc0848a0b6ae9a42" }
+"demos/ImpOutNI/ImpOutNI/Levels.lean" = { tier = "light", sha256 = "9ea08d7593ed954a757b2d2b868b94cc3fee4f96d07b969038d7314eaa143034" }
 "demos/ImpOutNI/ImpOutNI/NI.lean" = { tier = "light", sha256 = "72b2421397c78d9431956c847ff508cc17551ec7f97381af48861bb5e11e2da3" }
 "demos/ImpOutNI/ImpOutNI/Proof.lean" = { tier = "light", sha256 = "c191bb792485bf3edd03c3fb044810f50a45a2592d47159c01bd8f59f1e17bbb" }
 "demos/ImpOutNI/ImpOutNI/Spec.lean" = { tier = "light", sha256 = "45b7e1bf74181a658d4b691b66ffdbd7550c8f7d4d63f4b090e0d7aece4bfb16" }
@@ -1758,7 +2231,7 @@ preserve = []
 "demos/ImpOutNI/ImpOutNI/Tr.lean" = { tier = "light", sha256 = "1b42bd399643531e959be6cdc07db244db4ce8443329320a428385927e093aca" }
 "demos/ImpOutNI/correspondence.toml" = { tier = "light", sha256 = "40569bf9cff021b25eef6d6aa4b113211c72a5fcce0bc5af490a0a6dea40f00d" }
 "demos/ImpOutNI/noninterference.toml" = { tier = "light", sha256 = "4242e24957b0a494e2577ae64a9a73acdb93e66045a204312eb181bd56eb5ec8" }
-"demos/ImpOwiseNI/ImpOwiseNI/Levels.lean" = { tier = "light", sha256 = "5be12818b8024f8cf24f9cfbd84b7d2a4f9ddef507e8aad6969e6f78e9c83e79" }
+"demos/ImpOwiseNI/ImpOwiseNI/Levels.lean" = { tier = "light", sha256 = "45ea8f768e8280a111cbf10f313767c237ca177f2e7726db1aa8bb50f686cbca" }
 "demos/ImpOwiseNI/ImpOwiseNI/NI.lean" = { tier = "light", sha256 = "23604d479727089c04e7f5331459f47df7492fe3f9c383aec84ab6403b5061e2" }
 "demos/ImpOwiseNI/ImpOwiseNI/Proof.lean" = { tier = "light", sha256 = "c0a0ca65ada31f6700e0b4d397b675d91c7574eb3f003be0a62a2108cd6043a6" }
 "demos/ImpOwiseNI/ImpOwiseNI/Spec.lean" = { tier = "light", sha256 = "71c2f3c7441f4f22338a09c48e9eb8d7e2ee4ae8002f5c1e61bdfcd28e0dde1a" }
@@ -1847,6 +2320,24 @@ preserve = []
 "generated/contractsec/ContractSecTest/Main.lean" = { tier = "light", sha256 = "ed9e89a5cb1bc496b0b0e1f60639be397caeeb6b385aa4674c0b96e325b23707" }
 "generated/contractsec/lakefile.lean" = { tier = "light", sha256 = "10ac137e7e01da465af9cec6242f521ad555f1e134294e16a3124d6acdfb876f" }
 "generated/contractsec/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/contractsecleak/ContractSecLeak.lean" = { tier = "light", sha256 = "854eec9917582e2100adc038b36e885d67f0847e65757f3ad9316241449824d2" }
+"generated/contractsecleak/ContractSecLeak/Adequacy.lean" = { tier = "light", sha256 = "88306ebf6e7629c0a06d44b23db487e322f116fb1269eb97b0c81a2a29f875a7" }
+"generated/contractsecleak/ContractSecLeak/Determinism.lean" = { tier = "light", sha256 = "3945befecaa7795a105d91c1f07fbd5ab9b4b2bba573235a8757c02b384a18f3" }
+"generated/contractsecleak/ContractSecLeak/Determinism/L1.lean" = { tier = "light", sha256 = "7abc089e3fbc16be5e6651c754362430469335427cf2814a188ff2728014e54d" }
+"generated/contractsecleak/ContractSecLeak/Determinism/Pre.lean" = { tier = "light", sha256 = "9dcd2476828736711f2ac4af6513aa5e45cfe97f95dfcd0a8eb6f207e87825a2" }
+"generated/contractsecleak/ContractSecLeak/EqBase.lean" = { tier = "light", sha256 = "e9a21607b6e684e933b8554b735062d48b23a627285886e29b85794ad7c4bbaa" }
+"generated/contractsecleak/ContractSecLeak/Equations.lean" = { tier = "light", sha256 = "b15774262355fd20933d165db6c68ad0a24146579b1c03345da2c4c5ca9cbd37" }
+"generated/contractsecleak/ContractSecLeak/Functions.lean" = { tier = "light", sha256 = "7c3801f5269c5f52f4dee2ed3b2e7b8bb9028c91e0bef265c9eaeb5fe791633c" }
+"generated/contractsecleak/ContractSecLeak/Init.lean" = { tier = "light", sha256 = "944b856c409df3ad96d1d7b4842aa318e9380874f3dcd73a8d213830deef6f2c" }
+"generated/contractsecleak/ContractSecLeak/Preserves.lean" = { tier = "light", sha256 = "6a14a3127deecd03df1116c12736ca43e925bc5382dd17128d4be85667a94286" }
+"generated/contractsecleak/ContractSecLeak/Rules.lean" = { tier = "light", sha256 = "69a76d4d3b308e7a023b2a4419fea0c612a15ce9ed43a6ed1adc4102f327798e" }
+"generated/contractsecleak/ContractSecLeak/Terms.lean" = { tier = "light", sha256 = "3ad870632d2230fca8991bc7544a8fbbcc05de8429692a54bd32dfd900a17a7d" }
+"generated/contractsecleak/ContractSecLeakBench/Main.lean" = { tier = "light", sha256 = "ea8427cd83b6d638567b3f3bf21bb693803cc006ccd521869394569206aabbe7" }
+"generated/contractsecleak/ContractSecLeakTest/Axioms.lean" = { tier = "light", sha256 = "c28c39564fe32fe8871ad31fee60c3a89fca0d72374ce09db57f266afae49ce0" }
+"generated/contractsecleak/ContractSecLeakTest/DetAxioms.lean" = { tier = "light", sha256 = "94e6375e014aa31ad3c5d409d8068e8382ec3c10a54e5a7054fc3c85d9e19919" }
+"generated/contractsecleak/ContractSecLeakTest/Main.lean" = { tier = "light", sha256 = "11d7336d3c47dfa7fe889e9848daf6a8e3653f4b95af3f5ed6e9d4f1c2d6a61a" }
+"generated/contractsecleak/lakefile.lean" = { tier = "light", sha256 = "dbd6fd6e5093103430a15b409186b31bc80429bad4aff4f713c37dbd3395a0c4" }
+"generated/contractsecleak/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/contractsecnr/ContractSecNR.lean" = { tier = "light", sha256 = "f182482a647b2dd9a2259d55a57f12dbcf66d16bceac03e2bd420cf71a8878b4" }
 "generated/contractsecnr/ContractSecNR/Adequacy.lean" = { tier = "light", sha256 = "1be0f6f63e834d2fb75f9b891c0eaf6c58e717804336f72a7502733a1c4e1e5f" }
 "generated/contractsecnr/ContractSecNR/Determinism.lean" = { tier = "light", sha256 = "d35a7c00548c96edcbac54c79f268482c6e9f9c2ec85f7fe4d9debc2714e0671" }
@@ -1907,6 +2398,27 @@ preserve = []
 "generated/impsec/KImpSecTest/Main.lean" = { tier = "light", sha256 = "d088cc08aef92de08610ee8ecc5b6fd89d82f4363fe7f4f2d53748119f864dce" }
 "generated/impsec/lakefile.lean" = { tier = "light", sha256 = "c60f0b9d7cf2b70b9cd275f9c42bab3f3c99866b3071c3c5c9bd40b5ee122b0a" }
 "generated/impsec/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/impsecleak/KImpSecLeak.lean" = { tier = "light", sha256 = "b77a24864b1431bf9bafeb2cbe97004c15f53e3c8fc888b9115999afc76b4e75" }
+"generated/impsecleak/KImpSecLeak/Adequacy.lean" = { tier = "light", sha256 = "25b76a6f86516fac5ae226b4700a78eace154f0c4bec809b5bac7211f7a57223" }
+"generated/impsecleak/KImpSecLeak/Determinism.lean" = { tier = "light", sha256 = "d21005d32f70b4bc71e0682d5b83406e78520b15f61b049d824a15fff82edce9" }
+"generated/impsecleak/KImpSecLeak/Determinism/L1.lean" = { tier = "light", sha256 = "69332bf57b275692c382a33f32970ac95999a6e0cb9fca1f2d2824c702b5ed0e" }
+"generated/impsecleak/KImpSecLeak/Determinism/L2.lean" = { tier = "light", sha256 = "e68ff52106fd33f2cbdd6cb11c77f1a76e43698c86e022c3a860763f79548e4d" }
+"generated/impsecleak/KImpSecLeak/Determinism/L3.lean" = { tier = "light", sha256 = "0c926a71618b1f3fe6d23fb3524e776e83f5cc8cfc868ed059b8e30dc81354f5" }
+"generated/impsecleak/KImpSecLeak/Determinism/L4.lean" = { tier = "light", sha256 = "e773920ee3dce6afd7c1d6a61907d508d803c5d4fa623eb99a57ccab4ea72e0f" }
+"generated/impsecleak/KImpSecLeak/Determinism/Pre.lean" = { tier = "light", sha256 = "d3dd5d89ad27d0249ecc7dcabc002f800bac20a0c6f99b585fbe7a31e8b28103" }
+"generated/impsecleak/KImpSecLeak/EqBase.lean" = { tier = "light", sha256 = "b1059b221513f41b19ad01cdc061c54c704fb09ec389d2cd18d86829c9943d43" }
+"generated/impsecleak/KImpSecLeak/Equations.lean" = { tier = "light", sha256 = "0d13eda58abafd043bbd0f8ae3c11dce04c1356badf661614cca810166c9c9b9" }
+"generated/impsecleak/KImpSecLeak/Functions.lean" = { tier = "light", sha256 = "5c2793b0f315b9af71a5e050e4ae2386281e95134cc2f0d7f8a4a2bfa6c8acce" }
+"generated/impsecleak/KImpSecLeak/Init.lean" = { tier = "light", sha256 = "56ccd0792c4a9d9e95c95954ad6506b3dc271d193e8998debc078b56e070b62a" }
+"generated/impsecleak/KImpSecLeak/Preserves.lean" = { tier = "light", sha256 = "cf0e19c8173738e9e68d94927569c73c6d8437d908045176316fca6604e29916" }
+"generated/impsecleak/KImpSecLeak/Rules.lean" = { tier = "light", sha256 = "83d525eab46f6679eb27b2ff5eff4da190d3be8fdfa6c15bb8c9275469dd5045" }
+"generated/impsecleak/KImpSecLeak/Terms.lean" = { tier = "light", sha256 = "1240353f71c47f9ccfe56a9d4162a28583ea7d862bbb222c39c80c3aae96cd28" }
+"generated/impsecleak/KImpSecLeakBench/Main.lean" = { tier = "light", sha256 = "8a979749a4a2dee2b2b013ab044dd219d493988af928d50293aa044f25e17034" }
+"generated/impsecleak/KImpSecLeakTest/Axioms.lean" = { tier = "light", sha256 = "b27106f08924c05d12d56ad55fda647a139637fdfe7bbb8e7631023137bbccf4" }
+"generated/impsecleak/KImpSecLeakTest/DetAxioms.lean" = { tier = "light", sha256 = "381804f232c5bcf8005edb0dcedaac7a1ef7deb508bae9504ffa6a619c637be0" }
+"generated/impsecleak/KImpSecLeakTest/Main.lean" = { tier = "light", sha256 = "e3e778da9027e23265f2bb17a24a3731bc95bd2b4dac6250023e03e0af021116" }
+"generated/impsecleak/lakefile.lean" = { tier = "light", sha256 = "024e034b59afa4f5695b22de982e336089b23f63aedc731791b2f9a8aa03b33f" }
+"generated/impsecleak/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/impsecp/KImpSecP.lean" = { tier = "light", sha256 = "54ac09aac52e108d35eedf682e932c57b201e8effdb0065e5d14c32d1bdec3ff" }
 "generated/impsecp/KImpSecP/Adequacy.lean" = { tier = "light", sha256 = "510815787f30a2c384eac6f450af428c0e9025187bf745c2f2a812d77be43f83" }
 "generated/impsecp/KImpSecP/Determinism.lean" = { tier = "light", sha256 = "c435ebbc04dce20bccb2443364465fa20a4ddeddf2576a31a21cc28c5811a6c9" }
