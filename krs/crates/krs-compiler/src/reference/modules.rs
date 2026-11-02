@@ -72,14 +72,16 @@ impl ModuleTree {
     /// The module files rustc reads from `crate_root`, the library target's root file, in a
     /// package rooted at `package_root`.
     ///
-    /// A module under `#[cfg]` is followed only where `holds` says a descriptor was collected at
-    /// or below its module path: its condition held exactly then, and a module whose condition did
-    /// not hold denotes nothing (its file may not even exist). A module whose file a `cfg_attr`
-    /// may choose is refused, since the source alone does not say which file rustc read.
+    /// The files of a module under `#[cfg]` are kept only where `named` says a descriptor was
+    /// collected from one of them: a module whose condition did not hold denotes nothing (its file
+    /// may not even exist, or a module of the same name under the opposite condition may stand
+    /// beside it), and one whose files hold no descriptor needs no printing. A module whose file a
+    /// `cfg_attr` may choose is refused, since the source alone does not say which file rustc
+    /// read.
     pub(super) fn read(
         crate_root: &Path,
         package_root: &Path,
-        holds: &dyn Fn(&[String]) -> bool,
+        named: &dyn Fn(&str) -> bool,
     ) -> Result<Self, ReferenceExpansionError> {
         let package_root = package_root
             .canonicalize()
@@ -92,7 +94,7 @@ impl ModuleTree {
         // A crate root owns its directory, like a `mod.rs` file.
         let mut walk = Walk {
             package_root: &package_root,
-            holds,
+            named,
             tree: &mut tree,
         };
         walk.file(crate_root, &ModuleDirectory::owned(directory), Vec::new())?;
@@ -112,7 +114,7 @@ impl ModuleTree {
 
 struct Walk<'a> {
     package_root: &'a Path,
-    holds: &'a dyn Fn(&[String]) -> bool,
+    named: &'a dyn Fn(&str) -> bool,
     tree: &'a mut ModuleTree,
 }
 
@@ -181,60 +183,91 @@ impl Walk<'_> {
             let name = module.ident.unraw().to_string();
             let mut child_path = module_path.to_vec();
             child_path.push(name.clone());
+            // Two declarations of one module (under exclusive `cfg`s) may differ in visibility:
+            // the narrower, which is the longer path, is the one known to hold.
+            let visible = visible_in(&module.vis, module_path);
             self.tree
                 .visible_in
-                .insert(child_path.clone(), visible_in(&module.vis, module_path));
+                .entry(child_path.clone())
+                .and_modify(|known| {
+                    if visible.len() > known.len() {
+                        known.clone_from(&visible);
+                    }
+                })
+                .or_insert(visible);
             let configured = module
                 .attrs
                 .iter()
                 .any(|attribute| attribute.path().is_ident("cfg"));
-            if configured && !(self.holds)(&child_path) {
+            if !configured {
+                self.module(file, module, directory, child_path)?;
                 continue;
             }
-            let path_attribute = module_path_attribute(module);
-            if let Some((_, items)) = &module.content {
-                let nested = match path_attribute {
-                    Some(path) => ModuleDirectory::owned(&directory.path.join(path)),
-                    None => ModuleDirectory::owned(&directory.children().join(&name)),
-                };
-                self.items(file, items, &nested, &child_path)?;
-                continue;
-            }
-            if module.attrs.iter().any(applies_path_conditionally) {
-                return Err(ReferenceExpansionError::Source(
-                    ReferenceSourceError::ConditionalModulePath {
-                        file: file.to_path_buf(),
-                        module: child_path.join("::"),
-                    },
-                ));
-            }
-            if let Some(path) = path_attribute {
-                let child = directory.path.join(path);
-                let parent = child.parent().unwrap_or(&directory.path).to_path_buf();
-                self.file(&child, &ModuleDirectory::owned(&parent), child_path)?;
-                continue;
-            }
-            let base = directory.children();
-            let flat = base.join(format!("{name}.rs"));
-            let nested = base.join(&name).join("mod.rs");
-            if flat.is_file() {
-                let child = ModuleDirectory {
-                    path: base,
-                    relative: Some(name),
-                };
-                self.file(&flat, &child, child_path)?;
-            } else if nested.is_file() {
-                self.file(
-                    &nested,
-                    &ModuleDirectory::owned(&base.join(&name)),
-                    child_path,
-                )?;
-            } else {
-                // rustc reports a missing module file; reading it reports it here.
-                self.file(&flat, &ModuleDirectory::owned(&base), child_path)?;
+            let kept = self.tree.files.len();
+            let walked = self.module(file, module, directory, child_path);
+            let collected = self.tree.files[kept..].iter().any(|walked| {
+                walked
+                    .relative
+                    .as_deref()
+                    .is_some_and(|relative| (self.named)(relative))
+            });
+            if walked.is_err() || !collected {
+                self.tree.files.truncate(kept);
             }
         }
         Ok(())
+    }
+
+    /// Follows the module `module`, declared among the items of `file` in `directory`, whose path
+    /// is `child_path`.
+    fn module(
+        &mut self,
+        file: &Path,
+        module: &syn::ItemMod,
+        directory: &ModuleDirectory,
+        child_path: Vec<String>,
+    ) -> Result<(), ReferenceExpansionError> {
+        let name = module.ident.unraw().to_string();
+        let path_attribute = module_path_attribute(module);
+        if let Some((_, items)) = &module.content {
+            let nested = match path_attribute {
+                Some(path) => ModuleDirectory::owned(&directory.path.join(path)),
+                None => ModuleDirectory::owned(&directory.children().join(&name)),
+            };
+            return self.items(file, items, &nested, &child_path);
+        }
+        if module.attrs.iter().any(applies_path_conditionally) {
+            return Err(ReferenceExpansionError::Source(
+                ReferenceSourceError::ConditionalModulePath {
+                    file: file.to_path_buf(),
+                    module: child_path.join("::"),
+                },
+            ));
+        }
+        if let Some(path) = path_attribute {
+            let child = directory.path.join(path);
+            let parent = child.parent().unwrap_or(&directory.path).to_path_buf();
+            return self.file(&child, &ModuleDirectory::owned(&parent), child_path);
+        }
+        let base = directory.children();
+        let flat = base.join(format!("{name}.rs"));
+        let nested = base.join(&name).join("mod.rs");
+        if flat.is_file() {
+            let child = ModuleDirectory {
+                path: base,
+                relative: Some(name),
+            };
+            self.file(&flat, &child, child_path)
+        } else if nested.is_file() {
+            self.file(
+                &nested,
+                &ModuleDirectory::owned(&base.join(&name)),
+                child_path,
+            )
+        } else {
+            // rustc reports a missing module file; reading it reports it here.
+            self.file(&flat, &ModuleDirectory::owned(&base), child_path)
+        }
     }
 }
 
@@ -325,7 +358,7 @@ mod tests {
         };
         write(
             "src/lib.rs",
-            "pub mod a;\nmod b;\n#[cfg(any())] mod gone;\n#[cfg(any())] mod held;\nmod c { pub(crate) mod d { mod e {} } pub(super) mod f {} }\n#[path = \"elsewhere/g.rs\"] mod g;\n",
+            "pub mod a;\nmod b;\n#[cfg(any())] mod gone;\n#[cfg(any())] mod held;\nmod c { pub(crate) mod d { mod e {} } pub(super) mod f {} }\n#[path = \"elsewhere/g.rs\"] mod g;\n#[cfg(all())] #[path = \"twin_a.rs\"] mod twin;\n#[cfg(any())] #[path = \"twin_b.rs\"] mod twin;\n",
         );
         write("src/a.rs", "mod inner;\n");
         write("src/a/inner.rs", "");
@@ -333,8 +366,11 @@ mod tests {
         write("src/b/deep.rs", "");
         write("src/held.rs", "");
         write("src/elsewhere/g.rs", "");
-        let holds = |module: &[String]| module == ["held"];
-        let tree = ModuleTree::read(&root.join("src/lib.rs"), &root, &holds).unwrap();
+        write("src/twin_a.rs", "");
+        write("src/twin_b.rs", "");
+        // The twin under the condition that held is the one a descriptor names.
+        let named = |file: &str| matches!(file, "src/held.rs" | "src/twin_a.rs");
+        let tree = ModuleTree::read(&root.join("src/lib.rs"), &root, &named).unwrap();
         let files = tree
             .files
             .iter()
@@ -351,6 +387,7 @@ mod tests {
                 ("src/b/mod.rs", "b"),
                 ("src/held.rs", "held"),
                 ("src/elsewhere/g.rs", "g"),
+                ("src/twin_a.rs", "twin"),
                 ("src/lib.rs", ""),
             ]
             .map(|(file, module)| (file.to_owned(), module.to_owned()))
@@ -379,7 +416,7 @@ mod tests {
         )
         .unwrap();
         fs::write(root.join("src/platform.rs"), "").unwrap();
-        let error = ModuleTree::read(&root.join("src/lib.rs"), &root, &|_: &[String]| false)
+        let error = ModuleTree::read(&root.join("src/lib.rs"), &root, &|_: &str| false)
             .unwrap_err()
             .to_string();
         fs::remove_dir_all(&root).unwrap();

@@ -88,12 +88,93 @@ pub fn expand_package_reference_source(
         .iter()
         .filter(|descriptor| descriptor.id().package() == package)
         .collect::<Vec<_>>();
-    let holds = |module: &[String]| {
-        in_package
-            .iter()
-            .any(|descriptor| descriptor.id().module_path().starts_with(module))
+    let named = |file: &str| {
+        in_package.iter().any(|descriptor| {
+            authored_source_file(descriptor)
+                .is_some_and(|named| named.package_relative_path() == file)
+        })
     };
-    let tree = ModuleTree::read(crate_root, package_root, &holds)?;
+    let tree = ModuleTree::read(crate_root, package_root, &named)?;
+    reaches_descriptor_files(&tree, &in_package)?;
+    let authored = authored_paths(tree.files.iter().map(|file| &file.parsed), crates);
+    let none = WrittenPaths::default();
+    let expansion = Expansion::new(
+        facade,
+        PathScope {
+            package,
+            crates,
+            authored: &authored,
+            written: &none,
+            at: None,
+            module: &[],
+            tree: Some(&tree),
+        },
+        bundle,
+        semantic,
+    );
+    // Each file by its package-relative path: its printed text and whether it changed.
+    let mut printed = BTreeMap::<&str, (String, bool)>::new();
+    for file in &tree.files {
+        let (text, file_changed) = expansion.file(
+            &file.source,
+            file.parsed.clone(),
+            file.relative.as_deref(),
+            &file.module_path,
+        )?;
+        let Some(path) = file.relative.as_deref() else {
+            if file_changed || file.module_path.is_empty() {
+                return Err(source_error(ReferenceSourceError::OutsidePackage(
+                    file.path.clone(),
+                )));
+            }
+            continue;
+        };
+        // A file two modules read (`#[path]`) is printed once, so both must print it alike.
+        match printed.get_mut(path) {
+            Some((earlier, _)) if *earlier != text => {
+                return Err(source_error(ReferenceSourceError::SharedFile(
+                    file.path.clone(),
+                )));
+            }
+            Some((_, changed)) => *changed |= file_changed,
+            None => {
+                printed.insert(path, (text, file_changed));
+            }
+        }
+    }
+    let root = tree
+        .files
+        .iter()
+        .find(|file| file.module_path.is_empty())
+        .and_then(|file| file.relative.as_deref())
+        .and_then(|path| Some((path, printed.get(path)?)))
+        .map(|(path, (text, _))| ExpandedFile {
+            path: path.to_owned(),
+            text: text.clone(),
+        })
+        .ok_or_else(|| {
+            source_error(ReferenceSourceError::OutsidePackage(
+                crate_root.to_path_buf(),
+            ))
+        })?;
+    let changed = printed
+        .into_iter()
+        .filter(|(_, (_, changed))| *changed)
+        .map(|(path, (text, _))| ExpandedFile {
+            path: path.to_owned(),
+            text,
+        })
+        .collect();
+    Ok(PackageExpansion { changed, root })
+}
+
+/// Checks that every authored file a descriptor of `in_package` names is a file of `tree` with
+/// the content the descriptor was collected from.
+fn reaches_descriptor_files(
+    tree: &ModuleTree,
+    in_package: &[&Descriptor],
+) -> Result<(), ReferenceExpansionError> {
+    let source_error = ReferenceExpansionError::Source;
     let mut unreached = BTreeSet::new();
     for file in in_package.iter().copied().filter_map(authored_source_file) {
         let walked = tree
@@ -117,54 +198,7 @@ pub fn expand_package_reference_source(
             unreached.into_iter().collect(),
         )));
     }
-    let authored = authored_paths(tree.files.iter().map(|file| &file.parsed), crates);
-    let none = WrittenPaths::default();
-    let expansion = Expansion::new(
-        facade,
-        PathScope {
-            package,
-            crates,
-            authored: &authored,
-            written: &none,
-            at: None,
-            module: &[],
-            tree: Some(&tree),
-        },
-        bundle,
-        semantic,
-    );
-    let mut changed = Vec::new();
-    let mut root = None;
-    for file in &tree.files {
-        let (text, file_changed) = expansion.file(
-            &file.source,
-            file.parsed.clone(),
-            file.relative.as_deref(),
-            &file.module_path,
-        )?;
-        let printed = || match &file.relative {
-            Some(path) => Ok(ExpandedFile {
-                path: path.clone(),
-                text: text.clone(),
-            }),
-            None => Err(source_error(ReferenceSourceError::OutsidePackage(
-                file.path.clone(),
-            ))),
-        };
-        if file_changed {
-            changed.push(printed()?);
-        }
-        if file.module_path.is_empty() && root.is_none() {
-            root = Some(printed()?);
-        }
-    }
-    changed.sort_by(|left, right| left.path.cmp(&right.path));
-    let root = root.ok_or_else(|| {
-        source_error(ReferenceSourceError::OutsidePackage(
-            crate_root.to_path_buf(),
-        ))
-    })?;
-    Ok(PackageExpansion { changed, root })
+    Ok(())
 }
 
 fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
@@ -345,6 +379,31 @@ impl<'a> Expansion<'a> {
                 .any(|spec| module.starts_with(spec))
     }
 
+    /// Whether the inline module `module`, of path `path` in `file`, holds a collected descriptor
+    /// where it stands: one under `#[cfg]` does only where its condition held, which a
+    /// descriptor that originates in its bytes shows (two modules of one name may stand under
+    /// exclusive conditions); one without is the module of its path.
+    fn collected_in(&self, file: &SourceFile<'_>, module: &syn::ItemMod, path: &[String]) -> bool {
+        if !module
+            .attrs
+            .iter()
+            .any(|attribute| attribute.path().is_ident("cfg"))
+        {
+            return true;
+        }
+        let Some(bytes) = krs_syntax::TokenRange::for_tokens(module)
+            .ok()
+            .and_then(|range| authored_bytes(&file.lines, range))
+        else {
+            return false;
+        };
+        self.bundle.descriptors().iter().any(|descriptor| {
+            descriptor.id().package() == self.package.package
+                && descriptor.id().module_path().starts_with(path)
+                && originates_in(descriptor, file.relative, Some(&bytes))
+        })
+    }
+
     /// `file`, the module `module_path`'s file, printed, and whether its items changed.
     fn file(
         &self,
@@ -381,7 +440,7 @@ impl<'a> Expansion<'a> {
         // The file's own `use` items are always marked, as they were when a file was printed
         // whole; an inline module's only where its items changed.
         touched.changed.insert(module_path.to_vec());
-        self.decorate(&mut items, module_path, &touched);
+        self.decorate(&context, &mut items, module_path, &touched);
         file.items = items;
         let mut output = String::from(
             "// @generated by `krs expand`; deterministic layer-2 reference surface.\n\n",
@@ -393,22 +452,27 @@ impl<'a> Expansion<'a> {
     /// The `use` items of a changed module allow being unused, since a long form may no
     /// longer use what a readable form did; a module whose printed rules write `map![..]`
     /// imports `k::map`.
-    fn decorate(&self, items: &mut Vec<syn::Item>, module_path: &[String], touched: &Touched) {
+    fn decorate(
+        &self,
+        file: &SourceFile<'_>,
+        items: &mut Vec<syn::Item>,
+        module_path: &[String],
+        touched: &Touched,
+    ) {
         let changed = touched.changed.contains(module_path);
         for item in items.iter_mut() {
             match item {
                 syn::Item::Use(item_use) if changed => item_use
                     .attrs
                     .push(syn::parse_quote!(#[allow(unused_imports)])),
-                syn::Item::Mod(syn::ItemMod {
-                    ident,
-                    content: Some((_, inner)),
-                    ..
-                }) => {
+                syn::Item::Mod(module) => {
                     let mut path = module_path.to_vec();
-                    path.push(ident.unraw().to_string());
-                    if self.expands(&path) {
-                        self.decorate(inner, &path, touched);
+                    path.push(module.ident.unraw().to_string());
+                    if self.expands(&path)
+                        && self.collected_in(file, module, &path)
+                        && let Some((_, inner)) = &mut module.content
+                    {
+                        self.decorate(file, inner, &path, touched);
                     }
                 }
                 _ => {}
@@ -464,11 +528,14 @@ impl<'a> Expansion<'a> {
         let mut items = Vec::new();
         for (index, mut item) in authored.into_iter().enumerate() {
             if let syn::Item::Mod(module) = &mut item
-                && let Some((_, inner)) = &mut module.content
+                && module.content.is_some()
             {
                 let mut path = module_path.to_vec();
                 path.push(module.ident.unraw().to_string());
-                if self.expands(&path) {
+                if self.expands(&path)
+                    && self.collected_in(file, module, &path)
+                    && let Some((_, inner)) = &mut module.content
+                {
                     let mut chain = chain.to_vec();
                     chain.push(index);
                     let authored = inner
@@ -4718,6 +4785,9 @@ pub enum ReferenceSourceError {
     /// A module file of the crate lies outside the package directory, where no printed file
     /// can stand.
     OutsidePackage(PathBuf),
+    /// A file two modules of the crate read (`#[path]`) prints differently in each, and one
+    /// printed file must stand for both.
+    SharedFile(PathBuf),
     /// The package manifest path has no parent directory.
     ManifestDirectory(PathBuf),
     /// The selected source file could not be read.
@@ -4744,6 +4814,7 @@ impl ToDiagnostic for ReferenceSourceError {
             Self::Selection(_) => codes::reference::SOURCE_SELECTION,
             Self::ConditionalModulePath { .. } => codes::reference::SOURCE_MODULE_PATH,
             Self::OutsidePackage(_) => codes::reference::SOURCE_OUTSIDE_PACKAGE,
+            Self::SharedFile(_) => codes::reference::SOURCE_SHARED_FILE,
             Self::ManifestDirectory(_) => codes::reference::SOURCE_MANIFEST_DIRECTORY,
             Self::Read { .. } => codes::reference::SOURCE_READ,
             Self::Changed(_) => codes::reference::SOURCE_CHANGED,
@@ -4777,6 +4848,11 @@ impl fmt::Display for ReferenceSourceError {
                 "expand prints each changed module file at its path in the package, and `{}` is outside the package directory",
                 path.display()
             ),
+            Self::SharedFile(path) => write!(
+                formatter,
+                "expand prints `{}` once, and the two modules that read it print it differently; give each module its own file",
+                path.display()
+            ),
             Self::ManifestDirectory(path) => write!(
                 formatter,
                 "manifest has no parent directory: `{}`",
@@ -4807,6 +4883,7 @@ impl Error for ReferenceSourceError {
             Self::Selection(_)
             | Self::ConditionalModulePath { .. }
             | Self::OutsidePackage(_)
+            | Self::SharedFile(_)
             | Self::ManifestDirectory(_)
             | Self::Changed(_) => None,
         }
@@ -5169,6 +5246,25 @@ mod tests {
     }
 
     #[test]
+    fn a_strictness_long_form_names_its_context_alias() {
+        let strictness = krs_syntax::parse_seqstrict_attribute(quote::quote!(
+            using = operand_eval,
+            sequence = [value],
+            result = KResult
+        ))
+        .unwrap();
+        let mut variant: syn::Variant = syn::parse_quote!(
+            #[k::seqstrict(using = operand_eval)]
+            Double { value: Expr }
+        );
+        super::materialize_reference_strictness(&mut variant, Some(&strictness)).unwrap();
+        assert_eq!(
+            variant.attrs[0].to_token_stream().to_string(),
+            "# [k :: seqstrict (using = operand_eval , sequence = [value] , result = k :: KResult)]"
+        );
+    }
+
+    #[test]
     fn readable_macros_of_inline_modules_are_found_by_their_module_indices() {
         let facade = krs_syntax::surface::FacadeScope::new(["k".to_owned()].into());
         let file = syn::parse_file(
@@ -5400,6 +5496,44 @@ mod tests {
         ));
     }
 
+    /// Another crate's items are visible alike from every module of the printed crate, so a path
+    /// through a dependency's module written in one module file is evidence in every other.
+    #[test]
+    fn a_path_another_module_file_writes_is_evidence_for_a_dependency_item() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let dependency = PackageId::new("DEP", "dep-semantics", "0.1.0", "workspace").unwrap();
+        let crates = BTreeMap::from([(dependency.clone(), "semantic_dep".to_owned())]);
+        let unit = StableItemId::new(
+            dependency,
+            ["sorts".to_owned()],
+            "Unit",
+            ItemKind::Constructor,
+            "",
+        )
+        .unwrap();
+        let written = WrittenPaths::default();
+        let files = ["fn f() {}", "pub use semantic_dep::sorts;"]
+            .map(|source| syn::parse_file(source).unwrap());
+        let printed = |files: &[syn::File]| {
+            let authored = authored_paths(files, &crates);
+            let scope = PathScope {
+                package: &package,
+                crates: &crates,
+                authored: &authored,
+                written: &written,
+                at: None,
+                module: &[],
+                tree: None,
+            };
+            render_declared_path(&unit, scope).map(|path| path.to_string().replace(' ', ""))
+        };
+        assert_eq!(printed(&files).unwrap(), "::semantic_dep::sorts::Unit");
+        assert_eq!(
+            printed(&files[..1]).unwrap_err().to_diagnostic().code,
+            codes::reference::DEPENDENCY_PATH
+        );
+    }
+
     /// A dependency's item that the printed clause writes no path to prints by its declaring
     /// path where that is known to compile: at the crate root, or where the source writes it (a
     /// rename of the crate or a module in the same module counts, one in another module does
@@ -5454,6 +5588,10 @@ mod tests {
             "use semantic_dep::{Unit as U, other::Same};",
             "use semantic_dep::sorts_other::Unit;",
             "fn f() {}",
+            // A path under `#[cfg]` is no evidence: rustc resolved it only where the condition
+            // held.
+            "#[cfg(any())] pub use semantic_dep::sorts;",
+            "#[cfg(any())] mod m { pub use semantic_dep::sorts; }",
         ] {
             let error = printed(refused, &unit).unwrap_err();
             assert_eq!(

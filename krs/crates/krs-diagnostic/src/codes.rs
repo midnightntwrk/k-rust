@@ -125,6 +125,7 @@ register_codes! {
         SOURCE_SELECTION: "krs::reference::source-selection" => "Package descriptors come from files the crate's module tree does not reach as modules.",
         SOURCE_MODULE_PATH: "krs::reference::source-module-path" => "A `cfg_attr` may choose a module's file, which the source alone does not resolve.",
         SOURCE_OUTSIDE_PACKAGE: "krs::reference::source-outside-package" => "A module file of the crate lies outside the package directory.",
+        SOURCE_SHARED_FILE: "krs::reference::source-shared-file" => "A file two modules read prints differently in each.",
         SOURCE_MANIFEST_DIRECTORY: "krs::reference::source-manifest-directory" [Environment] => "The package manifest has no parent directory.",
         SOURCE_READ: "krs::reference::source-read" [Environment] => "The selected source file could not be read.",
         SOURCE_CHANGED: "krs::reference::source-changed" [Environment] => "The selected source changed after collection.",

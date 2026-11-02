@@ -399,6 +399,17 @@ fn execute_with_sources(
             )
         }
     };
+    // `KRS_CHECK_EXPANDS=1`: a package `krs check` accepts has a printed form (S6 defines a
+    // readable rule as the rule `krs expand` prints).
+    if let Command::Check { .. } = &request.command
+        && outcome.is_ok()
+        && check_expands()
+        && let Err(error) = expansion(&prepared, &plan)
+    {
+        outcome = Err(CommandError::CheckDisagreement(format!(
+            "KRS_CHECK_EXPANDS: krs check passed, but krs expand refuses the package: {error}"
+        )));
+    }
     if let Command::Check { backend, .. } = &request.command
         && agreement::enabled()
     {
@@ -974,6 +985,44 @@ fn expand(
     plan: &CollectorPlan,
     output: Option<&Path>,
 ) -> Result<CommandOutcome, CommandError> {
+    let expanded = expansion(prepared, plan)?;
+    let stdout = match output {
+        Some(output) => write_expansion(output, &expanded.changed)?,
+        None => match expanded.changed.as_slice() {
+            [] => expanded.root.text.into_bytes(),
+            [file] => file.text.clone().into_bytes(),
+            files => {
+                return Err(CommandError::Usage(format!(
+                    "krs expand changes {} module files ({}); stdout holds one, so pass --output DIRECTORY to write each at its path",
+                    files.len(),
+                    files
+                        .iter()
+                        .map(|file| file.path.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+        },
+    };
+    Ok(CommandOutcome {
+        stderr: Vec::new(),
+        exit_code: 0,
+        warnings: definition_warnings(prepared),
+        stdout,
+    })
+}
+
+/// Whether `KRS_CHECK_EXPANDS=1` asks `krs check` to judge that `krs expand` prints what it
+/// accepts.
+fn check_expands() -> bool {
+    std::env::var_os("KRS_CHECK_EXPANDS").as_deref() == Some(OsStr::new("1"))
+}
+
+/// The printed package of the root facet ([`expand_package_reference_source`]).
+fn expansion(
+    prepared: &PreparedDefinition,
+    plan: &CollectorPlan,
+) -> Result<krs_compiler::PackageExpansion, CommandError> {
     let root = plan
         .facets()
         .iter()
@@ -1008,7 +1057,7 @@ fn expand(
         crates.insert(id, name.clone());
     }
     let facade = FacadeAliases::from_manifest(&root.manifest_path).map_err(CommandError::Facade)?;
-    let expanded = expand_package_reference_source(
+    Ok(expand_package_reference_source(
         &prepared.bundle,
         &prepared.semantic,
         &package,
@@ -1016,31 +1065,7 @@ fn expand(
         &root.manifest_path,
         &root.crate_root_path,
         &facade.scope(),
-    )?;
-    let stdout = match output {
-        Some(output) => write_expansion(output, &expanded.changed)?,
-        None => match expanded.changed.as_slice() {
-            [] => expanded.root.text.into_bytes(),
-            [file] => file.text.clone().into_bytes(),
-            files => {
-                return Err(CommandError::Usage(format!(
-                    "krs expand changes {} module files ({}); stdout holds one, so pass --output DIRECTORY to write each at its path",
-                    files.len(),
-                    files
-                        .iter()
-                        .map(|file| file.path.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )));
-            }
-        },
-    };
-    Ok(CommandOutcome {
-        stderr: Vec::new(),
-        exit_code: 0,
-        warnings: definition_warnings(prepared),
-        stdout,
-    })
+    )?)
 }
 
 /// Writes each of `files` at its package-relative path under `output`, which must be absent or
@@ -1492,7 +1517,8 @@ pub enum CommandError {
         source: Box<CommandError>,
     },
     /// `KRS_CHECK_AGREEMENT=1`: the verdict of `krs check` differs from the
-    /// verdicts of the commands it judges.
+    /// verdicts of the commands it judges; `KRS_CHECK_EXPANDS=1`: `krs expand`
+    /// refuses a package `krs check` accepts.
     CheckDisagreement(String),
     /// `KRS_CHECK_PRINTS=1`: a state `run`, `search` or `prove` printed does not read back as
     /// the state.
