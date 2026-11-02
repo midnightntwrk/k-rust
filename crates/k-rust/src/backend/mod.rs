@@ -1246,11 +1246,12 @@ fn is_zero(count: &usize) -> bool {
 /// need not be stated: on an instance of the leaf they are defined. The constraints the request
 /// brought in are admitted in that form, and a request whose constraints have no such form is
 /// refused. Proof leaves are outside this statement, and so is a definition whose rule or
-/// equation condition holds an `\equals` of two possibly undefined terms, or whose axioms hold an
-/// `\equals` that reads a term as a predicate or a condition over a Boolean term-level `\and`
-/// (docs/compatibility.md, "Solver decisions over partial operations"). For a state a client
-/// writes itself, [`Backend::implies`] with a `\bottom` consequent decides whether it has an
-/// instance.
+/// equation condition holds an `\equals` of two possibly undefined terms (a condition with an atom
+/// over a term-level `\and` is covered: its instance states the conjunction's definedness beside
+/// the atom); a definition whose axioms hold an `\equals` that reads a term as a predicate is
+/// refused when it loads (docs/compatibility.md, "Solver decisions over partial operations").
+/// For a state a client writes itself, [`Backend::implies`] with a `\bottom` consequent decides
+/// whether it has an instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]

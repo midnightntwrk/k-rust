@@ -62,6 +62,12 @@ use proptest::{
 ///   disjoint), `unit`, `lookup` (defined iff the key is bound), `inKeys` (total).
 /// - `g` total, an `smtlib` function, with the `smt-lemma` `g(X) = 0 requires half(X) >Int 0`.
 ///   Models: `g(X) = 0` where `X` is even and `X div 2 > 0`, else 1 (or 2).
+/// - `emod(I, J)`: `INT.emod`, `smt-hook mod`, `\ceil(emod(I, J)) = (J =/=Int 0 = true)` (an
+///   unconditional ceil equation). Model: defined iff `J ≠ 0`, the Euclidean remainder. Drawn
+///   only through `sel`.
+/// - `sel(B, X, Y)`: partial, no hook, two equations `sel(true, X, Y) = emod(X, Y)` and
+///   `sel(false, X, Y) = X`, which the solver reads as a summary over `emod` (GAP K29). Model:
+///   `emod(X, Y)` where `B` is true, `X` where it is false.
 pub const DEFINITION: &str = r#"[]
 module MAIN
     hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
@@ -88,6 +94,8 @@ module MAIN
     symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
     symbol pf{}(SortInt{}) : SortInt{} [function{}()]
     symbol g{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("k19g")]
+    hooked-symbol emod{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.emod"), smt-hook{}("mod")]
+    symbol sel{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{} [function{}()]
     axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
         \ceil{SortInt{}, Q}(half{}(X:SortInt{})),
         \and{Q}(\equals{SortBool{}, Q}(even{}(X:SortInt{}), \dv{SortBool{}}("true")), \top{Q}())))
@@ -112,6 +120,24 @@ module MAIN
         \equals{SortBool{}, R}(gtInt{}(half{}(X:SortInt{}), \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
         \equals{SortInt{}, R}(g{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
         [label{}("g-zero"), simplification{}(), smt-lemma{}()]
+    axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+        \ceil{SortInt{}, Q}(emod{}(I:SortInt{}, J:SortInt{})),
+        \and{Q}(\equals{SortBool{}, Q}(neInt{}(J:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \top{Q}())))
+        [label{}("emod-defined"), simplification{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(KRSInput0:SortBool{}, \dv{SortBool{}}("true")),
+            \and{R}(\in{SortInt{}, R}(KRSInput1:SortInt{}, X:SortInt{}),
+              \and{R}(\in{SortInt{}, R}(KRSInput2:SortInt{}, Y:SortInt{}), \top{R}())))),
+        \equals{SortInt{}, R}(sel{}(KRSInput0:SortBool{}, KRSInput1:SortInt{}, KRSInput2:SortInt{}),
+            \and{SortInt{}}(emod{}(X:SortInt{}, Y:SortInt{}), \top{SortInt{}}())))
+        [label{}("sel-true")]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(KRSInput0:SortBool{}, \dv{SortBool{}}("false")),
+            \and{R}(\in{SortInt{}, R}(KRSInput1:SortInt{}, X:SortInt{}),
+              \and{R}(\in{SortInt{}, R}(KRSInput2:SortInt{}, Y:SortInt{}), \top{R}())))),
+        \equals{SortInt{}, R}(sel{}(KRSInput0:SortBool{}, KRSInput1:SortInt{}, KRSInput2:SortInt{}),
+            \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())))
+        [label{}("sel-false")]
 endmodule []"#;
 
 pub fn definition() -> BackendDefinition {
@@ -170,6 +196,11 @@ pub enum IntT {
     Ite(Box<BoolT>, Box<IntT>, Box<IntT>),
     G(Box<IntT>),
     Lookup(Box<MapT>, Box<IntT>),
+    /// `sel(B, X, Y)`, a function the solver reads through its summary.
+    Sel(Box<BoolT>, Box<IntT>, Box<IntT>),
+    /// A term-level `\and`: the intersection of its operands, their common value where both
+    /// are defined and equal, `\bottom` elsewhere (GAP K30).
+    And(Box<IntT>, Box<IntT>),
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +220,8 @@ pub enum BoolT {
     Gt(Box<IntT>, Box<IntT>),
     Ge(Box<IntT>, Box<IntT>),
     Or(Box<BoolT>, Box<BoolT>),
+    /// A term-level `\and` of two Booleans, read as `IntT::And` is (GAP K30).
+    And(Box<BoolT>, Box<BoolT>),
 }
 
 #[derive(Clone, Debug)]
@@ -246,6 +279,8 @@ pub struct Free {
     pub map: bool,
     /// The case mentions `pf` or `g`, whose models are not unique.
     pub open: bool,
+    /// The case mentions `sel`, which the solver reads through its summary.
+    pub summary: bool,
 }
 
 impl IntT {
@@ -260,7 +295,7 @@ impl IntT {
                 free.open = true;
                 a.free(free);
             }
-            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) => {
+            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) | Self::And(a, b) => {
                 a.free(free);
                 b.free(free);
             }
@@ -272,6 +307,12 @@ impl IntT {
             Self::Lookup(m, k) => {
                 m.free(free);
                 k.free(free);
+            }
+            Self::Sel(c, a, b) => {
+                free.summary = true;
+                c.free(free);
+                a.free(free);
+                b.free(free);
             }
         }
     }
@@ -297,7 +338,7 @@ impl BoolT {
                 a.free(free);
                 b.free(free);
             }
-            Self::Or(a, b) => {
+            Self::Or(a, b) | Self::And(a, b) => {
                 a.free(free);
                 b.free(free);
             }
@@ -402,6 +443,8 @@ impl fmt::Display for IntT {
             Self::Ite(c, a, b) => write!(f, "#if {c} #then {a} #else {b} #fi"),
             Self::G(a) => write!(f, "g({a})"),
             Self::Lookup(m, k) => write!(f, "{m}[{k}]"),
+            Self::Sel(c, a, b) => write!(f, "sel({c}, {a}, {b})"),
+            Self::And(a, b) => write!(f, "({a} /\\ {b})"),
         }
     }
 }
@@ -421,6 +464,7 @@ impl fmt::Display for BoolT {
             Self::Gt(a, b) => write!(f, "({a} >Int {b})"),
             Self::Ge(a, b) => write!(f, "({a} >=Int {b})"),
             Self::Or(a, b) => write!(f, "({a} orBool {b})"),
+            Self::And(a, b) => write!(f, "({a} /\\ {b})"),
         }
     }
 }
@@ -501,6 +545,10 @@ impl IntT {
             }
             Self::G(a) => format!("g{{}}({})", a.kore()),
             Self::Lookup(m, k) => format!("lookup{{}}({}, {})", m.kore(), k.kore()),
+            Self::Sel(c, a, b) => {
+                format!("sel{{}}({}, {}, {})", c.kore(), a.kore(), b.kore())
+            }
+            Self::And(a, b) => format!("\\and{{SortInt{{}}}}({}, {})", a.kore(), b.kore()),
         }
     }
 }
@@ -520,6 +568,7 @@ impl BoolT {
             Self::Gt(a, b) => format!("gtInt{{}}({}, {})", a.kore(), b.kore()),
             Self::Ge(a, b) => format!("geInt{{}}({}, {})", a.kore(), b.kore()),
             Self::Or(a, b) => format!("orBool{{}}({}, {})", a.kore(), b.kore()),
+            Self::And(a, b) => format!("\\and{{SortBool{{}}}}({}, {})", a.kore(), b.kore()),
         }
     }
 }
@@ -779,6 +828,16 @@ pub fn eval_int(term: &IntT, env: &Env) -> Eval<i128> {
         IntT::Lookup(m, k) => {
             strict!(m = eval_map(m, env), k = eval_int(k, env) => m.get(&k).copied())
         }
+        // Strict in every argument, as every application is; then its equations, with
+        // SMT-LIB's and `INT.emod`'s Euclidean remainder `0 <= r < |b|`.
+        IntT::Sel(c, a, b) => {
+            strict!(c = eval_bool(c, env), a = eval_int(a, env), b = eval_int(b, env) =>
+                if !c { Some(a) } else if b == 0 { None } else { Some(a.rem_euclid(b)) })
+        }
+        // The intersection of two patterns that each denote at most one element.
+        IntT::And(a, b) => {
+            strict!(a = eval_int(a, env), b = eval_int(b, env) => (a == b).then_some(a))
+        }
     })
 }
 
@@ -817,6 +876,9 @@ pub fn eval_bool(term: &BoolT, env: &Env) -> Eval<bool> {
         BoolT::Ge(a, b) => strict!(a = eval_int(a, env), b = eval_int(b, env) => Some(a >= b)),
         // An application like any other: strict in both arguments, `\bottom` if either is.
         BoolT::Or(a, b) => strict!(a = eval_bool(a, env), b = eval_bool(b, env) => Some(a || b)),
+        BoolT::And(a, b) => {
+            strict!(a = eval_bool(a, env), b = eval_bool(b, env) => (a == b).then_some(a))
+        }
     })
 }
 
@@ -1044,6 +1106,16 @@ pub struct Terms {
 }
 
 pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
+    terms_with(depth, symbolic_exponents, false)
+}
+
+/// [`terms`], and with `conjunctions` also term-level `\and`s of two Int or two Bool terms
+/// (GAP K30), a Bool one drawn as often as a negation and an Int one a quarter as often as a sum:
+/// the solver does not translate a non-Boolean `\and` (`TranslationError::NonBooleanAnd`), so a
+/// case that holds one decides nothing past the simplifier, and a rare draw keeps those cases to
+/// a few percent of a run (the simplifier still meets them). Without `conjunctions` the draw is
+/// [`terms`]'s, case for case.
+pub fn terms_with(depth: u32, symbolic_exponents: bool, conjunctions: bool) -> Terms {
     let mut level = Terms {
         int: int_leaf(),
         bool: bool_leaf(),
@@ -1069,8 +1141,19 @@ pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
                 .prop_map(|(c, a, d)| IntT::Ite(c, a, d)),
             1 => b(&int).prop_map(IntT::G),
             2 => (map.clone().prop_map(Box::new), b(&int)).prop_map(|(m, k)| IntT::Lookup(m, k)),
+            2 => (bool.clone().prop_map(Box::new), b(&int), b(&int))
+                .prop_map(|(c, a, d)| IntT::Sel(c, a, d)),
         ]
         .boxed();
+        let next_int = if conjunctions {
+            prop_oneof![
+                124 => next_int,
+                1 => (b(&int), b(&int)).prop_map(|(a, c)| IntT::And(a, c)),
+            ]
+            .boxed()
+        } else {
+            next_int
+        };
         let next_bool = prop_oneof![
             5 => bool_leaf(),
             2 => (b(&int), b(&int)).prop_map(|(a, c)| BoolT::Eq(a, c)),
@@ -1080,6 +1163,16 @@ pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
             1 => (b(&int), map.clone().prop_map(Box::new)).prop_map(|(k, m)| BoolT::InKeys(k, m)),
         ]
         .boxed();
+        let next_bool = if conjunctions {
+            prop_oneof![
+                13 => next_bool,
+                1 => (bool.clone().prop_map(Box::new), bool.clone().prop_map(Box::new))
+                    .prop_map(|(a, c)| BoolT::And(a, c)),
+            ]
+            .boxed()
+        } else {
+            next_bool
+        };
         let next_map = prop_oneof![
             3 => map_leaf(),
             2 => (b(&int), b(&int)).prop_map(|(k, v)| MapT::Item(k, v)),
@@ -1189,8 +1282,13 @@ pub fn reuse(terms: &Terms) -> BoxedStrategy<Pred> {
 }
 
 pub fn case(symbolic_exponents: bool) -> impl Strategy<Value = Case> {
-    let terms = terms(3, symbolic_exponents);
-    let binding_terms = terms_at(2, symbolic_exponents);
+    case_with(symbolic_exponents, false)
+}
+
+/// [`case`] over [`terms_with`]'s terms, term-level `\and`s included with `conjunctions`.
+pub fn case_with(symbolic_exponents: bool, conjunctions: bool) -> impl Strategy<Value = Case> {
+    let terms = terms_with(3, symbolic_exponents, conjunctions);
+    let binding_terms = terms_with(2, symbolic_exponents, conjunctions).int;
     let predicate = predicate(&terms);
     let binding = (
         prop_oneof![Just(IntVar::X), Just(IntVar::Y), Just(IntVar::Z)],

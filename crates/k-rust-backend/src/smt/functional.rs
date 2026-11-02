@@ -341,6 +341,7 @@ impl TranslationState {
                 for predicate in plan.iter() {
                     if *predicate == original {
                         self.opaque_domain_reads += 1;
+                        self.approximate(super::Exactness::Approximate);
                         let head = self.translate_domain_head(term)?;
                         if let Some(name) = domain_function_name(&head) {
                             self.undecided_domain_heads.insert(name);
@@ -488,7 +489,6 @@ impl TranslationState {
                 .cloned()
                 .collect::<Vec<_>>(),
         )?;
-        self.approximate(super::Exactness::Approximate);
         let name = match self.domain_functions.get(&head) {
             Some(name) => name.clone(),
             None => {

@@ -520,8 +520,8 @@ impl SymbolAttributes {
     /// readers of `symbol_type` that remain:
     /// - `synthesize_attributes` (the possible normalized shape, excluding uninterpreted roots
     ///   through this role) and `ceil_free` (partiality), here;
-    /// - partiality or totality: `definedness::ceil_term_node`, `smt::symbol_exactness`,
-    ///   `simplify` (`is_total_application`, `occurs_under_total_context`),
+    /// - partiality or totality: `definedness::ceil_term_node`, `simplify`
+    ///   (`is_total_application`, `occurs_under_total_context`),
     ///   `rule::computed_attributes` (undefined symbols), `definition::inhabited_sorts` (value
     ///   builders);
     /// - computed rather than constructed: `rewrite::recover` (`recover_indeterminate_match`,

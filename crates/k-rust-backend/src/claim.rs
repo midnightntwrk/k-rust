@@ -252,7 +252,7 @@ fn refused_reading(error: &DefinitionError) -> Option<UnstatedDefinedness> {
 /// helper is an equivalence, so the claim denotes the same configurations after it, and the
 /// statement is a fixed point. It reads the definition's ceil equations and value claims, so it
 /// runs once the definition is complete. A side with no such form (an impure application whose
-/// definedness a conditional would decide, an atom over a term-level `\and`) leaves the claim as
+/// definedness a conditional would decide) leaves the claim as
 /// written, with the reason in `unstated`, so that the definition still loads and its other
 /// claims and its execution are unaffected; so does a claim with a predicate that the backend's
 /// reading refuses (`internalize_reachability_claim`: an `\equals` that would read a term as a
