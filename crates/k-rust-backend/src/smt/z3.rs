@@ -3214,7 +3214,7 @@ mod tests {
     /// prelude's own list, with the innermost operand whose domain no closed formula states and
     /// why: `half(X)`'s domain is an opaque `\ceil` (no ceil equation states it), and `X sdiv 2`'s
     /// ceil condition `nz(2)` has no SMT reading. Building the prelude counts them (`smt.lemmas_left_out`);
-    /// reporting them does not.
+    /// reporting them counts nothing.
     #[test]
     fn a_left_out_lemma_is_reported_with_its_operand_and_reason() {
         use crate::smt::{LeftOutReason, dropped_smt_lemmas};
@@ -3281,7 +3281,17 @@ mod tests {
             ]
         );
         assert_eq!(built.delta(&before).get(Counter::SmtLemmasLeftOut), 2);
-        assert_eq!(reported.delta(&built).get(Counter::SmtLemmasLeftOut), 0);
+        // Building the prelude counts what its one translation of each lemma counted before
+        // GAP K21: one operand domain read as an opaque `\ceil`, `g-zero`'s `half(X)`. Naming a
+        // left-out lemma's operand, and the report, translate again for a reader, not for the
+        // solver, and move no counter.
+        assert_eq!(built.delta(&before).get(Counter::SmtOpaqueAtomDomains), 1);
+        let moved = reported
+            .delta(&built)
+            .iter()
+            .filter(|(_, value)| *value != 0)
+            .collect::<Vec<_>>();
+        assert!(moved.is_empty(), "the report moved {moved:?}");
     }
 
     /// GAP K18: an `smt-lemma` whose `requires` reads a partial operand is stated with the

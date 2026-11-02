@@ -2634,7 +2634,9 @@ fn kcompile_locates_the_ill_formed_uses_of_a_definition_without_anywhere_equatio
 }
 
 /// The definition of the left-out `smt-lemma` tests: the lemma `g-zero`, `g(X) = 0 requires
-/// half(X) >Int 0`, over the partial `half`, with `ceil` in place of the line `CEIL`.
+/// half(X) >Int 0`, over the partial `half`, with `ceil` in place of the line `CEIL`. As a
+/// simplification it applies only to a symbolic `X`, so `g(4)` is never rewritten by it: a
+/// verdict about `g(4)` is the solver's, through the prelude's lemma.
 const SMT_LEMMA_LEFT_OUT: &str = r#"
 requires "domains.md"
 module LEMMA-SYNTAX
@@ -2649,7 +2651,7 @@ module LEMMA
   syntax Int ::= half(Int) [function, smt-hook((div #1 2))]
                | g(Int) [function, total, smtlib(g)]
   rule <k> go(X) => done(g(X)) ... </k>
-  rule [g-zero]: g(X) => 0 requires half(X) >Int 0 [simplification, smt-lemma]
+  rule [g-zero]: g(X) => 0 requires half(X) >Int 0 [simplification, smt-lemma, symbolic(X)]
 CEIL
 endmodule
 "#;
@@ -2663,23 +2665,27 @@ fn smt_lemma_left_out_source(ceil: &str, spec: &str) -> String {
 /// operand whose domain the prelude cannot state. `g-zero`'s `requires` reads `half(X)`, whose
 /// domain no ceil equation states, so a closed formula stating the lemma would assert `g(X) = 0`
 /// where `half(X)` is `\bottom`; the prelude leaves it out, and `kprove`, which might need it,
-/// says so: the claim `go(4) => done(0)`, which needs `g(4) = 0`, is not proven. With `half`'s
-/// domain stated by an unconditional ceil equation over `>=Int`, which has an SMT reading, the
-/// lemma is stated, nothing is printed, and the claim is proven.
+/// says so. The claim `go(4) => done(0)` needs `g(4) = 0`, which only the prelude's lemma gives
+/// (the simplification does not apply to the concrete `4`): it is not proven while the lemma is
+/// left out; with `half`'s domain stated by an unconditional ceil equation over `>=Int`, which has
+/// an SMT reading, the lemma is stated, nothing is printed, and the claim is proven; and with that
+/// equation but without `smt-lemma`, no warning and the claim again not proven.
 #[test]
 fn kprove_names_an_smt_lemma_the_solver_prelude_leaves_out_once() {
     let spec =
         "module LEMMA-SPEC\n  imports LEMMA\n  claim <k> go(4) => done(0) ... </k>\nendmodule\n";
-    for (ceil, expected, verdict) in [
-        ("", 1, "failed"),
-        (
-            "  rule #Ceil(half(X)) => {X >=Int 0 #Equals true} [simplification]",
-            0,
-            "proven",
-        ),
+    let stated = "  rule #Ceil(half(X)) => {X >=Int 0 #Equals true} [simplification]";
+    for (ceil, lemma, expected, verdict) in [
+        ("", true, 1, "failed"),
+        (stated, true, 0, "proven"),
+        (stated, false, 0, "failed"),
     ] {
+        let mut source = smt_lemma_left_out_source(ceil, spec);
+        if !lemma {
+            source = source.replace("smt-lemma, ", "");
+        }
         let (root, definition) = fixture();
-        fs::write(&definition, smt_lemma_left_out_source(ceil, spec)).unwrap();
+        fs::write(&definition, source).unwrap();
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
             .args([
                 "kprove",
@@ -2696,13 +2702,13 @@ fn kprove_names_an_smt_lemma_the_solver_prelude_leaves_out_once() {
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
             stdout.starts_with(&format!("claim #1: {verdict} ")),
-            "{ceil:?}: {stdout}"
+            "{ceil:?} {lemma}: {stdout}"
         );
         let warnings = stderr
             .lines()
             .filter(|line| line.contains("is not given to the solver"))
             .collect::<Vec<_>>();
-        assert_eq!(warnings.len(), expected, "{ceil:?}: {stderr}");
+        assert_eq!(warnings.len(), expected, "{ceil:?} {lemma}: {stderr}");
         if let [warning] = warnings.as_slice() {
             assert!(
                 warning.starts_with("warning: `smt-lemma` LEMMA.g-zero at "),

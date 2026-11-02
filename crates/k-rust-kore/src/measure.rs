@@ -571,7 +571,9 @@ pub enum Counter {
     /// operand is decided only where that domain is known.
     SmtOpaqueAtomDomains,
     /// `smt-lemma`s a solver prelude leaves out, counted where the prelude is built: those whose
-    /// `requires` reads an operand whose domain no closed formula states.
+    /// `requires` reads an operand whose domain no closed formula states. One per lemma as
+    /// written (per unique id), as the load warning `SmtLemmaLeftOut` names them, not per
+    /// equation internalized from it.
     SmtLemmasLeftOut,
     /// SMT queries that ran a solver instance.
     SmtSolverRuns,

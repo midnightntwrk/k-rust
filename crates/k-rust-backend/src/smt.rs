@@ -1783,7 +1783,8 @@ pub struct SmtPrelude {
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
     /// The `UNIQUE_ID`s of the `smt-lemma`s the prelude leaves out because a closed formula
-    /// cannot state the domain of an operand of their `requires` ([`dropped_smt_lemmas`]).
+    /// cannot state the domain of an operand of their `requires` ([`dropped_smt_lemmas`]), each
+    /// once (the equations internalized from one axiom share it).
     dropped_lemmas: Vec<String>,
     congruence: Option<Arc<CongruencePolicy>>,
     #[cfg(any(feature = "z3", test))]
@@ -1845,14 +1846,18 @@ impl SmtPrelude {
         let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
         let (assertions, dropped) = lemma_assertions(definition, congruence.clone())?;
         declarations.extend(assertions);
+        // One per lemma as written: the equations internalized from one axiom share its unique
+        // id, and are one lemma to its author, as in the load warning.
+        let mut dropped_lemmas = Vec::<String>::new();
+        for lemma in dropped {
+            if !dropped_lemmas.contains(&lemma.rule.attributes.unique_id) {
+                dropped_lemmas.push(lemma.rule.attributes.unique_id.clone());
+            }
+        }
         k_rust_kore::measure::add(
             k_rust_kore::measure::Counter::SmtLemmasLeftOut,
-            dropped.len() as u64,
+            dropped_lemmas.len() as u64,
         );
-        let dropped_lemmas = dropped
-            .into_iter()
-            .map(|lemma| lemma.rule.attributes.unique_id.clone())
-            .collect();
         Ok(Self {
             declarations,
             smtlib_names,
@@ -2190,10 +2195,15 @@ pub fn dropped_smt_lemmas(definition: &BackendDefinition) -> Vec<DroppedLemma<'_
     if smt_lemmas(definition).is_empty() {
         return Vec::new();
     }
-    let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
-    lemma_assertions(definition, congruence)
-        .map(|(_, dropped)| dropped)
-        .unwrap_or_default()
+    // The report repeats the prelude's computation for a reader, beside the prelude's own,
+    // which counts it: the repetition counts nothing, so the counters a run reads
+    // (`smt.opaque_atom_domains` among them) measure the same work with or without the report.
+    k_rust_kore::measure::without_counting(|| {
+        let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
+        lemma_assertions(definition, congruence)
+            .map(|(_, dropped)| dropped)
+            .unwrap_or_default()
+    })
 }
 
 /// The assertions of `definition`'s `smt-lemma`s the prelude states, and the lemmas it leaves
@@ -2420,7 +2430,12 @@ fn translate_smt_lemma(
         });
     }
     if let Some(reason) = left_out_reason(&translation, &written) {
-        let (operand, reason) = match left_out_operand(definition, &congruence, rule, &written) {
+        // Naming the operand is for the report, not the solver: it counts nothing, so the
+        // prelude's build counts only its one translation of each lemma.
+        let named = k_rust_kore::measure::without_counting(|| {
+            left_out_operand(definition, &congruence, rule, &written)
+        });
+        let (operand, reason) = match named {
             Some((operand, reason)) => (Some(operand), reason),
             None => (None, reason),
         };
