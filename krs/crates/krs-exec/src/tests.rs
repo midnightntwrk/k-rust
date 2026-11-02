@@ -705,3 +705,57 @@ fn a_kept_leaf_keeps_the_condition_the_reading_does_not_decide() {
     assert_eq!(state(&path), pattern(residual).to_string());
     assert!(path.valueless.is_empty());
 }
+
+/// The backend states a projection's definedness as `#Exists V . {t #Equals V}`, a predicate: a
+/// term with no value has no value `V` is equal to, so the condition does not hold where `t`
+/// holds one, and the state is its configuration. Read so, the state's configuration is read
+/// too, so a term with no value beside a projection whose operand may have one (`opaque(1)`) is
+/// found there (`prj(noval(red))`, `duo(prj(opq(1)), size(red))`, alias_clauses).
+#[test]
+fn a_projection_s_definedness_is_a_condition_read_as_any_other() {
+    let heads = Named::partial(&["f"]);
+    let defined = |term: &str| {
+        format!(
+            r"\exists{{SortState{{}}}}(VarK:SortInt{{}}, \equals{{SortInt{{}}, SortState{{}}}}({term}, VarK:SortInt{{}}))"
+        )
+    };
+    let projected = format!("test{{}}(project{{}}({F_TRUE}))");
+    let path = one_path(
+        vec![leaf(
+            &format!(r"\and{{SortState{{}}}}({projected}, {})", defined(F_TRUE)),
+            0,
+        )],
+        &heads,
+    )
+    .unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+    assert_eq!(state(&path), projected);
+
+    let opaque = r#"opaque{}(\dv{SortInt{}}("1"))"#;
+    let beside = format!(
+        r"\and{{SortState{{}}}}(test{{}}(project{{}}({opaque}), {F_TRUE}), {})",
+        defined(opaque)
+    );
+    let path = one_path(vec![leaf(&beside, 0)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
+    assert_eq!(path.valueless, [pattern(F_TRUE)]);
+
+    // Alone, the projection of a term that may have a value is a state, its condition printed.
+    let open = format!(
+        r"\and{{SortState{{}}}}(test{{}}(project{{}}({opaque})), {})",
+        defined(opaque)
+    );
+    let path = one_path(vec![leaf(&open, 0)], &heads).unwrap();
+    assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
+    assert_eq!(state(&path), pattern(&open).to_string());
+    assert!(path.valueless.is_empty());
+    // Two such leaves are undecided over the operand, not over the bound `V`.
+    let Err(PathError::Undecided { over, .. }) = one_path(
+        vec![leaf(&open, 0), leaf(&open.replace("test{}(", "go{}("), 0)],
+        &heads,
+    ) else {
+        panic!("two leaves over `opaque(1)` are no one path");
+    };
+    assert_eq!(over, [pattern(opaque)]);
+}

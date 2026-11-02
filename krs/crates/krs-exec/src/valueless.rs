@@ -18,7 +18,10 @@
 //! witness is not decided here: such a split is the definition's, and a run reports it rather
 //! than choosing an outcome.
 
-use k_rust::kore::{ast::Pattern, walk};
+use k_rust::kore::{
+    ast::{Pattern, Variable, VariableKind},
+    walk,
+};
 
 /// The heads a reading of a state asks about.
 pub(crate) trait Heads {
@@ -54,6 +57,13 @@ pub(crate) fn is_value(pattern: &Pattern, heads: &dyn Heads) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether `pattern` has a value at every valuation of its variables: a value, or an element
+/// variable, which denotes exactly one value.
+fn has_value(pattern: &Pattern, heads: &dyn Heads) -> bool {
+    matches!(pattern, Pattern::Variable(variable) if variable.kind == VariableKind::Element)
+        || is_value(pattern, heads)
 }
 
 /// Whether `pattern` is a witness: a partial function, defined by its equations alone, applied
@@ -150,7 +160,8 @@ fn conjoined<'a>(pattern: &'a Pattern, out: &mut Vec<&'a Pattern>) {
     }
 }
 
-/// Whether `pattern` is a predicate: a matching-logic connective over predicates, or `#Ceil`,
+/// Whether `pattern` is a predicate: a matching-logic connective or quantifier over predicates
+/// (the backend states a projection's definedness as `#Exists V . {t #Equals V}`), or `#Ceil`,
 /// `#Floor`, `#Equals`, `#In`, `#Top` or `#Bottom`.
 fn is_predicate(pattern: &Pattern) -> bool {
     match pattern {
@@ -164,6 +175,7 @@ fn is_predicate(pattern: &Pattern) -> bool {
         Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
             arguments.iter().all(is_predicate)
         }
+        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => is_predicate(body),
         _ => false,
     }
 }
@@ -172,9 +184,13 @@ fn is_predicate(pattern: &Pattern) -> bool {
 /// decided predicate read go to `read`, and the terms an undecided one read to `over`.
 ///
 /// - `#Ceil(t)` does not hold where `t` holds a witness, and holds where `t` is a value.
-/// - `{a #Equals b}` does not hold where one side holds a witness and the other is a value, which
-///   has one; it holds where both are the same value.
-/// - `#Not`, `#And`, `#Or`, `#Top` and `#Bottom` are read as written; anything else is undecided.
+/// - `{a #Equals b}` does not hold where one side holds a witness and the other has a value (a
+///   value, or an element variable, which denotes one); it holds where both are the same value.
+/// - `#Not`, `#And`, `#Or`, `#Top` and `#Bottom` are read as written.
+/// - `#Exists V . p` and `#Forall V . p` are read as `p` is: every decision above is made at
+///   witnesses and values, which hold no variable, so it is the same at every value of `V`, and
+///   every sort has one. The terms an undecided `p` reads that mention `V` are not the run's.
+/// - Anything else is undecided.
 fn holds<'a>(
     predicate: &'a Pattern,
     heads: &dyn Heads,
@@ -201,7 +217,7 @@ fn holds<'a>(
             for (side, other) in [(left, right), (right, left)] {
                 let mut found = Vec::new();
                 witnesses(side, heads, &mut found);
-                if !found.is_empty() && is_value(other, heads) {
+                if !found.is_empty() && has_value(other, heads) {
                     note(read, found);
                     return Some(false);
                 }
@@ -239,6 +255,13 @@ fn holds<'a>(
             }
             any
         }
+        Pattern::Exists { variable, body, .. } | Pattern::Forall { variable, body, .. } => {
+            let mut open = Vec::new();
+            let holds = holds(body, heads, read, &mut open);
+            open.retain(|term| !mentions(term, variable));
+            note(over, open);
+            holds
+        }
         _ => None,
     }
 }
@@ -249,6 +272,14 @@ fn note<'a>(out: &mut Vec<&'a Pattern>, terms: Vec<&'a Pattern>) {
             out.push(term);
         }
     }
+}
+
+/// Whether `pattern` holds `variable`.
+fn mentions(pattern: &Pattern, variable: &Variable) -> bool {
+    matches!(pattern, Pattern::Variable(held) if held == variable)
+        || walk::children(pattern)
+            .into_iter()
+            .any(|child| mentions(child, variable))
 }
 
 /// Whether `pattern` holds a variable.
