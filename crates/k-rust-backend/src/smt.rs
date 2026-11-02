@@ -1779,6 +1779,9 @@ pub struct SmtPrelude {
     smtlib_names: BTreeSet<String>,
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
+    /// The `UNIQUE_ID`s of the `smt-lemma`s the prelude leaves out because a closed formula
+    /// cannot state the domain of an operand of their `requires` (`translate_smt_lemma`).
+    dropped_lemmas: Vec<String>,
     congruence: Option<Arc<CongruencePolicy>>,
     #[cfg(any(feature = "z3", test))]
     source: Option<summary::Source>,
@@ -1836,14 +1839,20 @@ impl SmtPrelude {
                 ));
             }
         }
+        let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
+        let mut dropped_lemmas = Vec::new();
         for rule in smt_lemmas(definition) {
-            declarations.push(format!("(assert {})", translate_smt_lemma(rule)?));
+            match translate_smt_lemma(definition, congruence.clone(), rule)? {
+                Some(lemma) => declarations.push(format!("(assert {lemma})")),
+                None => dropped_lemmas.push(rule.attributes.unique_id.clone()),
+            }
         }
         Ok(Self {
             declarations,
             smtlib_names,
             user_script: false,
-            congruence: CongruencePolicy::from_definition(definition).map(Arc::new),
+            dropped_lemmas,
+            congruence,
             #[cfg(any(feature = "z3", test))]
             source: Some(summary::Source::new(definition)),
         })
@@ -1863,6 +1872,13 @@ impl SmtPrelude {
 
     pub fn declarations(&self) -> &[String] {
         &self.declarations
+    }
+
+    /// The `UNIQUE_ID`s of the definition's `smt-lemma`s the prelude leaves out: those whose
+    /// `requires` reads an operand whose domain no closed formula states (`translate_smt_lemma`).
+    /// Leaving out an axiom only weakens what the solver knows.
+    pub fn dropped_lemmas(&self) -> &[String] {
+        &self.dropped_lemmas
     }
 
     #[cfg(feature = "z3")]
@@ -2107,11 +2123,47 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
         .collect()
 }
 
-fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
+/// The assertion that states the `smt-lemma` `rule`, `l = r requires R`, as the closed formula
+/// `∀ vars(l). T(R) => l = r`, or `None` when no closed formula states it.
+///
+/// `T(R)` reads each atom of `R` with its operands' domains, as a query does
+/// (`atom_with_domains`): in K an atom over an undefined term does not hold, so the lemma holds
+/// only where they are defined. The domains are prepared from the definition
+/// (`functional::prepare`), so a domain a ceil equation states, or that is `\top`, is a formula
+/// over the bound variables. A domain that stays the head's domain function, an opaque
+/// `\ceil` atom or a fact beside the domain is a name of one query's translation, which a
+/// prelude cannot mention; such a lemma is left out (`SmtPrelude::dropped_lemmas`), which only
+/// weakens what the solver knows. Stating `R` without the domains would assert `l = r` where
+/// `R`'s total reading holds but `R` is `\bottom`.
+fn translate_smt_lemma(
+    definition: &BackendDefinition,
+    congruence: Option<Arc<CongruencePolicy>>,
+    rule: &RewriteRule,
+) -> Result<Option<SExpr>, TranslationError> {
     let RuleRhs::Term(rhs) = &rule.rhs else {
         return Err(TranslationError::UnsupportedPredicate("ceil SMT lemma"));
     };
     let mut translation = TranslationState::new();
+    // The domain plans of `requires`' operands are those of the definition's functional heads,
+    // as in a query. The policy is set only for preparing them: the lemma's own terms are
+    // translated as before, with no congruence function of a query's translation.
+    #[cfg(any(feature = "z3", test))]
+    {
+        translation.congruence = congruence;
+        let requires = rule.requires.iter().cloned().collect::<Vec<_>>();
+        // A stop leaves the domains unprepared, so the lemma is left out below; it is raised
+        // again at the next poll.
+        let _ = functional::prepare(
+            definition,
+            &mut translation,
+            &[],
+            &Substitution::new(),
+            &requires,
+        );
+        translation.congruence = None;
+    }
+    #[cfg(not(any(feature = "z3", test)))]
+    let _ = (definition, congruence);
     let equality = SExpr::application(
         "=",
         vec![
@@ -2149,31 +2201,20 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
             terms: translation.mappings.into_keys().collect(),
         });
     }
-    if !translation.predicate_mappings.is_empty() || !translation.dependent_mappings.is_empty() {
-        return Err(TranslationError::SmtLemmaSurplusPredicates {
-            rule_id: rule.attributes.unique_id.clone(),
-            predicates: translation
-                .predicate_mappings
-                .into_iter()
-                .map(|(predicate, _)| predicate)
-                .chain(
-                    translation
-                        .dependent_mappings
-                        .into_keys()
-                        .map(|(predicate, _)| predicate),
-                )
-                .collect(),
-        });
+    if !translation.predicate_mappings.is_empty()
+        || !translation.dependent_mappings.is_empty()
+        || !translation.domain_functions.is_empty()
+        || !translation.domain_facts.is_empty()
+        || !translation.pending_domain_links.is_empty()
+        || !translation.derived_definitions.is_empty()
+    {
+        return Ok(None);
     }
-    if binders.is_empty() {
-        Ok(body)
+    Ok(Some(if binders.is_empty() {
+        body
     } else {
-        Ok(SExpr::List(vec![
-            SExpr::atom("forall"),
-            SExpr::List(binders),
-            body,
-        ]))
-    }
+        SExpr::List(vec![SExpr::atom("forall"), SExpr::List(binders), body])
+    }))
 }
 
 /// The SMT-LIB sort that stands for a K sort in a translation (`sort_denotation`).

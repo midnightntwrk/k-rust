@@ -3132,6 +3132,94 @@ mod tests {
         );
     }
 
+    /// GAP K18: an `smt-lemma` whose `requires` reads a partial operand is stated with the
+    /// operand's domain, as a query's atom is, so it holds only where K's condition holds. With
+    /// `\ceil(I divInt J) = (J =/=Int 0)` the domain of `X divInt 2` is a formula over the bound
+    /// `X`, and `f(X) = 0 requires X divInt 2 >Int 0` decides `f(4) = 0`. A lemma whose operand's
+    /// domain is the head's domain function (`half`, no ceil equation), a name of one query's
+    /// translation, is left out, and the solver still starts. Before, either lemma made the
+    /// prelude fail (`SmtLemmaSurplusPredicates`), and with it every query of the definition.
+    #[test]
+    fn an_smt_lemma_over_a_partial_operand_states_its_domain_or_is_left_out() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.ediv"), smt-hook{}("div")]
+                symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+                symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("f")]
+                symbol g{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("g")]
+                axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+                    \ceil{SortInt{}, Q}(divInt{}(I:SortInt{}, J:SortInt{})),
+                    \and{Q}(\equals{SortBool{}, Q}(
+                        neInt{}(J:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
+                      \top{Q}()))) [simplification{}()]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        gtInt{}(divInt{}(X:SortInt{}, \dv{SortInt{}}("2")), \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")),
+                    \equals{SortInt{}, R}(f{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
+                    [simplification{}(), smt-lemma{}(), label{}("f-zero")]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        gtInt{}(half{}(X:SortInt{}), \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")),
+                    \equals{SortInt{}, R}(g{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
+                    [simplification{}(), smt-lemma{}(), label{}("g-zero")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let prelude = SmtPrelude::from_definition(&definition).expect("the prelude is built");
+        let id = |label: &str| {
+            [
+                definition.function_theory(),
+                definition.simplification_theory(),
+            ]
+            .into_iter()
+            .flat_map(|theory| theory.values())
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .find(|rule| rule.attributes.label.as_deref() == Some(label))
+            .expect("the lemma")
+            .attributes
+            .unique_id
+            .clone()
+        };
+        assert_eq!(prelude.dropped_lemmas(), [id("g-zero")]);
+        let solver = Z3Solver::new(&definition).expect("Z3 should start");
+        let zero = term(&definition, r#"\dv{SortInt{}}("0")"#);
+        let at = |symbol: &str, argument: &str| {
+            Predicate::Equals(
+                term(
+                    &definition,
+                    &format!(r#"{symbol}{{}}(\dv{{SortInt{{}}}}("{argument}"))"#),
+                ),
+                zero.clone(),
+            )
+        };
+        for (checked, expected) in [
+            (at("f", "4"), Validity::Valid),
+            (at("f", "1"), Validity::Contingent),
+            (at("g", "4"), Validity::Contingent),
+        ] {
+            assert_eq!(
+                solver.check_predicates(&[], &Substitution::new(), std::slice::from_ref(&checked)),
+                Ok(Ok(expected)),
+                "{checked:?}"
+            );
+        }
+    }
+
     /// A definition whose `Float`, `MInt{8}` and renamed-`Int` operations carry the `smt-hook`s
     /// `domains.md` gives them (and `fg.gt`, which names no SMT-LIB function): the solver
     /// interprets none of these sorts.
