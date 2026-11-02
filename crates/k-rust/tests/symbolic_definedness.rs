@@ -11,15 +11,26 @@
 //! same holds for a condition that no hook shortcuts but a solver decides (`10 /Int A <=Int
 //! 10 /Int A`, which a solver that gives `/Int` a value at `0` finds valid) and for a condition
 //! the predicate simplifier splits into a disjunction (`a orBool b` into `a \/ b`).
+//!
+//! A leaf implies `\ceil(t)` when it states it (for `10 /Int X`, as `X =/=Int 0`) or when a
+//! top-level conjunct is an equality of a defined side with a term that holds `t`
+//! ([`states_defined`]): the solver reads every atom with its operands' domains, so the
+//! simplifier may keep either of two equivalent conjuncts, such as `X =/=Int 0` and
+//! `true = (10 /Int X <=Int 10 /Int X)`.
 
 use k_rust::{
     backend::{
         Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, HaltReasonOutput,
-        ResultModalityOutput,
+        ImplicationRequest, ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{
+        ast::{Pattern as KorePattern, VariableKind},
+        codec,
+        parser::parse_pattern,
+        printer::Printer,
+    },
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
@@ -196,12 +207,77 @@ fn op(name: &str, argument: &str) -> String {
     seq(&format!("Lbl{name}{{}}({argument})"))
 }
 
+/// Whether the printed leaf `text` implies `\ceil(subterm)` through one of its top-level
+/// conjuncts: `guard`, the definedness as a leaf states it, or an equality one of whose sides is
+/// a domain value or an element variable and whose other side is a term (symbol applications
+/// over element variables and domain values) that holds `subterm`. An application is
+/// `\bottom` wherever one of its arguments is, so such a term is `\bottom` wherever `subterm`
+/// is, and an equality of a defined side with `\bottom` is false: the equality implies
+/// `\ceil(subterm)`.
+fn states_defined(text: &str, guard: &str, subterm: &str) -> bool {
+    fn conjuncts<'p>(pattern: &'p KorePattern, found: &mut Vec<&'p KorePattern>) {
+        if let KorePattern::And { arguments, .. } = pattern {
+            for argument in arguments {
+                conjuncts(argument, found);
+            }
+        } else {
+            found.push(pattern);
+        }
+    }
+    fn defined(pattern: &KorePattern) -> bool {
+        match pattern {
+            KorePattern::DomainValue { .. } => true,
+            KorePattern::Variable(variable) => variable.kind == VariableKind::Element,
+            _ => false,
+        }
+    }
+    fn term(pattern: &KorePattern) -> bool {
+        match pattern {
+            KorePattern::Application { arguments, .. }
+            | KorePattern::AssociativeApplication { arguments, .. } => arguments.iter().all(term),
+            _ => defined(pattern),
+        }
+    }
+    let printer = Printer::compact();
+    let leaf = parse_pattern(text).unwrap();
+    let mut found = Vec::new();
+    conjuncts(&leaf, &mut found);
+    found.into_iter().any(|conjunct| match conjunct {
+        KorePattern::Equals { left, right, .. } => {
+            [(left, right), (right, left)]
+                .into_iter()
+                .any(|(side, other)| {
+                    defined(side) && term(other) && printer.print_pattern(other).contains(subterm)
+                })
+        }
+        _ => printer.print_pattern(conjunct) == guard,
+    })
+}
+
+/// Whether `leaf` implies `X =/=Int 0` ([`states_defined`] of `10 /Int X`).
+fn implies_nonzero(leaf: &Leaf) -> bool {
+    states_defined(&leaf.text, X_NONZERO, &div(X))
+}
+
+/// Whether the solver refutes `leaf` at `X = 0`: `implies(leaf /\ X = 0, \bottom)` is valid.
+fn refuted_at_zero(backend: &mut Backend, leaf: &Leaf) -> bool {
+    let antecedent = format!("\\and{{SortGeneratedTopCell{{}}}}({}, {X_ZERO})", leaf.text);
+    backend
+        .implies(ImplicationRequest::new(
+            parse_pattern(&antecedent).unwrap(),
+            parse_pattern("\\bottom{SortGeneratedTopCell{}}()").unwrap(),
+        ))
+        .unwrap()
+        .status
+        == "valid"
+}
+
 /// Why `leaves` fail the contract, if they do: every leaf past the rule's step implies
-/// `X =/=Int 0`, and the rule either steps or halts Indeterminate.
+/// `X =/=Int 0` ([`implies_nonzero`]), and the rule either steps or halts Indeterminate.
 fn nonzero_violation(case: &str, leaves: &[Leaf]) -> Option<String> {
     let dropped = leaves
         .iter()
-        .any(|leaf| leaf.depth > 0 && !leaf.text.contains(X_NONZERO));
+        .any(|leaf| leaf.depth > 0 && !implies_nonzero(leaf));
     let stepped_or_indeterminate = leaves.iter().any(|leaf| leaf.depth > 0)
         || leaves
             .iter()
@@ -336,9 +412,11 @@ fn a_solver_splits_a_partial_requires_like_the_ground_run() {
                 && leaf.reason == HaltReasonOutput::Stuck
                 && leaf.text.contains(&remainder)
         });
-        let stepped = leaves
-            .iter()
-            .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO));
+        // The step implies `X =/=Int 0`, and the solver refutes it at `X = 0`.
+        let stepped = leaves.iter().any(|leaf| leaf.depth == 1)
+            && leaves.iter().all(|leaf| {
+                leaf.depth == 0 || (implies_nonzero(leaf) && refuted_at_zero(&mut backend, leaf))
+            });
         if !stuck_at_zero || !stepped {
             violations.push(format!(
                 "{name}(X): expected a Stuck remainder admitting X = 0 and a step under \
@@ -412,17 +490,20 @@ fn an_equation_requires_keeps_the_definedness_of_its_terms() {
 }
 
 /// `f(0)` is left unevaluated (its only equation needs `10 /Int 0` defined), so the ground
-/// `requires f(0) <=Int f(0)` is undecided by evaluation and must reach any solver with
-/// `\ceil(f(0))`: no step may happen without it.
+/// `requires f(0) <=Int f(0)` is undecided by evaluation and holds only where `f(0)` is
+/// defined: no step may happen without `\ceil(f(0))`, which the step leaf states or implies
+/// through `true = (f(0) <=Int f(0))` ([`states_defined`]).
 #[test]
 fn a_ground_condition_over_an_unevaluated_partial_term_keeps_its_obligation() {
     let mut backend = backend();
+    let f_zero = format!("Lblf{{}}({ZERO})");
+    let ceil = format!("\\ceil{{SortInt{{}}, SortGeneratedTopCell{{}}}}({f_zero})");
     for assume in [false, true] {
         let leaves = execute(&mut backend, &op("gnd", X), assume);
         assert!(
             leaves
                 .iter()
-                .all(|leaf| leaf.depth == 0 || leaf.text.contains("\\ceil")),
+                .all(|leaf| leaf.depth == 0 || states_defined(&leaf.text, &ceil, &f_zero)),
             "gnd(X) assume={assume}: a step dropped \\ceil(f(0)): {leaves:#?}"
         );
     }
@@ -506,9 +587,9 @@ endmodule
             leaves.iter().any(|leaf| leaf.depth == 0
                 && leaf.reason == HaltReasonOutput::Stuck
                 && leaf.text.contains(&remainder))
-                && leaves
-                    .iter()
-                    .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO)),
+                && leaves.iter().any(|leaf| leaf.depth == 1)
+                && leaves.iter().all(|leaf| leaf.depth == 0
+                    || (implies_nonzero(leaf) && refuted_at_zero(&mut backend, leaf))),
             "letlt(X): expected a Stuck remainder admitting X = 0 and a step under X =/=Int 0: \
              {leaves:#?}"
         );
