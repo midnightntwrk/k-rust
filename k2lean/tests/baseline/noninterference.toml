@@ -15,6 +15,16 @@ tier = "light"
 guarded = 13
 preserve = []
 
+[demo.ImpOwiseNI]
+tier = "light"
+guarded = 8
+preserve = []
+
+[demo.ContractOwiseNI]
+tier = "light"
+guarded = 11
+preserve = []
+
 [sources]
 
 [sources.sha256]
@@ -26,6 +36,14 @@ preserve = []
 "demos/ContractNI/ContractNI/Tr.lean" = { tier = "light", sha256 = "5c81e5256ba76dbc304c567f99cb3d2a5b8518007135b06d0daeb64f17b9a042" }
 "demos/ContractNI/correspondence.toml" = { tier = "light", sha256 = "297ab924cdf9c6b7352d25913466d92a513241ae6d9f2ae378dc7da51276b680" }
 "demos/ContractNI/noninterference.toml" = { tier = "light", sha256 = "952cb367df4bfe7977a18394ce9522ad46607477c4e385bbbde27187d9b116e3" }
+"demos/ContractOwiseNI/ContractOwiseNI/Levels.lean" = { tier = "light", sha256 = "ed70c561c6b1de555d7e192892c6f05e04576f3ce7abc4341e07b3959741ac82" }
+"demos/ContractOwiseNI/ContractOwiseNI/NI.lean" = { tier = "light", sha256 = "8a4f9bd7e75dc5a8a3468424e6267a1184832dc8a9b39ec0c90d062842bcaaf7" }
+"demos/ContractOwiseNI/ContractOwiseNI/Proof.lean" = { tier = "light", sha256 = "34c0692b11dc6728c46f59e537f5bee9231e011cc716847c4b15c8d69e579ef1" }
+"demos/ContractOwiseNI/ContractOwiseNI/Spec.lean" = { tier = "light", sha256 = "43fcebc22aa4a61941fa8d0474067a6940d57113fdaeac932d485324e54ca4c8" }
+"demos/ContractOwiseNI/ContractOwiseNI/Stack.lean" = { tier = "light", sha256 = "0ecd92219700de71775764221b3146b019577e66fc0c1822e79bfc26c936c66d" }
+"demos/ContractOwiseNI/ContractOwiseNI/Tr.lean" = { tier = "light", sha256 = "0fa86aa8ad0c98261e970ba11dade1adaa3ee3579b02899f6fc1a61e60ad86bb" }
+"demos/ContractOwiseNI/correspondence.toml" = { tier = "light", sha256 = "428ae48ed4b49a2cba812d69d8816a68fa9f7e0444024475a8d06fe1436d2d1a" }
+"demos/ContractOwiseNI/noninterference.toml" = { tier = "light", sha256 = "7c5663296e5a330ccbadec660ca6504734b42b816689236dc51fcb8308fbe94e" }
 "demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "68d4f9469815bd97005a0c12c23873123112b455807012b96281be939a32d52d" }
 "demos/ImpNI/ImpNI/NI.lean" = { tier = "light", sha256 = "04e452665528652e285642c1d90909bac0818ba77e3c690e0e0629f42d552d57" }
 "demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "cd651ea9e08a2bc60a9f71a6f54b91368ceb40e02c3ab286a90b7f0b877778b7" }
@@ -34,6 +52,14 @@ preserve = []
 "demos/ImpNI/ImpNI/Tr.lean" = { tier = "light", sha256 = "b5b7e1f6083135654c57b495820ffec17cdfc9b998c35157830ecea45e37a055" }
 "demos/ImpNI/correspondence.toml" = { tier = "light", sha256 = "496f900d29a89ceaf57e4f4f072e24c310bb0b727fc157b5d1ff65726bc82fcd" }
 "demos/ImpNI/noninterference.toml" = { tier = "light", sha256 = "30d245d282367c7d486657f0172da77047540ceeb3a3f9d22a9bd1c01e52dbd9" }
+"demos/ImpOwiseNI/ImpOwiseNI/Levels.lean" = { tier = "light", sha256 = "5be12818b8024f8cf24f9cfbd84b7d2a4f9ddef507e8aad6969e6f78e9c83e79" }
+"demos/ImpOwiseNI/ImpOwiseNI/NI.lean" = { tier = "light", sha256 = "23604d479727089c04e7f5331459f47df7492fe3f9c383aec84ab6403b5061e2" }
+"demos/ImpOwiseNI/ImpOwiseNI/Proof.lean" = { tier = "light", sha256 = "a1ee44a37e88a7f1bcbc5c45498735147560567b8c6e205b5287f02985bbaf58" }
+"demos/ImpOwiseNI/ImpOwiseNI/Spec.lean" = { tier = "light", sha256 = "71c2f3c7441f4f22338a09c48e9eb8d7e2ee4ae8002f5c1e61bdfcd28e0dde1a" }
+"demos/ImpOwiseNI/ImpOwiseNI/Stack.lean" = { tier = "light", sha256 = "45dab3a89435572a2e3a23ee99ec800eeba3bdb6767db13a8a5af78ae5ad9c1e" }
+"demos/ImpOwiseNI/ImpOwiseNI/Tr.lean" = { tier = "light", sha256 = "58832bbfeb49e6a8aca713df5fff9bfb020267af0f4f3ca9366af88d95f7081a" }
+"demos/ImpOwiseNI/correspondence.toml" = { tier = "light", sha256 = "285d24e8de00c6603aa595a5cca96aed0ff4d8e4f99ac920c24a20a6fc2c4e3f" }
+"demos/ImpOwiseNI/noninterference.toml" = { tier = "light", sha256 = "a8cfc84d231b2f9b79c93dba77a1ebcf28c68f8bc11308ed27356b8a5240d799" }
 "generated/contract/Contract.lean" = { tier = "light", sha256 = "15320faebd3aa1af2b4ac2e7219b6b943b98da9de0f582b2a388bdaf3f18ebbd" }
 "generated/contract/Contract/Adequacy.lean" = { tier = "light", sha256 = "78b8a438320c9c5a4cdff523c9801e07ae8e912c5430a25f5fe0302d17bb5477" }
 "generated/contract/Contract/Determinism.lean" = { tier = "light", sha256 = "d69f7411f9aa6293a5067cdcd110b127566e8d150e5554a70f6d74f11c443a4f" }
@@ -55,6 +81,27 @@ preserve = []
 "generated/contract/invariant-unfold.txt" = { tier = "light", sha256 = "c49e66a6818dd7bd8d6c1fff0196c80d479e03ebcd110ca8ae7e9955ef0f27de" }
 "generated/contract/lakefile.lean" = { tier = "light", sha256 = "07f10a229dbdeeda7da435cfa8ed44c003b7c1c85db5efaf38bef5b0b540357b" }
 "generated/contract/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/contractow/ContractOw.lean" = { tier = "light", sha256 = "a3d954f49429213ed65e0dbd3930581f3135abf4e0162e9855c1666486a0ad49" }
+"generated/contractow/ContractOw/Adequacy.lean" = { tier = "light", sha256 = "9746eacf7eca28e52afcdb79048d4a2b6f2478f48513e552e99483a7c94fc651" }
+"generated/contractow/ContractOw/Determinism.lean" = { tier = "light", sha256 = "1566e4dd45a4c00a92da68b29f521674266fbb1979ed9ab9b71fdec07a9591b8" }
+"generated/contractow/ContractOw/Determinism/L1.lean" = { tier = "light", sha256 = "c45252d2b7283031281e7493f2e1eb10c10bb92019648312d484f430940f3793" }
+"generated/contractow/ContractOw/Determinism/Pre.lean" = { tier = "light", sha256 = "5c9868710c611d8fe7e94ffd52ae20293afa5f59ca52235d5010fb365d34b294" }
+"generated/contractow/ContractOw/EqBase.lean" = { tier = "light", sha256 = "0aaaee7c07e1b43e8bf6bb91097db4506948955f9ace8785003ada9ba92cd372" }
+"generated/contractow/ContractOw/Equations.lean" = { tier = "light", sha256 = "3a9490a477a429df511f8a131258b3454b0f43e54839607cd4d9f29ebe553b36" }
+"generated/contractow/ContractOw/Functions.lean" = { tier = "light", sha256 = "07b2998906d47c6336c02a8a8e946488b84e3c316e14634259f29aeeb2f7f2ab" }
+"generated/contractow/ContractOw/Init.lean" = { tier = "light", sha256 = "db9e6209912149ce6fab25f0d3f074b12fc82324c0694c98b2e397546a3296fe" }
+"generated/contractow/ContractOw/InvariantDefs.lean" = { tier = "light", sha256 = "0c4af96f9a45b10f84b241bb37f4b9a9ccee6df8188eaba1c75c1ca81299804d" }
+"generated/contractow/ContractOw/Invariants.lean" = { tier = "light", sha256 = "44d41ea89a31f63e0b55a690815201a4f079a886a8f8610f5febf9de404cac32" }
+"generated/contractow/ContractOw/Preserves.lean" = { tier = "light", sha256 = "4889c2bf701f048e39fcb3d499015b4025bb8acca659d0fac6091f4a87837364" }
+"generated/contractow/ContractOw/Rules.lean" = { tier = "light", sha256 = "7088ee422dbf308f6a2bdb4e49fa9179d6f49a3649606f9aa5eae07ba212fea1" }
+"generated/contractow/ContractOw/Terms.lean" = { tier = "light", sha256 = "507108c8481c604189dcec0b990b9132f5cc0aa4a0e1cbda0275c5d392473674" }
+"generated/contractow/ContractOwBench/Main.lean" = { tier = "light", sha256 = "5b5f015caf52d6f72ce515c0ae3268fa30fae6e0bb382d6632a191a9b59840a6" }
+"generated/contractow/ContractOwTest/Axioms.lean" = { tier = "light", sha256 = "0937461fbbea5e3fc9ce072216de2fb2e6fa9e07244b0cdd18491adf1a9602d2" }
+"generated/contractow/ContractOwTest/DetAxioms.lean" = { tier = "light", sha256 = "314c23cc3a2c79248ae7990f70e85ec9ce1b91bde3e680ee7e338e4d76b0910d" }
+"generated/contractow/ContractOwTest/Main.lean" = { tier = "light", sha256 = "822181cdf95e5e9522adf3096186b01c9e1967aa2a7f771e0e7775e98591cb14" }
+"generated/contractow/invariant-unfold.txt" = { tier = "light", sha256 = "8637aaaf821ea74c79a1be2447a1af995049d60815ce2300ddaabff3aa997b3e" }
+"generated/contractow/lakefile.lean" = { tier = "light", sha256 = "1f7a0c234760a7d458e30673094d804264e78c1e72d922e8458765ab35899faf" }
+"generated/contractow/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/contractsec/ContractSec.lean" = { tier = "light", sha256 = "faa4c38f03b6ee097d9d65b7e8df5e669df08203cafc181a0bd2ff0a8c721dec" }
 "generated/contractsec/ContractSec/Adequacy.lean" = { tier = "light", sha256 = "aeb12c49164f3e2bc91a49e433e84571f17fb1f8559e1c0470129e1d77efbfe0" }
 "generated/contractsec/ContractSec/Determinism.lean" = { tier = "light", sha256 = "34e0e50654dbdfc4bb30cd35d82c60fc0b87756c74dc919d1cee815aa41e01e6" }
@@ -119,3 +166,28 @@ preserve = []
 "generated/kimpni/invariant-unfold.txt" = { tier = "light", sha256 = "5020e9dfd0091cfd1fa4bc08cc3733851dfe31deac601a2b31d20cd3233c8558" }
 "generated/kimpni/lakefile.lean" = { tier = "light", sha256 = "d1bc5cee1d480b9ee48656f2049daf650d7f163e014b60d18fb89c6183fcc151" }
 "generated/kimpni/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/kimpowni/KImpOwNI.lean" = { tier = "light", sha256 = "8f6a58a52f9c96057ffdd41f6c49b87d44b132c1b05ea943c232f95f9d3a793c" }
+"generated/kimpowni/KImpOwNI/Adequacy.lean" = { tier = "light", sha256 = "a2eca83823c38e0abbe213e75c308d7c12bde2ef6ed6e98d6b98424f8708aa87" }
+"generated/kimpowni/KImpOwNI/Determinism.lean" = { tier = "light", sha256 = "b41de01d66f0c02e329d423053cc1873b45a4c9de3dfeacdf1e7513ff217da13" }
+"generated/kimpowni/KImpOwNI/Determinism/L1.lean" = { tier = "light", sha256 = "bc0d31536e970f27cf14097edcbfe70e54ac1a9287a3348d15228a5874510260" }
+"generated/kimpowni/KImpOwNI/Determinism/L2.lean" = { tier = "light", sha256 = "80fc2e7fde6cf2ea7d6e47a2333ec3b6cfba3dc5c74f9d03ba9e16f162d35584" }
+"generated/kimpowni/KImpOwNI/Determinism/L3.lean" = { tier = "light", sha256 = "6cb9b188452a0d3335aa353a708c7d7789145090c7642b434690eab51ee9a0d9" }
+"generated/kimpowni/KImpOwNI/Determinism/L4.lean" = { tier = "light", sha256 = "634c7a46a242c551392d127dfe95b8c9117c402c959e8a91c9d61dbbfde4018c" }
+"generated/kimpowni/KImpOwNI/Determinism/L5.lean" = { tier = "light", sha256 = "1facc8d05a22731da0784ef3e18c86fb539b0cc4ce64b33468f66590001b1145" }
+"generated/kimpowni/KImpOwNI/Determinism/Pre.lean" = { tier = "light", sha256 = "8d6e3bd19afaa8e261ba433627d3c66130c690db499e8ff95ce6debaca0259fc" }
+"generated/kimpowni/KImpOwNI/EqBase.lean" = { tier = "light", sha256 = "e5a337a8abebce766573e477e7e032032e9e98c035f16a8595a2280bc283f16f" }
+"generated/kimpowni/KImpOwNI/Equations.lean" = { tier = "light", sha256 = "5f9a1d690653d0a46184551aee06b98a778096ae7f22f501eacee4b1e6200ad5" }
+"generated/kimpowni/KImpOwNI/Functions.lean" = { tier = "light", sha256 = "852adecbcc6733dcbacec84a353013822224219e63847a0656a7d2fa2ca775b7" }
+"generated/kimpowni/KImpOwNI/Init.lean" = { tier = "light", sha256 = "ed434017fe842036f6fe396b6dca1d9b6fe82768bcbe276dd576aa5f051f513a" }
+"generated/kimpowni/KImpOwNI/InvariantDefs.lean" = { tier = "light", sha256 = "2db411c4edbcff32322cd9b420d86a3410b8dbda621328982349924a97dff561" }
+"generated/kimpowni/KImpOwNI/Invariants.lean" = { tier = "light", sha256 = "3c28e9795bb522940fa7f8a8d946939a32b6acbf1dc66944d57dbfd9750b75be" }
+"generated/kimpowni/KImpOwNI/Preserves.lean" = { tier = "light", sha256 = "5e859da5a42051f39d6a7c1a5f4a2a76eb0b7b66bf262c785c94fba501489fa5" }
+"generated/kimpowni/KImpOwNI/Rules.lean" = { tier = "light", sha256 = "a1e3ad739948a6eecb824d39a03c318b2d84a5d33e59fbdf626215b35c5b59da" }
+"generated/kimpowni/KImpOwNI/Terms.lean" = { tier = "light", sha256 = "f9f5436941f7c8fc10f355f77d4ee32287a59e47a2f01667d3f22c8a2ab228ca" }
+"generated/kimpowni/KImpOwNIBench/Main.lean" = { tier = "light", sha256 = "67709430e7b8a4d49242d015689244c30a0526f58138784b58886274d9a38875" }
+"generated/kimpowni/KImpOwNITest/Axioms.lean" = { tier = "light", sha256 = "b41a57ac541fa7f6ee6273d907254a35d28960c7e01811f54ce336dc3364ac5d" }
+"generated/kimpowni/KImpOwNITest/DetAxioms.lean" = { tier = "light", sha256 = "c8dfcb356e8bff635c32ffdcc63c160dbd90ccb8a04e30067e9200951ab74419" }
+"generated/kimpowni/KImpOwNITest/Main.lean" = { tier = "light", sha256 = "ac016663b72836951a6057dc3ac16d83d1fe9c76aa806b03cae1950194ff03e9" }
+"generated/kimpowni/invariant-unfold.txt" = { tier = "light", sha256 = "cb552241e9e085e532bf827be7f8129104fb443fed84e4038df1f88c97ecb078" }
+"generated/kimpowni/lakefile.lean" = { tier = "light", sha256 = "8fb89b730e77deca16011c13b97355d25ca020e4a6eb03c583ac780fc501349f" }
+"generated/kimpowni/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
