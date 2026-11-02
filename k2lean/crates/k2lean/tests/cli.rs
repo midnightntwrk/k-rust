@@ -1487,9 +1487,11 @@ fn confluence_plain_commutes_two_removals_at_two_bindings() {
 /// `confluence --equiv CELL=REL,…`: the theorem modulo an equivalence the author states, per leaf
 /// cell. `Equiv` compares the other cells by equality; each rule keeps it (`equiv.sim.r`, generic
 /// when the rule reads no relaxed cell), so it is a `StepEquiv`; the joins are modulo `Equiv`,
-/// closed by `k2l_equiv_close`; the observation follows by `obs_of_equiv`. Refused: a relation on
-/// a cell that is not a leaf, `perm` of a cell that is not a list, an observed relaxed cell, a rule
-/// that reads a relaxed cell, witnesses without an observation; priorities are not refused.
+/// closed by `k2l_equiv_close`; the observation follows by `obs_of_equiv`. A rule that reads a
+/// relaxed cell owes its lemma in the slots module (`Sims`, CNF-41): listed `| hand` or open, as a
+/// join slot. Refused: a relation on a cell that is not a leaf, `perm` of a cell that is not a
+/// list, an observed relaxed cell, an unlisted lemma with no generic attempt, witnesses without an
+/// observation; priorities are not refused.
 #[test]
 fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
     let d = tmp("cli-confluence-equiv");
@@ -1608,21 +1610,21 @@ fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
             "racelog",
             "RaceLog",
             vec!["--threads", "workers", "--equiv", "next=any"],
-            "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  spawn: a hypothesis of its step (a side condition, or a match of a map or a list) reads <next>",
+            "--equiv: these rules read a relaxed cell, and their lemmas have no generic attempt: list each in --open-joins as `NAME | hand` (the hand module's) or `NAME` (open)\n  equiv.sim.spawn: a hypothesis of its step (a side condition, or a match of a map or a list) reads <next>",
         ),
         // with priority ranks the rules are checked as any others (CNF-36): `vmpri`'s and
-        // `counter`'s read the cells relaxed here
+        // `counter`'s read the cells relaxed here; a rule of a later rank owes its lemma too
         (
             "vmpri",
             "VmPri",
             vec!["--equiv", "k=any"],
-            "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  add-underflow0: it matches <k> by a pattern (it reads it)",
+            "\n  equiv.sim.«add-underflow0»: it matches <k> by a pattern (it reads it)\n",
         ),
         (
             "counter",
             "Counter",
             vec!["--equiv", "env=any"],
-            "  incr: a hypothesis of its step (a side condition, or a match of a map or a list) reads <env>",
+            "\n  equiv.sim.incr: a hypothesis of its step (a side condition, or a match of a map or a list) reads <env>",
         ),
     ] {
         let o = run(fixture, name, &extra);
@@ -1648,6 +1650,82 @@ fn confluence_equiv_states_the_theorem_modulo_the_relaxed_cells() {
     let o = run("racelog", "RaceLog", &extra);
     assert!(
         !o.status.success() && err(&o).contains("--equiv: --witnesses needs --obs"),
+        "{}",
+        err(&o)
+    );
+}
+
+/// `confluence --equiv` with a rule that reads a relaxed cell (CNF-41): its lemma is owed by the
+/// slots module (`equiv.sim.r.statement`, a field of `Sims`, the premise of `equiv_stepEquiv` and
+/// `terminal_unique_of`), proved by the hand module or left open as the open-joins list marks it,
+/// never refuted; the other rules' lemmas stay in the views. With `--threads` the cell read stays
+/// a precondition of the steps. On racelog, `spawn` reads `<next>`; `work` and `stop` do not.
+#[test]
+fn confluence_equiv_a_rule_that_reads_a_relaxed_cell_owes_its_lemma() {
+    let d = tmp("cli-confluence-equiv-owed");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let run = |list: &str| {
+        std::fs::write(d.join("open.txt"), list).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(fx.join("racelog/definition.kore"))
+            .args(["--name", "RaceLog", "--ns", "EQ", "--threads", "workers"])
+            .args(["--obs", "acc", "--equiv", "next=any", "--open-joins"])
+            .arg(d.join("open.txt"))
+            .arg("--slots")
+            .arg(d.join("Slots.lean"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"))
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+    // open: a field of `Open`, the premise of `terminal_unique`
+    let o = run("equiv.sim.spawn\n");
+    assert!(o.status.success(), "{}", err(&o));
+    let (v, m, r) = (read("Views.lean"), read("Slots.lean"), read("c.toml"));
+    for x in [
+        "def equiv.sim.spawn.statement : Prop := RaceLog.Step.Rel.spawn\n    (fun a a' => ∀ b, Equiv a b → ∃ b', RaceLog.Step b b' ∧ Equiv a' b')\n",
+        "structure Sims : Prop where\n  spawn : equiv.sim.spawn.statement\n",
+        "theorem equiv_stepEquiv (Q : Sims) : StepEquiv RaceLog.Step Equiv where\n",
+        "  sim he hs := RaceLog.Step.rel_of equiv.sim.work Q.spawn equiv.sim.stop hs _ he\n",
+        "#k2l_assert_axioms Equiv.refl' Equiv.symm' Equiv.trans' equiv.sim.work equiv.sim.stop equiv_stepEquiv\n",
+        "theorem terminal_unique_of (Q : Sims) (O : OpenJoins) (S : SameThreadJoins)",
+        "terminal_unique_of_diamond (H := fun _ => True) (equiv_stepEquiv Q)",
+        "theorem obs_confluent_of (Q : Sims) (O : OpenJoins) (S : SameThreadJoins)",
+        "  obs_of_equiv (terminal_unique_of Q O S h₁ t₁ h₂ t₂)",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    assert!(!v.contains("theorem equiv.sim.spawn "), "{v}");
+    for x in [
+        "structure Open : Prop where\n",
+        "  «sim.spawn» : equiv.sim.spawn.statement\n",
+        "theorem sims_of (P : Open) : Sims := ⟨P.«sim.spawn»⟩\n",
+        "  terminal_unique_of (sims_of P) (openJoins_of P) (sameThreadJoins_of P) h₁ t₁ h₂ t₂",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(r.contains("sim = 2\nowed = [\"equiv.sim.spawn\"]"), "{r}");
+    // by hand: the hand module's lemma, its statement checked
+    let o = run("equiv.sim.spawn | hand\n");
+    assert!(o.status.success(), "{}", err(&o));
+    let m = read("Slots.lean");
+    for x in [
+        "import EQ.Hand\n",
+        "theorem equiv.sim.spawn : equiv.sim.spawn.statement := hand.equiv.sim.spawn\n\n#k2l_proves equiv.sim.spawn.statement hand.equiv.sim.spawn\n",
+        "theorem sims_of : Sims := ⟨equiv.sim.spawn⟩\n",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    // a lemma is sufficient for the theorem, not necessary: not refuted
+    let o = run("equiv.sim.spawn | refuted\n");
+    assert!(
+        !o.status.success() && err(&o).contains("equiv.sim.spawn is marked refuted"),
         "{}",
         err(&o)
     );

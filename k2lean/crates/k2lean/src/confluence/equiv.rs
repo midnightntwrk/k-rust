@@ -8,10 +8,14 @@
 //! (`equiv.sim.r`): the rule applies at a related configuration, and the two results are related.
 //! That holds generically when the rule reads no relaxed cell (its left-hand side has a variable
 //! there, used nowhere else) and, for `perm`, rebuilds the list from that variable by the list
-//! hooks; a rule that does not is refused by name. With priority ranks, a rule of a later rank owes
+//! hooks. A rule that reads one owes its lemma in the slots module (`Sims`, the premise of
+//! `equiv_stepEquiv`): by a generic attempt when it reads a `perm` cell's content in its side
+//! conditions by `size` and `in` only, which a permutation keeps, else by the hand module or open,
+//! as the open-joins list marks it (`sims`). With priority ranks, a rule of a later rank owes
 //! at the related configuration that no rule of an earlier rank applies there: such a rule reads
 //! no relaxed cell either, so it would apply at the first configuration too (`k2l_pri_other`,
-//! `KPrelude/OtherRun.lean`). The views' and slots' statements are then
+//! `KPrelude/OtherRun.lean`); after a rule that reads one, its lemma is owed as well. The views'
+//! and slots' statements are then
 //! moved onto `Equiv` (`apply`): the joins are modulo `Equiv`, the theorem is `Equiv n₁ n₂`, and the
 //! observation's corollary follows by `obs_of_equiv`. With `--threads`, a shared cell it relaxes is
 //! changed by a function of what it holds (`changes`), so two steps that write it commute up to
@@ -66,6 +70,8 @@ pub(crate) struct Cell {
 pub(crate) struct Equiv {
     root: Node,
     pub cells: Vec<Cell>,
+    /// how each rule keeps it (`sims`), in the rules' order
+    pub sims: Vec<Sim>,
 }
 
 fn cell_sort(m: &Model, s: &str) -> Option<String> {
@@ -166,7 +172,11 @@ pub(crate) fn parse(spec: &str, lib: &Lib, name: &str) -> Equiv {
     if cells.iter().all(|c| c.rel == Some(Rel::Any)) {
         fail("--equiv: every cell is `any`: the equivalence relates every two configurations");
     }
-    Equiv { root, cells }
+    Equiv {
+        root,
+        cells,
+        sims: vec![],
+    }
 }
 
 /// The free variables of a term, by name.
@@ -281,10 +291,17 @@ pub(crate) type Relaxed = (Rel, Vec<Option<Change>>);
 /// (`None`: the rule leaves it alone), when every change is a function of what the cell holds that
 /// the cell's relation lets commute. Under `any` every change is; under `perm` one that adds items
 /// (the content's variable once, under the list hooks) is, not one that drops or doubles them, and
-/// then the cell stays a precondition of the steps, as a cell compared by equality (`None`).
-/// Assumes `check` holds of every rule.
+/// then the cell stays a precondition of the steps, as a cell compared by equality (`None`). So
+/// does a cell some rule reads (`check_cell`).
 pub(crate) fn changes(eq: &Equiv, rules: &[Rule], label: &str) -> Option<Relaxed> {
-    let rel = eq.cells.iter().find(|c| c.label == label)?.rel?;
+    let cell = eq.cells.iter().find(|c| c.label == label)?;
+    let rel = cell.rel?;
+    if rules
+        .iter()
+        .any(|r| check_cell(eq, r, cell, false).is_err())
+    {
+        return None;
+    }
     let x = L::Var("k2l_x".into());
     let mut out = vec![];
     for r in rules {
@@ -324,71 +341,187 @@ pub(crate) fn changes(eq: &Equiv, rules: &[Rule], label: &str) -> Option<Relaxed
 /// relaxed cell (not a variable there, or its variable used in a side condition or another
 /// cell), or, for `perm`, does not rebuild the list from it by the list hooks.
 pub(crate) fn check(eq: &Equiv, r: &Rule) -> Result<(), String> {
+    for c in eq.cells.iter().filter(|c| c.rel.is_some()) {
+        check_cell(eq, r, c, false)?;
+    }
+    Ok(())
+}
+
+/// `check` at the relaxed cell `c`. With `kept`, the side conditions may read a `perm` cell's
+/// content through `ListHook.size` and `ListHook.inList`, which a permutation keeps
+/// (`kept_reads`).
+fn check_cell(eq: &Equiv, r: &Rule, c: &Cell, kept: bool) -> Result<(), String> {
     let leaves = rule_leaves(eq, r);
     let hyps: Vec<&str> = r.step.hyps.iter().map(|(_, p)| p.as_str()).collect();
-    for c in eq.cells.iter().filter(|c| c.rel.is_some()) {
-        let Some(i) = leaves.iter().position(|(n, _, _)| *n == c.label) else {
-            return Err(format!(
-                "the cell <{}> is not a leaf of its left-hand side",
-                c.label
-            ));
-        };
-        let (_, a, b) = &leaves[i];
-        // the variable at the cell: a whole cell, or its content
-        let (v, whole) = match a {
-            L::Var(v) => (v.clone(), true),
-            L::App(_, x) => match x.as_slice() {
-                [L::Var(v)] => (v.clone(), false),
-                _ => {
-                    return Err(format!(
-                        "it matches <{}> by a pattern (it reads it)",
-                        c.label
-                    ));
-                }
-            },
+    let Some(i) = leaves.iter().position(|(n, _, _)| *n == c.label) else {
+        return Err(format!(
+            "the cell <{}> is not a leaf of its left-hand side",
+            c.label
+        ));
+    };
+    let (_, a, b) = &leaves[i];
+    // the variable at the cell: a whole cell, or its content
+    let (v, whole) = match a {
+        L::Var(v) => (v.clone(), true),
+        L::App(_, x) => match x.as_slice() {
+            [L::Var(v)] => (v.clone(), false),
             _ => {
                 return Err(format!(
                     "it matches <{}> by a pattern (it reads it)",
                     c.label
                 ));
             }
-        };
-        let raw = |t: &str| {
-            t.split(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '\''))
-                .any(|w| w == v)
-        };
-        if hyps.iter().any(|h| raw(h)) {
+        },
+        _ => {
             return Err(format!(
-                "a hypothesis of its step (a side condition, or a match of a map or a list) reads <{}>",
+                "it matches <{}> by a pattern (it reads it)",
                 c.label
             ));
         }
-        if let Some((n, _, _)) = leaves
-            .iter()
-            .enumerate()
-            .find(|(j, (_, x, y))| *j != i && (occurs(x, &v) || occurs(y, &v)))
-            .map(|(_, l)| l)
-        {
-            return Err(format!("its step at <{n}> reads <{}>", c.label));
-        }
-        if c.rel == Some(Rel::Perm) {
-            let ok = match b {
-                L::Var(x) => whole && *x == v,
-                L::App(_, x) => match x.as_slice() {
-                    [y] => !whole && list_of(y, &v) || whole && !occurs(y, &v),
-                    _ => false,
-                },
+    };
+    let kept = kept && c.rel == Some(Rel::Perm) && !whole;
+    if hyps
+        .iter()
+        .any(|h| mentions(h, &v) && !(kept && kept_reads(h, &v)))
+    {
+        return Err(format!(
+            "a hypothesis of its step (a side condition, or a match of a map or a list) reads <{}>",
+            c.label
+        ));
+    }
+    if let Some((n, _, _)) = leaves
+        .iter()
+        .enumerate()
+        .find(|(j, (_, x, y))| *j != i && (occurs(x, &v) || occurs(y, &v)))
+        .map(|(_, l)| l)
+    {
+        return Err(format!("its step at <{n}> reads <{}>", c.label));
+    }
+    if c.rel == Some(Rel::Perm) {
+        let ok = match b {
+            L::Var(x) => whole && *x == v,
+            L::App(_, x) => match x.as_slice() {
+                [y] => !whole && list_of(y, &v) || whole && !occurs(y, &v),
                 _ => false,
-            };
-            if !ok {
-                return Err(format!(
-                    "its right-hand side at <{}> is not the list rebuilt by the list hooks (`ListHook.concat`, `element`, `push`, `unit`)",
-                    c.label
-                ));
-            }
+            },
+            _ => false,
+        };
+        if !ok {
+            return Err(format!(
+                "its right-hand side at <{}> is not the list rebuilt by the list hooks (`ListHook.concat`, `element`, `push`, `unit`)",
+                c.label
+            ));
         }
     }
     Ok(())
+}
+
+/// Whether the Lean text `h` has the variable `v` as a word.
+fn mentions(h: &str, v: &str) -> bool {
+    h.split(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '\''))
+        .any(|w| w == v)
+}
+
+/// Whether every occurrence of the variable `v` in the Lean text `h` is the list of
+/// `ListHook.size v` or `ListHook.inList X v` (`X` a word or a parenthesized term): reads a
+/// permutation keeps (`ListHook.Perm.size_eq`, `Perm.inList_eq`).
+fn kept_reads(h: &str, v: &str) -> bool {
+    let word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '\'' || ch == '.';
+    let b = h.as_bytes();
+    let mut at = 0;
+    while let Some(k) = h[at..].find(v) {
+        let s = at + k;
+        let e = s + v.len();
+        at = e;
+        let before = h[..s].chars().next_back();
+        let after = h[e..].chars().next();
+        if before.is_some_and(word) || after.is_some_and(word) {
+            continue;
+        }
+        let pre = h[..s].trim_end();
+        if pre.ends_with("ListHook.size") {
+            continue;
+        }
+        // one argument back: a parenthesized term or a word
+        let arg_start = if pre.ends_with(')') {
+            let mut depth = 0i32;
+            let mut j = pre.len();
+            loop {
+                if j == 0 {
+                    return false;
+                }
+                j -= 1;
+                match b[j] {
+                    b')' => depth += 1,
+                    b'(' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            pre.trim_end_matches(word).len()
+        };
+        if arg_start == pre.len() || !pre[..arg_start].trim_end().ends_with("ListHook.inList") {
+            return false;
+        }
+    }
+    true
+}
+
+/// How rule `r` keeps `Equiv` (`equiv.sim.r`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum Sim {
+    /// in the views, generically: it reads no relaxed cell (`check`)
+    Views,
+    /// in the slots module, by a generic attempt: it reads a `perm` cell's content in its side
+    /// conditions only, by `ListHook.size` and `ListHook.inList`, which a permutation keeps
+    Kept,
+    /// in the slots module, by the hand module or open, as the open-joins list marks it (why no
+    /// generic attempt is made)
+    Listed(String),
+}
+
+/// How each rule keeps `Equiv`, in the rules' order. A rule of a later rank than one that reads
+/// a relaxed cell owes its priority premise at the related configuration, which `k2l_pri_other`
+/// rebuilds only from rules that read none, so it is listed as well.
+pub(crate) fn sims(eq: &Equiv, rules: &[Rule], prios: &[i64]) -> Vec<Sim> {
+    let base: Vec<Sim> = rules
+        .iter()
+        .map(|r| match check(eq, r) {
+            Ok(()) => Sim::Views,
+            Err(m) => {
+                let kept = eq
+                    .cells
+                    .iter()
+                    .filter(|c| c.rel.is_some())
+                    .all(|c| check_cell(eq, r, c, true).is_ok());
+                if kept { Sim::Kept } else { Sim::Listed(m) }
+            }
+        })
+        .collect();
+    let rank = |r: &Rule| crate::multi::rank_of(r, prios);
+    rules
+        .iter()
+        .zip(&base)
+        .map(|(r, s)| {
+            let earlier = rules
+                .iter()
+                .zip(&base)
+                .find(|(q, t)| rank(q) < rank(r) && **t != Sim::Views);
+            match earlier {
+                Some(_) if matches!(s, Sim::Listed(_)) => s.clone(),
+                Some((q, _)) => Sim::Listed(format!(
+                    "{}, of an earlier rank, reads a relaxed cell, so its priority premise at the related configuration is not generic",
+                    rules::display_name(q)
+                )),
+                None => s.clone(),
+            }
+        })
+        .collect()
 }
 
 impl Equiv {
@@ -461,16 +594,136 @@ impl Equiv {
     }
 
     /// The report's section.
-    pub(crate) fn report(&self, rules: usize) -> String {
+    pub(crate) fn report(&self, rs: &[Rule]) -> String {
         let cells: Vec<String> = self
             .cells
             .iter()
             .filter_map(|c| c.rel.map(|r| format!("{:?} = {:?}", c.label, r.name())))
             .collect();
-        format!(
-            "\n[equiv]  # the cells compared otherwise than by equality (`--equiv`), and the rules shown to\n# keep the equivalence (`equiv.sim.r`, generic)\ncells = {{ {} }}\nsim = {rules}\n",
+        let views = self.sims.iter().filter(|s| **s == Sim::Views).count();
+        let mut o = format!(
+            "\n[equiv]  # the cells compared otherwise than by equality (`--equiv`), and the rules shown to\n# keep the equivalence (`equiv.sim.r`, generic)\ncells = {{ {} }}\nsim = {views}\n",
             cells.join(", ")
+        );
+        // the rules that read a relaxed cell: their lemmas are the slots module's
+        let owed: Vec<String> = rs
+            .iter()
+            .zip(&self.sims)
+            .filter(|(_, s)| **s != Sim::Views)
+            .map(|(r, _)| format!("equiv.sim.{}", r.lean))
+            .collect();
+        if !owed.is_empty() {
+            writeln!(
+                o,
+                "owed = {owed:?}  # read a relaxed cell: the slots module's lemmas (`Sims`)"
+            )
+            .unwrap();
+        }
+        o
+    }
+
+    /// `equiv.sim.r`'s statement: a step by `r` from a configuration is matched by one from every
+    /// related configuration, to related configurations.
+    fn sim_statement(name: &str, r: &Rule) -> String {
+        format!(
+            "{name}.Step.Rel.{}\n    (fun a a' => ∀ b, Equiv a b → ∃ b', {name}.Step b b' ∧ Equiv a' b')",
+            r.lean
         )
+    }
+
+    /// `equiv.sim.r`'s proof, from ` := by`: the step again at the related configuration `b`,
+    /// its cells compared by equality substituted. With `kept` (`Sim::Kept`), the side conditions
+    /// that read a `perm` cell's content are moved to `b`'s by the permutation (`Perm.size_eq`,
+    /// `Perm.inList_eq`).
+    fn sim_proof(&self, lib: &Lib, name: &str, r: &Rule, kept: bool) -> String {
+        let nodes = Self::nodes(&self.root);
+        let conj = self.conj();
+        let he: Vec<String> = conj
+            .iter()
+            .enumerate()
+            .map(|(i, (_, p))| match (*p, kept) {
+                (true, true) => format!("hp{i}"),
+                (true, false) => "_".into(),
+                (false, _) => "rfl".into(),
+            })
+            .collect();
+        let perm: Vec<String> = he.iter().filter(|h| h.starts_with("hp")).cloned().collect();
+        let relaxed: Vec<String> = if kept {
+            rule_leaves(self, r)
+                .into_iter()
+                .filter(|(n, _, _)| {
+                    self.cells
+                        .iter()
+                        .any(|c| c.label == *n && c.rel == Some(Rel::Perm))
+                })
+                .filter_map(|(_, a, _)| match a {
+                    L::App(_, x) => match x.as_slice() {
+                        [L::Var(v)] => Some(v.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        let l = &r.lean;
+        let mut args = rules::ctor_args(&r.step);
+        // a rule of a later rank owes, at `b`, that no rule of a rank before applies: such a
+        // rule reads no relaxed cell (`sims`), so it would apply at `a` too (`k2l_pri_other`)
+        let ranked = crate::multi::rank_of(r, &lib.prios) > 0;
+        if ranked {
+            args.push("hpri".into());
+        }
+        let mut d = String::new();
+        for (b, t) in &r.step.binders {
+            if let Some(n) = nodes.iter().find(|n| n.sort == *t) {
+                d.push_str(&Self::destruct(n, b));
+            }
+        }
+        let moved = perm
+            .iter()
+            .flat_map(|h| {
+                [
+                    format!("ListHook.Perm.size_eq {h}"),
+                    format!("ListHook.Perm.inList_eq {h}"),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let named: String = r
+            .step
+            .hyps
+            .iter()
+            .map(|(h, p)| {
+                if relaxed.iter().any(|v| mentions(p, v)) {
+                    format!(" ({h} := by simpa only [{moved}] using {h})")
+                } else {
+                    format!(" ({h} := {h})")
+                }
+            })
+            .chain(ranked.then(|| " (hpri := by k2l_pri_other)".to_string()))
+            .collect();
+        format!(
+            " := by\n  intro {} b he\n{d}{}  obtain {} := he\n  exact ⟨_, {name}.Step.{l}{named} .., by k2l_equiv_close⟩\n",
+            args.join(" "),
+            Self::destruct(&self.root, "b"),
+            Self::tuple(&he)
+        )
+    }
+
+    /// The slots module's lemmas of the rules that read a relaxed cell (`Sims`), in the rules'
+    /// order: the rule, and a generic attempt's proof (`Sim::Kept`) or why there is none.
+    pub(crate) fn owed(&self, lib: &Lib, name: &str) -> Vec<(String, Result<String, String>)> {
+        lib.rules
+            .iter()
+            .zip(&self.sims)
+            .filter_map(|(r, s)| match s {
+                Sim::Views => None,
+                Sim::Kept => Some((r.lean.clone(), Ok(self.sim_proof(lib, name, r, true)))),
+                Sim::Listed(why) => Some((r.lean.clone(), Err(why.clone()))),
+            })
+            .collect()
     }
 
     /// The equivalence's section of the views: the cells' contents, `Equiv` and its laws, the
@@ -589,55 +842,67 @@ impl Equiv {
             )
             .unwrap();
         }
-        // the bisimulation, rule by rule
-        let nodes = Self::nodes(&self.root);
-        let he: Vec<String> = conj
-            .iter()
-            .map(|(_, p)| if *p { "_".into() } else { "rfl".into() })
-            .collect();
+        // the bisimulation, rule by rule: in the views, or owed by the slots module (`Sims`)
         let mut sims = vec![];
-        for r in &lib.rules {
+        let mut owed = vec![];
+        for (r, s) in lib.rules.iter().zip(&self.sims) {
             let l = &r.lean;
-            let mut args = rules::ctor_args(&r.step);
-            // a rule of a later rank owes, at `b`, that no rule of a rank before applies: such a
-            // rule reads no relaxed cell (`check`), so it would apply at `a` too (`k2l_pri_other`)
-            let ranked = crate::multi::rank_of(r, &lib.prios) > 0;
-            if ranked {
-                args.push("hpri".into());
+            if *s == Sim::Views {
+                writeln!(
+                    o,
+                    "theorem equiv.sim.{l} : {}{}",
+                    Self::sim_statement(name, r),
+                    self.sim_proof(lib, name, r, false)
+                )
+                .unwrap();
+                sims.push(format!("equiv.sim.{l}"));
+            } else {
+                writeln!(
+                    o,
+                    "/-- `{}` reads a relaxed cell: that its step keeps `Equiv` is owed by the slots module (`Sims`). -/\ndef equiv.sim.{l}.statement : Prop := {}\n",
+                    rules::display_name(r),
+                    Self::sim_statement(name, r)
+                )
+                .unwrap();
+                sims.push(format!("Q.{l}"));
+                owed.push(l.clone());
             }
-            let mut d = String::new();
-            for (b, t) in &r.step.binders {
-                if let Some(n) = nodes.iter().find(|n| n.sort == *t) {
-                    d.push_str(&Self::destruct(n, b));
-                }
-            }
-            let named: String = r
-                .step
-                .hyps
-                .iter()
-                .map(|(h, _)| format!(" ({h} := {h})"))
-                .chain(ranked.then(|| " (hpri := by k2l_pri_other)".to_string()))
-                .collect();
+        }
+        let (qb, guard) = if owed.is_empty() {
+            (String::new(), sims.join(" "))
+        } else {
             writeln!(
                 o,
-                "theorem equiv.sim.{l} : {name}.Step.Rel.{l}\n    (fun a a' => ∀ b, Equiv a b → ∃ b', {name}.Step b b' ∧ Equiv a' b') := by\n  intro {} b he\n{d}{}  obtain {} := he\n  exact ⟨_, {name}.Step.{l}{named} .., by k2l_equiv_close⟩\n",
-                args.join(" "),
-                Self::destruct(&self.root, "b"),
-                Self::tuple(&he)
+                "/-- The steps of the rules that read a relaxed cell keep `Equiv`: the premise of `equiv_stepEquiv`. -/\nstructure Sims : Prop where\n{}",
+                owed.iter()
+                    .map(|l| format!("  {l} : equiv.sim.{l}.statement\n"))
+                    .collect::<String>()
             )
             .unwrap();
-            sims.push(format!("equiv.sim.{l}"));
-        }
+            let proved: Vec<&String> = sims.iter().filter(|s| !s.starts_with("Q.")).collect();
+            (
+                "(Q : Sims) ".to_string(),
+                proved
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )
+        };
         writeln!(
             o,
-            "/-- `Equiv` is a strong bisimulation of `Step` with itself. -/\ntheorem equiv_stepEquiv : StepEquiv {name}.Step Equiv where\n  refl := Equiv.refl'\n  symm := Equiv.symm'\n  trans := Equiv.trans'\n  sim he hs := {name}.Step.rel_of {} hs _ he\n",
+            "/-- `Equiv` is a strong bisimulation of `Step` with itself. -/\ntheorem equiv_stepEquiv {qb}: StepEquiv {name}.Step Equiv where\n  refl := Equiv.refl'\n  symm := Equiv.symm'\n  trans := Equiv.trans'\n  sim he hs := {name}.Step.rel_of {} hs _ he\n",
             sims.join(" ")
         )
         .unwrap();
+        let guard = if guard.is_empty() {
+            String::new()
+        } else {
+            format!("{guard} ")
+        };
         writeln!(
             o,
-            "#k2l_assert_axioms Equiv.refl' Equiv.symm' Equiv.trans' {} equiv_stepEquiv",
-            sims.join(" ")
+            "#k2l_assert_axioms Equiv.refl' Equiv.symm' Equiv.trans' {guard}equiv_stepEquiv"
         )
         .unwrap();
         o
@@ -704,6 +969,36 @@ pub(crate) fn apply(o: &str, name: &str) -> String {
 pub(crate) fn views(o: &str, e: &Equiv, lib: &Lib, name: &str) -> String {
     let topt = format!("{name}.{}", lib.top);
     let mut o = apply(o, name);
+    // the lemmas of rules that read a relaxed cell, owed by the slots module: a premise
+    if e.sims.iter().any(|s| *s != Sim::Views) {
+        let sub = |o: &str, a: &str, b: &str, n: std::ops::RangeInclusive<usize>| {
+            let k = o.matches(a).count();
+            assert!(
+                n.contains(&k),
+                "confluence --equiv: `{a}` found {k} times in the views"
+            );
+            o.replace(a, b)
+        };
+        o = sub(
+            &o,
+            "theorem terminal_unique_of (O : OpenJoins)",
+            "theorem terminal_unique_of (Q : Sims) (O : OpenJoins)",
+            1..=1,
+        );
+        o = sub(&o, " equiv_stepEquiv ", " (equiv_stepEquiv Q) ", 1..=1);
+        o = sub(
+            &o,
+            "theorem obs_confluent_of (O : OpenJoins)",
+            "theorem obs_confluent_of (Q : Sims) (O : OpenJoins)",
+            0..=1,
+        );
+        o = sub(
+            &o,
+            "(terminal_unique_of O ",
+            "(terminal_unique_of Q O ",
+            0..=1,
+        );
+    }
     let i = o
         .find("\nopen KPrelude\n")
         .map(|i| i + "\nopen KPrelude\n".len())
@@ -758,6 +1053,25 @@ mod tests {
             "L"
         ));
         assert!(!list_of(&app("f", vec![var("L")]), "L"));
+    }
+
+    #[test]
+    fn reads_by_size_and_in_are_kept_by_a_permutation() {
+        let h = "KPrelude.BoolHook.not (KPrelude.ListHook.inList (SortKItem.inj_Int J) D) = true";
+        assert!(kept_reads(h, "D"));
+        assert!(kept_reads(
+            "KPrelude.IntHook.lt (KPrelude.ListHook.size D) 3 = true",
+            "D"
+        ));
+        assert!(kept_reads(
+            "KPrelude.ListHook.inList X D && KPrelude.ListHook.inList Y D = true",
+            "D"
+        ));
+        // the list itself, or an item of it, is not kept
+        assert!(!kept_reads("KPrelude.ListHook.get D 0 = some X", "D"));
+        assert!(!kept_reads("KPrelude.ListHook.inList (f D) E = true", "D"));
+        // another variable whose name contains it
+        assert!(kept_reads("KPrelude.ListHook.get DotVar0 0 = some X", "D"));
     }
 
     #[test]

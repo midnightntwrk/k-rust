@@ -8,7 +8,8 @@ import KPrelude.Ext
 configurations are related when every cell is equal but those named, each compared by its `REL`:
 `any`, not compared, or `perm`, a list compared up to the order of its items (`ListHook.Perm`).
 
-- `ListHook.Perm`: two lists with the same items, in any order; an equivalence.
+- `ListHook.Perm`: two lists with the same items, in any order; an equivalence, which keeps a
+  list's `size` and what it holds (`E in L`): `Perm.size_eq`, `Perm.inList_eq`.
 - `DiamondMod.of_eq`: a join into equal configurations is a join modulo any reflexive relation.
 - `k2l_perm`: closes `ListHook.Perm a b` where `a` and `b` are built from lists by
   `ListHook.concat`, `element`, `unit` and `push`, from the hypotheses `ListHook.Perm x y` in the
@@ -37,6 +38,18 @@ theorem Perm.refl (a : L) : Perm a a := List.Perm.refl _
 theorem Perm.symm {a b : L} (h : Perm a b) : Perm b a := List.Perm.symm h
 
 theorem Perm.trans {a b c : L} (h₁ : Perm a b) (h₂ : Perm b c) : Perm a c := List.Perm.trans h₁ h₂
+
+/-- A permutation keeps a list's size: a rule that reads a relaxed list by `size` reads one value at
+two related configurations. -/
+theorem Perm.size_eq {a b : L} (h : Perm a b) : size a = size b :=
+  congrArg (fun n : Nat => (n : Int)) (List.Perm.length_eq h)
+
+/-- A permutation keeps which items a list holds (`E in L`). -/
+theorem Perm.inList_eq [DecidableEq E] {a b : L} (h : Perm a b) (x : E) : inList x a = inList x b :=
+  Bool.eq_iff_iff.mpr (by
+    show (toList a).contains x = true ↔ (toList b).contains x = true
+    rw [List.contains_iff_mem, List.contains_iff_mem]
+    exact List.Perm.mem_iff h)
 
 end ListHook
 

@@ -1539,8 +1539,8 @@ pub fn main(args: &[String]) {
     });
     // an equivalence the author states (`--equiv`): every rule keeps it generically, the observed
     // cells are compared by equality, and nothing decides `≠` of configurations (the peaks)
-    let eqv = opt.get("equiv").map(|s| equiv::parse(s, &lib, &name));
-    if let Some(e) = &eqv {
+    let mut eqv = opt.get("equiv").map(|s| equiv::parse(s, &lib, &name));
+    if let Some(e) = &mut eqv {
         if let Some(o) = &obs {
             e.check_obs(o);
         }
@@ -1555,24 +1555,17 @@ pub fn main(args: &[String]) {
                 .iter()
                 .find(|(_, m)| matches!(m, Mark::Refuted | Mark::RefutedBy(_)))
         {
+            if n.starts_with("equiv.sim.") {
+                fail(&format!(
+                    "--open-joins: {n} is marked refuted: a rule's lemma is sufficient for the theorem, not necessary, so its refutation says nothing; leave it open"
+                ));
+            }
             fail(&format!(
                 "--equiv: `{n}` is marked refuted: a refutation of a slot modulo `Equiv` is not generated yet"
             ));
         }
-        let bad: Vec<String> = rs
-            .iter()
-            .filter_map(|r| {
-                equiv::check(e, r)
-                    .err()
-                    .map(|m| format!("{}: {m}", rules::display_name(r)))
-            })
-            .collect();
-        if !bad.is_empty() {
-            fail(&format!(
-                "--equiv: these rules are not shown to keep the equivalence (a rule must not read a relaxed cell):\n  {}",
-                bad.join("\n  ")
-            ));
-        }
+        // a rule that reads a relaxed cell owes its lemma (`equiv.sim.r`) in the slots module
+        e.sims = equiv::sims(e, rs, &lib.prios);
     }
     // the views, what the report says of them, the slots, and the summary line
     let (mut out, counts_report, premises, slots, summary) = match opt.get("threads") {
@@ -1613,7 +1606,7 @@ pub fn main(args: &[String]) {
             // attempts; the views' classes take a removal as before)
             let roles: Vec<MapRole> = rs.iter().map(|r| map_role(r, true)).collect();
             let (out, premises, slots) =
-                views::emit_plain(&lib, &name, &ns, obs.as_deref(), &roles, so);
+                views::emit_plain(&lib, &name, &ns, obs.as_deref(), &roles, so, eqv.as_ref());
             let summary = format!("{n} rules, {} ordered pairs as slots", n * n);
             (out, String::new(), premises, Some(slots), summary)
         }
@@ -1684,7 +1677,7 @@ pub fn main(args: &[String]) {
             }
         }
         if let Some(e) = &eqv {
-            prem.push_str(&e.report(n));
+            prem.push_str(&e.report(rs));
         }
         write_file(p, &(head + &counts_report + &prem + &rep));
     }
@@ -3887,6 +3880,7 @@ def SameThreadJoins : Prop :=
             .filter(|&f| is_keyed(f))
             .map(|f| format!("{}Of", shared[f].field))
             .collect();
+        let owed = eqv.map(|e| e.owed(lib, name)).unwrap_or_default();
         let slot_out = slots.map(|so| {
             emit_slots(
                 &mut o,
@@ -3903,6 +3897,7 @@ def SameThreadJoins : Prop :=
                     roles,
                     threads: true,
                     flush: flush.map(|f| (f.0, high.as_slice())),
+                    sims: &owed,
                 },
                 &premises.slots,
                 &|i| match &vroles[i] {
@@ -4184,6 +4179,7 @@ def SameThreadJoins : Prop :=
         obs: Option<&[String]>,
         roles: &[MapRole],
         so: &SlotOpts,
+        eqv: Option<&super::equiv::Equiv>,
     ) -> (String, Premises, (String, Vec<Status>)) {
         let topt = format!("{name}.{}", lib.top);
         let rs = &lib.rules;
@@ -4240,6 +4236,7 @@ def SameThreadJoins : Prop :=
             guard.push_str(" obs_confluent_of");
         }
         writeln!(o, "\n#k2l_assert_axioms {guard}").unwrap();
+        let owed = eqv.map(|e| e.owed(lib, name)).unwrap_or_default();
         let slots = emit_slots(
             &mut o,
             &SlotCx {
@@ -4255,6 +4252,7 @@ def SameThreadJoins : Prop :=
                 cells: &[],
                 roles,
                 flush: None,
+                sims: &owed,
             },
             &premises.slots,
             &|_| 0,
@@ -4346,6 +4344,9 @@ def SameThreadJoins : Prop :=
         /// flush mode: the first rank whose rules may enable a rule of a rank before it, and the
         /// rules of the ranks before it
         flush: Option<(usize, &'a [usize])>,
+        /// `--equiv`: the lemmas of the rules that read a relaxed cell (`Sims`), each with its
+        /// generic attempt or why there is none (`equiv::Equiv::owed`)
+        sims: &'a [(String, Result<String, String>)],
     }
 
     /// The views' section on peaks (`| refuted W`): the steps by one rule (`succBy`, the library's
@@ -4545,14 +4546,11 @@ def SameThreadJoins : Prop :=
             roles,
             threads,
             flush,
+            sims,
         } = cx;
         let rs = &lib.rules;
-        let raw = |r: &Rule| {
-            r.lean
-                .trim_start_matches('«')
-                .trim_end_matches('»')
-                .to_string()
-        };
+        let raw_lean = |l: &str| l.trim_start_matches('«').trim_end_matches('»').to_string();
+        let raw = |r: &Rule| raw_lean(&r.lean);
         // the slots, in order: (kind, i, j)
         let kinds = ["same", "open", "key", "flush"];
         let slots: Vec<(usize, usize, usize)> = pslots.iter().map(|s| (s.k, s.i, s.j)).collect();
@@ -4562,7 +4560,12 @@ def SameThreadJoins : Prop :=
             }
             format!("join.{}.{}.{}", kinds[k], rs[i].lean, rs[j].lean)
         };
-        let names: BTreeSet<String> = slots.iter().map(|s| slot_name(*s)).collect();
+        // and the lemmas owed by the rules that read a relaxed cell (`Sims`)
+        let names: BTreeSet<String> = slots
+            .iter()
+            .map(|s| slot_name(*s))
+            .chain(sims.iter().map(|(l, _)| format!("equiv.sim.{l}")))
+            .collect();
         for (n, m) in &so.list {
             // a witness's legality under the invariant, the hand module's (`witness.W.legal | hand`)
             if let Some(w) = n
@@ -4953,18 +4956,58 @@ def SameThreadJoins : Prop :=
             .unwrap();
             guard.push(sn);
         }
+        // the lemmas of the rules that read a relaxed cell (`Sims`): each by its generic attempt,
+        // by the hand module, or open, as the open-joins list marks it
+        let mut open_sims: Vec<&str> = vec![];
+        let mut sims_by: Vec<String> = vec![];
+        let mut unlisted: Vec<String> = vec![];
+        for (l, attempt) in sims.iter() {
+            let sn = format!("equiv.sim.{l}");
+            match (so.list.get(&sn), attempt) {
+                (Some(super::Mark::Open), _) => {
+                    open_sims.push(l);
+                    sims_by.push(format!("P.«sim.{}»", raw_lean(l)));
+                    continue;
+                }
+                (Some(super::Mark::Hand), _) => writeln!(
+                    body,
+                    "theorem {sn} : {sn}.statement := hand.{sn}\n\n#k2l_proves {sn}.statement hand.{sn}\n"
+                )
+                .unwrap(),
+                (Some(_), _) => super::fail(&format!(
+                    "--open-joins: {sn} is marked refuted: a rule's lemma is sufficient for the theorem, not necessary, so its refutation says nothing; leave it open"
+                )),
+                (None, Ok(p)) => writeln!(
+                    body,
+                    "set_option maxHeartbeats 400000 in\ntheorem {sn} : {sn}.statement{p}"
+                )
+                .unwrap(),
+                (None, Err(why)) => {
+                    unlisted.push(format!("{sn}: {why}"));
+                    continue;
+                }
+            }
+            sims_by.push(sn.clone());
+            guard.push(sn);
+        }
+        if !unlisted.is_empty() {
+            super::fail(&format!(
+                "--equiv: these rules read a relaxed cell, and their lemmas have no generic attempt: list each in --open-joins as `NAME | hand` (the hand module's) or `NAME` (open)\n  {}",
+                unlisted.join("\n  ")
+            ));
+        }
         let field = |(k, i, j): (usize, usize, usize)| {
             if k == 4 {
                 return "«flush.ends»".to_string();
             }
             format!("«{}.{}.{}»", kinds[k], raw(&rs[i]), raw(&rs[j]))
         };
-        let (pb, pa) = if open_slots.is_empty() {
+        let (pb, pa) = if open_slots.is_empty() && open_sims.is_empty() {
             ("", "")
         } else {
             ("(P : Open) ", " P")
         };
-        if !open_slots.is_empty() {
+        if !open_slots.is_empty() || !open_sims.is_empty() {
             writeln!(
                 body,
                 "/-- The slots that neither the generic attempts nor the hand module prove: the premises of\n`terminal_unique`. -/\nstructure Open : Prop where"
@@ -4972,6 +5015,9 @@ def SameThreadJoins : Prop :=
             .unwrap();
             for s in &open_slots {
                 writeln!(body, "  {} : {}.statement", field(*s), slot_name(*s)).unwrap();
+            }
+            for l in &open_sims {
+                writeln!(body, "  «sim.{}» : equiv.sim.{l}.statement", raw_lean(l)).unwrap();
             }
             body.push('\n');
         }
@@ -5026,6 +5072,16 @@ def SameThreadJoins : Prop :=
             prems.push((4, "flushEnds", by(s), ""));
         }
         let mut args = String::new();
+        if !sims.is_empty() {
+            writeln!(
+                body,
+                "/-- `Sims`, from its lemmas. -/\ntheorem sims_of {pb}: Sims := ⟨{}⟩\n",
+                sims_by.join(", ")
+            )
+            .unwrap();
+            write!(args, " (sims_of{pa})").unwrap();
+            guard.push("sims_of".into());
+        }
         for (k, p, proof, guards) in &prems {
             let premise = super::views::PREMISES[*k];
             if let Some(&s) = refuted.iter().find(|s| s.0 == *k) {
@@ -5085,6 +5141,7 @@ def SameThreadJoins : Prop :=
                 obs.is_some(),
                 flush.is_some(),
                 &open_slots,
+                !open_sims.is_empty(),
                 &refuted,
                 &by_runs,
                 &|s| slot_name(s),
@@ -5223,6 +5280,7 @@ def SameThreadJoins : Prop :=
         obs: bool,
         flushed: bool,
         open_slots: &[(usize, usize, usize)],
+        open_sims: bool,
         refuted: &[(usize, usize, usize)],
         by_runs: &[(usize, usize, usize)],
         slot_name: &dyn Fn((usize, usize, usize)) -> String,
@@ -5235,7 +5293,7 @@ def SameThreadJoins : Prop :=
                 "--witnesses: a slot is refuted by the hand module, so `terminal_unique` is not stated for the witnesses' runs to refute",
             );
         }
-        if open_slots.is_empty() {
+        if open_slots.is_empty() && !open_sims {
             super::fail(
                 "--witnesses: every slot is proved, so `terminal_unique` holds and no two runs end apart",
             );
