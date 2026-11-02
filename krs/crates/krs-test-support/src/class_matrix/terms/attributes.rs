@@ -557,6 +557,8 @@ fn run(program: &Ground, steps: u64, items: Vec<Ground>, status: Status) -> Run 
 fn unapplied(form: Form, program: &Ground, _: &Command) -> Run {
     match form.name {
         "equation" | "table" => Run {
+            // The run takes the call's step, which reaches no state.
+            depth: 1,
             applies: false,
             cells: Vec::new(),
             ..run(program, 0, Vec::new(), Status::UndefinedResult)
