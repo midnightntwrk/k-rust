@@ -3,21 +3,27 @@
 //! nothing else.
 //!
 //! A cell-entry case carries its entry as data ([`EntryCase`]): the form it is written in, its
-//! side, the declared stack of layers its cell has ([`Layer`], outermost first, the ancestors'
-//! layers before the cell's own), the entry's [`Spelling`], which holds marks and names and no
-//! source text, and its rule ([`Template`]). The generator declares each spelling as a value, so
-//! nothing here can branch on how a spelling is written.
+//! side, the layers its cell's declaration gives it ([`Layer`], outermost first) as two stacks
+//! kept apart, the path (the layers of the cell's `?` and `*` ancestors between the record's
+//! level and the cell) and the cell's own, the entry's [`Spelling`], which holds marks and names
+//! and no source text, and its rule ([`Template`]). The generator declares each spelling as a
+//! value, so nothing here can branch on how a spelling is written.
 //!
 //! [`outcome`] answers steps 1–3 of the design's §2.3 for one entry:
 //!
 //! 1. **form**: what the spelling and its side alone refuse (`_` in a result or an initializer,
 //!    `None` or an anonymous rest in an initializer, an anonymous rest in a map literal outside a
 //!    `cells!` pattern);
-//! 2. **kind** (P3, against the stack, outermost layer first): (a) the outermost layer's mark
-//!    admits the entry and its inside is judged against the next layer; (b) a mark of a layer the
-//!    stack has nowhere gives that mark's class; (c) a deeper layer's mark, or a value where the
-//!    outermost layer has a mark, gives the missing layer's class;
-//! 3. **pairing**: rests (P6), absence (P5), Q1's lint.
+//! 2. **kind**: first the path (S1 (b)): an entry naming a cell below a `?` or `*` ancestor is
+//!    refused for the outermost such ancestor, whatever it spells, since the ancestor's presence
+//!    and the instance meant are written at the ancestor's level, never in the entry (a mark in
+//!    the entry is the cell's own, P2); then P3 against the cell's own layers, outermost first:
+//!    (a) the outermost layer's mark admits the entry and its inside is judged against the next
+//!    layer; (b) a mark of a layer the stack has nowhere gives that mark's class; (c) a deeper
+//!    layer's mark, or a value where the outermost layer has a mark, gives the missing layer's
+//!    class;
+//! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
+//!    subject does not match, [`Context::other`] `None`), Q3.
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -26,6 +32,19 @@
 //! The stated exceptions (E1, E3 and the stated limitations) are not here: they are
 //! `[cell-exception."GLOB"]` entries of `expected.toml`, which check 1 (`tests/cells_oracle.rs`)
 //! reads, so an exception that names no disagreement any more is found stale.
+//!
+//! **Names.** P1 makes a cell's name play no part in its entries' judgement, and steps 1–3 compare
+//! names only as data: a record's head with the position's group, a binder with the names the
+//! rule binds. Two branches read a name for what it says, each from its own principle:
+//!
+//! - `main-cell-not-k` ([`rule_outcome`], step 5) compares a computation cell's name with `k`.
+//!   That is the class's own meaning, not an entry's: K takes the cell named `k` as the
+//!   computation cell, so a program placed in another computation cell beside `k` is not the one
+//!   K runs. It judges the whole initializer, after its entries are admitted, where P1 does not
+//!   reach;
+//! - a binder whose name starts with `_` binds nothing the rule can read ([`binds`]), Rust's
+//!   convention for a name kept unused. Q1/S2's lint asks whether an entry binds anything; `pc:
+//!   _x` binds nothing a rule reads, as `pc: _` does, so it owes the lint as `_` does.
 
 use super::Side;
 
@@ -208,14 +227,17 @@ pub enum Sentence {
     Initializer,
 }
 
-/// One entry of a sentence: its cell, its side, its stack and its spelling.
+/// One entry of a sentence: its cell, its side, its stacks and its spelling.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
     /// The cell's name.
     pub cell: String,
     /// The side it stands on.
     pub side: Side,
-    /// The cell's stack.
+    /// The layers of the cell's `?` and `*` ancestors between the record's level and the cell,
+    /// outermost first (a plain group adds none); empty for a cell named at its own level.
+    pub path: Vec<Layer>,
+    /// The cell's own stack.
     pub stack: Vec<Layer>,
     /// The entry.
     pub spelling: Spelling,
@@ -242,7 +264,9 @@ pub struct Template {
 pub struct Context {
     /// Names the rule binds outside the entry (a result's binders are bound).
     pub bound: Vec<String>,
-    /// The other side's entry of the same cell, for a result.
+    /// For a result, the subject's entry of the same cell: whether the subject matches the cell
+    /// at all, and if so what it spells. `None` on a result is an unmatched cell, which the
+    /// result overwrites (Q1); unread on another side.
     pub other: Option<Spelling>,
     /// For a subject entry, whether the result writes the cell.
     pub written: bool,
@@ -292,6 +316,8 @@ pub enum Step {
     MarkElsewhere,
     /// P3 (c): a deeper layer's mark, or a value where the outermost layer has a mark.
     MissingLayer,
+    /// S1 (b): the entry names a cell below a `?` or `*` ancestor.
+    Path,
     /// Inside a layer's mark (a leaf's notation, an instance's shape, Q3).
     Inside,
     /// Step 3, pairing.
@@ -903,7 +929,23 @@ impl Judge<'_> {
             }
             Side::Result => {
                 let Some(other) = &self.context.other else {
-                    return Ok(None);
+                    // Q1: a result over a cell the subject does not match overwrites it, which
+                    // means one configuration only where the cell's presence is known (P5) and
+                    // no rest the subject never matched is kept (P6); a readable rule neither
+                    // drops nor keeps unmatched the continuation (Q3).
+                    let readable = matches!(self.form, Form::Readable | Form::Claim);
+                    return match stack.first() {
+                        Some(Layer::Optional) => {
+                            refuse("unmatched-optional-result", Step::Pairing, 0).map(|()| None)
+                        }
+                        Some(Layer::Computation) if readable => {
+                            refuse("continuation-in-readable", Step::Pairing, 0).map(|()| None)
+                        }
+                        _ if root(spelling) == Root::Rest(Rest::Anon) => {
+                            refuse("rest-mismatch", Step::Pairing, 0).map(|()| None)
+                        }
+                        _ => Ok(None),
+                    };
                 };
                 // P6: a result rest is the subject's rest of the same cell, and a subject's
                 // anonymous rest is kept only by a result `..` (D2).
@@ -931,7 +973,8 @@ fn seq_of(spelling: &Spelling) -> Option<(&[Spelling], Option<&Rest>)> {
     }
 }
 
-/// Steps 1–3 for one entry, with the refusal's step and depth.
+/// Steps 1–3 for one entry, with the refusal's step and depth: `path` is the layers of the
+/// cell's `?` and `*` ancestors, `stack` the cell's own.
 ///
 /// # Errors
 ///
@@ -939,6 +982,7 @@ fn seq_of(spelling: &Spelling) -> Option<(&[Spelling], Option<&Rest>)> {
 pub fn judge(
     form: Form,
     side: Side,
+    path: &[Layer],
     stack: &[Layer],
     spelling: &Spelling,
     context: &Context,
@@ -950,6 +994,10 @@ pub fn judge(
         sort: false,
     };
     judge.form_step(spelling, 0)?;
+    // S1 (b): below a marked ancestor, the entry is refused for the outermost one.
+    if let Some(ancestor) = path.first() {
+        refuse(missing(ancestor), Step::Path, 0)?;
+    }
     judge.judge(stack, spelling, 0)?;
     let lint = judge.pair(stack, spelling)?;
     Ok(if judge.sort && lint.is_none() {
@@ -959,16 +1007,18 @@ pub fn judge(
     })
 }
 
-/// Steps 1–3 for one entry (design §3, `outcome`).
+/// Steps 1–3 for one entry (design §3, `outcome`): `path` is the layers of the cell's `?` and
+/// `*` ancestors, `stack` the cell's own.
 #[must_use]
 pub fn outcome(
     form: Form,
     side: Side,
+    path: &[Layer],
     stack: &[Layer],
     spelling: &Spelling,
     context: &Context,
 ) -> Outcome {
-    judge(form, side, stack, spelling, context)
+    judge(form, side, path, stack, spelling, context)
         .unwrap_or_else(|refusal| Outcome::Refuse(refusal.class))
 }
 
@@ -979,6 +1029,7 @@ impl EntryCase {
         outcome(
             self.form,
             self.entry.side,
+            &self.entry.path,
             &self.entry.stack,
             &self.entry.spelling,
             &self.context,

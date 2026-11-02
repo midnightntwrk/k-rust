@@ -1,18 +1,23 @@
 //! Cell-entry admission (design S5, §2.3): one judgement of what an entry means, in every form.
 //!
-//! [`admit`] judges one entry's [`EntrySpelling`] against its cell's stack
-//! ([`krs_ir::cell_kind::CellKind`], the ancestors' layers then the cell's own):
+//! [`admit`] judges one entry's [`EntrySpelling`] against what its cell's declaration gives it
+//! ([`krs_ir::cell_kind::EntryKind`]: the layers of the cell's marked ancestors, its path, and
+//! the cell's own layers, kept apart):
 //!
-//! 1. **form**: what the spelling and its side alone refuse: `_` outside a pattern, `None` or a
-//!    rest in an initializer's value, an anonymous rest in a map literal outside a `cells!`
-//!    pattern;
-//! 2. **kind**, outermost layer first: the outermost layer's mark admits the entry and its
-//!    inside is judged against the next layer; a mark no layer of the stack has gives that
-//!    mark's refusal; a deeper layer's mark, or a value where the outermost layer has a mark,
-//!    gives the missing layer's refusal.
+//! 1. **form**: what the spelling and its side alone refuse: `_` outside a pattern, `None` or an
+//!    anonymous rest in an initializer's value, an anonymous rest in a map literal outside a
+//!    `cells!` pattern;
+//! 2. **path**: an entry naming a cell below a `?` or `*` ancestor is refused for the outermost
+//!    such ancestor, whatever it spells: the ancestor's presence and the instance it means are
+//!    written at the ancestor's level (S1 (b));
+//! 3. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
+//!    the entry and its inside is judged against the next layer; a mark no layer of the stack
+//!    has gives that mark's refusal; a deeper layer's mark, or a value where the outermost layer
+//!    has a mark, gives the missing layer's refusal.
 //!
-//! [`pair`] then judges the entry with its rule: a result's rest against its subject's, an
-//! absence test, and the lint of a subject entry that constrains nothing.
+//! [`pair`] then judges the entry with its rule: a result's rest against its subject's, a
+//! result over a cell the subject does not match (Q1's overwrite, where it means one
+//! configuration), an absence test, and the lint of a subject entry that constrains nothing.
 //!
 //! An admitted entry whose value positions hold a term whose sort the lattice must check is
 //! [`Admitted::sorted`]; the compiler judges that sort.
@@ -26,10 +31,13 @@
 //! Where the class matrix states a departure from these principles (`[cell-exception]`), the
 //! departure is written here as the table states it, with its reason: a readable computation is
 //! matched from its front, a List collection's back instance is not matched in place, an
-//! initializer's `k::k![..]` holds no rest, and a readable map read has no result side and reads
-//! its value as a fresh binder.
+//! initializer's `k::k![..]` splices no configuration variable's computation (`..pgm`), and a
+//! readable record's top-level map read has no result side and reads its value as a fresh
+//! binder.
 
 use krs_ir::cell_kind::{GroupKind, Layer, Notation, Order};
+
+pub use krs_ir::cell_kind::EntryKind;
 
 use crate::cell_entry::{
     EntryForm, EntryMap, EntryRest, EntrySeq, EntrySpelling, RecordTail, RestPlace,
@@ -73,6 +81,17 @@ pub enum Refusal {
     OptionalWithoutPresence,
     /// A value on a `*` cell without its instances.
     CollectionWithoutInstances,
+    /// An entry naming a cell below a `?` ancestor, whose presence it would silently require:
+    /// the author writes the ancestor's group record inside `Some(..)`,
+    /// `Some(G { child: .., .. })` (S1 (b)).
+    BelowOptionalAncestor,
+    /// An entry naming a cell below a `*` ancestor, where no single cell has the content it
+    /// names: the author names the instance with an instance record,
+    /// `instances: { G { child: .., .. }, .. }` (S1 (b)).
+    BelowCollectionAncestor,
+    /// A result writing a `?` cell the subject does not match, whose presence the rule does not
+    /// know (Q1, P5).
+    UnmatchedOptionalResult,
     /// A group record at a configuration position that names neither every child nor `..`.
     RecordMissingChildren,
     /// A readable rule that drops or captures the continuation.
@@ -84,8 +103,9 @@ pub enum Refusal {
     /// A readable computation's rest before an item: the computation is matched from its
     /// front (the class matrix's E1).
     ComputationBackItem,
-    /// A readable map read in a result, which has no result side yet: the result is the frame
-    /// write `Cell(k::map![k -> v, ..])` (a stated limitation).
+    /// A readable map read at a result entry's head, which has no result side yet: the result
+    /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
+    /// record's top-level route).
     MapReadInResult,
     /// A readable map read at the entry's head whose value is not a fresh binder (a stated
     /// limitation).
@@ -107,8 +127,13 @@ impl Refusal {
             Self::InstanceListShape => "instance-list-shape",
             Self::MapNotationAtNonMap => "map-notation-at-non-map",
             Self::CellWrapper => "cell-wrapper",
-            Self::OptionalWithoutPresence => "optional-without-presence",
-            Self::CollectionWithoutInstances => "collection-without-instances",
+            Self::OptionalWithoutPresence | Self::BelowOptionalAncestor => {
+                "optional-without-presence"
+            }
+            Self::CollectionWithoutInstances | Self::BelowCollectionAncestor => {
+                "collection-without-instances"
+            }
+            Self::UnmatchedOptionalResult => "unmatched-optional-result",
             Self::RecordMissingChildren => "record-missing-children",
             Self::ContinuationInReadable => "continuation-in-readable",
             Self::AbsenceTestWithoutCreation => "absence-test-without-creation",
@@ -289,10 +314,17 @@ impl Admission<'_> {
         match spelling {
             EntrySpelling::Wild if !pattern => return Err(Refusal::WildcardOutsidePattern),
             EntrySpelling::Missing if initializer => return Err(Refusal::NoneInInitializer),
-            // An initializer's value is the whole initial content: it has no rest, and its
-            // computation does not splice a configuration variable's (E3).
+            // An initializer's value is the whole initial content: it keeps no unwritten rest
+            // (P5). A named base, `[0, ..base]`, is an update and stays.
             EntrySpelling::KMacro(seq) | EntrySpelling::Brackets(seq)
-                if initializer && seq.rest.is_some() =>
+                if initializer && matches!(seq.rest, Some((EntryRest::Anonymous, _))) =>
+            {
+                return Err(Refusal::InitializerRemainder);
+            }
+            // Its computation splices no configuration variable's, `k::k![x, ..pgm]`: an
+            // item-sorted variable is an item, so `k::k![x, pgm]` says it (E3).
+            EntrySpelling::KMacro(seq)
+                if initializer && matches!(seq.rest, Some((EntryRest::Splice(_), _))) =>
             {
                 return Err(Refusal::InitializerRemainder);
             }
@@ -350,7 +382,9 @@ impl Admission<'_> {
             (Layer::Leaf(notation), EntrySpelling::Cell(content)) => self.leaf(*notation, content),
             (Layer::Instances(order), _) => self.instances(*order, below, spelling),
             (Layer::Leaf(_), EntrySpelling::MapRead(map)) => {
-                if self.form.is_readable() && self.side == EntrySide::Result {
+                // Both limitations are the readable record's top-level route's; inside an
+                // instance record a map read is the child's own entry, lowered by its route.
+                if head && self.form.is_readable() && self.side == EntrySide::Result {
                     return Err(Refusal::MapReadInResult);
                 }
                 if head
@@ -492,10 +526,10 @@ impl Admission<'_> {
     }
 }
 
-/// Steps 1 and 2 for one entry: its form, then its kind against `stack` (the ancestors' layers
-/// then the cell's own, outermost first). An initializer's value of a `*` cell is one
-/// instance's template, judged below the instances layer. `bound` tells the names the rule binds
-/// outside the entry.
+/// Steps 1 to 3 for one entry: its form, its path (`path`, the layers of the cell's `?` and `*`
+/// ancestors, outermost first), then its kind against `stack`, the cell's own layers, outermost
+/// first. An initializer's value of a `*` cell is one instance's template, judged below the
+/// instances layer. `bound` tells the names the rule binds outside the entry.
 ///
 /// # Errors
 ///
@@ -503,6 +537,7 @@ impl Admission<'_> {
 pub fn admit(
     form: EntryForm,
     side: EntrySide,
+    path: &[Layer],
     stack: &[Layer],
     spelling: &EntrySpelling,
     bound: &dyn Fn(&str) -> bool,
@@ -518,6 +553,11 @@ pub fn admit(
         sorted: false,
     };
     admission.form(spelling)?;
+    match path.first() {
+        Some(Layer::Optional) => return Err(Refusal::BelowOptionalAncestor),
+        Some(_) => return Err(Refusal::BelowCollectionAncestor),
+        None => {}
+    }
     admission.kind(stack, spelling, true)?;
     Ok(Admitted {
         sorted: admission.sorted,
@@ -590,15 +630,25 @@ fn binds(spelling: &EntrySpelling) -> bool {
     }
 }
 
-/// Step 3 for an admitted entry: on a subject, an absence test needs the result to create the
-/// cell, and an entry that constrains nothing on a cell the result leaves out owes
-/// [`Lint::NoEffectEntry`]; on a result, its rest is its subject's (`other`): a subject's `..`
-/// is kept by a result `..` only.
+/// Pairing for an admitted entry with its rule. On a subject, an absence test needs the result
+/// to create the cell, and an entry that constrains nothing on a cell the result leaves out
+/// (`written` false) owes [`Lint::NoEffectEntry`]. On a result, `other` is the subject's entry
+/// of the same cell, `None` where the subject does not match the cell:
+///
+/// - over a matched cell, its rest is its subject's: a subject's `..` is kept by a result `..`
+///   only (P6);
+/// - over an unmatched cell, the result is Q1's overwrite, which means one configuration only
+///   where the cell's presence is known and no rest is kept: a `?` cell is
+///   [`Refusal::UnmatchedOptionalResult`]; a readable computation's continuation, which the
+///   subject did not match, is dropped or kept unmatched, [`Refusal::ContinuationInReadable`]
+///   (Q3); and a root `..` keeps a rest the subject never matched, [`Refusal::RestMismatch`].
 ///
 /// # Errors
 ///
-/// [`Refusal::AbsenceTestWithoutCreation`] or [`Refusal::RestMismatch`].
+/// [`Refusal::AbsenceTestWithoutCreation`], [`Refusal::RestMismatch`],
+/// [`Refusal::UnmatchedOptionalResult`] or [`Refusal::ContinuationInReadable`].
 pub fn pair(
+    form: EntryForm,
     side: EntrySide,
     stack: &[Layer],
     spelling: &EntrySpelling,
@@ -614,10 +664,17 @@ pub fn pair(
             Ok((matches_all(spelling, stack) && !binds(spelling)).then_some(Lint::NoEffectEntry))
         }
         EntrySide::Result => {
-            let Some(subject) = other else {
-                return Ok(None);
-            };
             let anonymous = |root: Root<'_>| root == Root::Rest(&EntryRest::Anonymous);
+            let Some(subject) = other else {
+                return match stack.first() {
+                    Some(Layer::Optional) => Err(Refusal::UnmatchedOptionalResult),
+                    Some(Layer::Computation) if form.is_readable() => {
+                        Err(Refusal::ContinuationInReadable)
+                    }
+                    _ if anonymous(root(spelling)) => Err(Refusal::RestMismatch),
+                    _ => Ok(None),
+                };
+            };
             if anonymous(root(spelling)) != anonymous(root(subject)) {
                 return Err(Refusal::RestMismatch);
             }
@@ -641,7 +698,38 @@ mod tests {
     }
 
     fn judge(form: EntryForm, side: EntrySide, stack: &[Layer], text: &str) -> Result<(), Refusal> {
-        admit(form, side, stack, &read(form, text), &|_| false).map(|_| ())
+        admit(form, side, &[], stack, &read(form, text), &|_| false).map(|_| ())
+    }
+
+    fn below(
+        form: EntryForm,
+        side: EntrySide,
+        path: &[Layer],
+        stack: &[Layer],
+        text: &str,
+    ) -> Result<(), Refusal> {
+        admit(form, side, path, stack, &read(form, text), &|_| false).map(|_| ())
+    }
+
+    /// An admitted result entry paired with its subject's entry `subject` (`None`: the subject
+    /// does not match the cell).
+    fn result(
+        form: EntryForm,
+        stack: &[Layer],
+        text: &str,
+        subject: Option<&str>,
+    ) -> Result<Option<Lint>, Refusal> {
+        let spelling = read(form, text);
+        admit(form, EntrySide::Result, &[], stack, &spelling, &|_| true)?;
+        let subject = subject.map(|text| read(form, text));
+        pair(
+            form,
+            EntrySide::Result,
+            stack,
+            &spelling,
+            subject.as_ref(),
+            false,
+        )
     }
 
     fn int() -> CellKind {
@@ -701,19 +789,191 @@ mod tests {
     }
 
     #[test]
-    fn a_cell_below_a_marked_ancestor_meets_the_ancestors_layer_first() {
-        let below_collection = [Layer::Instances(Order::Map), Layer::Leaf(Notation::Plain)];
-        let below_optional = [Layer::Optional, Layer::Leaf(Notation::Plain)];
-        for form in [EntryForm::Readable, EntryForm::Cells] {
+    fn a_cell_below_a_marked_ancestor_is_refused_for_the_ancestor_whatever_it_spells() {
+        let int = [Layer::Leaf(Notation::Plain)];
+        let optional = [Layer::Optional];
+        let map = [Layer::Instances(Order::Map)];
+        let list = [Layer::Instances(Order::List)];
+        let (subject, readable, cells) =
+            (EntrySide::Subject, EntryForm::Readable, EntryForm::Cells);
+        // The review's three probes: an ancestor's mark spelled in the entry admitted it.
+        assert_eq!(
+            below(readable, subject, &optional, &int, "Some(x)"),
+            Err(Refusal::BelowOptionalAncestor)
+        );
+        assert_eq!(
+            below(readable, subject, &map, &int, "{ .. }"),
+            Err(Refusal::BelowCollectionAncestor)
+        );
+        assert_eq!(
+            below(readable, subject, &list, &int, "[x, ..]"),
+            Err(Refusal::BelowCollectionAncestor)
+        );
+        assert_eq!(
+            below(cells, subject, &list, &int, "[x, ..]"),
+            Err(Refusal::BelowCollectionAncestor)
+        );
+        for form in [readable, cells] {
             assert_eq!(
-                judge(form, EntrySide::Subject, &below_collection, "x"),
-                Err(Refusal::CollectionWithoutInstances)
+                below(form, subject, &map, &int, "x"),
+                Err(Refusal::BelowCollectionAncestor)
             );
             assert_eq!(
-                judge(form, EntrySide::Subject, &below_optional, "x"),
-                Err(Refusal::OptionalWithoutPresence)
+                below(form, subject, &optional, &int, "x"),
+                Err(Refusal::BelowOptionalAncestor)
+            );
+            // The outermost marked ancestor's refusal.
+            assert_eq!(
+                below(
+                    form,
+                    EntrySide::Result,
+                    &[Layer::Optional, Layer::Instances(Order::List)],
+                    &int,
+                    "1"
+                ),
+                Err(Refusal::BelowOptionalAncestor)
             );
         }
+        assert_eq!(
+            Refusal::BelowOptionalAncestor.class(),
+            "optional-without-presence"
+        );
+        assert_eq!(
+            Refusal::BelowCollectionAncestor.class(),
+            "collection-without-instances"
+        );
+        // The form comes first (P4).
+        assert_eq!(
+            below(readable, EntrySide::Result, &list, &int, "_"),
+            Err(Refusal::WildcardOutsidePattern)
+        );
+    }
+
+    #[test]
+    fn a_result_over_a_cell_the_subject_does_not_match_is_an_overwrite_where_it_means_one_configuration()
+     {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let optional = [Layer::Optional, Layer::Leaf(Notation::Plain)];
+        let list = [Layer::Leaf(Notation::List)];
+        let computation = [Layer::Computation];
+        // The review's three probes.
+        assert_eq!(
+            result(readable, &optional, "Some(1)", None),
+            Err(Refusal::UnmatchedOptionalResult)
+        );
+        assert_eq!(
+            result(readable, &list, "[x, ..]", None),
+            Err(Refusal::RestMismatch)
+        );
+        assert_eq!(
+            result(readable, &computation, "[x, ..]", None),
+            Err(Refusal::ContinuationInReadable)
+        );
+        // A readable rule drops no continuation it did not match either (Q3); `cells!` may.
+        assert_eq!(
+            result(readable, &computation, "[x]", None),
+            Err(Refusal::ContinuationInReadable)
+        );
+        assert_eq!(
+            result(cells, &computation, "k::configuration::KCell(x)", None),
+            Ok(None)
+        );
+        assert_eq!(
+            result(cells, &computation, "k::configuration::KCell(x, ..)", None),
+            Err(Refusal::RestMismatch)
+        );
+        // The overwrite: a plain leaf, an exact list, a group, an exact instance list.
+        assert_eq!(
+            result(readable, &[Layer::Leaf(Notation::Plain)], "1", None),
+            Ok(None)
+        );
+        assert_eq!(result(readable, &list, "[x]", None), Ok(None));
+        assert_eq!(
+            result(readable, &[frame()], "Frame { ret: 1, aux: 2 }", None),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                cells,
+                &[Layer::Instances(Order::List), frame()],
+                "[k::fragment![crate::Frame { ret: 1, aux: 2 }]]",
+                None
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            result(cells, &optional, "Some(k::configuration::Cell(1))", None),
+            Err(Refusal::UnmatchedOptionalResult)
+        );
+        // Over a matched cell, the rest pairs with the subject's (P6).
+        assert_eq!(
+            result(readable, &list, "[x, ..]", Some("[y, ..]")),
+            Ok(None)
+        );
+        assert_eq!(
+            result(readable, &list, "[x]", Some("[y, ..]")),
+            Err(Refusal::RestMismatch)
+        );
+    }
+
+    #[test]
+    fn an_initializer_refuses_an_anonymous_rest_and_a_spliced_computation_only() {
+        let init = EntryForm::Initializer;
+        let side = EntrySide::Initializer;
+        let list = [Layer::Leaf(Notation::List)];
+        assert_eq!(
+            judge(init, side, &list, "[0, ..]"),
+            Err(Refusal::InitializerRemainder)
+        );
+        // A named base is an update (P5), as `k::map![.., ..env]` is.
+        assert_eq!(judge(init, side, &list, "[0, ..base]"), Ok(()));
+        let variables = ["pgm".to_owned()];
+        let reading = EntryReading::new(init, &variables);
+        let spliced = reading
+            .value("k::k![Cmd::Go(), ..pgm]".parse().expect("lexes"))
+            .expect("reads");
+        assert_eq!(
+            admit(init, side, &[], &[Layer::Computation], &spliced, &|_| false).map(|_| ()),
+            Err(Refusal::InitializerRemainder)
+        );
+        let open = reading
+            .value("k::k![Cmd::Go(), ..]".parse().expect("lexes"))
+            .expect("reads");
+        assert_eq!(
+            admit(init, side, &[], &[Layer::Computation], &open, &|_| false).map(|_| ()),
+            Err(Refusal::InitializerRemainder)
+        );
+    }
+
+    #[test]
+    fn a_map_read_is_refused_in_a_result_at_the_records_top_level_only() {
+        let readable = EntryForm::Readable;
+        let map = [Layer::Leaf(Notation::Map)];
+        assert_eq!(
+            judge(readable, EntrySide::Result, &map, "{ y -> x, .. }"),
+            Err(Refusal::MapReadInResult)
+        );
+        let obj = Layer::Group(GroupKind {
+            name: "Obj".to_owned(),
+            children: vec![
+                ("key".to_owned(), int()),
+                (
+                    "m".to_owned(),
+                    CellKind {
+                        layers: vec![Layer::Leaf(Notation::Map)],
+                    },
+                ),
+            ],
+        });
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Result,
+                &[Layer::Instances(Order::Set), obj],
+                "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
+            ),
+            Ok(())
+        );
     }
 
     #[test]
@@ -721,6 +981,7 @@ mod tests {
         let stack = [frame()];
         let lint = |text: &str, written: bool| {
             pair(
+                EntryForm::Readable,
                 EntrySide::Subject,
                 &stack,
                 &read(EntryForm::Readable, text),

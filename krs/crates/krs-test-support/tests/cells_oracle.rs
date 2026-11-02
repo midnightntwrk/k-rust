@@ -4,6 +4,7 @@
 //! and the generated coverage of the domain (check 5).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -99,9 +100,10 @@ fn naming<'t>(id: &str, exceptions: &'t [(Glob, String, String)]) -> Vec<&'t str
         .collect()
 }
 
-/// Check 0: every class the oracle answers with is a class of the table with the oracle's code;
-/// a proposed code is one its step registers, so it must not be registered yet, and a registered
-/// one is an author code.
+/// Check 0: every class the oracle answers with is a class of the table with the oracle's code.
+/// Whether that code is registered as the class's `proposed` says, and is an author code, is the
+/// table's resolution's (`Table::resolve_cases`, `check_codes`), which every check reading
+/// [`EXPECTED`] runs; check 0 does not restate it.
 #[test]
 fn check_0_every_class_of_the_oracle_is_the_tables_with_its_code() {
     let mut failures = Vec::new();
@@ -123,14 +125,7 @@ fn check_0_every_class_of_the_oracle_is_the_tables_with_its_code() {
                 "{class}: expected.toml answers with {}, the oracle with {code}",
                 declared.code
             )),
-            Some(declared) => match (registry_kind(code), declared.proposed) {
-                (Some(_), true) => failures.push(format!("{class}: {code} is registered")),
-                (None, false) => failures.push(format!("{class}: {code} is not registered")),
-                (Some(kind), false) if kind != krs_diagnostic::codes::CodeKind::Author => {
-                    failures.push(format!("{class}: {code} is no author code"));
-                }
-                _ => {}
-            },
+            Some(_) => {}
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
@@ -191,12 +186,21 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// The rule-level classes no generated case's row has, so check 1r cannot see `rule_outcome`
+/// miss them (it sees it answer them where no row does), with why; S5.0g generates them.
+const RULE_UNCOVERED: [(&str, &str); 1] = [(
+    "rule-changes-no-cell",
+    "every generated rule writes a cell (its computation's, at least)",
+)];
+
 /// Check 1r: where the entry is admitted, the rule-level judgement equals a rule-level row's
-/// class, and is none on an accept.
+/// class, and is none on an accept; and every rule-level class is some generated case's row, or
+/// is listed in [`RULE_UNCOVERED`].
 #[test]
 fn check_1r_every_rule_level_row_agrees_with_the_rule() {
     let mut failures = Vec::new();
     let mut judged = 0;
+    let mut rows = BTreeSet::new();
     for (case, entry) in ENTRIES.iter() {
         let got = entry.outcome();
         if !got.admits() {
@@ -208,6 +212,7 @@ fn check_1r_every_rule_level_row_agrees_with_the_rule() {
             Expected::Refuse { .. } => continue,
             Expected::Accept(_) => None,
         };
+        rows.extend(row);
         if row.is_some() || rule.is_some() {
             judged += 1;
         }
@@ -218,7 +223,20 @@ fn check_1r_every_rule_level_row_agrees_with_the_rule() {
             ));
         }
     }
-    println!("{judged} rule-level rows judged");
+    for class in RULE_CLASSES {
+        let listed = RULE_UNCOVERED.iter().any(|(listed, _)| *listed == class);
+        match (rows.contains(class), listed) {
+            (false, false) => failures.push(format!(
+                "{class}: no generated case's row has it, so a rule_outcome that misses it \
+                 passes; generate one or list it in RULE_UNCOVERED"
+            )),
+            (true, true) => failures.push(format!(
+                "{class}: listed in RULE_UNCOVERED, and a generated case's row has it: remove it"
+            )),
+            _ => {}
+        }
+    }
+    println!("{judged} rule-level rows judged, classes with rows {rows:?}");
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
@@ -309,12 +327,12 @@ impl Configuration {
         Some((ancestors, field))
     }
 
-    /// The stack an entry naming `cell` is judged against: `CellKind::{path, of}`.
-    fn stack(&self, cell: &str) -> Vec<cell_kind::Layer> {
+    /// What an entry naming `cell` is judged against: `CellKind::{path, of}`, apart.
+    fn kind(&self, cell: &str) -> cell_kind::EntryKind {
         let (ancestors, field) = self
             .find(cell)
             .unwrap_or_else(|| panic!("the configuration declares the cell `{cell}`"));
-        CellKind::entry(&ancestors, &field).layers
+        CellKind::entry(&ancestors, &field)
     }
 }
 
@@ -550,12 +568,13 @@ const fn product_side(side: Side) -> EntrySide {
     }
 }
 
-/// The product's judgement of a case's entry: `admit` (form and kind), then `pair`.
+/// The product's judgement of a case's entry: `admit` (form, path and kind), then `pair`.
 fn product_outcome(
     entry: &EntryCase,
-    stack: &[cell_kind::Layer],
+    kind: &cell_kind::EntryKind,
     spelling: &EntrySpelling,
 ) -> Outcome {
+    let (path, stack) = (&kind.path.layers[..], &kind.own.layers[..]);
     let form = match entry.form {
         Form::Readable => EntryForm::Readable,
         Form::Claim => EntryForm::Claim,
@@ -564,12 +583,19 @@ fn product_outcome(
     };
     let side = product_side(entry.entry.side);
     let bound = |name: &str| entry.context.bound.iter().any(|bound| bound == name);
-    let admitted = match cell_entries::admit(form, side, stack, spelling, &bound) {
+    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound) {
         Ok(admitted) => admitted,
         Err(refusal) => return Outcome::Refuse(refusal.class()),
     };
     let other = entry.context.other.as_ref().map(product_of);
-    match cell_entries::pair(side, stack, spelling, other.as_ref(), entry.context.written) {
+    match cell_entries::pair(
+        form,
+        side,
+        stack,
+        spelling,
+        other.as_ref(),
+        entry.context.written,
+    ) {
         Err(refusal) => Outcome::Refuse(refusal.class()),
         Ok(None) if admitted.sorted => Outcome::After,
         Ok(lint) => Outcome::Admit {
@@ -604,14 +630,21 @@ fn check_2_the_product_admits_as_the_table_says() {
             continue;
         };
         let cell = &entry.entry.cell;
-        let stack = configuration.stack(cell);
-        let read = stack.iter().map(oracle_layer).collect::<Vec<_>>();
+        let kind = configuration.kind(cell);
+        let read = kind.own.layers.iter().map(oracle_layer).collect::<Vec<_>>();
+        let path = kind
+            .path
+            .layers
+            .iter()
+            .map(oracle_layer)
+            .collect::<Vec<_>>();
         if kinds.insert((case.base, cell.clone())) {
             let declared = entry_cases::declared_stack(case, cell);
-            if read != declared {
+            if read != declared || path != entry.entry.path {
                 failures.push(format!(
-                    "{:?}/{cell}: CellKind reads {read:?}, the fixture declares {declared:?}",
-                    case.base
+                    "{:?}/{cell}: CellKind reads {path:?} then {read:?}, the fixture declares \
+                     {:?} then {declared:?}",
+                    case.base, entry.entry.path
                 ));
             }
         }
@@ -634,7 +667,7 @@ fn check_2_the_product_admits_as_the_table_says() {
             ));
             continue;
         }
-        let got = product_outcome(entry, &stack, &spelling);
+        let got = product_outcome(entry, &kind, &spelling);
         let excepted = !naming(&case.id, &exceptions).is_empty();
         let want = match &EXPECTED[&case.id] {
             Expected::Refuse { name, .. } if excepted => Outcome::Refuse(name),
@@ -691,6 +724,7 @@ fn admitted(entry: &EntryCase, form: Form, spelling: &Spelling, template: &Templ
     let got = outcome(
         form,
         entry.entry.side,
+        &entry.entry.path,
         &entry.entry.stack,
         spelling,
         &context,
@@ -804,20 +838,25 @@ const LAYER_CLASSES: [&str; 3] = [
 ];
 
 /// Check 4 (P3's reason): a refusal for a missing layer at the author's head has an advice, the
-/// spelling with every missing layer added, and the advice is admitted at the head; and each
-/// class's advised case is one the oracle admits.
+/// spelling with every missing layer added, and the advice is admitted at the head.
+///
+/// That each class's `advice` case is one the oracle admits is not checked here: the table's
+/// resolution refuses an advice that is no accepted case (`AdviceNotAccepted`), check 1 makes
+/// every accepted case agree with the oracle unless an exception names it, and check 2 refuses an
+/// exception that names an accepted case.
 #[test]
 fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
     let mut failures = Vec::new();
     let mut counts = BTreeMap::<String, usize>::new();
     for (case, entry) in ENTRIES.iter() {
-        let (form, side, stack, spelling) = (
+        let (form, side, path, stack, spelling) = (
             entry.form,
             entry.entry.side,
+            &entry.entry.path,
             &entry.entry.stack,
             &entry.entry.spelling,
         );
-        let Err(refusal) = judge(form, side, stack, spelling, &entry.context) else {
+        let Err(refusal) = judge(form, side, path, stack, spelling, &entry.context) else {
             continue;
         };
         if refusal.step != Step::MissingLayer || refusal.depth != 0 {
@@ -834,7 +873,7 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
             ));
             continue;
         };
-        let verdict = match judge(form, side, stack, &advised, &entry.context) {
+        let verdict = match judge(form, side, path, stack, &advised, &entry.context) {
             Ok(_) => "admitted".to_owned(),
             Err(again) if again.depth == added => {
                 failures.push(format!(
@@ -850,31 +889,6 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
             .entry(format!("{} {verdict}", refusal.class))
             .or_default() += 1;
     }
-    let entries = ENTRIES
-        .iter()
-        .map(|(case, entry)| (case.id.as_str(), entry))
-        .collect::<BTreeMap<_, _>>();
-    for (name, class) in &TABLE.classes {
-        for (case, entry) in ENTRIES.iter() {
-            if !matches!(EXPECTED.get(&case.id), Some(Expected::Refuse { name: refused, .. }) if refused == name)
-            {
-                continue;
-            }
-            let _ = entry;
-            for advised in class.advised_cases(&case.id) {
-                if let Some(advised_entry) = entries.get(advised.as_str())
-                    && !advised_entry.outcome().admits()
-                {
-                    failures.push(format!(
-                        "{name}: advises {advised}, which the oracle refuses as {:?}",
-                        advised_entry.outcome()
-                    ));
-                }
-            }
-        }
-    }
-    failures.sort();
-    failures.dedup();
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
 }
@@ -994,21 +1008,26 @@ fn stack_name(cell: &str, stack: &[Layer]) -> String {
     }
 }
 
-/// The triples of the domain no generated case covers, which S5.0g adds: `(form, side, stack,
-/// mark)`, each part a value or `*` for every value. 528 of the domain's 960 triples: the 8 stacks
-/// the fixtures declare no cell of (`*` Set only on the run base's readable records and `cells!`
-/// rules), and on every declared stack `cells!` instance braces and `_` in a `cells!` result.
-const UNCOVERED: [(&str, &str, &str, &str); 10] = [
-    ("*", "*", "leaf Cons", "*"),
-    ("*", "*", "leaf Set", "*"),
-    ("*", "*", "? leaf List", "*"),
-    ("*", "*", "? leaf Map", "*"),
-    ("*", "*", "? group", "*"),
-    ("*", "*", "* Map", "*"),
-    ("*", "*", "* Set", "*"),
-    ("*", "*", "second computation", "*"),
-    ("cells", "*", "*", "setinst"),
-    ("cells", "result", "*", "value:_"),
+/// The tuples of the domain no generated case covers, which S5.0g adds: `(form, side, path,
+/// stack, mark)`, each part a value or `*` for every value. On the cell's own level (path
+/// `none`): the 8 stacks the fixtures declare no cell of (`*` Set only on the run base's readable
+/// records and `cells!` rules), and on every declared stack `cells!` instance braces and `_` in a
+/// `cells!` result; every result over a cell its subject does not match (Q1's overwrite, R2);
+/// and every entry naming a cell below a `?` or `*` ancestor (S1 (b), R1).
+const UNCOVERED: [(&str, &str, &str, &str, &str); 13] = [
+    ("*", "*", "none", "leaf Cons", "*"),
+    ("*", "*", "none", "leaf Set", "*"),
+    ("*", "*", "none", "? leaf List", "*"),
+    ("*", "*", "none", "? leaf Map", "*"),
+    ("*", "*", "none", "? group", "*"),
+    ("*", "*", "none", "* Map", "*"),
+    ("*", "*", "none", "* Set", "*"),
+    ("*", "*", "none", "second computation", "*"),
+    ("cells", "*", "none", "*", "setinst"),
+    ("cells", "result", "none", "*", "value:_"),
+    ("*", "result-unmatched", "none", "*", "*"),
+    ("*", "*", "below ?", "*", "*"),
+    ("*", "*", "below *", "*", "*"),
 ];
 
 fn form_name(form: Form) -> &'static str {
@@ -1020,12 +1039,29 @@ fn form_name(form: Form) -> &'static str {
     }
 }
 
-fn side_name(side: Side) -> &'static str {
-    side.name()
+/// The side as check 5 names it: a result over a cell its subject does not match is
+/// `result-unmatched`.
+fn side_name(entry: &EntryCase) -> &'static str {
+    match entry.entry.side {
+        Side::Result if entry.context.other.is_none() => "result-unmatched",
+        side => side.name(),
+    }
 }
 
-/// Check 5: every (form × side × stack × mark) triple of the domain is some generated case's, or
-/// is listed in [`UNCOVERED`]; and every entry of [`UNCOVERED`] lists some triple no case covers.
+/// The path as check 5 names it: the outermost marked ancestor's layer, if any.
+fn path_name(path: &[Layer]) -> &'static str {
+    match path.first() {
+        None => "none",
+        Some(Layer::Optional) => "below ?",
+        Some(_) => "below *",
+    }
+}
+
+/// Check 5: every (form × side × path × stack × mark) tuple of the domain is some generated
+/// case's, or is listed in [`UNCOVERED`]; and every entry of [`UNCOVERED`] lists some tuple no
+/// case covers. A rule form's sides are its subject, its result over a matched cell and over an
+/// unmatched one; an initializer's is its value, which names no cell through a path (a struct
+/// literal names its own fields only).
 #[test]
 fn check_5_the_generated_cases_cover_the_domain() {
     let mut covered = BTreeSet::new();
@@ -1033,7 +1069,8 @@ fn check_5_the_generated_cases_cover_the_domain() {
         let declared = entry_cases::declared_stack(case, &entry.entry.cell);
         covered.insert((
             form_name(entry.form),
-            side_name(entry.entry.side),
+            side_name(entry),
+            path_name(&entry.entry.path),
             stack_name(&entry.entry.cell, &declared),
             mark_name(entry.form, &entry.entry.spelling),
         ));
@@ -1041,41 +1078,49 @@ fn check_5_the_generated_cases_cover_the_domain() {
     let mut uncovered = Vec::new();
     let mut domain = 0;
     for form in [Form::Readable, Form::Claim, Form::Cells, Form::Init] {
-        let sides: &[Side] = if form == Form::Init {
-            &[Side::Initializer]
+        let (sides, paths): (&[&str], &[&str]) = if form == Form::Init {
+            (&["initializer"], &["none"])
         } else {
-            &[Side::Subject, Side::Result]
+            (
+                &["subject", "result", "result-unmatched"],
+                &["none", "below ?", "below *"],
+            )
         };
         for side in sides {
-            for stack in STACKS {
-                for mark in marks(form) {
-                    domain += 1;
-                    let triple = (
-                        form_name(form),
-                        side_name(*side),
-                        stack.to_owned(),
-                        (*mark).to_owned(),
-                    );
-                    if !covered.contains(&triple) {
-                        uncovered.push(triple);
+            for path in paths {
+                for stack in STACKS {
+                    for mark in marks(form) {
+                        domain += 1;
+                        let tuple = (
+                            form_name(form),
+                            *side,
+                            *path,
+                            stack.to_owned(),
+                            (*mark).to_owned(),
+                        );
+                        if !covered.contains(&tuple) {
+                            uncovered.push(tuple);
+                        }
                     }
                 }
             }
         }
     }
-    let lists = |entry: &(&str, &str, &str, &str), triple: &(&str, &str, String, String)| {
-        (entry.0 == "*" || entry.0 == triple.0)
-            && (entry.1 == "*" || entry.1 == triple.1)
-            && (entry.2 == "*" || entry.2 == triple.2)
-            && (entry.3 == "*" || entry.3 == triple.3)
+    let lists = |entry: &(&str, &str, &str, &str, &str),
+                 tuple: &(&str, &str, &str, String, String)| {
+        (entry.0 == "*" || entry.0 == tuple.0)
+            && (entry.1 == "*" || entry.1 == tuple.1)
+            && (entry.2 == "*" || entry.2 == tuple.2)
+            && (entry.3 == "*" || entry.3 == tuple.3)
+            && (entry.4 == "*" || entry.4 == tuple.4)
     };
     let mut failures = uncovered
         .iter()
-        .filter(|triple| !UNCOVERED.iter().any(|entry| lists(entry, triple)))
-        .map(|triple| format!("uncovered and not listed: {triple:?}"))
+        .filter(|tuple| !UNCOVERED.iter().any(|entry| lists(entry, tuple)))
+        .map(|tuple| format!("uncovered and not listed: {tuple:?}"))
         .collect::<Vec<_>>();
     for entry in &UNCOVERED {
-        if !uncovered.iter().any(|triple| lists(entry, triple)) {
+        if !uncovered.iter().any(|tuple| lists(entry, tuple)) {
             failures.push(format!(
                 "UNCOVERED lists {entry:?}, which cases cover: remove it"
             ));
@@ -1091,4 +1136,520 @@ fn check_5_the_generated_cases_cover_the_domain() {
         "{} failures: {failures:#?}",
         failures.len()
     );
+}
+
+/// The oracle's layer as the product writes it.
+fn product_layer(layer: &Layer) -> cell_kind::Layer {
+    let order = |order: Order| match order {
+        Order::List => cell_kind::Order::List,
+        Order::Set => cell_kind::Order::Set,
+        Order::Map => cell_kind::Order::Map,
+    };
+    match layer {
+        Layer::Optional => cell_kind::Layer::Optional,
+        Layer::Instances(by) => cell_kind::Layer::Instances(order(*by)),
+        Layer::Computation => cell_kind::Layer::Computation,
+        Layer::Leaf(notation) => cell_kind::Layer::Leaf(match notation {
+            Notation::Plain => cell_kind::Notation::Plain,
+            Notation::List => cell_kind::Notation::List,
+            Notation::Cons => cell_kind::Notation::Cons,
+            Notation::Map => cell_kind::Notation::Map,
+            Notation::Set => cell_kind::Notation::Set,
+        }),
+        Layer::Group(group) => cell_kind::Layer::Group(cell_kind::GroupKind {
+            name: group.name.clone(),
+            children: group
+                .children
+                .iter()
+                .map(|(name, stack)| {
+                    (
+                        name.clone(),
+                        CellKind {
+                            layers: stack.iter().map(product_layer).collect(),
+                        },
+                    )
+                })
+                .collect(),
+        }),
+    }
+}
+
+const fn entry_form(form: Form) -> EntryForm {
+    match form {
+        Form::Readable => EntryForm::Readable,
+        Form::Claim => EntryForm::Claim,
+        Form::Cells => EntryForm::Cells,
+        Form::Init => EntryForm::Initializer,
+    }
+}
+
+/// One entry outside the generated cases: its form and side, its cell's path and own stack
+/// (as the oracle writes them), its text, and its rule's other side and bound names.
+struct Probe<'p> {
+    form: Form,
+    side: Side,
+    path: &'p [Layer],
+    stack: &'p [Layer],
+    text: &'p str,
+    /// For a result, the subject's entry of the cell, `None` where the subject does not match
+    /// it; for a subject, unread.
+    other: Option<&'p str>,
+    /// For a subject, whether the result writes the cell.
+    written: bool,
+    bound: &'p [&'p str],
+}
+
+impl Probe<'_> {
+    fn reading(&self) -> EntryReading<'static> {
+        static VARIABLES: LazyLock<Vec<String>> = LazyLock::new(|| vec!["pgm".to_owned()]);
+        EntryReading::new(entry_form(self.form), &VARIABLES)
+    }
+
+    fn read(&self, text: &str) -> EntrySpelling {
+        self.reading()
+            .value(
+                text.parse()
+                    .unwrap_or_else(|error| panic!("`{text}` lexes: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("`{text}` reads: {error}"))
+    }
+
+    fn context(&self) -> class_matrix::cells_oracle::Context {
+        class_matrix::cells_oracle::Context {
+            bound: self.bound.iter().map(|name| (*name).to_owned()).collect(),
+            other: self.other.map(|text| declared_as(&self.read(text))),
+            written: self.written,
+        }
+    }
+
+    /// The oracle's outcome.
+    fn oracle(&self) -> Outcome {
+        let stack = if self.side == Side::Initializer {
+            match self.stack.split_first() {
+                Some((Layer::Instances(_), template)) => template,
+                _ => self.stack,
+            }
+        } else {
+            self.stack
+        };
+        outcome(
+            self.form,
+            self.side,
+            self.path,
+            stack,
+            &declared_as(&self.read(self.text)),
+            &self.context(),
+        )
+    }
+
+    /// The product's outcome, `admit` then `pair`, on the same entry.
+    fn product(&self) -> Outcome {
+        let form = entry_form(self.form);
+        let side = product_side(self.side);
+        let path = self.path.iter().map(product_layer).collect::<Vec<_>>();
+        let stack = self.stack.iter().map(product_layer).collect::<Vec<_>>();
+        let spelling = self.read(self.text);
+        let bound = |name: &str| self.bound.contains(&name);
+        let admitted = match cell_entries::admit(form, side, &path, &stack, &spelling, &bound) {
+            Ok(admitted) => admitted,
+            Err(refusal) => return Outcome::Refuse(refusal.class()),
+        };
+        let pair_stack = match (side, stack.split_first()) {
+            (EntrySide::Initializer, Some((cell_kind::Layer::Instances(_), template))) => template,
+            _ => &stack[..],
+        };
+        let other = self.other.map(|text| self.read(text));
+        match cell_entries::pair(
+            form,
+            side,
+            pair_stack,
+            &spelling,
+            other.as_ref(),
+            self.written,
+        ) {
+            Err(refusal) => Outcome::Refuse(refusal.class()),
+            Ok(None) if admitted.sorted => Outcome::After,
+            Ok(lint) => Outcome::Admit {
+                lint: lint.map(cell_entries::Lint::class),
+            },
+        }
+    }
+}
+
+fn int() -> Vec<Layer> {
+    vec![Layer::Leaf(Notation::Plain)]
+}
+
+/// The sweep's group `G`, two `Int` children (so a record naming one is not complete).
+fn group_g() -> Layer {
+    Layer::Group(Group {
+        name: "G".to_owned(),
+        children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
+    })
+}
+
+/// The review's probes of S1 (b) and Q1's overwrite (R1, R2), outside every generated case: the
+/// oracle and the product both refuse each, with the class the principles give.
+#[test]
+fn the_oracle_and_the_product_refuse_the_reviews_probes() {
+    let optional = [Layer::Optional];
+    let map = [Layer::Instances(Order::Map)];
+    let list = [Layer::Instances(Order::List)];
+    let int = int();
+    let probe = |form, side, path, stack, text, other| Probe {
+        form,
+        side,
+        path,
+        stack,
+        text,
+        other,
+        written: false,
+        bound: &["x", "y"],
+    };
+    let (subject, result) = (Side::Subject, Side::Result);
+    let probes = [
+        // R1: an ancestor's mark spelled in the entry.
+        (
+            probe(Form::Readable, subject, &optional, &int, "Some(x)", None),
+            "optional-without-presence",
+        ),
+        (
+            probe(Form::Readable, subject, &map, &int, "{ .. }", None),
+            "collection-without-instances",
+        ),
+        (
+            probe(Form::Readable, subject, &list, &int, "[x, ..]", None),
+            "collection-without-instances",
+        ),
+        (
+            probe(Form::Cells, subject, &list, &int, "[x, ..]", None),
+            "collection-without-instances",
+        ),
+        // R2: a result over a cell the subject does not match.
+        (
+            probe(
+                Form::Readable,
+                result,
+                &[],
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "Some(1)",
+                None,
+            ),
+            "unmatched-optional-result",
+        ),
+        (
+            probe(
+                Form::Readable,
+                result,
+                &[],
+                &[Layer::Leaf(Notation::List)],
+                "[x, ..]",
+                None,
+            ),
+            "rest-mismatch",
+        ),
+        (
+            probe(
+                Form::Readable,
+                result,
+                &[],
+                &[Layer::Computation],
+                "[x, ..]",
+                None,
+            ),
+            "continuation-in-readable",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (probe, class) in &probes {
+        let want = Outcome::Refuse(class);
+        for (who, got) in [("oracle", probe.oracle()), ("product", probe.product())] {
+            if got != want {
+                failures.push(format!(
+                    "{:?} {:?} below {:?} on {:?}: `{}`: the {who} says {got:?}, the principles \
+                     {want:?}",
+                    probe.form, probe.side, probe.path, probe.stack, probe.text
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Where the sweep of [`outcome`] is kept, checked in so that a change to `outcome` shows as a
+/// diff (`KRS_CELLS_SWEEP_RECORD=1` rewrites it).
+const SWEEP_FILE: &str = "cells-outcome-sweep.tsv";
+
+/// The sweep's short names of the classes (its legend).
+const SWEEP_LEGEND: [(&str, &str); 20] = [
+    ("absence-test-without-creation", "atc"),
+    ("anonymous-rest-in-map-literal", "arm"),
+    ("bracket-reading", "br"),
+    ("cell-wrapper", "cw"),
+    ("collection-without-instances", "cwi"),
+    ("computation-back-item", "cbi"),
+    ("continuation-in-readable", "cir"),
+    ("initializer-remainder", "ir"),
+    ("instance-list-shape", "ils"),
+    ("instances-on-plain-cell", "iop"),
+    ("map-notation-at-non-map", "mna"),
+    ("map-read-in-result", "mrr"),
+    ("map-read-value-binder", "mvb"),
+    ("none-in-initializer", "nii"),
+    ("optional-without-presence", "owp"),
+    ("presence-on-plain-cell", "pop"),
+    ("record-missing-children", "rmc"),
+    ("rest-mismatch", "rm"),
+    ("unmatched-optional-result", "uor"),
+    ("wildcard-outside-pattern", "wop"),
+];
+
+fn sweep_name(outcome: Outcome) -> String {
+    match outcome {
+        Outcome::Admit { lint: None } => "ok".to_owned(),
+        Outcome::Admit { lint: Some(lint) } => format!("ok+{lint}"),
+        Outcome::After => "sort".to_owned(),
+        Outcome::Refuse(class) => SWEEP_LEGEND
+            .iter()
+            .find(|(name, _)| *name == class)
+            .map_or_else(|| class.to_owned(), |(_, short)| (*short).to_owned()),
+    }
+}
+
+/// The sweep's own stacks: every kind the domain has (check 5's, but the second computation,
+/// which differs from the first by its name only, P1), with `G` as the group and the
+/// collections' instance group.
+fn sweep_stacks() -> Vec<(&'static str, Vec<Layer>)> {
+    let leaf = |notation| vec![Layer::Leaf(notation)];
+    let optional = |mut stack: Vec<Layer>| {
+        stack.insert(0, Layer::Optional);
+        stack
+    };
+    let many = |order| vec![Layer::Instances(order), group_g()];
+    vec![
+        ("computation", vec![Layer::Computation]),
+        ("leaf Int", leaf(Notation::Plain)),
+        ("leaf List", leaf(Notation::List)),
+        ("leaf Cons", leaf(Notation::Cons)),
+        ("leaf Map", leaf(Notation::Map)),
+        ("leaf Set", leaf(Notation::Set)),
+        ("group G", vec![group_g()]),
+        ("? leaf Int", optional(leaf(Notation::Plain))),
+        ("? leaf List", optional(leaf(Notation::List))),
+        ("? leaf Map", optional(leaf(Notation::Map))),
+        ("? group G", optional(vec![group_g()])),
+        ("* List of G", many(Order::List)),
+        ("* Set of G", many(Order::Set)),
+        ("* Map of G", many(Order::Map)),
+    ]
+}
+
+/// The entry a matched result's subject writes in its cell: the cell's content with an
+/// anonymous rest at its content root where it has one, else a binder.
+fn sweep_subject(form: Form, stack: &[Layer]) -> String {
+    let cells = form == Form::Cells;
+    let inner = |text: &str| {
+        if cells {
+            format!("k::configuration::Cell({text})")
+        } else {
+            text.to_owned()
+        }
+    };
+    match stack {
+        [Layer::Optional, rest @ ..] => format!("Some({})", sweep_subject(form, rest)),
+        [Layer::Computation] if cells => "k::configuration::KCell(y, ..)".to_owned(),
+        [Layer::Computation] => "[y, ..]".to_owned(),
+        [Layer::Leaf(Notation::List | Notation::Cons)] => inner("[y, ..]"),
+        [Layer::Leaf(Notation::Map)] if cells => inner("k::map![z -> y, ..]"),
+        [Layer::Leaf(Notation::Map)] => "{ z -> y, .. }".to_owned(),
+        [Layer::Leaf(_)] => inner("old"),
+        [Layer::Group(_)] if cells => "k::fragment![crate::G { a: y, .. }]".to_owned(),
+        [Layer::Group(_)] => "G { a: y, .. }".to_owned(),
+        [Layer::Instances(Order::List), ..] if cells => {
+            "[k::fragment![crate::G { a: y, .. }], ..]".to_owned()
+        }
+        [Layer::Instances(_), ..] if cells => {
+            "{ k::fragment![crate::G { a: y, .. }], .. }".to_owned()
+        }
+        [Layer::Instances(Order::List), ..] => "[G { a: y, .. }, ..]".to_owned(),
+        [Layer::Instances(_), ..] => "{ G { a: y, .. }, .. }".to_owned(),
+        other => panic!("no sweep subject for {other:?}"),
+    }
+}
+
+/// The spellings the sweep writes in each form, one per column: each mark of the form, and the
+/// rests and records that pairing and L4 read.
+const fn sweep_spellings(form: Form) -> &'static [&'static str] {
+    match form {
+        Form::Readable | Form::Claim => &[
+            "Some(x)",
+            "None",
+            "[x, ..]",
+            "[x]",
+            "[..]",
+            "[.., x]",
+            "[x, r @ ..]",
+            "{ G { a: x, .. }, .. }",
+            "{ y -> x, .. }",
+            "x",
+            "_",
+            "0",
+            "G { a: x, .. }",
+            "G { a: x }",
+        ],
+        Form::Cells => &[
+            "Some(k::configuration::Cell(x))",
+            "None",
+            "k::configuration::Cell(x)",
+            "k::configuration::Cell([x, ..])",
+            "k::configuration::Cell(k::map![y -> x, ..])",
+            "k::configuration::KCell(x, ..)",
+            "k::configuration::KCell(x)",
+            "[k::fragment![crate::G { a: x, .. }], ..]",
+            "{ k::fragment![crate::G { a: x, .. }], .. }",
+            "x",
+            "_",
+            "k::fragment![crate::G { a: x, .. }]",
+        ],
+        Form::Init => &[
+            "Some(0)",
+            "k::absent!(0)",
+            "None",
+            "k::k![pgm]",
+            "k::k![Cmd::Go(), ..]",
+            "[0]",
+            "[0, ..]",
+            "k::map![0 -> 1]",
+            "0",
+            "G { a: 0, b: 0 }",
+            "G { a: 0 }",
+            "Cmd::Go()",
+            "pgm",
+        ],
+    }
+}
+
+/// The sweep of [`outcome`] over form × side (a subject whose cell the result leaves or writes,
+/// a result over a matched or an unmatched cell, an initializer) × path (none, below a `?`
+/// ancestor, below a `*` ancestor) × stack × spelling, with the product's answer where it
+/// differs.
+fn outcome_sweep() -> String {
+    let mut out = String::new();
+    out.push_str(concat!(
+        "# The cells oracle's `outcome` (steps 1-3) over the cell-entry domain: the review surface for\n",
+        "# S5.0g, whose rows come from `outcome`. Generated by krs-test-support `--test cells_oracle`\n",
+        "# (`the_outcome_sweep_is_the_golden`); rewrite with KRS_CELLS_SWEEP_RECORD=1.\n",
+        "#\n",
+        "# One table per form. A row is a side, a path and the cell's own stack; a column a spelling.\n",
+        "# side: `subject` (the result leaves the cell), `subject, written` (the result writes it),\n",
+        "#   `result, matched` (the subject matches the cell with the row's `other`: its content with\n",
+        "#   an anonymous rest at the content root where it has one, else a binder), `result,\n",
+        "#   unmatched` (the subject does not match the cell: Q1's overwrite), `init`.\n",
+        "# path: `-` the cell is named at its record's level (or below plain groups only); `?` below a\n",
+        "#   `?` ancestor; `*` below a `*` ancestor (S1 (b)). The stack is the cell's own.\n",
+        "# Bound names: in a result, x, y, z, old (bound by the subject); in a subject, none; in an\n",
+        "#   initializer, the configuration variable pgm. `G` is the group (children a, b: Int) of\n",
+        "#   the group stacks and the collections' instances.\n",
+        "# claim's steps 1-3 are readable's; both are printed so a change to either shows.\n",
+        "#\n",
+        "# A cell: ok (admitted), ok+LINT (admitted, owing the lint), sort (admitted, a value's sort\n",
+        "#   left to the lattice, step 4), or the refusal's class by its short name below.\n",
+        "#   `A|product:B` marks where the product (krs_syntax::cell_entries) answers B: each such\n",
+        "#   cell is a [cell-exception] departure (E1, E3, a C-lim) or a disagreement to explain.\n",
+        "#\n",
+    ));
+    for (class, short) in SWEEP_LEGEND {
+        let _ = writeln!(out, "# {short}\t{class}");
+    }
+    let paths: [(&str, Vec<Layer>); 3] = [
+        ("-", Vec::new()),
+        ("?", vec![Layer::Optional]),
+        ("*", vec![Layer::Instances(Order::List)]),
+    ];
+    for form in [Form::Readable, Form::Claim, Form::Cells, Form::Init] {
+        let spellings = sweep_spellings(form);
+        let _ = write!(out, "#\n## {}\nside\tpath\tstack\tother", form_name(form));
+        for spelling in spellings {
+            out.push('\t');
+            out.push_str(spelling);
+        }
+        out.push('\n');
+        let sides: &[(&str, Side, bool, bool)] = if form == Form::Init {
+            &[("init", Side::Initializer, false, false)]
+        } else {
+            &[
+                ("subject", Side::Subject, false, false),
+                ("subject, written", Side::Subject, true, false),
+                ("result, matched", Side::Result, false, true),
+                ("result, unmatched", Side::Result, false, false),
+            ]
+        };
+        for (side_name, side, written, matched) in sides {
+            for (path_name, path) in &paths {
+                for (stack_name, stack) in sweep_stacks() {
+                    let other = matched.then(|| sweep_subject(form, &stack));
+                    let bound: &[&str] = match side {
+                        Side::Result => &["x", "y", "z", "old"],
+                        Side::Initializer => &["pgm"],
+                        _ => &[],
+                    };
+                    let _ = write!(
+                        out,
+                        "{side_name}\t{path_name}\t{stack_name}\t{}",
+                        other.as_deref().unwrap_or("-")
+                    );
+                    for text in spellings {
+                        let probe = Probe {
+                            form,
+                            side: *side,
+                            path,
+                            stack: &stack,
+                            text,
+                            other: other.as_deref(),
+                            written: *written,
+                            bound,
+                        };
+                        let (oracle, product) = (probe.oracle(), probe.product());
+                        out.push('\t');
+                        out.push_str(&sweep_name(oracle));
+                        if product != oracle {
+                            out.push_str("|product:");
+                            out.push_str(&sweep_name(product));
+                        }
+                    }
+                    out.push('\n');
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The sweep of `outcome` is the checked-in one: a change to the oracle's answers, or to the
+/// product's departures from them, shows as a diff of `cells-outcome-sweep.tsv`.
+#[test]
+fn the_outcome_sweep_is_the_golden() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/class-matrix")
+        .join(SWEEP_FILE);
+    let sweep = outcome_sweep();
+    if std::env::var_os("KRS_CELLS_SWEEP_RECORD").is_some() {
+        std::fs::write(&path, &sweep).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        return;
+    }
+    let golden = std::fs::read_to_string(&path).unwrap_or_default();
+    if golden != sweep {
+        let line = golden
+            .lines()
+            .zip(sweep.lines())
+            .position(|(was, is)| was != is)
+            .unwrap_or_else(|| golden.lines().count().min(sweep.lines().count()));
+        panic!(
+            "{SWEEP_FILE} differs from `outcome`'s sweep from line {}: was {:?}, is {:?}; \
+             review the change and record it with KRS_CELLS_SWEEP_RECORD=1",
+            line + 1,
+            golden.lines().nth(line),
+            sweep.lines().nth(line)
+        );
+    }
 }

@@ -2,9 +2,12 @@
 //!
 //! A declared cell has at most three layers of its own, outermost first: presence (`?`),
 //! instances (`*`, with the collection's order), and one content layer (a computation, a leaf of
-//! a sort, or a group of cells). An entry that names a cell is judged against the layers of the
-//! ancestors between the record's level and the cell ([`CellKind::path`]) followed by the cell's
-//! own ([`CellKind::of`]).
+//! a sort, or a group of cells). An entry that names a cell is judged against two stacks kept
+//! apart ([`EntryKind`]): the layers the ancestors between the record's level and the cell put
+//! above it ([`CellKind::path`]), and the cell's own ([`CellKind::of`]). The two are not one
+//! stack: an ancestor's mark is written at the ancestor's level, never in the entry, so an entry
+//! below a `?` or `*` ancestor is refused for that ancestor whatever it spells (S1 (b)), and only
+//! an entry with an empty path is judged against its own layers.
 //!
 //! Both are read through [`CellView`], which a parsed configuration field and a collected host
 //! field can each provide: multiplicity, collection order, and the content (the leaf's notation,
@@ -142,8 +145,10 @@ impl CellKind {
     /// The layers the ancestors between a record's level and a cell put above it, `ancestors`
     /// given outermost first. A plain group adds none: K's configuration abstraction supplies it
     /// and it asks nothing of the entry. A `?` ancestor adds its presence and a `*` ancestor its
-    /// instances, so an entry naming a cell below them meets that ancestor's layer first and is
-    /// refused for it (S1 (b)): it must name the ancestor's content at the ancestor's level.
+    /// instances. An entry whose path is not empty names a cell whose content depends on the
+    /// ancestor's presence or on which instance is meant, which the entry cannot say: it is
+    /// refused for the outermost such ancestor (S1 (b)), and the author writes the ancestor's
+    /// group record inside `Some(..)`, or its instance record.
     #[must_use]
     pub fn path<F: CellView>(ancestors: &[F]) -> Self {
         Self {
@@ -158,14 +163,27 @@ impl CellKind {
         }
     }
 
-    /// The stack an entry naming a cell through `ancestors` is judged against: the ancestors'
-    /// layers, then the cell's own.
+    /// What an entry naming `field` through `ancestors` is judged against: the ancestors'
+    /// layers and the cell's own, apart.
     #[must_use]
-    pub fn entry<F: CellView>(ancestors: &[F], field: &F) -> Self {
-        let mut stack = Self::path(ancestors);
-        stack.layers.extend(Self::of(field).layers);
-        stack
+    pub fn entry<F: CellView>(ancestors: &[F], field: &F) -> EntryKind {
+        EntryKind {
+            path: Self::path(ancestors),
+            own: Self::of(field),
+        }
     }
+}
+
+/// What an entry naming a cell is judged against: the layers of its marked ancestors and the
+/// cell's own layers, kept apart (S1 (b)).
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct EntryKind {
+    /// The layers the `?` and `*` ancestors between the record's level and the cell put above
+    /// it, outermost first ([`CellKind::path`]); empty for a cell named at its own level or
+    /// below plain groups only.
+    pub path: CellKind,
+    /// The cell's own layers ([`CellKind::of`]).
+    pub own: CellKind,
 }
 
 #[cfg(test)]
@@ -250,13 +268,11 @@ mod tests {
             content: int,
         };
         assert_eq!(CellKind::path(&[plain]).layers, vec![]);
+        let entry = CellKind::entry(&[optional, many], &child);
         assert_eq!(
-            CellKind::entry(&[optional, many], &child).layers,
-            vec![
-                Layer::Optional,
-                Layer::Instances(Order::Map),
-                Layer::Leaf(Notation::Plain)
-            ]
+            entry.path.layers,
+            vec![Layer::Optional, Layer::Instances(Order::Map)]
         );
+        assert_eq!(entry.own.layers, vec![Layer::Leaf(Notation::Plain)]);
     }
 }

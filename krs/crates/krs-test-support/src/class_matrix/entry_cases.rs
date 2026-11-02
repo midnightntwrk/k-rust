@@ -378,6 +378,7 @@ fn entry(cell: &str, side: Side, stack: Vec<Layer>, spelling: Spelling) -> Entry
     Entry {
         cell: cell.to_owned(),
         side,
+        path: Vec::new(),
         stack,
         spelling,
     }
