@@ -47,7 +47,7 @@
 //!
 //! [[cost]]
 //! mode = "one round"
-//! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds; per round, one copy of each input conjunct and of the k known predicates other than \\top into the assumption list (the known ones are indexed borrowed), and one key per conjunct and known conjunct"
+//! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds; per round, one copy of each input conjunct and of the k known predicates other than \\top into the assumption list (the known ones are indexed borrowed), and one key per conjunct and known conjunct; when an equality besides the kept known ones is in force, one walk of each conjunct that is no definedness atom over its predicate nodes (not its terms) for a nested \\ceil or absence, and at the first that has one, one build of the kept path condition from the kept equalities, shared with the round's definedness atoms"
 //!
 //! [[cost]]
 //! mode = "assumption lookups"
@@ -1094,6 +1094,12 @@ struct PredicateAssumptions<'a> {
     /// A `\ceil` is discharged or rewritten only through kept predicates and definedness atoms
     /// (`known_defined_subterms`).
     kept: usize,
+    /// The path condition of the kept predicates' equalities alone, when `terms.path_condition`
+    /// holds others too: that of a conjunct of a conjunction other than a definedness atom, read
+    /// by a definedness atom nested in it (under a binder, a disjunction, a negation). `None`
+    /// when `terms.path_condition` is that path condition. A definedness atom's subject is
+    /// simplified under it ([`PredicateAssumptions::definedness_path_condition`], K13).
+    ceil_path_condition: Option<&'a PathConditionReplacements>,
     /// For the further pass of a definedness atom's arm over the atom's expansion, the atom: a
     /// conjunction simplification under these assumptions keeps it as it is once it is alone
     /// beside the known predicates ([`simplify_conjunction_with_budget`]). Read by the `And` arm
@@ -1119,8 +1125,31 @@ impl<'a> PredicateAssumptions<'a> {
             known,
             level,
             kept,
+            ceil_path_condition: None,
             settled: None,
         }
+    }
+
+    /// These assumptions, with `ceil_path_condition` the path condition of a definedness atom's
+    /// subject nested in the predicate simplified under them.
+    fn with_ceil_path_condition(
+        mut self,
+        ceil_path_condition: Option<&'a PathConditionReplacements>,
+    ) -> Self {
+        self.ceil_path_condition = ceil_path_condition;
+        self
+    }
+
+    /// The path condition under which a definedness atom's subject is simplified: that of the
+    /// kept predicates' equalities, wherever the atom stands. The atom implies the definedness of
+    /// its subject's subterms, so a rewrite of the subject through an enclosing `t = c` would
+    /// leave the definedness of `t` to that equality, which the solver may decide valid with
+    /// `t`'s SMT reading and drop (K11 for a `\ceil` conjunct, K13 for an atom nested in another
+    /// conjunct). The obligations of a function equation applied in the subject are still
+    /// decided under every assumption (`terms.predicates`): K14.
+    fn definedness_path_condition(&self) -> &'a PathConditionReplacements {
+        self.ceil_path_condition
+            .unwrap_or(self.terms.path_condition)
     }
 
     /// These assumptions, for the further pass of the arm of the definedness atom `atom` over
@@ -1134,6 +1163,7 @@ impl<'a> PredicateAssumptions<'a> {
             known: self.known,
             level: self.level,
             kept: self.kept,
+            ceil_path_condition: self.ceil_path_condition,
             settled: Some(atom),
         }
     }
@@ -1558,6 +1588,9 @@ struct UnshadowedAssumptions<'a> {
     /// [`PredicateAssumptions::kept`], of `predicates`.
     kept: usize,
     path_condition: PathConditionReplacements,
+    /// The path condition of the kept ones among `predicates`
+    /// ([`PredicateAssumptions::ceil_path_condition`]).
+    ceil_path_condition: PathConditionReplacements,
     conjuncts: KnownConjuncts<'a>,
 }
 
@@ -1585,12 +1618,14 @@ impl<'a> UnshadowedAssumptions<'a> {
             .filter(|predicate| holds(predicate))
             .count();
         let path_condition = PathConditionReplacements::new(&predicates);
+        let ceil_path_condition = PathConditionReplacements::new(&predicates[..kept]);
         let conjuncts =
             KnownConjuncts::of(assumptions.conjuncts().filter(|predicate| holds(predicate)));
         Some(Self {
             predicates,
             kept,
             path_condition,
+            ceil_path_condition,
             conjuncts,
         })
     }
@@ -1605,6 +1640,7 @@ impl<'a> UnshadowedAssumptions<'a> {
             None,
             self.kept,
         )
+        .with_ceil_path_condition(Some(&self.ceil_path_condition))
     }
 }
 
@@ -1773,14 +1809,30 @@ fn simplify_conjunction_with_budget(
         } else {
             let excluded_path_condition = (!conjunct_equalities[index].is_empty())
                 .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
-            let path_condition = if matches!(predicate, Predicate::Ceil(_)) {
-                &*known_path_condition.get_or_insert_with(|| {
+            // A definedness atom is simplified under the kept path condition, and so is one nested
+            // in another conjunct (`PredicateAssumptions::ceil_path_condition`), whenever an
+            // equality besides the kept ones is in force.
+            let atom = matches!(predicate, Predicate::Ceil(_) | Predicate::Absent(_));
+            let nested = !atom
+                && (known_equalities.len() > kept_equalities
+                    || conjunct_equalities
+                        .iter()
+                        .enumerate()
+                        .any(|(position, equalities)| position != index && !equalities.is_empty()))
+                && holds_definedness_atom(predicate);
+            if atom || nested {
+                known_path_condition.get_or_insert_with(|| {
                     PathConditionReplacements::from_equalities(
                         known_equalities[..kept_equalities]
                             .iter()
                             .map(|(left, right)| (left, right)),
                     )
-                })
+                });
+            }
+            let path_condition = if atom {
+                known_path_condition
+                    .as_ref()
+                    .expect("built for a definedness atom")
             } else {
                 match &excluded_path_condition {
                     Some(path_condition) => path_condition,
@@ -1797,7 +1849,12 @@ fn simplify_conjunction_with_budget(
                 &known_index,
                 Some((&level, slots[index])),
                 kept_assumptions,
-            );
+            )
+            .with_ceil_path_condition(if nested {
+                known_path_condition.as_ref()
+            } else {
+                None
+            });
             let mut predicate_remaining = *remaining;
             simplify_predicate_with_budget(
                 definition,
@@ -1864,6 +1921,21 @@ fn simplify_conjunction_with_budget(
         solver,
         settled,
     )
+}
+
+/// Whether `predicate` holds a `\ceil` or an absence at any depth.
+fn holds_definedness_atom(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Ceil(_) | Predicate::Absent(_) => true,
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            holds_definedness_atom(inner)
+        }
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().any(holds_definedness_atom),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            holds_definedness_atom(left) || holds_definedness_atom(right)
+        }
+        _ => false,
+    }
 }
 
 /// Whether every conjunct of `predicates`, nested `And`s flattened, is `\top` or one of `known`,
@@ -3271,12 +3343,12 @@ fn simplify_predicate_on_stack(
         Some(false) => return Ok(Predicate::False),
         None => {}
     }
-    let simplify_term = |term: &Term| {
+    let simplify_term_under = |term: &Term, terms: &TermAssumptions<'_>| {
         let mut term_remaining = *remaining;
         simplify_with_budget(
             definition,
             term,
-            &assumptions.terms,
+            terms,
             SimplificationOptions {
                 max_iterations: limit,
                 budget: BudgetPolicy::Fail,
@@ -3285,6 +3357,17 @@ fn simplify_predicate_on_stack(
             active_conditions,
             solver,
             None,
+        )
+    };
+    let simplify_term = |term: &Term| simplify_term_under(term, &assumptions.terms);
+    // A definedness atom's subject (`PredicateAssumptions::definedness_path_condition`).
+    let simplify_subject = |term: &Term| {
+        simplify_term_under(
+            term,
+            &TermAssumptions {
+                predicates: assumptions.terms.predicates,
+                path_condition: assumptions.definedness_path_condition(),
+            },
         )
     };
     let simplified = match predicate {
@@ -3425,7 +3508,7 @@ fn simplify_predicate_on_stack(
                     solver,
                 );
             }
-            let simplified = simplify_term(term)?.into_parts();
+            let simplified = simplify_subject(term)?.into_parts();
             let unchanged = Predicate::Ceil(simplified.term.clone());
             // A conjunction the simplification of the operand builds is read the same way.
             if contains_term_conjunction(&simplified.term) {
@@ -3566,8 +3649,8 @@ fn simplify_predicate_on_stack(
             // alone. Over an opaque rest that is the atom again beside the key's and the rest's
             // own obligations; over a rest that has become a collection with entries it is the
             // key's disequalities from those entries and its absence from their rest.
-            let key = simplify_term(absence.key())?.into_parts();
-            let rest = simplify_term(absence.rest())?.into_parts();
+            let key = simplify_subject(absence.key())?.into_parts();
+            let rest = simplify_subject(absence.rest())?.into_parts();
             let mut constraints = key.conditions.into_predicates();
             constraints.extend(rest.conditions);
             let simplified = Absence::predicate(absence.collection(), key.term, rest.term);
