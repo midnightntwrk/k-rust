@@ -775,6 +775,53 @@ theorem concat_element_same_or_comm_remove_update {k₁ k₂ : K} {v₁ v₂ w�
     rw [lookup_update_ne _ _ j₂, lookup_update_ne _ _ j₁, lookup_update_ne _ _ j₂,
       lookup_remove_ne j₂ wR₁, ← lookup_update_ne R₂ v₂ j₂, ← e, lookup_update_ne _ _ j₁]
 
+/-- Updates at two different keys commute. -/
+theorem update_comm {m : M} {k₁ k₂ : K} (v₁ v₂ : V) (hw : WF m) (hne : k₁ ≠ k₂) :
+    update (update m k₁ v₁) k₂ v₂ = update (update m k₂ v₂) k₁ v₁ := by
+  have hne' : k₂ ≠ k₁ := fun h => hne h.symm
+  refine ext (wf_update (wf_update hw)) (wf_update (wf_update hw)) (fun j => ?_)
+  by_cases j₂ : j = k₂
+  · subst j₂
+    rw [lookup_update_self, lookup_update_ne _ _ hne', lookup_update_self]
+  by_cases j₁ : j = k₁
+  · subst j₁
+    rw [lookup_update_ne _ _ hne, lookup_update_self, lookup_update_self]
+  rw [lookup_update_ne _ _ j₂, lookup_update_ne _ _ j₁, lookup_update_ne _ _ j₁,
+    lookup_update_ne _ _ j₂]
+
+/-- The removal of a binding and the insertion of a fresh binding into one map commute. Removing
+`k₁` turns `m = (k₁ ↦ v₁) R₁` into `R₁`, inserting `k₂` turns `m` into `m₂ = (k₂ ↦ w₂) m`, defined
+only when `k₂` is not a key of `m`, so `k₂ ≠ k₁`: the insertion is still defined at `R₁`, the
+removal still matches `m₂`, and both orders give one map `m'`. -/
+theorem concat_element_comm_remove_insert {k₁ k₂ : K} {v₁ w₂ : V} {R₁ m m₂ : M}
+    (h₁ : concat (element k₁ v₁) R₁ = some m) (r₂ : concat (element k₂ w₂) m = some m₂) :
+    ∃ m', concat (element k₂ w₂) R₁ = some m' ∧ concat (element k₁ v₁) m' = some m₂ := by
+  have lm := lookup_of_concat_element h₁
+  obtain ⟨wR₁, n₁, rfl⟩ := concat_element_iff.1 h₁
+  obtain ⟨-, n₂, rfl⟩ := concat_element_iff.1 r₂
+  have hne : k₁ ≠ k₂ := fun h => by subst h; rw [lm] at n₂; exact absurd n₂ (by simp)
+  have hne' : k₂ ≠ k₁ := fun h => hne h.symm
+  refine ⟨update R₁ k₂ w₂,
+    concat_element_iff.2 ⟨wR₁, by rw [← lookup_update_ne R₁ v₁ hne', n₂], rfl⟩,
+    concat_element_iff.2 ⟨wf_update wR₁, by rw [lookup_update_ne _ _ hne, n₁], ?_⟩⟩
+  exact update_comm v₁ w₂ wR₁ hne
+
+/-- Two insertions of fresh bindings into one map are at one key, or they commute: each is still
+defined after the other, and both orders give one map `m'`. -/
+theorem concat_element_same_or_comm_insert {k₁ k₂ : K} {w₁ w₂ : V} {m m₁ m₂ : M}
+    (r₁ : concat (element k₁ w₁) m = some m₁) (r₂ : concat (element k₂ w₂) m = some m₂) :
+    k₁ = k₂ ∨
+    ∃ m', concat (element k₂ w₂) m₁ = some m' ∧ concat (element k₁ w₁) m₂ = some m' := by
+  by_cases hk : k₁ = k₂
+  · exact Or.inl hk
+  refine Or.inr ?_
+  have hne' : k₂ ≠ k₁ := fun h => hk h.symm
+  obtain ⟨wm, n₁, rfl⟩ := concat_element_iff.1 r₁
+  obtain ⟨-, n₂, rfl⟩ := concat_element_iff.1 r₂
+  exact ⟨_, concat_element_iff.2 ⟨wf_update wm, by rw [lookup_update_ne _ _ hne', n₂], rfl⟩,
+    concat_element_iff.2 ⟨wf_update wm, by rw [lookup_update_ne _ _ hk, n₁],
+      update_comm w₁ w₂ wm hk⟩⟩
+
 theorem concat_toList {a b m : M} (h : concat a b = some m) :
     SAL.concat (toList a) (toList b) = some (toList m) := by
   unfold concat at h

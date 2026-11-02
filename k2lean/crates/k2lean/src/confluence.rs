@@ -195,8 +195,9 @@ fn map_role(r: &Rule, removals: bool) -> MapRole {
 
 /// The commuting attempts at two steps by `r1` and `r2` from one configuration, their instances
 /// unified (the binders of `r2` suffixed `sfx`): two updates of one map (at one key one instance,
-/// at two each step after the other), an update and an insertion, a removal and a removal or an
-/// update, and each step after the other as they stand, joined by `k2l_join_eq`.
+/// at two each step after the other), an update and an insertion, a removal and a removal, an
+/// update or an insertion, two insertions (at keys that clash or at two keys; one instance is
+/// `k2l_det`'s), and each step after the other as they stand, joined by `k2l_join_eq`.
 fn commute_alts(
     name: &str,
     prios: Option<&[i64]>,
@@ -320,6 +321,37 @@ fn commute_alts(
             alts.push(format!(
                 "(rcases MapHook.concat_element_same_or_comm_remove_update {} {hm} {hr} with ⟨hk, hv, hR⟩ | ⟨R₁₂, m', a₁, a₂, a₃⟩\n       · {same}\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
                 sf(hm2),
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
+            ));
+        }
+        (MapRole::Remove { hm }, MapRole::Insert { hr: hr2 }) => {
+            let s2 = replace(&hyps2, &[(hr2, "a₁".into())]);
+            let s1 = replace(&hyps1, &[(hm, "a₂".into())]);
+            alts.push(format!(
+                "(obtain ⟨m', a₁, a₂⟩ := MapHook.concat_element_comm_remove_insert {hm} {}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hr2),
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
+            ));
+        }
+        (MapRole::Insert { hr }, MapRole::Remove { hm: hm2 }) => {
+            let s2 = replace(&hyps2, &[(hm2, "a₂".into())]);
+            let s1 = replace(&hyps1, &[(hr, "a₁".into())]);
+            alts.push(format!(
+                "(obtain ⟨m', a₁, a₂⟩ := MapHook.concat_element_comm_remove_insert {} {hr}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hm2),
+                ctor(r2, &s2, true),
+                ctor(r1, &s1, false)
+            ));
+        }
+        (MapRole::Insert { hr }, MapRole::Insert { hr: hr2 }) => {
+            // at one key the keys clash, by arithmetic under the constructors injected
+            let s2 = replace(&hyps2, &[(hr2, "a₁".into())]);
+            let s1 = replace(&hyps1, &[(hr, "a₂".into())]);
+            alts.push(format!(
+                "(rcases MapHook.concat_element_same_or_comm_insert {hr} {} with hk | ⟨m', a₁, a₂⟩\n       · first | (exfalso; k2l_arith_omega) | (exfalso; simp at hk <;> k2l_arith_omega)\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hr2),
                 ctor(r2, &s2, true),
                 ctor(r1, &s1, false)
             ));

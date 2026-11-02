@@ -22,8 +22,8 @@
 # JobsConf: the same without threads, the fixture jobs, library jobs; with priority ranks,
 # RaceLogOwConf and JobsOwConf: the same modulo the equivalence over the fixtures with an `owise`
 # rule, tests/racelog-owise.py and tests/jobs-owise.py, libraries racelogow and jobsow; JobsRmConf and
-# JobsDropConf: jobs whose steps remove bindings of the map, tests/jobs-remove.py, libraries jobsrm
-# and jobsdrop; UtxoRelConf: utxo with cells its processes write and no rule reads, by process modulo
+# JobsDropConf: jobs whose steps remove bindings of the map, and JobsSubConf: jobs removed and
+# inserted, tests/jobs-remove.py, libraries jobsrm, jobsdrop and jobssub; UtxoRelConf: utxo with cells its processes write and no rule reads, by process modulo
 # the equivalence, tests/utxo-relaxed.py, library utxorel). Registry: confluence.py.
 
 kore_confluence() {
@@ -38,9 +38,9 @@ kore_confluence() {
     jobs-owise) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/jobs-owise.py" "$FIXTURES/jobs/jobs.k" "$2.src/jobs.k" || return 2
       f=$2.src/jobs.k m=JOBS s=JOBS-SYNTAX inc=$2.src ;;
-    # the fixture jobs with each job removed when it runs, or dropped once it has run
-    # (tests/jobs-remove.py)
-    jobs-remove | jobs-drop) mkdir -p "$2.src" &&
+    # the fixture jobs with each job removed when it runs, or dropped once it has run, or removed
+    # when it runs and submitted by two counters (tests/jobs-remove.py)
+    jobs-remove | jobs-drop | jobs-submit) mkdir -p "$2.src" &&
       python3 -I "$LIBS_DIR/jobs-remove.py" "$FIXTURES/jobs/jobs.k" "$2.src/jobs.k" "${1#jobs-}" || return 2
       f=$2.src/jobs.k m=JOBS s=JOBS-SYNTAX inc=$2.src ;;
     # the fixture utxo with the last creator and a log of the outputs created and spent
@@ -68,6 +68,7 @@ name_confluence() {
     jobsow) echo JobsOw ;;
     jobsrm) echo JobsRm ;;
     jobsdrop) echo JobsDrop ;;
+    jobssub) echo JobsSub ;;
     utxorel) echo UtxoRel ;;
     *) return 1 ;;
   esac
@@ -125,6 +126,8 @@ gen_confluence() {
             --out "$o" --name JobsRm --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     jobsdrop) GEN_ARGS=(--kore "$(kore_dir jobs-drop)/definition.kore" --runtime "$(kore_dir jobs-drop)/runtime.json"
             --out "$o" --name JobsDrop --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    jobssub) GEN_ARGS=(--kore "$(kore_dir jobs-submit)/definition.kore" --runtime "$(kore_dir jobs-submit)/runtime.json"
+            --out "$o" --name JobsSub --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     # utxo with cells its processes write and no rule reads (tests/utxo-relaxed.py), for
     # `confluence --threads --equiv`
     utxorel) GEN_ARGS=(--kore "$(kore_dir utxo-relaxed)/definition.kore" --runtime "$(kore_dir utxo-relaxed)/runtime.json"
@@ -305,6 +308,12 @@ libs_confluence() {
         --obs total --equiv done=perm --views-module JobsDropConf.Views \
         --slots "$DEMOS/JobsDropConf/JobsDropConf/Slots.lean" \
         --out "$DEMOS/JobsDropConf/JobsDropConf/Views.lean" --report "$DEMOS/JobsDropConf/confluence.toml" ;;
+    # jobs removed when they run and inserted by two counters: a removal and an insertion, or two
+    # insertions at two keys, commute
+    JobsSubConf) "$G" confluence --kore "$(kore_dir jobs-submit)/definition.kore" --name JobsSub --ns JobsSubConf \
+        --obs total --equiv done=perm --views-module JobsSubConf.Views \
+        --slots "$DEMOS/JobsSubConf/JobsSubConf/Slots.lean" \
+        --out "$DEMOS/JobsSubConf/JobsSubConf/Views.lean" --report "$DEMOS/JobsSubConf/confluence.toml" ;;
     # utxo with the last creator and a log, by process modulo `last` not compared and `log` up to
     # order: two creations or spends at two keys of the ledger commute (relaxed cells in the views'
     # classes)
@@ -522,6 +531,13 @@ gate_confluence() {
     phase "scaffold JobsDropConf"
     kc jobs-drop && partlib jobsdrop JobsDrop.Adequacy &&
       scaffold confluence-JobsDropConf libs_confluence JobsDropConf && dbuild_slots JobsDropConf
+  fi
+  # insertions beside removals and insertions (`concat_element_comm_remove_insert`,
+  # `concat_element_same_or_comm_insert`)
+  if runs demo JobsSubConf; then
+    phase "scaffold JobsSubConf"
+    kc jobs-submit && partlib jobssub JobsSub.Adequacy &&
+      scaffold confluence-JobsSubConf libs_confluence JobsSubConf && dbuild_slots JobsSubConf
   fi
   # relaxed cells in the views' classes: utxo whose creations and spends also write cells no rule
   # reads, joined generically at two keys of the ledger modulo the equivalence

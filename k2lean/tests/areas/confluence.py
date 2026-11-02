@@ -55,6 +55,13 @@ DEMOS = {
                                                   "demos/JobsDropConf/JobsDropConf/Slots.lean",
                                                   "demos/JobsDropConf/confluence.toml"],
                      "slots": {"prefixes": ["join.", "equiv."]}},
+    # jobs removed when they run and inserted by two counters (tests/jobs-remove.py, mode submit): a
+    # removal and an insertion, or two insertions at two keys, commute
+    "JobsSubConf": {"tier": "light", "sources": ["generated/jobssub",
+                                                 "demos/JobsSubConf/JobsSubConf/Views.lean",
+                                                 "demos/JobsSubConf/JobsSubConf/Slots.lean",
+                                                 "demos/JobsSubConf/confluence.toml"],
+                    "slots": {"prefixes": ["join.", "equiv."]}},
     # utxo with cells its processes write and no rule reads (tests/utxo-relaxed.py), by process
     # modulo the equivalence: creations and spends at two keys of the ledger commute (relaxed cells
     # in the views' classes)
