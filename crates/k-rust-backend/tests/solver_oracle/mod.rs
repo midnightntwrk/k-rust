@@ -1125,19 +1125,66 @@ pub fn predicate(terms: &Terms) -> BoxedStrategy<Pred> {
         1 => prop_oneof![Just(IntVar::X), Just(IntVar::Y), Just(IntVar::Z)].prop_map(Binder::Int),
         3 => Just(Binder::Int(IntVar::N)),
     ];
-    atom(terms)
-        .prop_recursive(3, 4, 2, move |inner| {
-            prop_oneof![
-                2 => inner.clone().prop_map(|p| Pred::Not(Box::new(p))),
-                2 => (inner.clone(), inner.clone())
-                    .prop_map(|(p, q)| Pred::And(Box::new(p), Box::new(q))),
-                2 => (inner.clone(), inner.clone())
-                    .prop_map(|(p, q)| Pred::Or(Box::new(p), Box::new(q))),
-                1 => (inner.clone(), inner.clone())
-                    .prop_map(|(p, q)| Pred::Implies(Box::new(p), Box::new(q))),
-                2 => (binder.clone(), inner).prop_map(|(v, p)| Pred::Exists(v, Box::new(p))),
-            ]
-        })
+    let composed = atom(terms).prop_recursive(3, 4, 2, move |inner| {
+        prop_oneof![
+            2 => inner.clone().prop_map(|p| Pred::Not(Box::new(p))),
+            2 => (inner.clone(), inner.clone())
+                .prop_map(|(p, q)| Pred::And(Box::new(p), Box::new(q))),
+            2 => (inner.clone(), inner.clone())
+                .prop_map(|(p, q)| Pred::Or(Box::new(p), Box::new(q))),
+            1 => (inner.clone(), inner.clone())
+                .prop_map(|(p, q)| Pred::Implies(Box::new(p), Box::new(q))),
+            2 => (binder.clone(), inner).prop_map(|(v, p)| Pred::Exists(v, Box::new(p))),
+        ]
+    });
+    prop_oneof![7 => composed, 1 => reuse(terms)].boxed()
+}
+
+/// The same term on both sides of a binder that rebinds one of its variables (GAP K23 review):
+/// `t = c ∧ ∃v. ¬(t = c)`, `¬(t = c) ∧ ∃v. t = c` or `¬⌈t⌉ ∧ ∃v. ⌈t⌉`, with `v` a variable `t`
+/// mentions, and half the time all of it under `∃v`, so that `v` is bound twice on one path. The
+/// two occurrences of `t` are one node of the translation that denotes two values: inside `∃v`
+/// it reads the bound `v`. Whenever the inner `∃` has a witness (`WITNESSES`), K truth holds the
+/// whole formula true where its first conjunct holds, and a translation that let the inner `t`
+/// reuse the outer one's `let` (its value, or its domain) would read the inner `∃` as the first
+/// conjunct's negation: Unsat. The generator draws the two sides of other binders
+/// independently, so it rarely puts one node on both sides.
+pub fn reuse(terms: &Terms) -> BoxedStrategy<Pred> {
+    const VARIABLES: [IntVar; 4] = [IntVar::X, IntVar::Y, IntVar::Z, IntVar::N];
+    (
+        terms.int.clone(),
+        any::<prop::sample::Index>(),
+        -2i8..=2,
+        0u8..3,
+        any::<bool>(),
+    )
+        .prop_filter_map(
+            "a term that mentions a variable and is not one",
+            |(t, index, c, shape, twice)| {
+                if matches!(t, IntT::Var(_)) {
+                    return None;
+                }
+                let mentioned = VARIABLES
+                    .into_iter()
+                    .filter(|var| t.mentions(*var))
+                    .collect::<Vec<_>>();
+                if mentioned.is_empty() {
+                    return None;
+                }
+                let var = *index.get(&mentioned);
+                let eq = || Pred::Eq(AnyT::Int(t.clone()), AnyT::Int(int_lit(c)));
+                let ceil = || Pred::Ceil(AnyT::Int(t.clone()));
+                let not = |p: Pred| Pred::Not(Box::new(p));
+                let exists = |p: Pred| Pred::Exists(Binder::Int(var), Box::new(p));
+                let (outer, inner) = match shape {
+                    0 => (eq(), not(eq())),
+                    1 => (not(eq()), eq()),
+                    _ => (not(ceil()), ceil()),
+                };
+                let formula = Pred::And(Box::new(outer), Box::new(exists(inner)));
+                Some(if twice { exists(formula) } else { formula })
+            },
+        )
         .boxed()
 }
 

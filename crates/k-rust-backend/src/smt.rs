@@ -988,9 +988,9 @@ impl TranslationState {
         self.foreign_text = true;
     }
 
-    /// Share operands in the active lexical value scope, preventing a small term DAG from
-    /// expanding into an exponential script. Observation predicates own their value scope
-    /// so that domain lets cannot outlive the values they read.
+    /// Share operands in the value scope of their own variables (`LetScope`), preventing a small
+    /// term DAG from expanding into an exponential script. Observation predicates own their
+    /// value scope so that domain lets cannot outlive the values they read.
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         if self.congruence.is_none()
             || (!self.has_term_scope() && self.congruence_head(term).is_none())

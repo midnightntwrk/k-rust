@@ -1339,6 +1339,12 @@ pub(super) fn prepare(
         planner.plan.root = root;
         stop::check()?;
         // Share the scalar fallback too: retaining it must not expand a source DAG into a tree.
+        // Its lets are emitted with the fallback alone, so this must be the only open scope
+        // (`prepare` runs at preparation, before any query is translated).
+        debug_assert!(
+            state.scopes.is_empty(),
+            "scalar fallback scope opened inside another scope"
+        );
         state.open_scope(None, false, true);
         // The scalar reading alone: the fact below relates the two readings under the
         // operands' domains, and the query states those domains beside the word value where

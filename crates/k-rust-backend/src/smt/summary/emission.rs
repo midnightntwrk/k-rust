@@ -270,6 +270,13 @@ fn emit(
         ]));
         state.bound_variables.push((parameter.clone(), name));
     }
+    // The parameters have no scope of their own: `term_level` puts a node that mentions them at
+    // level 0, which is this scope only while the stack is empty (emission runs at preparation,
+    // before any query is translated).
+    debug_assert!(
+        state.scopes.is_empty(),
+        "summary body scope opened inside another scope"
+    );
     state.open_scope(None, false, true);
     let mut body = Body {
         state,
