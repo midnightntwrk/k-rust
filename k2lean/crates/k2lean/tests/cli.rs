@@ -2978,3 +2978,45 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
         err(&o)
     );
 }
+
+/// `noninterference` with priority ranks (design.md §3.7, NI-6): a definition of several ranks is
+/// taken (`counter`, whose `skip` is at priority 40, gets past it to the statement, which wants
+/// `--inputs` since its store is no input); a rule that does not step the top cell's nonempty `<k>`
+/// is refused, since `Final` (`<k>` empty) would then not be terminal (`cellmap`'s `tick`).
+#[test]
+fn noninterference_takes_priority_ranks_and_refuses_rules_that_do_not_step_k() {
+    let d = tmp("cli-noninterference-ranks");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let run = |f: &str| {
+        let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("noninterference")
+            .arg("--kore")
+            .arg(fx.join(f).join("definition.kore"))
+            .args([
+                "--name",
+                "X",
+                "--ns",
+                "XNI",
+                "--store-cell",
+                "env",
+                "--program-sort",
+                "SortPgm",
+            ])
+            .arg("--out")
+            .arg(d.join("NI.lean"))
+            .output()
+            .unwrap();
+        assert!(!o.status.success());
+        String::from_utf8_lossy(&o.stderr).to_string()
+    };
+    let e = run("counter");
+    assert!(
+        e.contains("--inputs is required") && !e.contains("priority ranks"),
+        "{e}"
+    );
+    let e = run("cellmap");
+    assert!(
+        e.contains("rules that do not step a nonempty <k> of the top cell (tick)"),
+        "{e}"
+    );
+}

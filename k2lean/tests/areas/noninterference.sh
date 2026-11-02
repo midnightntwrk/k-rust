@@ -2,12 +2,24 @@
 # The noninterference area: `noninterference` (ImpNI: kimp with the security checker
 # demos/k/imp-sec.k, library impsec, over kimpni, kimp with what a store is, demos/k/imp-ni.k;
 # ContractNI: the fixture contract, a contract with private state, with its checker, the fixture
-# contractsec). Registry: noninterference.py.
+# contractsec; with priority ranks, ImpOwiseNI and ContractOwiseNI: the same with `owise` rules,
+# tests/kimp-owise.py and tests/contract-owise.py, libraries kimpowni and contractow). Registry:
+# noninterference.py.
 
 kore_noninterference() {
   case $1 in
     imp-sec) f=$DEMOS/k/imp-sec.k m=IMP-SEC s=IMP-SEC-SYNTAX inc=$KIMP ;;
     imp-ni) f=$DEMOS/k/imp-ni.k m=IMP-NI s=IMP-SYNTAX inc=$KIMP ;;
+    # kimp with `owise` rules (tests/kimp-owise.py: `&&`, `||` and the two-armed `if`, priority
+    # 200 after the default 50) and what a store is, demos/k/imp-ni.k over it
+    imp-owise-ni) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/kimp-owise.py" "$KIMP" "$2.src" || return 2
+      f=$DEMOS/k/imp-ni.k m=IMP-NI s=IMP-SYNTAX inc=$2.src ;;
+    # the fixture contract with `owise` rules (tests/contract-owise.py: the two-armed `if` and
+    # `repeat`'s end)
+    contract-owise) mkdir -p "$2.src" &&
+      python3 -I "$LIBS_DIR/contract-owise.py" "$FIXTURES/contract/contract.k" "$2.src/contract.k" || return 2
+      f=$2.src/contract.k m=CONTRACT s=CONTRACT-SYNTAX inc=$2.src ;;
     *) return 1 ;;
   esac
 }
@@ -18,6 +30,8 @@ name_noninterference() {
     kimpni) echo KImpNI ;;
     contract) echo Contract ;;
     contractsec) echo ContractSec ;;
+    kimpowni) echo KImpOwNI ;;
+    contractow) echo ContractOw ;;
     *) return 1 ;;
   esac
 }
@@ -34,6 +48,13 @@ gen_noninterference() {
             --invariant storeOk@env) ;;
     contract) libs_fixture_args "$1"; GEN_ARGS+=(--invariant storeOk@env) ;;
     contractsec) libs_fixture_args "$1"; GEN_ARGS+=(--extra-fns "lev,sec,conf,quiet") ;;
+    # the same with `owise` rules: three priority ranks (kimp's 50 and 200) and two (contract's)
+    kimpowni) GEN_ARGS=(--kore "$(kore_dir imp-owise-ni)/definition.kore" --runtime "$(kore_dir imp-owise-ni)/runtime.json"
+            --out "$o" --name KImpOwNI --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant storeOk@env) ;;
+    contractow) GEN_ARGS=(--kore "$(kore_dir contract-owise)/definition.kore" --runtime "$(kore_dir contract-owise)/runtime.json"
+            --out "$o" --name ContractOw --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant storeOk@env) ;;
     *) return 1 ;;
   esac
   return 0
@@ -44,6 +65,9 @@ relate_noninterference() {
   case $1 in
     ImpNI) na=KImpNI ka=$(kore_dir imp-ni) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr") ;;
     ContractNI) na=Contract ka=$(libs_fixture contract) nb=ContractSec kd=$(libs_fixture contractsec)
+      extra=(--roots "SortStmt,SortExpr") ;;
+    ImpOwiseNI) na=KImpOwNI ka=$(kore_dir imp-owise-ni) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr") ;;
+    ContractOwiseNI) na=ContractOw ka=$(kore_dir contract-owise) nb=ContractSec kd=$(libs_fixture contractsec)
       extra=(--roots "SortStmt,SortExpr") ;;
     *) return 1 ;;
   esac
@@ -72,6 +96,20 @@ libs_noninterference() {
         --checker-kore "$(libs_fixture contractsec)/definition.kore" --checker-name ContractSec \
         --lev lev --sec sec --conf conf --quiet quiet \
         --open "$DEMOS/ContractNI/open.txt" --out-dir "$DEMOS/ContractNI/ContractNI" ;;
+    # with priority ranks: ImpNI's and ContractNI's commands over the definitions with `owise` rules
+    ImpOwiseNI) "$G" noninterference --kore "$(kore_dir imp-owise-ni)/definition.kore" --name KImpOwNI --ns ImpOwiseNI \
+        --store-cell env --program-sort SortStmt --params "(G : KImpSec.SortMap)" --store-ok storeOk \
+        --out "$DEMOS/ImpOwiseNI/ImpOwiseNI/NI.lean" --report "$DEMOS/ImpOwiseNI/noninterference.toml" \
+        --checker-kore "$(kore_dir imp-sec)/definition.kore" --checker-name KImpSec --lev lev --sec sec --conf conf \
+        --open "$DEMOS/ImpOwiseNI/open.txt" --out-dir "$DEMOS/ImpOwiseNI/ImpOwiseNI" ;;
+    ContractOwiseNI) "$G" noninterference --kore "$(kore_dir contract-owise)/definition.kore" --name ContractOw \
+        --ns ContractOwiseNI --store-cell env --program-sort SortStmt --params "(G : ContractSec.SortMap)" \
+        --store-ok storeOk --inputs "LEDGER=public,WIT=private" \
+        --observe "ledger,transcript" --disclosed disclosed \
+        --out "$DEMOS/ContractOwiseNI/ContractOwiseNI/NI.lean" --report "$DEMOS/ContractOwiseNI/noninterference.toml" \
+        --checker-kore "$(libs_fixture contractsec)/definition.kore" --checker-name ContractSec \
+        --lev lev --sec sec --conf conf --quiet quiet \
+        --open "$DEMOS/ContractOwiseNI/open.txt" --out-dir "$DEMOS/ContractOwiseNI/ContractOwiseNI" ;;
     *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -97,5 +135,20 @@ gate_noninterference() {
     rel ContractNI
     scaffold noninterference-ContractNI libs_noninterference ContractNI
     dbuild ContractNI
+  fi
+  # with priority ranks (section 3.7): ImpNI and ContractNI over the definitions with `owise` rules
+  if runs demo ImpOwiseNI; then
+    phase "scaffold ImpOwiseNI"
+    kc imp-owise-ni && kc imp-sec && partlib kimpowni KImpOwNI && partlib impsec KImpSec.Functions
+    rel ImpOwiseNI
+    scaffold noninterference-ImpOwiseNI libs_noninterference ImpOwiseNI
+    dbuild ImpOwiseNI
+  fi
+  if runs demo ContractOwiseNI; then
+    phase "scaffold ContractOwiseNI"
+    kc contract-owise && partlib contractow ContractOw && partlib contractsec ContractSec.Functions
+    rel ContractOwiseNI
+    scaffold noninterference-ContractOwiseNI libs_noninterference ContractOwiseNI
+    dbuild ContractOwiseNI
   fi
 }
