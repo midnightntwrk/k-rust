@@ -2228,10 +2228,17 @@ fn dropped_definedness_condition_is_not_a_witness() {
 /// exact SMT translation, so the remainder is not shown feasible and stays `SolverUnknown`. So
 /// the symbolic result is `unknown` in both profiles, never the wrong `match`. The ground
 /// instance `X = 0` stops at `halflet` after the write: `no-match`.
+///
+/// GAP K31 (`draft/kink27/gap`): k-rust's builtin hook now decides a comparison of a term with
+/// itself to its value at equal operands under the term's definedness, so the condition is
+/// `X =/=Int 0` and the remainder `X = 0`, as for `half`: both leaves are exactly feasible and
+/// complete, the `halt` path comes first (as `half`'s), and the decider refutes the only
+/// candidate's `X = 0` on the first path, `no-match`, where it was `unknown`. The plain outcome
+/// and the portable profile are unchanged.
 #[test]
 fn let_bound_partial_condition_keeps_its_definedness() {
     use HaltClass::{Indeterminate, Stuck};
-    use LeafFeasibility::{Solver, Syntactic, Unknown};
+    use LeafFeasibility::{Solver, Syntactic};
     let (mut symbolic, vocabulary) = run(
         Fixture::Partial,
         write_op_load(
@@ -2244,10 +2251,8 @@ fn let_bound_partial_condition_keeps_its_definedness() {
         leaf_rows(&symbolic),
         by_profile(
             vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
-            vec![
-                (Stuck, Solver, PathStop::Terminal),
-                (Stuck, Unknown, PathStop::SolverUnknown),
-            ]
+            // GAP K31: the remainder was `(Stuck, Unknown, PathStop::SolverUnknown)`.
+            vec![(Stuck, Solver, PathStop::Terminal); 2]
         )
     );
     let events = symbolic
@@ -2256,8 +2261,8 @@ fn let_bound_partial_condition_keeps_its_definedness() {
         .iter()
         .map(|path| path.events.len())
         .collect::<Vec<_>>();
-    // README 6.4 orders the write-only remainder before the write/load trace.
-    assert_eq!(events, by_profile(vec![1], vec![1, 2]));
+    // GAP K31: `[2, 1]` as for `half`, where the write-only remainder came first (`[1, 2]`).
+    assert_eq!(events, by_profile(vec![1], vec![2, 1]));
     if cfg!(feature = "z3") {
         let nonzero = Pattern::Not {
             sort: kore_sort("SortGeneratedTopCell"),
@@ -2268,14 +2273,22 @@ fn let_bound_partial_condition_keeps_its_definedness() {
                 right: Box::new(support::int(0)),
             }),
         };
-        assert_eq!(symbolic.bridged.paths[1].path_predicate, nonzero);
+        // GAP K31: the `halt` path is now the first.
+        assert_eq!(symbolic.bridged.paths[0].path_predicate, nonzero);
     }
     let plan = gwl_after(&vocabulary);
-    assert_both(
-        &mut symbolic,
-        &plan,
-        PatternOutcome::Unknown,
-        Some(PathStop::SolverUnknown),
+    // GAP K31: as for `half`; it was `unknown` with both deciders.
+    let plain = outcome(&symbolic, &plan);
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+    );
+    assert_eq!(
+        decided_outcome(&mut symbolic, &plan),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+            (PatternOutcome::NoMatch, None)
+        )
     );
 
     let five = || support::int(5);
