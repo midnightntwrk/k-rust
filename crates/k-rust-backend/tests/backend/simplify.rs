@@ -3349,15 +3349,14 @@ fn a_ceil_under_a_binder_is_not_rewritten_through_a_sibling_equality() {
     assert_keeps_half_definedness(&definition, binder_route(&definition));
 }
 
-/// GAP K14 (open): `zz(half(1))` is evaluated to 0 with its obligation `\ceil(half(1))` decided
-/// under the sibling `half(1) = 0`, so the conjunction becomes `half(1) = 0` alone and Z3 decides
-/// it valid. Simplifying the subject under what stays stated alone fixes this but loses
-/// conditions that siblings decide soundly (`refutation_by_simplification_evaluates_functions_
-/// under_the_negated_obligation`); the fix separates the obligations from the conditions in the
-/// term simplifier.
+/// GAP K14: `zz(half(1))` was evaluated to 0 with its obligation `\ceil(half(1))` decided
+/// under the sibling `half(1) = 0`, so the conjunction became `half(1) = 0` alone and Z3 decided
+/// it valid. While a definedness atom's arm simplifies its subject, such obligations are decided
+/// only under what stays stated, and the equations' conditions under every assumption
+/// (`refutation_by_simplification_evaluates_functions_under_the_negated_obligation` keeps a
+/// condition decided by a sibling).
 #[cfg(feature = "z3")]
 #[test]
-#[ignore = "GAP K14: a function equation's obligation in a \\ceil's subject is decided under its siblings"]
 fn a_function_equation_in_a_ceil_keeps_its_bound_term_obligation_beside_a_sibling_equality() {
     let definition = conditional_ceil_definition();
     assert_keeps_half_definedness(&definition, function_equation_route(&definition));

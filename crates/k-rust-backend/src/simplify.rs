@@ -39,7 +39,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "simplify_conjunction_with_budget", "only_true_or_known", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "simplify_conjunction_with_budget", "only_true_or_known", "StatingScope", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \\not; c = assumed conjuncts that share its key; k = known predicates"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited", "SimplifyConjunctNodes", "SimplifyKnownPredicates"]
 //! span = "per call"
@@ -72,6 +72,10 @@
 //! [[cost]]
 //! mode = "further pass of a \\ceil or absence atom's arm (settled)"
 //! bound = "in that pass and in every conjunction simplification reached from the re-simplification of its result by the ceil or predicate theory, which keeps its assumptions: one comparison with the atom per conjunct, and per round, at the conjunct equal to the atom, one walk of the other conjuncts' current values, descending into conjunctions, with one key and containment test against the known predicates each, stopping at the first that is neither \\top nor known; one Option test per conjunct in every other conjunction simplification"
+//!
+//! [[cost]]
+//! mode = "subject of a \\ceil or absence atom (StatingScope)"
+//! bound = "per simplification of the subject, when an assumption past the kept ones is no definedness atom alone: one walk of those assumptions' predicate nodes, each such assumption hashed once into the excluded set; then per equation whose bound terms' obligations are decided inside it, one set lookup per known predicate and, when one is excluded, one copy of the others and of the excluded ones' atoms; per memo lookup of an Unspecified evaluation, one comparison of the scopes"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -751,6 +755,116 @@ fn stating_predicates(known: &[Predicate], kept: usize) -> Cow<'_, [Predicate]> 
         push_atoms(predicate, &mut stating);
     }
     Cow::Owned(stating)
+}
+
+/// The assumptions that a definedness atom's arm does not let decide the obligations of the
+/// terms an equation binds in the atom's subject (K14): the predicates past the arm's kept ones
+/// that are not definedness atoms alone, with the definedness atoms they hold, which stay.
+///
+/// The atom `\ceil(s)` implies the definedness of every subterm of `s`. An equation
+/// `f(Y) = r requires R` applied to `f(t)` in `s` gives `r[t]` with the obligation `\ceil(t)`,
+/// carried as a condition of the result unless decided. Decided under an enclosing `t = c`, the
+/// obligation goes, and the definedness of `t` is left to that equality, which the solver may
+/// decide valid with `t`'s SMT reading and drop. So while the arm simplifies its subject, such
+/// obligations are decided only under what stays stated ([`stating_predicates`]).
+///
+/// The equation's condition `R[t]` is still decided under every assumption: the subject does not
+/// imply it (the equation is conditional), so deciding it by an enclosing conjunct leaves none of
+/// the subject's statements to that conjunct. The scope is set aside while a condition is decided
+/// ([`evaluate_equation_condition`]), so the obligations of the equations that the condition's
+/// own terms take are the condition's, decided under every assumption as before, and a condition
+/// verdict never depends on the scope ([`ConditionMemo`] serves it alike inside and outside).
+#[derive(Debug, PartialEq, Eq)]
+struct StatingScope {
+    /// The predicates whose discharges would not stay stated.
+    excluded: FxHashSet<Predicate>,
+    /// The definedness atoms those hold, which stay.
+    atoms: Vec<Predicate>,
+}
+
+thread_local! {
+    static STATING_SCOPE: RefCell<Option<Arc<StatingScope>>> = const { RefCell::new(None) };
+}
+
+/// The thread's [`StatingScope`] replaced by `scope` until it drops, then restored.
+struct StatingScopeGuard(Option<Arc<StatingScope>>);
+
+impl StatingScopeGuard {
+    fn enter(scope: Option<Arc<StatingScope>>) -> Self {
+        Self(STATING_SCOPE.with_borrow_mut(|current| std::mem::replace(current, scope)))
+    }
+}
+
+impl Drop for StatingScopeGuard {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+        STATING_SCOPE.with_borrow_mut(|current| *current = previous);
+    }
+}
+
+impl StatingScope {
+    /// The scope of a definedness atom's arm under `predicates`, of which the first `kept` are
+    /// kept; `None` when every other one is a definedness atom alone. One pass over the others,
+    /// reading their predicate nodes (not their terms).
+    fn of(predicates: &[Predicate], kept: usize) -> Option<Arc<Self>> {
+        fn atoms_only(predicate: &Predicate) -> bool {
+            match predicate {
+                Predicate::Ceil(_) | Predicate::Defined(_) => true,
+                Predicate::And(conjuncts) => conjuncts.iter().all(atoms_only),
+                _ => false,
+            }
+        }
+        fn push_atoms(predicate: &Predicate, atoms: &mut Vec<Predicate>) {
+            match predicate {
+                Predicate::Ceil(_) | Predicate::Defined(_) => atoms.push(predicate.clone()),
+                Predicate::And(conjuncts) => {
+                    for conjunct in conjuncts.iter() {
+                        push_atoms(conjunct, atoms);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut excluded = FxHashSet::default();
+        let mut atoms = Vec::new();
+        for predicate in &predicates[kept..] {
+            if !atoms_only(predicate) {
+                push_atoms(predicate, &mut atoms);
+                excluded.insert(predicate.clone());
+            }
+        }
+        // A predicate the caller keeps stays, though a conjunct repeats it.
+        for predicate in &predicates[..kept] {
+            excluded.remove(predicate);
+        }
+        (!excluded.is_empty()).then(|| Arc::new(Self { excluded, atoms }))
+    }
+
+    fn current() -> Option<Arc<Self>> {
+        STATING_SCOPE.with_borrow(Clone::clone)
+    }
+
+    /// `known` without the excluded predicates and with their atoms, under the current scope;
+    /// `known` itself outside one, or where it holds none of them.
+    fn restrict(known: &[Predicate]) -> Cow<'_, [Predicate]> {
+        match Self::current() {
+            Some(scope)
+                if known
+                    .iter()
+                    .any(|predicate| scope.excluded.contains(predicate)) =>
+            {
+                Cow::Owned(
+                    known
+                        .iter()
+                        .filter(|predicate| !scope.excluded.contains(*predicate))
+                        .chain(&scope.atoms)
+                        .cloned()
+                        .collect(),
+                )
+            }
+            _ => Cow::Borrowed(known),
+        }
+    }
 }
 
 /// Keep in `expanded`, the `ceil_term` expansion of the definedness atom `atom` (a `\ceil` or an
@@ -2192,6 +2306,9 @@ fn evaluate_equation_condition(
 ) -> SimplifyResult<EquationCondition> {
     let rule_id = rule.unique_id.as_str();
     crate::coverage::note_matched(rule_id);
+    // The condition is decided under every assumption, as outside a definedness atom's arm
+    // (`StatingScope`).
+    let _stating = StatingScopeGuard::enter(None);
     let (requires, matched) = instance.into_requires();
     // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
     // defined, so their definedness joins the requires. The definedness of the bound terms
@@ -3362,6 +3479,10 @@ fn simplify_predicate_on_stack(
     let simplify_term = |term: &Term| simplify_term_under(term, &assumptions.terms);
     // A definedness atom's subject (`PredicateAssumptions::definedness_path_condition`).
     let simplify_subject = |term: &Term| {
+        let _stating = StatingScopeGuard::enter(StatingScope::of(
+            assumptions.terms.predicates,
+            assumptions.kept,
+        ));
         simplify_term_under(
             term,
             &TermAssumptions {
@@ -8540,6 +8661,10 @@ struct AssumptionContent {
     predicates: Vec<Predicate>,
     substitution: Substitution,
     replacements: Vec<(Term, Term)>,
+    /// The [`StatingScope`] the evaluation ran in: under one, an equation's obligations are
+    /// decided under fewer assumptions, so a record made outside it is not served inside it, nor
+    /// the converse.
+    stating: Option<Arc<StatingScope>>,
 }
 
 impl AssumptionContent {
@@ -8553,6 +8678,7 @@ impl AssumptionContent {
                 .collect(),
             substitution: assumptions.path_condition.substitution.clone(),
             replacements: assumptions.path_condition.replacements.clone(),
+            stating: StatingScope::current(),
         }
     }
 
@@ -8563,6 +8689,7 @@ impl AssumptionContent {
             .filter(|predicate| **predicate != Predicate::True))
             && self.replacements == assumptions.path_condition.replacements
             && self.substitution == assumptions.path_condition.substitution
+            && self.stating == StatingScope::current()
     }
 
     /// A hash of the predicates of `assumptions` other than `\top`: assumptions of the same
@@ -9154,6 +9281,9 @@ fn decide_equation_bindings(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<DecidedEquation> {
+    // Under a definedness atom's arm, the obligations go only by what stays stated
+    // (`StatingScope`).
+    let known_predicates = &*StatingScope::restrict(known_predicates);
     let decided = matched.decide(|obligations| {
         let decide = || {
             let obligations = if let Some(anchor) = anchor {

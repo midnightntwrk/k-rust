@@ -4120,6 +4120,11 @@ symbol = "only_true_or_known"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "StatingScope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "known_defined_subterms"
 
 [[node.sites]]
@@ -4274,6 +4279,10 @@ bound = '''per ceil_term expansion of a \ceil or absence atom: one containment t
 [[node.cost]]
 mode = '''further pass of a \ceil or absence atom's arm (settled)'''
 bound = '''in that pass and in every conjunction simplification reached from the re-simplification of its result by the ceil or predicate theory, which keeps its assumptions: one comparison with the atom per conjunct, and per round, at the conjunct equal to the atom, one walk of the other conjuncts' current values, descending into conjunctions, with one key and containment test against the known predicates each, stopping at the first that is neither \top nor known; one Option test per conjunct in every other conjunction simplification'''
+
+[[node.cost]]
+mode = 'subject of a \ceil or absence atom (StatingScope)'
+bound = "per simplification of the subject, when an assumption past the kept ones is no definedness atom alone: one walk of those assumptions' predicate nodes, each such assumption hashed once into the excluded set; then per equation whose bound terms' obligations are decided inside it, one set lookup per known predicate and, when one is excluded, one copy of the others and of the excluded ones' atoms; per memo lookup of an Unspecified evaluation, one comparison of the scopes"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
