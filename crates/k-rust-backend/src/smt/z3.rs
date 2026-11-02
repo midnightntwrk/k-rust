@@ -2982,6 +2982,36 @@ mod tests {
                 "{checked:?} under {known:?}"
             );
         }
+        // GAP K16: `X ^Int 0` is 1 for every `X`, 0 included, so wherever the exponent is 0 the
+        // power is 1 in every reading of the query, whether the exponent is the numeral 0 or a
+        // term the query makes 0, as `Y *Int Y = 0` does. Before, the reading of a symbolic
+        // exponent was Z3's `(^ a b)`, and Z3 leaves `(^ 0 0)` uninterpreted: both were
+        // `Contingent`.
+        let y_is_zero = Predicate::Term(term(&definition, &format!("eq{{}}({b}, {})", dv(0))));
+        let square_is_zero =
+            Predicate::Equals(term(&definition, &format!("mul{{}}({b}, {b})")), int("0"));
+        for (known, checked) in [
+            (
+                vec![y_is_zero],
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}({}, {b})", dv(0))),
+                    int("1"),
+                ),
+            ),
+            (
+                vec![square_is_zero],
+                Predicate::Equals(
+                    term(&definition, &format!("pow{{}}(X:SortInt{{}}, {b})")),
+                    int("1"),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                validity(&known, checked.clone()),
+                Ok(Ok(Validity::Valid)),
+                "{checked:?} under {known:?}"
+            );
+        }
         // GAP K32: a power with a symbolic exponent is no longer Z3's power, whose evaluation at
         // model values nothing stops; what the solver decided through it, it decides from the
         // value's cases and the power's facts (`power_value`, `record_power`): a 256-bit word's
@@ -3050,6 +3080,56 @@ mod tests {
                 "{checked:?} under {known:?}"
             );
         }
+    }
+
+    /// GAP K16 (the K15 review's pin of the power's answer where its domain is open): without
+    /// AM-12's ceil equation, `^Int`'s domain is an uninterpreted domain function. Where no integer
+    /// is the power (`2 ^Int B` with `B <Int 0`), `0 <Int 2 ^Int B` is not valid: the atom carries
+    /// the open domain, and the reading gives the power no value there (`KRUST-POWER` and the
+    /// function outside the integers are both unconstrained at a negative exponent). Where the
+    /// exponent is nonnegative and the power is stated defined, the integer power is read and the
+    /// atom is valid. The first half holds even with Z3's unguarded real power, since the open
+    /// domain alone keeps the atom from being valid (GAP K16 report): it pins the answer, not
+    /// `guard_powers`' guard, whose text `reads_a_power_as_itself_only_where_an_integer_is_its_value`
+    /// pins.
+    #[test]
+    fn reads_no_power_value_where_no_integer_is_the_power_and_the_domain_is_open() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow"), smt-hook{}("^")]
+                hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+                hooked-symbol le{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.le"), smt-hook{}("<=")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let atom = |source: &str| Predicate::Term(term(&definition, source));
+        let two = r#"\dv{SortInt{}}("2")"#;
+        let zero = r#"\dv{SortInt{}}("0")"#;
+        let power = format!("pow{{}}({two}, B:SortInt{{}})");
+        let positive = atom(&format!("lt{{}}({zero}, {power})"));
+        let validity = |known: &[Predicate]| {
+            solver.check_predicates(known, &Substitution::new(), std::slice::from_ref(&positive))
+        };
+        assert_ne!(
+            validity(&[atom(&format!("lt{{}}(B:SortInt{{}}, {zero})"))]),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            validity(&[
+                atom(&format!("le{{}}({zero}, B:SortInt{{}})")),
+                Predicate::Ceil(term(&definition, &power)),
+            ]),
+            Ok(Ok(Validity::Valid))
+        );
     }
 
     /// GAP K15: the solver's domain of a partial hooked application that no ceil equation states
