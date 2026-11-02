@@ -3081,6 +3081,33 @@ fn a_ceil_conjunct_is_not_discharged_through_a_sibling_equality() {
     );
 }
 
+/// GAP K15: the case fb8d4d58a fixed, decided by the solver. `\ceil(half(1)) /\ half(1) = 0` is
+/// `\bottom` where `half(1)` is undefined, so it is not valid; the solver reads `half(1) = 0` with
+/// `half(1)`'s domain, not as `div 1 2 = 0`, whatever the simplifier leaves beside it.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_conjunct_beside_a_sibling_equality_is_not_decided_valid() {
+    let definition = sibling_equality_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let half = term(&definition, r#"half{}(\dv{SortInt{}}("1"))"#);
+    let conjunction = Predicate::And(
+        vec![
+            Predicate::Ceil(half.clone()),
+            Predicate::Equals(half, term(&definition, r#"\dv{SortInt{}}("0")"#)),
+        ]
+        .into(),
+    );
+    let decided = simplify_and_decide_predicate_with_solver(
+        &definition,
+        &conjunction,
+        &[],
+        SimplificationOptions::default(),
+        &solver,
+    )
+    .unwrap();
+    assert_ne!(decided, Predicate::True);
+}
+
 /// GAP K11: the partial symbols of the sibling-equality tests below. `p`, `half`, `gg` and `ff`
 /// have no equations but `gg(0) = 0` and a ceil equation stating `ff(0)` defined. `half`'s
 /// `smt-hook` is SMT-LIB's `div`, which has a value at 1 where the definition leaves `half(1)`
