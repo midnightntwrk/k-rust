@@ -1,7 +1,8 @@
 # The per-rule cases of the noninterference relation that read or write the store, proved by hand
-# in ContractOwiseNI/Store.lean (`k2lean noninterference --open`): KIND RULE, KIND one of cq, sq, same.
-cq CONTRACT.var
-cq CONTRACT.assign
-sq CONTRACT.var
-same CONTRACT.var
-same CONTRACT.assign
+# in ContractOwiseNI/Store.lean (`k2lean noninterference --open`): `KIND.«RULE» | hand`, KIND one of cq, sq,
+# same; a name alone is open (a field of `Open`, the theorem's premise).
+cq.«CONTRACT.var» | hand
+cq.«CONTRACT.assign» | hand
+sq.«CONTRACT.var» | hand
+same.«CONTRACT.var» | hand
+same.«CONTRACT.assign» | hand

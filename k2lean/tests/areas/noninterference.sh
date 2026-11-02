@@ -217,7 +217,7 @@ gate_noninterference() {
     kc imp-ni && kc imp-sec && partlib kimpni KImpNI && partlib impsec KImpSec.Functions
     rel ImpNI
     scaffold noninterference-ImpNI libs_noninterference ImpNI
-    dbuild ImpNI
+    dbuild_slots ImpNI
   fi
   # noninterference up to disclosure (section 3.7): the fixture contract, a contract with private
   # state, and its checker, the fixture contractsec (libraries contract, whole, and contractsec,
@@ -227,7 +227,7 @@ gate_noninterference() {
     partlib contract Contract && partlib contractsec ContractSec.Functions
     rel ContractNI
     scaffold noninterference-ContractNI libs_noninterference ContractNI
-    dbuild ContractNI
+    dbuild_slots ContractNI
   fi
   # with priority ranks (section 3.7): ImpNI and ContractNI over the definitions with `owise` rules
   if runs demo ImpOwiseNI; then
@@ -235,14 +235,14 @@ gate_noninterference() {
     kc imp-owise-ni && kc imp-sec && partlib kimpowni KImpOwNI && partlib impsec KImpSec.Functions
     rel ImpOwiseNI
     scaffold noninterference-ImpOwiseNI libs_noninterference ImpOwiseNI
-    dbuild ImpOwiseNI
+    dbuild_slots ImpOwiseNI
   fi
   if runs demo ContractOwiseNI; then
     phase "scaffold ContractOwiseNI"
     kc contract-owise && partlib contractow ContractOw && partlib contractsec ContractSec.Functions
     rel ContractOwiseNI
     scaffold noninterference-ContractOwiseNI libs_noninterference ContractOwiseNI
-    dbuild ContractOwiseNI
+    dbuild_slots ContractOwiseNI
   fi
   # cells observed by equality without a disclosure cell (section 3.7): kimp with `print` to a
   # plain cell, and the fixture contract under a checker that releases nothing
@@ -251,14 +251,14 @@ gate_noninterference() {
     kc imp-out-ni && kc imp-sec-print && partlib kimpoutni KImpOutNI && partlib impsecp KImpSecP.Functions
     rel ImpOutNI
     scaffold noninterference-ImpOutNI libs_noninterference ImpOutNI
-    dbuild ImpOutNI
+    dbuild_slots ImpOutNI
   fi
   if runs demo ContractObsNI; then
     phase "scaffold ContractObsNI"
     kc contractsec-norelease && partlib contract Contract && partlib contractsecnr ContractSecNR.Functions
     rel ContractObsNI
     scaffold noninterference-ContractObsNI libs_noninterference ContractObsNI
-    dbuild ContractObsNI
+    dbuild_slots ContractObsNI
   fi
   # a related store input beside the disclosure cell (section 3.7): the fixture contract with its
   # store an input (tests/contract-env.py, library contractenv), the fixture checker contractsec
@@ -267,7 +267,7 @@ gate_noninterference() {
     kc contract-env && partlib contractenv ContractEnv && partlib contractsec ContractSec.Functions
     rel ContractEnvNI
     scaffold noninterference-ContractEnvNI libs_noninterference ContractEnvNI
-    dbuild ContractEnvNI
+    dbuild_slots ContractEnvNI
   fi
   # several sorts of values (section 3.7): the fixture contract with `KResult ::= Int | Bool`
   # (tests/contract-values.py, library contractvals), the fixture checker contractsec
@@ -276,6 +276,6 @@ gate_noninterference() {
     kc contract-values && partlib contractvals ContractVals && partlib contractsec ContractSec.Functions
     rel ContractValsNI
     scaffold noninterference-ContractValsNI libs_noninterference ContractValsNI
-    dbuild ContractValsNI
+    dbuild_slots ContractValsNI
   fi
 }

@@ -90,21 +90,21 @@ theorem inj_@HS@_KItem_inj {e₁ e₂ : @HOLE@}
   have := congrArg @NA@.proj_KItem_@HS@ h
   simpa using this
 
-theorem sync_all {c₁ c₁' : @TOP@} (h : @NA@.Step c₁ c₁') :
+theorem sync_all @OB@{c₁ c₁' : @TOP@} (h : @NA@.Step c₁ c₁') :
     ∀ c₂ c₂', SyncR G c₁ c₂ → @NA@.Step c₂ c₂' → Rel G c₁' c₂' := by
   intro c₂ c₂' hs h₂
   rcases hs with hs | ⟨K, v₁, v₂, hlk, hv₁, hv₂, hk₁, hk₂, hlow, hpub, hdisc⟩ |
       ⟨K, e₁, e₂, hlk, he₁, he₂, hk₁, hk₂, hlow, hpub, hdisc⟩
-  · obtain ⟨hk, hlow, hpub, hdisc⟩ := same_step G h c₂ c₂' hs h₂
-    obtain ⟨K, b₀, hck, hover⟩ := sq_step G h hs.2.1 hs.2.2.1.1
+  · obtain ⟨hk, hlow, hpub, hdisc⟩ := same_step @OA@G h c₂ c₂' hs h₂
+    obtain ⟨K, b₀, hck, hover⟩ := sq_step @OA@G h hs.2.1 hs.2.2.1.1
     exact Or.inr (Or.inl ⟨K, b₀, hover, hck, hk ▸ hck, hlow, hpub, hdisc⟩)
-  · obtain ⟨⟨e₁, he₁, hk₁'⟩, hs₁, hp₁, hd₁⟩ := cool_step h v₁ K hv₁ hk₁
-    obtain ⟨⟨e₂, he₂, hk₂'⟩, hs₂, hp₂, hd₂⟩ := cool_step h₂ v₂ K hv₂ hk₂
+  · obtain ⟨⟨e₁, he₁, hk₁'⟩, hs₁, hp₁, hd₁⟩ := cool_step @OA@h v₁ K hv₁ hk₁
+    obtain ⟨⟨e₂, he₂, hk₂'⟩, hs₂, hp₂, hd₂⟩ := cool_step @OA@h₂ v₂ K hv₂ hk₂
     subst he₁ he₂
     exact Or.inr (Or.inr ⟨K, e₁, e₂, hlk, hv₁, hv₂, hk₁', hk₂',
       by rw [hs₁, hs₂]; exact hlow, by rw [hp₁, hp₂]; exact hpub, by rw [hd₁, hd₂]; exact hdisc⟩)
-  · obtain ⟨hk₁', hs₁, hp₁, hd₁⟩ := disc_step h e₁ K he₁ hk₁
-    obtain ⟨hk₂', hs₂, hp₂, hd₂⟩ := disc_step h₂ e₂ K he₂ hk₂
+  · obtain ⟨hk₁', hs₁, hp₁, hd₁⟩ := disc_step @OA@h e₁ K he₁ hk₁
+    obtain ⟨hk₂', hs₂, hp₂, hd₂⟩ := disc_step @OA@h₂ e₂ K he₂ hk₂
     by_cases he : e₁ = e₂
     · subst he
       refine Or.inr (Or.inl ⟨_, false, ⟨?_, by simp⟩, by rw [hk₁']; exact CK_base G _ false,
@@ -116,19 +116,19 @@ theorem sync_all {c₁ c₁' : @TOP@} (h : @NA@.Step c₁ c₁') :
       · simp [hd₁]
       · simp [hd₂, ← hdisc]
 
-theorem left_all {c₁ c₁' : @TOP@} (h : @NA@.Step c₁ c₁') :
+theorem left_all @OB@{c₁ c₁' : @TOP@} (h : @NA@.Step c₁ c₁') :
     ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by
   rintro c₂ (hd | ⟨K, b₀, hover, hc₁, hne, hc₂, hlow, hpub, hdisc⟩)
-  · exact Or.inl (div_left hd (append_step h))
-  · obtain ⟨hc₁', hhi, hp, hd⟩ := cq_step G h K b₀ hc₁ hne hlow.1
+  · exact Or.inl (div_left hd (append_step @OA@h))
+  · obtain ⟨hc₁', hhi, hp, hd⟩ := cq_step @OA@G h K b₀ hc₁ hne hlow.1
     exact Or.inr (Or.inl ⟨K, b₀, hover, hc₁', hc₂, lowEq_hiOnly hlow hhi, hp.trans hpub,
       hd.trans hdisc⟩)
 
-theorem right_all {c₂ c₂' : @TOP@} (h : @NA@.Step c₂ c₂') :
+theorem right_all @OB@{c₂ c₂' : @TOP@} (h : @NA@.Step c₂ c₂') :
     ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by
   rintro c₁ (hd | ⟨K, b₀, hover, hc₁, hc₂, hne, hlow, hpub, hdisc⟩)
-  · exact Or.inl (div_right hd (append_step h))
-  · obtain ⟨hc₂', hhi, hp, hd⟩ := cq_step G h K b₀ hc₂ hne hlow.2.1
+  · exact Or.inl (div_right hd (append_step @OA@h))
+  · obtain ⟨hc₂', hhi, hp, hd⟩ := cq_step @OA@G h K b₀ hc₂ hne hlow.2.1
     exact Or.inr (Or.inl ⟨K, b₀, hover, ck_of_atBase hc₁, hc₂',
       lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi), hpub.trans hp.symm, hdisc.trans hd.symm⟩)
 

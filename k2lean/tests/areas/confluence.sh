@@ -339,16 +339,6 @@ libs_confluence() {
 
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
-# dbuild_slots PROJECT: build confluence demo PROJECT, then read its frozen names' statuses from the
-# built environment (`k2l-eval --result`), by which gate-check compares its slots by name
-dbuild_slots() {
-  if lbuild "$D/$1" "build-$1"; then
-    ok "build $1" "$L/build-$1.log"
-    if (cd "$D/$1" && "$RT" lake env "$EV" --result "$1" "$L/result-demo-$1.json" "$1") > "$L/result-demo-$1.log" 2>&1
-    then ok "result demo $1" "$L/result-demo-$1.log"; else bad "result demo $1" "$L/result-demo-$1.log"; fi
-  else bad "build $1" "$L/build-$1.log"; fi
-}
-
 needs_confluence() {
   if runs output simple-confluence.toml; then
     [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"

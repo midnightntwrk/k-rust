@@ -83,4 +83,3 @@ local macro "k2l_bound " q:ident : tactic => `(tactic| (
     | exact ⟨⟨_, rfl, rfl⟩, rfl, rfl, rfl⟩
     | (simp_all [isRes, toList_concat_element, BoolHook.and, BoolHook.not]; done)))
 
-/-- `CONTRACT.var`, by hand: the looked-up value is a value, since the store is one. -/

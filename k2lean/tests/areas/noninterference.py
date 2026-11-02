@@ -82,3 +82,8 @@ DEMOS = {
                                                     "demos/ContractValsNI/correspondence.toml",
                                                     "demos/ContractValsNI/noninterference.toml"]},
 }
+# each demo's per-rule cases (`cq.«RULE»`, …; six kinds up to disclosure), compared by name: generic,
+# by hand (`| hand` in its list) or open (NI-9)
+for _d, _e in DEMOS.items():
+    _e["slots"] = {"prefixes": ["cq.", "sq.", "same.", "append.", "cool.", "disc."],
+                   "list": f"demos/{_d}/open.txt"}

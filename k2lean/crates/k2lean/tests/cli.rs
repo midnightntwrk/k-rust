@@ -3196,7 +3196,7 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
     let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
     std::fs::write(
         d.join("open.txt"),
-        "cq CONTRACT.var\ncq CONTRACT.assign\nsq CONTRACT.var\nsame CONTRACT.var\nsame CONTRACT.assign\n",
+        "cq.«CONTRACT.var» | hand\ncq.«CONTRACT.assign» | hand  # a comment\nsq.«CONTRACT.var» | hand\nsame.«CONTRACT.var» | hand\nsame.«CONTRACT.assign» | hand\n",
     )
     .unwrap();
     let run = |extra: &[&str]| {
@@ -3313,9 +3313,73 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
         "{proof}"
     );
     assert!(
-        rep.contains("cases = 204\ngeneric = 199\nhand = 5"),
+        rep.contains("cases = 204\ngeneric = 199\nhand = 5")
+            && rep.contains("open = 0\nopen_cases = []"),
         "{rep}"
     );
+    // each case an obligation by name (NI-9): its statement, whoever proves it; no `Open`
+    for x in [
+        "def cq.«CONTRACT.var».statement : Prop := ∀ G : Lab, Contract.Step.Rel.«CONTRACT.var» (CQ G)",
+        "def disc.«CONTRACT.read».statement : Prop := Contract.Step.Rel.«CONTRACT.read» (DiscQ)",
+        "theorem cq_step (G : Lab) {c c'",
+    ] {
+        assert!(proof.contains(x), "{x}\n{proof}");
+    }
+    assert!(!proof.contains("structure Open"), "{proof}");
+    // a case listed alone is open: a field of `Open`, the theorem's premise
+    std::fs::write(
+        d.join("open.txt"),
+        "cq.«CONTRACT.var»\ncq.«CONTRACT.assign» | hand\nsq.«CONTRACT.var» | hand\nsame.«CONTRACT.var» | hand\nsame.«CONTRACT.assign» | hand\n",
+    )
+    .unwrap();
+    let o = run(&full);
+    assert!(o.status.success(), "{}", err(&o));
+    let (proof, rep) = (read("Proof.lean"), read("ni.toml"));
+    for x in [
+        "structure Open : Prop where\n  «cq.CONTRACT.var» : cq.«CONTRACT.var».statement\n",
+        "theorem cq_step (O : Open) (G : Lab) {c c' : Contract.SortGeneratedTopCell} (h : Contract.Step c c') : CQ G c c' :=\n  Contract.Step.rel_of (O.«cq.CONTRACT.var» G) (cq.«CONTRACT.witness» G)",
+        "theorem disc_step (O : Open) {c c'",
+        "theorem sync_all (O : Open) {c₁ c₁'",
+        "same_step O G h c₂ c₂' hs h₂",
+        "(append_step O h)",
+        "theorem obligations (O : Open) : Obligations G",
+        ":= rel.«CONTRACT.var» (sync_all O)",
+        "theorem contract_noninterference (O : Open) {P : Contract.SortStmt}",
+        "noninterference G (obligations O) hP",
+    ] {
+        assert!(proof.contains(x), "{x}\n{proof}");
+    }
+    assert!(
+        rep.contains("hand = 4") && rep.contains("open = 1\nopen_cases = [\"cq.«CONTRACT.var»\"]"),
+        "{rep}"
+    );
+    // refused: a case marked refuted (sufficient for the relation, not necessary), the earlier
+    // form `KIND RULE`, a rule that does not exist
+    for (list, msg) in [
+        (
+            "cq.«CONTRACT.var» | refuted w\n",
+            "its refutation says nothing",
+        ),
+        ("cq CONTRACT.var\n", "write `cq.«CONTRACT.var» | hand`"),
+        ("cq.«CONTRACT.nope» | hand\n", "no rule CONTRACT.nope"),
+        (
+            "append.«CONTRACT.var» | proved\n",
+            "a case is `| hand` or open",
+        ),
+    ] {
+        std::fs::write(d.join("open.txt"), list).unwrap();
+        let o = run(&full);
+        assert!(
+            !o.status.success() && err(&o).contains(msg),
+            "{list}: {}",
+            err(&o)
+        );
+    }
+    std::fs::write(
+        d.join("open.txt"),
+        "cq.«CONTRACT.var» | hand\ncq.«CONTRACT.assign» | hand\nsq.«CONTRACT.var» | hand\nsame.«CONTRACT.var» | hand\nsame.«CONTRACT.assign» | hand\n",
+    )
+    .unwrap();
     // refused: disclosure with only the store observed; a cell written by a two-argument construct;
     // a configuration of several inputs without --inputs
     let o = run(&[
@@ -3368,7 +3432,7 @@ fn noninterference_observes_cells_by_equality_without_a_disclosure_cell() {
     let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
     std::fs::write(
         d.join("open.txt"),
-        "cq CONTRACT.var\ncq CONTRACT.assign\nsq CONTRACT.var\nsame CONTRACT.var\nsame CONTRACT.assign\n",
+        "cq.«CONTRACT.var» | hand\ncq.«CONTRACT.assign» | hand\nsq.«CONTRACT.var» | hand\nsame.«CONTRACT.var» | hand\nsame.«CONTRACT.assign» | hand\n",
     )
     .unwrap();
     let run = |inputs: &str, observe: &str| {

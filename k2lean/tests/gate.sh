@@ -321,6 +321,15 @@ scaffold() { # STEP COMMAND...: one generator call of a demo (tests/areas/AREA.s
 dbuild() { # PROJECT: build demo PROJECT; its axiom guards are `#k2l_assert_axioms` commands inside it
   if lbuild "$D/$1" "build-$1"; then ok "build $1" "$L/build-$1.log"; else bad "build $1" "$L/build-$1.log"; fi
 }
+# PROJECT: build demo PROJECT, then read its frozen names' statuses from the built environment
+# (`k2l-eval --result`), by which gate-check compares its obligations by name (DEMOS slots)
+dbuild_slots() {
+  if lbuild "$D/$1" "build-$1"; then
+    ok "build $1" "$L/build-$1.log"
+    if (cd "$D/$1" && "$RT" lake env "$EV" --result "$1" "$L/result-demo-$1.json" "$1") > "$L/result-demo-$1.log" 2>&1
+    then ok "result demo $1" "$L/result-demo-$1.log"; else bad "result demo $1" "$L/result-demo-$1.log"; fi
+  else bad "build $1" "$L/build-$1.log"; fi
+}
 # `k2lean diff` of each library's last generation in the tree under test (its generated/, when
 # demos/regen.sh has written one there; git tracks only the open lists) against the regenerated
 # one, with the hand-written references in the demos and the kind 1 open-case lists: informational

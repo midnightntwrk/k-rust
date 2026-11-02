@@ -1,7 +1,8 @@
 # The per-rule cases of the noninterference relation that read or write the store, proved by hand
-# in ImpNI/Store.lean (`k2lean noninterference --open`): KIND RULE, KIND one of cq, sq, same.
-cq CALC.var
-cq CALC.assign
-sq CALC.var
-same CALC.var
-same CALC.assign
+# in ImpNI/Store.lean (`k2lean noninterference --open`): `KIND.«RULE» | hand`, KIND one of cq, sq,
+# same; a name alone is open (a field of `Open`, the theorem's premise).
+cq.«CALC.var» | hand
+cq.«CALC.assign» | hand
+sq.«CALC.var» | hand
+same.«CALC.var» | hand
+same.«CALC.assign» | hand

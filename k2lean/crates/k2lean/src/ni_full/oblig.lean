@@ -1,4 +1,4 @@
-theorem obligations : Obligations G (Rel G) (SyncR G) (Left G) (Right G) where
+theorem obligations @OB@: Obligations G (Rel G) (SyncR G) (Left G) (Right G) where
   init P@BINDERS@ hP@PREMS@ := by
     refine Or.inr (Or.inl ⟨_, false, ⟨?_, by simp⟩, CK_base G _ false, CK_base G _ false,
       @INITSTORE@, rfl, rfl⟩)

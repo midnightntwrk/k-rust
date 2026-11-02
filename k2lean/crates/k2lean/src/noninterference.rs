@@ -330,12 +330,14 @@ theorem noninterference (O : Obligations {pnames}Rel Sync Left Right) {{P : {nam
     if let Some(r) = &rel {
         writeln!(
             rep,
-            "\n[relation]  # the per-rule cases behind the obligations: generic, or by hand (--open)\ninversion_lemmas = {}\ncases = {}\ngeneric = {}\nhand = {}\nhand_cases = {:?}",
+            "\n[relation]  # the per-rule cases behind the obligations: generic, by hand or open (--open)\ninversion_lemmas = {}\ncases = {}\ngeneric = {}\nhand = {}\nhand_cases = {:?}\nopen = {}\nopen_cases = {:?}",
             r.inversions,
             r.cases,
             r.generic,
             r.hand.len(),
-            r.hand
+            r.hand,
+            r.open.len(),
+            r.open
         )
         .unwrap();
     }
@@ -769,13 +771,61 @@ end {ns}\n"
     )
 }
 
-/// What `relation` generated: its inversion lemmas, and the per-rule cases (three per rule) proved
-/// by one tactic or listed as the hand module's.
+/// One entry of the per-rule cases' list (`--open`): `KIND.«RULE» | hand` (the hand module's),
+/// or `KIND.«RULE»` alone (open), with a comment after `#`; ((kind, rule), by hand).
+fn case_entry(p: &str, l: &str, kinds: &[&str]) -> ((String, String), bool) {
+    // the name ends at the first space or `|` outside `«»` (a rule's name may hold either)
+    let (mut end, mut quoted) = (l.len(), false);
+    for (i, ch) in l.char_indices() {
+        match ch {
+            '«' => quoted = true,
+            '»' => quoted = false,
+            ' ' | '|' if !quoted => {
+                end = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let (name, rest) = (&l[..end], l[end..].split('#').next().unwrap().trim());
+    let Some((k, r)) = name.split_once('.').filter(|(k, _)| kinds.contains(k)) else {
+        // the earlier form, `KIND RULE`
+        if kinds.contains(&name) {
+            fail(&format!(
+                "{p}: `{l}`: write `{name}.«{rest}» | hand` (proved in the hand module) or `{name}.«{rest}»` (open)"
+            ));
+        }
+        fail(&format!(
+            "{p}: `{l}` is not `KIND.«RULE»`, KIND one of {}",
+            kinds.join(", ")
+        ));
+    };
+    let r = r
+        .strip_prefix('«')
+        .and_then(|x| x.strip_suffix('»'))
+        .unwrap_or(r)
+        .to_string();
+    let hand = match rest.strip_prefix('|').map(str::trim) {
+        None if rest.is_empty() => false,
+        Some("hand") => true,
+        Some(m) if m.starts_with("refuted") => fail(&format!(
+            "{p}: {name} is marked refuted: a per-rule case is sufficient for the relation, not necessary, so its refutation says nothing of the definition (two runs refute a flow); leave it open"
+        )),
+        _ => fail(&format!(
+            "{p}: `{l}`: a case is `| hand` or open (its name alone)"
+        )),
+    };
+    ((k.to_string(), r), hand)
+}
+
+/// What `relation` generated: its inversion lemmas, and the per-rule cases (three or six per rule)
+/// proved by one tactic, listed as the hand module's, or listed open.
 struct RelationOut {
     inversions: usize,
     cases: usize,
     generic: usize,
     hand: Vec<String>,
+    open: Vec<String>,
 }
 
 /// The relation of `--checker-kore` (`k2lean/docs/design.md`, section 3.7): for a two-level
@@ -1461,30 +1511,96 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
 
     // ---- Proof.lean
     let rs = &a.rules;
-    let open: BTreeSet<(String, String)> = match opt.get("open") {
+    let case_kinds: &[&str] = if st.disclosed.is_some() {
+        &["cq", "sq", "same", "append", "cool", "disc"]
+    } else {
+        &["cq", "sq", "same"]
+    };
+    // the per-rule cases the list names, each (kind, rule) with whether the hand module proves it
+    // (`KIND.«RULE» | hand`) or it is open (`KIND.«RULE»`, a field of `Open`)
+    let listed: BTreeMap<(String, String), bool> = match opt.get("open") {
         Some(p) => std::fs::read_to_string(p)
             .unwrap_or_else(|e| fail(&format!("{p}: {e}")))
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(|l| match l.split_once(' ') {
-                Some((k, r))
-                    if ["cq", "sq", "same"].contains(&k)
-                        || (st.disclosed.is_some() && ["append", "cool", "disc"].contains(&k)) =>
-                {
-                    (k.to_string(), r.trim().to_string())
-                }
-                _ => fail(&format!("{p}: `{l}` is not `cq|sq|same RULE`")),
-            })
+            .map(|l| case_entry(p, l, case_kinds))
             .collect(),
-        None => BTreeSet::new(),
+        None => BTreeMap::new(),
     };
     let display: BTreeSet<String> = rs.iter().map(crate::rules::display_name).collect();
-    for (_, r) in &open {
+    for (k, r) in listed.keys() {
         if !display.contains(r) {
-            fail(&format!("--open: no rule {r}"));
+            fail(&format!("--open: {k}.«{r}»: no rule {r}"));
         }
     }
+    let open: BTreeSet<(String, String)> = listed.keys().cloned().collect();
+    let opened: Vec<(String, String)> = listed
+        .iter()
+        .filter(|(_, h)| !**h)
+        .map(|(c, _)| c.clone())
+        .collect();
+    // with open cases, the step properties and what follows from them take `(O : Open)`
+    let (ob, oa) = if opened.is_empty() {
+        ("", "")
+    } else {
+        ("(O : Open) ", "O ")
+    };
+    let case_arg = |kind: &str, r: &crate::rules::Rule, g: &str| {
+        let dn = crate::rules::display_name(r);
+        if opened.contains(&(kind.to_string(), dn.clone())) {
+            format!("(O.«{kind}.{dn}»{g})")
+        } else {
+            format!("({kind}.{}{g})", r.lean)
+        }
+    };
+    let with_open = |all: &str| {
+        if opened.is_empty() {
+            all.to_string()
+        } else {
+            format!("({all} O)")
+        }
+    };
+    let obl = with_open("obligations");
+    // each case's statement, then the open ones as the fields of `Open`
+    let statements = |qs: &[(&str, &str, bool)]| {
+        let mut o = String::from(
+            "/-! ## The per-rule cases' statements\n\nEach case is an obligation by name: proved by one tactic below, by the hand module, or open (a field\nof `Open`), as the list (`--open`) marks it. -/\n\n",
+        );
+        for (kind, q, with_g) in qs {
+            for r in rs {
+                let rel = format!(
+                    "{name}.Step.Rel.{} ({q}{})",
+                    r.lean,
+                    if *with_g { " G" } else { "" }
+                );
+                let body = if *with_g {
+                    format!("∀ G : Lab, {rel}")
+                } else {
+                    rel
+                };
+                writeln!(o, "def {kind}.{}.statement : Prop := {body}", r.lean).unwrap();
+            }
+        }
+        if !opened.is_empty() {
+            writeln!(
+                o,
+                "\n/-- The per-rule cases left open (`--open`, a name alone): the premise of the theorem. -/\nstructure Open : Prop where"
+            )
+            .unwrap();
+            for (k, r) in &opened {
+                let l = rs
+                    .iter()
+                    .find(|x| &crate::rules::display_name(x) == r)
+                    .unwrap()
+                    .lean
+                    .clone();
+                writeln!(o, "  «{k}.{r}» : {k}.{l}.statement").unwrap();
+            }
+        }
+        o.push('\n');
+        o
+    };
     let store_mod = opt
         .get("store-module")
         .cloned()
@@ -1506,8 +1622,8 @@ stores are low-equal. A run inside its confined part executes alone; the common 
 - `Left`: the left run is inside its confined part; `Right`: the left run has reached `K` and the\n  \
 right one has not; `Sync`: both are at `K`.\n\
 Each per-rule field follows from one of three properties of every step, each proved per rule by one\n\
-tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `sq_step`,\n\
-`same_step`. -/\n"
+tactic, by the hand module `{store_mod}` or left open (a field of `Open`, the theorem's premise), as\n\
+`--open` lists it: `cq_step`, `sq_step`, `same_step`. -/\n"
     )
     .unwrap();
     writeln!(p, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
@@ -1541,6 +1657,11 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
     if ranked {
         pri_other(&mut p);
     }
+    p.push_str(&statements(&[
+        ("cq", "CQ", true),
+        ("sq", "SQ", true),
+        ("same", "SameQ", true),
+    ]));
     let mut generic = [0usize; 3];
     let mut generic6 = [0usize; 6];
     for (ki, (kind, q, mac)) in [
@@ -1568,13 +1689,10 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
             )
             .unwrap();
         }
-        let parts: Vec<String> = rs
-            .iter()
-            .map(|r| format!("({kind}.{} G)", r.lean))
-            .collect();
+        let parts: Vec<String> = rs.iter().map(|r| case_arg(kind, r, " G")).collect();
         writeln!(
             p,
-            "\ntheorem {kind}_step (G : Lab) {{c c' : {topt}}} (h : {name}.Step c c') : {q} G c c' :=\n  {name}.Step.rel_of {} h\n",
+            "\ntheorem {kind}_step {ob}(G : Lab) {{c c' : {topt}}} (h : {name}.Step c c') : {q} G c c' :=\n  {name}.Step.rel_of {} h\n",
             parts.join(" ")
         )
         .unwrap();
@@ -1590,9 +1708,9 @@ def Left (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ kO
 def Right (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, kOf c₁ = K ∧ CK G K false (kOf c₂) ∧ kOf c₂ ≠ K ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂){pub_rel}\n\n\
 variable {{G}}\n\n\
 theorem ne_dotk_of_CK {{K k : {kt}}} (h : CK G K false k) (hne : k ≠ K) : k ≠ .dotk := by\n  rintro rfl\n  {ck_dotk_at}exact hne (h.2)\n\n\
-theorem sync_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → Rel G c₁' c₂' := by\n  intro c₂ c₂' hs h₂\n  obtain ⟨hk, hlow{hp}⟩ := same_step G h c₂ c₂' hs h₂\n  obtain ⟨K, hck, hlk⟩ := sq_step G h hs.2.1 hs.2.2.1{good_at}\n  exact ⟨K, hck, hk ▸ hck, hlk, hlow{hp}⟩\n\n\
-theorem left_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by\n  rintro c₂ ⟨K, hc₁, hne, hc₂, hlk, hlow{hpub}⟩\n  obtain ⟨hc₁', hhi{hp}⟩ := cq_step G h K hc₁ hne hlow.1\n  exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi{left_pub}⟩\n\n\
-theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by\n  rintro c₁ ⟨K, hc₁, hc₂, hne, hlk, hlow{hpub}⟩\n  obtain ⟨hc₂', hhi{hp}⟩ := cq_step G h K hc₂ hne hlow.2.1\n  exact ⟨K, hc₁ ▸ CK_base G K, hc₂', hlk, lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi){right_pub}⟩\n",
+theorem sync_all {ob}{{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → Rel G c₁' c₂' := by\n  intro c₂ c₂' hs h₂\n  obtain ⟨hk, hlow{hp}⟩ := same_step {oa}G h c₂ c₂' hs h₂\n  obtain ⟨K, hck, hlk⟩ := sq_step {oa}G h hs.2.1 hs.2.2.1{good_at}\n  exact ⟨K, hck, hk ▸ hck, hlk, hlow{hp}⟩\n\n\
+theorem left_all {ob}{{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by\n  rintro c₂ ⟨K, hc₁, hne, hc₂, hlk, hlow{hpub}⟩\n  obtain ⟨hc₁', hhi{hp}⟩ := cq_step {oa}G h K hc₁ hne hlow.1\n  exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi{left_pub}⟩\n\n\
+theorem right_all {ob}{{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by\n  rintro c₁ ⟨K, hc₁, hc₂, hne, hlk, hlow{hpub}⟩\n  obtain ⟨hc₂', hhi{hp}⟩ := cq_step {oa}G h K hc₂ hne hlow.2.1\n  exact ⟨K, hc₁ ▸ CK_base G K, hc₂', hlk, lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi){right_pub}⟩\n",
         pub_rel = if pubq { " ∧ pubOf c₁ = pubOf c₂" } else { "" },
         hp = if pubq { ", hp" } else { "" },
         hpub = if pubq { ", hpub" } else { "" },
@@ -1612,7 +1730,7 @@ theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    �
     let pitem = format!("{na}.inj_{ss}_KItem");
     writeln!(
         p,
-        "\ntheorem obligations : Obligations G (Rel G) (Sync G) (Left G) (Right G) where\n  init P{} hP{} := by\n    refine ⟨_, CK_base G _, ?_, ?_, {}{}⟩\n    · simp only [{name}.init, kOf]; exact CK_base G _\n    · simp only [{name}.init, kOf, lk_kseq, litem_false, litem0_inj_{ss}]\n      simp [show {} G P = some true from hP]\n  final := fun ⟨_, _, _, _, hlow{}⟩ _ _ => {}\n  cover := by\n    rintro c₁ c₂ ⟨K, hc₁, hc₂, hlk, hlow⟩ hnf\n    by_cases h₁ : kOf c₁ = K\n    · by_cases h₂ : kOf c₂ = K\n      · refine Or.inr (Or.inr ⟨⟨h₁.trans h₂.symm, by rw [h₁]; exact hlk, hlow⟩,\n          fun hf => hnf ⟨hf, ?_⟩, fun hf => hnf ⟨?_, hf⟩⟩)\n        · simp only [Final] at hf ⊢; rw [h₂, ← h₁, hf]\n        · simp only [Final] at hf ⊢; rw [h₁, ← h₂, hf]\n      · exact Or.inr (Or.inl ⟨⟨K, h₁, hc₂, h₂, hlk, hlow⟩, ne_dotk_of_CK hc₂ h₂⟩)\n    · exact Or.inl ⟨⟨K, hc₁, h₁, hc₂, hlk, hlow⟩, ne_dotk_of_CK hc₁ h₁⟩",
+        "\ntheorem obligations {ob}: Obligations G (Rel G) (Sync G) (Left G) (Right G) where\n  init P{} hP{} := by\n    refine ⟨_, CK_base G _, ?_, ?_, {}{}⟩\n    · simp only [{name}.init, kOf]; exact CK_base G _\n    · simp only [{name}.init, kOf, lk_kseq, litem_false, litem0_inj_{ss}]\n      simp [show {} G P = some true from hP]\n  final := fun ⟨_, _, _, _, hlow{}⟩ _ _ => {}\n  cover := by\n    rintro c₁ c₂ ⟨K, hc₁, hc₂, hlk, hlow⟩ hnf\n    by_cases h₁ : kOf c₁ = K\n    · by_cases h₂ : kOf c₂ = K\n      · refine Or.inr (Or.inr ⟨⟨h₁.trans h₂.symm, by rw [h₁]; exact hlk, hlow⟩,\n          fun hf => hnf ⟨hf, ?_⟩, fun hf => hnf ⟨?_, hf⟩⟩)\n        · simp only [Final] at hf ⊢; rw [h₂, ← h₁, hf]\n        · simp only [Final] at hf ⊢; rw [h₁, ← h₂, hf]\n      · exact Or.inr (Or.inl ⟨⟨K, h₁, hc₂, h₂, hlk, hlow⟩, ne_dotk_of_CK hc₂ h₂⟩)\n    · exact Or.inl ⟨⟨K, hc₁, h₁, hc₂, hlk, hlow⟩, ne_dotk_of_CK hc₁ h₁⟩",
         st.binders(),
         st.premise_names(),
         init_store(st, &store, low_eq),
@@ -1633,7 +1751,14 @@ theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    �
             ("left", "left_all"),
             ("right", "right_all"),
         ] {
-            writeln!(p, "  {} := rel.{} {all}", field(mode, &r.lean), r.lean).unwrap();
+            writeln!(
+                p,
+                "  {} := rel.{} {}",
+                field(mode, &r.lean),
+                r.lean,
+                with_open(all)
+            )
+            .unwrap();
         }
     }
     let thm = format!("{}_noninterference", name.to_lowercase());
@@ -1641,7 +1766,7 @@ theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    �
     writeln!(
         p,
         "\n/-- Termination-insensitive noninterference for `{name}` and the checker `{nb}`. -/\n\
-theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂) :\n    {} :=\n  noninterference G obligations hP{} h₁ hf₁ h₂ hf₂\n\n\
+theorem {thm} {ob}{{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂) :\n    {} :=\n  noninterference G {obl} hP{} h₁ hf₁ h₂ hf₂\n\n\
 #k2l_assert_axioms cq_step sq_step same_step obligations {thm}\n\nend {ns}",
         st.implicit_binders(name),
         st.premise_hyps(),
@@ -1677,10 +1802,10 @@ the same observation and the same disclosed values.\n\
 - `Pend`: both runs about to disclose a value, the two values possibly different.\n\
 - `Div`: the disclosed values differ at a common position; every step keeps it, and the statement's\n  \
 premise excludes it at the end.\n\
-Each per-rule field follows from six properties of every step, each proved per rule by one tactic\n\
-or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `sq_step`,\n\
-`same_step` (as without disclosure, with the observation and the disclosure cell), and\n\
-`append_step`, `cool_step`, `disc_step` (one run each). -/\n"
+Each per-rule field follows from six properties of every step, each proved per rule by one tactic,\n\
+by the hand module `{store_mod}` or left open (a field of `Open`, the theorem's premise),\n\
+as `--open` lists it: `cq_step`, `sq_step`, `same_step` (as without disclosure, with the observation\n\
+and the disclosure cell), and `append_step`, `cool_step`, `disc_step` (one run each). -/\n"
         )
         .unwrap();
         writeln!(q, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
@@ -1689,6 +1814,14 @@ or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `
             pri_other(&mut macros);
         }
         q.push_str(&macros);
+        q.push_str(&statements(&[
+            ("cq", "CQ", true),
+            ("sq", "SQ", true),
+            ("same", "SameQ", true),
+            ("append", "AppendQ", false),
+            ("cool", "CoolQ", false),
+            ("disc", "DiscQ", false),
+        ]));
         for (ki, (kind, qn, mac, with_g)) in [
             ("cq", "CQ", "k2l_cq", true),
             ("sq", "SQ", "k2l_sq", true),
@@ -1722,17 +1855,19 @@ or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `
                 )
                 .unwrap();
             }
-            let parts: Vec<String> = rs
-                .iter()
-                .map(|r| format!("({kind}.{}{ga})", r.lean))
-                .collect();
+            let parts: Vec<String> = rs.iter().map(|r| case_arg(kind, r, ga)).collect();
             writeln!(
                 q,
-                "\ntheorem {kind}_step {gb}{{c c' : {topt}}} (h : {name}.Step c c') : {qn}{ga} c c' :=\n  {name}.Step.rel_of {} h\n",
+                "\ntheorem {kind}_step {ob}{gb}{{c c' : {topt}}} (h : {name}.Step c c') : {qn}{ga} c c' :=\n  {name}.Step.rel_of {} h\n",
                 parts.join(" ")
             )
             .unwrap();
         }
+        let subs = &[
+            subs.clone(),
+            vec![("@OB@", ob.to_string()), ("@OA@", oa.to_string())],
+        ]
+        .concat();
         q.push_str(&fill(T_TAIL, subs));
         for r in rs {
             writeln!(
@@ -1762,7 +1897,14 @@ or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `
                 ("left", "left_all"),
                 ("right", "right_all"),
             ] {
-                writeln!(q, "  {} := rel.{} {all}", field(mode, &r.lean), r.lean).unwrap();
+                writeln!(
+                    q,
+                    "  {} := rel.{} {}",
+                    field(mode, &r.lean),
+                    r.lean,
+                    with_open(all)
+                )
+                .unwrap();
             }
         }
         let thm = format!("{}_noninterference", name.to_lowercase());
@@ -1771,7 +1913,7 @@ or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `
             "\n/-- Noninterference up to disclosure for `{name}` and the checker `{nb}`: two runs of an\n\
 accepted program from initial configurations that agree on the public inputs, that both end and\n\
 disclosed the same values, end with the same observation. -/\n\
-theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂)\n    (hd : discOf f₁ = discOf f₂) : {} :=\n  noninterference G obligations hP{} h₁ hf₁ h₂ hf₂ hd\n\n\
+theorem {thm} {ob}{{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P{}) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P{}) f₂) (hf₂ : Final f₂)\n    (hd : discOf f₁ = discOf f₂) : {} :=\n  noninterference G {obl} hP{} h₁ hf₁ h₂ hf₂ hd\n\n\
 #k2l_assert_axioms cq_step sq_step same_step append_step cool_step disc_step obligations\n  {thm}\n\nend {ns}",
             st.implicit_binders(name),
             st.premise_hyps(),
@@ -1814,10 +1956,11 @@ theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {top
             .collect()
     };
     eprintln!(
-        "noninterference: relation generated: {} inversion lemmas; per-rule cases generic {}, {} by hand",
+        "noninterference: relation generated: {} inversion lemmas; per-rule cases generic {}, {} by hand, {} open",
         inv_names.len(),
         counts.join(", "),
-        open.len()
+        open.len() - opened.len(),
+        opened.len()
     );
     RelationOut {
         inversions: inv_names.len(),
@@ -1827,7 +1970,12 @@ theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P){} {{f₁ f₂ : {top
         } else {
             generic.iter().sum()
         },
-        hand: open.iter().map(|(k, r)| format!("{k} {r}")).collect(),
+        hand: listed
+            .iter()
+            .filter(|(_, h)| **h)
+            .map(|((k, r), _)| format!("{k}.«{r}»"))
+            .collect(),
+        open: opened.iter().map(|(k, r)| format!("{k}.«{r}»")).collect(),
     }
 }
 
