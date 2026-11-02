@@ -62,6 +62,12 @@ use proptest::{
 ///   disjoint), `unit`, `lookup` (defined iff the key is bound), `inKeys` (total).
 /// - `g` total, an `smtlib` function, with the `smt-lemma` `g(X) = 0 requires half(X) >Int 0`.
 ///   Models: `g(X) = 0` where `X` is even and `X div 2 > 0`, else 1 (or 2).
+/// - `emod(I, J)`: `INT.emod`, `smt-hook mod`, `\ceil(emod(I, J)) = (J =/=Int 0 = true)` (an
+///   unconditional ceil equation). Model: defined iff `J ≠ 0`, the Euclidean remainder. Drawn
+///   only through `sel`.
+/// - `sel(B, X, Y)`: partial, no hook, two equations `sel(true, X, Y) = emod(X, Y)` and
+///   `sel(false, X, Y) = X`, which the solver reads as a summary over `emod` (GAP K29). Model:
+///   `emod(X, Y)` where `B` is true, `X` where it is false.
 pub const DEFINITION: &str = r#"[]
 module MAIN
     hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
@@ -88,6 +94,8 @@ module MAIN
     symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
     symbol pf{}(SortInt{}) : SortInt{} [function{}()]
     symbol g{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("k19g")]
+    hooked-symbol emod{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.emod"), smt-hook{}("mod")]
+    symbol sel{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{} [function{}()]
     axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
         \ceil{SortInt{}, Q}(half{}(X:SortInt{})),
         \and{Q}(\equals{SortBool{}, Q}(even{}(X:SortInt{}), \dv{SortBool{}}("true")), \top{Q}())))
@@ -112,6 +120,24 @@ module MAIN
         \equals{SortBool{}, R}(gtInt{}(half{}(X:SortInt{}), \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
         \equals{SortInt{}, R}(g{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())))
         [label{}("g-zero"), simplification{}(), smt-lemma{}()]
+    axiom{Q} \implies{Q}(\top{Q}(), \equals{Q, Q}(
+        \ceil{SortInt{}, Q}(emod{}(I:SortInt{}, J:SortInt{})),
+        \and{Q}(\equals{SortBool{}, Q}(neInt{}(J:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \top{Q}())))
+        [label{}("emod-defined"), simplification{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(KRSInput0:SortBool{}, \dv{SortBool{}}("true")),
+            \and{R}(\in{SortInt{}, R}(KRSInput1:SortInt{}, X:SortInt{}),
+              \and{R}(\in{SortInt{}, R}(KRSInput2:SortInt{}, Y:SortInt{}), \top{R}())))),
+        \equals{SortInt{}, R}(sel{}(KRSInput0:SortBool{}, KRSInput1:SortInt{}, KRSInput2:SortInt{}),
+            \and{SortInt{}}(emod{}(X:SortInt{}, Y:SortInt{}), \top{SortInt{}}())))
+        [label{}("sel-true")]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(KRSInput0:SortBool{}, \dv{SortBool{}}("false")),
+            \and{R}(\in{SortInt{}, R}(KRSInput1:SortInt{}, X:SortInt{}),
+              \and{R}(\in{SortInt{}, R}(KRSInput2:SortInt{}, Y:SortInt{}), \top{R}())))),
+        \equals{SortInt{}, R}(sel{}(KRSInput0:SortBool{}, KRSInput1:SortInt{}, KRSInput2:SortInt{}),
+            \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())))
+        [label{}("sel-false")]
 endmodule []"#;
 
 pub fn definition() -> BackendDefinition {
@@ -170,6 +196,8 @@ pub enum IntT {
     Ite(Box<BoolT>, Box<IntT>, Box<IntT>),
     G(Box<IntT>),
     Lookup(Box<MapT>, Box<IntT>),
+    /// `sel(B, X, Y)`, a function the solver reads through its summary.
+    Sel(Box<BoolT>, Box<IntT>, Box<IntT>),
     /// A term-level `\and`: the intersection of its operands, their common value where both
     /// are defined and equal, `\bottom` elsewhere (GAP K30).
     And(Box<IntT>, Box<IntT>),
@@ -251,6 +279,8 @@ pub struct Free {
     pub map: bool,
     /// The case mentions `pf` or `g`, whose models are not unique.
     pub open: bool,
+    /// The case mentions `sel`, which the solver reads through its summary.
+    pub summary: bool,
 }
 
 impl IntT {
@@ -277,6 +307,12 @@ impl IntT {
             Self::Lookup(m, k) => {
                 m.free(free);
                 k.free(free);
+            }
+            Self::Sel(c, a, b) => {
+                free.summary = true;
+                c.free(free);
+                a.free(free);
+                b.free(free);
             }
         }
     }
@@ -407,6 +443,7 @@ impl fmt::Display for IntT {
             Self::Ite(c, a, b) => write!(f, "#if {c} #then {a} #else {b} #fi"),
             Self::G(a) => write!(f, "g({a})"),
             Self::Lookup(m, k) => write!(f, "{m}[{k}]"),
+            Self::Sel(c, a, b) => write!(f, "sel({c}, {a}, {b})"),
             Self::And(a, b) => write!(f, "({a} /\\ {b})"),
         }
     }
@@ -508,6 +545,9 @@ impl IntT {
             }
             Self::G(a) => format!("g{{}}({})", a.kore()),
             Self::Lookup(m, k) => format!("lookup{{}}({}, {})", m.kore(), k.kore()),
+            Self::Sel(c, a, b) => {
+                format!("sel{{}}({}, {}, {})", c.kore(), a.kore(), b.kore())
+            }
             Self::And(a, b) => format!("\\and{{SortInt{{}}}}({}, {})", a.kore(), b.kore()),
         }
     }
@@ -788,6 +828,12 @@ pub fn eval_int(term: &IntT, env: &Env) -> Eval<i128> {
         IntT::Lookup(m, k) => {
             strict!(m = eval_map(m, env), k = eval_int(k, env) => m.get(&k).copied())
         }
+        // Strict in every argument, as every application is; then its equations, with
+        // SMT-LIB's and `INT.emod`'s Euclidean remainder `0 <= r < |b|`.
+        IntT::Sel(c, a, b) => {
+            strict!(c = eval_bool(c, env), a = eval_int(a, env), b = eval_int(b, env) =>
+                if !c { Some(a) } else if b == 0 { None } else { Some(a.rem_euclid(b)) })
+        }
         // The intersection of two patterns that each denote at most one element.
         IntT::And(a, b) => {
             strict!(a = eval_int(a, env), b = eval_int(b, env) => (a == b).then_some(a))
@@ -1064,8 +1110,11 @@ pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
 }
 
 /// [`terms`], and with `conjunctions` also term-level `\and`s of two Int or two Bool terms
-/// (GAP K30), an Int one drawn as often as a sum and a Bool one as often as a negation; without
-/// it the draw is [`terms`]'s, case for case.
+/// (GAP K30), a Bool one drawn as often as a negation and an Int one a quarter as often as a sum:
+/// the solver does not translate a non-Boolean `\and` (`TranslationError::NonBooleanAnd`), so a
+/// case that holds one decides nothing past the simplifier, and a rare draw keeps those cases to
+/// a few percent of a run (the simplifier still meets them). Without `conjunctions` the draw is
+/// [`terms`]'s, case for case.
 pub fn terms_with(depth: u32, symbolic_exponents: bool, conjunctions: bool) -> Terms {
     let mut level = Terms {
         int: int_leaf(),
@@ -1092,11 +1141,13 @@ pub fn terms_with(depth: u32, symbolic_exponents: bool, conjunctions: bool) -> T
                 .prop_map(|(c, a, d)| IntT::Ite(c, a, d)),
             1 => b(&int).prop_map(IntT::G),
             2 => (map.clone().prop_map(Box::new), b(&int)).prop_map(|(m, k)| IntT::Lookup(m, k)),
+            2 => (bool.clone().prop_map(Box::new), b(&int), b(&int))
+                .prop_map(|(c, a, d)| IntT::Sel(c, a, d)),
         ]
         .boxed();
         let next_int = if conjunctions {
             prop_oneof![
-                29 => next_int,
+                124 => next_int,
                 1 => (b(&int), b(&int)).prop_map(|(a, c)| IntT::And(a, c)),
             ]
             .boxed()

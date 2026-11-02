@@ -1670,6 +1670,74 @@ fn total_helper_declarations_keep_totality_and_an_opaque_value_outside_the_sourc
     );
 }
 
+/// GAP K29: a summary over a hooked partial operation is read exactly. `choose(B, X, Y)` is
+/// `ediv(X, Y)` where `B` is true and `0` where it is false; `ediv`'s unconditional ceil equation
+/// gives it the closed domain `Y =/= 0`, and the summary's partition test on `B` is globally
+/// defined, so its domain is the closed formula `B = false ∨ Y =/= 0`. The two negated atoms
+/// `\not(ge(choose(B, X, Y), 0))` and `\not(lt(choose(B, X, Y), 0))` hold in K exactly where
+/// `choose(B, X, Y)` is undefined (an atom over an undefined term is `\bottom`, true under
+/// `\not`; a defined value is `>= 0` or `< 0`), that is where `B` is true and `Y` is 0, and so
+/// does `\not\ceil(choose(B, X, Y))`: every model the solver gives is that K instance.
+/// `totalChoose` has the same rows but is declared total, so outside its rows' domains its value
+/// is an uninterpreted fallback a model may set to anything, and a query reading it stays
+/// approximate (`Unknown`).
+#[cfg(feature = "z3")]
+#[test]
+fn a_summary_over_a_hooked_partial_operation_has_exact_models() {
+    use crate::{
+        model::{ModelQuery, model_of},
+        smt::{APPROXIMATE_MODEL_REASON, ModelResult, SmtSolver, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
+        .unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
+    let b = Variable::new("B", Sort::simple("SortBool"));
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let call = "choose{}(B:SortBool{},X:SortInt{},Y:SortInt{})";
+    let not_true = |head: &str| {
+        Predicate::Not(Arc::new(Predicate::Equals(
+            term(&d, &format!("{head}{{}}({call},{})", int(0))),
+            term(&d, &boolv(true)),
+        )))
+    };
+    let undefined = Predicate::Not(Arc::new(Predicate::Ceil(term(&d, call))));
+    for predicates in [vec![not_true("ge"), not_true("lt")], vec![undefined]] {
+        for result in [
+            solver
+                .get_model(&ModelQuery::for_solver_tests(
+                    &predicates,
+                    &Substitution::new(),
+                ))
+                .unwrap()
+                .unwrap(),
+            model_of(&d, &Predicate::And(predicates.clone().into()), &solver)
+                .unwrap()
+                .unwrap(),
+        ] {
+            let ModelResult::Sat(values) = result else {
+                panic!("{predicates:?}: {result:?}")
+            };
+            assert_eq!(values.get(&b), Some(&term(&d, &boolv(true))), "{values:?}");
+            assert_eq!(values.get(&y), Some(&term(&d, &int(0))), "{values:?}");
+        }
+    }
+    let fallback = [Predicate::Equals(
+        term(&d, "totalChoose{}(B:SortBool{},X:SortInt{},Y:SortInt{})"),
+        term(&d, &int(99)),
+    )];
+    assert_eq!(
+        solver
+            .get_model(&ModelQuery::for_solver_tests(
+                &fallback,
+                &Substitution::new()
+            ))
+            .unwrap()
+            .unwrap(),
+        ModelResult::Unknown(APPROXIMATE_MODEL_REASON.to_owned())
+    );
+}
+
 #[cfg(feature = "z3")]
 #[test]
 fn partial_helper_mutations_and_explicit_domain_rows_keep_their_actual_source_meaning() {

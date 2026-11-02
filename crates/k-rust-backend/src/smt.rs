@@ -1768,7 +1768,8 @@ impl TranslationState {
     }
 
     /// Applies the SMT operation `name` to the translated arguments. `exactness` states whether
-    /// the operation denotes the symbol exactly (`symbol_exactness`).
+    /// the operation denotes the symbol exactly where it is defined: `Exact` for an `smt-hook`,
+    /// `Approximate` for an `smtlib` function.
     fn translate_application(
         &mut self,
         name: &str,
@@ -3444,9 +3445,9 @@ pub enum Satisfiability {
     /// No K valuation satisfies the predicates, when they are definedness-faithful
     /// (docs/compatibility.md, "Solver decisions over partial operations"); otherwise only the
     /// translation has no model. Every predicate the backend poses is, except over a definition
-    /// whose rule or equation condition equates two possibly undefined terms or whose axioms hold
-    /// an `\equals` that reads a term as a predicate or a condition over a Boolean term-level
-    /// `\and` (that section's gaps).
+    /// whose rule or equation condition equates two possibly undefined terms (that section's gap;
+    /// a condition with an atom over a term-level `\and` states the conjunction's definedness, and
+    /// a definition whose axioms hold an `\equals` that reads a term as a predicate is refused).
     Unsat,
     /// The solver ran within its own per-query bounds (its timeout, resource limit and retries)
     /// and did not decide the query; the payload is its reason. Never a stop: a query that stopped (a

@@ -345,6 +345,7 @@ impl<'a> ReadBack<'a> {
             ("ite", 3) => IntT::Ite(Box::new(self.bool_term(&arguments[0])?), b(1)?, b(2)?),
             ("g", 1) => IntT::G(b(0)?),
             ("lookup", 2) => IntT::Lookup(Box::new(self.map_term(&arguments[0])?), b(1)?),
+            ("sel", 3) => IntT::Sel(Box::new(self.bool_term(&arguments[0])?), b(1)?, b(2)?),
             _ => return skip(format!("the Int symbol {name}")),
         })
     }

@@ -9,7 +9,7 @@
 //! `InconsistentGroundTruth` by one where the known predicates hold. A `Sat` answer claims only
 //! that a valuation exists, and is checked only where the solver gives one (`model_of`'s model,
 //! which it gives only of a query whose translation is exact), by evaluating the original
-//! predicates at it. `Contingent` and `Unknown`
+//! predicates at it, in each of the evaluator's models of the definition. `Contingent` and `Unknown`
 //! claim nothing and are only counted; so is a `Contingent` answer every domain valuation
 //! decides one way, a completeness statistic that never fails.
 //!
@@ -65,6 +65,9 @@ struct Stats {
     /// `model_of` answers that are `Sat` (a model, checked) or `Unsat` (checked).
     exact: Cell<usize>,
     models_checked: Cell<usize>,
+    /// Of `models_checked`, those of cases that mention `pf` or `g`, and those that mention `sel`.
+    open_models_checked: Cell<usize>,
+    summary_models_checked: Cell<usize>,
     /// `Contingent` where every domain valuation of the known predicates makes the checked one
     /// true (or every one makes it false): a completeness gap on the domain, never a failure.
     contingent_but_decided_on_domain: Cell<usize>,
@@ -81,7 +84,7 @@ impl fmt::Display for Stats {
             f,
             "check_predicates: {} Valid, {} Refuted, {} InconsistentGroundTruth, {} Contingent \
              ({} of them decided on the domain), {} Unknown, {} errors; is_sat: {} Unsat, {} Sat, \
-             {} Unknown, {} errors; {} decided model queries, {} models checked; {} cases with no domain valuation of known",
+             {} Unknown, {} errors; {} decided model queries, {} models checked ({} over pf or g, {} over sel); {} cases with no domain valuation of known",
             self.valid.get(),
             self.refuted.get(),
             self.inconsistent.get(),
@@ -95,6 +98,8 @@ impl fmt::Display for Stats {
             self.errors_sat.get(),
             self.exact.get(),
             self.models_checked.get(),
+            self.open_models_checked.get(),
+            self.summary_models_checked.get(),
             self.vacuous.get(),
         )
     }
@@ -275,46 +280,66 @@ fn check_case(
             backend.term(&term.kore()),
         ));
     }
-    // A model of a query over `pf` or `g` may give them values none of the evaluator's models
-    // gives, so it is checked only over symbols whose model is unique.
-    if !free.open {
-        let conjunction = Predicate::And(Arc::from(all));
-        let model = model_of(&backend.definition, &conjunction, solver).map_err(|stop| {
-            TestCaseError::fail(format!("case: {case}\nmodel_of stopped: {stop:?}"))
-        })?;
-        match model {
-            Ok(ModelResult::Sat(model)) => {
-                bump(&stats.exact);
-                bump(&stats.models_checked);
-                let (env, bound, bool) = model_env(backend, &model);
-                let mut rest = free.clone();
-                if bool.is_some() {
-                    rest.bool = false;
-                }
-                // Variables the model leaves out are completed over the domain; the model is
-                // refuted only if no completion satisfies the case.
-                let completions = valuations(&rest, &env, &bound);
-                let satisfied = completions.iter().any(|env| {
+    // A case over `pf` or `g` is checked too. `pf`'s and `g`'s values are open in the
+    // definition and read through uninterpreted functions, and `pf`'s domain below 0 is
+    // undecided, so a query that still reads them is approximate and `model_of` gives no model
+    // of it. A model it gives is then of a query the simplifier rid of them, an equivalence in
+    // every model of the definition, so the model's valuation satisfies the case in each of the
+    // evaluator's models: it is refuted by one of those models where no completion of the
+    // variables it leaves out satisfies the case. A query that made such a read exact would
+    // give a model that may hold in no enumerated model, and fails here.
+    let conjunction = Predicate::And(Arc::from(all));
+    let model = model_of(&backend.definition, &conjunction, solver)
+        .map_err(|stop| TestCaseError::fail(format!("case: {case}\nmodel_of stopped: {stop:?}")))?;
+    match model {
+        Ok(ModelResult::Sat(model)) => {
+            bump(&stats.exact);
+            bump(&stats.models_checked);
+            if free.open {
+                bump(&stats.open_models_checked);
+            }
+            if free.summary {
+                bump(&stats.summary_models_checked);
+            }
+            let (env, bound, bool) = model_env(backend, &model);
+            let mut rest = free.clone();
+            if bool.is_some() {
+                rest.bool = false;
+            }
+            // Variables the model leaves out are completed over the domain; in each of the
+            // evaluator's models (one, unless the case is open) the model is refuted only if no
+            // completion satisfies the case.
+            let completions = valuations(&rest, &env, &bound);
+            for (pf_total, alt_values) in
+                [(false, false), (false, true), (true, false), (true, true)]
+            {
+                let mut in_model = completions
+                    .iter()
+                    .filter(|env| env.pf_total == pf_total && env.alt_values == alt_values)
+                    .peekable();
+                let Some(first) = in_model.peek().copied() else {
+                    continue;
+                };
+                if !in_model.any(|env| {
                     let (known, checked) = truths(case, env);
                     known.and(checked) != Truth::False
-                });
-                if !satisfied {
+                }) {
                     return Err(failure(
                         case,
                         &free,
                         &format!("model_of: Sat {model:?}"),
-                        &completions[0],
+                        first,
                     ));
                 }
             }
-            Ok(ModelResult::Unsat) => {
-                bump(&stats.exact);
-                if let Some(env) = find(&|k, c| k == Truth::True && c == Truth::True) {
-                    return Err(failure(case, &free, "model_of: Unsat", env));
-                }
-            }
-            Ok(ModelResult::Unknown(_)) | Err(_) => {}
         }
+        Ok(ModelResult::Unsat) => {
+            bump(&stats.exact);
+            if let Some(env) = find(&|k, c| k == Truth::True && c == Truth::True) {
+                return Err(failure(case, &free, "model_of: Unsat", env));
+            }
+        }
+        Ok(ModelResult::Unknown(_)) | Err(_) => {}
     }
     Ok(())
 }
@@ -368,11 +393,49 @@ fn every_decided_solver_answer_agrees_with_k_truth_on_the_domain() {
     }
 }
 
+/// `sel`'s draws reach the solver's exact summary reading (GAP K29), so the property's model
+/// check covers it: `\not\ceil(sel(B, X, Y))` holds in K exactly where `B` is true and `Y` is 0
+/// (`emod(X, Y)` undefined), and `model_of` gives such a valuation; the same over an operand
+/// `pf(Y)`, whose domain below 0 is undecided, gives none.
+#[test]
+fn a_model_of_a_query_over_sel_is_a_k_valuation() {
+    let backend = Backend::new();
+    let solver = solver(&backend.definition, KNOBS);
+    let undefined = |divisor: IntT| {
+        backend.predicate(&Pred::Not(Box::new(Pred::Ceil(AnyT::Int(IntT::Sel(
+            Box::new(BoolT::Var),
+            Box::new(IntT::Var(IntVar::X)),
+            Box::new(divisor),
+        ))))))
+    };
+    let model = model_of(
+        &backend.definition,
+        &undefined(IntT::Var(IntVar::Y)),
+        &solver,
+    )
+    .expect("no stop is armed");
+    let Ok(ModelResult::Sat(model)) = model else {
+        panic!("{model:?}")
+    };
+    let (env, bound, bool) = model_env(&backend, &model);
+    assert_eq!(bool, Some(true), "{model:?}");
+    assert!(bound.contains(&IntVar::Y), "{model:?}");
+    assert_eq!(env.ints[IntVar::Y.index()], 0, "{model:?}");
+    let model = model_of(
+        &backend.definition,
+        &undefined(IntT::Pf(Box::new(IntT::Var(IntVar::Y)))),
+        &solver,
+    )
+    .expect("no stop is armed");
+    assert!(matches!(model, Ok(ModelResult::Unknown(_))), "{model:?}");
+}
+
 /// The evaluator's model of each hooked symbol agrees with k-rust's ground evaluation where the
 /// backend decides a ground application (a check of the oracle, not of the solver): a value it
 /// computes is the evaluator's, and an application it finds undefined is undefined in the
-/// evaluator. Symbols with no K hook (`half`, `pf`, `even`, `g`) have no ground evaluation to
-/// compare with; their models are argued in the definition's doc.
+/// evaluator. `sel` is compared through its equations and `emod`'s hook. Symbols with no K hook
+/// and no equation (`half`, `pf`, `even`, `g`) have no ground evaluation to compare with; their
+/// models are argued in the definition's doc.
 #[test]
 fn the_oracles_model_agrees_with_ground_evaluation_of_the_hooked_symbols() {
     let backend = Backend::new();
@@ -410,6 +473,8 @@ fn the_oracles_model_agrees_with_ground_evaluation_of_the_hooked_symbols() {
                     lit(a),
                     Box::new(IntT::Div(lit(b), lit(0))),
                 ),
+                IntT::Sel(Box::new(BoolT::Lit(true)), lit(a), lit(b)),
+                IntT::Sel(Box::new(BoolT::Lit(false)), lit(a), lit(b)),
             ] {
                 ground.push(AnyT::Int(t));
             }
