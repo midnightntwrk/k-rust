@@ -6,8 +6,8 @@
 //! holds the translation `tr` and one simulation lemma per pair of corresponding rules, and a
 //! hand module (`--hand-module`, default `NS.Relation`) that supplies the non-local part of the
 //! relation, `X : A.Top → B.Top → Prop`, the measures `μ : A.Top → Nat` and `ν : B.Top → Nat`,
-//! and the cases listed in `--open` (one `KIND RULE` per line, `#` comments; `KIND` is `fwd_tr`,
-//! `fwd_x`, `bwd_tr` or `bwd_x`).
+//! and the parts listed in `--open` (one `KIND.«RULE» | hand` per line, `#` comments; `KIND` is
+//! `fwd_tr`, `fwd_x`, `bwd_tr` or `bwd_x`).
 //!
 //! The relation is `Stutter.Rel tr X c d := d = tr c ∨ X c d` (`KPrelude.Scaffold`). What each
 //! step owes splits per rule and per part of the relation:
@@ -19,8 +19,13 @@
 //!   with the rule's left-hand side);
 //! - `bwd_tr r`, `bwd_x r`: the same for the steps of `B`, from `bwd.r`.
 //!
-//! The other cases are the hand module's: `hand.KIND.r : A.Step.Rel.r (Stutter.FwdTr …)` and so
-//! on. With `--hand-module none` there is no hand module: one step of `B` that `A` takes in two
+//! Each part is an obligation by name, as confluence's slots are: stated (`fwd_tr.«r».statement :
+//! Prop := A.Step.Rel.«r» (Stutter.FwdTr …)` and so on), and proved by its own theorem
+//! (`fwd_tr.«r»`) when generated, by the hand module under that name when listed `| hand`, or left
+//! open when listed by its name alone (a field of `Open`, the premise of `bisim` and its
+//! corollaries). A part neither generated nor listed is refused.
+//!
+//! With `--hand-module none` there is no hand module: one step of `B` that `A` takes in two
 //! (`find_splits`: `A`'s `a1` then `a2` against `B`'s `b`, no side conditions) gives `X` (one
 //! constructor, `A` after `a1` against `B` after `b`), `X_inv`, `μ` (1 there), `ν = 0`, `R`, and
 //! the parts that need `X`'s constructor: `fwd_tr a1`, `fwd_x a2`, `bwd_tr b`, and `bwd_x r` for
@@ -114,24 +119,18 @@ fn read_pairs(path: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// The open list: (kind, rule name).
-fn read_open(path: &str) -> BTreeSet<(String, String)> {
+/// The parts the list (`--open`) names, each (kind, rule name) with whether the hand module
+/// proves it (`KIND.«RULE» | hand`) or it is open (`KIND.«RULE»`, a field of `Open`).
+fn read_open(path: &str) -> BTreeMap<(String, String), bool> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
-    let mut out = BTreeSet::new();
-    for l in text.lines() {
-        let l = l.trim();
-        if l.is_empty() || l.starts_with('#') {
-            continue;
-        }
-        let Some((k, r)) = l.split_once(' ') else {
-            fail(&format!("{path}: `{l}` is not `KIND RULE`"))
-        };
-        if !["fwd_tr", "fwd_x", "bwd_tr", "bwd_x"].contains(&k) {
-            fail(&format!("{path}: unknown kind {k}"));
-        }
-        out.insert((k.to_string(), r.trim().to_string()));
-    }
-    out
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            crate::refuted::case_entry(l, &["fwd_tr", "fwd_x", "bwd_tr", "bwd_x"], "a part is sufficient for its rule's step of the bisimulation, not necessary, so its refutation says only that this `X` and these measures do not prove it")
+                .unwrap_or_else(|e| fail(&format!("{path}: {e}")))
+        })
+        .collect()
 }
 
 fn intro(xs: &[String]) -> String {
@@ -544,11 +543,18 @@ fn emit_priorities(o: &mut String, p: &Pri) -> Pris {
                     || p.split.is_some_and(|s| s.a1 == i))
         })
         .collect();
+    // `B`'s rule `r`'s lemma is taken by its generated part at a translation, by its generated part
+    // at an `X` state with a split (`A` completes its step, then takes `r`'s counterpart), and by
+    // `split_bwd` for the split's `b`
     let bwd: Vec<usize> = (0..p.rb.len())
         .filter(|&j| {
             let r = &p.rb[j];
+            let sb = p.split.is_some_and(|s| s.b == j);
             (p.rank)(r) > 0
-                && (paired_b.contains(&rules::display_name(r)) || p.split.is_some_and(|s| s.b == j))
+                && (sb
+                    || paired_b.contains(&rules::display_name(r))
+                        && (generated_part("bwd_tr", r)
+                            || p.split.is_some() && generated_part("bwd_x", r)))
         })
         .collect();
     let mid = p.split.filter(|s| (p.rank)(&p.ra[s.a2]) > 0);
@@ -738,7 +744,15 @@ pub fn main(args: &[String]) {
         fail(&format!("the top sorts differ ({top}, {top_b})"));
     }
     let pairs = read_pairs(&get("correspondence"));
-    let open = opt.get("open").map(|p| read_open(p)).unwrap_or_default();
+    let listed = opt.get("open").map(|p| read_open(p)).unwrap_or_default();
+    // every listed part is not generated (the priority lemmas skip them); the open ones are
+    // `Open`'s fields
+    let open: BTreeSet<(String, String)> = listed.keys().cloned().collect();
+    let opened: Vec<(String, String)> = listed
+        .iter()
+        .filter(|(_, h)| !**h)
+        .map(|(c, _)| c.clone())
+        .collect();
     let hand = opt
         .get("hand-module")
         .cloned()
@@ -776,15 +790,50 @@ pub fn main(args: &[String]) {
     } else {
         None
     };
-    for (k, r) in &open {
-        let known = if k.starts_with("fwd") {
-            &names_a
+    for ((k, r), h) in &listed {
+        let (known, n) = if k.starts_with("fwd") {
+            (&names_a, &na)
         } else {
-            &names_b
+            (&names_b, &nb)
         };
         if !known.contains(r) {
-            fail(&format!("open case {k} {r}: no such rule"));
+            fail(&format!("--open: {k}.«{r}»: no rule {r} of {n}"));
         }
+        if *h && generated {
+            fail(&format!(
+                "--open: {k}.«{r}» | hand: there is no hand module (--hand-module none); leave it open (its name alone)"
+            ));
+        }
+    }
+
+    // a part at a translation is generated when its rule has a counterpart or is the split's (`a1`,
+    // `b`), and one at an `X` state is always attempted: any other part is listed
+    let missing: Vec<String> = ra
+        .iter()
+        .enumerate()
+        .filter(|(i, r)| {
+            !paired_a.contains(&rules::display_name(r))
+                && !split.as_ref().is_some_and(|s| s.a1 == *i)
+        })
+        .map(|(_, r)| ("fwd_tr", rules::display_name(r)))
+        .chain(
+            rb.iter()
+                .enumerate()
+                .filter(|(j, r)| {
+                    !paired_b.contains(&rules::display_name(r))
+                        && !split.as_ref().is_some_and(|s| s.b == *j)
+                })
+                .map(|(_, r)| ("bwd_tr", rules::display_name(r))),
+        )
+        .filter(|(k, r)| !listed.contains_key(&(k.to_string(), r.clone())))
+        .map(|(k, r)| format!("{k}.«{r}»"))
+        .collect();
+    if !missing.is_empty() {
+        fail(&format!(
+            "{} parts are not generated (their rules have no counterpart) and not listed in --open: list each `KIND.«RULE» | hand` (the hand module's) or `KIND.«RULE»` (open): {}",
+            missing.len(),
+            missing.join(", ")
+        ));
     }
     let tr = format!("tr_{}", crate::terms::fsuffix(&top));
     let (ta, tb) = (format!("{na}.{top}"), format!("{nb}.{top}"));
@@ -804,7 +853,7 @@ pub fn main(args: &[String]) {
     let rest = if generated {
         "The step of the split, and each step of `B` at a state `X` relates, are matched by `A`'s two\nsteps (`A` completes its step, then takes the counterpart)."
     } else {
-        "The rest are the hand\nmodule's (`hand.fwd_tr.r`, `hand.fwd_x.r`, `hand.bwd_tr.r`, `hand.bwd_x.r`)."
+        "The rest are the hand\nmodule's, under the part's name (`fwd_tr.«r»`, `fwd_x.«r»`, `bwd_tr.«r»`, `bwd_x.«r»`), or open."
     };
     writeln!(
         o,
@@ -813,7 +862,9 @@ The stuttering bisimulation between `{na}.Step` and `{nb}.Step` through\n\
 `Stutter.Rel {tr} {x}` (`d` is the translation of `c`, or `{x}` relates them), with the measures\n\
 `{mu}` and `{nu}` {whose}. One case per rule and direction, in two parts (`Stutter.fwdQ_of`,\n\
 `Stutter.bwdQ_of`): at a translation, from the simulation lemma of `relate --per-rule` when the\n\
-rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/\n"
+rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} Each part is an\n\
+obligation by name (stated below): generated, the hand module's, or open (a field of `Open`, the\n\
+premise of `bisim`), as `--open` lists it. -/\n"
     )
     .unwrap();
     writeln!(o, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
@@ -837,6 +888,61 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
             (k2 > 0).then_some(k2),
         );
     }
+    // each part stated, whoever proves it: generated below, the hand module, or `Open`
+    let stmt = |kind: &str, lean: &str| -> String {
+        let (n, q, s, m) = match kind {
+            "fwd_tr" => (&na, "FwdTr", &nb, &mu),
+            "fwd_x" => (&na, "FwdX", &nb, &mu),
+            "bwd_tr" => (&nb, "BwdTr", &na, &nu),
+            _ => (&nb, "BwdX", &na, &nu),
+        };
+        format!("{n}.Step.Rel.{lean} (Stutter.{q} {tr} {s}.Step {x} {m})")
+    };
+    writeln!(
+        o,
+        "/-! ## The parts' statements\n\nEach part is an obligation by name: proved below, by the hand module, or open (a field of\n`Open`), as the list (`--open`) marks it. -/\n"
+    )
+    .unwrap();
+    for (cs, kinds) in [(&ca, ["fwd_tr", "fwd_x"]), (&cb, ["bwd_tr", "bwd_x"])] {
+        for c in cs.iter() {
+            for k in kinds {
+                writeln!(
+                    o,
+                    "def {k}.{}.statement : Prop := {}",
+                    c.lean,
+                    stmt(k, &c.lean)
+                )
+                .unwrap();
+            }
+        }
+    }
+    // a name for `Open`'s premise that no rule's variable takes (the cases introduce them)
+    let mut ov = "O".to_string();
+    while ca.iter().chain(&cb).any(|c| c.args.contains(&ov)) {
+        ov.push('\'');
+    }
+    if !opened.is_empty() {
+        writeln!(
+            o,
+            "\n/-- The parts left open (`--open`, a name alone): the premise of `bisim`. -/\nstructure Open : Prop where"
+        )
+        .unwrap();
+        for (k, r) in &opened {
+            let rs = if k.starts_with("fwd") { &ra } else { &rb };
+            let l = &rs
+                .iter()
+                .find(|x| &rules::display_name(x) == r)
+                .unwrap()
+                .lean;
+            writeln!(o, "  «{k}.{r}» : {k}.{l}.statement").unwrap();
+        }
+    }
+    o.push('\n');
+    let (ob, oa) = if opened.is_empty() {
+        (String::new(), String::new())
+    } else {
+        (format!(" ({ov} : Open)"), format!("{ov} "))
+    };
     // the priority hypotheses of the other side's steps, per rule whose generated part takes
     // one (design.md, section 3.5, "Priorities")
     let pri = emit_priorities(
@@ -857,25 +963,50 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
         },
     );
     let mut guard = vec![];
-    let mut counts: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
-    let mut hand_cases = vec![];
+    // per kind: generated, by hand, open
+    let mut counts: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
+    let (mut hand_cases, mut open_cases) = (vec![], vec![]);
+    // a part: its own theorem when generated (the statement written out), the hand module's under
+    // its name when listed `| hand`, `Open`'s field when listed alone; the term its step's case takes
     let mut part = |o: &mut String,
                     kind: &'static str,
                     (name, lean): (&str, &str),
                     args: &[String],
-                    auto: Option<String>| {
+                    auto: Option<String>|
+     -> String {
         let e = counts.entry(kind).or_default();
-        let listed = open.contains(&(kind.to_string(), name.to_string()));
-        match auto {
-            Some(tac) if !listed => {
-                e.0 += 1;
-                writeln!(o, "  · {tac}").unwrap();
+        let applied = |f: String| {
+            if args.is_empty() {
+                f
+            } else {
+                format!("({f} {})", args.join(" "))
             }
-            _ => {
+        };
+        match (listed.get(&(kind.to_string(), name.to_string())), auto) {
+            (None, Some(tac)) => {
+                e.0 += 1;
+                writeln!(
+                    o,
+                    "theorem {kind}.{lean} : {} := by\n{}  {}\n",
+                    stmt(kind, lean),
+                    intro(args),
+                    tac.replace("\n    ", "\n  ")
+                )
+                .unwrap();
+                applied(format!("{kind}.{lean}"))
+            }
+            (Some(true), _) => {
                 e.1 += 1;
-                hand_cases.push(format!("{kind} {name}"));
-                let sep = if args.is_empty() { "" } else { " " };
-                writeln!(o, "  · exact hand.{kind}.{lean}{sep}{}", args.join(" ")).unwrap();
+                hand_cases.push(format!("{kind}.«{name}»"));
+                applied(format!("{kind}.{lean}"))
+            }
+            (Some(false), _) => {
+                e.2 += 1;
+                open_cases.push(format!("{kind}.«{name}»"));
+                applied(format!("{ov}.«{kind}.{name}»"))
+            }
+            (None, None) => {
+                unreachable!("{kind}.«{name}»: refused above, neither generated nor listed")
             }
         }
     };
@@ -1015,14 +1146,6 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
     for (idx, (r, c)) in ra.iter().zip(&ca).enumerate() {
         let name = rules::display_name(r);
         let args = &c.args;
-        writeln!(
-            o,
-            "theorem stutter_fwd.{} : {na}.Step.Rel.{} (Stutter.FwdQ {tr} {nb}.Step {x} {mu}) := by\n{}  apply Stutter.fwdQ_of",
-            c.lean,
-            c.lean,
-            intro(args)
-        )
-        .unwrap();
         let sep = if args.is_empty() { "" } else { " " };
         let tr_auto = pairs
             .contains_key(&name)
@@ -1040,7 +1163,7 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
                     .filter(|(i, _)| *i == idx)
                     .map(|(_, t)| t.clone())
             });
-        part(&mut o, "fwd_tr", (&name, &c.lean), args, tr_auto);
+        let ht = part(&mut o, "fwd_tr", (&name, &c.lean), args, tr_auto);
         // a rule of a rank before `a2`'s may match `A`'s side of `X` (one that does not read what
         // `a1` changed: K's stream rules), where `X`'s `hp` says no such rule applies
         let x_auto = match (&split_fwd_x, &split) {
@@ -1053,22 +1176,21 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
             ),
             _ => refute.to_string(),
         };
-        part(&mut o, "fwd_x", (&name, &c.lean), args, Some(x_auto));
-        writeln!(o).unwrap();
+        let hx = part(&mut o, "fwd_x", (&name, &c.lean), args, Some(x_auto));
+        writeln!(
+            o,
+            "theorem stutter_fwd.{}{ob} : {na}.Step.Rel.{} (Stutter.FwdQ {tr} {nb}.Step {x} {mu}) := by\n{}  exact Stutter.fwdQ_of {ht} {hx}\n",
+            c.lean,
+            c.lean,
+            intro(args)
+        )
+        .unwrap();
         guard.push(format!("stutter_fwd.{}", c.lean));
     }
     writeln!(o, "/-! ## Backward: the steps of `{nb}` -/\n").unwrap();
     for (idx, (r, c)) in rb.iter().zip(&cb).enumerate() {
         let name = rules::display_name(r);
         let args = &c.args;
-        writeln!(
-            o,
-            "theorem stutter_bwd.{} : {nb}.Step.Rel.{} (Stutter.BwdQ {tr} {na}.Step {x} {nu}) := by\n{}  apply Stutter.bwdQ_of",
-            c.lean,
-            c.lean,
-            intro(args)
-        )
-        .unwrap();
         let sep = if args.is_empty() { "" } else { " " };
         let tr_auto = paired_b
             .contains(&name)
@@ -1081,17 +1203,30 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
                 )
             })
             .or_else(|| split_bwd_tr.as_ref().filter(|(i, _)| *i == idx).map(|(_, t)| t.clone()));
-        part(&mut o, "bwd_tr", (&name, &c.lean), args, tr_auto);
+        let ht = part(&mut o, "bwd_tr", (&name, &c.lean), args, tr_auto);
         let x_auto = split_bwd_x.get(&idx).cloned().unwrap_or_else(|| {
             "intro c hX; cases hX <;> first | done | contradiction | (simp_all; done)".to_string()
         });
-        part(&mut o, "bwd_x", (&name, &c.lean), args, Some(x_auto));
-        writeln!(o).unwrap();
+        let hx = part(&mut o, "bwd_x", (&name, &c.lean), args, Some(x_auto));
+        writeln!(
+            o,
+            "theorem stutter_bwd.{}{ob} : {nb}.Step.Rel.{} (Stutter.BwdQ {tr} {na}.Step {x} {nu}) := by\n{}  exact Stutter.bwdQ_of {ht} {hx}\n",
+            c.lean,
+            c.lean,
+            intro(args)
+        )
+        .unwrap();
         guard.push(format!("stutter_bwd.{}", c.lean));
     }
     let list = |cs: &[preserves::Ctor], p: &str| {
         cs.iter()
-            .map(|c| format!("{p}.{}", c.lean))
+            .map(|c| {
+                if oa.is_empty() {
+                    format!("{p}.{}", c.lean)
+                } else {
+                    format!("({p}.{} {ov})", c.lean)
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };
@@ -1100,9 +1235,14 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
         "/-! ## The stuttering bisimulation and what it transfers -/\n"
     )
     .unwrap();
+    let bi = if oa.is_empty() {
+        "bisim".to_string()
+    } else {
+        format!("(bisim {ov})")
+    };
     writeln!(
         o,
-        "theorem bisim : StutterBisim {na}.Step {nb}.Step (Stutter.Rel {tr} {x}) {mu} {nu} :=\n  Stutter.bisim_of\n    (fun h => {na}.Step.rel_of {} h)\n    (fun h => {nb}.Step.rel_of {} h)\n",
+        "theorem bisim{ob} : StutterBisim {na}.Step {nb}.Step (Stutter.Rel {tr} {x}) {mu} {nu} :=\n  Stutter.bisim_of\n    (fun h => {na}.Step.rel_of {} h)\n    (fun h => {nb}.Step.rel_of {} h)\n",
         list(&ca, "stutter_fwd"),
         list(&cb, "stutter_bwd")
     )
@@ -1110,9 +1250,9 @@ rule has a counterpart; at a state `{x}` relates, by `cases` on `{x}`. {rest} -/
     writeln!(
         o,
         "/-- A run of `{na}` to a terminal state is matched, from the translation of its start, by a run\nof `{nb}` to a terminal state related to it. -/\n\
-theorem run_fwd {{c c' : {ta}}} (h : Star {na}.Step c c') (ht : Terminal {na}.Step c') :\n    ∃ d', Star {nb}.Step ({tr} c) d' ∧ Terminal {nb}.Step d' ∧ Stutter.Rel {tr} {x} c' d' :=\n  bisim.terminal_run (Or.inl rfl) h ht\n\n\
+theorem run_fwd{ob} {{c c' : {ta}}} (h : Star {na}.Step c c') (ht : Terminal {na}.Step c') :\n    ∃ d', Star {nb}.Step ({tr} c) d' ∧ Terminal {nb}.Step d' ∧ Stutter.Rel {tr} {x} c' d' :=\n  {bi}.terminal_run (Or.inl rfl) h ht\n\n\
 /-- A run of `{nb}` from a translation to a terminal state is matched by a run of `{na}` to a\nterminal state related to it. -/\n\
-theorem run_bwd {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht : Terminal {nb}.Step d') :\n    ∃ c', Star {na}.Step c c' ∧ Terminal {na}.Step c' ∧ Stutter.Rel {tr} {x} c' d' :=\n  bisim.symm.terminal_run (Or.inl rfl) h ht\n"
+theorem run_bwd{ob} {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht : Terminal {nb}.Step d') :\n    ∃ c', Star {na}.Step c c' ∧ Terminal {na}.Step c' ∧ Stutter.Rel {tr} {x} c' d' :=\n  {bi}.symm.terminal_run (Or.inl rfl) h ht\n"
     )
     .unwrap();
     guard.extend(pri.names.iter().cloned());
@@ -1128,8 +1268,8 @@ theorem run_bwd {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht 
             "/-- `{x}` never relates a terminal state of `{na}`, which completes its step from there (`{x}_next`). -/\n\
 theorem not_terminal_of_{x} {{c : {ta}}} {{d : {tb}}} (h : {x} c d) : ¬ Terminal {na}.Step c :=\n  fun ht => let ⟨_, hc, _⟩ := {x}_next h; ht _ hc\n\n\
 /-- A run of `{na}` to a terminal state and the run of `{nb}` from the translation of its start to a\nterminal state end in translations of each other. -/\n\
-theorem run_terminal {{c c' : {ta}}} (h : Star {na}.Step c c') (ht : Terminal {na}.Step c') :\n    ∃ d', Star {nb}.Step ({tr} c) d' ∧ Terminal {nb}.Step d' ∧ d' = {tr} c' := by\n  obtain ⟨d', hd, htd, hr | hx⟩ := run_fwd h ht\n  · exact ⟨d', hd, htd, hr⟩\n  · exact absurd ht (not_terminal_of_{x} hx)\n\n\
-theorem run_terminal_back {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht : Terminal {nb}.Step d') :\n    ∃ c', Star {na}.Step c c' ∧ Terminal {na}.Step c' ∧ d' = {tr} c' := by\n  obtain ⟨c', hc, htc, hr | hx⟩ := run_bwd h ht\n  · exact ⟨c', hc, htc, hr⟩\n  · exact absurd htc (not_terminal_of_{x} hx)\n"
+theorem run_terminal{ob} {{c c' : {ta}}} (h : Star {na}.Step c c') (ht : Terminal {na}.Step c') :\n    ∃ d', Star {nb}.Step ({tr} c) d' ∧ Terminal {nb}.Step d' ∧ d' = {tr} c' := by\n  obtain ⟨d', hd, htd, hr | hx⟩ := run_fwd {oa}h ht\n  · exact ⟨d', hd, htd, hr⟩\n  · exact absurd ht (not_terminal_of_{x} hx)\n\n\
+theorem run_terminal_back{ob} {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c) d') (ht : Terminal {nb}.Step d') :\n    ∃ c', Star {na}.Step c c' ∧ Terminal {na}.Step c' ∧ d' = {tr} c' := by\n  obtain ⟨c', hc, htc, hr | hx⟩ := run_bwd {oa}h ht\n  · exact ⟨c', hc, htc, hr⟩\n  · exact absurd htc (not_terminal_of_{x} hx)\n"
         )
         .unwrap();
         guard.extend([
@@ -1140,20 +1280,21 @@ theorem run_terminal_back {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c
     }
     writeln!(o, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
     write_file(&get("out"), &o);
-    let total: (usize, usize) = counts
+    let total: (usize, usize, usize) = counts
         .values()
-        .fold((0, 0), |(a, b), (x, y)| (a + x, b + y));
+        .fold((0, 0, 0), |(a, b, c), (x, y, z)| (a + x, b + y, c + z));
     let mut rep = format!(
-        "# k2lean refine: {na} against {nb}\n\nrules_a = {}\nrules_b = {}\npairs = {}\nparts = {}\nautomatic = {}\nhand = {}\n\n[parts]\n",
+        "# k2lean refine: {na} against {nb}\n\nrules_a = {}\nrules_b = {}\npairs = {}\nparts = {}\nautomatic = {}\nhand = {}\nopen = {}\n\n[parts]\n",
         ra.len(),
         rb.len(),
         pairs.len(),
-        total.0 + total.1,
+        total.0 + total.1 + total.2,
         total.0,
-        total.1
+        total.1,
+        total.2
     );
-    for (k, (a, h)) in &counts {
-        writeln!(rep, "{k} = {{ automatic = {a}, hand = {h} }}").unwrap();
+    for (k, (a, h, n)) in &counts {
+        writeln!(rep, "{k} = {{ automatic = {a}, hand = {h}, open = {n} }}").unwrap();
     }
     if prios.is_some() {
         writeln!(
@@ -1166,18 +1307,23 @@ theorem run_terminal_back {{c : {ta}}} {{d' : {tb}}} (h : Star {nb}.Step ({tr} c
         )
         .unwrap();
     }
-    writeln!(rep, "\n[hand]\ncases = {hand_cases:?}").unwrap();
+    writeln!(
+        rep,
+        "\n[hand]\ncases = {hand_cases:?}\n\n[open]\ncases = {open_cases:?}"
+    )
+    .unwrap();
     if let Some(p) = opt.get("report") {
         write_file(p, &rep);
     }
     eprintln!(
-        "refine: {} + {} rules, {} pairs; {} case parts, {} generated, {} by hand",
+        "refine: {} + {} rules, {} pairs; {} case parts, {} generated, {} by hand, {} open",
         ra.len(),
         rb.len(),
         pairs.len(),
-        total.0 + total.1,
+        total.0 + total.1 + total.2,
         total.0,
-        total.1
+        total.1,
+        total.2
     );
 }
 
@@ -1192,15 +1338,18 @@ mod tests {
     }
 
     #[test]
-    fn open_cases_are_kind_and_rule() {
+    fn open_parts_are_named_hand_or_open() {
         let p = tmp(
             "open",
-            "# hand cases\nfwd_tr IMP.while\n\nbwd_x IMP-SYNTAX.if(_)_else_ heat\n",
+            "# parts not generated\nfwd_tr.«IMP.while» | hand  # by hand\n\nbwd_x.«IMP-SYNTAX.if(_)_else_ heat»\n",
         );
         let o = read_open(&p);
-        assert!(o.contains(&("fwd_tr".into(), "IMP.while".into())));
-        // a rule name may contain spaces: everything after the kind
-        assert!(o.contains(&("bwd_x".into(), "IMP-SYNTAX.if(_)_else_ heat".into())));
+        assert_eq!(o.get(&("fwd_tr".into(), "IMP.while".into())), Some(&true));
+        // a rule name may contain spaces inside `«»`
+        assert_eq!(
+            o.get(&("bwd_x".into(), "IMP-SYNTAX.if(_)_else_ heat".into())),
+            Some(&false)
+        );
         assert_eq!(o.len(), 2);
     }
 

@@ -771,53 +771,6 @@ end {ns}\n"
     )
 }
 
-/// One entry of the per-rule cases' list (`--open`): `KIND.«RULE» | hand` (the hand module's),
-/// or `KIND.«RULE»` alone (open), with a comment after `#`; ((kind, rule), by hand).
-fn case_entry(p: &str, l: &str, kinds: &[&str]) -> ((String, String), bool) {
-    // the name ends at the first space or `|` outside `«»` (a rule's name may hold either)
-    let (mut end, mut quoted) = (l.len(), false);
-    for (i, ch) in l.char_indices() {
-        match ch {
-            '«' => quoted = true,
-            '»' => quoted = false,
-            ' ' | '|' if !quoted => {
-                end = i;
-                break;
-            }
-            _ => {}
-        }
-    }
-    let (name, rest) = (&l[..end], l[end..].split('#').next().unwrap().trim());
-    let Some((k, r)) = name.split_once('.').filter(|(k, _)| kinds.contains(k)) else {
-        // the earlier form, `KIND RULE`
-        if kinds.contains(&name) {
-            fail(&format!(
-                "{p}: `{l}`: write `{name}.«{rest}» | hand` (proved in the hand module) or `{name}.«{rest}»` (open)"
-            ));
-        }
-        fail(&format!(
-            "{p}: `{l}` is not `KIND.«RULE»`, KIND one of {}",
-            kinds.join(", ")
-        ));
-    };
-    let r = r
-        .strip_prefix('«')
-        .and_then(|x| x.strip_suffix('»'))
-        .unwrap_or(r)
-        .to_string();
-    let hand = match rest.strip_prefix('|').map(str::trim) {
-        None if rest.is_empty() => false,
-        Some("hand") => true,
-        Some(m) if m.starts_with("refuted") => fail(&format!(
-            "{p}: {name} is marked refuted: a per-rule case is sufficient for the relation, not necessary, so its refutation says nothing of the definition (two runs refute a flow); leave it open"
-        )),
-        _ => fail(&format!(
-            "{p}: `{l}`: a case is `| hand` or open (its name alone)"
-        )),
-    };
-    ((k.to_string(), r), hand)
-}
-
 /// What `relation` generated: its inversion lemmas, and the per-rule cases (three or six per rule)
 /// proved by one tactic, listed as the hand module's, or listed open.
 struct RelationOut {
@@ -1524,7 +1477,10 @@ scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(|l| case_entry(p, l, case_kinds))
+            .map(|l| {
+                crate::refuted::case_entry(l, case_kinds, "a per-rule case is sufficient for the relation, not necessary, so its refutation says nothing of the definition (two runs refute a flow)")
+                    .unwrap_or_else(|e| fail(&format!("{p}: {e}")))
+            })
             .collect(),
         None => BTreeMap::new(),
     };

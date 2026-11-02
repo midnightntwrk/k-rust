@@ -24,3 +24,8 @@ DEMOS = {
                                                  "demos/VmPopRefine/VmPopRefine/Tr.lean", "demos/VmPopRefine/VmPopRefine/Refine.lean",
                                                  "demos/VmPopRefine/correspondence.toml", "demos/VmPopRefine/refine.toml"]},
 }
+
+# each refine demo's parts (`fwd_tr.«RULE»`, `fwd_x.«RULE»`, `bwd_tr.«RULE»`, `bwd_x.«RULE»`), compared
+# by name: generic, by hand or open (REL-6); every part is generated, so no list
+for _d in ("ImpUnroll", "ImpPrintRefine", "VmPopRefine"):
+    DEMOS[_d]["slots"] = {"prefixes": ["fwd_tr.", "fwd_x.", "bwd_tr.", "bwd_x."]}

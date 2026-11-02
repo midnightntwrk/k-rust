@@ -133,13 +133,14 @@ gate_relational() {
     rel PickRel; dbuild PickRel
   fi
   # a stuttering bisimulation (docs/design.md, section 3.5): kimp against tests/kimp-unroll.py's
-  # variant, library kunroll built only as far as the demo needs
+  # variant, library kunroll built only as far as the demo needs; each refine demo's parts are read
+  # by name from its built environment (dbuild_slots)
   if runs demo ImpUnroll; then
     phase "scaffold ImpUnroll"
     kc kimp-unroll && partlib kunroll KUnroll.Preserves
     rel ImpUnroll
     scaffold refine-ImpUnroll libs_refine ImpUnroll
-    dbuild ImpUnroll
+    dbuild_slots ImpUnroll
   fi
   # the same with priority ranks (vmpri's three): the fixture vmpop, whose `pop` takes two steps,
   # against vmpop1, which takes one; the libraries built as far as the demo needs (Preserves)
@@ -148,7 +149,7 @@ gate_relational() {
     for d in vmpop vmpop1; do partlib "$d" "$(libs_name "$d").Preserves"; done
     rel VmPopRefine
     scaffold refine-VmPopRefine libs_refine VmPopRefine
-    dbuild VmPopRefine
+    dbuild_slots VmPopRefine
   fi
   # ImpUnroll's split under K's stdout stream rules (ranks 0 and 1, before kimp's rules): kimp with
   # `print` (tests/kimp-print.py) against the same with tests/kimp-unroll.py's `while`
@@ -157,7 +158,7 @@ gate_relational() {
     kc kimp-print && kc kimp-print-unroll && for d in kprint kprintu; do partlib "$d" "$(libs_name "$d").Preserves"; done
     rel ImpPrintRefine
     scaffold refine-ImpPrintRefine libs_refine ImpPrintRefine
-    dbuild ImpPrintRefine
+    dbuild_slots ImpPrintRefine
   fi
   phase "diff relational"
   diffs kmut

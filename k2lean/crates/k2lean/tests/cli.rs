@@ -872,7 +872,8 @@ fn relate_pairs_a_symbol_of_the_same_name_only_at_the_same_sorts() {
 /// discharges it rule by rule. The `owise` rule `pop-underflow` (rank 2) overlaps `pop` (rank 1):
 /// `B`'s `pop` at a translation is `A`'s `pop-start` (`split_appbwd`), `A`'s `pop-start` is `B`'s
 /// `pop` (`split_appfwd`). `pop-done` rewrites to its continuation, which may be `#pop` again, so
-/// the measure is the state's size there. Definitions with other priorities are refused.
+/// the measure is the state's size there. Each part is an obligation by name: generated, the hand
+/// module's (`| hand`) or open (`Open`). Definitions with other priorities are refused.
 #[test]
 fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
     let d = tmp("cli-refine-vmpop");
@@ -980,6 +981,125 @@ fn refine_discharges_the_priority_hypotheses_of_a_ranked_split() {
         rep.contains("[priorities]\nranks = 3\nfwd = 11\nbwd = 11\nmid = true\n"),
         "{rep}"
     );
+    // each part an obligation by name (REL-6): stated, and generated as its own theorem
+    for want in [
+        "def fwd_tr.«pop-start».statement : Prop := A.Step.Rel.«pop-start» (Stutter.FwdTr tr_SortGeneratedTopCell B.Step X μ)",
+        "def bwd_x.seq.statement : Prop := B.Step.Rel.seq (Stutter.BwdX tr_SortGeneratedTopCell A.Step X ν)",
+        "theorem fwd_tr.«pop-start» : A.Step.Rel.«pop-start» (Stutter.FwdTr tr_SortGeneratedTopCell B.Step X μ) := by",
+        "  exact Stutter.bwdQ_of (bwd_tr.seq I P DotVar2 DotVar1 DotVar0 hpri) (bwd_x.seq I P DotVar2 DotVar1 DotVar0 hpri)",
+        "theorem bisim : StutterBisim ",
+    ] {
+        assert!(r.contains(want), "missing `{want}`");
+    }
+    assert!(!r.contains("structure Open"));
+    assert!(rep.contains("open = 0\n"), "{rep}");
+    let refine_with = |hand: &str, list: &str| {
+        let l = d.join("open.txt");
+        std::fs::write(&l, list).unwrap();
+        run(&[
+            "refine".as_ref(),
+            "--kore-a".as_ref(),
+            ka.as_os_str(),
+            "--name-a".as_ref(),
+            "A".as_ref(),
+            "--kore-b".as_ref(),
+            kb.as_os_str(),
+            "--name-b".as_ref(),
+            "B".as_ref(),
+            "--ns".as_ref(),
+            "R".as_ref(),
+            "--correspondence".as_ref(),
+            corr.as_os_str(),
+            "--hand-module".as_ref(),
+            hand.as_ref(),
+            "--open".as_ref(),
+            l.as_os_str(),
+            "--out".as_ref(),
+            refine.as_os_str(),
+            "--report".as_ref(),
+            report.as_os_str(),
+        ])
+    };
+    // a part listed by its name alone is open: a field of `Open`, the premise of `bisim`
+    let o = refine_with(
+        "none",
+        "fwd_tr.«pop-start»\nbwd_x.seq  # a paired rule at an `X` state\n",
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    for want in [
+        "structure Open : Prop where\n  «bwd_x.seq» : bwd_x.seq.statement\n  «fwd_tr.pop-start» : fwd_tr.«pop-start».statement\n",
+        "theorem stutter_fwd.«pop-start» (O : Open) : ",
+        "  exact Stutter.fwdQ_of (O.«fwd_tr.pop-start» DotVar2 DotVar0 Gen0 Gen1 hpri) (fwd_x.«pop-start» DotVar2 DotVar0 Gen0 Gen1 hpri)",
+        "(stutter_fwd.seq O)",
+        "theorem bisim (O : Open) : ",
+        "  (bisim O).terminal_run (Or.inl rfl) h ht",
+        "theorem run_terminal (O : Open) ",
+        ":= run_fwd O h ht",
+    ] {
+        assert!(r.contains(want), "missing `{want}`");
+    }
+    assert!(!r.contains("theorem fwd_tr.«pop-start» "));
+    let rep = std::fs::read_to_string(&report).unwrap();
+    assert!(rep.contains("open = 2\n"), "{rep}");
+    assert!(
+        rep.contains("[open]\ncases = [\"fwd_tr.«pop-start»\", \"bwd_x.«seq»\"]"),
+        "{rep}"
+    );
+    // with a hand module: a part whose rule has no counterpart is listed, and `| hand` is the
+    // hand module's theorem under the part's name; a listed part's priority lemma is not written
+    let o = refine_with("R.Relation", "");
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("refine: 2 parts are not generated (their rules have no counterpart) and not listed in --open: list each `KIND.«RULE» | hand` (the hand module's) or `KIND.«RULE»` (open): fwd_tr.«pop-start», bwd_tr.«pop»"),
+        "{err}"
+    );
+    let o = refine_with(
+        "R.Relation",
+        "fwd_tr.«pop-start» | hand\nbwd_tr.pop | hand\nfwd_tr.«pop-underflow» | hand\nbwd_tr.«pop-underflow» | hand\n",
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&refine).unwrap();
+    assert!(r.starts_with("import R.Relation\n"));
+    assert!(r.contains("  exact Stutter.bwdQ_of (bwd_tr.pop DotVar2 Gen0 S DotVar0 hpri) (bwd_x.pop DotVar2 Gen0 S DotVar0 hpri)"));
+    assert!(!r.contains("theorem bwd_tr.pop ") && !r.contains("pri_bwd.«pop-underflow»"));
+    let rep = std::fs::read_to_string(&report).unwrap();
+    assert!(rep.contains("hand = 4\n"), "{rep}");
+    // refused: a refuted part, the earlier form, a rule of neither side, `| hand` without a hand
+    // module, another mark
+    for (hand, list, want) in [
+        (
+            "none",
+            "fwd_tr.«pop-start» | refuted\n",
+            "fwd_tr.«pop-start» is marked refuted: a part is sufficient",
+        ),
+        (
+            "none",
+            "fwd_tr pop-start\n",
+            "`fwd_tr pop-start`: write `fwd_tr.«pop-start» | hand` (proved in the hand module) or `fwd_tr.«pop-start»` (open)",
+        ),
+        (
+            "none",
+            "bwd_x.«pop-start»\n",
+            "--open: bwd_x.«pop-start»: no rule pop-start of B",
+        ),
+        (
+            "none",
+            "fwd_x.seq | hand\n",
+            "--open: fwd_x.«seq» | hand: there is no hand module (--hand-module none)",
+        ),
+        (
+            "none",
+            "fwd_x.seq | proved\n",
+            "`fwd_x.seq | proved`: a case is `| hand` or open (its name alone)",
+        ),
+    ] {
+        let o = refine_with(hand, list);
+        assert_eq!(o.status.code(), Some(2), "{list}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(err.contains(want), "{list}: {err}");
+    }
     // other priorities: `vm` has none, `vmpop` three
     let vm = fx("vm").join("definition.kore");
     let o = run(&[
