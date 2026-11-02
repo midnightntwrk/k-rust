@@ -105,6 +105,7 @@ fn equation(lhs: &str, rhs: &str, guard: Option<&str>, attrs: &str) -> String {
             "magnitude" | "outer" | "table" | "partialTable" | "opTable" | "opTable2" => {
                 vec!["SortInt"]
             }
+            "pair" => vec!["SortInt", "SortInt"],
             other => panic!("fixture signature for {other}"),
         };
         if symbol.name.starts_with("opTable") {
@@ -762,6 +763,39 @@ fn a_total_table_is_opaque_outside_its_rows_and_a_partial_one_is_incomplete() {
             .admit(&term(&d, "partialTable{}(V:SortInt{})"))
             .unwrap(),
         Err(Rejected::Incomplete)
+    );
+}
+
+/// A body's ceil obligations are facts about the body, so a binding among them keeps the
+/// obligations of its term: `ediv(X, Y)`'s ceil equation states `X = half(Y)`, and `half` is a
+/// partial hook with no ceil equation, so the summary would state `half`'s domain without
+/// evidence. Admission refuses it as it refuses a direct `\ceil(half(Y))`.
+#[test]
+fn a_binding_among_body_obligations_keeps_its_terms_partial_calls() {
+    let d = definition(
+        &[
+            r#"
+      symbol pair{}(SortInt{}, SortInt{}) : SortInt{} [function{}()]
+      hooked-symbol half{}(SortInt{}) : SortInt{} [function{}(), hook{}("INT.log2")]
+      axiom{R} \implies{R}(\top{R}(),\equals{R,R}(
+        \ceil{SortInt{},R}(ediv{}(I:SortInt{},D:SortInt{})),
+        \and{R}(\equals{SortInt{},R}(I:SortInt{},half{}(D:SortInt{})),\top{R}()))) [simplification{}()]
+    "#
+            .to_owned(),
+            equation(
+                "pair{}(X:SortInt{},Y:SortInt{})",
+                "ediv{}(X:SortInt{},Y:SortInt{})",
+                None,
+                "",
+            ),
+        ]
+        .join("\n"),
+    );
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "pair{}(X:SortInt{},Y:SortInt{})"))
+            .unwrap(),
+        Err(Rejected::Partial)
     );
 }
 

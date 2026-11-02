@@ -3056,6 +3056,84 @@ mod tests {
         );
     }
 
+    /// GAP K22 step 0 (K15's C1b acceptance): a deferred operand that builtin hooks alone show
+    /// defined is read as defined. `#if C #then 1 #else 2 /Int 2 #fi` is defined at every `C`,
+    /// each branch being an integer (`/Int` is defined at a nonzero divisor, and the hook decides
+    /// that on the literals), and denotes 1 at both, so an atom true of 1 is valid with `C`
+    /// symbolic. An atom true of one branch only is not valid. The conditional is an application,
+    /// strict in every argument, so one whose other branch is undefined (`2 /Int 0`) is `\bottom`
+    /// whatever `C` is, and an atom over it is refuted, also where `C` is known.
+    #[test]
+    fn an_atom_over_a_conditional_with_hook_defined_branches_is_decided_at_both_branches() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol ite{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite"), smt-hook{}("ite")]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let dv = |value: i64| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        let conditional = |dividend: i64, divisor: i64| {
+            term(
+                &definition,
+                &format!(
+                    "ite{{}}(C:SortBool{{}}, {}, divInt{{}}({}, {}))",
+                    dv(1),
+                    dv(dividend),
+                    dv(divisor)
+                ),
+            )
+        };
+        let one = term(&definition, &dv(1));
+        let condition = Predicate::Term(term(&definition, "C:SortBool{}"));
+        for (known, checked, expected) in [
+            (
+                vec![],
+                Predicate::Equals(conditional(2, 2), one.clone()),
+                Validity::Valid,
+            ),
+            (vec![], Predicate::Ceil(conditional(2, 2)), Validity::Valid),
+            (
+                vec![],
+                Predicate::Equals(conditional(4, 2), one.clone()),
+                Validity::Contingent,
+            ),
+            (
+                vec![],
+                Predicate::Equals(conditional(2, 0), one.clone()),
+                Validity::Refuted,
+            ),
+            (
+                vec![],
+                Predicate::Ceil(conditional(2, 0)),
+                Validity::Refuted,
+            ),
+            (
+                vec![condition],
+                Predicate::Equals(conditional(2, 0), one.clone()),
+                Validity::Refuted,
+            ),
+        ] {
+            assert_eq!(
+                solver.check_predicates(
+                    &known,
+                    &Substitution::new(),
+                    std::slice::from_ref(&checked)
+                ),
+                Ok(Ok(expected)),
+                "{known:?} => {checked:?}"
+            );
+        }
+    }
+
     /// GAP K15: a conditional ceil equation `\ceil(I divInt J) = \top requires J =/=Int 0` is an
     /// axiom, not the domain of `divInt` (which stays its domain function); the solver states its
     /// instance beside that domain, so `\ceil(I divInt J)` is valid where `J =/=Int 0` is known,
