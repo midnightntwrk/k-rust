@@ -22,6 +22,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use std::cell::OnceCell;
 use std::fmt;
 
 use crate::definition::AttributeKey;
@@ -214,11 +215,13 @@ fn up_configuration(
     // Only cell-content leaves determine generated cell sorts; nested applications do not.
     // A production whose result mentions its parameters has at least one parameter, so only an
     // application carrying an instance can have a schematic result; the module's production
-    // catalog is read (and, on first use, built) only for such a leaf.
+    // catalog is read (and, on first use, built) only for such a leaf, or for one that may be of
+    // the rule language the configuration grammar adds (`rule_language_sort`).
     fn keep_content_instance(
         term: Term,
         resolved: &ResolvedDefinition,
         module_id: ModuleId,
+        rule_language: &OnceCell<Vec<Sentence>>,
     ) -> Term {
         crate::stack::guarded(|| {
             // #configCell arguments are [start, properties, contents, end].
@@ -229,14 +232,24 @@ fn up_configuration(
                 && !label.is(InternalLabel::ExternalCell)
                 && label.semantic_cast_sort().is_none()
             {
-                if label.parameters.is_empty() {
+                let candidate = may_be_rule_language(label);
+                if label.parameters.is_empty() && !candidate {
                     return term;
                 }
-                if let Some(result @ LabelResultSort::Schematic { .. }) = resolved
-                    .production_catalog(module_id)
-                    .result_sort_of(&LabelHead::from(label))
-                    && let Some(sort) = result.of_application(&label.parameters)
-                {
+                let catalog = resolved.production_catalog(module_id);
+                let sort = match catalog.result_sort_of(&LabelHead::from(label)) {
+                    Some(result @ LabelResultSort::Schematic { .. }) => {
+                        result.of_application(&label.parameters)
+                    }
+                    Some(LabelResultSort::Closed(_)) => None,
+                    None if candidate => rule_language_sort(
+                        rule_language
+                            .get_or_init(|| configuration_rule_productions(resolved, module_id)),
+                        label,
+                    ),
+                    None => None,
+                };
+                if let Some(sort) = sort {
                     return Term::Apply {
                         label: Label::semantic_cast(&sort),
                         arguments: vec![term],
@@ -246,7 +259,12 @@ fn up_configuration(
             }
             match term.into_parts() {
                 TermParts::Annotated { term, metadata } => Term::Annotated {
-                    term: Box::new(keep_content_instance(*term, resolved, module_id)),
+                    term: Box::new(keep_content_instance(
+                        *term,
+                        resolved,
+                        module_id,
+                        rule_language,
+                    )),
                     metadata,
                 },
                 TermParts::Apply {
@@ -259,7 +277,7 @@ fn up_configuration(
                             .enumerate()
                             .map(|(index, term)| {
                                 if index == CONFIG_CELL_CONTENTS_INDEX {
-                                    keep_content_instance(term, resolved, module_id)
+                                    keep_content_instance(term, resolved, module_id, rule_language)
                                 } else {
                                     term
                                 }
@@ -268,7 +286,9 @@ fn up_configuration(
                     } else if label.is(InternalLabel::Cells) {
                         arguments = arguments
                             .into_iter()
-                            .map(|term| keep_content_instance(term, resolved, module_id))
+                            .map(|term| {
+                                keep_content_instance(term, resolved, module_id, rule_language)
+                            })
                             .collect();
                     }
                     Term::Apply { label, arguments }
@@ -283,6 +303,7 @@ fn up_configuration(
         })
     }
 
+    let rule_language = OnceCell::new();
     let TermParts::Apply { label, arguments } = parsed.into_unannotated().into_parts() else {
         return Err(bubble_error(
             module,
@@ -299,6 +320,7 @@ fn up_configuration(
                 body.clone(),
                 resolved,
                 module_id,
+                &rule_language,
             )),
             ensures: truth(),
             attributes,
@@ -308,6 +330,7 @@ fn up_configuration(
                 body.clone(),
                 resolved,
                 module_id,
+                &rule_language,
             )),
             ensures: super::rules::erase_label_parameters(ensures.clone()),
             attributes,
@@ -328,6 +351,54 @@ fn up_configuration(
             },
         )),
     }
+}
+
+/// Whether `label` may be one of the productions the configuration grammar adds in the rule
+/// language ([`configuration_rule_productions`]) and the module's own syntax lacks: a sort
+/// predicate (`is{S}`), a field projection, `#fun`, `#let`, `:=K` or `:/=K`. A sort projection
+/// (`project:{S}`) is not among them: configuration expansion reads its sort from its label.
+fn may_be_rule_language(label: &Label) -> bool {
+    label.name.starts_with("is")
+        || matches!(
+            label.generated(),
+            Some(crate::kast::GeneratedLabel::FieldProjection { .. })
+        )
+        || matches!(
+            InternalLabel::of(&label.name),
+            Some(
+                InternalLabel::Fun2
+                    | InternalLabel::Fun3
+                    | InternalLabel::Let
+                    | InternalLabel::KEqualsK
+                    | InternalLabel::KNotEqualsK
+            )
+        )
+}
+
+/// The sort of a cell-content application of a production of `rule_language` labelled as
+/// `label` is, at the instance its label carries: the sort a cast around it would state.
+fn rule_language_sort(rule_language: &[Sentence], label: &Label) -> Option<Sort> {
+    let catalog = crate::definition::ProductionCatalog::from_visible(rule_language);
+    catalog
+        .result_sort_of(&LabelHead::from(label))?
+        .of_application(&label.parameters)
+}
+
+/// The productions [`configuration_grammar`] adds to the module's syntax in the rule language
+/// (`super::rules::configuration_rule_language`), over the same view.
+fn configuration_rule_productions(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<Sentence> {
+    let mut visible = resolved.signature_sentences(module);
+    add_implicit_ml_syntax(resolved, &mut visible);
+    visible.retain(|sentence| !is_cell_production(sentence));
+    super::rules::configuration_rule_language(&visible)
+}
+
+/// A `cell` production, which the configuration grammar leaves out ([`configuration_grammar`]).
+fn is_cell_production(sentence: &&Sentence) -> bool {
+    matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell))
 }
 
 fn configuration_grammar(
@@ -360,7 +431,6 @@ fn configuration_grammar(
     // written `cell` production of a declared cell's sort and reports it where it is written.
     // Only the production's syntax is left out: the sorts it declares and positions stay sorts of
     // the module, so the universe above is the one of the full view.
-    let is_cell_production = |sentence: &&Sentence| matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell));
     let signature = signature
         - visible[..signature]
             .iter()

@@ -979,6 +979,74 @@ endmodule
     println!("checked initial configuration: PASS; k cell = dotk{{}}(); log = hello from K (once)");
 }
 
+/// A cell's initial value is read in the rule language and sorted as a cast around it would
+/// sort it: `#let` and `#fun` at the instance inference gives their result (`K` at a cell's top,
+/// as for any production whose result is a sort parameter), a sort predicate, `:=K` and `:/=K`
+/// at `Bool`.
+/// Each cell starts with the value its term computes (the configuration examples of
+/// `docs/compatibility.md`, "A cell's initial value is a term").
+#[test]
+fn a_rule_language_term_at_a_cells_top_starts_the_cell_with_its_value() {
+    use k_rust::kore::{ast::Pattern, parser::parse_definition};
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        externalize,
+        simplify::{SimplificationOptions, simplify},
+    };
+
+    let compiled = compiled(
+        r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Value ::= "unit" [symbol(unit)]
+  configuration <k> $PGM:Int </k>
+                <l> #let X:Int = 1 #in X </l>
+                <m> isInt(unit) </m>
+                <y> 1 :=K 2 </y>
+                <v> 1 :/=K 2 </v>
+                <f> #fun(X:Int => X +Int 1)(2) </f>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("Int"), "0").unwrap();
+    let initial = assembler.finish().unwrap();
+    let theory = parse_definition(&compiled.kore).unwrap();
+    let backend = BackendDefinition::internalize(&theory, "MAIN").unwrap();
+    let input = backend
+        .admit_unverified(&initial, &[])
+        .internalize_term()
+        .unwrap();
+    let evaluated = simplify(&backend, &input, SimplificationOptions::default())
+        .unwrap()
+        .unwrap();
+    let result = externalize::term(&evaluated.term);
+    fn cell<'p>(pattern: &'p Pattern, name: &str) -> Option<&'p Pattern> {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if symbol.name == format!("Lbl'-LT-'{name}'-GT-'") {
+                return arguments.first();
+            }
+            return arguments.iter().find_map(|argument| cell(argument, name));
+        }
+        None
+    }
+    let cells = ["l", "m", "y", "v", "f"]
+        .map(|name| format!("{name}: {}", render(cell(&result, name).expect(name))));
+    assert_eq!(
+        cells,
+        [
+            r#"l: kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), dotk{}())"#,
+            r#"m: \dv{SortBool{}}("false")"#,
+            r#"y: \dv{SortBool{}}("false")"#,
+            r#"v: \dv{SortBool{}}("true")"#,
+            r#"f: kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3")), dotk{}())"#,
+        ]
+    );
+}
+
 #[test]
 fn a_malformed_program_is_rejected_even_when_no_cell_reads_it() {
     let compiled = compiled(
