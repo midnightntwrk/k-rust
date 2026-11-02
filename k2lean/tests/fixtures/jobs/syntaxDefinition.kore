@@ -1952,7 +1952,7 @@ module JOBS
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,25,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/jobs/jobs.k)"
     ),
@@ -1977,7 +1977,7 @@ module JOBS
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,25,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/jobs/jobs.k)"
     ),
@@ -2004,7 +2004,7 @@ module JOBS
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,25,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/jobs/jobs.k)"
     ),
@@ -2031,7 +2031,7 @@ module JOBS
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,25,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/jobs/jobs.k)"
     ),

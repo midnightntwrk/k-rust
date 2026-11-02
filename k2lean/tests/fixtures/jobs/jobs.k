@@ -2,6 +2,8 @@
 // a map of jobs, each a number with whether it has run, run one at a time in any order. A job's
 // step marks it run, adds it to `<total>` and appends it to `<done>`, so two runs end with one
 // `<total>` but `<done>` in two orders: equal up to the order of its items (`--equiv done=perm`).
+// A binding whose value is `true` from the start, or whose key is not an `Int`, never runs: the
+// fixture claims no progress, only that the runs that end agree.
 requires "domains.md"
 
 module JOBS-SYNTAX

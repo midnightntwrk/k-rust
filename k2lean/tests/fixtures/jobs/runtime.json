@@ -6,15 +6,15 @@
   "syntax_module": "JOBS-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "a209cdbbeece4985524aaa4a2c0cf96f2042a9dc3e75456bbaa4c8caa41f001c"
+    "sha256": "762b983e163e57fe720c624dd8051ce1b43e14a87a19c83f90f13274b75c6466"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "219814b9013f14e1f277af1169bc94fd325ddf7aa9c281e3b16798c0297e6f64"
+    "sha256": "249f496e4e40b3181fa020195980bd41551c182784d88a86c68c59418aec6c2c"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "dea6b7fd8d8d771f0110494c7e26465aea8fa3e9d7b2750bb9ba8e12d1d4f9a4"
+    "sha256": "545582991a220688e597c80c4ee6ad8e0520c3f99a8934f797ed3fd1e7ee4308"
   },
   "configuration_variables": {
     "PGM": "Map"
