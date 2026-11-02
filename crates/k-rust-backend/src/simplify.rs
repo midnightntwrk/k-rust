@@ -39,7 +39,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "simplify_conjunction_with_budget", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "distinct_conjuncts", "simplify_predicates_with_budget", "simplify_conjunction_with_budget", "only_true_or_known", "known_defined_subterms", "expansion_obligations", "simplify_predicate_with_budget", "KnownConjuncts", "LevelConjuncts", "ShallowKey", "PredicateAssumptions", "written_predicate", "set_aside_definedness", "reattach_set_aside", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; w = the nodes a key reads: a visited sub-predicate's top node and its operands, each through one \\not; c = assumed conjuncts that share its key; k = known predicates"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited", "SimplifyConjunctNodes", "SimplifyKnownPredicates"]
 //! span = "per call"
@@ -67,11 +67,11 @@
 //!
 //! [[cost]]
 //! mode = "opaque \\ceil or absence expansion (expansion_obligations)"
-//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
+//! bound = "per ceil_term expansion of a \\ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one walk of the kept predicates' asserted terms and the rest's definedness atoms as in known_defined_subterms and one set lookup for the atom, then, unless it holds, one more walk of that whole list's asserted terms, neither cached across expansions, then one set lookup per member; then, per remaining \\ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms"
 //!
 //! [[cost]]
 //! mode = "further pass of a \\ceil or absence atom's arm (settled)"
-//! bound = "per round of that pass, at the conjunct equal to the atom: one flattening of the other conjuncts' current values and one key and containment test of each against the known predicates; none in any other pass"
+//! bound = "in that pass and in every conjunction simplification reached from the re-simplification of its result by the ceil or predicate theory, which keeps its assumptions: one comparison with the atom per conjunct, and per round, at the conjunct equal to the atom, one walk of the other conjuncts' current values, descending into conjunctions, with one key and containment test against the known predicates each, stopping at the first that is neither \\top nor known; one Option test per conjunct in every other conjunction simplification"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -1097,7 +1097,13 @@ struct PredicateAssumptions<'a> {
     /// For the further pass of a definedness atom's arm over the atom's expansion, the atom: a
     /// conjunction simplification under these assumptions keeps it as it is once it is alone
     /// beside the known predicates ([`simplify_conjunction_with_budget`]). Read by the `And` arm
-    /// alone.
+    /// alone. It also reaches the re-simplification of that pass's result: the ceil and predicate
+    /// theories rewrite the result and simplify it again under the same assumptions, and so does
+    /// any re-entry from there that passes them on (a negation, a disjunction, an implication, a
+    /// term conjunction of a `\ceil`'s subject). A conjunction met there holds the atom alone
+    /// beside the known predicates only under the same known list, where simplifying it would
+    /// enter the atom's arm and come back through the same rewrite, so keeping it is the same
+    /// identity; any other conjunction pays only the comparison with the atom.
     settled: Option<&'a Predicate>,
 }
 
@@ -1751,16 +1757,17 @@ fn simplify_conjunction_with_budget(
             // is equivalent to `A`, so `A` implies every member. A round may discharge a member by
             // any route: the sibling `A` states its subject defined, a conditional ceil equation or
             // a predicate equation decides it under the known predicates, or `crate::deferred`
-            // does. Once every other conjunct is `\top` or a known predicate, the conjunction is
-            // `A` under the known predicates, and simplifying `A` here would be simplifying it
-            // under them and nothing else: the arm's own simplification again, whose expansion is
-            // `M` again, so it would take this pass again and come back here, without end. `A`
-            // stays as it is: the members were there to decide `A` beside them, and the rounds
-            // beside them did not.
-            predicate == atom
-                && distinct_conjuncts(&assumptions[offset..])
-                    .into_iter()
-                    .all(|other| *other == Predicate::True || known_index.contains(other))
+            // does. Once every other conjunct is `\top` or a known predicate, simplifying `A` here
+            // would enter `A`'s arm under this pass's assumptions: the arm's own known list up to
+            // `\top` and repeats of known predicates, with the same kept ones (`kept`), so for a
+            // `\ceil` the same path condition, that of the kept predicates' equalities. Its
+            // expansion would be `M` again and its pass this one again, without end. So `A` stays
+            // as it is, and no simplification of it is forgone. A `\ceil` precedes its members in
+            // `ceil_term`'s order, so round 1 simplified it beside them under that path condition
+            // and the stop fires only in a later round. An absence follows its members and may be
+            // met alone in round 1, but its arm beside its members returns the atom itself. The
+            // ceil and predicate theories still run on the pass's result.
+            predicate == atom && only_true_or_known(&assumptions[offset..], &known_index)
         }) {
             Ok(predicate.clone())
         } else {
@@ -1857,6 +1864,16 @@ fn simplify_conjunction_with_budget(
         solver,
         settled,
     )
+}
+
+/// Whether every conjunct of `predicates`, nested `And`s flattened, is `\top` or one of `known`,
+/// stopping at the first that is neither.
+fn only_true_or_known(predicates: &[Predicate], known: &KnownConjuncts<'_>) -> bool {
+    predicates.iter().all(|predicate| match predicate {
+        Predicate::True => true,
+        Predicate::And(nested) => only_true_or_known(nested, known),
+        other => known.contains(other),
+    })
 }
 
 /// The conjuncts of `predicates`, nested `And`s flattened, each distinct one once, in order. A

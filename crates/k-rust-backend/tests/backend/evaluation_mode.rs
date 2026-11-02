@@ -686,8 +686,17 @@ fn a_member_a_conditional_ceil_equation_decides_ends_the_further_pass() {
     );
     let map =
         r#"mapConcat{}(mapItem{}(K:SortKey{}, \dv{SortValue{}}("1")), funMap{}(X:SortInt{}))"#;
+    // The key's absence from the opaque rest, kept as it is: the member `\ceil(funMap(X))` the
+    // pass decided is gone.
     let absence = definedness_under(&definition, map, &known);
-    assert!(matches!(absence, Predicate::Absent(_)), "{absence:?}");
+    let Predicate::Absent(atom) = &absence else {
+        panic!("not an absence: {absence:?}");
+    };
+    assert_eq!(atom.key(), &internal_term(&definition, "K:SortKey{}"));
+    assert_eq!(
+        atom.rest(),
+        &internal_term(&definition, "funMap{}(X:SortInt{})")
+    );
 }
 
 /// GAP K10: a map-key disequality, a member of the expansion of `\ceil(outer(M))`, that a

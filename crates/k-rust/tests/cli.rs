@@ -3041,11 +3041,12 @@ endmodule []
         &definition,
         &format!(r"\and{{SortK{{}}}}(c{{}}(X:SortInt{{}}), {ceil})"),
     );
+    // The whole residual: the pattern and the `\ceil` alone, the discharged member gone.
     let compact = simplified.split_whitespace().collect::<String>();
-    assert!(
-        compact.contains(r"\ceil{SortInt{},SortK{}}(find{}(skec{}(pkec{}(B:SortBytes{}))"),
-        "{simplified}"
-    );
+    let expected = format!(r"\and{{SortK{{}}}}(c{{}}(X:SortInt{{}}),{ceil})")
+        .split_whitespace()
+        .collect::<String>();
+    assert_eq!(compact, expected, "{simplified}");
     fs::remove_dir_all(root).unwrap();
 }
 
