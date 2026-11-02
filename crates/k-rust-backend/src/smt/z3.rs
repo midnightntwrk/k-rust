@@ -256,30 +256,6 @@ impl Default for Z3Options {
     }
 }
 
-/// Bound the Z3 heap of the whole process, once, before its first solver queries: Z3's
-/// `memory_max_size` (megabytes, a process-wide parameter), at half the process's memory
-/// allowance ([`crate::allowance::Allowance::of_process`]), unless the process has set it.
-///
-/// A check that would take Z3's heap past it ends with `unknown` ("out of memory") instead of
-/// exhausting the process. It is a backstop: neither the clock nor resource units bound memory,
-/// since Z3 counts neither in some of its own computations (its arithmetic on numerals among
-/// them), and an answer under it is unchanged unless the heap of every Z3 check the process runs
-/// at once reaches it. Z3 counts all its contexts' memory against one limit, so a check that
-/// reaches it while other checks hold memory can answer `unknown` where it would have answered
-/// alone. Half the allowance leaves the rest of the process its own half.
-fn bound_z3_memory() {
-    static BOUND: std::sync::Once = std::sync::Once::new();
-    BOUND.call_once(|| {
-        let set = z3::get_global_param("memory_max_size")
-            .is_some_and(|megabytes| megabytes.trim() != "0");
-        if !set {
-            let megabytes = (crate::allowance::Allowance::of_process().bytes() / 2) >> 20;
-            let megabytes = u32::try_from(megabytes).unwrap_or(u32::MAX).max(1);
-            z3::set_global_param("memory_max_size", &megabytes.to_string());
-        }
-    });
-}
-
 /// The version of the Z3 library this build links, as Z3 reports it (`Z3_get_full_version`):
 /// the resource units of [`Z3Options::resource_limit`] are counted by this version's search.
 #[must_use]
@@ -432,7 +408,6 @@ impl Z3Solver {
         options: Z3Options,
         prelude: Option<&str>,
     ) -> Result<Self, SmtError> {
-        bound_z3_memory();
         let solver = Self {
             prelude: match prelude {
                 Some(prelude) => SmtPrelude::from_definition_with_prelude(definition, prelude)?,
@@ -3088,10 +3063,16 @@ mod tests {
     /// the open domain, and the reading gives the power no value there (`KRUST-POWER` and the
     /// function outside the integers are both unconstrained at a negative exponent). Where the
     /// exponent is nonnegative and the power is stated defined, the integer power is read and the
-    /// atom is valid. The first half holds even with Z3's unguarded real power, since the open
-    /// domain alone keeps the atom from being valid (GAP K16 report): it pins the answer, not
-    /// `guard_powers`' guard, whose text `reads_a_power_as_itself_only_where_an_integer_is_its_value`
-    /// pins.
+    /// atom is valid.
+    ///
+    /// The open domain alone keeps the first atom from being valid, whatever the power's reading,
+    /// so the pin also states the power defined at `B <Int 0` (`\ceil`), a known part K makes
+    /// unsatisfiable but SMT does not, since the domain function is open: there the answer is the
+    /// reading's alone. `0 ^Int B ==Int 0` is then not valid only through `guard_powers`' guard
+    /// (without it the in-integers value of base 0, 0 at every exponent but 0, is read at
+    /// `B < 0`), and `0 <Int 2 ^Int B` only through the reading's not being Z3's power (whose
+    /// real value `2^B` is positive). Each answer fails under that mutation (GAP K32 review, the
+    /// fix round's report).
     #[test]
     fn reads_no_power_value_where_no_integer_is_the_power_and_the_domain_is_open() {
         let syntax = parse_definition(
@@ -3105,6 +3086,8 @@ mod tests {
                     [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
                 hooked-symbol le{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.le"), smt-hook{}("<=")]
+                hooked-symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
             endmodule []"#,
         )
         .expect("definition should parse");
@@ -3129,6 +3112,155 @@ mod tests {
                 Predicate::Ceil(term(&definition, &power)),
             ]),
             Ok(Ok(Validity::Valid))
+        );
+        // The power stated defined where K has no value for it: only the reading decides.
+        let negative = atom(&format!("lt{{}}(B:SortInt{{}}, {zero})"));
+        let power_of_zero = format!("pow{{}}({zero}, B:SortInt{{}})");
+        let decided = [
+            (
+                "0 ^Int B ==Int 0",
+                power_of_zero.clone(),
+                atom(&format!("eq{{}}({power_of_zero}, {zero})")),
+            ),
+            ("0 <Int 2 ^Int B", power.clone(), positive.clone()),
+        ]
+        .into_iter()
+        .filter(|(_, power, checked)| {
+            let known = [negative.clone(), Predicate::Ceil(term(&definition, power))];
+            solver.check_predicates(&known, &Substitution::new(), std::slice::from_ref(checked))
+                == Ok(Ok(Validity::Valid))
+        })
+        .map(|(name, _, _)| name)
+        .collect::<Vec<_>>();
+        assert!(
+            decided.is_empty(),
+            "valid under B <Int 0 with the power stated defined: {decided:?}"
+        );
+    }
+
+    /// A definition with `^Int` (no domain equation), `+Int` and `==Int`, for the power tests.
+    fn power_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.pow"), smt-hook{}("^")]
+                hooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                hooked-symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// GAP K32 review: the facts `record_power` states are true of the integer power at the
+    /// boundary of a literal base's window of numerals (`W` = 256 for 2, 3 and -2, 7 for `2^64`)
+    /// and past it, so the power's true value is never excluded: a query that fixes the exponents
+    /// and states the powers' true values is satisfiable. Pairs of powers of one base whose
+    /// exponents differ by a constant at the window's last exponent and past it (where the
+    /// quotient's factor is a numeral, and where it is not stated), and by no constant.
+    #[test]
+    fn states_power_facts_the_integer_power_satisfies_at_the_window_boundary() {
+        let definition = power_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let dv = |value: &BigInt| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+        let equals = |left: &str, right: &str| {
+            Predicate::Equals(term(&definition, left), term(&definition, right))
+        };
+        let power = |base: &BigInt, exponent: &str| format!("pow{{}}({}, {exponent})", dv(base));
+        let fixed = |exponent: &str, value: i64| equals(exponent, &dv(&BigInt::from(value)));
+        let truly = |base: &BigInt, exponent: &str, value: u32| {
+            equals(&power(base, exponent), &dv(&base.pow(value)))
+        };
+        let (b, c) = ("B:SortInt{}", "C:SortInt{}");
+        let wide = BigInt::from(2).pow(64);
+        let mut queries = Vec::new();
+        for (base, exponents) in [
+            (BigInt::from(2), vec![255, 256, 257, 300]),
+            (BigInt::from(3), vec![255, 256, 257, 300]),
+            (BigInt::from(-2), vec![255, 256, 257, 300]),
+            (wide.clone(), vec![6, 7, 8, 20]),
+        ] {
+            for exponent in exponents {
+                queries.push(vec![
+                    fixed(b, i64::from(exponent)),
+                    truly(&base, b, exponent),
+                ]);
+            }
+            let window = if base == wide { 7 } else { 256 };
+            for (low, offset) in [(8, window), (8, window + 1), (0, window), (1, 2)] {
+                let shifted = format!("plus{{}}({b}, {})", dv(&BigInt::from(offset)));
+                queries.push(vec![
+                    fixed(b, i64::from(low)),
+                    truly(&base, b, low),
+                    truly(&base, &shifted, low + offset),
+                ]);
+            }
+            queries.push(vec![
+                fixed(b, 8),
+                fixed(c, i64::from(8 + window)),
+                truly(&base, b, 8),
+                truly(&base, c, 8 + window),
+            ]);
+        }
+        for query in queries {
+            assert_eq!(
+                solver.is_sat(&query, &Substitution::new()),
+                Ok(Ok(Satisfiability::Sat)),
+                "{query:?}"
+            );
+        }
+    }
+
+    /// GAP K32 review: a power whose exponent a quantifier binds gets no fact, also where the
+    /// exponent reaches the bound variable only through a `let` of the query's shared values
+    /// (here `B +Int 1`, named once): the facts are closed with those `let`s before their
+    /// variables are compared with the bound ones. A closed power of the same shape gets them.
+    /// A fact that escaped its binder would name an undeclared constant, and Z3 would reject the
+    /// script.
+    #[test]
+    fn states_no_power_fact_under_a_binder_through_a_shared_let() {
+        let definition = power_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let two = r#"\dv{SortInt{}}("2")"#;
+        let one = r#"\dv{SortInt{}}("1")"#;
+        let four = r#"\dv{SortInt{}}("4")"#;
+        let equation = |exponent: &str| {
+            let power = format!("pow{{}}({two}, plus{{}}({exponent}, {one}))");
+            Predicate::Equals(
+                term(&definition, &format!("plus{{}}({power}, {power})")),
+                term(&definition, &format!("plus{{}}({four}, {four})")),
+            )
+        };
+        let b = crate::term::Variable::new("B", Sort::simple("SortInt"));
+        let bound = Predicate::Exists(b, Arc::new(equation("B:SortInt{}")));
+        let base = |predicate: &Predicate| {
+            solver
+                .prelude
+                .query(
+                    std::slice::from_ref(predicate),
+                    &Substitution::new(),
+                    &[],
+                    false,
+                )
+                .unwrap()
+                .unwrap()
+                .base()
+                .to_owned()
+        };
+        // The fact past the window, `e > 256 => V > 2^256`, names the window's last exponent.
+        let facts = |script: &str| script.contains(" 256) (> SMT-");
+        let open = base(&equation("C:SortInt{}"));
+        let closed = base(&bound);
+        assert!(facts(&open), "{open}");
+        assert!(!facts(&closed), "{closed}");
+        assert_eq!(
+            solver.is_sat(&[bound], &Substitution::new()),
+            Ok(Ok(Satisfiability::Sat))
         );
     }
 
@@ -3702,8 +3834,13 @@ mod tests {
     }
 
     /// The feasibility check `H *Int I ==Int 2021027 andBool 1 <Int H andBool H <Int I` of a
-    /// rule, as the backend writes it for Z3. It is satisfiable (`2021027 = 1009 * 2003`), and the
-    /// path Z3 takes on it from a fresh context does not decide it.
+    /// rule, as the backend wrote it for Z3 before GAP K32 read a power with a symbolic exponent
+    /// without Z3's own power (its prelude declares the Real-valued function outside the
+    /// integers, and not `KRUST-POWER` or `KRUST-POWER-VALUE`). It is satisfiable
+    /// (`2021027 = 1009 * 2003`), and the path Z3 takes on it from a fresh context does not
+    /// decide it. The text is kept: with the current prelude's power declarations, which the
+    /// check does not use, Z3 4.16.0 takes another path and one attempt of 1,000,000 units
+    /// decides it, so the script would no longer show a retry's path.
     const FACTORING_QUERY: &str = r#"(declare-sort |SortACell| 0)
 (declare-sort |SortACellOpt| 0)
 (declare-sort |SortBCell| 0)
