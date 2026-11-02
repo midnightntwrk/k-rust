@@ -719,6 +719,40 @@ fn known_defined_subterms(
     subterms
 }
 
+/// What stays stated of `known`, whose first `kept` predicates the caller keeps
+/// ([`PredicateAssumptions::kept`]): those, and the definedness atoms (`\ceil`, deferred atoms)
+/// of the others, read through their conjunctions. A definedness obligation is discharged only
+/// under these, for the reason [`known_defined_subterms`] gives. Borrowed when every predicate
+/// past `kept` is such an atom.
+fn stating_predicates(known: &[Predicate], kept: usize) -> Cow<'_, [Predicate]> {
+    fn atoms_only(predicate: &Predicate) -> bool {
+        match predicate {
+            Predicate::Ceil(_) | Predicate::Defined(_) => true,
+            Predicate::And(conjuncts) => conjuncts.iter().all(atoms_only),
+            _ => false,
+        }
+    }
+    fn push_atoms(predicate: &Predicate, atoms: &mut Vec<Predicate>) {
+        match predicate {
+            Predicate::Ceil(_) | Predicate::Defined(_) => atoms.push(predicate.clone()),
+            Predicate::And(conjuncts) => {
+                for conjunct in conjuncts.iter() {
+                    push_atoms(conjunct, atoms);
+                }
+            }
+            _ => {}
+        }
+    }
+    if known[kept..].iter().all(atoms_only) {
+        return Cow::Borrowed(known);
+    }
+    let mut stating = known[..kept].to_vec();
+    for predicate in &known[kept..] {
+        push_atoms(predicate, &mut stating);
+    }
+    Cow::Owned(stating)
+}
+
 /// Keep in `expanded`, the `ceil_term` expansion of the definedness atom `atom` (a `\ceil` or an
 /// absence) being simplified under `assumptions`, only the members that are still obligations
 /// there; `true` when `atom` itself holds under them, so the expansion is not needed.
@@ -3702,6 +3736,7 @@ fn simplify_predicate_on_stack(
         definition,
         &simplified,
         assumptions.terms.predicates,
+        assumptions.kept,
         SimplificationOptions {
             max_iterations: limit,
             budget: BudgetPolicy::Fail,
@@ -4093,11 +4128,22 @@ fn with_simplification_constraints(
 /// Rewrite `\ceil(t)` by the first ceil equation that applies, in priority order; `None` when
 /// none does. The diagnostics of the indeterminate attempts are held in `indeterminate`, which
 /// the caller commits if the predicate is kept.
+///
+/// The first `kept` of `known_predicates` are kept by the caller ([`PredicateAssumptions::kept`]).
+/// An equation's condition is decided under all of them. The definedness obligations of the
+/// terms its element variables bind are decided only under what stays stated
+/// ([`stating_predicates`]): `\ceil(f(t))` implies `\ceil(t)`, so an obligation discharged by an
+/// enclosing `t = c` would leave the definedness of `t` to an equality the solver may decide valid
+/// with `t`'s SMT reading and drop. The condition may be decided by an enclosing conjunct: the
+/// subject does not imply it (the equation is conditional), so the subject states nothing that is
+/// then left to that conjunct, and the obligations of the bound terms are decided apart from it
+/// (K12).
 #[allow(clippy::too_many_arguments)]
 fn apply_ceil_theory(
     definition: &BackendDefinition,
     predicate: &Predicate,
     known_predicates: &[Predicate],
+    kept: usize,
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
@@ -4107,6 +4153,7 @@ fn apply_ceil_theory(
         return Ok(None);
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
+    let stating = stating_predicates(known_predicates, kept);
     // The scan stops at the group that applies or blocks: the ceil equations it never tries
     // are offered (`crate::coverage::Selection`).
     let selection = Selection::new(
@@ -4131,6 +4178,7 @@ fn apply_ceil_theory(
                 rule,
                 term,
                 known_predicates,
+                &stating,
                 options,
                 active_conditions,
                 solver,
@@ -4144,11 +4192,13 @@ fn apply_ceil_theory(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_ceil_equation(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     term: &Term,
     known_predicates: &[Predicate],
+    stating: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
@@ -4176,6 +4226,7 @@ fn apply_ceil_equation(
                 term,
                 substitution,
                 known_predicates,
+                stating,
                 options,
                 active_conditions,
                 solver,
@@ -4193,6 +4244,7 @@ fn apply_ceil_equation_instance(
     term: &Term,
     substitution: Substitution,
     known_predicates: &[Predicate],
+    stating: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
@@ -4226,13 +4278,14 @@ fn apply_ceil_equation_instance(
     // The subject `\ceil(f(t))` is strict in every term `t` bound to an element variable:
     // `\ceil(\bottom)` is `\bottom`. So `\ceil(f(t)) = \ceil(t) /\ q[t]` under the equation
     // `\ceil(f(X)) = q[X]`, an open obligation is conjoined to the result and a refuted one
-    // makes the subject `\bottom`.
+    // makes the subject `\bottom`. The obligations are decided under what stays stated
+    // (`apply_ceil_theory`).
     let defined = match decide_equation_bindings(
         definition,
         &rule.attributes,
         Some(term),
         matched,
-        known_predicates,
+        stating,
         options,
         active_conditions,
         solver,
@@ -10028,6 +10081,7 @@ mod tests {
             &definition,
             &predicate,
             &[],
+            0,
             SimplificationOptions::default(),
             &BTreeSet::new(),
             &NoSolver,
@@ -10314,6 +10368,7 @@ mod tests {
                 &definition,
                 &subject,
                 known,
+                known.len(),
                 SimplificationOptions::default(),
                 &BTreeSet::new(),
                 solver,
@@ -10356,6 +10411,7 @@ mod tests {
                 &definition,
                 &guarded,
                 &[],
+                0,
                 SimplificationOptions::default(),
                 &BTreeSet::new(),
                 &NoSolver,

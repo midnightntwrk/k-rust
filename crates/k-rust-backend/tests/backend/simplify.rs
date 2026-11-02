@@ -3195,6 +3195,83 @@ fn a_ceil_atom_beside_a_sibling_equality_is_not_decided_valid_through_its_smt_re
     assert!(valid.is_empty(), "decided valid: {valid:?}");
 }
 
+/// GAP K12: a conditional ceil equation `\ceil(hh(Y)) = \top requires Y ==Int 0` on a partial
+/// `hh`, and `half`, partial with `smt-hook` SMT-LIB's `div`, which has a value at 1 where the
+/// definition leaves `half(1)` open.
+fn conditional_ceil_definition() -> BackendDefinition {
+    definition(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+           hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+             [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+           symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+           symbol hh{}(SortInt{}) : SortInt{} [function{}()]
+           axiom{R, Q} \implies{R}(
+             \equals{SortBool{}, R}(
+               eqInt{}(Y:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")),
+             \equals{Q, R}(\ceil{SortInt{}, Q}(hh{}(Y:SortInt{})), \and{Q}(\top{Q}(), \top{Q}())))
+             [label{}("ceil-hh"), simplification{}()]"#,
+    )
+}
+
+/// GAP K12: `\ceil(hh(half(1)))` beside `half(1) = 0`. The ceil equation applies: its condition
+/// holds under the sibling, and that is sound, since the condition states nothing the subject
+/// implies. Its instance at `Y := half(1)` is `\ceil(half(1))`, the obligation of the bound term,
+/// which `\ceil(hh(half(1)))` implies. That obligation was decided under every assumption, the
+/// sibling equality among them, so it went too, and the conjunction was left with `half(1) = 0`
+/// alone. It is now decided under what stays stated (the kept predicates and the enclosing
+/// definedness atoms): it stays beside the equality, and a known equality still discharges it.
+#[test]
+fn a_ceil_equation_keeps_its_bound_term_obligation_beside_a_sibling_equality() {
+    let definition = conditional_ceil_definition();
+    let half = term(&definition, r#"half{}(\dv{SortInt{}}("1"))"#);
+    let defined = Predicate::Ceil(term(&definition, r#"hh{}(half{}(\dv{SortInt{}}("1")))"#));
+    let equality = Predicate::Equals(half.clone(), term(&definition, r#"\dv{SortInt{}}("0")"#));
+    let simplified = |predicates: &[Predicate], known: &[Predicate]| {
+        simplify_predicates_with_solver(
+            &definition,
+            predicates,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        simplified(&[defined.clone(), equality.clone()], &[]),
+        [Predicate::Ceil(half), equality.clone()],
+    );
+    assert!(simplified(&[defined], &[equality]).is_empty());
+}
+
+/// GAP K12: what the discharged obligation lost, decided by the solver. Where `half(1)` is
+/// undefined, `\ceil(hh(half(1))) ∧ half(1) = 0` is `\bottom`, so it is not valid; left with
+/// `half(1) = 0` alone, Z3, reading `half` as `div`, decided it valid.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ceil_equation_beside_a_sibling_equality_is_not_decided_valid_through_its_smt_reading() {
+    let definition = conditional_ceil_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let conjunction = Predicate::And(
+        vec![
+            Predicate::Ceil(term(&definition, r#"hh{}(half{}(\dv{SortInt{}}("1")))"#)),
+            Predicate::Equals(
+                term(&definition, r#"half{}(\dv{SortInt{}}("1"))"#),
+                term(&definition, r#"\dv{SortInt{}}("0")"#),
+            ),
+        ]
+        .into(),
+    );
+    let decided = simplify_and_decide_predicate_with_solver(
+        &definition,
+        &conjunction,
+        &[],
+        SimplificationOptions::default(),
+        &solver,
+    )
+    .unwrap();
+    assert_ne!(decided, Predicate::True);
+}
+
 /// Every application is strict, so a known predicate that states a term defined (a Boolean term
 /// read as `true = P`, an equality with a defined side, a `\ceil`) states every subterm of it
 /// defined, under partial symbols too, and a `\ceil` conjunct over one holds. A negated known
