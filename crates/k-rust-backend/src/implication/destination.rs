@@ -625,9 +625,10 @@ mod tests {
     /// GAP K17 review, finding 3: inside a run with a console, an open coverage collection, or
     /// an open lineage's records of `Unspecified` evaluations, the thread holds something the
     /// key does not, and each check is refused before the lookup, counted by its reason, and
-    /// simplifies. The reason is counted once per check at each site: for the destination, and
-    /// for its term `f(Y')`, a non-ground subterm the term simplifier routes through the record
-    /// too (K17 part b), which is refused for the same reason and counted at the subterm site.
+    /// simplifies. The reason is counted once per check at the destination, and at the subterm
+    /// site once per routed level refused for it: its term `f(Y')`, a non-ground subterm the
+    /// term simplifier routes through the record too (K17 part b), and the two entries of
+    /// `gtInt(Y', 0)` while `f`'s condition is decided, routed under that condition (part e).
     #[test]
     fn a_destination_is_neither_recorded_nor_served_inside_what_its_key_does_not_hold() {
         let definition = definition();
@@ -660,7 +661,7 @@ mod tests {
                             prepared.delta.get(reason),
                             prepared.delta.get(subterm)
                         ),
-                        (0, 0, 0, 0, 1, 1),
+                        (0, 0, 0, 0, 1, 3),
                         "{reason:?}"
                     );
                     assert!(prepared.attempts > 0);
@@ -694,5 +695,101 @@ mod tests {
                 &|| simplify::with_unspecified_values_open(prepare),
             );
         });
+    }
+    /// `k(X) = X` only under `pk(h(X))`, and `h(X) = X` only under `hcond(X)`: `h`'s condition
+    /// sits inside `k`'s, as KEVM's `#bufStrict` inside `#range`'s; `pk` and `hcond` are total
+    /// functions with no equation, which a solver answering `Contingent` leaves undecided.
+    fn nested_definition() -> BackendDefinition {
+        let equation = |symbol: &str, requires: &str| {
+            format!(
+                r#"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                        \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, Z:SortInt{{}}), \top{{R}}())
+                    ),
+                    \equals{{SortInt{{}}, R}}(
+                        {symbol}{{}}(X0:SortInt{{}}),
+                        \and{{SortInt{{}}}}(Z:SortInt{{}}, \top{{SortInt{{}}}}())
+                    )
+                ) [label{{}}("{symbol}-guarded")]"#
+            )
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                symbol h{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                symbol pk{{}}(SortInt{{}}) : SortBool{{}} [function{{}}(), total{{}}()]
+                symbol hcond{{}}(SortInt{{}}) : SortBool{{}} [function{{}}(), total{{}}()]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+                {}
+                {}
+            endmodule []"#,
+            equation("k", "pk{}(h{}(X0:SortInt{}))"),
+            equation("h", "hcond{}(X0:SortInt{})"),
+        );
+        let syntax = parse_definition(&source).expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    /// GAP K17 part e (the keccak00 shape): a destination whose equation's `requires` holds an
+    /// application whose own `requires` stays undecided decides that inner condition once per
+    /// distinct key it is entered under: per path condition (with the known predicates) and per
+    /// set of rule conditions active against re-entry. The one decision of `k`'s condition enters
+    /// `h(Y')` under three distinct known lists (the conjuncts of the condition it is simplified
+    /// beside differ), each under `k`'s condition, and enters `pk(h(Y'))` a second time under the
+    /// key of its first entry, which is served: `h`'s equation is attempted three times. With
+    /// nothing recorded, as with a subterm under an active rule condition not routed (part b),
+    /// it is attempted at each of four entries. Checked again under equal constraints, the
+    /// destination is served and decides nothing; under stronger ones it is simplified again,
+    /// and decides each condition under its new keys. With the condition memo off; the prepared
+    /// patterns and undecided counts are those of preparations with nothing recorded.
+    #[test]
+    fn a_destination_decides_a_condition_nested_in_another_once_per_path_condition() {
+        let definition = nested_definition();
+        let solver = Answering::new(Validity::Contingent);
+        let consequent = consequent(&definition, "k{}(Y:SortInt{})");
+        let existentials = existential_y(&definition);
+        let runs = || {
+            simplify::without_condition_memo(|| {
+                in_a_proof(&solver, |counted| {
+                    let prepare = |bounds: &[&str]| {
+                        prepare(
+                            &definition,
+                            &antecedent(&definition, bounds),
+                            &consequent,
+                            &existentials,
+                            counted,
+                        )
+                    };
+                    [prepare(&["0"]), prepare(&["0"]), prepare(&["0", "1"])]
+                })
+            })
+        };
+        let [first, again, stronger] = runs();
+        let fresh = normal_forms::without_normal_forms(runs);
+        // `k`'s equation once, and `h`'s three times.
+        assert_eq!((first.attempts, first.recorded, first.served), (4, 1, 0));
+        // Undecided: `k` was not applied.
+        assert!(first.undecided > 0);
+        assert!(matches!(
+            first.pattern.term.kind(),
+            crate::term::TermKind::Application { .. }
+        ));
+        assert_eq!((again.attempts, again.recorded, again.served), (0, 0, 1));
+        assert_eq!(
+            (stronger.attempts, stronger.recorded, stronger.served),
+            (4, 1, 0)
+        );
+        // With nothing recorded, `k`'s equation at each check and `h`'s at each of its entries.
+        let fresh_attempts = fresh.each_ref().map(|run| run.attempts);
+        assert_eq!(fresh_attempts, [5, 5, 5]);
+        for (run, fresh) in [&first, &again, &stronger].into_iter().zip(&fresh) {
+            assert_eq!(run.pattern, fresh.pattern);
+            assert_eq!(run.undecided, fresh.undecided);
+        }
     }
 }

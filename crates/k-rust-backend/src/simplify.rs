@@ -643,6 +643,7 @@ fn simplify_term_entry(
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
+    let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     let path_condition = PathConditionReplacements::new(known_predicates);
@@ -1118,6 +1119,7 @@ fn simplify_predicates_entry(
 ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyPredicates);
     measure::bump(Counter::SimplifyInvocations);
+    let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     match simplify_predicates_with_budget(
@@ -1976,6 +1978,7 @@ fn simplify_rule_predicates(
     }
     let mut active_conditions = active_conditions.clone();
     active_conditions.insert(key);
+    let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
     simplify_predicates_with_budget(
         definition,
@@ -2252,6 +2255,66 @@ fn note_undecided_times(count: u64) {
 /// The verdicts and attempts this thread has left undecided so far ([`UNDECIDED`]).
 fn undecided_so_far() -> u64 {
     UNDECIDED.get()
+}
+
+thread_local! {
+    /// The least iteration budget a charged root step of a term lineage read on this thread
+    /// ([`Lineage::root_step`], which tests it against 0) since the innermost routed
+    /// simplification (`normal_forms`) or budget of its own ([`OwnBudget`]) began, `usize::MAX`
+    /// where none was read. The term simplifier reads a lineage's budget nowhere else but to
+    /// copy it to a child, to decrement it after that test, to compare two readings of one
+    /// lineage (`Recurrence`), or to restore an earlier reading (an undone `Unspecified` step),
+    /// so a simplification that read only values above 0 reads the same truth values from any
+    /// budget its least reading stays above 0 under (`normal_forms::BudgetUse`).
+    static BUDGET_LOW: Cell<usize> = const { Cell::new(usize::MAX) };
+}
+
+/// Note a reading of a lineage's budget ([`BUDGET_LOW`]).
+#[inline]
+fn note_budget_reading(remaining: usize) {
+    BUDGET_LOW.set(BUDGET_LOW.get().min(remaining));
+}
+
+/// Start watching the readings of a routed simplification's budget ([`BUDGET_LOW`]): the
+/// readings so far, which the caller restores with [`budget_readings_finish`].
+fn budget_readings_start() -> usize {
+    BUDGET_LOW.replace(usize::MAX)
+}
+
+/// The least reading since [`budget_readings_start`] gave `before`; the readings around it
+/// then include it, since the routed simplification ran on a copy of their budget.
+fn budget_readings_finish(before: usize) -> usize {
+    let low = BUDGET_LOW.get();
+    BUDGET_LOW.set(before.min(low));
+    low
+}
+
+/// The least reading since [`budget_readings_start`] gave `before`, with the readings before
+/// restored as they were: work whose readings the run does not make (`normal_forms`'s check of
+/// a served simplification).
+#[cfg(feature = "check-normal-forms")]
+fn budget_readings_discard(before: usize) -> usize {
+    BUDGET_LOW.replace(before)
+}
+
+/// A budget of its own, started from `options.max_iterations` and not from any lineage's
+/// budget, open while it lives: its readings are kept from the readings around
+/// ([`BUDGET_LOW`]), which are of another budget, and those are restored when it closes (also
+/// on unwinding).
+struct OwnBudget(usize);
+
+impl OwnBudget {
+    #[inline]
+    fn enter() -> Self {
+        Self(BUDGET_LOW.replace(usize::MAX))
+    }
+}
+
+impl Drop for OwnBudget {
+    #[inline]
+    fn drop(&mut self) {
+        BUDGET_LOW.set(self.0);
+    }
 }
 
 /// Run `action`, work whose result the run does not use, and restore [`UNDECIDED`] afterwards,
@@ -3207,6 +3270,7 @@ fn simplify_predicate(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
+    let _budget = OwnBudget::enter();
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     let known_index = KnownConjuncts::of(known_predicates);
@@ -6136,8 +6200,8 @@ fn simplify_with_budget(
 }
 
 /// One level of the term simplifier: inside a proof's record of normal forms
-/// (`normal_forms`), a non-ground compound term entered with no rule condition active is routed
-/// through it ([`simplify_through_record`]); every other term is simplified as a lineage
+/// (`normal_forms`), a non-ground compound term is routed through it
+/// ([`simplify_through_record`]); every other term is simplified as a lineage
 /// ([`simplify_lineage`]).
 #[allow(clippy::too_many_arguments)]
 fn simplify_on_stack(
@@ -6153,11 +6217,10 @@ fn simplify_on_stack(
     // A ground term is left to the evaluated mark (ground-only, since a symbolic normal form
     // depends on the path condition). A variable is not routed, to spare a lookup at each
     // occurrence: no equation applies to it, and the children of its path condition's
-    // replacement are each routed at their own level. Under an active rule condition an
-    // attempt on a condition met again is `Recurred`, which the key does not hold: the record is
-    // used only where none is active.
+    // replacement are each routed at their own level. The rule conditions active against
+    // re-entry are part of the key: a simplification reads them only by membership tests (a
+    // condition met again is kept as it is written, `simplify_rule_predicates`).
     if normal_forms::open()
-        && active_conditions.is_empty()
         && !term.attributes().variables.is_empty()
         && !matches!(term.kind(), TermKind::Variable(_))
     {
@@ -6184,13 +6247,13 @@ fn simplify_on_stack(
     )
 }
 
-/// [`simplify_lineage`] of a non-ground subterm with no rule condition active, through the
-/// proof's record of normal forms: looked up ([`subterm_lookup`]), served where an equal key was
-/// recorded, and recorded where its simplification was clean (`normal_forms::subterm_recorded`).
-/// `no_conditions` is the caller's empty set of active rule conditions. Its own frame, out of
-/// line so that an unrouted level's does not grow, holds only the boxed state a miss carries to
-/// the record and the lineage's result; the lookup and the record are out of line too, so that
-/// a routed level takes about the native stack an unrouted one takes (`tests::recursion_stack`).
+/// [`simplify_lineage`] of a non-ground subterm, through the proof's record of normal forms:
+/// looked up ([`subterm_lookup`]), served where an equal key was recorded from a budget it
+/// serves, and recorded where its simplification was clean (`normal_forms::subterm_recorded`).
+/// Its own frame, out of line so that an unrouted level's does not grow, holds only the boxed
+/// state a miss carries to the record and the lineage's result; the lookup and the record are
+/// out of line too, so that a routed level takes about the native stack an unrouted one takes
+/// (`tests::recursion_stack`).
 #[allow(clippy::too_many_arguments)]
 #[inline(never)]
 fn simplify_through_record(
@@ -6199,7 +6262,7 @@ fn simplify_through_record(
     assumptions: &TermAssumptions<'_>,
     options: SimplificationOptions,
     remaining: &mut usize,
-    no_conditions: &BTreeSet<(String, Term)>,
+    active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
@@ -6209,6 +6272,7 @@ fn simplify_through_record(
         assumptions,
         options,
         remaining,
+        active_conditions,
         solver,
         execution.is_some(),
     ) {
@@ -6222,7 +6286,7 @@ fn simplify_through_record(
         assumptions,
         options,
         remaining,
-        no_conditions,
+        active_conditions,
         solver,
         execution,
     );
@@ -6236,8 +6300,10 @@ fn simplify_through_record(
 /// subject is `term` as it is entered, before its path condition is applied, since the lineage
 /// reads that form too (the operands a short-circuit hook evaluated,
 /// `hook_argument_definedness`); the path condition is part of the key, so the term it gives is
-/// a function of the key. A served simplification is checked against a new one
-/// (`check-normal-forms`) only where no execution runs, since an execution is refused.
+/// a function of the key, and so are the rule conditions active against re-entry. A served
+/// simplification is checked against a new one (`check-normal-forms`) only where no execution
+/// runs, since an execution is refused.
+#[allow(clippy::too_many_arguments)]
 #[inline(never)]
 fn subterm_lookup<'a>(
     definition: &BackendDefinition,
@@ -6245,6 +6311,7 @@ fn subterm_lookup<'a>(
     assumptions: &TermAssumptions<'a>,
     options: SimplificationOptions,
     remaining: &mut usize,
+    active_conditions: &'a BTreeSet<ConditionKey>,
     solver: &dyn SmtSolver,
     in_execution: bool,
 ) -> normal_forms::Lookup<'a> {
@@ -6255,6 +6322,7 @@ fn subterm_lookup<'a>(
         options,
         solver,
         remaining,
+        active_conditions,
         in_execution,
         |remaining| {
             simplify_lineage(
@@ -6263,7 +6331,7 @@ fn subterm_lookup<'a>(
                 assumptions,
                 options,
                 remaining,
-                &BTreeSet::new(),
+                active_conditions,
                 solver,
                 None,
             )
@@ -6629,6 +6697,9 @@ impl Lineage {
         // A determined function step is the definition's own computation, not a rewrite the
         // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
         let charged = root_step != RootStep::DeterminedFunctionStep;
+        if charged {
+            note_budget_reading(*remaining);
+        }
         if charged && *remaining == 0 {
             match options.budget {
                 BudgetPolicy::Fail => {

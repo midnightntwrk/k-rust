@@ -566,12 +566,11 @@ pub enum Counter {
     /// Simplifications of a proof's destination `simplify::normal_forms` served from its record,
     /// each in place of a simplification.
     SimplifyNormalFormsServed,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule
-    /// condition active that `simplify::normal_forms` recorded for reuse within a proof.
+    /// Simplifications of a non-ground subterm the term simplifier entered that
+    /// `simplify::normal_forms` recorded for reuse within a proof.
     SimplifyNormalFormsSubtermRecorded,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule
-    /// condition active that `simplify::normal_forms` served from its record, each in place of
-    /// a simplification.
+    /// Simplifications of a non-ground subterm the term simplifier entered that
+    /// `simplify::normal_forms` served from its record, each in place of a simplification.
     SimplifyNormalFormsSubtermServed,
     /// Simplifications of a proof's destination `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
     SimplifyNormalFormsRefusedConsole,
@@ -593,25 +592,25 @@ pub enum Counter {
     SimplifyNormalFormsRefusedEffect,
     /// Simplifications of a proof's destination `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back.
     SimplifyNormalFormsRefusedApart,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` did not record or look up because the work belongs to an execution or to a run with a console.
     SimplifyNormalFormsSubtermRefusedConsole,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` did not record or look up because an attempt on an `Unspecified` application, or a lineage recording what one reads, was open.
     SimplifyNormalFormsSubtermRefusedUnspecified,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` did not record or look up because a coverage collection was open.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` did not record or look up because a coverage collection was open.
     SimplifyNormalFormsSubtermRefusedCoverage,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because the simplification stopped, or dismissed a stop for lack of native stack. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because the simplification stopped, or dismissed a stop for lack of native stack. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedStop,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because the simplification failed. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because the simplification failed. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedFailed,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it emitted a diagnostic while a collector was open. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because it emitted a diagnostic while a collector was open. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedDiagnostic,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it noted a path fact. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because it noted a path fact. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedPathFact,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it received an undecided solver answer. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because it received an undecided solver answer. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedUnknown,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because it performed a builtin effect. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because it performed a builtin effect. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedEffect,
-    /// Simplifications of a non-ground subterm the term simplifier entered with no rule condition active that `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
+    /// Simplifications of a non-ground subterm the term simplifier entered that `simplify::normal_forms` looked up and missed, then did not record because its result holds a name minted by a renaming apart while its own renamings minted names, or the renaming-apart counter went back. Counted at the innermost routed simplification that met the reason: one that holds a subterm simplification already counted for the same reason is not counted again.
     SimplifyNormalFormsSubtermRefusedApart,
     /// Clears of a proof's record of normal forms (`simplify::normal_forms`) on reaching its bound of entries or of its estimate of bytes held; a cleared record simplifies again what it no longer holds.
     SimplifyNormalFormsCleared,

@@ -4475,8 +4475,8 @@ id = "backend.simplify.normal_forms"
 provenance = "declared"
 area = "backend"
 name = "reuse of a clean simplification within a proof under an equal path condition"
-variable = "k = known predicates of the key; p = bindings and replacements of a subterm key's path condition; r = pairs of the key's renaming; c = conjuncts of a recorded simplification; n = term nodes of a recorded subject and result the record has not counted yet"
-invariant = "A recorded simplification ran inside a proof's scope and an ApartScope, outside an execution and any run with a console, with no Unspecified attempt or lineage and no coverage collection open, did not stop or dismiss a stack stop, did not fail, received no undecided solver answer, noted no path fact, performed no effect, holds no name its own renamings apart minted, and emitted no diagnostic where a collector was open; its key holds the subject node, the renaming applied to it, the known predicates, for a subterm the path condition it was simplified under, the options, the iteration budget it started from, the definition, the solver, the thread's condition modes, whether claims are checked and the choice-sampling seed. A subterm is routed only where no rule condition is active against re-entry. It is served only under an equal key, only where no path-fact record is open unless one was open when it was recorded, and only where no collector is open unless one was open when it was recorded; a serve counts again the equation conditions and attempts it left undecided, moves the renaming-apart counter on by the names it minted, and leaves the iteration budget it left."
+variable = "k = known predicates of the key; p = bindings and replacements of a subterm key's path condition; a = rule conditions in a subterm key's set of active ones; r = pairs of the key's renaming; c = conjuncts of a recorded simplification; n = term nodes of a recorded subject and result the record has not counted yet"
+invariant = "A recorded simplification ran inside a proof's scope and an ApartScope, outside an execution and any run with a console, with no Unspecified attempt or lineage and no coverage collection open, did not stop or dismiss a stack stop, did not fail, received no undecided solver answer, noted no path fact, performed no effect, holds no name its own renamings apart minted, and emitted no diagnostic where a collector was open; its key holds the subject node, the renaming applied to it, the known predicates, for a subterm the path condition and the set of rule conditions active against re-entry it was simplified under, the options, the definition, the solver, the thread's condition modes, whether claims are checked and the choice-sampling seed; not the iteration budget it started from, but what it read of it: its start, what it left, and its least reading. It is served only under an equal key, only from a budget it reads alike (any where it read none; one above its start less its least reading where that was above 0; its start where a reading was 0, and at a destination, which starts a lineage of its own), only where no path-fact record is open unless one was open when it was recorded, and only where no collector is open unless one was open when it was recorded; a serve counts again the equation conditions and attempts it left undecided, moves the renaming-apart counter on by the names it minted, leaves the iteration budget moved by as much as it moved its own, and notes its least reading, moved as far, for the routed simplification around."
 span = "none"
 table = "Algorithm::ALL"
 registry_name = "BackendSimplifyNormalForms"
@@ -4510,6 +4510,26 @@ symbol = "NormalForms::count_new_nodes"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
 symbol = "NormalForms::intern_path_condition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "NormalForms::intern_active"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "BudgetUse::of_subterm"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "BudgetUse::serves"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/normal_forms.rs"
+symbol = "BudgetUse::for_budget"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4608,11 +4628,11 @@ symbol = "Site::served"
 
 [[node.cost]]
 mode = "lookup (every simplification a caller routes through the record while a proof's scope is open)"
-bound = "the context checks (thread flags); the record's copy of the known list found by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference, and where that fails one hash lookup by content that hashes them; for a subterm the record's copy of the path condition found the same way, O(p); then a key with r cloned pairs and one map lookup, the subject compared by node and the known list and path condition by allocation. A hit clones the recorded simplification's shared handles and moves two thread counters on; a miss boxes the probe and the thread's counters at the start (off the caller's recursive frame), runs the simplification, which it pays, and then reads seven thread counters, the result's effects, and, only where its renamings minted names, its variables (one cached set per term of the result and its c conjuncts). A record walks, for its byte estimate, only the nodes of its subject and result no earlier record counted, O(n) with one hash-set insertion each, so the records of nested subterms together walk each node they hold once."
+bound = "the context checks (thread flags); the record's copy of the known list found by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference, and where that fails one hash lookup by content that hashes them; for a subterm the record's copies of the path condition, O(p), and of a nonempty set of active rule conditions, O(a), found the same way; then a key with r cloned pairs and one map lookup, the subject compared by node and the known list, path condition and active set by allocation, and the budget use compared with the caller's budget. A hit clones the recorded simplification's shared handles and moves two thread counters on; a miss boxes the probe and the thread's counters at the start (off the caller's recursive frame), runs the simplification, which it pays, and then reads seven thread counters, the result's effects, and, only where its renamings minted names, its variables (one cached set per term of the result and its c conjuncts). A record walks, for its byte estimate, only the nodes of its subject and result no earlier record counted, O(n) with one hash-set insertion each, so the records of nested subterms together walk each node they hold once."
 
 [[node.cost]]
 mode = "retention"
-bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), and per distinct path condition, one copy (p binding and replacement handles), each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
+bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), per distinct path condition, one copy (p binding and replacement handles), and per distinct nonempty active set, one copy (a rule-identifier and anchor pairs), each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
 
 [[node]]
 kind = "algorithm"
