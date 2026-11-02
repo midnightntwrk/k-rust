@@ -543,7 +543,7 @@ fn an_item_of_a_private_module_with_no_path_the_clause_writes_is_refused() {
     );
     assert!(!success);
     assert!(
-        stderr.contains("error[krs::reference::private-module]: cannot print a path to WHOLE-VIS::a::secret::Op (sort) in `crate::b`: a module on `crate::a::secret` is private to a module that does not contain `crate::b`"),
+        stderr.contains("error[krs::reference::private-module]: cannot print a path to WHOLE-VIS::a::secret::Op (sort) in `crate::b`: the item or a module on `crate::a::secret` is private to a module that does not contain `crate::b`"),
         "{stderr}"
     );
     fs::write(
@@ -580,4 +580,320 @@ fn a_descriptor_from_a_file_no_module_declares_is_refused() {
         stderr.contains("error[krs::reference::source-selection]: expand prints the crate's module files, and descriptors come from files its module tree does not reach as modules (such as a file `include!` reads): src/extra.rs"),
         "{stderr}"
     );
+}
+
+/// The module `twin` twice under exclusive conditions: inline here, configured out, and from
+/// `twin_file.rs`, configured in. The inline module spans the bytes the file's clause spans in
+/// its own file, so only the file a descriptor names tells the two apart.
+const CONFIGURED_ROOT: &str = r#"#[cfg(any())]
+mod twin {
+    // ................................................................................
+    // ................................................................................
+    // ................................................................................
+    // ................................................................................
+    // ................................................................................
+    k::rules! {
+        for crate::Exp;
+        use crate::ExpSyntax::*;
+
+        other: Wrap(v) => v;
+    }
+}
+
+#[cfg(all())]
+#[path = "twin_file.rs"]
+mod twin;
+
+// One file read by two modules, printed once.
+#[path = "plain.rs"]
+pub mod plain_one;
+#[path = "plain.rs"]
+pub mod plain_two;
+
+use k::KResult;
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+// Configured out: rustc removes the invocation, so the package declares no sort `Extra`.
+#[cfg(any())]
+k::sorts! {
+    Extra;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("wrap({value})")]
+    Wrap { value: Exp },
+    #[k::syntax("hold({value})")]
+    Hold { value: Exp },
+}
+
+// The grammar the family declares stands under the enum's condition.
+#[cfg(all())]
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Neg) > left (And))]
+#[rustfmt::skip]
+pub enum OpSyntax {
+    #[k::syntax("-{value}")] #[k::strict]
+    Neg { value: Exp },
+    #[k::syntax("{lhs} && {rhs}")] #[k::strict]
+    And { lhs: Exp, rhs: Exp },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+
+// Configured out: no clause of it was collected.
+#[cfg(any())]
+k::rules! {
+    for crate::Exp;
+    use crate::ExpSyntax::*;
+
+    gone: Wrap(v) => v;
+}
+
+#[cfg(all())]
+k::rules! {
+    for crate::Exp;
+    use crate::ExpSyntax::*;
+
+    held: Hold(v) => v;
+}
+"#;
+
+const TWIN_FILE: &str = r"k::rules! {
+    for crate::Exp;
+    use crate::ExpSyntax::*;
+
+    unwrap: Wrap(v) => v;
+}
+";
+
+/// What rustc reads under conditions prints as rustc reads it: a configured-out `k::sorts!` or
+/// `k::rules!` invocation stands under its `cfg` (so the printed package declares no sort it does
+/// not), a held one's printed items under theirs, an enum's printed grammar under the enum's; of
+/// two modules `twin` under exclusive conditions, the configured-in file's clause prints, and the
+/// configured-out inline module, whose bytes span that clause's, prints as written. A file two
+/// modules read prints once, unchanged.
+#[test]
+fn configured_forms_and_modules_print_as_rustc_reads_them() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let workspace = temporary.path().join("workspace");
+    write_package(
+        &workspace,
+        "cfgs",
+        "",
+        true,
+        &[
+            ("src/lib.rs", CONFIGURED_ROOT),
+            ("src/twin_file.rs", TWIN_FILE),
+            ("src/plain.rs", "pub fn plain() {}\n"),
+        ],
+    );
+    let (listed, printed, _) = round_trip(target.path(), &workspace, "cfgs", &[]);
+    assert_eq!(listed, ["src/lib.rs", "src/twin_file.rs"]);
+    let root = collapsed(printed_file(&printed, "src/lib.rs"));
+    for expected in [
+        "#[cfg(any())]#[k::sort(alias=Extra)]pubtraitExtraSort{}#[cfg(any())]pubtypeExtra=",
+        "#[cfg(all())]k::precedence!",
+        "#[cfg(all())]#[k::rule(label=\"held\")]",
+        "#[cfg(any())]modtwin{",
+        "other:Wrap(v)=>v;",
+    ] {
+        assert!(root.contains(expected), "{expected}\n{root}");
+    }
+    assert!(!root.contains("\"gone\""), "{root}");
+    let twin = collapsed(printed_file(&printed, "src/twin_file.rs"));
+    assert!(twin.contains("#[k::rule(label=\"unwrap\")]"), "{twin}");
+}
+
+const PRIVATE_ITEM_A: &str = r#"
+use k::KResult;
+use k::builtin::Int;
+use k::{KItem, KItemSort, Term};
+
+// A sort private to `a`: its trait and alias are not `pub`, though `a` itself is.
+#[k::sort(alias = Op, parents = [KItem])]
+trait OpSort: KItemSort {}
+type Op = Term<dyn OpSort>;
+
+#[k::constructors(sort = Op, result = k::KResult)]
+pub enum OpSyntax {
+    #[k::syntax("plus")]
+    Plus(),
+}
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("swap({op})")]
+    Swap { op: Op },
+    #[k::syntax("keep({op})")]
+    Keep { op: Op },
+}
+
+k::rules! {
+    for crate::Machine;
+    use ExpSyntax::*;
+
+    swap: { k: [Swap(op), ..] } => { k: [op, ..] };
+}
+"#;
+
+/// An item private to its module (`a::Op`) is named by its `crate::` path only inside that module,
+/// though every module on the path is public: the clause in `b` binds it and writes no path, so
+/// its print is refused, where `crate::a::Op` would not compile.
+#[test]
+fn a_private_item_of_a_public_module_with_no_path_the_clause_writes_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let workspace = temporary.path().join("workspace");
+    let manifest = write_package(
+        &workspace,
+        "item",
+        "",
+        true,
+        &[
+            ("src/lib.rs", VISIBLE_ROOT),
+            ("src/a.rs", PRIVATE_ITEM_A),
+            ("src/b.rs", &KEEP.replace("WHERE", "")),
+        ],
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "item", "check", &[]);
+    assert!(success, "{stderr}");
+    let printed = temporary.path().join("printed");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "item",
+        "expand",
+        &["--output", printed.to_str().unwrap()],
+    );
+    assert!(!success);
+    assert!(
+        stderr.contains("error[krs::reference::private-module]: cannot print a path to WHOLE-ITEM::a::Op (sort) in `crate::b`: the item or a module on `crate::a` is private"),
+        "{stderr}"
+    );
+}
+
+const PRIVATE_DEPENDENCY: &str = r#"
+// The sort's module is private; the crate re-exports its items.
+mod sorts {
+    use k::{KItem, KItemSort, Term};
+
+    #[k::sort(alias = Common, parents = [KItem])]
+    pub trait CommonSort: KItemSort {}
+    pub type Common = Term<dyn CommonSort>;
+
+    #[k::constructor(sort = Common, syntax = "same")]
+    pub struct Same;
+}
+pub use sorts::{Common, CommonSort, Same};
+"#;
+
+const HOLDING_ROOT: &str = r#"
+use k::KResult;
+use k::builtin::{Int, KSequence};
+
+mod off;
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("hold({held})")]
+    Hold { held: semantic_dep::Common },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use ExpSyntax::*;
+
+    unhold: { k: [Hold(held), ..] } => { k: [held, ..] };
+}
+"#;
+
+/// A path is evidence that a dependency's module reaches the printed crate only where rustc
+/// resolved it from the crate's name: not in a file configured out by an inner `#![cfg]`, and
+/// not in a fn body (a `use` of the name would be ambiguous there), where a local module of the
+/// crate's name stands. With neither, the binder of the private
+/// module's sort has no printable path, and its print is refused, where
+/// `::semantic_dep::sorts::Common` would not compile.
+#[test]
+fn a_dependency_path_rustc_never_resolved_from_the_crate_name_is_no_evidence() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let workspace = temporary.path().join("workspace");
+    write_package(
+        &workspace,
+        "dep",
+        "",
+        false,
+        &[("src/lib.rs", PRIVATE_DEPENDENCY)],
+    );
+    let manifest = write_package(
+        &workspace,
+        "holding",
+        "semantic_dep = { package = \"dep\", path = \"../dep\" }\n",
+        false,
+        &[("src/lib.rs", HOLDING_ROOT), ("src/off.rs", "")],
+    );
+    fs::write(
+        workspace.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"dep\", \"holding\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let dependency = ["--dependency", "dep:main"];
+    for off in [
+        "#![cfg(any())]\nuse semantic_dep::sorts;\n",
+        "mod semantic_dep {\n    pub mod sorts {\n        pub struct Marker;\n    }\n}\npub fn witness() {\n    let _ = semantic_dep::sorts::Marker;\n}\n",
+    ] {
+        fs::write(workspace.join("holding/src/off.rs"), off).unwrap();
+        let (success, _, stderr) = krs(target.path(), &manifest, "holding", "check", &dependency);
+        assert!(success, "{off}\n{stderr}");
+        let (success, _, stderr) = krs(target.path(), &manifest, "holding", "expand", &dependency);
+        assert!(!success, "{off}");
+        assert!(
+            stderr.contains("error[krs::reference::dependency-path]: cannot print a path to WHOLE-DEP::sorts::Common (sort)"),
+            "{off}\n{stderr}"
+        );
+    }
 }

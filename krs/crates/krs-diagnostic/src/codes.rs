@@ -141,7 +141,7 @@ register_codes! {
         MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" [Internal] => "Inference produced no sort for a readable binder.",
         EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "No path the printed clause writes reaches an item of a package the source does not depend on directly.",
         DEPENDENCY_PATH: "krs::reference::dependency-path" => "No path the printed clause writes reaches a dependency's item, and its declaring path is not known to compile.",
-        PRIVATE_MODULE: "krs::reference::private-module" => "No path the printed clause writes reaches an item whose module is private where the long form stands.",
+        PRIVATE_MODULE: "krs::reference::private-module" => "No path the printed clause writes reaches an item that, or whose module, is private where the long form stands.",
         MIXED_APPLICATION_ARGUMENTS: "krs::reference::mixed-application-arguments" => "An application mixes positional and named arguments.",
         NAMED_BUILTIN_APPLICATION: "krs::reference::named-builtin-application" => "A builtin operation uses named arguments.",
         MISSING_DECLARATION: "krs::reference::missing-declaration" [Internal] => "A referenced declaration is absent from the collected bundle.",

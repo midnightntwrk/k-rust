@@ -88,15 +88,17 @@ pub fn expand_package_reference_source(
         .iter()
         .filter(|descriptor| descriptor.id().package() == package)
         .collect::<Vec<_>>();
-    let named = |file: &str| {
+    // A descriptor collected from `file` in the module `module` or one it holds inline.
+    let named = |file: &str, module: &[String]| {
         in_package.iter().any(|descriptor| {
-            authored_source_file(descriptor)
-                .is_some_and(|named| named.package_relative_path() == file)
+            descriptor.id().module_path().starts_with(module)
+                && authored_source_file(descriptor)
+                    .is_some_and(|named| named.package_relative_path() == file)
         })
     };
-    let tree = ModuleTree::read(crate_root, package_root, &named)?;
+    let tree = ModuleTree::read(crate_root, package_root, &named, facade)?;
     reaches_descriptor_files(&tree, &in_package)?;
-    let authored = authored_paths(tree.files.iter().map(|file| &file.parsed), crates);
+    let authored = authored_paths(tree.files.iter().map(|file| &file.parsed), crates, facade);
     let none = WrittenPaths::default();
     let expansion = Expansion::new(
         facade,
@@ -273,7 +275,7 @@ pub fn expand_reference_source_naming(
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
-    let authored = authored_paths(std::iter::once(&file), crates);
+    let authored = authored_paths(std::iter::once(&file), crates, facade);
     let none = WrittenPaths::default();
     let expansion = Expansion::new(
         facade,
@@ -616,18 +618,36 @@ impl<'a> Expansion<'a> {
                 materialize_initializers(item_impl)?;
             }
             let syn::Item::Macro(invocation) = &item else {
+                // The grammar an enum's family declares stands under the enum's conditions.
+                let conditions = item_attributes(&item)
+                    .iter()
+                    .filter(|attribute| is_condition(attribute))
+                    .cloned()
+                    .collect::<Vec<_>>();
                 items.push(item);
-                items.extend(trailing_enum_grammar);
+                items.extend(
+                    trailing_enum_grammar
+                        .into_iter()
+                        .map(|grammar| with_attributes(grammar, &conditions)),
+                );
                 continue;
             };
             let mut key = chain.to_vec();
             key.push(index);
             let entry = file.entries.get(&key);
+            // What a readable macro declares stands under the invocation's attributes: rustc
+            // applies its `cfg` before the macro runs, and its lint attributes to what the macro
+            // generates.
+            let invocation_attributes = &invocation.attrs;
             if matches!(
                 entry,
                 Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
             ) {
-                items.extend(materialize_readable_sorts(invocation)?);
+                items.extend(
+                    materialize_readable_sorts(invocation)?
+                        .into_iter()
+                        .map(|sort| with_attributes(sort, invocation_attributes)),
+                );
                 continue;
             }
             if entry == Some(&FunctionMacro::Equations) {
@@ -656,7 +676,10 @@ impl<'a> Expansion<'a> {
                             _ => None,
                         })
                         .collect::<Vec<_>>();
-                    if descriptors.is_empty() && configured_out(&row.rule().item().attrs) {
+                    if descriptors.is_empty()
+                        && (configured_out(&row.rule().item().attrs)
+                            || configured_out(invocation_attributes))
+                    {
                         continue;
                     }
                     let [(descriptor, rule)] = descriptors.as_slice() else {
@@ -685,12 +708,15 @@ impl<'a> Expansion<'a> {
                             semantic_rule,
                             semantic_rules,
                         ))?;
-                    items.push(syn::Item::Fn(render_equation_row(
-                        row,
-                        &rule,
-                        package.writing(&written),
-                        bundle,
-                    )?));
+                    items.push(with_attributes(
+                        syn::Item::Fn(render_equation_row(
+                            row,
+                            &rule,
+                            package.writing(&written),
+                            bundle,
+                        )?),
+                        invocation_attributes,
+                    ));
                     if !rendered_names.insert(name.clone()) {
                         return Err(ReferenceExpansionError::DuplicateRule(name));
                     }
@@ -731,7 +757,10 @@ impl<'a> Expansion<'a> {
                             && originates_in(descriptor, file.relative, authored.as_ref())
                     })
                     .collect::<Vec<_>>();
-                if descriptors.is_empty() && configured_out(&clause.rule().item().attrs) {
+                if descriptors.is_empty()
+                    && (configured_out(&clause.rule().item().attrs)
+                        || configured_out(invocation_attributes))
+                {
                     continue;
                 }
                 let [(descriptor, rule)] = descriptors.as_slice() else {
@@ -759,13 +788,16 @@ impl<'a> Expansion<'a> {
                         semantic_rule,
                         semantic_rules,
                     ))?;
-                items.push(syn::Item::Fn(render_rule(
-                    clause,
-                    &rule,
-                    semantic_rule,
-                    package.writing(&written),
-                    bundle,
-                )?));
+                items.push(with_attributes(
+                    syn::Item::Fn(render_rule(
+                        clause,
+                        &rule,
+                        semantic_rule,
+                        package.writing(&written),
+                        bundle,
+                    )?),
+                    invocation_attributes,
+                ));
                 if !rendered_names.insert(name.clone()) {
                     return Err(ReferenceExpansionError::DuplicateRule(name));
                 }
@@ -818,15 +850,29 @@ fn originates_in(
 }
 
 /// Whether a readable clause or table row in which no collected sentence
-/// originates was configured out: it carries a `#[cfg(..)]`, which the macro
-/// writes on what it generates for the clause, so the clause's sentence was
-/// collected exactly when its condition held.
+/// originates was configured out: it, or the macro invocation that holds it, carries a
+/// `#[cfg(..)]`, which the macro writes on what it generates for the clause (rustc removes the
+/// invocation itself), so the clause's sentence was collected exactly when its condition held.
 /// A clause whose condition does not hold denotes nothing, as an item Rust
 /// removes before any macro sees it, so its expanded surface is its absence.
 fn configured_out(attributes: &[syn::Attribute]) -> bool {
     attributes
         .iter()
         .any(|attribute| attribute.path().is_ident("cfg"))
+}
+
+/// Whether `attribute` is a condition on its item: `cfg`, or a `cfg_attr` that may apply one.
+fn is_condition(attribute: &syn::Attribute) -> bool {
+    attribute.path().is_ident("cfg") || attribute.path().is_ident("cfg_attr")
+}
+
+/// `item` with `attributes` written before its own: an item a readable form declares, under the
+/// attributes of the form it stands for.
+fn with_attributes(mut item: syn::Item, attributes: &[syn::Attribute]) -> syn::Item {
+    if let Some(own) = item_attributes_mut(&mut item) {
+        own.splice(0..0, attributes.iter().cloned());
+    }
+    item
 }
 
 /// `file` printed by prettyplease, with each attribute argument that holds
@@ -3498,12 +3544,11 @@ fn render_declared_application(
     if let Some(path) = package.written_path(id) {
         return Ok(quote!(#path));
     }
-    let base = render_declared_path(id, package)?;
     let Some(owner) = id
         .disambiguator()
         .strip_prefix(ENUM_VARIANT_DISAMBIGUATOR_PREFIX)
     else {
-        return Ok(base);
+        return render_declared_path(id, package);
     };
     let owner = rust_ident(owner)?;
     let variant = rust_ident(id.item_name())?;
@@ -3536,7 +3581,8 @@ fn render_local_path(
     suffix: &[Ident],
 ) -> Result<syn::Path, ReferenceExpansionError> {
     let mut path: syn::Path = if id.package() == package.package {
-        if !package.reaches(id.module_path()) {
+        let head = suffix.first().map(|head| head.unraw().to_string());
+        if !package.reaches(id.module_path(), head.as_deref().unwrap_or_default()) {
             return Err(ReferenceExpansionError::PrivateModule {
                 item: Box::new(id.clone()),
                 from: crate_module_path(package.module),
@@ -3620,13 +3666,20 @@ fn dependency_path(
 
 /// The paths `files`, the module files of one crate, write to an item of a crate `crates` names,
 /// by crate name and item name: each path, from the crate name, that ends in that item, through a
-/// `use` (before its `as`) or in any tokens, a macro's included, since a readable clause is a
-/// macro's.
+/// `use` (before its `as`) or in the tokens of a readable macro `facade` names (`k::rules!`,
+/// `k::sorts!`, ..), whose paths the collector resolved through rustc.
 ///
 /// Every file of the crate counts: another crate's items are visible alike from all the modules
-/// of the crate, so a path that compiles in one module compiles in each. An item under `#[cfg]`
-/// does not count, since its condition may not have held, and then rustc resolved none of its
-/// paths.
+/// of the crate, so a path that compiles in one module compiles in each. Only paths rustc
+/// resolved from the crate name count:
+/// - an item under `#[cfg]` (an inline module's inner `#![cfg]` included) does not, since its
+///   condition may not have held, and then rustc resolved none of its paths (a file under
+///   `#![cfg]` is one of `files` only where a descriptor shows its condition held,
+///   [`ModuleTree::read`]);
+/// - neither do the tokens of other items: a `macro_rules!` body is resolved only where it is
+///   invoked, and a `#[cfg]` may stand on any statement, field or arm of an item;
+/// - in a module that declares or imports an item of a crate's name (`mod dep {..}`,
+///   `use x::y as dep;`), that name is the item, not the crate.
 ///
 /// A path from a name that a `use` or an `extern crate` of the same module gives a path from a
 /// crate name (`use dep as d;`, `use dep::m as mm;`) is that path: `d::Item` is `dep::Item`,
@@ -3640,6 +3693,7 @@ fn dependency_path(
 fn authored_paths<'f>(
     files: impl IntoIterator<Item = &'f syn::File>,
     crates: &BTreeMap<PackageId, String>,
+    facade: &FacadeScope,
 ) -> BTreeMap<(String, String), BTreeSet<Vec<String>>> {
     type Paths = BTreeMap<(String, String), BTreeSet<Vec<String>>>;
     /// The crate names, and the paths from them that a module's `use .. as` names stand for.
@@ -3718,40 +3772,117 @@ fn authored_paths<'f>(
             }
         }
     }
-    /// The paths of one module's items, each inline module's with its own renames.
-    fn module(items: &[syn::Item], crates: &BTreeSet<&String>, paths: &mut Paths) {
+    /// The paths of one module's items, at the indices `chain` of the inline modules of a file
+    /// whose readable macros are `entries`, each inline module's with its own names.
+    fn module(
+        items: &[syn::Item],
+        crates: &BTreeSet<&String>,
+        entries: &BTreeMap<Vec<usize>, FunctionMacro>,
+        chain: &mut Vec<usize>,
+        paths: &mut Paths,
+    ) {
+        // A child module sees every crate name again, whatever its parent declares.
+        let shadowed = local_names(items);
+        let unshadowed = crates
+            .iter()
+            .copied()
+            .filter(|name| !shadowed.contains(name.as_str()))
+            .collect::<BTreeSet<_>>();
         let names = Names {
-            crates,
-            renamed: renamed_crates(items, crates),
+            crates: &unshadowed,
+            renamed: renamed_crates(items, &unshadowed),
         };
-        for item in items {
+        for (index, item) in items.iter().enumerate() {
             if item_attributes(item)
                 .iter()
                 .any(|attribute| attribute.path().is_ident("cfg"))
             {
                 continue;
             }
+            chain.push(index);
             match item {
                 syn::Item::Mod(syn::ItemMod {
                     content: Some((_, items)),
                     ..
-                }) => module(items, crates, paths),
+                }) => module(items, crates, entries, chain, paths),
                 syn::Item::Use(item_use) => {
                     uses(&item_use.tree, &mut Vec::new(), &names, paths);
-                    runs(item.to_token_stream(), &names, paths);
                 }
-                item => runs(item.to_token_stream(), &names, paths),
+                syn::Item::Macro(invocation) if entries.contains_key(chain.as_slice()) => {
+                    runs(invocation.mac.tokens.clone(), &names, paths);
+                }
+                _ => {}
             }
+            chain.pop();
         }
     }
     let crate_names = crates.values().collect::<BTreeSet<_>>();
     let mut paths = BTreeMap::new();
     if !crate_names.is_empty() {
         for file in files {
-            module(&file.items, &crate_names, &mut paths);
+            let entries = reference_macro_entries(file, facade);
+            module(
+                &file.items,
+                &crate_names,
+                &entries,
+                &mut Vec::new(),
+                &mut paths,
+            );
         }
     }
     paths
+}
+
+/// The names the items of one module declare or import, other than an import of a crate by its
+/// own name (`use dep;`), in the namespace a path's first segment is resolved in.
+fn local_names(items: &[syn::Item]) -> BTreeSet<String> {
+    fn bound(tree: &syn::UseTree, depth: usize, names: &mut BTreeSet<String>) {
+        match tree {
+            syn::UseTree::Path(path) => bound(&path.tree, depth + 1, names),
+            syn::UseTree::Name(name) => {
+                // `use dep;` and `use dep::{self}` import the crate as itself.
+                let name = name.ident.unraw().to_string();
+                if depth > 0 && name != "self" {
+                    names.insert(name);
+                }
+            }
+            syn::UseTree::Rename(rename) => {
+                names.insert(rename.rename.unraw().to_string());
+            }
+            syn::UseTree::Group(group) => {
+                for tree in &group.items {
+                    bound(tree, depth, names);
+                }
+            }
+            syn::UseTree::Glob(_) => {}
+        }
+    }
+    let mut names = BTreeSet::new();
+    for item in items {
+        let name = match item {
+            syn::Item::Use(item) => {
+                bound(&item.tree, 0, &mut names);
+                continue;
+            }
+            syn::Item::ExternCrate(item) => match &item.rename {
+                Some((_, rename)) => rename,
+                None => continue,
+            },
+            syn::Item::Mod(item) => &item.ident,
+            syn::Item::Struct(item) => &item.ident,
+            syn::Item::Enum(item) => &item.ident,
+            syn::Item::Union(item) => &item.ident,
+            syn::Item::Type(item) => &item.ident,
+            syn::Item::Trait(item) => &item.ident,
+            syn::Item::TraitAlias(item) => &item.ident,
+            syn::Item::Fn(item) => &item.sig.ident,
+            syn::Item::Const(item) => &item.ident,
+            syn::Item::Static(item) => &item.ident,
+            _ => continue,
+        };
+        names.insert(name.unraw().to_string());
+    }
+    names
 }
 
 /// The path of the module `module` from `crate`.
@@ -3781,6 +3912,28 @@ fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
         syn::Item::Union(item) => &item.attrs,
         syn::Item::Use(item) => &item.attrs,
         _ => &[],
+    }
+}
+
+/// The outer attributes of `item`, to write.
+fn item_attributes_mut(item: &mut syn::Item) -> Option<&mut Vec<syn::Attribute>> {
+    match item {
+        syn::Item::Const(item) => Some(&mut item.attrs),
+        syn::Item::Enum(item) => Some(&mut item.attrs),
+        syn::Item::ExternCrate(item) => Some(&mut item.attrs),
+        syn::Item::Fn(item) => Some(&mut item.attrs),
+        syn::Item::ForeignMod(item) => Some(&mut item.attrs),
+        syn::Item::Impl(item) => Some(&mut item.attrs),
+        syn::Item::Macro(item) => Some(&mut item.attrs),
+        syn::Item::Mod(item) => Some(&mut item.attrs),
+        syn::Item::Static(item) => Some(&mut item.attrs),
+        syn::Item::Struct(item) => Some(&mut item.attrs),
+        syn::Item::Trait(item) => Some(&mut item.attrs),
+        syn::Item::TraitAlias(item) => Some(&mut item.attrs),
+        syn::Item::Type(item) => Some(&mut item.attrs),
+        syn::Item::Union(item) => Some(&mut item.attrs),
+        syn::Item::Use(item) => Some(&mut item.attrs),
+        _ => None,
     }
 }
 
@@ -4752,18 +4905,23 @@ impl<'a> PathScope<'a> {
     /// package's item or one of this package whose `crate::` path does not reach it from the
     /// printed module ([`PathScope::reaches`]).
     fn written_path(self, id: &StableItemId) -> Option<&'a syn::Path> {
-        if id.package() == self.package && self.reaches(id.module_path()) {
+        // An enum variant's path passes through its enum, whose visibility is the variant's.
+        let head = id
+            .disambiguator()
+            .strip_prefix(ENUM_VARIANT_DISAMBIGUATOR_PREFIX)
+            .unwrap_or(id.item_name());
+        if id.package() == self.package && self.reaches(id.module_path(), head) {
             return None;
         }
         self.written.get(id, self.at)
     }
 
-    /// Whether `crate::m1::..::mk`, the path of this package's module `module`, names it from
-    /// the module the long form stands in: each module on it is visible there
-    /// ([`ModuleTree::reaches`]).
-    fn reaches(self, module: &[String]) -> bool {
+    /// Whether `crate::m1::..::mk::item`, the path of the item `item` of this package's module
+    /// `module`, names it from the module the long form stands in: each module on it and the item
+    /// are visible there ([`ModuleTree::reaches_item`]).
+    fn reaches(self, module: &[String], item: &str) -> bool {
         self.tree
-            .is_none_or(|tree| tree.reaches(module, self.module))
+            .is_none_or(|tree| tree.reaches_item(module, item, self.module))
     }
 }
 
@@ -4840,7 +4998,7 @@ impl fmt::Display for ReferenceSourceError {
             }
             Self::ConditionalModulePath { file, module } => write!(
                 formatter,
-                "expand cannot tell which file the module `{module}` declared in `{}` is: a `cfg_attr` may give its path; declare it with a plain `#[path]`, or as two modules under `#[cfg]`",
+                "expand cannot tell which file or directory the module `{module}` declared in `{}` is read from: a `cfg_attr` may give its path; declare it with a plain `#[path]`, or as two modules under `#[cfg]`",
                 file.display()
             ),
             Self::OutsidePackage(path) => write!(
@@ -4962,9 +5120,9 @@ pub enum ReferenceExpansionError {
         /// Its declaring path from the crate name.
         declared: String,
     },
-    /// An item of the printed package in a module that is not visible from the module the long
-    /// form stands in, to which the printed clause writes no path the long form can print
-    /// ([`WrittenPaths`]).
+    /// An item of the printed package that is not visible, or is in a module that is not, from
+    /// the module the long form stands in, to which the printed clause writes no path the long
+    /// form can print ([`WrittenPaths`]).
     PrivateModule {
         /// The item.
         item: Box<StableItemId>,
@@ -5113,7 +5271,7 @@ impl fmt::Display for ReferenceExpansionError {
             ),
             Self::PrivateModule { item, from } => write!(
                 formatter,
-                "cannot print a path to {item} in `{from}`: a module on `{}` is private to a module that does not contain `{from}`, and the clause writes no path to the item there that the long form can print; make the module visible there (`pub(crate) mod`), or name the item in the clause by a path that compiles there, such as a re-export (a binder's sort by `where x: PATH`)",
+                "cannot print a path to {item} in `{from}`: the item or a module on `{}` is private to a module that does not contain `{from}`, and the clause writes no path to the item there that the long form can print; make it visible there (`pub(crate)`), or name the item in the clause by a path that compiles there, such as a re-export (a binder's sort by `where x: PATH`)",
                 crate_module_path(item.module_path()),
             ),
             Self::MixedApplicationArguments => {
@@ -5515,7 +5673,8 @@ mod tests {
         let files = ["fn f() {}", "pub use semantic_dep::sorts;"]
             .map(|source| syn::parse_file(source).unwrap());
         let printed = |files: &[syn::File]| {
-            let authored = authored_paths(files, &crates);
+            let facade = krs_syntax::surface::FacadeScope::new(["k".to_owned()].into());
+            let authored = authored_paths(files, &crates, &facade);
             let scope = PathScope {
                 package: &package,
                 crates: &crates,
@@ -5557,7 +5716,8 @@ mod tests {
         let written = WrittenPaths::default();
         let printed = |source: &str, id: &StableItemId| {
             let file = syn::parse_file(source).unwrap();
-            let authored = authored_paths(std::iter::once(&file), &crates);
+            let facade = krs_syntax::surface::FacadeScope::new(["k".to_owned()].into());
+            let authored = authored_paths(std::iter::once(&file), &crates, &facade);
             let scope = PathScope {
                 package: &package,
                 crates: &crates,
@@ -5592,6 +5752,17 @@ mod tests {
             // held.
             "#[cfg(any())] pub use semantic_dep::sorts;",
             "#[cfg(any())] mod m { pub use semantic_dep::sorts; }",
+            "mod m { #![cfg(any())] pub use semantic_dep::sorts; }",
+            // Only `use` trees and readable macros count: a fn body or a `macro_rules!` body
+            // may hold paths rustc never resolved (a `#[cfg]` on a statement, a macro never
+            // invoked).
+            "fn f() { #[cfg(any())] let _ = semantic_dep::sorts::Same; }",
+            "macro_rules! m { () => { semantic_dep::sorts::Same }; }",
+            // Where the module declares or imports an item of the crate's name, the path is
+            // through that item.
+            "mod semantic_dep { pub mod sorts {} } k::rules! { cross: semantic_dep::sorts::Unit => semantic_dep::sorts::Unit; }",
+            "use other::semantic_dep; pub use semantic_dep::sorts;",
+            "use other::module as semantic_dep; pub use semantic_dep::sorts;",
         ] {
             let error = printed(refused, &unit).unwrap_err();
             assert_eq!(
@@ -5608,7 +5779,11 @@ mod tests {
             "use semantic_dep as sd; k::rules! { cross: sd::sorts::Unit => sd::sorts::Unit; }",
             "use semantic_dep::sorts as s; k::rules! { cross: s::Unit => s::Unit; }",
             "extern crate semantic_dep as sd; k::rules! { cross: sd::sorts::Unit => sd::sorts::Unit; }",
-            "mod m { use semantic_dep as sd; fn f() { sd::sorts::Unit; } }",
+            "mod m { use semantic_dep as sd; k::rules! { cross: sd::sorts::Unit => sd::sorts::Unit; } }",
+            // A module's own item of the crate's name does not hide the crate from the
+            // modules it declares.
+            "mod semantic_dep {} mod m { pub use semantic_dep::sorts; }",
+            "use semantic_dep; pub use semantic_dep::sorts;",
         ] {
             assert_eq!(
                 printed(renamed, &unit).unwrap(),
@@ -5620,7 +5795,7 @@ mod tests {
         // is no rename.
         for unrenamed in [
             "mod m { use semantic_dep as sd; } k::rules! { cross: sd::sorts::Unit => sd::sorts::Unit; }",
-            "use semantic_dep as sd; mod m { fn f() { sd::sorts::Unit; } }",
+            "use semantic_dep as sd; mod m { k::rules! { cross: sd::sorts::Unit => sd::Unit; } }",
             "use semantic_dep as sd; use semantic_dep::other as sd; k::rules! { cross: sd::sorts::Unit => sd::Unit; }",
         ] {
             assert!(
