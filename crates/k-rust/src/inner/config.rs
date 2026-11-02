@@ -367,6 +367,11 @@ fn configuration_grammar(
             .filter(|sentence| is_cell_production(sentence))
             .count();
     visible.retain(|sentence| !is_cell_production(sentence));
+    // A cell's initial value is a term, read in the rule language as a rule's terms are: the sort
+    // helpers, `#let`, `:=K` and the others compilation lowers (`configuration_rule_language`).
+    // They are syntax the grammar adds, after the module's signature.
+    let rule_language = super::rules::configuration_rule_language(&visible);
+    visible.extend(rule_language.iter());
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
     let mut grammar = Grammar::from_configuration_view(
