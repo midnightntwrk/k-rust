@@ -242,50 +242,11 @@ fn nonzero(divisor: &Pattern) -> Pattern {
     }
 }
 
-/// GAP K15 (`draft/kink27/gap`, K15 C2 4e9f5b833): whether `conjunct` is an equality one of whose
-/// sides is a domain value or an element variable, which is defined, and whose other side is a
-/// term (applications over domain values and element variables) applying `/Int` to `divisor`.
-/// Every symbol is strict, so that term is `\bottom` where `divisor` is 0, and the equality is
-/// false there: it implies `divisor =/= 0` itself, as `true = X /Int Y >Int 0` does.
-fn shows_division_defined(conjunct: &Pattern, divisor: &Pattern) -> bool {
-    fn defined(pattern: &Pattern) -> bool {
-        match pattern {
-            Pattern::DomainValue { .. } => true,
-            Pattern::Variable(variable) => {
-                variable.kind == k_rust::kore::ast::VariableKind::Element
-            }
-            _ => false,
-        }
-    }
-    fn term_dividing_by(pattern: &Pattern, divisor: &Pattern) -> Option<bool> {
-        match pattern {
-            Pattern::Application { symbol, arguments } => {
-                let mut divides =
-                    symbol.name == "Lbl'UndsSlsh'Int'Unds'" && arguments[1] == *divisor;
-                for argument in arguments {
-                    divides |= term_dividing_by(argument, divisor)?;
-                }
-                Some(divides)
-            }
-            other => defined(other).then_some(false),
-        }
-    }
-    let Pattern::Equals { left, right, .. } = conjunct else {
-        return false;
-    };
-    [(left, right), (right, left)]
-        .into_iter()
-        .any(|(side, other)| defined(side) && term_dividing_by(other, divisor) == Some(true))
-}
-
 /// An independent reading of a printed predicate (k-rust `condition.rs:168-182, 255-261`,
 /// `rewrite/apply.rs:1245-1249`): every conjunction that applies `/Int` to a divisor `d`, at
 /// the top or directly under a `\not`, also has the conjunct `d =/= 0` (or a `\ceil`), so a
 /// remainder `\not(A)` keeps the definedness inside the negation next to its atom. Returns the
-/// number of conjunctions that apply `/Int`. GAP K15: a conjunction may instead show `d =/= 0`
-/// through one of its equalities ([`shows_division_defined`]); since K15 C2 the solver reads
-/// each atom with its operands' domains, so the simplifier may keep that equality and drop the
-/// equivalent `d =/= 0`.
+/// number of conjunctions that apply `/Int`.
 fn definedness_beside_division(conjuncts: &[Pattern]) -> usize {
     let mut flat = Vec::new();
     for conjunct in conjuncts {
@@ -298,8 +259,7 @@ fn definedness_beside_division(conjuncts: &[Pattern]) -> usize {
     for divisor in &found {
         assert!(
             flat.contains(&nonzero(divisor))
-                || flat.iter().any(|c| matches!(c, Pattern::Ceil { .. }))
-                || flat.iter().any(|c| shows_division_defined(c, divisor)),
+                || flat.iter().any(|c| matches!(c, Pattern::Ceil { .. })),
             "no definedness for /Int by {divisor:?} beside it in {flat:?}"
         );
     }
@@ -403,15 +363,6 @@ fn row(
 /// `Indeterminate` leaf at the initial state (the `requires` needs a solver), with no predicate:
 /// the relation query is empty after eliminating the binding, so both columns are `Sat`, and no
 /// `Unsat` occurs anywhere.
-///
-/// GAP K15 (`draft/kink27/gap`, K15 C2 4e9f5b833): `same`'s applied leaf is now `Unknown` with
-/// the instance `Unknown`, like `pos`'s, and its conjunction over `/Int` is checked too (2 for
-/// `same`). Its predicate `Y =/=Int 0` is now `true = (X /Int Y <=Int X /Int Y)`: the solver
-/// reads each atom with its operands' domains, so the simplifier drops `Y =/=Int 0` as implied by
-/// the atom where it dropped the atom as valid beside it. The two are equivalent (at Y = 0 the
-/// atom is `true = \bottom`, false; elsewhere it is `t <=Int t`, true), so the leaf has the same
-/// instances, but `/Int` does not translate exactly, so a solver `Sat` is no evidence. No column
-/// is `Unsat` where it was not.
 #[test]
 fn partial_conditions_keep_their_definedness_in_remainders() {
     use Feasibility::{Sat, Unsat};
@@ -441,11 +392,10 @@ fn partial_conditions_keep_their_definedness_in_remainders() {
                 (vec![equal("Y", 0)], vec![equal("Y", 1)]),
             ],
             vec![
-                // GAP K15: was `row(Stuck, Solver, Sat, Unsat)`, and 1 conjunction (see above).
-                row(Stuck, Unknown, Feasibility::Unknown, Unsat),
+                row(Stuck, Solver, Sat, Unsat),
                 row(Stuck, Unknown, Feasibility::Unknown, Unsat),
             ],
-            2,
+            1,
         ),
         (
             "guardeddiv.k",

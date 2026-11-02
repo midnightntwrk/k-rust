@@ -2228,19 +2228,10 @@ fn dropped_definedness_condition_is_not_a_witness() {
 /// exact SMT translation, so the remainder is not shown feasible and stays `SolverUnknown`. So
 /// the symbolic result is `unknown` in both profiles, never the wrong `match`. The ground
 /// instance `X = 0` stops at `halflet` after the write: `no-match`.
-///
-/// GAP K15 (`draft/kink27/gap`, K15 C2 4e9f5b833): the `halt` leaf is now `Unknown` and its path
-/// `SolverUnknown`, like the remainder. Its predicate `X =/=Int 0` is now
-/// `true = (10 /Int X <=Int 10 /Int X)`: the solver reads each atom with its operands' domains,
-/// so the simplifier drops `X =/=Int 0` as implied by the atom where it dropped the atom as valid
-/// beside `X =/=Int 0`. The two are equivalent (at X = 0 the atom is `true = \bottom`, false;
-/// elsewhere it is `t <=Int t`, true), so the leaf has the same instances, but its predicate holds
-/// `/Int`, which does not translate exactly, so a solver `Sat` is no witness. The test checks
-/// that the predicate implies `X =/=Int 0` rather than that it is written so.
 #[test]
 fn let_bound_partial_condition_keeps_its_definedness() {
     use HaltClass::{Indeterminate, Stuck};
-    use LeafFeasibility::{Syntactic, Unknown};
+    use LeafFeasibility::{Solver, Syntactic, Unknown};
     let (mut symbolic, vocabulary) = run(
         Fixture::Partial,
         write_op_load(
@@ -2254,8 +2245,7 @@ fn let_bound_partial_condition_keeps_its_definedness() {
         by_profile(
             vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
             vec![
-                // GAP K15: was `(Stuck, Solver, PathStop::Terminal)` (see above).
-                (Stuck, Unknown, PathStop::SolverUnknown),
+                (Stuck, Solver, PathStop::Terminal),
                 (Stuck, Unknown, PathStop::SolverUnknown),
             ]
         )
@@ -2278,39 +2268,7 @@ fn let_bound_partial_condition_keeps_its_definedness() {
                 right: Box::new(support::int(0)),
             }),
         };
-        // GAP K15: the predicate implies `X =/=Int 0`: it is `X =/=Int 0`, or an equality of the
-        // defined `true` with a term that holds `10 /Int X`, which is `\bottom` at X = 0 (every
-        // symbol is strict), so the equality is false there.
-        let predicate = &symbolic.bridged.paths[1].path_predicate;
-        let holds_division = |term: &Pattern| {
-            let mut found = false;
-            for_each_post_order(term, |node| {
-                found |= matches!(node, Pattern::Application { symbol, arguments }
-                    if symbol.name == "Lbl'UndsSlsh'Int'Unds'" && arguments[1] == integer("X"));
-            });
-            found
-        };
-        let terms_only = |term: &Pattern| {
-            let mut only = true;
-            for_each_post_order(term, |node| {
-                only &= match node {
-                    Pattern::Application { .. } | Pattern::DomainValue { .. } => true,
-                    Pattern::Variable(variable) => {
-                        variable.kind == k_rust::kore::ast::VariableKind::Element
-                    }
-                    _ => false,
-                };
-            });
-            only
-        };
-        assert!(
-            *predicate == nonzero
-                || matches!(predicate, Pattern::Equals { left, right, .. }
-                    if matches!(**left, Pattern::DomainValue { .. })
-                        && terms_only(right)
-                        && holds_division(right)),
-            "{predicate:?}"
-        );
+        assert_eq!(symbolic.bridged.paths[1].path_predicate, nonzero);
     }
     let plan = gwl_after(&vocabulary);
     assert_both(

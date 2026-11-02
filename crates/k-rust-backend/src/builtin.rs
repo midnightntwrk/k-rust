@@ -1902,12 +1902,14 @@ fn int_compare(
     if let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) {
         return Ok(Some(bool_term(holds(left.cmp(&right)))));
     }
+    // A term compared with itself: every integer is equal to itself, so each comparison's value
+    // is the one it has at `Ordering::Equal` (`<=Int`, `>=Int`, `==Int` hold, `<Int`, `>Int`,
+    // `=/=Int` fail) wherever the term is defined. The application is strict, so it is `\bottom`
+    // where the term is not; the caller states that as the argument's definedness
+    // (`simplify::hook_argument_definedness`), so `true = (t <=Int t)` reads `\ceil(t)`, and
+    // `true = (t <Int t)` reads `\bottom`.
     if arguments[0] == arguments[1] {
-        return Ok(match hook {
-            "INT.eq" => Some(bool_term(true)),
-            "INT.ne" => Some(bool_term(false)),
-            _ => None,
-        });
+        return Ok(Some(bool_term(holds(Ordering::Equal))));
     }
     Ok(None)
 }
@@ -3755,6 +3757,59 @@ mod tests {
             evaluate_hook("INT.ne", &[argument.clone(), argument]),
             Ok(Ok(BuiltinResult::Value(bool_term(false))))
         );
+    }
+
+    /// K31: a comparison of a term with itself has, where the term is defined, the value it has
+    /// at equal operands, for every integer and string comparison; the caller states the term's
+    /// definedness (`simplify::hook_argument_definedness`). Different symbolic operands stay
+    /// undecided.
+    #[test]
+    fn a_comparison_of_a_term_with_itself_has_its_value_at_equal_operands() {
+        let applied = |sort: &str| {
+            hooked(
+                "TEST.function",
+                Sort::simple(sort),
+                vec![Term::variable(Variable::new("X", Sort::simple(sort)))],
+            )
+        };
+        let (int, string) = (applied("SortInt"), applied("SortString"));
+        for (hook, value) in [
+            ("INT.eq", true),
+            ("INT.ne", false),
+            ("INT.le", true),
+            ("INT.ge", true),
+            ("INT.lt", false),
+            ("INT.gt", false),
+        ] {
+            assert_eq!(
+                evaluate_hook(hook, &[int.clone(), int.clone()]),
+                Ok(Ok(BuiltinResult::Value(bool_term(value)))),
+                "{hook}"
+            );
+        }
+        for (hook, value) in [
+            ("STRING.eq", true),
+            ("STRING.ne", false),
+            ("STRING.le", true),
+            ("STRING.ge", true),
+            ("STRING.lt", false),
+            ("STRING.gt", false),
+        ] {
+            assert_eq!(
+                evaluate_hook(hook, &[string.clone(), string.clone()]),
+                Ok(Ok(BuiltinResult::Value(bool_term(value)))),
+                "{hook}"
+            );
+        }
+        let other = |sort: &str| Term::variable(Variable::new("Y", Sort::simple(sort)));
+        assert!(!matches!(
+            evaluate_hook("INT.le", &[int, other("SortInt")]),
+            Ok(Ok(BuiltinResult::Value(_)))
+        ));
+        assert!(!matches!(
+            evaluate_hook("STRING.lt", &[string, other("SortString")]),
+            Ok(Ok(BuiltinResult::Value(_)))
+        ));
     }
 
     #[test]

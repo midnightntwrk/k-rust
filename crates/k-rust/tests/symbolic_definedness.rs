@@ -2,21 +2,17 @@
 //!
 //! Every hook is strict: `f(t1, .., tn)` is `\bottom` wherever some `ti` is, so a hook that
 //! evaluates `f(t1, .., tn)` to `v` without inspecting a symbolic `ti` (`t ==Int t`,
-//! `true orBool b`, `true orElseBool b`, `#if true #then a #else b #fi`) must return
+//! `t <=Int t`, `true orBool b`, `true orElseBool b`, `#if true #then a #else b #fi`) must return
 //! `\ceil(t1) /\ .. /\ \ceil(tn) /\ v`. With `10 /Int X` as such an argument, every leaf a rule
 //! reaches from a symbolic `X` must imply `X =/=Int 0`, which is what ground execution on `0`
 //! shows: the rule does not apply (Stuck) or its successor is empty (Trivial).
 //!
 //! A rule or equation condition holds on an instance only where its terms are defined, so the
 //! same holds for a condition that no hook shortcuts but a solver decides (`10 /Int A <=Int
-//! 10 /Int A`, which a solver that gives `/Int` a value at `0` finds valid) and for a condition
-//! the predicate simplifier splits into a disjunction (`a orBool b` into `a \/ b`).
-//!
-//! A leaf implies `\ceil(t)` when it states it (for `10 /Int X`, as `X =/=Int 0`) or when a
-//! top-level conjunct is an equality of a defined side with a term that holds `t`
-//! ([`states_defined`]): the solver reads every atom with its operands' domains, so the
-//! simplifier may keep either of two equivalent conjuncts, such as `X =/=Int 0` and
-//! `true = (10 /Int X <=Int 10 /Int X)`.
+//! 10 /Int A +Int 1`, which a solver that gives `/Int` a value at `0` finds valid) and for a
+//! condition the predicate simplifier splits into a disjunction (`a orBool b` into `a \/ b`).
+//! The solver reads each atom with its operands' domains, so a leaf of such a condition may state
+//! `X =/=Int 0` through the atom itself ([`states_defined`]).
 
 use k_rust::{
     backend::{
@@ -64,6 +60,9 @@ const SOURCE: &str = r#"module DEFPROBE-SYNTAX
               | gnd(Int)    [symbol(gnd)]
               | val(Int)    [symbol(val)]
               | flag(Bool)  [symbol(flag)]
+              | ltp(Int)    [symbol(ltp)]
+              | nlt(Int)    [symbol(nlt)]
+              | ltf(Int)    [symbol(ltf)]
   syntax Prog ::= "halt" [symbol(halt)]
                 | seq(Op, Prog) [symbol(seq)]
   syntax Int ::= f(Int) [function, symbol(f)]
@@ -95,6 +94,9 @@ module DEFPROBE
   rule [eqf]:     seq(eqf(A), P) => seq(val(f(A)), P)
   rule [eqfk]:    seq(eqfk(A), P) => seq(val(f(A)), P) requires A =/=Int 0
   rule [gnd]:     seq(gnd(_), P) => P requires f(0) <=Int f(0)
+  rule [ltp]:     seq(ltp(A), P) => P requires 10 /Int A <=Int 10 /Int A +Int 1
+  rule [nlt]:     seq(nlt(A), P) => P requires notBool (10 /Int A <Int 10 /Int A)
+  rule [ltf]:     seq(ltf(A), P) => P requires 10 /Int A <Int 10 /Int A
   rule f(X) => 1 requires 10 /Int X <=Int 10 /Int X [simplification]
 endmodule
 "#;
@@ -272,12 +274,42 @@ fn refuted_at_zero(backend: &mut Backend, leaf: &Leaf) -> bool {
         == "valid"
 }
 
+/// Whether one of the top-level conjuncts of the printed leaf `text` is printed as `conjunct`.
+fn has_top_conjunct(text: &str, conjunct: &str) -> bool {
+    fn conjuncts<'p>(pattern: &'p KorePattern, found: &mut Vec<&'p KorePattern>) {
+        if let KorePattern::And { arguments, .. } = pattern {
+            for argument in arguments {
+                conjuncts(argument, found);
+            }
+        } else {
+            found.push(pattern);
+        }
+    }
+    let leaf = parse_pattern(text).unwrap();
+    let mut found = Vec::new();
+    conjuncts(&leaf, &mut found);
+    let printer = Printer::compact();
+    found
+        .into_iter()
+        .any(|found| printer.print_pattern(found) == conjunct)
+}
+
+/// Whether `leaf` is the remainder of a split on `X =/=Int 0` that admits `X = 0`: it negates an
+/// applicability whose first conjunct is `X =/=Int 0`, or, where the condition simplified to
+/// `X =/=Int 0` itself (a hook shortcut), it states `X = 0`.
+fn admits_zero(leaf: &Leaf) -> bool {
+    let negated = format!(
+        "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
+    );
+    leaf.text.contains(&negated) || has_top_conjunct(&leaf.text, X_ZERO)
+}
+
 /// Why `leaves` fail the contract, if they do: every leaf past the rule's step implies
-/// `X =/=Int 0` ([`implies_nonzero`]), and the rule either steps or halts Indeterminate.
+/// `X =/=Int 0`, and the rule either steps or halts Indeterminate.
 fn nonzero_violation(case: &str, leaves: &[Leaf]) -> Option<String> {
     let dropped = leaves
         .iter()
-        .any(|leaf| leaf.depth > 0 && !implies_nonzero(leaf));
+        .any(|leaf| leaf.depth > 0 && !leaf.text.contains(X_NONZERO));
     let stepped_or_indeterminate = leaves.iter().any(|leaf| leaf.depth > 0)
         || leaves
             .iter()
@@ -371,11 +403,14 @@ fn a_solver_splits_a_requires_hook_shortcut_like_the_ground_run() {
     assert_no_violation(&violations);
 }
 
-/// Operations whose condition relies on the definedness of `10 /Int A` without a hook
-/// shortcut: a solver decides it, or the simplifier splits it into a disjunction.
-const CONDITIONS: [&str; 4] = ["lt", "orx", "andx", "enslt"];
+/// Operations whose condition relies on the definedness of `10 /Int A`: `lt`, `enslt` and `nlt`
+/// compare it with itself (`<=Int`, which the hook decides to `true` where it is defined, and
+/// `<Int`, to `false`, so `notBool` of it is `true` there: each step states `X =/=Int 0`), and the
+/// simplifier splits the conditions of `orx` and `andx` into a disjunction. `ltp`'s condition
+/// only a solver decides (`a_condition_only_a_solver_decides_keeps_the_definedness_of_its_terms`).
+const CONDITIONS: [&str; 5] = ["lt", "orx", "andx", "enslt", "nlt"];
 /// Of those, the ones whose `requires` excludes `A = 0`.
-const CONDITION_REQUIRES: [&str; 3] = ["lt", "orx", "andx"];
+const CONDITION_REQUIRES: [&str; 4] = ["lt", "orx", "andx", "nlt"];
 
 #[test]
 fn a_condition_keeps_the_definedness_of_its_terms() {
@@ -402,21 +437,12 @@ fn a_solver_splits_a_partial_requires_like_the_ground_run() {
     let mut violations = Vec::new();
     for name in CONDITION_REQUIRES {
         let leaves = execute(&mut backend, &op(name, X), false);
-        // The remainder negates an applicability whose first conjunct is `X =/=Int 0`, so
-        // `X = 0` satisfies it.
-        let remainder = format!(
-            "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
-        );
         let stuck_at_zero = leaves.iter().any(|leaf| {
-            leaf.depth == 0
-                && leaf.reason == HaltReasonOutput::Stuck
-                && leaf.text.contains(&remainder)
+            leaf.depth == 0 && leaf.reason == HaltReasonOutput::Stuck && admits_zero(leaf)
         });
-        // The step implies `X =/=Int 0`, and the solver refutes it at `X = 0`.
-        let stepped = leaves.iter().any(|leaf| leaf.depth == 1)
-            && leaves.iter().all(|leaf| {
-                leaf.depth == 0 || (implies_nonzero(leaf) && refuted_at_zero(&mut backend, leaf))
-            });
+        let stepped = leaves
+            .iter()
+            .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO));
         if !stuck_at_zero || !stepped {
             violations.push(format!(
                 "{name}(X): expected a Stuck remainder admitting X = 0 and a step under \
@@ -425,6 +451,70 @@ fn a_solver_splits_a_partial_requires_like_the_ground_run() {
         }
     }
     assert_no_violation(&violations);
+}
+
+/// `ltp`'s `requires 10 /Int A <=Int 10 /Int A +Int 1` holds wherever it is defined, and no hook
+/// decides it (its operands differ): a solver does. A solver that gave `/Int` a value at `0`
+/// would find it valid. Every leaf past the step implies `X =/=Int 0` ([`implies_nonzero`]: the
+/// solver reads the atom with its operands' domains, so the leaf may state it through the atom)
+/// and is refuted at `X = 0`, and the remainder admits `X = 0`, which ground execution on `0`
+/// shows Stuck. Without a solver the step is Indeterminate.
+#[test]
+fn a_condition_only_a_solver_decides_keeps_the_definedness_of_its_terms() {
+    let mut backend = backend();
+    for assume in [false, true] {
+        let leaves = execute(&mut backend, &op("ltp", X), assume);
+        assert!(
+            leaves
+                .iter()
+                .all(|leaf| leaf.depth == 0 || implies_nonzero(leaf))
+                && (leaves.iter().any(|leaf| leaf.depth > 0)
+                    || leaves
+                        .iter()
+                        .all(|leaf| leaf.reason == HaltReasonOutput::Indeterminate)),
+            "ltp(X) assume={assume}: a leaf past the step does not imply X =/=Int 0, or neither \
+             a step nor an Indeterminate halt: {leaves:#?}"
+        );
+        if backend.capabilities().smt {
+            assert!(
+                leaves.iter().any(|leaf| leaf.depth == 1)
+                    && leaves.iter().all(|leaf| leaf.depth == 0
+                        || (implies_nonzero(leaf) && refuted_at_zero(&mut backend, leaf)))
+                    && leaves.iter().any(|leaf| leaf.depth == 0
+                        && leaf.reason == HaltReasonOutput::Stuck
+                        && admits_zero(leaf)),
+                "ltp(X) assume={assume}: expected a Stuck remainder admitting X = 0 and a step \
+                 refuted at X = 0: {leaves:#?}"
+            );
+        }
+    }
+    let ground = execute(&mut backend, &op("ltp", ZERO), false);
+    assert!(
+        matches!(ground.as_slice(), [leaf] if leaf.depth == 0
+            && leaf.reason == HaltReasonOutput::Stuck),
+        "ltp(0): expected one Stuck leaf at depth 0: {ground:#?}"
+    );
+}
+
+/// `ltf`'s `requires 10 /Int A <Int 10 /Int A` is `false` wherever the quotient is defined and
+/// `\bottom` elsewhere, so `true = (10 /Int A <Int 10 /Int A)` holds on no instance: the rule
+/// never applies, in either solver profile, and the run is the initial state, Stuck, with no
+/// constraint.
+#[test]
+fn a_strict_comparison_of_a_term_with_itself_never_holds() {
+    let mut backend = backend();
+    for argument in [X, ZERO] {
+        for assume in [false, true] {
+            let leaves = execute(&mut backend, &op("ltf", argument), assume);
+            assert!(
+                matches!(leaves.as_slice(), [leaf] if leaf.depth == 0
+                    && leaf.reason == HaltReasonOutput::Stuck
+                    && !leaf.text.contains("\\and")),
+                "ltf({argument}) assume={assume}: expected one unconstrained Stuck leaf at depth \
+                 0: {leaves:#?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -490,20 +580,17 @@ fn an_equation_requires_keeps_the_definedness_of_its_terms() {
 }
 
 /// `f(0)` is left unevaluated (its only equation needs `10 /Int 0` defined), so the ground
-/// `requires f(0) <=Int f(0)` is undecided by evaluation and holds only where `f(0)` is
-/// defined: no step may happen without `\ceil(f(0))`, which the step leaf states or implies
-/// through `true = (f(0) <=Int f(0))` ([`states_defined`]).
+/// `requires f(0) <=Int f(0)` is undecided by evaluation and must reach any solver with
+/// `\ceil(f(0))`: no step may happen without it.
 #[test]
 fn a_ground_condition_over_an_unevaluated_partial_term_keeps_its_obligation() {
     let mut backend = backend();
-    let f_zero = format!("Lblf{{}}({ZERO})");
-    let ceil = format!("\\ceil{{SortInt{{}}, SortGeneratedTopCell{{}}}}({f_zero})");
     for assume in [false, true] {
         let leaves = execute(&mut backend, &op("gnd", X), assume);
         assert!(
             leaves
                 .iter()
-                .all(|leaf| leaf.depth == 0 || states_defined(&leaf.text, &ceil, &f_zero)),
+                .all(|leaf| leaf.depth == 0 || leaf.text.contains("\\ceil")),
             "gnd(X) assume={assume}: a step dropped \\ceil(f(0)): {leaves:#?}"
         );
     }
@@ -580,16 +667,13 @@ endmodule
             return;
         }
         let leaves = execute(&mut backend, &op("letlt", X), false);
-        let remainder = format!(
-            "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
-        );
         assert!(
             leaves.iter().any(|leaf| leaf.depth == 0
                 && leaf.reason == HaltReasonOutput::Stuck
-                && leaf.text.contains(&remainder))
-                && leaves.iter().any(|leaf| leaf.depth == 1)
-                && leaves.iter().all(|leaf| leaf.depth == 0
-                    || (implies_nonzero(leaf) && refuted_at_zero(&mut backend, leaf))),
+                && admits_zero(leaf))
+                && leaves
+                    .iter()
+                    .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO)),
             "letlt(X): expected a Stuck remainder admitting X = 0 and a step under X =/=Int 0: \
              {leaves:#?}"
         );
