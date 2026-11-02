@@ -4134,11 +4134,6 @@ symbol = "only_true_or_known"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
-symbol = "StatingScope"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "known_defined_subterms"
 
 [[node.sites]]
@@ -4268,7 +4263,7 @@ symbol = "rename_binders_apart"
 
 [[node.cost]]
 mode = "one round"
-bound = '''n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds; per round, one copy of each input conjunct and of the k known predicates other than \top into the assumption list (the known ones are indexed borrowed), and one key per conjunct and known conjunct; when an equality besides the kept known ones is in force, one walk of each conjunct that is no definedness atom over its predicate nodes (not its terms) for a nested \ceil or absence, and at the first that has one, one build of the kept path condition from the kept equalities, shared with the round's definedness atoms'''
+bound = 'n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds; per round, one copy of each input conjunct and of the k known predicates other than \top into the assumption list (the known ones are indexed borrowed), and one key per conjunct and known conjunct'
 
 [[node.cost]]
 mode = "assumption lookups"
@@ -4288,15 +4283,11 @@ bound = '''only in a round with a \ceil conjunct: one walk of the known predicat
 
 [[node.cost]]
 mode = 'opaque \ceil or absence expansion (expansion_obligations)'
-bound = '''per ceil_term expansion of a \ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one walk of the kept predicates' asserted terms and the rest's definedness atoms as in known_defined_subterms and one set lookup for the atom, then, unless it holds, one more walk of that whole list's asserted terms, neither cached across expansions, then one set lookup per member; then, per remaining \ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms'''
+bound = '''per ceil_term expansion of a \ceil or absence atom: one containment test of each member against the assumption list (the known predicates and the conjunction's other conjuncts); only when a member besides the atom remains, one more walk of that whole list's asserted terms as in known_defined_subterms, not cached across expansions, then one set lookup per member; then, per remaining \ceil member other than the atom, one definedness judgement of its subject (defined_where_its_arguments_are: defined_on_every_argument and implementation_chosen read the hook and its arguments, then defined_uncomputed evaluates the hook at most once, on constructor-like arguments), and per member it holds of, one ceil_term walk of the subject with, per obligation, one hash lookup among the members, one containment test against the assumption list and one hash lookup among the known-defined terms'''
 
 [[node.cost]]
 mode = '''further pass of a \ceil or absence atom's arm (settled)'''
 bound = '''in that pass and in every conjunction simplification reached from the re-simplification of its result by the ceil or predicate theory, which keeps its assumptions: one comparison with the atom per conjunct, and per round, at the conjunct equal to the atom, one walk of the other conjuncts' current values, descending into conjunctions, with one key and containment test against the known predicates each, stopping at the first that is neither \top nor known; one Option test per conjunct in every other conjunction simplification'''
-
-[[node.cost]]
-mode = 'subject of a \ceil or absence atom (StatingScope)'
-bound = "per simplification of the subject, when an assumption past the kept ones is no definedness atom alone: one walk of those assumptions' predicate nodes, each such assumption hashed once into the excluded set; then per equation whose bound terms' obligations are decided inside it, one set lookup per known predicate and, when one is excluded, one copy of the others and of the excluded ones' atoms; per memo lookup of an Unspecified evaluation, one comparison of the scopes"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
