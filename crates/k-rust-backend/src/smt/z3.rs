@@ -55,7 +55,7 @@
 //!
 //! [[cost]]
 //! mode = "atom domains in the translation"
-//! bound = "Each atom's operands carry their domains (GAP K15): a ceil_free operand costs one stored-bit read and adds nothing; any other is read through the per-node domain memo of its predicate's lexical scope, one let per distinct non-ceil_free node per scope, each of size 1 + arity + its own condition (a domain-function application, an opaque atom, or a ceil-equation instance over argument references). An operand stated defined by a sibling ceil conjunct, a known ceil, or as a child within its parent's domain adds nothing. Preparation plans each distinct node once within its 16384-work budget. A quantifier's body has its own scope, so a closed operand's domain is repeated once per binder scope, as its value is. Decided-domain links to a head's domain function are asserted only when the query reads that function as an undecided domain."
+//! bound = "Each atom's operands carry their domains (GAP K15): a ceil_free operand costs one stored-bit read and adds nothing; any other is read through the per-node domain memo of its predicate's lexical scope, one let per distinct non-ceil_free node per scope, each of size 1 + arity + its own condition (a domain-function application, an opaque atom, or a ceil-equation instance over argument references). An operand stated defined by a sibling ceil conjunct, a known ceil, or as a child within its parent's domain adds nothing. Preparation plans each distinct node once within its 16384-work budget. A quantifier's body has its own scope, which holds the domains and values of the nodes that mention its variable; any other node is named once, in the scope of its own variables, however many binders read it (GAP K23). Decided-domain links to a head's domain function are asserted only when the query reads that function as an undecided domain."
 //!
 //! [[cost]]
 //! mode = "positive map-context sufficient proof"
@@ -3362,6 +3362,48 @@ mod tests {
                 &[Predicate::Equals(half("X:SortInt{}"), half("Y:SortInt{}"))]
             ),
             Ok(Ok(Validity::Valid))
+        );
+    }
+
+    /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
+    /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
+    /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so
+    /// it is not the outer node's value: the formula says that `half` is defined everywhere and
+    /// constant, which its `smt-hook` (`div`) is not, so it is unsatisfiable. Reading the
+    /// inner `half(X)` as the outer one's `let` would make the `\forall` hold of every `Y` equal
+    /// to `half(X)`, a satisfiable formula.
+    #[test]
+    fn a_node_under_a_binder_that_rebinds_its_variable_is_not_the_outer_node() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol half{}(SortInt{}) : SortInt{} [function{}(), smt-hook{}("(div #1 2)")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = crate::term::Sort::simple("SortInt");
+        let x = crate::term::Variable::new("X", int);
+        let y = crate::term::Variable::new("Y", int);
+        let half = term(&definition, "half{}(X:SortInt{})");
+        let y_term = crate::term::Term::variable(y.clone());
+        let formula = Predicate::Exists(
+            y,
+            std::sync::Arc::new(Predicate::And(
+                vec![
+                    Predicate::Equals(half.clone(), y_term.clone()),
+                    Predicate::Forall(x, std::sync::Arc::new(Predicate::Equals(half, y_term))),
+                ]
+                .into(),
+            )),
+        );
+        assert_eq!(
+            solver.is_sat(&[formula], &Substitution::new()),
+            Ok(Ok(Satisfiability::Unsat))
         );
     }
 

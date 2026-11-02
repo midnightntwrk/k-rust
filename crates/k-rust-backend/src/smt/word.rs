@@ -1339,12 +1339,15 @@ pub(super) fn prepare(
         planner.plan.root = root;
         stop::check()?;
         // Share the scalar fallback too: retaining it must not expand a source DAG into a tree.
-        state.shared_terms = Some(super::SharedTerms::default());
+        state.open_scope(None, false, true);
         // The scalar reading alone: the fact below relates the two readings under the
         // operands' domains, and the query states those domains beside the word value where
         // it asserts the predicate (`TranslationState::atom_with_domains`).
         let fallback = state.translate_predicate_reading(predicate);
-        let scope = state.shared_terms.take().expect("scalar fallback scope");
+        let scope = state
+            .close_scope(None)
+            .terms
+            .expect("scalar fallback scope");
         let fallback = match fallback {
             Ok(value) => value,
             Err(error) => return Ok(Err(error)),
