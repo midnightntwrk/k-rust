@@ -1761,6 +1761,9 @@ pub enum TranslationError {
         rule_id: String,
         terms: Vec<Term>,
     },
+    /// Not produced since GAP K18, which reads a lemma's `requires` with its operands' domains
+    /// and leaves out a lemma whose domains no closed formula states (`dropped_smt_lemmas`);
+    /// kept for the wire format.
     SmtLemmaSurplusPredicates {
         rule_id: String,
         predicates: Vec<Predicate>,
@@ -1780,7 +1783,7 @@ pub struct SmtPrelude {
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
     /// The `UNIQUE_ID`s of the `smt-lemma`s the prelude leaves out because a closed formula
-    /// cannot state the domain of an operand of their `requires` (`translate_smt_lemma`).
+    /// cannot state the domain of an operand of their `requires` ([`dropped_smt_lemmas`]).
     dropped_lemmas: Vec<String>,
     congruence: Option<Arc<CongruencePolicy>>,
     #[cfg(any(feature = "z3", test))]
@@ -1840,13 +1843,16 @@ impl SmtPrelude {
             }
         }
         let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
-        let mut dropped_lemmas = Vec::new();
-        for rule in smt_lemmas(definition) {
-            match translate_smt_lemma(definition, congruence.clone(), rule)? {
-                Some(lemma) => declarations.push(format!("(assert {lemma})")),
-                None => dropped_lemmas.push(rule.attributes.unique_id.clone()),
-            }
-        }
+        let (assertions, dropped) = lemma_assertions(definition, congruence.clone())?;
+        declarations.extend(assertions);
+        k_rust_kore::measure::add(
+            k_rust_kore::measure::Counter::SmtLemmasLeftOut,
+            dropped.len() as u64,
+        );
+        let dropped_lemmas = dropped
+            .into_iter()
+            .map(|lemma| lemma.rule.attributes.unique_id.clone())
+            .collect();
         Ok(Self {
             declarations,
             smtlib_names,
@@ -1875,7 +1881,7 @@ impl SmtPrelude {
     }
 
     /// The `UNIQUE_ID`s of the definition's `smt-lemma`s the prelude leaves out: those whose
-    /// `requires` reads an operand whose domain no closed formula states (`translate_smt_lemma`).
+    /// `requires` reads an operand whose domain no closed formula states ([`dropped_smt_lemmas`]).
     /// Leaving out an axiom only weakens what the solver knows.
     pub fn dropped_lemmas(&self) -> &[String] {
         &self.dropped_lemmas
@@ -2123,8 +2129,223 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
         .collect()
 }
 
-/// The assertion that states the `smt-lemma` `rule`, `l = r requires R`, as the closed formula
-/// `∀ vars(l). T(R) => l = r`, or `None` when no closed formula states it.
+/// Why the prelude leaves out an `smt-lemma`: what the domain of an operand of its `requires`
+/// needs that no closed formula over the lemma's variables states, since it is a name or a fact of
+/// one query's translation (`translate_smt_lemma`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LeftOutReason {
+    /// The domain stays the head's domain function: a partial function whose domain no
+    /// unconditional ceil equation states.
+    DomainFunction,
+    /// The domain is an opaque `\ceil` (no ceil equation states it), or the `requires` holds
+    /// another atom the translation can only abstract.
+    OpaqueAtom,
+    /// The domain holds a fact stated beside it, or a link of a decided domain to its head's
+    /// domain function.
+    DomainFact,
+    /// The domain holds a definition the translation derives for one query.
+    DerivedDefinition,
+    /// The condition of the domain's plan holds a term with no SMT reading, which the translation
+    /// can only abstract.
+    AbstractedTerm,
+}
+
+impl fmt::Display for LeftOutReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::DomainFunction => {
+                "it is its head's domain function, which no unconditional ceil equation states"
+            }
+            Self::OpaqueAtom => {
+                "no ceil equation states it, so it is an opaque `#Ceil` the solver can only abstract"
+            }
+            Self::DomainFact => "it needs a fact about a domain function stated beside it",
+            Self::DerivedDefinition => "it needs a definition derived for one query",
+            Self::AbstractedTerm => "its ceil condition holds a term with no SMT reading",
+        })
+    }
+}
+
+/// An `smt-lemma` the prelude leaves out ([`dropped_smt_lemmas`]).
+#[derive(Clone, Debug)]
+pub struct DroppedLemma<'a> {
+    /// The lemma.
+    pub rule: &'a RewriteRule,
+    /// The innermost operand of the lemma's `requires` whose domain alone the prelude cannot
+    /// state; none where no single operand's domain is the cause (a predicate of the
+    /// `requires` that the translation only abstracts).
+    pub operand: Option<Term>,
+    /// What that domain, or the `requires`, needs.
+    pub reason: LeftOutReason,
+}
+
+/// The `smt-lemma`s of `definition` that the solver's prelude leaves out, with why: those whose
+/// `requires` reads an operand whose domain no closed formula states (`translate_smt_lemma`).
+/// It is the computation [`SmtPrelude::from_definition`] states its lemmas by, so a report of
+/// these and the prelude agree; and, run detached from any request, a function of the definition
+/// alone. Empty where the prelude cannot state its lemmas at all (a lemma the translation
+/// refuses), which every solver operation then reports.
+#[cfg(feature = "z3")]
+pub fn dropped_smt_lemmas(definition: &BackendDefinition) -> Vec<DroppedLemma<'_>> {
+    if smt_lemmas(definition).is_empty() {
+        return Vec::new();
+    }
+    let congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
+    lemma_assertions(definition, congruence)
+        .map(|(_, dropped)| dropped)
+        .unwrap_or_default()
+}
+
+/// The assertions of `definition`'s `smt-lemma`s the prelude states, and the lemmas it leaves
+/// out.
+///
+/// The translation runs detached from the calling thread's request (`stop::detached`): a
+/// solver is built lazily, at the first operation that needs it, which may run inside a request
+/// whose cancellation or deadline would otherwise leave a lemma's domains unprepared, and so
+/// leave the lemma out of a prelude the session keeps. The preparation is bounded on its own
+/// (`functional::prepare`'s budget and depth guard), so it ends without a deadline, and which
+/// lemmas the prelude states is a function of the definition, as the load-time check's verdicts
+/// are.
+fn lemma_assertions(
+    definition: &BackendDefinition,
+    congruence: Option<Arc<CongruencePolicy>>,
+) -> Result<(Vec<String>, Vec<DroppedLemma<'_>>), TranslationError> {
+    crate::stop::detached(|| {
+        let mut assertions = Vec::new();
+        let mut dropped = Vec::new();
+        for rule in smt_lemmas(definition) {
+            match translate_smt_lemma(definition, congruence.clone(), rule)? {
+                LemmaTranslation::Stated(lemma) => assertions.push(format!("(assert {lemma})")),
+                LemmaTranslation::LeftOut { operand, reason } => dropped.push(DroppedLemma {
+                    rule,
+                    operand,
+                    reason,
+                }),
+            }
+        }
+        Ok((assertions, dropped))
+    })
+}
+
+/// How the prelude reads one `smt-lemma` (`translate_smt_lemma`).
+enum LemmaTranslation {
+    /// The closed formula that states it.
+    Stated(SExpr),
+    /// Left out, as [`DroppedLemma`] says.
+    LeftOut {
+        operand: Option<Term>,
+        reason: LeftOutReason,
+    },
+}
+
+/// Prepare the domain plans of the operands of `predicates` in `translation`, as a query does,
+/// those of the definition's functional heads. The policy is set only for preparing them: the
+/// lemma's own terms are translated as before, with no congruence function of a query's
+/// translation.
+fn prepare_lemma_domains(
+    definition: &BackendDefinition,
+    translation: &mut TranslationState,
+    congruence: Option<Arc<CongruencePolicy>>,
+    predicates: &[Predicate],
+) {
+    #[cfg(any(feature = "z3", test))]
+    {
+        translation.congruence = congruence;
+        // Run detached (`lemma_assertions`), the preparation meets no request, deadline or poll
+        // budget, so no poll raises; were one raised, the domains would stay unprepared and the
+        // lemma be left out, which only weakens what the solver knows.
+        if let Err(stop) = functional::prepare(
+            definition,
+            translation,
+            &[],
+            &Substitution::new(),
+            predicates,
+        ) {
+            stop.forgo_refinement();
+        }
+        translation.congruence = None;
+    }
+    #[cfg(not(any(feature = "z3", test)))]
+    let _ = (definition, translation, congruence, predicates);
+}
+
+/// What a lemma's translation holds that no closed formula over its variables can state, if
+/// anything: a name or a fact of one query's translation (a domain function, an abstracted atom,
+/// a fact or link beside a domain, a derived definition), or a term the translation abstracts
+/// that is not in the lemma's text `written`. Read after the left-hand side's variables are
+/// bound.
+fn left_out_reason(
+    translation: &TranslationState,
+    written: &rustc_hash::FxHashSet<Term>,
+) -> Option<LeftOutReason> {
+    if !translation.domain_functions.is_empty() {
+        Some(LeftOutReason::DomainFunction)
+    } else if !translation.predicate_mappings.is_empty()
+        || !translation.dependent_mappings.is_empty()
+    {
+        Some(LeftOutReason::OpaqueAtom)
+    } else if translation
+        .mappings
+        .keys()
+        .any(|term| !written.contains(term))
+    {
+        Some(LeftOutReason::AbstractedTerm)
+    } else if !translation.domain_facts.is_empty() || !translation.pending_domain_links.is_empty() {
+        Some(LeftOutReason::DomainFact)
+    } else if !translation.derived_definitions.is_empty() {
+        Some(LeftOutReason::DerivedDefinition)
+    } else {
+        None
+    }
+}
+
+/// The innermost operand of `rule`'s `requires` whose domain alone a closed formula cannot
+/// state, with what it needs (`left_out_reason`): the domain of each non-`ceil_free` subterm,
+/// children before parents, is translated as `\ceil` of it alone, as an atom's operand domain is.
+/// Run only for a lemma the prelude leaves out, to name the cause in its report.
+fn left_out_operand(
+    definition: &BackendDefinition,
+    congruence: &Option<Arc<CongruencePolicy>>,
+    rule: &RewriteRule,
+    written: &rustc_hash::FxHashSet<Term>,
+) -> Option<(Term, LeftOutReason)> {
+    let mut order = Vec::new();
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut pending = Vec::new();
+    for predicate in rule.requires.iter() {
+        predicate.visit_terms(&mut |term| pending.push((term.clone(), false)));
+    }
+    while let Some((term, expanded)) = pending.pop() {
+        if expanded {
+            order.push(term);
+        } else if seen.insert(term.clone()) {
+            let children = crate::deferred::children(&term)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            pending.push((term, true));
+            pending.extend(children.into_iter().map(|child| (child, false)));
+        }
+    }
+    order.into_iter().find_map(|term| {
+        if term.attributes().ceil_free() || term.attributes().constructor_like {
+            return None;
+        }
+        let ceil = Predicate::Ceil(term.clone());
+        let mut translation = TranslationState::new();
+        prepare_lemma_domains(
+            definition,
+            &mut translation,
+            congruence.clone(),
+            std::slice::from_ref(&ceil),
+        );
+        translation.translate_predicate(&ceil).ok()?;
+        left_out_reason(&translation, written).map(|reason| (term, reason))
+    })
+}
+
+/// How the prelude states the `smt-lemma` `rule`, `l = r requires R`: as the closed formula
+/// `∀ vars(l). T(R) => l = r`, or left out when no closed formula states it.
 ///
 /// `T(R)` reads each atom of `R` with its operands' domains, as a query does
 /// (`atom_with_domains`): in K an atom over an undefined term does not hold, so the lemma holds
@@ -2134,7 +2355,7 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
 /// `\ceil` atom or a fact beside the domain is a name of one query's translation, which a
 /// prelude cannot mention, as is a term of such a domain's condition that the translation can
 /// only abstract (a function with no SMT reading); such a lemma is left out
-/// (`SmtPrelude::dropped_lemmas`), which only weakens what the solver knows. A term of the
+/// ([`dropped_smt_lemmas`]), which only weakens what the solver knows. A term of the
 /// lemma's own text with no SMT reading is the author's, and stays an error
 /// (`TranslationError::SmtLemmaSurplusMappings`). Stating `R` without the domains would assert `l = r` where
 /// `R`'s total reading holds but `R` is `\bottom`.
@@ -2142,31 +2363,15 @@ fn translate_smt_lemma(
     definition: &BackendDefinition,
     congruence: Option<Arc<CongruencePolicy>>,
     rule: &RewriteRule,
-) -> Result<Option<SExpr>, TranslationError> {
+) -> Result<LemmaTranslation, TranslationError> {
     let RuleRhs::Term(rhs) = &rule.rhs else {
         return Err(TranslationError::UnsupportedPredicate("ceil SMT lemma"));
     };
     let mut translation = TranslationState::new();
     // The domain plans of `requires`' operands are those of the definition's functional heads,
-    // as in a query. The policy is set only for preparing them: the lemma's own terms are
-    // translated as before, with no congruence function of a query's translation.
-    #[cfg(any(feature = "z3", test))]
-    {
-        translation.congruence = congruence;
-        let requires = rule.requires.iter().cloned().collect::<Vec<_>>();
-        // A stop leaves the domains unprepared, so the lemma is left out below; it is raised
-        // again at the next poll.
-        let _ = functional::prepare(
-            definition,
-            &mut translation,
-            &[],
-            &Substitution::new(),
-            &requires,
-        );
-        translation.congruence = None;
-    }
-    #[cfg(not(any(feature = "z3", test)))]
-    let _ = (definition, congruence);
+    // as in a query.
+    let requires = rule.requires.iter().cloned().collect::<Vec<_>>();
+    prepare_lemma_domains(definition, &mut translation, congruence.clone(), &requires);
     let equality = SExpr::application(
         "=",
         vec![
@@ -2198,34 +2403,30 @@ fn translate_smt_lemma(
             SExpr::atom(prelude_smt_sort(&variable.sort)?),
         ]));
     }
-    if !translation.mappings.is_empty() {
-        // A surplus term of the lemma's own text is the author's, a lemma the prelude cannot
-        // state: an error, as before domains were read. Any other came from an operand's domain
-        // plan (a ceil equation's condition over a function the translation abstracts), a name
-        // of this translation like a domain function: the lemma is left out.
-        let written = lemma_subterms(rule, rhs);
-        if translation
+    // A surplus term of the lemma's own text is the author's, a lemma the prelude cannot state:
+    // an error, as before domains were read. Any other came from an operand's domain plan (a
+    // ceil equation's condition over a function the translation abstracts), a name of this
+    // translation like a domain function: the lemma is left out.
+    let written = lemma_subterms(rule, rhs);
+    if !translation.mappings.is_empty()
+        && translation
             .mappings
             .keys()
             .all(|term| written.contains(term))
-        {
-            return Err(TranslationError::SmtLemmaSurplusMappings {
-                rule_id: rule.attributes.unique_id.clone(),
-                terms: translation.mappings.into_keys().collect(),
-            });
-        }
-        return Ok(None);
-    }
-    if !translation.predicate_mappings.is_empty()
-        || !translation.dependent_mappings.is_empty()
-        || !translation.domain_functions.is_empty()
-        || !translation.domain_facts.is_empty()
-        || !translation.pending_domain_links.is_empty()
-        || !translation.derived_definitions.is_empty()
     {
-        return Ok(None);
+        return Err(TranslationError::SmtLemmaSurplusMappings {
+            rule_id: rule.attributes.unique_id.clone(),
+            terms: translation.mappings.into_keys().collect(),
+        });
     }
-    Ok(Some(if binders.is_empty() {
+    if let Some(reason) = left_out_reason(&translation, &written) {
+        let (operand, reason) = match left_out_operand(definition, &congruence, rule, &written) {
+            Some((operand, reason)) => (Some(operand), reason),
+            None => (None, reason),
+        };
+        return Ok(LemmaTranslation::LeftOut { operand, reason });
+    }
+    Ok(LemmaTranslation::Stated(if binders.is_empty() {
         body
     } else {
         SExpr::List(vec![SExpr::atom("forall"), SExpr::List(binders), body])

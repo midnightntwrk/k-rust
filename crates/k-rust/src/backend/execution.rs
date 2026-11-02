@@ -311,6 +311,9 @@ pub enum ValueClaimFindingCode {
     /// ([`ill_formed_use_findings`]): an arithmetic `Float` application over two formats, or a
     /// machine-integer literal its width cannot hold.
     IllFormedUse,
+    /// An `smt-lemma` the solver's prelude leaves out, because its `requires` reads an operand
+    /// whose domain no closed formula states ([`smt_lemma_findings`]).
+    SmtLemmaLeftOut,
 }
 
 impl ValueClaimFindingCode {
@@ -321,6 +324,7 @@ impl ValueClaimFindingCode {
             }
             Self::UnjoinedCriticalPair => crate::diagnostic::DiagnosticCode::UnjoinedCriticalPair,
             Self::IllFormedUse => crate::diagnostic::DiagnosticCode::IllFormedUse,
+            Self::SmtLemmaLeftOut => crate::diagnostic::DiagnosticCode::SmtLemmaLeftOut,
         }
     }
 }
@@ -627,17 +631,76 @@ pub fn ill_formed_use_findings(definition: &BackendDefinition) -> Vec<ValueClaim
         .collect()
 }
 
+/// The `smt-lemma`s of `definition` the solver's prelude leaves out
+/// (`k_rust_backend::smt::dropped_smt_lemmas`, the computation the prelude states its lemmas
+/// by), one finding per lemma, located at the lemma: its `requires` reads an operand whose
+/// domain no closed formula over the lemma's variables states, so the lemma, stated without
+/// that domain, would assert its equation where K's `requires` is `\bottom`. Leaving it out only
+/// weakens what the solver knows, but a proof that needed it is no longer found, so the author
+/// is told. A build without a solver states no lemma, and reports none.
+#[cfg(feature = "z3-inference")]
+pub fn smt_lemma_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
+    /// The characters of the operand a warning prints before it cuts it short.
+    const OPERAND_CHARACTERS: usize = 240;
+    let mut reported = BTreeSet::new();
+    k_rust_backend::smt::dropped_smt_lemmas(definition)
+        .into_iter()
+        // The equations internalized from one axiom share its unique id and its report.
+        .filter(|lemma| reported.insert(lemma.rule.attributes.unique_id.clone()))
+        .map(|lemma| {
+            let rule = lemma.rule.attributes.diagnostic_name(k_label);
+            let message = match &lemma.operand {
+                Some(operand) => {
+                    let mut text =
+                        KorePrinter::compact().print_pattern(&externalize::term(operand));
+                    if let Some((cut, _)) = text.char_indices().nth(OPERAND_CHARACTERS) {
+                        text.truncate(cut);
+                        text.push_str("...");
+                    }
+                    format!(
+                        "`smt-lemma` {rule} is not given to the solver: its `requires` reads {text}, whose domain the prelude cannot state ({}); proofs that need it may not be found. State the operand's domain with an unconditional `#Ceil` equation over functions with an SMT reading.",
+                        lemma.reason
+                    )
+                }
+                None => format!(
+                    "`smt-lemma` {rule} is not given to the solver: its `requires` holds a predicate the prelude can only abstract; proofs that need it may not be found."
+                ),
+            };
+            ValueClaimFinding {
+                code: ValueClaimFindingCode::SmtLemmaLeftOut,
+                first: lemma.rule.attributes.identifier().map(str::to_owned),
+                second: None,
+                reason: lemma.reason.to_string(),
+                withdrawn: Vec::new(),
+                message,
+            }
+        })
+        .collect()
+}
+
+/// The findings of `definition`'s form that are reported for every definition, with or without
+/// equation heads: the ill-formed uses ([`ill_formed_use_findings`]), then the `smt-lemma`s the
+/// solver's prelude leaves out ([`smt_lemma_findings`]).
+fn form_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
+    #[cfg_attr(not(feature = "z3-inference"), allow(unused_mut))]
+    let mut findings = ill_formed_use_findings(definition);
+    #[cfg(feature = "z3-inference")]
+    findings.extend(smt_lemma_findings(definition));
+    findings
+}
+
 /// Every load-time finding of `definition`: those of the critical-pair check
-/// ([`value_claim_findings`]), then the ill-formed uses ([`ill_formed_use_findings`]).
+/// ([`value_claim_findings`]), then the ill-formed uses ([`ill_formed_use_findings`]) and the
+/// left-out `smt-lemma`s ([`smt_lemma_findings`]).
 fn load_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
     let mut findings = value_claim_findings(definition);
-    findings.extend(ill_formed_use_findings(definition));
+    findings.extend(form_findings(definition));
     findings
 }
 
 /// The warnings `krun`, `kprove` and the RPC server print at load: the findings of the
-/// critical-pair check ([`value_claim_findings`]) and the ill-formed uses
-/// ([`ill_formed_use_findings`]).
+/// critical-pair check ([`value_claim_findings`]), the ill-formed uses
+/// ([`ill_formed_use_findings`]) and the left-out `smt-lemma`s ([`smt_lemma_findings`]).
 pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
     load_findings(definition)
         .iter()
@@ -651,8 +714,9 @@ pub fn value_claim_warning(finding: &ValueClaimFinding) -> String {
 }
 
 /// The located diagnostics `kompile` reports for the load-time findings: those of the
-/// critical-pair check ([`value_claim_findings`]) and the ill-formed uses
-/// ([`ill_formed_use_findings`]), each at the written position of its first sentence in
+/// critical-pair check ([`value_claim_findings`]), the ill-formed uses
+/// ([`ill_formed_use_findings`]) and the left-out `smt-lemma`s ([`smt_lemma_findings`]), each
+/// at the written position of its first sentence in
 /// `definition`, or of its second when the first has no unique id of its own, with the input
 /// addresses the compiler recorded for that sentence in `provenance`.
 pub fn value_claim_diagnostics(
@@ -662,13 +726,14 @@ pub fn value_claim_diagnostics(
     located_diagnostics(definition, &load_findings(definition), provenance)
 }
 
-/// The located diagnostics of the ill-formed uses ([`ill_formed_use_findings`]) alone, as
-/// [`value_claim_diagnostics`] locates them.
-pub fn ill_formed_use_diagnostics(
+/// The located diagnostics of the findings reported for every definition, without the
+/// critical-pair check's: the ill-formed uses ([`ill_formed_use_findings`]) and the left-out
+/// `smt-lemma`s ([`smt_lemma_findings`]), as [`value_claim_diagnostics`] locates them.
+pub fn form_diagnostics(
     definition: &BackendDefinition,
     provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
 ) -> Vec<crate::diagnostic::Diagnostic> {
-    located_diagnostics(definition, &ill_formed_use_findings(definition), provenance)
+    located_diagnostics(definition, &form_findings(definition), provenance)
 }
 
 /// The diagnostic of each of `findings`, at the written position of its sentence in `definition`.

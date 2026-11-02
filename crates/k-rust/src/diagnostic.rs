@@ -50,6 +50,10 @@ pub enum WarningCategory {
     /// k-rust's own: an application or a literal the text does not type or bound, seen at load
     /// (`k_rust_backend::ill_formed`). Shown by default.
     IllFormedUse,
+    /// k-rust's own: an `smt-lemma` the solver's prelude leaves out, because its `requires`
+    /// reads an operand whose domain no closed formula states (`k_rust_backend::smt`). Shown by
+    /// default.
+    SmtLemmas,
     UselessRule,
     UnresolvedFunctionSymbol,
     MalformedMarkdown,
@@ -218,6 +222,7 @@ diagnostic_codes! {
     UnjoinedCriticalPair => "UnjoinedCriticalPair",
     ValueClaimPrecondition => "ValueClaimPrecondition",
     IllFormedUse => "IllFormedUse",
+    SmtLemmaLeftOut => "SmtLemmaLeftOut",
 }
 
 impl fmt::Display for DiagnosticCode {
@@ -247,6 +252,7 @@ impl DiagnosticCode {
                 Some(WarningCategory::ValueClaims)
             }
             Self::IllFormedUse => Some(WarningCategory::IllFormedUse),
+            Self::SmtLemmaLeftOut => Some(WarningCategory::SmtLemmas),
             Self::ClaimInDefinition
             | Self::DuplicateSentenceLabel
             | Self::DuplicateConfigurationCell

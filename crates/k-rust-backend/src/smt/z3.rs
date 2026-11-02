@@ -45,7 +45,7 @@
 //! name = "bounded sufficient proof attempt and Z3 satisfiability check"
 //! sites = ["measured_check", "Z3Solver::solve_uncached", "Z3Solver::solve_model", "Z3Solver::check_predicates_inner", "Z3Solver::prove_with_observation_aliases"]
 //! variable = "R = Z3 resource-limit units consumed by one check"
-//! counters = ["SmtSolverRuns", "SmtRlimitCount", "SmtOpaqueAtomDomains"]
+//! counters = ["SmtSolverRuns", "SmtRlimitCount", "SmtOpaqueAtomDomains", "SmtLemmasLeftOut"]
 //! span = "per call"
 //! invariant = "the rlimit delta is read around each check from the cumulative statistics of its context"
 //!
@@ -3132,18 +3132,11 @@ mod tests {
         );
     }
 
-    /// GAP K18: an `smt-lemma` whose `requires` reads a partial operand is stated with the
-    /// operand's domain, as a query's atom is, so it holds only where K's condition holds. With
-    /// `\ceil(I divInt J) = (J =/=Int 0)` the domain of `X divInt 2` is a formula over the bound
-    /// `X`, and `f(X) = 0 requires X divInt 2 >Int 0` decides `f(4) = 0`. A lemma whose operand's
-    /// domain is the head's domain function (`half`, no ceil equation), a name of one query's
-    /// translation, is left out, and the solver still starts. Before, either lemma made the
-    /// prelude fail (`SmtLemmaSurplusPredicates`), and with it every query of the definition.
-    /// So is `h(X) = 0 requires X sdiv 2 >Int 0`, whose domain plan, from the ceil equation
-    /// `\ceil(I sdiv J) = nz(J)`, holds `nz(2)`, a term of no SMT reading that only one
-    /// translation can name: before, it failed the prelude (`SmtLemmaSurplusMappings`).
-    #[test]
-    fn an_smt_lemma_over_a_partial_operand_states_its_domain_or_is_left_out() {
+    /// The definition of `an_smt_lemma_over_a_partial_operand_states_its_domain_or_is_left_out`:
+    /// the lemma `f-zero` over `X divInt 2`, whose domain a ceil equation states, and the lemmas
+    /// `g-zero` over `half(X)`, with no ceil equation, and `h-zero` over `X sdiv 2`, whose ceil
+    /// equation's condition `nz(2)` has no SMT reading.
+    fn partial_operand_lemma_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -3195,8 +3188,115 @@ mod tests {
             endmodule []"#,
         )
         .expect("definition should parse");
-        let definition =
-            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// GAP K21: the lemmas a prelude states are a function of the definition alone. A prelude
+    /// is built lazily, at the first operation that needs the solver, which for an RPC session's
+    /// other modules runs inside a request; its lemmas' domains are prepared detached from that
+    /// request (`stop::detached`), so a prelude built under an already cancelled token states
+    /// what one built outside it states. Before, the cancelled build left `f-zero`'s domain
+    /// unprepared and dropped the lemma.
+    #[test]
+    fn a_cancelled_request_does_not_change_the_lemmas_a_prelude_states() {
+        let definition = partial_operand_lemma_definition();
+        let outside = SmtPrelude::from_definition(&definition).expect("the prelude is built");
+        let token = CancellationToken::new();
+        token.cancel();
+        let inside = token
+            .scope(|| SmtPrelude::from_definition(&definition))
+            .expect("the prelude is built");
+        assert_eq!(inside.dropped_lemmas(), outside.dropped_lemmas());
+        assert_eq!(inside.declarations(), outside.declarations());
+    }
+
+    /// GAP K21: the report of the lemmas a prelude leaves out (`dropped_smt_lemmas`) is the
+    /// prelude's own list, with the innermost operand whose domain no closed formula states and
+    /// why: `half(X)`'s domain is an opaque `\ceil` (no ceil equation states it), and `X sdiv 2`'s
+    /// ceil condition `nz(2)` has no SMT reading. Building the prelude counts them (`smt.lemmas_left_out`);
+    /// reporting them does not.
+    #[test]
+    fn a_left_out_lemma_is_reported_with_its_operand_and_reason() {
+        use crate::smt::{LeftOutReason, dropped_smt_lemmas};
+        use k_rust_kore::measure::{Counter, snapshot};
+        let definition = partial_operand_lemma_definition();
+        let before = snapshot();
+        let prelude = SmtPrelude::from_definition(&definition).expect("the prelude is built");
+        let built = snapshot();
+        let dropped = dropped_smt_lemmas(&definition);
+        let reported = snapshot();
+        assert_eq!(
+            dropped
+                .iter()
+                .map(|lemma| lemma.rule.attributes.unique_id.clone())
+                .collect::<Vec<_>>(),
+            prelude.dropped_lemmas()
+        );
+        // The operand by its head and arguments' shapes: the lemma's variables are renamed
+        // where it is internalized.
+        let operand = |lemma: &crate::smt::DroppedLemma<'_>| {
+            let operand = lemma.operand.as_ref().expect("an operand");
+            let crate::term::TermKind::Application {
+                symbol, arguments, ..
+            } = operand.kind()
+            else {
+                panic!("an application: {operand:?}");
+            };
+            let arguments = arguments
+                .iter()
+                .map(|argument| match argument.kind() {
+                    crate::term::TermKind::Variable(_) => "X".to_owned(),
+                    crate::term::TermKind::DomainValue { value, .. } => {
+                        value.as_utf8().expect("UTF-8").to_owned()
+                    }
+                    _ => panic!("a variable or a domain value: {argument:?}"),
+                })
+                .collect::<Vec<_>>();
+            format!("{}({})", symbol.name, arguments.join(", "))
+        };
+        let mut found = dropped
+            .iter()
+            .map(|lemma| {
+                (
+                    lemma.rule.attributes.label.clone().expect("a label"),
+                    operand(lemma),
+                    lemma.reason,
+                )
+            })
+            .collect::<Vec<_>>();
+        found.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(
+            found,
+            [
+                (
+                    "g-zero".to_owned(),
+                    "half(X)".to_owned(),
+                    LeftOutReason::OpaqueAtom
+                ),
+                (
+                    "h-zero".to_owned(),
+                    "sdiv(X, 2)".to_owned(),
+                    LeftOutReason::AbstractedTerm
+                ),
+            ]
+        );
+        assert_eq!(built.delta(&before).get(Counter::SmtLemmasLeftOut), 2);
+        assert_eq!(reported.delta(&built).get(Counter::SmtLemmasLeftOut), 0);
+    }
+
+    /// GAP K18: an `smt-lemma` whose `requires` reads a partial operand is stated with the
+    /// operand's domain, as a query's atom is, so it holds only where K's condition holds. With
+    /// `\ceil(I divInt J) = (J =/=Int 0)` the domain of `X divInt 2` is a formula over the bound
+    /// `X`, and `f(X) = 0 requires X divInt 2 >Int 0` decides `f(4) = 0`. A lemma whose operand's
+    /// domain is an opaque `\ceil` (`half`, no ceil equation), a name of one query's
+    /// translation, is left out, and the solver still starts. Before, either lemma made the
+    /// prelude fail (`SmtLemmaSurplusPredicates`), and with it every query of the definition.
+    /// So is `h(X) = 0 requires X sdiv 2 >Int 0`, whose domain plan, from the ceil equation
+    /// `\ceil(I sdiv J) = nz(J)`, holds `nz(2)`, a term of no SMT reading that only one
+    /// translation can name: before, it failed the prelude (`SmtLemmaSurplusMappings`).
+    #[test]
+    fn an_smt_lemma_over_a_partial_operand_states_its_domain_or_is_left_out() {
+        let definition = partial_operand_lemma_definition();
         let prelude = SmtPrelude::from_definition(&definition).expect("the prelude is built");
         let id = |label: &str| {
             [

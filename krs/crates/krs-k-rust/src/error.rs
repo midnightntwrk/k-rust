@@ -154,16 +154,19 @@ const fn native_kind(code: NativeDiagnosticCode) -> CodeKind {
     match code {
         // Properties of the author's program that KRS delegates: a function or projection in a
         // pattern, a hook the selected backend does not implement, an unused binder or
-        // constructor, the value claims' verdicts on the author's equations, and the ill-formed
+        // constructor, the value claims' verdicts on the author's equations, the ill-formed
         // uses the load sees in them (a `Float` operation over two formats, a machine-integer
-        // literal its width cannot hold).
+        // literal its width cannot hold), and an `smt_lemma` the solver's prelude leaves out
+        // because its condition reads an operand whose domain the author's equations do not
+        // state (KRS checks that the lemma's own functions have an SMT reading, not their domains).
         C::IllegalFunctionOnLhs
         | C::UnadmittedHookNamespace
         | C::UnusedVariable
         | C::UnusedSymbol
         | C::UnjoinedCriticalPair
         | C::ValueClaimPrecondition
-        | C::IllFormedUse => CodeKind::Author,
+        | C::IllFormedUse
+        | C::SmtLemmaLeftOut => CodeKind::Author,
         // Whether it fires depends on the calling thread's stack, not on the program.
         C::TermTooDeep => CodeKind::Environment,
         // KRS checks the same rule earlier under its own code: patterns, binders and variables,

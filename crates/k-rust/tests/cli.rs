@@ -2633,6 +2633,143 @@ fn kcompile_locates_the_ill_formed_uses_of_a_definition_without_anywhere_equatio
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The definition of the left-out `smt-lemma` tests: the lemma `g-zero`, `g(X) = 0 requires
+/// half(X) >Int 0`, over the partial `half`, with `ceil` in place of the line `CEIL`.
+const SMT_LEMMA_LEFT_OUT: &str = r#"
+requires "domains.md"
+module LEMMA-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int)
+endmodule
+module LEMMA
+  imports LEMMA-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= done(Int)
+  syntax Int ::= half(Int) [function, smt-hook((div #1 2))]
+               | g(Int) [function, total, smtlib(g)]
+  rule <k> go(X) => done(g(X)) ... </k>
+  rule [g-zero]: g(X) => 0 requires half(X) >Int 0 [simplification, smt-lemma]
+CEIL
+endmodule
+"#;
+
+/// The `smt-lemma` definition with `ceil` as its `half` domain line, and `spec` after it.
+fn smt_lemma_left_out_source(ceil: &str, spec: &str) -> String {
+    format!("{}{spec}", SMT_LEMMA_LEFT_OUT.replace("CEIL", ceil))
+}
+
+/// GAP K21: an `smt-lemma` the solver's prelude leaves out is named at load, once, with the
+/// operand whose domain the prelude cannot state. `g-zero`'s `requires` reads `half(X)`, whose
+/// domain no ceil equation states, so a closed formula stating the lemma would assert `g(X) = 0`
+/// where `half(X)` is `\bottom`; the prelude leaves it out, and `kprove`, which might need it,
+/// says so: the claim `go(4) => done(0)`, which needs `g(4) = 0`, is not proven. With `half`'s
+/// domain stated by an unconditional ceil equation over `>=Int`, which has an SMT reading, the
+/// lemma is stated, nothing is printed, and the claim is proven.
+#[test]
+fn kprove_names_an_smt_lemma_the_solver_prelude_leaves_out_once() {
+    let spec =
+        "module LEMMA-SPEC\n  imports LEMMA\n  claim <k> go(4) => done(0) ... </k>\nendmodule\n";
+    for (ceil, expected, verdict) in [
+        ("", 1, "failed"),
+        (
+            "  rule #Ceil(half(X)) => {X >=Int 0 #Equals true} [simplification]",
+            0,
+            "proven",
+        ),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, smt_lemma_left_out_source(ceil, spec)).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "LEMMA-SPEC",
+                "--definition-module",
+                "LEMMA",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stdout.starts_with(&format!("claim #1: {verdict} ")),
+            "{ceil:?}: {stdout}"
+        );
+        let warnings = stderr
+            .lines()
+            .filter(|line| line.contains("is not given to the solver"))
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), expected, "{ceil:?}: {stderr}");
+        if let [warning] = warnings.as_slice() {
+            assert!(
+                warning.starts_with("warning: `smt-lemma` LEMMA.g-zero at "),
+                "{warning}"
+            );
+            assert!(warning.contains("definition.k:"), "{warning}");
+            assert!(
+                warning.contains("its `requires` reads Lblhalf"),
+                "{warning}"
+            );
+            assert!(warning.contains("no ceil equation states it"), "{warning}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// GAP K21: `kcompile` locates the `smt-lemma` the solver's prelude leaves out at the lemma's
+/// written position, as `kprove` names it at load (warning `SmtLemmaLeftOut`, shown by default),
+/// for a definition without `anywhere` equation heads; `--warnings-to-errors` fails the
+/// compilation.
+#[test]
+fn kcompile_locates_an_smt_lemma_the_solver_prelude_leaves_out() {
+    let (root, definition) = fixture();
+    let source = smt_lemma_left_out_source("", "");
+    fs::write(&definition, &source).unwrap();
+    let line = source
+        .lines()
+        .position(|line| line.contains("rule [g-zero]"))
+        .unwrap()
+        + 1;
+    let options = ["--main-module", "LEMMA"];
+    let compiled = kcompile_for_krun(&definition, &options, &root.join("compiled"));
+    let stderr = String::from_utf8(compiled.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("Warning[SmtLemmaLeftOut]"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    assert!(
+        warnings[0].starts_with(&format!(
+            "{}:{line}:3: Warning[SmtLemmaLeftOut]: `smt-lemma` LEMMA.g-zero at ",
+            definition.display()
+        )),
+        "{}",
+        warnings[0]
+    );
+
+    let promoted = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(options)
+        .arg("--warnings-to-errors")
+        .arg("--output-directory")
+        .arg(root.join("promoted"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let promoted_stderr = String::from_utf8_lossy(&promoted.stderr);
+    assert!(!promoted.status.success(), "{promoted_stderr}");
+    assert_eq!(
+        promoted_stderr.matches("Error[SmtLemmaLeftOut]").count(),
+        1,
+        "{promoted_stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
 fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
     let (root, definition) = fixture();
