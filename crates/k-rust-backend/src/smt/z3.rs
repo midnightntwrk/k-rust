@@ -3059,7 +3059,8 @@ mod tests {
     /// GAP K15: a conditional ceil equation `\ceil(I divInt J) = \top requires J =/=Int 0` is an
     /// axiom, not the domain of `divInt` (which stays its domain function); the solver states its
     /// instance beside that domain, so `\ceil(I divInt J)` is valid where `J =/=Int 0` is known,
-    /// as the simplifier decides by the same equation, and not valid without it.
+    /// as the simplifier decides by the same equation, and not valid without it. GAP K18: the
+    /// instance holds only where the terms it binds are defined.
     #[test]
     fn a_conditional_ceil_equation_is_a_fact_beside_the_domain() {
         let syntax = parse_definition(
@@ -3101,7 +3102,32 @@ mod tests {
             Ok(Ok(Validity::Valid))
         );
         assert_eq!(
-            solver.check_predicates(&[], &Substitution::new(), &[defined]),
+            solver.check_predicates(&[], &Substitution::new(), std::slice::from_ref(&defined)),
+            Ok(Ok(Validity::Contingent))
+        );
+        // The equation's variables range over elements, so its instance at `I := X divInt Y`
+        // says nothing where `X divInt Y` is undefined: `\ceil((X divInt Y) divInt 2)` is not
+        // valid (the definition leaves `X divInt 0` open), and an undefined `X divInt Y` beside
+        // any statement about the outer quotient is satisfiable.
+        let nested = term(
+            &definition,
+            r#"divInt{}(divInt{}(X:SortInt{}, Y:SortInt{}), \dv{SortInt{}}("2"))"#,
+        );
+        assert_eq!(
+            solver.is_sat(
+                &[
+                    Predicate::Not(std::sync::Arc::new(defined)),
+                    Predicate::Not(std::sync::Arc::new(Predicate::Equals(
+                        nested.clone(),
+                        term(&definition, r#"\dv{SortInt{}}("7")"#),
+                    ))),
+                ],
+                &Substitution::new()
+            ),
+            Ok(Ok(Satisfiability::Sat))
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[Predicate::Ceil(nested)]),
             Ok(Ok(Validity::Contingent))
         );
     }

@@ -705,10 +705,13 @@ pub(super) fn domain_plan(
 
 /// Record, for the partial application `term` whose domain stays its head's domain function,
 /// the instances of its conditional ceil equations as facts (`TranslationState::domain_lemmas`):
-/// `R => (\ceil(term) <=> q)` for each instance `\ceil(term) = q requires R`
-/// (`definedness::conditional_ceil_lemmas`). Each is an axiom of the definition, so it holds in
-/// every model in which the domain function is the application's definedness, and the domain
-/// itself stays exact. Their predicates are stated as written, as a plan's conditions are, since
+/// `A => (\ceil(term) <=> q)` for each instance `\ceil(term) = q requires R`, where `A` is `R`
+/// with the definedness of the terms the instance binds and of `term`'s arguments
+/// (`definedness::conditional_ceil_lemmas`). The equation's variables range over elements, so
+/// each is an instance of an axiom of the definition where `A` holds, and it holds in every model
+/// in which the domain function is the application's definedness; the domain itself stays exact.
+/// Without the definedness in `A`, the fact would force the domain of a bound term that `R` does
+/// not mention wherever `q` holds. Their predicates are stated as written, as a plan's conditions are, since
 /// the translation reads each atom with its operands' domains, and admitted under the same
 /// bound; an instance that is not is left out, which only weakens what the query knows.
 #[cfg(any(feature = "z3", test))]

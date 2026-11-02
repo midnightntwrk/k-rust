@@ -1351,14 +1351,21 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
 }
 
 /// The instances at `term` of the conditional ceil equations of its ceil theory, each as the
-/// pair of its instantiated `requires` and right-hand side, as stated: no simplification, no
-/// equation applied to the query's terms (`with_stated_ceil_conditions`).
+/// pair of its antecedent and right-hand side, as stated: no simplification, no equation applied
+/// to the query's terms (`with_stated_ceil_conditions`).
 ///
-/// A conditional ceil equation `\ceil(l) = q requires R` is an axiom: on every instance where
-/// `R` holds, `\ceil(lσ)` is `qσ`. It is no equivalence for `\ceil(lσ)` alone, so the solver
-/// does not read it as the application's domain; it states it as a fact beside that domain
-/// (`smt::functional`, `TranslationState::domain_lemmas`), which holds in every model of the
-/// definition. The instances are those the simplifier's ceil equations enumerate
+/// A conditional ceil equation `\ceil(l) = q requires R` is an axiom over element variables: for
+/// every valuation of its variables to elements where `R` holds, `\ceil(l)` is `q`. Its instance
+/// at a matching `σ` is therefore a consequence only where every term `σ` binds to an element
+/// variable denotes an element: a term may be `\bottom` (`I := X divInt Y` where `Y` is 0), and
+/// there the axiom says nothing of `\ceil(lσ)`. So the antecedent is `R σ` conjoined with
+/// `\ceil(v)` for each such value `v` that is not `ceil_free`, and with `\ceil(a)` for each
+/// argument `a` of `term` that is not, after which `\ceil(term)` is the head's own domain at
+/// defined arguments, every application being strict. The pair is
+/// `(⌈v⌉… ∧ ⌈a⌉… ∧ Rσ, qσ)`: the fact `(⌈v⌉… ∧ ⌈a⌉… ∧ Rσ) ⇒ (\ceil(term) ⇔ qσ)` holds in every
+/// model of the definition. It is no equivalence for `\ceil(lσ)` alone, so the solver does not
+/// read it as the application's domain; it states it as a fact beside that domain
+/// (`smt::functional`, `TranslationState::domain_lemmas`). The instances are those the simplifier's ceil equations enumerate
 /// ([`equation_instances`]), matched only; an equation whose matching is undecided, whose result
 /// has a variable its left-hand side does not bind, whose right-hand side is no predicate, or
 /// that holds an open literal gives none, and neither does an instance that binds an impure
@@ -1395,11 +1402,24 @@ pub(crate) fn conditional_ceil_lemmas(
             {
                 continue;
             }
-            let requires = rule
-                .requires
-                .instantiate(&substitution)
-                .as_written()
-                .to_vec();
+            let mut requires = Vec::new();
+            let mut stated = FxHashSet::default();
+            let bound = substitution
+                .iter()
+                .filter(|(variable, _)| variable.kind == VariableKind::Element)
+                .map(|(_, value)| value);
+            for value in bound.chain(crate::deferred::children(term)) {
+                if !value.attributes().ceil_free() && stated.insert(value.clone()) {
+                    requires.push(Predicate::Ceil(value.clone()));
+                }
+            }
+            requires.extend(
+                rule.requires
+                    .instantiate(&substitution)
+                    .as_written()
+                    .iter()
+                    .cloned(),
+            );
             #[expect(
                 clippy::disallowed_methods,
                 reason = "a conditional ceil equation's right-hand side at a usable instance, stated as a fact under its requires; the solver's domain lemmas state the definedness of its atoms"
