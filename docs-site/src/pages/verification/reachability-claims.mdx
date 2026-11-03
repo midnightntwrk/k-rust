@@ -173,6 +173,7 @@ mod sum_spec {
 module IMP-SUM-SPEC
   imports IMP-VERIFICATION-LEMMAS
   ...
+  // KRS krs-verification-surface-imp-sum/src/lib.rs: dollar_sum_spec
   claim [dollar-sum-spec]:
     <k> while ( ! ($n <= 0) ) { $s = $s + $n ; $n = $n + - 1 ; } ~> Tail:K => .K ~> Tail:K </k>
     ...
@@ -223,6 +224,7 @@ module LESSON-SPEC
   ...
   syntax Id ::= r"\\$[a-zA-Z0-9_]+" [token]
 
+  // KRS krs-verification-surface-l22-lesson/src/lib.rs: dollar_assign
   claim [dollar-assign]:
     <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>
     <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>
