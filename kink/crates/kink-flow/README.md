@@ -490,7 +490,8 @@ This closes the stack dependence of k-rust KINK-06/4 and KINK-06/5 for every com
 What remains is kink's verdict-path calls outside `execute` (`definition_facts`, `BackendRelations` unification, the bridge's
 internalization; re-pin finding B-13(a)), which decide nothing for ground programs, and the Z3 profile, where tier 1 is off.
 A mutation whose specification uses a hook for which k-rust chooses a value the definition leaves open with no run-level record
-of it (`String2Bytes` and `Bytes2String`, whose encoding k-rust's builtin files leave to the backend, and the `KRYPTO`, `HASH`
+of it (`String2Bytes` and `Bytes2String`, whose encoding `domains.md` does not name and k-rust's amendment AM-1 states as one
+byte per code point, kept by kink's own choice until GK-1/GK-2, and the `KRYPTO`, `HASH`
 and `SECP256K1` hooks no builtin file documents; k-rust's own classes, such as `choice`, the order of `keys_list`, `values` or
 `Set2List`, mixed-format or NaN-sign Float, `Base2String`'s letter case and substitution's renamed variables, are judged per run
 through `implementationChosenValues` below since kink27 R3-CENSUS-RUNLEVEL; an open hook k-rust cannot

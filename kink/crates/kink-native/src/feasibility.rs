@@ -12,10 +12,22 @@
 //! conjuncts and they translate without approximation (`smt::translation_exactness`: no term
 //! abstracted to a fresh constant, no uninterpreted `smtlib` function, no partial function
 //! made total, and only `Int`/`Bool` variables and quantifiers; otherwise a `Sat` is not
-//! evidence), and [`LeafFeasibility::Unsat`] when the solver answers `Unsat` under the
-//! definedness premise of k-rust `smt.rs:176-183,736-744`: every partial term relied on by
-//! the predicate has its definedness explicit in it. This is trust-base item T-UNSAT
-//! (variable-identity README 16.4, D-B), pinned by TB-01. A feasible state has an instance, and that instance
+//! evidence), and [`LeafFeasibility::Unsat`] when the solver answers `Unsat`. That answer
+//! refutes the predicate whatever form it has: k-rust's solver reads each atom with its
+//! operands' definedness (`b` as D(b) ∧ b, `a = c` with `c` defined as D(a) ∧ a = c, an
+//! equality of two possibly undefined sides as (D(a) ∧ D(b) ∧ a = b) ∨ (¬D(a) ∧ ¬D(b)),
+//! `\ceil(t)` as D(t)), so under every valuation its translation holds exactly where the
+//! predicate does, and it refuses to translate a term that may denote several elements
+//! (`docs/compatibility.md` "Solver decisions over partial operations", pinned by
+//! `tests/trust_base.rs`). What remains trusted is the definition's SMT reading: each
+//! `smt-hook` exact where its symbol is defined, the `smt-lemma` axioms and the prelude (kink-patch
+//! `TRUSTED_CLAIMS`, withdrawn from a mutant whose edit they rest on). This is trust-base item
+//! T-UNSAT (variable-identity README 16.4, D-B), pinned by TB-01. Until k-rust's GAP K15 the
+//! solver read an atom without its operands' definedness, and T-UNSAT also needed every partial
+//! term of the predicate to have its definedness explicit in it; that premise is no longer
+//! needed. (k-rust's `Satisfiability::Unsat` doc still names one gap, a rule or equation
+//! condition equating two possibly undefined terms; kink excludes every such definition,
+//! `Exclusion::EqualsCondition`.) A feasible state has an instance, and that instance
 //! follows the leaf's path, because k-rust keeps every rule condition it relied on (`requires`
 //! with the definedness of its partial terms, narrowing conditions, remainders, and the
 //! definedness of partial terms in right-hand sides and simplified states) in the leaf
@@ -50,7 +62,7 @@
 //! that query with all of it translating without approximation and every variable of it an
 //! initial-state variable: the model then values the query's `Int`/`Bool` variables, every other
 //! variable takes any value of its inhabited sort, and the eliminated ones follow. A solver
-//! `Unsat` counts under the same explicit definedness premise (T-UNSAT), because the query
+//! `Unsat` refutes it on the same ground (T-UNSAT), and so refutes the path, because the query
 //! is implied by the path predicate and the assumptions. Such an instance follows the path: without a solver every valuation does
 //! (k-rust turns every binding of a subject variable into a match condition and needs the
 //! solver to accept one, `rewrite/apply.rs` phases P7 and P10); with Z3, every rule condition
@@ -1736,8 +1748,8 @@ mod tests {
         )
     }
 
-    /// Under the documented explicit-definedness premise, leaf feasibility uses the solver's
-    /// `Unsat`, and uses its `Sat` only for an exactly
+    /// Leaf feasibility uses the solver's `Unsat`, a K answer whatever form the predicate has
+    /// (T-UNSAT, k-rust's solver reading), and uses its `Sat` only for an exactly
     /// translated predicate over a constructor term; `NoSolver` adds nothing.
     #[test]
     fn solver_feasibility_needs_exact_sat_and_counts_every_unsat() {

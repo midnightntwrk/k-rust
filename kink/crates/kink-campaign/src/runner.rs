@@ -115,8 +115,9 @@
 //! decider; each side's leaves are admitted under its own definition. Under
 //! k-rust variable identity v3, received names are read verbatim, printing is injective
 //! (VI-1..VI-5), and FreshCounter mints apart from received names within each request. Relation and
-//! leaf Unsat decisions rely on the definedness premise pinned by TB-01 and the TV-01
-//! initial-state admission guard. Undecided evidence stays Unknown.
+//! leaf Unsat decisions rely on k-rust's solver reading each atom with its operands' definedness
+//! (T-UNSAT, pinned by TB-01 and kink-native `tests/trust_base.rs`); the TV-01 initial-state
+//! admission guard is kept as a fail-closed narrowing. Undecided evidence stays Unknown.
 //!
 //! Only relinking and compiling run on several threads (re-pin L1-3 and L1-3-fix-1,
 //! [`CampaignOptions::compile_workers`]). The candidates are taken in chunks; each chunk's
@@ -1298,9 +1299,10 @@ pub fn run_campaign_multi_with(
         assume_joined: session.assume_joined.clone(),
         data,
     };
-    // Test-written predicates do not inherit the definedness premise of backend-built
-    // predicates. Refuse unsafe input through the existing declaration admission gate,
-    // before any baseline or mutant execution (TV-01, R2-F1).
+    // Refuse unsafe input through the existing declaration admission gate, before any baseline
+    // or mutant execution (TV-01, R2-F1). Its definedness refusals of test-written predicates
+    // date from before k-rust's solver read each atom with its operands' definedness (GAP K15)
+    // and are kept as a fail-closed narrowing (`validate_test_initial_state`).
     for test in campaign.tests {
         validate_test_initial_state(&mut runtime.backend, &test.initial_state).map_err(
             |failure| {

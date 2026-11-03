@@ -14,9 +14,13 @@
 //! stores every such domain value as the canonical text of its value on every route
 //! (`docs/compatibility.md`, "Domain values"; pinned by `tests/representation.rs`,
 //! `the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned`), so two such terms
-//! are one term exactly when they denote one value under k-rust's stated readings (kink README,
-//! premises P-F1 to P-F4 and P-M1, decision D-3), and a respelled literal is the same element in
-//! every rule k-rust applies. kink compares no end that holds such a value yet (TV-01).
+//! are one term exactly when they denote one value under the readings k-rust states (kink
+//! README, premises P-F1 to P-F4 and P-M1, each now a determination or a class), and a
+//! respelled literal is the same element in every rule k-rust applies. The one literal whose
+//! element no text gives, a machine integer its width cannot hold (`256p8`), is stored as its
+//! residue but is open (class `literal`): an execution marks every attempt of a rule or
+//! equation holding one, so such a run is no evidence (`implementation-chosen-value`). kink
+//! compares no end that holds such a value yet (TV-01).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -287,8 +291,9 @@ fn validate_artifacts(
                                 // A domain value of a sort hooked `FLOAT.Float` or `MINT.MInt`
                                 // is stored as the canonical text of its value, so it is
                                 // admitted: two such terms are one term exactly when they denote
-                                // one value under k-rust's stated readings (kink README, decision
-                                // D-3).
+                                // one value under the readings k-rust states, an out-of-range
+                                // machine-integer literal excepted, whose runs k-rust marks
+                                // (class `literal`; kink README, P-M1).
                                 let clause = match sort_hook(sort, &hooks) {
                                     Some("INT.Int")
                                         if sort_name(sort) != "SortInt"

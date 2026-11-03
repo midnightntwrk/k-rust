@@ -56,7 +56,8 @@
 //! preserves it up to a renaming fixing request names. One growing counter skips every
 //! request spelling (`fresh.rs:1082-1099`). Unbound-result equation instances are unused
 //! and diagnosed (`docs/compatibility.md:792-815`), hence BackendLimit here.
-//! Unsat refutation also rests on the explicit definedness premise (T-UNSAT, TB-01).
+//! Unsat refutation also rests on k-rust's solver reading each atom with its operands'
+//! definedness (T-UNSAT, TB-01; see [`crate::feasibility`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -94,7 +95,14 @@ use crate::step_events::{ObservationDecider, StepObservation, StepPresence, cano
 /// refused, because the matcher keeps `inj{S,S}(t)` apart from `t` and so runs a test the
 /// definition's semantics does not distinguish from a canonical one (TV-01 fix 1, R1-F1).
 /// Term equality with non-total applications on both operands is refused: both may be
-/// undefined at one valuation, so solver refutation does not refute matching-logic equality.
+/// undefined at one valuation, where matching-logic equality holds (`\bottom = \bottom`).
+/// This refusal and that of non-total applications in negated positions were made to uphold
+/// T-UNSAT while k-rust's solver read an atom without its operands' definedness. Since
+/// k-rust's GAP K15 it reads each atom with them, an equality of two possibly undefined sides
+/// included (`docs/compatibility.md` "Solver decisions over partial operations", pinned by
+/// kink-native `tests/trust_base.rs`), so the solver's answers are sound for such a state too.
+/// The two refusals are kept as a fail-closed narrowing of what a test may state, which no
+/// current test needs widened.
 /// Free set variables are refused explicitly; local set binders remain local (TB-02).
 /// Every domain value of a sort not hooked `BYTES.Bytes`, and every bare String pattern, must
 /// contain valid UTF-8 at any polarity: invalid bytes can satisfy String guards that no K

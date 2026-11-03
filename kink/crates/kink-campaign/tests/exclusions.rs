@@ -512,8 +512,9 @@ mod kink_tier {
         });
     }
 
-    /// kink27 R3-CENSUS-RUNLEVEL fix round 1 (review should-fix 1): a kill that rests on k-rust's
-    /// reading of one NaN per format (kink README, premise P-F3), through arithmetic on symbolic
+    /// kink27 R3-CENSUS-RUNLEVEL fix round 1 (review should-fix 1): a kill that rests on one NaN
+    /// per format (kink README, premise P-F3, which `domains.md` fixes as k-rust's "Backend
+    /// scope" states), through arithmetic on symbolic
     /// operands. `a1/onenan.k`'s `go(1)` compares, by `==K`, the NaN of `0.0 /Float 0.0` with the
     /// NaN of `Infinity -Float Infinity`; under P-F3 they are one term and the baseline ends in
     /// `done(7)`. The mutant respells `2.0` to `-2.0`, which turns the second argument into an
@@ -522,12 +523,12 @@ mod kink_tier {
     /// Neither run reads a k-rust class value (one format, no sign, min or max), so both lists are
     /// empty, the census admits the definition, and the kill stands in both schedules. Before this
     /// ticket the census refused the baseline (`implementation-chosen-hook`, for `FLOAT.div` and
-    /// `FLOAT.sub`), so P-F3 carried no run-time kill. This pins the kill as long as D-3 accepts
-    /// the reading; a decision against it changes this test's expected status. GAP K1: the zero
-    /// each quotient divides by is `1.0 -Float 1.0` from `go(1)` (+0.0 by `fp.sub`), where it was
-    /// `Int2Float(0, 53, 11)` from `go(0)`, whose sign no text fixes and k-rust marks
-    /// `float-rounding`, so the baseline was refused; +0.0 is the element that conversion picked,
-    /// so both runs compute the elements they did, in every model.
+    /// `FLOAT.sub`), so P-F3 carried no run-time kill. The reading is a stated determination now
+    /// (kink27 GAP), so the kill is one of the definition. GAP K1: the zero each quotient divides
+    /// by is `1.0 -Float 1.0` from `go(1)` (+0.0 by `fp.sub`), where it was
+    /// `Int2Float(0, 53, 11)` from `go(0)`, whose sign k-rust marked `float-rounding` until
+    /// `docs/amendments.md` AM-5 fixed it as +0.0, so the baseline was refused; +0.0 is the
+    /// element that conversion picked, so both runs compute the elements they did, in every model.
     #[test]
     #[ignore = "kink"]
     fn a_kill_through_two_computed_nans_rests_on_one_nan_per_format() {

@@ -132,8 +132,21 @@ pub enum ClaimRemoval {
 /// productions with `assoc`, `comm`, `idem` or `unit`"; `comm` is not emitted on a function)
 /// and kompile's generated lambdas (KK-71). A rewrite rule's `ensures` is the rule's meaning,
 /// and `freshGenerator`, `impure`, `memo` and `no-evaluators` are not consistency axioms.
-/// Termination and the SMT prelude stay premises. kink-patch's test `trusted_claims_are_pinned`
-/// pins this list against the constants the removal uses and the cited passages' digests.
+/// Termination and the SMT prelude stay premises.
+/// The `smt-hook`, `smtlib` and `smt-lemma` rows trust the definition's SMT reading: each
+/// `smt-hook` is exact where its symbol is defined, and each `smt-lemma` axiom holds of the
+/// definition. Since k-rust's GAP K15 that trust is all a solver answer needs: the solver states
+/// each atom with its operands' definedness, so a solver `Unsat`, `Valid` or `Refuted` is a K
+/// answer whatever form the predicates have (`compatibility.md` "Solver decisions over partial
+/// operations"); before K15 an `Unsat` refuted only predicates whose partial terms had their
+/// definedness explicit in them. The definedness-explicit predicates k-rust returns (leaf
+/// constraints, residuals, kprove leaves) support refutation under any reading of the
+/// `smt-hook`s that is exact where their symbols are defined, and validity, or dropping a
+/// conjunct as valid, only under a reading that states each atom with its operands'
+/// definedness, as k-rust's solver does (GAP K26, the same section); kink asks every solver
+/// question of k-rust's solver (`SmtSolver::is_sat`). kink-patch's test
+/// `trusted_claims_are_pinned` pins this list against the constants the removal uses and the
+/// cited passages' digests.
 /// Citations name a file and the heading (or item) that holds the passage, which is how the test
 /// locates each pinned passage (kink27 R2-PIN-BY-ANCHOR).
 pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[

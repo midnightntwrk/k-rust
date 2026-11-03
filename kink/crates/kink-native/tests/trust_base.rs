@@ -5,11 +5,18 @@
 //! never compare it syntactically against a mutant that evaluates it.
 //!
 //! T-UNSAT (README 16.4, decision D-B): a solver `Unsat` on a leaf's constraints, or on a
-//! relation query over them, refutes the leaf only if every partial term of the predicate has
+//! relation query over them, refutes the leaf. Since k-rust's GAP K15 this rests on the solver's
+//! reading, which states each atom with its operands' definedness, so that under every
+//! valuation the translation holds exactly where the predicate does, whatever form the
+//! predicate has (`docs/compatibility.md` "Solver decisions over partial operations", pinned
+//! by `the_solver_reading_t_unsat_rests_on_is_pinned`), and on the definition's trusted SMT
+//! reading. Before K15 the refutation also needed every partial term of the predicate to have
 //! its definedness explicit in it. The rows below take every leaf of rules whose `requires` is
 //! over the partial `/Int`, including the remainder k-rust builds, and check that no leaf with
-//! a K instance is refuted.
+//! a K instance is refuted: they are regression rows for the solver's reading.
 
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
@@ -142,6 +149,40 @@ fn unbound_mutants(validator: &NativeValidator) -> [(&'static str, Patch); 2] {
 }
 
 // ---------------------------------------------------------------- T-UNSAT
+
+/// The k-rust passages T-UNSAT rests on (kink27 R6-TRUST): the solver translates each atom with
+/// its operands' definedness, an equality of two possibly undefined sides by both cases, so its
+/// `Unsat`, `Valid` and `Refuted` answers are K answers whatever form the predicates have
+/// (`docs/compatibility.md` "Solver decisions over partial operations", since GAP K15), and the
+/// same statement at the solver's query, which kink calls through `SmtSolver::is_sat`
+/// (`k-rust-backend` `smt.rs`, the doc of `translation_exactness`). The trust in the
+/// definition's SMT reading these answers keep (each `smt-hook` exact where its symbol is
+/// defined, the `smt-lemma` axioms, the prelude) is pinned by kink-patch `trusted_claims_are_pinned`.
+/// A change of either passage fails here, and T-UNSAT is read again against it.
+const T_UNSAT_PASSAGES: [passage::Passage; 2] = [
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Solver decisions over partial operations",
+        opening: "A solver answer about a condition over a partial term `t` is therefore",
+        lines: 3,
+        digest: "b9cc001d2ca95c56d25b38672e5fe82131e59180ec1e84f9fda934a1cc103f7d",
+    },
+    passage::Passage {
+        file: "crates/k-rust-backend/src/smt.rs",
+        anchor: "pub fn translation_exactness(",
+        opening: "/// An `Unsat`, `Valid` or `Refuted` answer of `SmtSolver::is_sat` and",
+        lines: 10,
+        digest: "e93403aaa8e5e6dc17e4af7e17c6acef0901e24be9a45285d23a901b7209ebe4",
+    },
+];
+
+#[test]
+fn the_solver_reading_t_unsat_rests_on_is_pinned() {
+    passage::assert_pinned(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.."),
+        &T_UNSAT_PASSAGES,
+    );
+}
 
 /// One leaf with a K instance: its halt, feasibility and discard, and the relation query
 /// answers at a K instance of it and at a valuation outside it.
@@ -744,7 +785,10 @@ fn inj(from: &str, to: &str, value: Pattern) -> Pattern {
 
 /// VI-T10 R4-D1: both equalities hold at Y = 0 in matching logic (bottom equals bottom).
 /// Before the guard Z3 retained a Trivial leaf but refuted its X=1,Y=0 instance as Unsat;
-/// refuse before execution so that no relation query can use that test predicate.
+/// refuse before execution so that no relation query can use that test predicate. Since
+/// k-rust's GAP K15 the solver reads such an equality by both of its cases, so the measured
+/// row below refutes no instance; the refusal is kept as a fail-closed narrowing
+/// (`bridge::validate_test_initial_state`).
 #[test]
 fn audit_vi_t10_partial_equalities_require_input_refusal() {
     const DIV: &str = r"Lbl'UndsSlsh'Int'Unds'{}(X:SortInt{},Y:SortInt{})";
@@ -791,8 +835,9 @@ fn audit_vi_t10_partial_equalities_require_input_refusal() {
             ),
             "{label}: undefined instances must be protected before execution, got {admission:?}"
         );
-        // Deliberately bypass admission: this is the T-UNSAT violation that justifies
-        // refusing the input, adjudicated by the supervisor on 2026-10-07.
+        // Deliberately bypass admission: this is the T-UNSAT violation that justified
+        // refusing the input, adjudicated by the supervisor on 2026-10-07; the refusal is kept
+        // as a fail-closed narrowing since GAP K15 (the row measures what the solver now says).
         let measured = audit_vi_t10_relation_rows(
             &side,
             "TV01UNSAT",
