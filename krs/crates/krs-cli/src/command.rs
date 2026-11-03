@@ -1656,9 +1656,10 @@ impl CommandError {
         match self {
             Self::Attributed { source, .. } | Self::Warned { source, .. } => source.exit_code(),
             Self::Usage(_)
-            | Self::Exec(krs_exec::ExecError::StrayProgram | krs_exec::ExecError::MissingProgram) => {
-                2
-            }
+            | Self::Exec(
+                krs_exec::ExecError::StrayProgram { .. }
+                | krs_exec::ExecError::MissingProgram { .. },
+            ) => 2,
             _ => 1,
         }
     }

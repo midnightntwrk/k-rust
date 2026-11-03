@@ -152,7 +152,7 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     let stray = krs(target.path(), &manifest, "run", &["program.txt"]);
     assert_eq!(stray.status.code(), Some(2));
     assert!(
-        stderr(&stray).contains("the init function takes no program (no $PGM); do not pass FILE"),
+        stderr(&stray).contains("the #[k::init] has no main parameter (none is marked #[k::config_var(main)] or read in the computation cell), so FILE binds nothing"),
         "{}",
         stderr(&stray)
     );

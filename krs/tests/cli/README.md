@@ -53,7 +53,7 @@ and the `file:line:column` of a program that does not parse.
 
 Negative cases cover omitted and nonexistent facets, ambiguous Cargo package
 names, an authored Cargo-check failure, preservation of an unowned
-nonempty artifact directory, an unknown `-c` variable, and a FILE passed to a definition whose init function takes no program (exit status 2). The emitted K is compiled with the LLVM backend
+nonempty artifact directory, an unknown `-c` variable, and a FILE passed to a definition whose `#[k::init]` has no main parameter (exit status 2). The emitted K is compiled with the LLVM backend
 and executed to prove `foo -> bar`.
 The Java K results form the reference snapshots `execution`, `dollar-id-claims`, and `claims-prove` (`tests/support/reference.py`),
 keyed by the `Krs.lock` K version and the digests of the emitted `definition.k` (and, for the dry run, `spec.k`).

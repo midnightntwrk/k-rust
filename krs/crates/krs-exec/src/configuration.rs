@@ -153,7 +153,7 @@ pub struct Configuration {
     assembler: ConfigurationAssembler<'static>,
     parser_modules: BTreeMap<String, String>,
     /// The module tried before the main module for each variable no `parser` attribute names
-    /// ([`variable_modules`]).
+    /// ([`k_rust::kompile::variable_reading_modules`]).
     variable_modules: BTreeMap<String, String>,
     parsers: BTreeMap<String, ProgramParser>,
     ground_value_parser: Option<ProgramParser>,
@@ -208,7 +208,12 @@ impl Configuration {
         let resolved = grammar.program.resolved();
         let syntax_module = k_rust::outer::resolve_syntax_module(resolved, None)?.name;
         let parser_modules = parser_modules(resolved, &main_module)?;
-        let variable_modules = variable_modules(grammar, &syntax_module, &parser_modules);
+        // The rule every tool reads a variable's text with (`variable_reading_modules`).
+        let variable_modules = k_rust::kompile::variable_reading_modules(
+            &grammar.program,
+            &syntax_module,
+            &grammar.variables,
+        )?;
         let macro_definition = MacroExpansionDefinition::prepare(grammar.program.definition())?;
         let assembler = ConfigurationAssembler::new(
             &grammar.program,
@@ -487,7 +492,8 @@ impl Configuration {
 
     /// Assemble `initGeneratedTopCell` from a program and other variable texts, as krun does.
     ///
-    /// `program` binds `$PGM`; `variables` holds K names without `$`.
+    /// `program` binds `$PGM`, as text parsed as a program or as a term; `variables` holds K
+    /// names without `$`.
     /// The caller has already checked every name against [`Self::variables`].
     /// Declared `$IO` and `$STDIN` that are not supplied receive the stream defaults with IO off;
     /// `$STDIN` is `stdin` (already buffered as krun buffers it) or empty.
@@ -497,7 +503,7 @@ impl Configuration {
     /// Returns the assembler's typed error for a parse failure or a missing variable.
     pub(crate) fn assemble_pattern(
         &mut self,
-        program: Option<&str>,
+        program: Option<&Binding>,
         variables: &BTreeMap<String, Binding>,
         stdin: Option<&[u8]>,
     ) -> Result<Pattern, AssemblyError> {
@@ -509,16 +515,27 @@ impl Configuration {
 
     fn assemble_typed(
         &mut self,
-        program: Option<&str>,
+        program: Option<&Binding>,
         variables: &BTreeMap<String, Binding>,
         stdin: Option<&[u8]>,
     ) -> Result<Pattern, AssemblyError> {
-        if let Some(source) = program {
-            let start_sort = self.grammar.variables.get("PGM").map_or_else(
-                || KastSort::builtin(BuiltinSort::KItem),
-                program_start_position,
-            );
-            self.assembler.program(&start_sort, source)?;
+        match program {
+            Some(Binding::Text(source)) => {
+                let start_sort = self.grammar.variables.get("PGM").map_or_else(
+                    || KastSort::builtin(BuiltinSort::KItem),
+                    program_start_position,
+                );
+                self.assembler.program(&start_sort, source)?;
+            }
+            Some(Binding::Term(term)) => {
+                if let Err(error) = self.assembler.program_term(term.clone()) {
+                    return Err(AssemblyError::Value {
+                        variable: "PGM".to_owned(),
+                        error: Box::new(error),
+                    });
+                }
+            }
+            None => {}
         }
         for (name, binding) in variables {
             match binding {
@@ -758,40 +775,6 @@ impl Configuration {
     }
 }
 
-/// The module whose grammar reads first each configuration variable but `$PGM` that no `parser`
-/// attribute (`declared`) assigns one and that is no stream variable (`$IO`, `$STDIN` at
-/// `String`, read with `STRING-SYNTAX`): the syntax module, a program's grammar, wherever it has
-/// the variable's sort. A variable's text is input, as a program is, and the main module's
-/// grammar holds more than a program can write: every token sort of the definition, so its
-/// scanner reads `word` as an `Id` wherever it stands, also where a variable of a token sort
-/// `Word` means that `Word`. A `K` or `KItem` variable takes any item, which the syntax module
-/// reads as it reads `$PGM`. Where the syntax module's grammar does not parse the text, the main
-/// module's reads it: it also has the productions only rules may use (a builtin collection's
-/// constructors, a production the partition placed in the semantics module), with which a value
-/// can be written. A sort the syntax module does not have (a builtin collection's, which K
-/// supplies only with a full module) is read with the main module's grammar alone.
-fn variable_modules(
-    grammar: &Grammar,
-    syntax_module: &str,
-    declared: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    let program_sorts = program_sorts(&grammar.program, syntax_module);
-    grammar
-        .variables
-        .iter()
-        .filter(|(name, sort)| {
-            name.as_str() != "PGM"
-                && !declared.contains_key(name.as_str())
-                && !(matches!(name.as_str(), "IO" | "STDIN")
-                    && sort.is_builtin(BuiltinSort::String))
-                && (sort.is_builtin(BuiltinSort::K)
-                    || sort.is_builtin(BuiltinSort::KItem)
-                    || program_sorts.contains(&sort.name))
-        })
-        .map(|(name, _)| (name.clone(), syntax_module.to_owned()))
-        .collect()
-}
-
 /// Every sort visible to the grammar of `module`, by name.
 fn program_sorts(grammar: &ProgramGrammar, module: &str) -> BTreeSet<String> {
     let resolved = grammar.resolved();
@@ -824,7 +807,7 @@ fn without_injection(pattern: &Pattern) -> &Pattern {
 
 #[cfg(test)]
 mod tests {
-    use super::Configuration;
+    use super::{AssemblyError, Binding, Configuration};
     use k_rust::kore::ast::Pattern;
     use k_rust::{
         definition::{Definition, Sentence},
@@ -1000,6 +983,58 @@ endmodule
             "\\dv{SortInt{}}(\"3\")"
         );
         assert_eq!(configured["variables"]["PGM"]["sort"], "SortPgm{}");
+    }
+
+    /// `$PGM` bound to a term without the parser denotes what its text denotes, and a term of a
+    /// sort that is not at most `$PGM`'s is refused as the value it is.
+    #[test]
+    fn a_program_bound_as_a_term_is_the_program_its_text_parses_to() {
+        let parsed = k_rust::outer::parse(
+            "program-term.k",
+            r#"
+module MAIN
+  imports INT
+  imports BASIC-K
+  syntax Pgm ::= "run" [symbol(run)]
+  configuration <k> $PGM:Pgm </k> <n> $N:Int </n>
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let mut configuration = Configuration::new(
+            loaded.definition(),
+            BTreeMap::from([
+                ("PGM".to_owned(), Sort::new("Pgm")),
+                ("N".to_owned(), Sort::builtin(BuiltinSort::Int)),
+            ]),
+        )
+        .unwrap();
+        let n = BTreeMap::from([("N".to_owned(), Binding::Text("3".to_owned()))]);
+        let from_text = configuration
+            .assemble_pattern(Some(&Binding::Text("run".to_owned())), &n, None)
+            .unwrap();
+        let from_term = configuration
+            .assemble_pattern(
+                Some(&Binding::Term(k_rust::kast::Term::apply("run", Vec::new()))),
+                &n,
+                None,
+            )
+            .unwrap();
+        assert_eq!(from_term, from_text);
+        let three = k_rust::kast::Term::Token {
+            token: "3".to_owned(),
+            sort: Sort::builtin(BuiltinSort::Int),
+        };
+        let refused = configuration
+            .assemble_pattern(Some(&Binding::Term(three)), &n, None)
+            .unwrap_err();
+        assert!(
+            matches!(&refused, AssemblyError::Value { variable, .. } if variable == "PGM"),
+            "{refused:?}"
+        );
     }
 
     /// A configuration variable is input, read as a program is, with the syntax module's grammar

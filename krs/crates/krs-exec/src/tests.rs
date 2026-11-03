@@ -340,13 +340,29 @@ fn halt_reasons_split_into_complete_and_inconclusive() {
 }
 
 #[test]
-fn configuration_variables_list_the_program_first_with_snake_parameters() {
+fn configuration_variables_list_the_main_parameter_first_with_its_rust_names() {
     let declared = BTreeMap::from([
         ("ENV".to_owned(), KastSort::builtin(BuiltinSort::Map)),
         ("PGM".to_owned(), KastSort::new("Pgm")),
         ("COUNTER".to_owned(), KastSort::builtin(BuiltinSort::Int)),
+        ("ENTRY".to_owned(), KastSort::new("Op")),
+        ("STDIN".to_owned(), KastSort::builtin(BuiltinSort::String)),
     ]);
-    let variables = config_variables(&declared);
+    let parameter = |name: &str, variable: &str, main: bool| crate::Parameter {
+        name: name.to_owned(),
+        variable: variable.to_owned(),
+        ty: crate::InputType::untyped(),
+        main,
+    };
+    // The main parameter is the IR's, whatever its K name, and a parameter's name is its Rust
+    // binding, not a case of its K name.
+    let parameters = [
+        parameter("env", "ENV", false),
+        parameter("pgm", "PGM", false),
+        parameter("count", "COUNTER", false),
+        parameter("entry", "ENTRY", true),
+    ];
+    let variables = config_variables(&declared, &parameters);
     assert_eq!(
         variables
             .iter()
@@ -357,9 +373,11 @@ fn configuration_variables_list_the_program_first_with_snake_parameters() {
             ))
             .collect::<Vec<_>>(),
         [
-            ("PGM", "pgm", true),
-            ("COUNTER", "counter", false),
-            ("ENV", "env", false)
+            ("ENTRY", "entry", true),
+            ("COUNTER", "count", false),
+            ("ENV", "env", false),
+            ("PGM", "pgm", false),
+            ("STDIN", "stdin", false)
         ]
     );
     assert_eq!(variables[2].to_string(), "$ENV (init parameter env): Map");

@@ -4,7 +4,8 @@
 //! Every operation then works on that one compiled definition:
 //!
 //! - [`Semantics::parse`] parses program text at a sort, as `kast --sort` does;
-//! - [`Semantics::configure`] builds `initGeneratedTopCell` from `$PGM` and the other configuration variables, as krun does;
+//! - [`Semantics::configure`] builds `initGeneratedTopCell` from the `#[k::init]` parameters' values, as krun does from `$PGM` and the other configuration variables;
+//! - [`Semantics::decode_input`] and [`Semantics::case_inputs`] read a parameter's value, or a case's values, written in the one typed encoding, whose normative statement is the documentation of [`inputs`];
 //! - [`Semantics::run`] follows one path with strategy `any`, as krun does;
 //! - [`Semantics::search`] returns the set of reachable states, as `krun --search` does;
 //! - [`Semantics::prove`] proves the selected claims, as kprove does;
@@ -20,6 +21,7 @@ mod claims;
 mod configuration;
 mod console;
 mod decided;
+pub mod inputs;
 mod origin;
 mod overloads;
 mod read_back;
@@ -61,6 +63,9 @@ use krs_unparse::ListSpelling;
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
+pub use inputs::{
+    Case, InputError, InputFiles, InputType, NoFiles, Parameter, json_document, toml_document,
+};
 pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
@@ -226,7 +231,8 @@ pub struct ProveOptions {
     pub depth: Option<u64>,
 }
 
-/// The program text bound to `$PGM`, with the name diagnostics cite.
+/// Program text, with the name diagnostics cite: FILE, which binds the main parameter, or a
+/// text file an input names (`$text-file`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProgramInput {
     /// The file name, or `<stdin>`.
@@ -240,6 +246,8 @@ pub struct ProgramInput {
 pub enum ConfigValue {
     /// Surface text, parsed at the variable's declared sort as `krun -c` parses it.
     Text(String),
+    /// The text of a file, parsed as [`Self::Text`] is; a parse error is located in the file.
+    TextFile(ProgramInput),
     /// A value, typed at the variable's declared sort without a parse
     /// ([`ValueIndex::ctor`], [`Value::map`], ...).
     Value(Value),
@@ -266,10 +274,11 @@ impl From<Value> for ConfigValue {
 /// The inputs of one initial configuration.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigInputs {
-    /// FILE, bound to `$PGM`.
+    /// FILE, bound to the main parameter ([`Parameter::main`]), whatever its K name.
     pub program: Option<ProgramInput>,
-    /// Variable bindings, as `-c NAME=TEXT` gives them in command-line order. NAME is `ENV`,
-    /// `$ENV`, or the init parameter `env`; text and values may be mixed.
+    /// Bindings by name, as `-c NAME=TEXT` gives them in command-line order. NAME is a
+    /// `#[k::init]` parameter's Rust name (`env`) or its configuration variable's K name (`ENV`
+    /// or `$ENV`), the main parameter's included; text and values may be mixed.
     pub variables: Vec<(String, ConfigValue)>,
     /// Console input for the `stream = "stdin"` cell, as krun reads standard input under `--io off`;
     /// `None` binds an empty stream. It is ignored when the definition has no stdin stream cell.
@@ -390,10 +399,16 @@ pub enum ExecError {
     Compile(DefinitionCompileError),
     /// The backend rejected an operation.
     Backend(String),
-    /// FILE was given but the init function takes no program.
-    StrayProgram,
-    /// The init function takes a program but FILE was not given.
-    MissingProgram,
+    /// FILE was given but the `#[k::init]` has no main parameter for it to bind.
+    StrayProgram {
+        /// Every parameter, in declaration order, to bind by name instead.
+        parameters: Vec<Parameter>,
+    },
+    /// The main parameter was bound neither by FILE nor by name.
+    MissingProgram {
+        /// The main parameter.
+        parameter: Parameter,
+    },
     /// `-c` named a variable the definition does not declare.
     UnknownVariable {
         /// The name as written.
@@ -401,8 +416,14 @@ pub enum ExecError {
         /// Every declared variable.
         variables: Vec<ConfigVariable>,
     },
-    /// A variable was bound twice.
-    DuplicateVariable(String),
+    /// A typed input named a console stream (`$STDIN`, `$IO`), which no `#[k::init]` parameter
+    /// declares and the console fills.
+    StreamInput {
+        /// The stream's K name, without `$`.
+        variable: String,
+    },
+    /// A variable was bound twice: by FILE and by name, or by two spellings of its name.
+    DuplicateVariable(ConfigVariable),
     /// Declared variables that were not bound.
     MissingVariables(Vec<ConfigVariable>),
     /// Program or `-c` text that does not parse.
@@ -421,8 +442,10 @@ pub enum ExecError {
         /// The program sorts.
         sorts: Vec<String>,
     },
-    /// `krs parse` without `--sort` on a definition without `$PGM`.
+    /// `krs parse` without `--sort` on a definition without a main parameter.
     NoProgramSort,
+    /// A document that is no value of its input in the typed encoding ([`Semantics::decode_input`]).
+    Input(InputError),
     /// `--claim` matched no claim.
     UnknownClaim {
         /// The label as written.
@@ -503,18 +526,39 @@ impl fmt::Display for ExecError {
             | Self::Undecided(message) => {
                 formatter.write_str(message)
             }
-            Self::StrayProgram => formatter
-                .write_str("the init function takes no program (no $PGM); do not pass FILE"),
-            Self::MissingProgram => formatter.write_str(
-                "the init function takes a program ($PGM); pass FILE, or `-` for standard input",
+            Self::StrayProgram { parameters } => {
+                formatter.write_str(NO_MAIN_PARAMETER)?;
+                formatter.write_str(", so FILE binds nothing; bind its parameters by name")?;
+                if parameters.is_empty() {
+                    return formatter.write_str(" (it has none)");
+                }
+                formatter.write_str(": ")?;
+                for (index, parameter) in parameters.iter().enumerate() {
+                    if index > 0 {
+                        formatter.write_str(", ")?;
+                    }
+                    write!(formatter, "{parameter}")?;
+                }
+                Ok(())
+            }
+            Self::MissingProgram { parameter } => write!(
+                formatter,
+                "the main parameter `{}` (${}: {}) is unbound; pass FILE, `-` for standard input, or bind `{}` by name",
+                parameter.name, parameter.variable, parameter.ty, parameter.name
             ),
             Self::UnknownVariable { name, variables } => {
                 write!(formatter, "unknown configuration variable `{name}`")?;
                 write_variables(formatter, "the definition declares", variables)
             }
-            Self::DuplicateVariable(name) => {
-                write!(formatter, "configuration variable `${name}` is bound twice")
-            }
+            Self::StreamInput { variable } => write!(
+                formatter,
+                "configuration variable `${variable}` is a console stream, which the console fills; no #[k::init] parameter declares it, so it takes no value by name"
+            ),
+            Self::DuplicateVariable(variable) => write!(
+                formatter,
+                "configuration variable `${}` (init parameter {}) is bound twice",
+                variable.name, variable.parameter
+            ),
             Self::MissingVariables(variables) => {
                 let names = variables
                     .iter()
@@ -534,9 +578,11 @@ impl fmt::Display for ExecError {
                 "the program grammar has no sort `{sort}`; program sorts: {}",
                 sorts.join(", ")
             ),
-            Self::NoProgramSort => formatter.write_str(
-                "the init function takes no program (no $PGM), so there is no default sort; pass --sort",
-            ),
+            Self::NoProgramSort => {
+                formatter.write_str(NO_MAIN_PARAMETER)?;
+                formatter.write_str(", so there is no default sort; pass --sort")
+            }
+            Self::Input(error) => error.fmt(formatter),
             Self::UnknownClaim {
                 requested,
                 suggestion,
@@ -612,6 +658,9 @@ impl fmt::Display for ExecError {
         }
     }
 }
+
+/// Why a definition takes no program file.
+const NO_MAIN_PARAMETER: &str = "the #[k::init] has no main parameter (none is marked #[k::config_var(main)] or read in the computation cell)";
 
 /// The value of an `initGeneratedTopCell` map entry: the map holds each value boxed as one
 /// `KItem`, `#KConfigValue(V ~> .K)`, and `V` is the sequence's one item.
@@ -718,6 +767,8 @@ pub struct Semantics {
     definition_kore: String,
     provenance: SentenceProvenance,
     variables: Vec<ConfigVariable>,
+    /// The `#[k::init]` parameters, in declaration order.
+    parameters: Vec<Parameter>,
     claims: Vec<ClaimInfo>,
     user_sorts: Vec<String>,
     origins: origin::Origins,
@@ -790,7 +841,7 @@ impl Semantics {
         } = stage;
 
         let main_module = frontend_definition.main_module.clone();
-        let variables = config_variables(&configuration_variables);
+        let declared_variables = configuration_variables.clone();
         let mut configuration = timings.try_span("exec.configuration", |_| {
             Configuration::new(&frontend_definition, configuration_variables)
                 .map_err(|error| ExecError::Backend(error.to_string()))
@@ -812,6 +863,8 @@ impl Semantics {
             let cell_types = cell_types::CellTypes::new(definition, &backend_definition, &values);
             Ok::<_, ExecError>((Arc::new(values), cell_types))
         })?;
+        let parameters = inputs::parameters(definition, &values, &declared_variables);
+        let variables = config_variables(&declared_variables, &parameters);
         // The printer reverses the alias clauses `reversal` judges by the definition's reading
         // of their tokens' values, so it is built after the values.
         let unparser = timings.try_span("exec.unparser", |_| {
@@ -856,6 +909,7 @@ impl Semantics {
             definition_kore,
             provenance: sentence_provenance,
             variables,
+            parameters,
             claims,
             user_sorts,
             origins,
@@ -976,10 +1030,132 @@ impl Semantics {
         }
     }
 
-    /// The configuration variables, `$PGM` first, then by name.
+    /// The configuration variables, the main parameter's first, then by K name.
     #[must_use]
     pub fn variables(&self) -> &[ConfigVariable] {
         &self.variables
+    }
+
+    /// The `#[k::init]` parameters, the definition's inputs, in declaration order.
+    #[must_use]
+    pub fn parameters(&self) -> &[Parameter] {
+        &self.parameters
+    }
+
+    /// The main parameter, which a program file binds; `None` when the `#[k::init]` marks none
+    /// and its computation cell reads none.
+    #[must_use]
+    pub fn main_parameter(&self) -> Option<&Parameter> {
+        self.parameters.iter().find(|parameter| parameter.main)
+    }
+
+    /// The main parameter, for a front end that was given a program file and checks it before
+    /// reading it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::StrayProgram`], listing every parameter, when there is none.
+    pub fn program_parameter(&self) -> Result<&Parameter, ExecError> {
+        self.main_parameter()
+            .ok_or_else(|| ExecError::StrayProgram {
+                parameters: self.parameters.clone(),
+            })
+    }
+
+    /// The parameter `written` names: its Rust name (`env`) or its configuration variable's K
+    /// name, with or without `$` (`ENV`, `$ENV`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::UnknownVariable`], or [`ExecError::StreamInput`] for a console
+    /// stream the definition declares but no parameter does.
+    pub fn parameter(&self, written: &str) -> Result<&Parameter, ExecError> {
+        let variable = self.resolve_variable(written)?;
+        self.parameters
+            .iter()
+            .find(|parameter| parameter.variable == variable.name)
+            .ok_or_else(|| ExecError::StreamInput {
+                variable: variable.name.clone(),
+            })
+    }
+
+    /// The value `document` writes for the input `parameter` (its Rust or K name), decoded at
+    /// the parameter's declared type in the typed encoding ([`inputs`]): [`ConfigValue::Text`]
+    /// or [`ConfigValue::TextFile`] for `$text` or `$text-file`, which [`Self::configure`]
+    /// parses at the parameter's sort, and [`ConfigValue::Value`] otherwise. `files` reads the
+    /// files the document names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::UnknownVariable`] for an unknown input, [`ExecError::StreamInput`]
+    /// for a console stream, or [`ExecError::Input`] naming the parameter, its declared type,
+    /// the position in the document and the reason.
+    pub fn decode_input(
+        &self,
+        parameter: &str,
+        document: &serde_json::Value,
+        files: &mut dyn InputFiles,
+    ) -> Result<ConfigValue, ExecError> {
+        let parameter = self.parameter(parameter)?;
+        inputs::decode(&self.values, files, document, &parameter.ty)
+            .map(ConfigValue::from)
+            .map_err(|refusal| {
+                ExecError::Input(InputError {
+                    parameter: Some(parameter.name.clone()),
+                    declared: Some(parameter.ty.to_string()),
+                    position: refusal.position,
+                    message: refusal.message,
+                })
+            })
+    }
+
+    /// The configuration variable (its K name, without `$`) and the KAST term that `value`
+    /// binds for the input `parameter`, for a front end that assembles configurations with its
+    /// own grammar of the same definition: the term this crate's own [`Self::configure`] binds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::UnknownVariable`], [`ExecError::StreamInput`], or
+    /// [`ExecError::Value`] for a value that is no term of the definition.
+    pub fn input_term(
+        &self,
+        parameter: &str,
+        value: &Value,
+    ) -> Result<(String, k_rust::kast::Term), ExecError> {
+        let parameter = self.parameter(parameter)?;
+        let term = self
+            .values
+            .to_kast(value)
+            .map_err(|error| ExecError::Value {
+                variable: parameter.variable.clone(),
+                error,
+            })?;
+        Ok((parameter.variable.clone(), term))
+    }
+
+    /// The inputs of `case`, each decoded at its parameter's declared type
+    /// ([`Self::decode_input`]), with `program` (FILE) bound to the main parameter; `files`
+    /// reads the files the case names, relative to the case's own document.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::decode_input`] does, at the first input that fails, in name order.
+    pub fn case_inputs(
+        &self,
+        case: &Case,
+        program: Option<ProgramInput>,
+        files: &mut dyn InputFiles,
+    ) -> Result<ConfigInputs, ExecError> {
+        let variables = case
+            .inputs
+            .iter()
+            .map(|(name, document)| Ok((name.clone(), self.decode_input(name, document, files)?)))
+            .collect::<Result<_, ExecError>>()?;
+        Ok(ConfigInputs {
+            program,
+            variables,
+            stdin: None,
+        })
     }
 
     /// The claims of the generated spec module, in label order.
@@ -996,7 +1172,7 @@ impl Semantics {
             .any(|variable| matches!(variable.name.as_str(), "STDIN" | "IO"))
     }
 
-    /// Parse program text at `sort` (default: the sort of `$PGM`) with the program grammar.
+    /// Parse program text at `sort` (default: the main parameter's sort) with the program grammar.
     ///
     /// # Errors
     ///
@@ -1133,7 +1309,8 @@ impl Semantics {
         (false, ListSpelling::Program, unreversed)
     }
 
-    /// The two KORE forms of one reading of the program `input` at `sort` (by default `$PGM`'s):
+    /// The two KORE forms of one reading of the program `input` at `sort` (by default the main
+    /// parameter's):
     /// as parsed, which [`Self::unparse_program`] prints, and expanded
     /// ([`configuration::Configuration::parse_program_forms`]).
     pub(crate) fn program_forms(
@@ -1165,60 +1342,89 @@ impl Semantics {
                 Ok(KastSort::new(name))
             }
             None => self
-                .configuration
-                .variables()
-                .get("PGM")
+                .main_parameter()
+                .and_then(|main| self.configuration.variables().get(&main.variable))
                 .cloned()
                 .ok_or(ExecError::NoProgramSort),
         }
     }
 
-    /// Build the initial configuration from FILE and `-c` bindings.
+    /// Build the initial configuration from FILE and the bindings by name.
+    ///
+    /// FILE binds the main parameter ([`Self::main_parameter`]): parsed as a program, with the
+    /// syntax module at the start position of its sort, where that parameter is `$PGM`, and as
+    /// `-c` text of the parameter otherwise. Any parameter, the main one included, may instead
+    /// be bound by name.
     ///
     /// # Errors
     ///
-    /// Returns a typed error for a stray or missing FILE, an unknown, duplicate, or missing variable, or text that does not parse.
+    /// Returns a typed error for a FILE without a main parameter, an unbound main parameter, an
+    /// unknown, duplicate, or missing variable, or text that does not parse.
     pub fn configure(&mut self, inputs: &ConfigInputs) -> Result<State, ExecError> {
-        let has_program = self.variables.iter().any(|variable| variable.is_main);
-        match (&inputs.program, has_program) {
-            (Some(_), false) => return Err(ExecError::StrayProgram),
-            (None, true) => return Err(ExecError::MissingProgram),
-            _ => {}
-        }
+        let mut program: Option<configuration::Binding> = None;
         let mut bound = BTreeMap::new();
-        let mut names = BTreeMap::new();
+        // Where each bound variable's text came from, for a parse error's message.
+        let mut sources = BTreeMap::new();
+        if let Some(file) = &inputs.program {
+            let main = self.program_parameter()?.variable.clone();
+            let binding = configuration::Binding::Text(file.text.clone());
+            if main == "PGM" {
+                program = Some(binding);
+            } else {
+                bound.insert(main.clone(), binding);
+            }
+            sources.insert(main, Source::file(file));
+        }
         for (written, value) in &inputs.variables {
             let variable = self.resolve_variable(written)?;
-            let binding = match value {
-                ConfigValue::Text(text) => configuration::Binding::Text(text.clone()),
-                ConfigValue::Value(value) => {
+            let (binding, source) = match value {
+                ConfigValue::Text(text) => (
+                    configuration::Binding::Text(text.clone()),
+                    Source::option(written),
+                ),
+                ConfigValue::TextFile(file) => (
+                    configuration::Binding::Text(file.text.clone()),
+                    Source::file(file),
+                ),
+                ConfigValue::Value(value) => (
                     configuration::Binding::Term(self.values.to_kast(value).map_err(|error| {
                         ExecError::Value {
                             variable: variable.name.clone(),
                             error,
                         }
-                    })?)
-                }
+                    })?),
+                    Source::option(written),
+                ),
             };
-            if bound.insert(variable.name.clone(), binding).is_some() {
-                return Err(ExecError::DuplicateVariable(variable.name.clone()));
+            let twice = if variable.name == "PGM" {
+                program.replace(binding).is_some()
+            } else {
+                bound.insert(variable.name.clone(), binding).is_some()
+            };
+            if twice {
+                return Err(ExecError::DuplicateVariable(variable.clone()));
             }
-            names.insert(variable.name.clone(), written.clone());
+            sources.insert(variable.name.clone(), source);
+        }
+        if let Some(main) = self.main_parameter()
+            && !sources.contains_key(&main.variable)
+        {
+            return Err(ExecError::MissingProgram {
+                parameter: main.clone(),
+            });
         }
         let missing = self
             .variables
             .iter()
             .filter(|variable| {
-                !variable.is_main
-                    && !matches!(variable.name.as_str(), "IO" | "STDIN")
-                    && !bound.contains_key(&variable.name)
+                !matches!(variable.name.as_str(), "IO" | "STDIN")
+                    && !sources.contains_key(&variable.name)
             })
             .cloned()
             .collect::<Vec<_>>();
         if !missing.is_empty() {
             return Err(ExecError::MissingVariables(missing));
         }
-        let program = inputs.program.as_ref();
         let stdin = inputs
             .stdin
             .as_deref()
@@ -1226,11 +1432,7 @@ impl Semantics {
             .map(console::buffered_input);
         let pattern = self
             .configuration
-            .assemble_pattern(
-                program.map(|program| program.text.as_str()),
-                &bound,
-                stdin.as_deref(),
-            )
+            .assemble_pattern(program.as_ref(), &bound, stdin.as_deref())
             .map_err(|error| match error {
                 configuration::AssemblyError::Value { variable, error } => ExecError::Value {
                     variable,
@@ -1243,7 +1445,7 @@ impl Semantics {
                     }),
                 },
                 configuration::AssemblyError::Configuration(error) => {
-                    configuration_error(&error, program, &names, &self.variables)
+                    configuration_error(&error, &sources, &self.variables)
                 }
             })?;
         self.check_cell_types(&pattern)?;
@@ -1330,12 +1532,18 @@ impl Semantics {
         Ok(configured)
     }
 
+    /// The configuration variable `written` names: a parameter's Rust name, or a K name with or
+    /// without `$`. A K name wins over a Rust name, which the IR keeps distinct from every
+    /// other parameter's but not from another variable's K name.
     fn resolve_variable(&self, written: &str) -> Result<&ConfigVariable, ExecError> {
         let name = written.strip_prefix('$').unwrap_or(written);
         self.variables
             .iter()
-            .find(|variable| {
-                !variable.is_main && (variable.name == name || variable.parameter == name)
+            .find(|variable| variable.name == name)
+            .or_else(|| {
+                self.variables
+                    .iter()
+                    .find(|variable| !written.starts_with('$') && variable.parameter == name)
             })
             .ok_or_else(|| ExecError::UnknownVariable {
                 name: written.to_owned(),
@@ -2540,14 +2748,28 @@ fn term(
     Ok(Term::new(kore, kast))
 }
 
-fn config_variables(declared: &BTreeMap<String, KastSort>) -> Vec<ConfigVariable> {
+/// The compiled definition's configuration variables (`declared`), each with the `#[k::init]`
+/// parameter that declares it; a stream variable the language adds (`$IO`, `$STDIN`), which no
+/// parameter declares, is named by its K name's lowercase.
+fn config_variables(
+    declared: &BTreeMap<String, KastSort>,
+    parameters: &[Parameter],
+) -> Vec<ConfigVariable> {
     let mut variables = declared
         .iter()
-        .map(|(name, sort)| ConfigVariable {
-            name: name.clone(),
-            parameter: name.to_ascii_lowercase(),
-            sort: sort.to_string(),
-            is_main: name == "PGM",
+        .map(|(name, sort)| {
+            let parameter = parameters
+                .iter()
+                .find(|parameter| parameter.variable == *name);
+            ConfigVariable {
+                name: name.clone(),
+                parameter: parameter.map_or_else(
+                    || name.to_ascii_lowercase(),
+                    |parameter| parameter.name.clone(),
+                ),
+                sort: sort.to_string(),
+                is_main: parameter.is_some_and(|parameter| parameter.main),
+            }
         })
         .collect::<Vec<_>>();
     variables.sort_by_key(|variable| (!variable.is_main, variable.name.clone()));
@@ -2615,10 +2837,40 @@ fn located(name: &str, text: &str, position: Option<usize>) -> String {
     }
 }
 
+/// Where a bound variable's text came from, as a parse error names it.
+struct Source {
+    /// `-c NAME`, or a file's name.
+    label: String,
+    /// A file's text, in which a parse error is located; `None` for a `-c` binding.
+    text: Option<String>,
+}
+
+impl Source {
+    fn option(written: &str) -> Self {
+        Self {
+            label: format!("-c {written}"),
+            text: None,
+        }
+    }
+
+    fn file(file: &ProgramInput) -> Self {
+        Self {
+            label: file.name.clone(),
+            text: Some(file.text.clone()),
+        }
+    }
+
+    fn located(&self, position: Option<usize>) -> String {
+        match &self.text {
+            Some(text) => located(&self.label, text, position),
+            None => self.label.clone(),
+        }
+    }
+}
+
 fn configuration_error(
     error: &k_rust::kompile::ConfigurationError,
-    program: Option<&ProgramInput>,
-    names: &BTreeMap<String, String>,
+    sources: &BTreeMap<String, Source>,
     variables: &[ConfigVariable],
 ) -> ExecError {
     use k_rust::kompile::ConfigurationError as Error;
@@ -2630,9 +2882,9 @@ fn configuration_error(
     };
     match error {
         Error::Program(parse) => ExecError::Parse {
-            input: program.map_or_else(
+            input: sources.get("PGM").map_or_else(
                 || "the program".to_owned(),
-                |program| located(&program.name, &program.text, parse_position(parse)),
+                |source| source.located(parse_position(parse)),
             ),
             sort: sort_of("PGM"),
             message: parse.to_string(),
@@ -2644,7 +2896,10 @@ fn configuration_error(
         } => {
             let name = variable.strip_prefix('$').unwrap_or(variable);
             ExecError::Parse {
-                input: format!("-c {}", names.get(name).map_or(name, String::as_str)),
+                input: sources.get(name).map_or_else(
+                    || format!("-c {name}"),
+                    |source| source.located(parse_position(error)),
+                ),
                 sort: sort.to_string(),
                 message: error.to_string(),
             }

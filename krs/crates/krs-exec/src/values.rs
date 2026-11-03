@@ -23,7 +23,8 @@ use k_rust::{
         builtin::canonical_float_text,
         data_term::DataHeads,
         definition::BackendDefinition,
-        term::{FunctionType, HeadRole, SymbolType},
+        matching::SortGraph,
+        term::{FunctionType, HeadRole, Sort as BackendSort, SymbolType},
     },
     kast::{Label, Sort as KastSort, Term as KastTerm, convert::Converter},
     kompile::{encode_kore_label, encode_kore_sort},
@@ -34,7 +35,9 @@ use k_rust::{
     names::WellKnownSymbol,
 };
 use krs_ir::BuiltinSort;
-use krs_ir_levels::{DefinitionIr, DefinitionSentence, SymbolIdentity};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionSentence, DefinitionSortRef, SymbolId, SymbolIdentity,
+};
 use num_bigint::BigInt;
 
 /// The KRS declaration of a constructor or a sort: the Rust path of the item that declares it,
@@ -470,6 +473,14 @@ pub enum ValueError {
         /// Declarations whose last segment matches, to suggest.
         candidates: Vec<String>,
     },
+    /// The name names a production of the other kind: a function where a constructor was
+    /// asked for, or a constructor where a function was.
+    WrongKind {
+        /// The production the name resolves to.
+        decl: String,
+        /// Whether that production is a function.
+        function: bool,
+    },
     /// The name is a suffix of several declarations' paths.
     AmbiguousName {
         /// The name as written.
@@ -506,6 +517,20 @@ impl fmt::Display for ValueError {
                 }
                 Ok(())
             }
+            Self::WrongKind {
+                decl,
+                function: true,
+            } => write!(
+                formatter,
+                "`{decl}` is a function; apply it with ValueIndex::call or {{\"$call\": {{\"{decl}\": ..}}}}"
+            ),
+            Self::WrongKind {
+                decl,
+                function: false,
+            } => write!(
+                formatter,
+                "`{decl}` is a constructor; build it with ValueIndex::ctor, or write it without $call"
+            ),
             Self::AmbiguousName { name, candidates } => write!(
                 formatter,
                 "`{name}` names several declarations: {}",
@@ -533,14 +558,23 @@ impl fmt::Display for ValueError {
 
 impl std::error::Error for ValueError {}
 
-/// A constructor production of the definition.
+/// A production of the definition that a KRS declaration names: a constructor, or a function
+/// (`function`).
 #[derive(Debug)]
-struct CtorInfo {
-    decl: Decl,
+pub(crate) struct CtorInfo {
+    pub(crate) decl: Decl,
     /// The KORE symbol name.
     symbol: String,
-    fields: Vec<Arc<str>>,
-    parameters: usize,
+    pub(crate) fields: Vec<Arc<str>>,
+    /// Each field's declared sort, in field order; `None` for a sort no KRS declaration and no
+    /// builtin names (a cell sort, a sort parameter).
+    pub(crate) field_sorts: Vec<Option<SortRef>>,
+    /// The result sort, with the same `None`.
+    pub(crate) result: Option<SortRef>,
+    /// Whether the production is a function (`#[k::function]`, a `fn` declaration): its
+    /// application is computed by the definition's equations, not data.
+    pub(crate) function: bool,
+    pub(crate) parameters: usize,
 }
 
 /// One collection kind's builder symbols, by KORE name.
@@ -698,9 +732,16 @@ impl BackendSymbols {
 #[derive(Debug)]
 pub struct ValueIndex {
     ctors_by_symbol: HashMap<String, Arc<CtorInfo>>,
+    /// Every production a KRS declaration names, constructors and functions alike.
     ctors_by_decl: HashMap<Decl, Arc<CtorInfo>>,
     sorts_by_kore: HashMap<String, SortRef>,
     kore_by_sort: HashMap<SortRef, String>,
+    /// The KRS sorts by the IR's symbol identity.
+    sorts_by_symbol: HashMap<SymbolId, SortRef>,
+    /// The token sorts: K's `Id` and every sort a token production (`#[k::token]`) declares.
+    token_sorts: BTreeSet<SortRef>,
+    /// The backend's sort lattice.
+    sort_graph: SortGraph,
     /// Hooks of the backend's sorts, by KORE name.
     sort_hooks: HashMap<String, String>,
     /// Hooks of the backend's sorts, by KAST name, for the KAST conversion of an encoded value.
@@ -801,6 +842,10 @@ impl crate::valueless::Heads for ValueIndex {
 
 impl ValueIndex {
     /// Index the KRS declarations of `definition` against the backend's view of its compiled KORE.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one pass over the declarations fills every table of the index"
+    )]
     pub(crate) fn new(
         definition: &DefinitionIr,
         backend: &Arc<BackendDefinition>,
@@ -809,39 +854,71 @@ impl ValueIndex {
         let mut ctors_by_symbol = HashMap::new();
         let mut ctors_by_decl = HashMap::new();
         let mut sorts_by_kore = HashMap::new();
+        let mut sorts_by_symbol = HashMap::new();
+        let mut token_sorts = BTreeSet::from([SortRef::Builtin(BuiltinSort::Id)]);
         let mut cells = Vec::new();
         for sort in BuiltinSort::ALL {
             sorts_by_kore.insert(kore_sort_name(sort.k_name()), SortRef::Builtin(sort));
         }
+        // The sorts first, so that a production's field and result sorts resolve wherever the
+        // sort is declared.
+        for sentence in definition
+            .modules()
+            .iter()
+            .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        {
+            if let DefinitionSentence::SyntaxSort(sort) = sentence
+                && let Some(decl) = decl_of(sort.symbol())
+            {
+                sorts_by_kore.insert(
+                    kore_sort_name(sort.symbol().emitted_name()),
+                    SortRef::Declared(decl.clone()),
+                );
+                sorts_by_symbol.insert(sort.symbol().id().clone(), SortRef::Declared(decl));
+            }
+        }
+        let sort_ref = |sort: &DefinitionSortRef| match sort {
+            DefinitionSortRef::Builtin(builtin) => Some(SortRef::Builtin(*builtin)),
+            DefinitionSortRef::Declared(symbol) => sorts_by_symbol.get(symbol).cloned(),
+            DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => None,
+        };
         for module in definition.modules() {
             for sentence in module.sentences() {
                 match sentence {
-                    DefinitionSentence::SyntaxSort(sort) => {
-                        if let Some(decl) = decl_of(sort.symbol()) {
-                            sorts_by_kore.insert(
-                                kore_sort_name(sort.symbol().emitted_name()),
-                                SortRef::Declared(decl),
-                            );
-                        }
-                    }
                     DefinitionSentence::Production(production) => {
+                        let attributes = production.attributes();
+                        if attributes.iter().any(|attribute| {
+                            matches!(attribute, krs_ir::ProductionAttribute::Token { .. })
+                        }) {
+                            // A token production declares its sort's lexical syntax; its values
+                            // are domain values, not applications.
+                            if let Some(sort) = sort_ref(production.result_sort()) {
+                                token_sorts.insert(sort);
+                            }
+                            continue;
+                        }
                         let Some(decl) = decl_of(production.symbol()) else {
                             continue;
                         };
-                        let fields = production
+                        let (fields, field_sorts) = production
                             .items()
                             .iter()
                             .filter_map(|item| match item.kind() {
-                                krs_ir::GrammarProductionItemKind::NonTerminal {
-                                    field, ..
-                                } => Some(Arc::from(field.as_str())),
+                                krs_ir::GrammarProductionItemKind::NonTerminal { field, sort } => {
+                                    Some((Arc::from(field.as_str()), sort_ref(sort)))
+                                }
                                 _ => None,
                             })
-                            .collect();
+                            .unzip();
                         let info = Arc::new(CtorInfo {
                             decl: decl.clone(),
                             symbol: kore_symbol_name(production.symbol().emitted_name()),
                             fields,
+                            field_sorts,
+                            result: sort_ref(production.result_sort()),
+                            function: attributes.iter().any(|attribute| {
+                                matches!(attribute, krs_ir::ProductionAttribute::Function { .. })
+                            }),
                             parameters: production.parameters().len(),
                         });
                         ctors_by_symbol.insert(info.symbol.clone(), info.clone());
@@ -870,6 +947,9 @@ impl ValueIndex {
             ctors_by_decl,
             sorts_by_kore,
             kore_by_sort,
+            sorts_by_symbol,
+            token_sorts,
+            sort_graph: backend.sort_graph().clone(),
             sort_hooks,
             kast_sort_hooks: kast_sort_hooks.clone(),
             known_symbols: symbols.known,
@@ -892,13 +972,111 @@ impl ValueIndex {
     }
 
     /// The constructor named by `name`: its full path or a `::`-aligned suffix of it
-    /// (`Register::A`).
+    /// (`Register::A`), among the constructor productions; a function is no constructor.
     ///
     /// # Errors
     ///
-    /// Returns [`ValueError::UnknownName`] or [`ValueError::AmbiguousName`].
+    /// Returns [`ValueError::UnknownName`] or [`ValueError::AmbiguousName`]; the former, when
+    /// `name` names a function, says so.
     pub fn decl(&self, name: &str) -> Result<Decl, ValueError> {
-        resolve("constructor", name, self.ctors_by_decl.keys())
+        self.production(name, false)
+    }
+
+    /// The function production named by `name`, as [`Self::decl`] names a constructor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValueError::UnknownName`] or [`ValueError::AmbiguousName`]; the former, when
+    /// `name` names a constructor, says so.
+    pub fn function_decl(&self, name: &str) -> Result<Decl, ValueError> {
+        self.production(name, true)
+    }
+
+    /// The production named by `name` among the functions (`function`) or the constructors.
+    fn production(&self, name: &str, function: bool) -> Result<Decl, ValueError> {
+        let of_kind = |wanted: bool| {
+            self.ctors_by_decl
+                .iter()
+                .filter(move |(_, info)| info.function == wanted)
+                .map(|(decl, _)| decl)
+        };
+        let kind = if function { "function" } else { "constructor" };
+        resolve(kind, name, of_kind(function)).map_err(|error| {
+            if matches!(error, ValueError::UnknownName { .. })
+                && let Ok(other) = resolve(kind, name, of_kind(!function))
+            {
+                ValueError::WrongKind {
+                    decl: other.to_string(),
+                    function: !function,
+                }
+            } else {
+                error
+            }
+        })
+    }
+
+    /// The production a KRS declaration names, constructor or function.
+    pub(crate) fn info(&self, decl: &Decl) -> Option<&CtorInfo> {
+        self.ctors_by_decl.get(decl).map(AsRef::as_ref)
+    }
+
+    /// Every production a KRS declaration names, constructors and functions alike.
+    pub(crate) fn productions(&self) -> impl Iterator<Item = &CtorInfo> {
+        self.ctors_by_decl.values().map(AsRef::as_ref)
+    }
+
+    /// The KRS sort the IR's sort reference names, when one does: a builtin, or a declared sort
+    /// with a KRS declaration.
+    pub(crate) fn sort_ref(&self, sort: &DefinitionSortRef) -> Option<SortRef> {
+        match sort {
+            DefinitionSortRef::Builtin(builtin) => Some(SortRef::Builtin(*builtin)),
+            DefinitionSortRef::Declared(symbol) => self.sorts_by_symbol.get(symbol).cloned(),
+            DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => None,
+        }
+    }
+
+    /// The KRS sort of a KORE sort name, when one names it.
+    pub(crate) fn sort_of_kore(&self, kore: &str) -> Option<SortRef> {
+        self.sorts_by_kore.get(kore).cloned()
+    }
+
+    /// Whether `sort` is a token sort: K's `Id`, or a sort of a `#[k::token]` declaration.
+    pub(crate) fn is_token_sort(&self, sort: &SortRef) -> bool {
+        self.token_sorts.contains(sort)
+    }
+
+    /// The token sorts.
+    pub(crate) fn token_sorts(&self) -> impl Iterator<Item = &SortRef> {
+        self.token_sorts.iter()
+    }
+
+    /// Whether `sub` is at most `sup` in the definition's sort lattice; `None` where the lattice
+    /// gives no answer (a sort it does not declare).
+    pub(crate) fn is_subsort(&self, sub: &SortRef, sup: &SortRef) -> Option<bool> {
+        if sub == sup {
+            return Some(true);
+        }
+        let sub = self.kore_by_sort.get(sub)?;
+        let sup = self.kore_by_sort.get(sup)?;
+        self.sort_graph
+            .check_subsort(
+                &BackendSort::simple(sub.as_str()),
+                &BackendSort::simple(sup.as_str()),
+            )
+            .ok()
+    }
+
+    /// A sort as a KRS author writes it: a KRS sort's last path segment, a builtin's K name.
+    pub(crate) fn sort_name(sort: &SortRef) -> String {
+        match sort {
+            SortRef::Declared(decl) => decl
+                .path()
+                .rsplit("::")
+                .next()
+                .unwrap_or(decl.path())
+                .to_owned(),
+            SortRef::Builtin(sort) => sort.k_name().to_owned(),
+        }
     }
 
     /// The sort named by `name`: a KRS sort's path or suffix, or a builtin sort's K name.
@@ -923,17 +1101,47 @@ impl ValueIndex {
     /// The application of the constructor named `name` (as [`Self::decl`] resolves it) to
     /// `fields`, given by name in any order.
     ///
+    /// A function production is no constructor: its application is computed, not data, and
+    /// [`Self::call`] builds it.
+    ///
     /// # Errors
     ///
-    /// Returns a name error, [`ValueError::Fields`] when the names are not exactly the
-    /// declared fields, or [`ValueError::Unencodable`] for a parametric production, whose
-    /// sort arguments this builder does not take.
+    /// Returns a name error ([`ValueError::WrongKind`] for a function), [`ValueError::Fields`]
+    /// when the names are not exactly the declared fields, or [`ValueError::Unencodable`] for a
+    /// parametric production, whose sort arguments this builder does not take.
     pub fn ctor<'a>(
         &self,
         name: &str,
         fields: impl IntoIterator<Item = (&'a str, Value)>,
     ) -> Result<Value, ValueError> {
         let decl = self.decl(name)?;
+        self.apply(decl, fields)
+    }
+
+    /// The application of the function named `name` (as [`Self::function_decl`] resolves it)
+    /// to `fields`, its parameters given by name in any order: the term whose value the
+    /// definition's equations compute, which a configuration given it holds unevaluated until
+    /// the first state is simplified, before the first step.
+    ///
+    /// # Errors
+    ///
+    /// Returns a name error ([`ValueError::WrongKind`] for a constructor), or the errors of
+    /// [`Self::ctor`] for the fields and parametric productions.
+    pub fn call<'a>(
+        &self,
+        name: &str,
+        fields: impl IntoIterator<Item = (&'a str, Value)>,
+    ) -> Result<Value, ValueError> {
+        let decl = self.function_decl(name)?;
+        self.apply(decl, fields)
+    }
+
+    /// The application of the production `decl` to `fields`, given by name in any order.
+    fn apply<'a>(
+        &self,
+        decl: Decl,
+        fields: impl IntoIterator<Item = (&'a str, Value)>,
+    ) -> Result<Value, ValueError> {
         let info = &self.ctors_by_decl[&decl];
         if info.parameters != 0 {
             return Err(ValueError::Unencodable(format!(
@@ -1414,6 +1622,26 @@ impl ValueIndex {
             .ok_or_else(|| ValueError::Unencodable(format!("the definition has no sort {sort}")))
     }
 
+    /// The sort of a value's term below its injections, as KRS names it: a builtin's, a token's,
+    /// a constructor's or function's result sort; `None` for an opaque pattern and a result
+    /// sort no KRS declaration names.
+    pub(crate) fn value_sort(&self, value: &Value) -> Option<SortRef> {
+        Some(SortRef::Builtin(match value {
+            Value::Ctor(ctor) => return self.ctors_by_decl.get(&ctor.decl)?.result.clone(),
+            Value::Token { sort, .. } => return Some(sort.clone()),
+            Value::Opaque(_) => return None,
+            Value::Int(_) => BuiltinSort::Int,
+            Value::Bool(_) => BuiltinSort::Bool,
+            Value::String(_) => BuiltinSort::String,
+            Value::Bytes(_) => BuiltinSort::Bytes,
+            Value::Float(_) => BuiltinSort::Float,
+            Value::Seq(_) => BuiltinSort::KSequence,
+            Value::List(_) => BuiltinSort::List,
+            Value::Set(_) => BuiltinSort::Set,
+            Value::Map(_) => BuiltinSort::Map,
+        }))
+    }
+
     /// The KAST term of a value, as the configuration assembler takes a value bound without
     /// the parser.
     pub(crate) fn to_kast(&self, value: &Value) -> Result<KastTerm, ValueError> {
@@ -1452,7 +1680,7 @@ fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {
     }
 }
 
-fn resolve<'d>(
+pub(crate) fn resolve<'d>(
     kind: &'static str,
     name: &str,
     decls: impl Iterator<Item = &'d Decl>,
@@ -1520,6 +1748,9 @@ pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueInde
             decl: Decl(format!("t::S::{name}").into()),
             symbol: (*symbol).to_owned(),
             fields: fields.iter().map(|field| Arc::from(*field)).collect(),
+            field_sorts: vec![None; fields.len()],
+            result: None,
+            function: false,
             parameters: 0,
         });
         ctors_by_symbol.insert((*symbol).to_owned(), info.clone());
@@ -1530,6 +1761,9 @@ pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueInde
         ctors_by_decl,
         sorts_by_kore: HashMap::new(),
         kore_by_sort: HashMap::new(),
+        sorts_by_symbol: HashMap::new(),
+        token_sorts: BTreeSet::new(),
+        sort_graph: SortGraph::default(),
         sort_hooks: HashMap::new(),
         kast_sort_hooks: HashMap::new(),
         known_symbols: symbols.known,

@@ -1,8 +1,10 @@
 //! A definition whose configuration variables and cells cover every kind of `krs-exec` value:
 //! enum variants (two named `C`, one of them spelled like the other), a struct variant, a
-//! parametric constructor, a token sort, the builtins, the collections, a renamed cell, a
-//! nested group, an optional cell, and a repeated cell. Every variable is copied into its own
-//! cell, so a run of depth 0 shows the values the configuration was given.
+//! parametric constructor, a token sort, the builtins, the collections, a declared sort with
+//! builtin subsorts and one whose only builtin subsort is `Float`, a renamed cell, a nested
+//! group, an optional cell, a repeated cell, a function a value may apply, and a parameter whose
+//! Rust name is not its K name. Every variable is copied into its own cell, so a run of depth 0
+//! shows the values the configuration was given.
 
 use k::builtin::{Bool, Bytes, Float, Id, Int, KSequence, List, Map, Set, String};
 use k::{KResult, Term};
@@ -12,6 +14,11 @@ k::sorts! {
     Cond;
     Bus;
     Val: KResult;
+    impl Val for Int;
+    impl Val for String;
+    impl Val for Float;
+    Real: KResult;
+    impl Real for Float;
 }
 
 #[k::constructors(sort = Reg, result = KResult)]
@@ -40,10 +47,24 @@ pub enum Cycle {
 }
 
 #[k::constructors(sort = Val, result = KResult)]
-#[k::precedence((V))]
+#[k::precedence((V, R, Nothing))]
 #[rustfmt::skip]
 pub enum ValSyntax {
     #[k::syntax("v({n})")] V { n: Int },
+    #[k::syntax("r({x})")] R { x: Real },
+    #[k::syntax("nothing")] Nothing,
+}
+
+/// `readBack(addr)` is the read of `addr` that returns `addr`: a function, whose application
+/// in a configuration value is evaluated before the first step.
+#[k::function(total, sort = Bus, syntax = "readBack({addr})")]
+pub struct ReadBack {
+    pub addr: Term<Int>,
+}
+
+#[k::equation]
+fn read_back(k::term![ReadBack(addr)]: Term<Bus>) -> Term<Bus> {
+    Cycle::Read(addr, addr)
 }
 
 /// `wrap(x)` has the sort of `x`.
@@ -118,7 +139,7 @@ impl Machine {
         #[k::config_var(name = "BUS")] bus: List<Bus>,
         #[k::config_var(name = "CONDS")] conds: Set<Cond>,
         #[k::config_var(name = "NAME")] name: String,
-        #[k::config_var(name = "BLOB")] blob: Bytes,
+        #[k::config_var(name = "BLOB")] rom: Bytes,
         #[k::config_var(name = "RATIO")] ratio: Float,
         #[k::config_var(name = "LABEL")] label: Label,
         #[k::config_var(name = "IDENT")] ident: Id,
@@ -133,7 +154,7 @@ impl Machine {
             bus,
             conds,
             name,
-            blob,
+            blob: rom,
             ratio,
             label,
             ident,

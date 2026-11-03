@@ -675,16 +675,18 @@ pub struct Capabilities {
     pub smt: bool,
 }
 
-/// One configuration variable: the init parameter that binds it, and its sort.
+/// One configuration variable: the `#[k::init]` parameter that binds it, and its sort.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ConfigVariable {
     /// K's variable name without `$` (`ENV`).
     pub name: String,
-    /// The init parameter form (`env`): the ASCII lowercase of the K name.
+    /// The `#[k::init]` parameter's Rust name (`env`); for a stream variable the language adds
+    /// (`$IO`, `$STDIN`), which no parameter declares, the ASCII lowercase of the K name.
     pub parameter: String,
     /// The declared sort.
     pub sort: String,
-    /// Whether this is `$PGM`, the program bound by FILE.
+    /// Whether this is the main parameter's variable, which FILE binds
+    /// ([`crate::Parameter::main`]).
     pub is_main: bool,
 }
 

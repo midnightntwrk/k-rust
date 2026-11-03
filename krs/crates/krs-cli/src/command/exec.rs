@@ -397,15 +397,10 @@ fn configure(
     variables: &[(String, String)],
     console_input: bool,
 ) -> Result<krs_exec::State, Failure> {
-    // FILE is checked against `$PGM` before it is read, so a stray FILE is reported as such.
-    let takes_program = semantics
-        .variables()
-        .iter()
-        .any(|variable| variable.is_main);
-    match (input, takes_program) {
-        (Some(_), false) => return Err(ExecError::StrayProgram.into()),
-        (None, true) => return Err(ExecError::MissingProgram.into()),
-        _ => {}
+    // FILE is checked against the main parameter before it is read, so a stray FILE is
+    // reported as such; an unbound main parameter is reported by `configure`.
+    if input.is_some() {
+        semantics.program_parameter()?;
     }
     if input == Some(&ProgramSource::Stdin)
         && semantics
@@ -958,11 +953,13 @@ fn write_coverage(output: &mut String, coverage: &Coverage) {
 pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
     match error {
         ExecError::Compile(_) | ExecError::Backend(_) => codes::exec::BACKEND,
-        ExecError::StrayProgram | ExecError::MissingProgram => codes::exec::PROGRAM,
+        ExecError::StrayProgram { .. } | ExecError::MissingProgram { .. } => codes::exec::PROGRAM,
         ExecError::UnknownVariable { .. }
+        | ExecError::StreamInput { .. }
         | ExecError::DuplicateVariable(_)
         | ExecError::MissingVariables(_)
-        | ExecError::Value { .. } => codes::exec::VARIABLE,
+        | ExecError::Value { .. }
+        | ExecError::Input(_) => codes::exec::VARIABLE,
         ExecError::CollectionElementSort(_) => codes::exec::COLLECTION_ELEMENT_SORT,
         ExecError::Parse { .. } => codes::exec::PARSE,
         ExecError::UnknownSort { .. } | ExecError::NoProgramSort => codes::exec::SORT,

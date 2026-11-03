@@ -241,7 +241,7 @@ def run_commands(
 ) -> dict[str, bytes] | None:
     """Run, trace, and parse the foo-bar theory natively; every output is pinned and relocation-stable.
 
-    The init function takes no program, so `krs run` takes no FILE; `krs parse` parses at `ObjectTerm`.
+    The `#[k::init]` has no main parameter, so `krs run` takes no FILE; `krs parse` parses at `ObjectTerm`.
     """
 
     program = workspace / "foo.prog"
@@ -453,10 +453,10 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         "krs run rejects -c for an undeclared variable" if unknown_ok else compact(unknown_variable),
     )
     stray = cli_command(binary, "run", run_manifest, target, extra=("foo.prog",))
-    stray_ok = stray.returncode == 2 and b"the init function takes no program (no $PGM); do not pass FILE" in stray.stderr
+    stray_ok = stray.returncode == 2 and b"the #[k::init] has no main parameter (none is marked #[k::config_var(main)] or read in the computation cell), so FILE binds nothing" in stray.stderr
     results.add(
         "run_stray_file", "PASS" if stray_ok else "FAIL",
-        "krs run rejects FILE when the init function takes no program" if stray_ok else compact(stray),
+        "krs run rejects FILE when the #[k::init] has no main parameter" if stray_ok else compact(stray),
     )
 
 
