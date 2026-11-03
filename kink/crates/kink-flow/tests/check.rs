@@ -1722,9 +1722,10 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         );
     }
 
-    /// `results` and `run` print the definition exclusion as `check` prints it (one formatter),
-    /// and each excluded program's cause says why every run of it is excluded, as `check` says it:
-    /// for the definition exclusion and for an excluded initial configuration. A reason only the
+    /// `results` and `run` print the definition exclusion as `check` prints it (one formatter);
+    /// a run of a flagged definition is judged by its own short-circuit readings, and an excluded
+    /// program's cause says why every run of it is excluded, as `check` says it, for an excluded
+    /// initial configuration. A reason only the
     /// run shows can come first (`g0`'s run contradicts `g`'s `total` claim): the program is not
     /// judged either way.
     #[test]
@@ -1771,17 +1772,19 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(exclusion["exclusion"], "short-circuit-reading");
         assert_eq!(&results_document["spec"]["exclusion"], exclusion);
         assert_eq!(&run_document["spec"]["exclusion"], exclusion);
-        let detail = checked["programs"][0]["detail"].as_str().unwrap();
+        // Re-pin CF-03 (reviewed by Sebastien, 2026-11-04): unknown to judged. Each program's
+        // run of `# fetch` reads no skipped operand (its `shortCircuitReadings` list is empty), so
+        // the strict and the short-circuiting readings give the same run and it is judged. Before:
+        // excluded by the definition-wide exclusion. The mutation then survives: it edits
+        // `decode-unknown`, which no program reaches, and every program agrees.
         for program in results_document["programs"].as_array().unwrap() {
-            assert_eq!(program["class"], "unknown", "{program:#}");
-            let cause = program["cause"].as_str().unwrap();
-            assert!(
-                cause.contains(&format!(
-                    "the run is excluded (short-circuit-reading): {detail}"
-                )),
-                "{cause}"
-            );
+            assert_eq!(program["class"], "comparable", "{program:#}");
+            assert!(program["cause"].is_null(), "{program:#}");
         }
+        let row = &run_document["mutations"][0];
+        assert_eq!(row["id"], "unknown-op", "{row:#}");
+        assert_eq!(row["status"], "survived", "{row:#}");
+        assert_eq!(row["reaching"], serde_json::json!([]), "{row:#}");
 
         let manifest = initial_state_flow("initial-state-results").join("FLOW.toml");
         let cache = manifest.parent().unwrap().join("cache");
