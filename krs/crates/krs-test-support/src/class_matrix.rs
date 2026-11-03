@@ -92,6 +92,7 @@ pub mod entry_points;
 pub mod findings;
 pub mod invariants;
 pub mod k7;
+pub mod kinds;
 mod machine;
 pub mod oracle;
 pub mod pending;
@@ -239,11 +240,15 @@ pub enum Base {
     /// The main-cell base with its top-level computation cell named `k`, which K takes as the
     /// computation cell by its name: its cases place the program in `k` or in `code` beside it.
     MainK,
+    /// One cell of every stack check 5's domain names, at the record's level, below an optional
+    /// group and inside a Map collection's instance (S5.0g, [`kinds`]): readable records, claims,
+    /// `cells!` rules and initializers over every pair of the domain's dimensions.
+    Kinds,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
@@ -253,6 +258,7 @@ impl Base {
         Self::Run,
         Self::MainCell,
         Self::MainK,
+        Self::Kinds,
     ];
 
     /// The base's own source, with no case: its default initializer and no command.
@@ -278,6 +284,7 @@ impl Base {
             Self::Run => machine::run_base(),
             Self::MainCell => machine::main_base(),
             Self::MainK => machine::main_k_base(),
+            Self::Kinds => kinds::base(),
         }
     }
 }
@@ -807,6 +814,7 @@ pub fn cases() -> Vec<Case> {
     cells::cases(&mut cases);
     machine::readable_runs(&mut cases);
     cells::runs(&mut cases);
+    kinds::cases(&mut cases);
     terms::cases(&mut cases);
     cases.sort_by(|left, right| left.id.cmp(&right.id));
     for shard in FRONT_SHARDS {

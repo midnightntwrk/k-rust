@@ -399,6 +399,9 @@ const BOUND: [&str; 6] = ["x", "y", "old", "instances0", "rest", "tail"];
 /// initializer's field order, the `initial` declaration).
 #[must_use]
 pub fn entry_case(case: &Case) -> Option<EntryCase> {
+    if case.base == Base::Kinds {
+        return Some(super::kinds::entry_case(case));
+    }
     let segments = case.id.split('/').collect::<Vec<_>>();
     match case.family {
         Family::Readable | Family::Claim | Family::ReadableRun if segments[2] == "typed" => {
@@ -823,6 +826,7 @@ pub fn declares(case: &Case, cell: &str) -> bool {
     match case.base {
         Base::Typed => cell == "k" || typed_stack_of(cell).is_some(),
         Base::MainCell | Base::MainK => matches!(cell, "prog" | "k" | "code"),
+        Base::Kinds => cell == "k" || super::kinds::declares(cell),
         _ => machine_stack_of(cell).is_some(),
     }
 }
@@ -831,7 +835,9 @@ pub fn declares(case: &Case, cell: &str) -> bool {
 /// template (P5).
 #[must_use]
 pub fn declared_stack(case: &Case, cell: &str) -> Vec<Layer> {
-    if case.base == Base::Typed && cell != "k" {
+    if case.base == Base::Kinds {
+        super::kinds::stack(cell)
+    } else if case.base == Base::Typed && cell != "k" {
         typed_stack(cell)
     } else {
         machine_stack(cell)

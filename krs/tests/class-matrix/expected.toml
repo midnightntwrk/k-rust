@@ -1138,6 +1138,584 @@ match = '{readable-run/{result,subject}/bag/{\{ Obj \{ key: x\, m: map![x -> y\,
 class = "anonymous-rest-in-map-literal"
 at = "spelling"
 
+# S5.0g: the kinds base (`class_matrix::kinds`), every row from the cells oracle's `outcome`
+# (tests/cells_oracle.rs `the_kinds_cases_outcomes_print_on_request`); a value `outcome` leaves
+# to the lattice is refused with its sort class where its sort is not the cell's content sort.
+[[refuse]]
+match = '{claim,readable}/result/kinds/job/[x\, ..]'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/result/kinds/{set,stack}/k::configuration::Cell(x)'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{set,stack}/x'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,counter,env,frame,job,ogroup,omap,pc,set}/[0]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/set/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{code,prog}/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{code,prog}/Cmd::Go()'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{code,prog}/G \{ a: 0\, b: 0 \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::k![pgm]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{code,prog}/pgm'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/code/G \{ a: x\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{code,job}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{code,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/code/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/prog/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{bag,frame,omap,seq}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{prog,seq}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/account/Acct \{ id: 0\, aprog: k::k![]\, acode: k::k![]\, apc: 0\, astack: list::empty()\, aseq: IntList::IntsEmpty()\, aenv: k::map![]\, aset: set::empty()\, aframe: Ag \{ aa: 0 \}\, acounter: k::absent!(0)\, aolist: k::absent!(list::empty())\, aomap: k::absent!(k::map![])\, aogroup: k::absent!(Ao \{ aoa: 0 \})\, aqueue: Aqueue \{ ajob: Ajob \{ apay: 0 \} \}\, ashelf: Ashelf \{ abag: Aobj \{ akey: 0 \} \}\, abank: Abank \{ aacct: Aacct \{ aid: 0 \} \} \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/account/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{acode,ajob,aolist,aset,astack}/Some(k::configuration::Cell(x))'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{acode,ajob,aolist,aset,astack}/Some(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{acode,ajob,aolist,aset,astack}/k::configuration::KCell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{acode,ajob,aolist,aset,astack}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/ajob/\{ Ajob \{ apay: x\, .. \}\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{acode,aolist,aset,astack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{abag,aframe,aomap,aprog,aseq}/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/job/Job \{ payload: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/result/kinds/{abag,aframe,aomap,aprog,aseq}/None'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/aframe/[k::fragment![crate::Ag \{ aa: x\, .. \}]\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/abag/[k::fragment![crate::Aobj \{ akey: x\, .. \}]\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{aomap,aprog,aseq}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/job/k::fragment![crate::Job \{ payload: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/job/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{abag,aframe,aomap,aprog,aseq}/\{ y -> x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/aacct/Aacct \{ aid: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/aogroup/Ao \{ aoa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{acounter,aenv,apc}/G \{ a: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/[x\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/bag/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/aacct/k::fragment![crate::Aacct \{ aid: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/aogroup/k::fragment![crate::Ao \{ aoa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{acounter,aenv,apc}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/bag/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/aacct/\{ k::fragment![crate::Aacct \{ aid: x\, .. \}]\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/aogroup/\{ k::fragment![crate::Ao \{ aoa: x\, .. \}]\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{acounter,aenv,apc}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,env,frame,job,seq,set,stack}/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,env,frame,job,pc,seq,set,stack}/Cmd::Go()'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{env,pc,seq,set,stack}/G \{ a: 0\, b: 0 \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,env,frame,job,pc,seq,set,stack}/pgm'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/env/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{set,stack}/G \{ a: x\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/account/[k::fragment![crate::Acct \{ id: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/job/\{ k::fragment![crate::Job \{ payload: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{counter,env,pc}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/ogroup/[k::fragment![crate::O \{ oa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{code,olist,set,stack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{frame,omap,prog,seq}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,code,counter,frame,job,ogroup,olist,pc,prog,seq,set,stack}/k::map![0 -> 1]'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{account,counter,ogroup,pc}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,code,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/None'
+class = "none-in-initializer"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/{counter,ogroup,olist,omap}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{counter,ogroup,olist,omap}/Cmd::Go()'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{counter,olist,omap}/G \{ a: 0\, b: 0 \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/ogroup/O \{ oa: 0 \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/olist/[0]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/omap/k::map![0 -> 1]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{counter,ogroup,olist,omap}/pgm'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{counter,ogroup}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{homap,hprog,hseq}/G \{ a: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/hframe/Hg \{ ha: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/hbag/Hobj \{ hkey: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{hbag,hframe,homap,hprog,hseq}/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{hbag,hframe,homap,hprog,hseq}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{homap,hprog,hseq}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/hframe/k::fragment![crate::Hg \{ ha: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/hbag/k::fragment![crate::Hobj \{ hkey: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{hbag,hframe,homap,hprog,hseq}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{homap,hprog,hseq}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/hframe/\{ k::fragment![crate::Hg \{ ha: x\, .. \}]\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/hbag/\{ k::fragment![crate::Hobj \{ hkey: x\, .. \}]\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/olist/G \{ a: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/Some(k::configuration::Cell(x))'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/Some(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/olist/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/olist/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/k::configuration::KCell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/olist/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/olist/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{hcounter,henv,hpc}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/hacct/\{ Hacct \{ hid: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/hogroup/\{ Ho \{ hoa: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/None'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{hcode,holist,hset,hstack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/hjob/[k::fragment![crate::Hjob \{ hpay: x\, .. \}]\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{hcode,hjob,holist,hset,hstack}/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/omap/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/omap/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/\{ y -> x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,code,env,frame,job,pc,prog,seq,set,stack}/Some(0)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,code,env,frame,job,pc,prog,seq,set,stack}/k::absent!(0)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/overwrite/kinds/{account,env,pc}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{bag,frame,prog,seq}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{bag,frame,prog,seq}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/env/\{ y -> x\, .. \}'
+class = "map-read-in-result"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/stack/[x\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/overwrite/kinds/{counter,ogroup}/None'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{account,counter,env,ogroup,pc}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{acode,ajob,aolist,aset,astack}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/result/kinds/{abag,aframe,aomap,aprog,aseq}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
 [accept]
 
 # alternatives-bind-unequally (NT-2): alternatives in a subject that bind other names
@@ -1754,6 +2332,12 @@ rule [case-TAG]:
 <pc> _ => 1 </pc>
 """
 
+[accept."cells/subject/kinds/frame/x"]
+
+[accept."cells/subject/kinds/omap/Some(k::configuration::Cell(x))"]
+
+[accept."cells/subject/kinds/prog/k::configuration::KCell(x, ..)"]
+
 [accept."cells/subject/pc/k::configuration::Cell(0)"]
 k = """
 rule [case-TAG]:
@@ -1809,6 +2393,8 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."claim/overwrite/kinds/pc/0"]
 
 [accept."claim/result/counter/None"]
 k = """
@@ -1894,6 +2480,8 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept."claim/result/kinds/code/[x, ..]"]
 
 [accept."claim/result/pc/0"]
 k = """
@@ -2270,6 +2858,16 @@ claim [case-TAG]:
 <k> V0:KItem ... </k>
 <pc> _ => 1 </pc>
 """
+
+[accept."claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+
+[accept."claim/subject/kinds/frame/_"]
+lint = "no-effect-entry"
+
+[accept."claim/subject/kinds/omap/Some(x)"]
+
+[accept."claim/subject/kinds/seq/_"]
+lint = "no-effect-entry"
 
 [accept."claim/subject/pc/0"]
 k = """
@@ -2741,6 +3339,44 @@ configuration
 """
 
 [accept."init/k/[pgm]"]
+
+[accept."init/kinds/bag/Obj { key: 0 }"]
+
+[accept."init/kinds/code/[0]"]
+
+[accept."init/kinds/code/k::k![pgm]"]
+
+[accept."init/kinds/counter/Some(0)"]
+
+[accept."init/kinds/counter/k::absent!(0)"]
+
+[accept."init/kinds/env/k::map![0 -> 1]"]
+
+[accept."init/kinds/frame/G { a: 0, b: 0 }"]
+
+[accept."init/kinds/job/Job { payload: 0 }"]
+
+[accept."init/kinds/ogroup/Some(O { oa: 0 })"]
+
+[accept."init/kinds/ogroup/k::absent!(O { oa: 0 })"]
+
+[accept."init/kinds/olist/Some(list::empty())"]
+
+[accept."init/kinds/olist/k::absent!(list::empty())"]
+
+[accept."init/kinds/omap/Some(k::map![])"]
+
+[accept."init/kinds/omap/k::absent!(k::map![])"]
+
+[accept."init/kinds/pc/0"]
+
+[accept."init/kinds/prog/[0]"]
+
+[accept."init/kinds/prog/k::k![pgm]"]
+
+[accept."init/kinds/seq/[0]"]
+
+[accept."init/kinds/stack/[0]"]
 
 [accept."init/main/code/k::k![pgm]"]
 k = """
@@ -3398,6 +4034,8 @@ lint = "no-effect-entry"
 lint = "no-effect-entry"
 same_k_as = ["cells-run/subject/stack/k::configuration::Cell(_)"]
 
+[accept."readable/overwrite/kinds/pc/0"]
+
 [accept."readable/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -3485,6 +4123,8 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept."readable/result/kinds/code/[x, ..]"]
 
 [accept."readable/result/pc/0"]
 k = """
@@ -3870,6 +4510,17 @@ rule [case-TAG]:
 <pc> _ => 1 </pc>
 """
 same_k_as = ["cells/subject/k/k::configuration::KCell(x, ..)"]
+
+[accept."readable/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+
+[accept."readable/subject/kinds/frame/_"]
+lint = "no-effect-entry"
+
+[accept."readable/subject/kinds/omap/Some(x)"]
+same_k_as = ["cells/subject/kinds/omap/Some(k::configuration::Cell(x))"]
+
+[accept."readable/subject/kinds/seq/_"]
+lint = "no-effect-entry"
 
 [accept."readable/subject/pc/0"]
 k = """
@@ -5055,6 +5706,9 @@ principle = "C-lim: a List collection's back instance is not matched in place (b
 
 [cell-exception.'{claim,readable}/result/env/\{ y -> x\, .. \}']
 principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`"
+
+[cell-exception.'{claim,readable}/overwrite/kinds/env/\{ y -> x\, .. \}']
+principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result over an unmatched map as the frame write `Cell(k::map![k -> v, ..])` with a rest the subject never wrote (`rest-mismatch`)"
 
 [cell-exception.'init/k/k::k![Cmd::Go()\, ..pgm]']
 principle = "E3"

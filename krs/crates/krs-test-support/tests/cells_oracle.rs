@@ -267,6 +267,9 @@ fn exceptions() -> Vec<(Glob, String, String)> {
 struct Configuration {
     root: String,
     declarations: Vec<ConfigurationDeclaration>,
+    /// The sorts of the source's `#[k::cons_list]` constructor enums: a cell of one is a cons
+    /// leaf.
+    cons_lists: Vec<String>,
 }
 
 impl Configuration {
@@ -274,9 +277,15 @@ impl Configuration {
         let file = syn::parse_file(source).ok()?;
         let mut root = None;
         let mut declarations = Vec::new();
+        let mut cons_lists = Vec::new();
         for item in file.items {
-            let syn::Item::Struct(item) = item else {
-                continue;
+            let item = match item {
+                syn::Item::Struct(item) => item,
+                syn::Item::Enum(item) => {
+                    cons_lists.extend(cons_list_sort(&item));
+                    continue;
+                }
+                _ => continue,
             };
             let attribute = |name: &str| {
                 item.attrs.iter().any(|attribute| {
@@ -300,6 +309,7 @@ impl Configuration {
         Some(Self {
             root: root?,
             declarations,
+            cons_lists,
         })
     }
 
@@ -330,7 +340,7 @@ impl Configuration {
         let fields = root
             .cells()
             .iter()
-            .map(|field| ConfigurationCell::new(field, &self.declarations, &[]))
+            .map(|field| ConfigurationCell::new(field, &self.declarations, &self.cons_lists))
             .collect();
         let mut ancestors = Vec::new();
         let field = search(fields, name, &mut ancestors)?;
@@ -344,6 +354,42 @@ impl Configuration {
             .unwrap_or_else(|| panic!("the configuration declares the cell `{cell}`"));
         CellKind::entry(&ancestors, &field)
     }
+}
+
+/// The sort of a `#[k::cons_list]` constructors enum: its `#[k::constructors(sort = S, ..)]`.
+fn cons_list_sort(item: &syn::ItemEnum) -> Option<String> {
+    let named = |attribute: &syn::Attribute, name: &str| {
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == name)
+    };
+    if !item
+        .attrs
+        .iter()
+        .any(|attribute| named(attribute, "cons_list"))
+    {
+        return None;
+    }
+    let constructors = item
+        .attrs
+        .iter()
+        .find(|attribute| named(attribute, "constructors"))?;
+    let mut sort = None;
+    let _ = constructors.parse_nested_meta(|meta| {
+        if meta.path.is_ident("sort") {
+            sort = Some(meta.value()?.parse::<syn::Path>()?);
+        } else if meta.input.peek(syn::Token![=]) {
+            let _ = meta.value()?.parse::<syn::Expr>()?;
+        }
+        Ok(())
+    });
+    sort.and_then(|path| {
+        path.segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+    })
 }
 
 /// Every cell-entry base's configuration, parsed from the first of its cases whose rendered
@@ -1163,7 +1209,8 @@ fn check_3_readable_abbreviates_cells() {
         .map(|(case, entry)| {
             (
                 (
-                    entry.entry.side,
+                    case.base,
+                    side_name(entry),
                     entry.entry.cell.clone(),
                     entry.entry.spelling.clone(),
                 ),
@@ -1213,8 +1260,11 @@ fn check_3_readable_abbreviates_cells() {
         if case.family != Family::Readable || !accepted(&case.id) {
             continue;
         }
-        let Some((_, twin)) = twins.iter().find(|((side, cell, spelling), _)| {
-            *side == entry.entry.side && *cell == entry.entry.cell && *spelling == abbreviation
+        let Some((_, twin)) = twins.iter().find(|((base, side, cell, spelling), _)| {
+            *base == case.base
+                && *side == side_name(entry)
+                && *cell == entry.entry.cell
+                && *spelling == abbreviation
         }) else {
             *counts
                 .entry("readable accepted, no generated twin".to_owned())
@@ -1251,6 +1301,14 @@ const LAYER_CLASSES: [&str; 3] = [
     "optional-without-presence",
 ];
 
+/// Why check 4 lets a missing-instances advice on a Set or Map collection be refused again as
+/// `instance-list-shape` (S5.0g, open for the orchestrator): [`advise`] wraps the value in the
+/// collection's braces, a value item, which Q2 refuses in unordered braces (an unordered
+/// instance is chosen by a written record). The advice the design states for such a cell is the
+/// instance record (§2.3's S1 (b) row, `{ Account { child: v, .. }, .. }`), which no wrapping of
+/// a value builds; check 4 first met an unordered collection with S5.0g's kinds base.
+const UNORDERED_ADVICE: &str = "a value wrapped in unordered braces is Q2's value item; the advice is an instance record, which wrapping cannot build";
+
 /// Check 4 (P3's reason): a refusal for a missing layer at the author's head has an advice, the
 /// spelling with every missing layer added, and the advice is admitted at the head.
 ///
@@ -1261,6 +1319,7 @@ const LAYER_CLASSES: [&str; 3] = [
 #[test]
 fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
     let mut failures = Vec::new();
+    let mut unordered_advice = 0;
     let mut counts = BTreeMap::<String, usize>::new();
     for (case, entry) in ENTRIES.iter() {
         let (form, side, path, stack, spelling) = (
@@ -1289,6 +1348,17 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
         };
         let verdict = match judge(form, side, path, stack, &advised, &entry.context) {
             Ok(_) => "admitted".to_owned(),
+            Err(again)
+                if again.depth == added
+                    && again.class == "instance-list-shape"
+                    && matches!(
+                        stack.first(),
+                        Some(Layer::Instances(Order::Set | Order::Map))
+                    ) =>
+            {
+                unordered_advice += 1;
+                "refused again, unordered (UNORDERED_ADVICE)".to_owned()
+            }
             Err(again) if again.depth == added => {
                 failures.push(format!(
                     "{}: refused as {}, and the advice {advised:?} is refused again at the \
@@ -1302,6 +1372,12 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
         *counts
             .entry(format!("{} {verdict}", refusal.class))
             .or_default() += 1;
+    }
+    if unordered_advice == 0 {
+        failures.push(format!(
+            "no advice on an unordered collection is refused again: remove UNORDERED_ADVICE \
+             ({UNORDERED_ADVICE})"
+        ));
     }
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
@@ -1404,7 +1480,7 @@ fn stack_name(cell: &str, stack: &[Layer]) -> String {
         Notation::Set => "leaf Set",
     };
     match stack {
-        [Layer::Computation] if cell == "code" => "second computation".to_owned(),
+        [Layer::Computation] if cell.ends_with("code") => "second computation".to_owned(),
         [Layer::Computation] => "computation".to_owned(),
         [Layer::Leaf(notation)] => leaf(notation).to_owned(),
         [Layer::Group(_)] => "group".to_owned(),
@@ -1422,27 +1498,16 @@ fn stack_name(cell: &str, stack: &[Layer]) -> String {
     }
 }
 
-/// The tuples of the domain no generated case covers, which S5.0g adds: `(form, side, path,
-/// stack, mark)`, each part a value or `*` for every value. On the cell's own level (path
-/// `none`): the 8 stacks the fixtures declare no cell of (`*` Set only on the run base's readable
-/// records and `cells!` rules), and on every declared stack `cells!` instance braces and `_` in a
-/// `cells!` result; every result over a cell its subject does not match (Q1's overwrite, R2);
-/// and every entry naming a cell below a `?` or `*` ancestor (S1 (b), R1).
-const UNCOVERED: [(&str, &str, &str, &str, &str); 13] = [
-    ("*", "*", "none", "leaf Cons", "*"),
-    ("*", "*", "none", "leaf Set", "*"),
-    ("*", "*", "none", "? leaf List", "*"),
-    ("*", "*", "none", "? leaf Map", "*"),
-    ("*", "*", "none", "? group", "*"),
-    ("*", "*", "none", "* Map", "*"),
-    ("*", "*", "none", "* Set", "*"),
-    ("*", "*", "none", "second computation", "*"),
-    ("cells", "*", "none", "*", "setinst"),
-    ("cells", "result", "none", "*", "value:_"),
-    ("*", "result-unmatched", "none", "*", "*"),
-    ("*", "*", "below ?", "*", "*"),
-    ("*", "*", "below *", "*", "*"),
-];
+/// The reason of an [`UNCOVERED`] entry whose tuples no case covers because the sweep golden
+/// prints `outcome` at each of them, and its review judges it (the coverage ruling: cases cover
+/// every pair of the domain's dimensions; interactions of more than two are the sweep's).
+const SWEEP: &str = "judged by the reviewed sweep row";
+
+/// The tuples of the domain no generated case covers: `(form, side, path, stack, mark, reason)`,
+/// each part a value or `*` for every value. An entry with the [`SWEEP`] reason leaves its tuples
+/// to the sweep golden, which must print `outcome` at each; check 5 still requires every pair of
+/// the domain's dimensions to be some case's, unless an entry with another reason names it.
+const UNCOVERED: [(&str, &str, &str, &str, &str, &str); 1] = [("*", "*", "*", "*", "*", SWEEP)];
 
 fn form_name(form: Form) -> &'static str {
     match form {
@@ -1471,26 +1536,12 @@ fn path_name(path: &[Layer]) -> &'static str {
     }
 }
 
-/// Check 5: every (form × side × path × stack × mark) tuple of the domain is some generated
-/// case's, or is listed in [`UNCOVERED`]; and every entry of [`UNCOVERED`] lists some tuple no
-/// case covers. A rule form's sides are its subject, its result over a matched cell and over an
-/// unmatched one; an initializer's is its value, which names no cell through a path (a struct
-/// literal names its own fields only).
-#[test]
-fn check_5_the_generated_cases_cover_the_domain() {
-    let mut covered = BTreeSet::new();
-    for (case, entry) in ENTRIES.iter() {
-        let declared = entry_cases::declared_stack(case, &entry.entry.cell);
-        covered.insert((
-            form_name(entry.form),
-            side_name(entry),
-            path_name(&entry.entry.path),
-            stack_name(&entry.entry.cell, &declared),
-            mark_name(entry.form, &entry.entry.spelling),
-        ));
-    }
-    let mut uncovered = Vec::new();
-    let mut domain = 0;
+/// A tuple of check 5's domain: form, side, path, stack and mark.
+type Tuple = (&'static str, &'static str, &'static str, String, String);
+
+/// The domain of check 5, in order.
+fn domain() -> Vec<Tuple> {
+    let mut domain = Vec::new();
     for form in [Form::Readable, Form::Claim, Form::Cells, Form::Init] {
         let (sides, paths): (&[&str], &[&str]) = if form == Form::Init {
             (&["initializer"], &["none"])
@@ -1504,35 +1555,149 @@ fn check_5_the_generated_cases_cover_the_domain() {
             for path in paths {
                 for stack in STACKS {
                     for mark in marks(form) {
-                        domain += 1;
-                        let tuple = (
+                        domain.push((
                             form_name(form),
                             *side,
                             *path,
                             stack.to_owned(),
                             (*mark).to_owned(),
-                        );
-                        if !covered.contains(&tuple) {
-                            uncovered.push(tuple);
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    domain
+}
+
+/// The tuple's value at dimension `at` (0 form, 1 side, 2 path, 3 stack, 4 mark).
+fn part(tuple: &Tuple, at: usize) -> &str {
+    match at {
+        0 => tuple.0,
+        1 => tuple.1,
+        2 => tuple.2,
+        3 => &tuple.3,
+        _ => &tuple.4,
+    }
+}
+
+/// The pairs a tuple holds, as check 5 requires them: for each two of its dimensions, their
+/// values, within the tuple's form (a form's marks are its own, and so are its sides).
+fn pairs(tuple: &Tuple) -> Vec<(String, usize, String, usize, String)> {
+    let mut pairs = Vec::new();
+    for first in 0..5 {
+        for second in first + 1..5 {
+            pairs.push((
+                tuple.0.to_owned(),
+                first,
+                part(tuple, first).to_owned(),
+                second,
+                part(tuple, second).to_owned(),
+            ));
+        }
+    }
+    pairs
+}
+
+/// The tuples at which the sweep golden prints `outcome`: its form, side, path and stack by row,
+/// its mark by column. The second computation differs from the first by its name only (P1), so
+/// the computation's rows are its.
+fn sweep_tuples() -> BTreeSet<Tuple> {
+    let mut tuples = BTreeSet::new();
+    let paths: [(&str, Vec<Layer>); 3] = [
+        ("none", Vec::new()),
+        ("below ?", vec![Layer::Optional]),
+        ("below *", vec![Layer::Instances(Order::List)]),
+    ];
+    for form in [Form::Readable, Form::Claim, Form::Cells, Form::Init] {
+        let sides: &[&str] = if form == Form::Init {
+            &["initializer"]
+        } else {
+            &["subject", "result", "result-unmatched"]
+        };
+        for (_, stack) in sweep_stacks() {
+            let mut names = vec![stack_name("", &stack)];
+            if stack == [Layer::Computation] {
+                names.push("second computation".to_owned());
+            }
+            for text in sweep_spellings(form) {
+                let probe = Probe {
+                    form,
+                    side: Side::Subject,
+                    path: &[],
+                    stack: &stack,
+                    text,
+                    other: None,
+                    written: false,
+                    bound: &[],
+                };
+                let mark = mark_name(form, &declared_as(&probe.read(text)));
+                for side in sides {
+                    for (path, _) in &paths {
+                        for name in &names {
+                            tuples.insert((
+                                form_name(form),
+                                *side,
+                                *path,
+                                name.clone(),
+                                mark.clone(),
+                            ));
                         }
                     }
                 }
             }
         }
     }
-    let lists = |entry: &(&str, &str, &str, &str, &str),
-                 tuple: &(&str, &str, &str, String, String)| {
-        (entry.0 == "*" || entry.0 == tuple.0)
-            && (entry.1 == "*" || entry.1 == tuple.1)
-            && (entry.2 == "*" || entry.2 == tuple.2)
-            && (entry.3 == "*" || entry.3 == tuple.3)
-            && (entry.4 == "*" || entry.4 == tuple.4)
-    };
-    let mut failures = uncovered
+    tuples
+}
+
+/// Check 5: every pair of the domain's dimensions (form, side, path, stack and mark; matched or
+/// unmatched is the side's) is some generated case's, within its form, so each mark of a form
+/// is met on every stack: the coverage ruling. A tuple no case covers is listed in
+/// [`UNCOVERED`]; one listed with the [`SWEEP`] reason must be a tuple the sweep golden prints
+/// `outcome` at, and a missing pair fails unless an entry with another reason names it. Every
+/// entry lists some tuple no case covers. A rule form's sides are its subject, its result over a
+/// matched cell and over an unmatched one; an initializer's is its value, which names no cell
+/// through a path (a struct literal names its own fields only).
+#[test]
+fn check_5_the_generated_cases_cover_the_domain() {
+    let mut covered = BTreeSet::new();
+    for (case, entry) in ENTRIES.iter() {
+        let declared = entry_cases::declared_stack(case, &entry.entry.cell);
+        covered.insert((
+            form_name(entry.form),
+            side_name(entry),
+            path_name(&entry.entry.path),
+            stack_name(&entry.entry.cell, &declared),
+            mark_name(entry.form, &entry.entry.spelling),
+        ));
+    }
+    let domain = domain();
+    let uncovered = domain
         .iter()
-        .filter(|tuple| !UNCOVERED.iter().any(|entry| lists(entry, tuple)))
-        .map(|tuple| format!("uncovered and not listed: {tuple:?}"))
+        .filter(|tuple| !covered.contains(*tuple))
         .collect::<Vec<_>>();
+    let lists = |entry: &(&str, &str, &str, &str, &str, &str), tuple: &Tuple| {
+        (0..5).all(|at| {
+            let value = [entry.0, entry.1, entry.2, entry.3, entry.4][at];
+            value == "*" || value == part(tuple, at)
+        })
+    };
+    let mut failures = Vec::new();
+    let sweep = sweep_tuples();
+    for tuple in &uncovered {
+        let listing = UNCOVERED
+            .iter()
+            .filter(|entry| lists(entry, tuple))
+            .collect::<Vec<_>>();
+        if listing.is_empty() {
+            failures.push(format!("uncovered and not listed: {tuple:?}"));
+        } else if listing.iter().all(|entry| entry.5 == SWEEP) && !sweep.contains(*tuple) {
+            failures.push(format!(
+                "left to the sweep, which prints no outcome at it: {tuple:?}"
+            ));
+        }
+    }
     for entry in &UNCOVERED {
         if !uncovered.iter().any(|tuple| lists(entry, tuple)) {
             failures.push(format!(
@@ -1540,15 +1705,52 @@ fn check_5_the_generated_cases_cover_the_domain() {
             ));
         }
     }
+    let have = covered.iter().flat_map(pairs).collect::<BTreeSet<_>>();
+    let names = |pair: &(String, usize, String, usize, String),
+                 entry: &(&str, &str, &str, &str, &str, &str)| {
+        let values = [entry.0, entry.1, entry.2, entry.3, entry.4];
+        (values[0] == "*" || values[0] == pair.0)
+            && (values[pair.1] == "*" || values[pair.1] == pair.2)
+            && (values[pair.3] == "*" || values[pair.3] == pair.4)
+    };
+    let dimension = ["form", "side", "path", "stack", "mark"];
+    let mut missing = 0;
+    let mut excused = BTreeSet::new();
+    for pair in domain.iter().flat_map(pairs).collect::<BTreeSet<_>>() {
+        if have.contains(&pair) {
+            continue;
+        }
+        missing += 1;
+        let by = UNCOVERED
+            .iter()
+            .position(|entry| entry.5 != SWEEP && names(&pair, entry));
+        if let Some(by) = by {
+            excused.insert(by);
+        } else {
+            failures.push(format!(
+                "{}: no case has {} {:?} with {} {:?}",
+                pair.0, dimension[pair.1], pair.2, dimension[pair.3], pair.4
+            ));
+        }
+    }
+    for (at, entry) in UNCOVERED.iter().enumerate() {
+        if entry.5 != SWEEP && !excused.contains(&at) {
+            failures.push(format!(
+                "UNCOVERED {entry:?} names no missing pair: give it the sweep reason"
+            ));
+        }
+    }
     println!(
-        "domain {domain}, covered {}, uncovered {}",
-        domain - uncovered.len(),
+        "domain {}, covered {}, uncovered {}, pairs missing {missing}",
+        domain.len(),
+        domain.len() - uncovered.len(),
         uncovered.len()
     );
     assert!(
         failures.is_empty(),
-        "{} failures: {failures:#?}",
-        failures.len()
+        "{} failures: {:#?}",
+        failures.len(),
+        failures.iter().take(60).collect::<Vec<_>>()
     );
 }
 
@@ -3460,4 +3662,33 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
     }
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base case's ID, `outcome` and rule-level class
+/// to FILE (S5.0g's rows come from `outcome`, and the generated table diff is reviewed).
+#[test]
+fn the_kinds_cases_outcomes_print_on_request() {
+    let Some(file) = std::env::var_os("KRS_CELLS_ROWS") else {
+        return;
+    };
+    let mut out = String::new();
+    for (case, entry) in ENTRIES.iter() {
+        if case.base != Base::Kinds {
+            continue;
+        }
+        let got = entry.outcome();
+        let rule = if got.admits() {
+            entry.rule_outcome(got)
+        } else {
+            None
+        };
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}",
+            case.id,
+            sweep_name(got),
+            rule.unwrap_or("-")
+        );
+    }
+    std::fs::write(file, out).expect("the rows file is written");
 }

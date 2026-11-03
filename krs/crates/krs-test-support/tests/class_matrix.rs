@@ -92,16 +92,19 @@ fn the_case_count_per_family_is_pinned_and_capped() {
     assert_eq!(
         counts,
         BTreeMap::from([
-            // 7 kinds × 13 spellings × 2 sides, and 8 typed cells × 4 contents × 2 sides.
-            (Family::Readable, 182 + 64),
-            (Family::Claim, 182 + 64),
-            // 7 kinds × (13 subject + 13 result spellings).
-            (Family::Cells, 182),
+            // 7 kinds × 13 spellings × 2 sides, 8 typed cells × 4 contents × 2 sides, and the
+            // kinds base's 15 stacks × 9 marks (S5.0g).
+            (Family::Readable, 182 + 64 + 15 * 9),
+            (Family::Claim, 182 + 64 + 15 * 9),
+            // 7 kinds × (13 subject + 13 result spellings), and the kinds base's 15 stacks × 9
+            // marks.
+            (Family::Cells, 182 + 15 * 9),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
-            // the typed `stmt` written after it starts.
-            (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1),
+            // the typed `stmt` written after it starts, and the kinds base's 15 stacks × 10
+            // initializer marks.
+            (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1 + 15 * 10),
             // (81 positions of depth 1 + 25 positions constructs open) × 51 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings
