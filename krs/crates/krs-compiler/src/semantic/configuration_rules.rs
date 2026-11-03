@@ -624,7 +624,7 @@ pub(super) fn lower_configuration_rule_descriptor(
     {
         let hole = SemanticId::new(step.hole.clone())?;
         for (cell, clause) in rule.subject.cells.iter().zip(&clauses) {
-            if cell.wrapper != Some(krs_ir::CellWrapper::KCell)
+            if !computation_cell(&cell.field.cell, terms.declarations)?
                 && clause
                     .parts()
                     .iter()
@@ -890,7 +890,8 @@ fn lower_configuration_rule_clauses(
                 subject_sorts,
                 result_sorts,
             )?;
-            restated.push(after.map(|after| (subject.wrapper, after)));
+            let computation = computation_cell(&subject.field.cell, terms.declarations)?;
+            restated.push(after.map(|after| (computation, after)));
             Ok(ConfigurationClause::Fixed(clause))
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -903,15 +904,14 @@ fn lower_configuration_rule_clauses(
         && rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Transition
         && super::rules::changes_no_cell(&clauses)
     {
-        let restated_at = |wanted: Option<krs_ir::CellWrapper>| {
+        let restated_at = |computation_only: bool| {
             restated.iter().position(|after| {
                 after
                     .as_ref()
-                    .is_some_and(|(wrapper, _)| wanted.is_none() || *wrapper == wanted)
+                    .is_some_and(|(computation, _)| !computation_only || *computation)
             })
         };
-        if let Some(index) =
-            restated_at(Some(krs_ir::CellWrapper::KCell)).or_else(|| restated_at(None))
+        if let Some(index) = restated_at(true).or_else(|| restated_at(false))
             && let Some((_, after)) = restated[index].take()
             && let ConfigurationClause::Fixed(clause) = &mut clauses[index]
         {
@@ -1487,7 +1487,7 @@ pub(super) fn lower_context_alias_descriptor(
         .iter()
         .map(|pattern| lower_context_alias_cell(&mut terms, pattern, &binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
-    check_here_in_computation_cell(descriptor, alias, &cells)?;
+    check_here_in_computation_cell(descriptor, declarations, alias, &cells)?;
     let variables = terms.finish_unconditioned("a context alias")?;
     let selected = alias
         .pattern
@@ -1536,16 +1536,27 @@ pub(super) fn lower_context_alias_descriptor(
     ))
 }
 
+/// Whether the cell `identity` names is a computation cell, by its declared kind (S5.1's D3):
+/// a hole, a HERE and a restated rewrite ask what the cell is, not the wrapper its entry writes.
+fn computation_cell(
+    identity: &krs_ir::DescriptorCellIdentity,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<bool, DescriptorLoweringError> {
+    let field = require_cell_field(identity, declarations)?;
+    Ok(super::references::declared_kind(field, declarations).is_computation())
+}
+
 /// Checks that a context alias's HERE lies in the computation cell
 /// (KF-021): heating moves it to the front of `k`.
 fn check_here_in_computation_cell(
     descriptor: &Descriptor,
+    declarations: &DescriptorIndex<'_>,
     alias: &krs_ir::DescriptorContextAlias,
     cells: &[FixedCellPattern<SemanticId, SemanticTerm>],
 ) -> Result<(), DescriptorLoweringError> {
     let here = SemanticId::new(alias.here.clone())?;
     for (pattern, cell) in alias.pattern.cells.iter().zip(cells) {
-        if pattern.wrapper != Some(krs_ir::CellWrapper::KCell)
+        if !computation_cell(&pattern.field.cell, declarations)?
             && super::evaluation::mentions(cell.pattern(), &here)
         {
             return Err(super::evaluation::outside_computation_cell(
