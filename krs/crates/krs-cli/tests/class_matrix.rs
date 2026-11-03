@@ -953,13 +953,21 @@ fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
         .extend(unchecked_drift(name, &shard.unchecked, UNCHECKED, whole));
 }
 
-/// The own text of every generated case the table accepts, for the forms K8 reads.
+/// The own text of every generated case the table accepts and KRS accepts as the table says (no
+/// pending K2 entry, under its ID or `full/`), for the forms K8 reads. A case whose own K2 verdict
+/// is red shows no form an author can write: the product refuses it or writes other K, so it
+/// is no witness that advice to write its form can be followed.
 fn accepted_corpus(resolution: &Resolution<'_>) -> Corpus {
+    let pending = &spec().pending.entries;
     Corpus::new(
         spec()
             .cases
             .iter()
             .filter(|case| matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_))))
+            .filter(|case| {
+                !pending.contains_key(&case.id)
+                    && !pending.contains_key(&format!("{FULL}{}", case.id))
+            })
             .map(|case| (case.id.clone(), case.own_source())),
     )
 }
