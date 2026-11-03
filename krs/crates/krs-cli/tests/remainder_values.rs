@@ -403,3 +403,47 @@ k::rules! {
     "#]]
     .assert_debug_eq(&errors);
 }
+
+/// A result remainder that reuses a subject frame of another kind, here the configuration's
+/// remainder as the computation's rest, is refused once the sentence's entries are admitted:
+/// in a rule, after the entry table, and in a claim, whose entries no table judges, at once.
+#[test]
+fn a_result_remainder_of_another_frame_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "another-frame",
+            r#"
+#[k::rule(label = "moved")]
+pub fn moved(
+    k::cells! { k: k::configuration::KCell(crate::Cmd::Drop(), tail @ ..), state @ .. }: crate::Machine,
+) -> crate::Machine {
+    k::cells! { k: k::configuration::KCell(crate::Cmd::Bump(), ..state), ..state }
+}
+"#,
+        ),
+        (
+            "claim-another-frame",
+            r#"
+#[k::claim(all_paths, label = "moved")]
+pub fn moved(
+    k::cells! { k: k::configuration::KCell(crate::Cmd::Drop(), tail @ ..), state @ .. }: crate::Machine,
+) -> crate::Machine {
+    k::cells! { k: k::configuration::KCell(crate::Cmd::Bump(), ..state), ..state }
+}
+"#,
+        ),
+    ];
+    let errors = cases.map(|(name, rules)| {
+        let manifest = package(temporary.path(), name, &format!("{PREAMBLE}{rules}"));
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            "another-frame: error[krs::syntax::unsupported-rule-body]: unsupported rule body: a result remainder must reuse a subject frame of the same kind",
+            "claim-another-frame: error[krs::syntax::unsupported-rule-body]: unsupported rule body: a result remainder must reuse a subject frame of the same kind",
+        ]
+    "#]]
+    .assert_debug_eq(&errors);
+}

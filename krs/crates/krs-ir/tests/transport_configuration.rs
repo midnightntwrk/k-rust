@@ -1055,25 +1055,22 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
         Err(StateTransportError::ItemKind { .. })
     ));
 
+    // A result remainder reusing no subject frame of its kind is carried as written: whether it
+    // does pairs the result with the subject, which the collector judges after the entries'
+    // kinds, and the compiler pairs each frame with the subject's.
     let mut unbound_reuse = rule.clone();
     unbound_reuse.result.as_mut().unwrap().remainder = ProtocolRuleFrame::Reuse {
         key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
         binding: "missing".into(),
     };
-    assert!(matches!(
-        unbound_reuse.validate(ItemKind::Rule),
-        Err(StateTransportError::InvalidTerm(_))
-    ));
+    assert_eq!(unbound_reuse.validate(ItemKind::Rule), Ok(()));
 
     let mut wrong_result_kind = rule.clone();
     wrong_result_kind.result.as_mut().unwrap().remainder = ProtocolRuleFrame::Reuse {
         key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
         binding: "rest".into(),
     };
-    assert!(matches!(
-        wrong_result_kind.validate(ItemKind::Rule),
-        Err(StateTransportError::InvalidTerm(_))
-    ));
+    assert_eq!(wrong_result_kind.validate(ItemKind::Rule), Ok(()));
 
     let mut wrong_side = rule;
     wrong_side.result.as_mut().unwrap().cells[0].field.key =

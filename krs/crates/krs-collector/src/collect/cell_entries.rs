@@ -34,12 +34,59 @@ pub(super) struct ParsedField<R> {
 }
 
 /// A `cells!` sentence's authored fields: its subject's, its result's (none for a single-body
-/// rule), and the names its parameters bind.
+/// rule), the names its parameters bind, and the refusal of a result remainder that reuses no
+/// subject frame of its kind, which is asked once the entries are admitted.
 #[derive(Clone, Debug)]
 pub(super) struct ParsedCells<R> {
     subject: Vec<ParsedField<R>>,
     result: Option<Vec<ParsedField<R>>>,
     parameters: Vec<String>,
+    reuse: Option<Reuse<R>>,
+}
+
+/// A result remainder's refusal ([`krs_syntax::StateRuleItem::reuse_refusal`]): the parser's
+/// message and where the remainder is.
+#[derive(Clone, Debug)]
+struct Reuse<R> {
+    detail: String,
+    range: Option<R>,
+}
+
+impl Reuse<Coordinates> {
+    fn of(error: &krs_syntax::SyntaxError) -> Self {
+        Self {
+            detail: error.to_string(),
+            range: super::provenance::token_coordinates(krs_syntax::TokenRange::new(
+                error.span(),
+                error.span(),
+            ))
+            .ok(),
+        }
+    }
+}
+
+impl Reuse<SourceRange> {
+    fn refused(&self) -> CollectionError {
+        let error = CollectionError::new(CollectionErrorKind::ResultRemainderReuse, &self.detail);
+        match &self.range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        }
+    }
+}
+
+/// The refusal of `rule`'s result remainder that reuses no subject frame of its kind, at once:
+/// for a sentence whose entries no admission judges first.
+pub(super) fn reuse_refused(rule: &krs_syntax::StateRuleItem) -> Result<(), CollectionError> {
+    match rule.reuse_refusal() {
+        Some(error) => {
+            let error =
+                CollectionError::new(CollectionErrorKind::ResultRemainderReuse, error.to_string())
+                    .with_span(error.span());
+            Err(error)
+        }
+        None => Ok(()),
+    }
 }
 
 /// The authored fields of a sentence, located in its source document.
@@ -72,10 +119,12 @@ impl ParsedCells<Coordinates> {
             subject: fields(pattern)?,
             result: None,
             parameters: parameters.into_iter().collect(),
+            reuse: None,
         })
     }
 
-    /// The fields of a `cells!` rule; `None` where a payload is no list of fields.
+    /// The fields of a `cells!` rule, with its result remainders' refusal; `None` where a
+    /// payload is no list of fields.
     pub(super) fn of_rule(rule: &krs_syntax::StateRuleItem) -> Option<Self> {
         Some(Self {
             subject: fields(rule.subject())?,
@@ -88,6 +137,7 @@ impl ParsedCells<Coordinates> {
                 .iter()
                 .map(|binding| binding.name().to_string())
                 .collect(),
+            reuse: rule.reuse_refusal().as_ref().map(Reuse::of),
         })
     }
 
@@ -110,6 +160,13 @@ impl ParsedCells<Coordinates> {
             subject: locate(&self.subject),
             result: self.result.as_deref().map(locate),
             parameters: self.parameters.clone(),
+            reuse: self.reuse.as_ref().map(|reuse| Reuse {
+                detail: reuse.detail.clone(),
+                range: reuse
+                    .range
+                    .as_ref()
+                    .and_then(|coordinates| coordinates.range_in(document)),
+            }),
         }
     }
 }
@@ -117,53 +174,69 @@ impl ParsedCells<Coordinates> {
 /// Judges the `cells!` entries of every sentence of `bundle` whose authored fields `cells`
 /// holds: a `cells!` rule's or claim's, pairing a result's with its subject's, or a single-body
 /// rule's in place; and the one-sided pattern of a context, a context alias or an equation's
-/// function context, which the sentence keeps as it matched it ([`Rewrite::Kept`]).
+/// function context, which the sentence keeps as it matched it ([`Rewrite::Kept`]). Then, once
+/// a rule's entries are admitted, its result remainders, each against the subject frame it
+/// reuses: that pairs the result with the subject, after each entry's form and kind.
 ///
 /// # Errors
 ///
-/// The first refused entry, with its class's code, at its value.
+/// The first refused entry, with its class's code, at its value; else the first sentence's
+/// result remainder that reuses no subject frame of its kind, at the remainder.
 pub(super) fn judge(
     bundle: &DescriptorBundle,
     cells: &BTreeMap<StableItemId, LocatedCells>,
 ) -> Result<(), CollectionError> {
     let index = DescriptorIndex::new(bundle);
     for (id, authored) in cells {
-        let Some(descriptor) = index.get(id) else {
-            continue;
-        };
-        let (configuration, subject, result, rewrite) = match descriptor.payload() {
-            DescriptorPayload::ConfigurationRule(rule) => (
-                &rule.subject_configuration.configuration,
-                &rule.subject.cells,
-                rule.result.as_ref().map(|cells| cells.cells.as_slice()),
-                match (&rule.result, rule.sentence_kind) {
-                    (_, ConfigurationSentenceKind::Context) => Rewrite::Kept { as_rule: true },
-                    (Some(_), _) => Rewrite::Result,
-                    (None, _) => Rewrite::InPlace,
-                },
-            ),
-            DescriptorPayload::ContextAlias(alias) => (
-                &alias.configuration.configuration,
-                &alias.pattern.cells,
-                None,
-                Rewrite::Kept { as_rule: false },
-            ),
-            DescriptorPayload::StructuredRule(rule) => {
-                let Some(context) = &rule.function_context else {
-                    continue;
-                };
-                (
-                    &context.configuration.configuration,
-                    &context.cells.cells,
-                    None,
-                    Rewrite::Kept { as_rule: false },
-                )
-            }
-            _ => continue,
-        };
-        judge_sentence(&index, configuration, subject, result, rewrite, authored)?;
+        judge_entries(&index, id, authored)?;
+        if let Some(reuse) = &authored.reuse {
+            return Err(reuse.refused());
+        }
     }
     Ok(())
+}
+
+/// Judges the entries of the sentence `id`, where the bundle holds it as a sentence with
+/// `cells!` entries.
+fn judge_entries(
+    index: &DescriptorIndex<'_>,
+    id: &StableItemId,
+    authored: &LocatedCells,
+) -> Result<(), CollectionError> {
+    let Some(descriptor) = index.get(id) else {
+        return Ok(());
+    };
+    let (configuration, subject, result, rewrite) = match descriptor.payload() {
+        DescriptorPayload::ConfigurationRule(rule) => (
+            &rule.subject_configuration.configuration,
+            &rule.subject.cells,
+            rule.result.as_ref().map(|cells| cells.cells.as_slice()),
+            match (&rule.result, rule.sentence_kind) {
+                (_, ConfigurationSentenceKind::Context) => Rewrite::Kept { as_rule: true },
+                (Some(_), _) => Rewrite::Result,
+                (None, _) => Rewrite::InPlace,
+            },
+        ),
+        DescriptorPayload::ContextAlias(alias) => (
+            &alias.configuration.configuration,
+            &alias.pattern.cells,
+            None,
+            Rewrite::Kept { as_rule: false },
+        ),
+        DescriptorPayload::StructuredRule(rule) => {
+            let Some(context) = &rule.function_context else {
+                return Ok(());
+            };
+            (
+                &context.configuration.configuration,
+                &context.cells.cells,
+                None,
+                Rewrite::Kept { as_rule: false },
+            )
+        }
+        _ => return Ok(()),
+    };
+    judge_sentence(index, configuration, subject, result, rewrite, authored)
 }
 
 /// The cells of one side of a sentence, as the descriptor holds them.

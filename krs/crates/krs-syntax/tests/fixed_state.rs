@@ -3,7 +3,7 @@
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     ConfigurationCellContent, InitializerCellContent, KSequenceNotation, MapBody, ProvenanceRole,
-    StateMacroRemainder, StateRuleReferenceKind, StateTerm, StructuredFormatFragment,
+    StateMacroRemainder, StateRuleReferenceKind, StateTerm, StructuredFormatFragment, SyntaxError,
     SyntaxErrorKind,
 };
 use krs_test_support::assert_rejects;
@@ -1007,15 +1007,41 @@ fn whole_configuration_rule_requires_uses_the_shared_typed_term_catalog() {
     );
 }
 
+/// A result remainder that names no subject frame of its kind is refused by
+/// [`krs_syntax::StateRuleItem::reuse_refusal`], which pairs the result with the subject, not
+/// by parsing: the entry it stands in is judged against its cell's kind first.
 #[test]
-fn whole_configuration_rules_reject_unbound_frames_and_non_rule_shells() {
+fn a_result_remainder_of_another_frame_is_refused_after_parsing() {
+    let reuse = SyntaxErrorKind::UnsupportedRuleBody {
+        reason: "a result remainder must reuse a subject frame of the same kind",
+    };
+    for source in [
+        // An unbound frame.
+        "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..missing) } }",
+        // The configuration's remainder as a computation's tail.
+        "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(x, ..state), ..state } }",
+        // Instances written on a plain cell over no instances the subject binds (the class
+        // matrix's `cells/result/pc/[k::fragment![..], ..instances0]`).
+        "fn bad(x: Term<Id>, old: Term<Int>, cells! { k: KCell(x, tail @ ..), pc: Cell(old) }: Machine) -> Machine { cells! { k: KCell(..tail), pc: [k::fragment![crate::Job { payload: x, ..old }], ..instances0] } }",
+    ] {
+        let rule = krs_syntax::StateRuleItem::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        assert_eq!(
+            rule.reuse_refusal().as_ref().map(SyntaxError::kind),
+            Some(&reuse),
+            "{source}"
+        );
+    }
+    let rule = krs_syntax::StateRuleItem::parse_source(
+        "fn good(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(..tail), ..state } }",
+    )
+    .unwrap();
+    assert!(rule.reuse_refusal().is_none());
+}
+
+#[test]
+fn whole_configuration_rules_reject_non_rule_shells() {
     for (source, expected_kind) in [
-        (
-            "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..missing) } }",
-            SyntaxErrorKind::UnsupportedRuleBody {
-                reason: "a result remainder must reuse a subject frame of the same kind",
-            },
-        ),
         (
             "fn bad(term![X]: Machine) -> Machine { cells! { k: KCell(X, ..state) } }",
             SyntaxErrorKind::UnsupportedRulePattern {

@@ -2932,18 +2932,10 @@ fn validate_frame<S>(
             discover_binding(side.into(), binding, discovered);
             Ok(())
         }
-        (RuleSide::Right, ProtocolRuleFrame::Reuse { binding, .. }) => {
-            // A result map's rest may also name a map the subject binds whole
-            // (`map![k -> v, ..m]` over `Cell(m)`): the entries are written over it.
-            let whole_map = binding_kind == RuleBindingUse::MapFrame
-                && binding_has_kind(bindings, binding, RuleBindingUse::Term);
-            if !whole_map && !binding_has_kind(bindings, binding, binding_kind) {
-                return Err(StateTransportError::InvalidTerm(
-                    StateTermReason::ResultFrameBindingKind,
-                ));
-            }
-            Ok(())
-        }
+        // Whether a result's `..name` names a subject frame of its own kind pairs the result with
+        // the subject, which the collector judges after each entry's kind; the descriptor
+        // carries the reuse as written, and the compiler pairs each frame with the subject's.
+        (RuleSide::Right, ProtocolRuleFrame::Reuse { .. }) => Ok(()),
         (RuleSide::Left, ProtocolRuleFrame::Reuse { .. })
         | (RuleSide::Right, ProtocolRuleFrame::Anonymous { .. } | ProtocolRuleFrame::Bind { .. }) => {
             Err(StateTransportError::InvalidTerm(

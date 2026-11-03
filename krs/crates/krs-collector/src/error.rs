@@ -86,6 +86,10 @@ pub enum CollectionErrorKind {
     CellKindDisagreement,
     /// A `cells!` entry the entry-admission table refuses, with its class (design S5, §2.3).
     CellEntry(krs_syntax::cell_entries::Refusal),
+    /// A `cells!` result remainder that names no subject frame of its own kind
+    /// ([`krs_syntax::StateRuleItem::reuse_refusal`]), asked once the sentence's entries are
+    /// admitted, or at once for a sentence whose entries the table does not judge.
+    ResultRemainderReuse,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -244,6 +248,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::RecordUpdateInMatchedField => codes::syntax::INVALID_RECORD_UPDATE,
             CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
             CollectionErrorKind::CellEntry(refusal) => refusal.code(),
+            CollectionErrorKind::ResultRemainderReuse => codes::syntax::UNSUPPORTED_RULE_BODY,
         };
         let diagnostic = Diagnostic::error(
             code,

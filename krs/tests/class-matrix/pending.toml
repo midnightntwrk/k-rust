@@ -148,30 +148,6 @@ deviation = "10 pairs only semantic-validator holds; 0 pairs only coverage holds
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
-["cells/result/counter/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells/result/env/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells/result/frame/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells/result/k/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells/result/pc/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells/result/stack/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
 ["claim/result/counter/0"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -2646,30 +2622,6 @@ deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplif
 # NT-19: the run families (`readable-run/..`, `cells-run/..`), the readable records and `cells!` rules
 # on the run base, which K7 runs. A twin of a pending machine-base case deviates exactly as its twin
 # does (checked when these entries were made), under its twin's finding and step.
-
-["cells-run/result/counter/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells-run/result/env/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells-run/result/frame/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells-run/result/k/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells-run/result/pc/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
-
-["cells-run/result/stack/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-rule-body @ spelling"
 
 ["k3/readable-run/subject/job/x"]
 finding = "B7"

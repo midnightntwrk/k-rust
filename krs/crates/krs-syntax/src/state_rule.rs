@@ -790,8 +790,10 @@ impl StateRuleItem {
         };
         validate_rewrite_right_sides(&subject, &bindings, &result_names)?;
         attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
+        // What the result's spelling alone refuses; its remainders pair it with the subject,
+        // which is judged after the entries' kinds ([`Self::reuse_refusal`]).
         if let Some(result) = &result {
-            validate_result_reuses(&result.result, &bindings)?;
+            validate_result_reuses(&result.result, &bindings, ResultCheck::Terms)?;
         }
         let requires = take_requires_helper(&mut item.attrs)?;
         if form == StateRuleForm::Context
@@ -876,6 +878,22 @@ impl StateRuleItem {
     #[must_use]
     pub fn bindings(&self) -> &[StateRuleBinding] {
         &self.bindings
+    }
+
+    /// The refusal of a result remainder `..name` that names no subject frame of its own kind,
+    /// `None` where every one does.
+    ///
+    /// A result's `..name` puts back what the subject's `name @ ..` binds: the configuration's
+    /// remainder, a computation's tail, a collection's instances or a map's entries (a map's may
+    /// also be a map the subject binds whole, which its entries are written over). Whether it
+    /// does pairs the result with the subject, so it is asked after each entry's form and kind
+    /// (form, kind, pairing, sorts): a remainder written on a cell that has no such content is
+    /// that entry's mistake first. Parsing therefore leaves it to the caller that judges the
+    /// kinds, which asks it once they are admitted, or at once where it judges none.
+    #[must_use]
+    pub fn reuse_refusal(&self) -> Option<SyntaxError> {
+        let result = self.result.as_ref()?;
+        validate_result_reuses(&result.result, &self.bindings, ResultCheck::Remainders).err()
     }
 
     /// Returns the optional object-language Boolean applicability condition.
@@ -1860,17 +1878,29 @@ fn attach_typed_binding_sorts(
     Ok(())
 }
 
+/// What a walk of a result checks.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ResultCheck {
+    /// The names its terms write, which its spelling alone decides.
+    Terms,
+    /// Its remainders, each against the subject frame it reuses.
+    Remainders,
+}
+
 fn validate_result_reuses(
     cells: &CellsExpression,
     bindings: &[StateRuleBinding],
+    check: ResultCheck,
 ) -> Result<(), SyntaxError> {
-    validate_remainder_reuse(
-        cells.remainder(),
-        StateRuleBindingKind::ConfigurationFrame,
-        bindings,
-    )?;
+    if check == ResultCheck::Remainders {
+        validate_remainder_reuse(
+            cells.remainder(),
+            StateRuleBindingKind::ConfigurationFrame,
+            bindings,
+        )?;
+    }
     for entry in cells.entries() {
-        validate_state_reuses(entry.value(), bindings)?;
+        validate_state_reuses(entry.value(), bindings, check)?;
     }
     Ok(())
 }
@@ -1878,41 +1908,47 @@ fn validate_result_reuses(
 fn validate_state_reuses(
     state: &StateTerm,
     bindings: &[StateRuleBinding],
+    check: ResultCheck,
 ) -> Result<(), SyntaxError> {
-    {
-        match state {
-            StateTerm::Present(inner) => validate_state_reuses(inner, bindings)?,
-            StateTerm::Absent(_) => {}
-            StateTerm::Instances(list) => {
-                for nested in state.nested_states() {
-                    validate_state_reuses(nested, bindings)?;
-                }
-                validate_remainder_reuse(
-                    list.rest(),
-                    StateRuleBindingKind::InstancesFrame,
-                    bindings,
-                )?;
+    let remainder = |remainder: &StateMacroRemainder, expected: StateRuleBindingKind| {
+        if check == ResultCheck::Remainders {
+            validate_remainder_reuse(remainder, expected, bindings)
+        } else {
+            Ok(())
+        }
+    };
+    let terms = |term: &TermExpression| {
+        if check == ResultCheck::Terms {
+            validate_term_reuses(term, bindings)
+        } else {
+            Ok(())
+        }
+    };
+    match state {
+        StateTerm::Present(inner) => validate_state_reuses(inner, bindings, check)?,
+        StateTerm::Absent(_) => {}
+        StateTerm::Instances(list) => {
+            for nested in state.nested_states() {
+                validate_state_reuses(nested, bindings, check)?;
             }
-            StateTerm::Term(term) | StateTerm::Group(term) => {
-                validate_term_reuses(term, bindings)?;
+            remainder(list.rest(), StateRuleBindingKind::InstancesFrame)?;
+        }
+        StateTerm::Term(term) | StateTerm::Group(term) => terms(term)?,
+        StateTerm::KSequence(sequence) => {
+            for item in sequence.items() {
+                terms(item)?;
             }
-            StateTerm::KSequence(sequence) => {
-                for item in sequence.items() {
-                    validate_term_reuses(item, bindings)?;
-                }
-                validate_remainder_reuse(
-                    sequence.tail(),
-                    StateRuleBindingKind::KSequenceFrame,
-                    bindings,
-                )?;
+            remainder(sequence.tail(), StateRuleBindingKind::KSequenceFrame)?;
+        }
+        StateTerm::Map(map) => {
+            for term in map_terms(map) {
+                terms(term)?;
             }
-            StateTerm::Map(map) => {
-                for term in map_terms(map) {
-                    validate_term_reuses(term, bindings)?;
-                }
-                if let MapBody::Items { remainder, .. } = map.body() {
-                    validate_remainder_reuse(remainder, StateRuleBindingKind::MapFrame, bindings)?;
-                }
+            if let MapBody::Items {
+                remainder: rest, ..
+            } = map.body()
+            {
+                remainder(rest, StateRuleBindingKind::MapFrame)?;
             }
         }
     }
