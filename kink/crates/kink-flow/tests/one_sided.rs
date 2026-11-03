@@ -37,7 +37,9 @@
 //!
 //! In the gate, `a_work_bound_mutant_run_kills_one_sidedly_through_the_flow` runs the rule end to
 //! end through `kink-flow run` on a corpus built from that fixture: kink-flow turns the rule on,
-//! reports the kill with `sides: null`, and caches it under the work budget's outcome key.
+//! reports the kill with its difference (CF-16: the cell path and both values, the mutant's from
+//! its run's one-sided ends, so its sides say `complete: false`), and caches it, difference
+//! included, under the work budget's outcome key.
 
 #[path = "../../../testdata/k/one_sided_support.rs"]
 mod one_sided_support;
@@ -60,7 +62,7 @@ use kink_flow::{
 };
 use kink_native::execution::{HaltClass, ResultModality};
 use kink_patch::{ClaimSupport, Withdrawal};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -573,6 +575,11 @@ fn search(manifest: &Path) -> Value {
     document
 }
 
+/// The executed entry's kill evidence (CF-16).
+fn difference(document: &Value) -> Value {
+    document["mutations"][0]["executed"][0]["difference"].clone()
+}
+
 /// The mutation's status and killer, and its executed entry: outcome, the two slots' outcomes,
 /// the whole-term slot's sides, and whether it was cached.
 fn entry(document: &Value) -> (Value, Value, Value, Value, Value, Value, Value) {
@@ -610,14 +617,16 @@ mod kink_tier {
             .join()
             .unwrap();
         let (first, second, unbounded) = document;
-        let killed = |cached: bool, sides_null: bool, exit_stop: &str| {
-            let (status, killer, outcome, exit, whole, sides, was_cached) = entry(if cached {
+        // `one_sided`: the kill's mutant side is the explored part of a work-bound run.
+        let killed = |cached: bool, one_sided: bool, exit_stop: &str| {
+            let document = if cached {
                 &second
-            } else if sides_null {
+            } else if one_sided {
                 &first
             } else {
                 &unbounded
-            });
+            };
+            let (status, killer, outcome, exit, whole, sides, was_cached) = entry(document);
             assert_eq!(
                 (status, killer, outcome, was_cached),
                 (
@@ -627,16 +636,53 @@ mod kink_tier {
                     Value::from(cached)
                 )
             );
-            if !cached {
-                assert_eq!(
-                    (exit, whole),
-                    (Value::from(exit_stop), Value::from("distinguish"))
+            assert_eq!(
+                (exit, whole),
+                (Value::from(exit_stop), Value::from("distinguish"))
+            );
+            // CF-16: every kill, live, cached or one-sided, shows the sides and its difference:
+            // the early branch's `done(N +Int 8)` against the baseline's `done(N +Int 7)`, its
+            // nearest end, in the `<k>` cell.
+            assert_eq!(
+                sides["mutant"]["complete"],
+                if one_sided { json!(false) } else { Value::Null },
+                "{sides:#}"
+            );
+            let difference = difference(document);
+            assert_eq!(difference["outside"], "mutant", "{difference:#}");
+            assert_eq!(
+                difference["path"],
+                json!(["<generatedTop>", "<k>"]),
+                "{difference:#}"
+            );
+            assert_eq!(
+                difference["mutant"]["complete"], !one_sided,
+                "{difference:#}"
+            );
+            for (side, value) in [("baseline", "12007"), ("mutant", "12008")] {
+                let printed = &difference[side]["value"];
+                assert_eq!(printed["rendering"], "k", "{difference:#}");
+                assert!(
+                    printed["text"].as_str().unwrap().contains(value),
+                    "{difference:#}"
                 );
-                assert_eq!(sides.is_null(), sides_null, "{sides:#}");
+                assert_eq!(difference[side]["end"]["class"], "normal", "{difference:#}");
             }
+            // The program's row names its ends' computation heads.
+            let heads = document["programs"][0]["ends"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|end| end["head"]["text"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(heads.len(), 2, "{heads:?}");
+            assert!(
+                heads.iter().all(|head| head.starts_with("done")),
+                "{heads:?}"
+            );
         };
         // Under the budget: the exit stop (normal, no code) is the baseline's, so that slot is
-        // unknown; the whole term distinguishes one-sidedly, with no mutant value to show.
+        // unknown; the whole term distinguishes one-sidedly, from the explored part's end.
         killed(false, true, "unknown");
         // The re-run takes the killed outcome from tier 1 (keyed with the work budget). Under Z3
         // tier 1 is off by design (search::tier1_refusal): the re-run kills live, as the first did.
@@ -644,6 +690,7 @@ mod kink_tier {
             assert_eq!(entry(&second), entry(&first));
         } else {
             killed(true, true, "unknown");
+            assert_eq!(difference(&second), difference(&first));
         }
         // Without a budget the mutant's run is complete and both slots compare.
         killed(false, false, "agree");

@@ -317,6 +317,14 @@ pub struct TestEvidence {
     /// with no [`Self::ends`] is then the value of a run whose every path takes one, not a value
     /// whose ends were omitted ([`judge_across`], review N2).
     pub undefined_steps: bool,
+    /// The states of the run's one-sided terminals (re-pin L1-2, [`OneSided`]) that its pair kept
+    /// ([`RunCache::one_sided`] after [`judge_across`]: the clean, ground, stuck terminals of a
+    /// work-bound mutant run that are data under the baseline's definition): the ends a state
+    /// slot of the pair distinguishes one-sidedly from, when its projection of one of them is
+    /// outside the baseline's projected set. Set only on a mutant's evidence, by the pairing;
+    /// empty on every other evidence. Read by no comparison, fold, status or score (the slot
+    /// reads the terminals themselves), and not encoded in the campaign report.
+    pub one_sided_ends: BTreeSet<Pattern>,
     /// For each pattern slot (by its index in the test's oracles), the terms its relation
     /// decisions read ([`ReadTerms`]): the payloads, bound values and assumptions of every
     /// relation the side's own decider decided other than by syntactic identity, and of every
@@ -1149,6 +1157,7 @@ impl<'v> BaselineSession<'v> {
                         notes: RunNotes::default(),
                         ends: BTreeSet::new(),
                         undefined_steps: false,
+                        one_sided_ends: BTreeSet::new(),
                         payloads: BTreeMap::new(),
                     },
                     (**cache).clone(),
@@ -2276,6 +2285,11 @@ fn run_tests(
             observations.runtime,
             &mut sides.runtime,
         );
+        // CF-16: the kept one-sided terminals, for a reader of the kill (kink-flow `evidence`).
+        mutant.one_sided_ends = one_sided
+            .iter()
+            .map(|terminal| terminal.state.clone())
+            .collect();
         let run = match (&paired_baseline.run, &mutant.run) {
             // Admission keeps a baseline run that contradicts a claim: the test is unknown.
             (SideRun::Failed(ExecutionFailureKind::ContradictedClaim), _) => {
@@ -3134,6 +3148,7 @@ impl Runtime {
                 notes,
                 ends,
                 undefined_steps,
+                one_sided_ends: BTreeSet::new(),
                 payloads: BTreeMap::new(),
             },
             terminals,
@@ -4134,6 +4149,7 @@ mod tests {
                             notes: RunNotes::default(),
                             ends: BTreeSet::new(),
                             undefined_steps: false,
+                            one_sided_ends: BTreeSet::new(),
                             payloads: BTreeMap::new(),
                         },
                         Vec::new()
@@ -4596,6 +4612,7 @@ mod tests {
                 notes: RunNotes::default(),
                 ends: BTreeSet::new(),
                 undefined_steps: false,
+                one_sided_ends: BTreeSet::new(),
                 payloads: BTreeMap::new(),
             };
             let before = evidence.clone();
@@ -4818,6 +4835,7 @@ mod tests {
                     notes: RunNotes::default(),
                     ends: BTreeSet::from([end.clone()]),
                     undefined_steps: false,
+                    one_sided_ends: BTreeSet::new(),
                     payloads: BTreeMap::new(),
                 };
                 let sides = |evidence: &TestEvidence| match &evidence.run {

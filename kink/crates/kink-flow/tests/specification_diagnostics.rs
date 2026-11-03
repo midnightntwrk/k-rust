@@ -260,7 +260,7 @@ mod kink_tier {
             },
         );
         // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`.
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["version"], 12);
         assert_sib_record(
             &program(&document, "sib-0")["specification_diagnostics"],
             "SPEC.sibtd",

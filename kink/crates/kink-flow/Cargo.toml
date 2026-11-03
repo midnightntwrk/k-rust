@@ -25,6 +25,8 @@ kink-native.workspace = true
 kink-patch.workspace = true
 # The symbol sorts kink-native's `leaf_term` reads a leaf's state with (fz26 FZ-COMPARABLE-B).
 kink-pattern.workspace = true
+# The K-text printer of kill evidence and end summaries (CF-16); k-rust-fuzz links it already.
+krs-unparse = { path = "../../../krs/crates/krs-unparse" }
 serde_json.workspace = true
 toml.workspace = true
 

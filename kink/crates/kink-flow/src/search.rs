@@ -62,6 +62,12 @@
 //! document lists the rules no resolving mutation of the list targets. None of these enters an
 //! evidence row, a digest, a key, an outcome record or a hint.
 //!
+//! CF-16: every live call computes the kill evidence of each distinguishing test from its own
+//! evidence ([`crate::evidence`]: the first differing cell path of the two sides' ends and both
+//! values as K text), which the test's executed entry shows and its `killed` tier-1 record keeps
+//! (outside the key, inside the record digest), so a kill decided from tier 1 shows it too. It
+//! enters no evidence row, run digest, key or hint, and nothing decides a status from it.
+//!
 //! Threads (re-pin L1-3, L1-3-fix-1): only relinking and compiling run on several threads
 //! ([`RunOptions::compile_workers`]). The selected mutations are taken in chunks; each chunk's
 //! mutants that would make a live call are compiled ahead (kink-native
@@ -356,6 +362,8 @@ struct LiveCall {
     /// The functions some of whose equations the mutation edits (kink-patch
     /// `ClaimSupport::edited_equation_heads`): the open applications a cause may name.
     edited: BTreeSet<String>,
+    /// The kill evidence of each distinguishing test, by test id (CF-16, [`kill_differences`]).
+    differences: BTreeMap<String, Value>,
 }
 
 /// The campaign calls of one mutation row: the programs of each call (candidate indices), its
@@ -456,7 +464,7 @@ impl Search<'_, '_> {
             run: kink_campaign::RunOptions {
                 work: self.manifest.budget.work(),
                 // Re-pin L1-2 (decision 6): a work-bound mutant run can kill one-sidedly. Every
-                // campaign call of the flow classifies with `all_normal` (`BaselineRunner::call`),
+                // campaign call of the flow classifies with `all_normal` (`results::classify`),
                 // which never answers a semantic crash.
                 one_sided: kink_campaign::OneSided::NoCrashClassifier,
                 ..kink_campaign::RunOptions::default()
@@ -526,8 +534,10 @@ impl Search<'_, '_> {
                 detail: format!("the runner returned {} mutants for one", run.mutants.len()),
             });
         }
+        let mutant = run.mutants.remove(0);
         Ok(LiveCall {
-            mutant: run.mutants.remove(0),
+            differences: kill_differences(&mutant, &run.baseline, self.runner.end_reader()),
+            mutant,
             baseline: run.baseline,
             recording: self.runner.last_call(),
             edited: self.support.edited_equation_heads(
@@ -560,12 +570,13 @@ impl Search<'_, '_> {
     }
 
     /// The executed entry of a valid tier-1 record (`cached: true`): no run in this command,
-    /// so no sides, timings or cause.
+    /// so no timings or cause; a kill's difference and sides are the record's (CF-16).
     fn cached_entry(&self, candidate: usize, record: &OutcomeRecord) -> Value {
         json!({
             "program": self.candidates[candidate].id,
             "outcome": compared_outcome(&record.slots),
-            "slots": slots_value(&record.slots, None, None, false),
+            "slots": slots_value(&record.slots, None, None, false, &record.difference),
+            "difference": record.difference,
             "cause": null,
             "cached": true,
             "wall_ms": null,
@@ -699,8 +710,13 @@ impl Search<'_, '_> {
     }
 
     /// The tier-1 records a live call gives (README 7.5.3 step 7): one per test whose outcome
-    /// is cacheable, none when the call's plan carries a mutant-scope failure.
-    fn live_records(&self, run: &MutantRun) -> Vec<(String, OutcomeRecord)> {
+    /// is cacheable, none when the call's plan carries a mutant-scope failure. A `killed`
+    /// record carries the test's kill evidence from `differences` (CF-16).
+    fn live_records(
+        &self,
+        run: &MutantRun,
+        differences: &BTreeMap<String, Value>,
+    ) -> Vec<(String, OutcomeRecord)> {
         if run.plan.mutant_failure.is_some() {
             return Vec::new();
         }
@@ -719,6 +735,13 @@ impl Search<'_, '_> {
                         outcome,
                         slots: slots.to_vec(),
                         mutant_run_sha256: mutant_run_sha256(run, &test.test_id)?,
+                        difference: match outcome {
+                            CachedOutcome::Killed => differences
+                                .get(&test.test_id)
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                            CachedOutcome::Agree => Value::Null,
+                        },
                         allowance_bytes: Some(
                             k_rust::k_rust_backend::allowance::Allowance::of_process().bytes(),
                         ),
@@ -1088,6 +1111,9 @@ impl Search<'_, '_> {
             .expect("a memo's facts are searched only when tier 1 decides, in step 2 or 3");
         let mut calls = Calls::new();
         let mut runs = Vec::<(Vec<usize>, MutantRun)>::new();
+        // The kill evidence of the live calls, by program; a later call's replaces an earlier's,
+        // as its record does (step 7).
+        let mut differences = BTreeMap::<String, Value>::new();
         let mut source = SOURCE_SEARCH;
         if let Some(h) = hint.filter(|h| live_order.contains(h)) {
             match self.call(generation, &[h]) {
@@ -1102,6 +1128,7 @@ impl Search<'_, '_> {
                     if status == MutantStatus::Killed {
                         source = SOURCE_HINT;
                     }
+                    differences.extend(live.differences);
                     runs.push((vec![h], live.mutant));
                 }
             }
@@ -1129,6 +1156,7 @@ impl Search<'_, '_> {
                                 .any(|again| again["program"] == entry["program"])
                     });
                     executed.extend(entries);
+                    differences.extend(live.differences);
                     runs.push((live_order.clone(), live.mutant));
                 }
             }
@@ -1176,7 +1204,7 @@ impl Search<'_, '_> {
         if let (Some(store), Some(identity)) = (&self.tier1, identity) {
             let records = runs
                 .iter()
-                .flat_map(|(_, run)| self.live_records(run))
+                .flat_map(|(_, run)| self.live_records(run, &differences))
                 .collect::<Vec<_>>();
             if !records.is_empty() {
                 match store.write(
@@ -1419,6 +1447,34 @@ fn mutant_run_sha256(run: &MutantRun, test_id: &str) -> Option<String> {
     run_digest(&row).map(|digest| digest.to_string())
 }
 
+/// The kill evidence of each test of a live call some slot of which distinguished (CF-16,
+/// [`crate::evidence`]): the first differing cell path of its two sides' ends and both values,
+/// computed from the call's own evidence, by test id. A test whose sides hold no whole-term value
+/// to compare has none.
+fn kill_differences<'a>(
+    mutant: &'a MutantRun,
+    baseline: &'a [TestEvidence],
+    reader: &crate::evidence::EndReader,
+) -> BTreeMap<String, Value> {
+    mutant
+        .plan
+        .tests
+        .iter()
+        .filter(|test| {
+            matches!(&test.run, TestRun::Compared(outcomes) if outcomes.contains(&OracleOutcome::Distinguish))
+        })
+        .filter_map(|test| {
+            let of = |evidence: &'a [TestEvidence]| {
+                evidence
+                    .iter()
+                    .find(|evidence| evidence.test_id == test.test_id)
+            };
+            let difference = reader.test_difference(of(baseline)?, of(&mutant.evidence)?)?;
+            Some((test.test_id.clone(), difference))
+        })
+        .collect()
+}
+
 /// The programs a live mutant run ran on, in the runner's order (`cached: false`), each with
 /// its outcome, its named slots (README 6.4: for a distinguishing slot the sides; on the call's
 /// killing program, when `killer_terms`, the mutant's final configurations as KORE text),
@@ -1455,6 +1511,11 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                 budget,
                 run.map(|run| (&run.census, &live.edited)),
             );
+            let difference = live
+                .differences
+                .get(&test.test_id)
+                .cloned()
+                .unwrap_or(Value::Null);
             let mut entry = match &test.run {
                 TestRun::SkippedAfterKill => return None,
                 TestRun::Compared(outcomes) => json!({
@@ -1465,7 +1526,9 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                         baseline,
                         evidence,
                         killer_terms && killer == Some(&test.test_id),
+                        &difference,
                     ),
+                    "difference": difference,
                     "cause": cause,
                     "cached": false,
                 }),

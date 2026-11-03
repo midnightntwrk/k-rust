@@ -456,13 +456,21 @@ endmodule
         assert_eq!(mutation["killer"], id);
         let executed = &mutation["executed"][0];
         assert_eq!(
-            executed["slots"],
-            json!({
-                "exit-stop": {"outcome": "unknown"},
-                "whole-term": {"outcome": "distinguish", "sides": null},
-            }),
+            executed["slots"]["exit-stop"],
+            json!({"outcome": "unknown"}),
             "{executed:#}"
         );
+        // CF-16: the one-sided kill's sides and difference come from the ends the mutant's run
+        // explored, so its side is not complete.
+        let whole = &executed["slots"]["whole-term"];
+        assert_eq!(whole["outcome"], "distinguish", "{executed:#}");
+        assert_eq!(whole["sides"]["mutant"]["complete"], false, "{executed:#}");
+        assert_eq!(executed["difference"]["outside"], "mutant", "{executed:#}");
+        assert_eq!(
+            executed["difference"]["mutant"]["complete"], false,
+            "{executed:#}"
+        );
+        assert!(executed["difference"]["path"].is_array(), "{executed:#}");
     }
 
     // -----------------------------------------------------------------------------------------

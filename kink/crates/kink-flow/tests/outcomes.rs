@@ -312,6 +312,7 @@ fn forge_record(
             record["outcome"].as_str().unwrap(),
             &slots,
             record["mutant_run_sha256"].as_str().unwrap(),
+            &record["difference"],
         );
         record["record_sha256"] = json!(sealed.to_string());
     }
@@ -467,6 +468,7 @@ fn an_outcome_written_under_another_identity_is_ignored() {
             kink_campaign::OracleOutcome::Agree,
         ],
         mutant_run_sha256: "1".repeat(64),
+        difference: serde_json::Value::Null,
         allowance_bytes: None,
     };
     let records = [(program.clone(), record)];
@@ -791,6 +793,7 @@ fn forge_agreements(
             "agree",
             &["agree", "agree"],
             &baseline,
+            &Value::Null,
         );
         records.insert(
             digest,
@@ -800,6 +803,7 @@ fn forge_agreements(
                 "outcome": "agree",
                 "slots": ["agree", "agree"],
                 "mutant_run_sha256": baseline,
+                "difference": null,
                 "record_sha256": sealed.to_string(),
             }),
         );
@@ -1519,6 +1523,7 @@ id = "choice-of-two"
                     .map(|slot| slot.as_str().unwrap())
                     .collect::<Vec<_>>(),
                 record["mutant_run_sha256"].as_str().unwrap(),
+                &record["difference"],
             );
             assert_eq!(record["record_sha256"], json!(sealed.to_string()));
         }

@@ -200,7 +200,13 @@ fn final_configurations_are_capped_at_4000_characters() {
     let baseline = whole(vec![term("short".into())]);
     let mutant = whole(vec![term("x".repeat(KORE_CAP + 10)), term("y".into())]);
     let outcomes = [OracleOutcome::Agree, OracleOutcome::Distinguish];
-    let killer = slots_value(&outcomes, Some(&baseline), Some(&mutant), true);
+    let killer = slots_value(
+        &outcomes,
+        Some(&baseline),
+        Some(&mutant),
+        true,
+        &Value::Null,
+    );
     let sides = &killer["whole-term"]["sides"];
     assert_eq!(sides["baseline"], json!({"final_configurations": 1}));
     assert_eq!(sides["mutant"]["final_configurations"], 2);
@@ -213,7 +219,13 @@ fn final_configurations_are_capped_at_4000_characters() {
     let short = kore.iter().find(|k| k["truncated"] == false).unwrap();
     assert!(short["text"].as_str().unwrap().contains("\"y\""));
     // Only the killing program's entry carries the text.
-    let other = slots_value(&outcomes, Some(&baseline), Some(&mutant), false);
+    let other = slots_value(
+        &outcomes,
+        Some(&baseline),
+        Some(&mutant),
+        false,
+        &Value::Null,
+    );
     assert_eq!(
         other["whole-term"]["sides"]["mutant"],
         json!({"final_configurations": 2})
@@ -618,7 +630,7 @@ text = 'h(opaque(1), 2)'
         // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`; fz26
         // KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's `findings` and `unable_to_kill`;
         // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`.
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["version"], 12);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],
@@ -705,6 +717,39 @@ text = 'h(opaque(1), 2)'
         let text = kore[0]["text"].as_str().unwrap();
         assert!(text.contains("\\dv{SortInt{}}(\"-1\")"), "{text}");
         assert!(!text.contains("\\dv{SortInt{}}(\"3\")"), "{text}");
+        // CF-16: the kill's difference names the first differing cell and both values as K text,
+        // and each end's computation head and class.
+        let difference = &killer["difference"];
+        assert_eq!(difference["outside"], "mutant", "{difference:#}");
+        assert_eq!(
+            difference["path"],
+            json!(["<generatedTop>", "<k>"]),
+            "{difference:#}"
+        );
+        for (side, value) in [("baseline", "3"), ("mutant", "-1")] {
+            let printed = &difference[side]["value"];
+            assert_eq!(printed["rendering"], "k", "{difference:#}");
+            assert!(
+                printed["text"].as_str().unwrap().starts_with(value),
+                "{difference:#}"
+            );
+            assert_eq!(difference[side]["end"]["class"], "normal", "{difference:#}");
+            assert_eq!(
+                difference[side]["end"]["head"]["text"], value,
+                "{difference:#}"
+            );
+        }
+        // Every comparable program's row names its end's computation head and class.
+        for program in document["programs"].as_array().unwrap() {
+            if program["class"] == "comparable" {
+                let ends = program["ends"].as_array().unwrap();
+                assert!(!ends.is_empty(), "{program:#}");
+                for end in ends {
+                    assert_eq!(end["head"]["rendering"], "k", "{program:#}");
+                    assert_eq!(end["class"], "normal", "{program:#}");
+                }
+            }
+        }
         // A survivor's agreeing programs have no sides; an agreeing slot never has any.
         for entry in mutation(&document, "add-swaps-operands")["executed"]
             .as_array()
@@ -717,7 +762,8 @@ text = 'h(opaque(1), 2)'
             );
         }
 
-        // From the outcome cache the kill has no evidence at hand: its slots carry no sides.
+        // From the outcome cache the kill's evidence is the record's (CF-16): the same difference,
+        // and the sides read from it.
         let warm = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
         let cached = entry(&warm, "add-becomes-sub", "add");
         if cfg!(feature = "z3") {
@@ -729,8 +775,12 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             cached["slots"],
             json!({"exit-stop": {"outcome": "agree"},
-                   "whole-term": {"outcome": "distinguish", "sides": null}})
+            "whole-term": {"outcome": "distinguish", "sides": {
+                "baseline": {"final_configurations": 1},
+                "mutant": {"final_configurations": 1},
+            }}})
         );
+        assert_eq!(cached["difference"], *difference);
         assert_eq!(cached["wall_ms"], Value::Null);
     }
 

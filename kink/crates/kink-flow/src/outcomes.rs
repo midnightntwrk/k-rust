@@ -24,19 +24,37 @@
 //! (`search::tier1_refusal`).
 //!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
-//! `{schema: "kink-flow-outcomes", version: 1, context, context_sha256, mutation_identity,
+//! `{schema: "kink-flow-outcomes", version: 2, context, context_sha256, mutation_identity,
 //! mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256,
-//! outcome, slots, mutant_run_sha256, allowance_bytes, record_sha256}}}`. `removed_claims` is the
-//! row's (`report::claims_value`): the claims the mutant every record ran on does not carry
-//! (re-pin R0c-fix-2). It is informational, a function of the specification, the mutation and
-//! the `claim_removal` version of the context's kink identity, and is neither read back nor in a record digest. `allowance_bytes` is k-rust's
-//! `Allowance::of_process().bytes()` of the process that wrote the record, for diagnosis only:
-//! it is neither in the key nor in the record digest (re-pin decision 5, finding B-07): an
-//! allowance only refuses Bytes results, a refused run is excluded, and no excluded run is cached. [`OutcomeStore::read`] returns only the records that
-//! pass every check that needs no corpus (schema, version, context, record digest, outcome
-//! consistent with its slots); the kill search then requires the program to be a current
-//! comparable candidate whose result record has the record's `baseline_run_sha256`. Anything
-//! else is ignored, never trusted, and deleting `outcomes/` is always safe.
+//! outcome, slots, mutant_run_sha256, difference, allowance_bytes, record_sha256}}}`.
+//!
+//! `removed_claims` is the row's (`report::claims_value`):
+//! the claims the mutant every record ran on does not carry (re-pin R0c-fix-2).
+//! It is informational, a function of the specification, the mutation
+//! and the `claim_removal` version of the context's kink identity,
+//! and is neither read back nor in a record digest.
+//!
+//! `allowance_bytes` is k-rust's `Allowance::of_process().bytes()`
+//! of the process that wrote the record, for diagnosis only:
+//! it is neither in the key nor in the record digest (re-pin decision 5, finding B-07):
+//! an allowance only refuses Bytes results,
+//! a refused run is excluded, and no excluded run is cached.
+//!
+//! `difference` (CF-16, version 2) is a `killed` record's kill evidence ([`crate::evidence`]):
+//! the first differing cell path of the killing test's ends and both values as K text, bounded;
+//! null on an `agree` record.
+//! It is outside the key, which it is a function of (the key names every input of both runs),
+//! and inside the record digest,
+//! so a record whose evidence was altered is ignored like any other altered record.
+//! Nothing reads it but the report, so it decides no verdict.
+//! A version 1 file (no `difference`) is not current and is ignored,
+//! so its records are recomputed, never read as records without evidence.
+//!
+//! [`OutcomeStore::read`] returns only the records that pass every check that needs no corpus
+//! (schema, version, context, record digest, outcome consistent with its slots);
+//! the kill search then requires the program to be a current comparable candidate
+//! whose result record has the record's `baseline_run_sha256`.
+//! Anything else is ignored, never trusted, and deleting `outcomes/` is always safe.
 
 use crate::{digest::context_sha256, results::ORACLE_SLOTS};
 use kink_campaign::{OracleOutcome, TestRun};
@@ -52,9 +70,10 @@ use std::{
 /// The `schema` field of an outcome file.
 pub const OUTCOMES_SCHEMA: &str = "kink-flow-outcomes";
 /// The outcome file's version.
-pub const OUTCOMES_VERSION: u64 = 1;
-/// Domain of a record's integrity digest.
-pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v1";
+/// The outcome file's version: 2 since CF-16 added each record's `difference`.
+pub const OUTCOMES_VERSION: u64 = 2;
+/// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest.
+pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v2";
 /// The tier-1 directory's name in the cache directory.
 pub const OUTCOMES_DIRECTORY: &str = "outcomes";
 
@@ -144,6 +163,10 @@ pub struct OutcomeRecord {
     /// The run digest of the mutant's evidence row for the program (results::run_digest of
     /// `CampaignReport::baseline_row` of the mutant's `TestEvidence`).
     pub mutant_run_sha256: String,
+    /// The kill evidence of a `killed` record ([`crate::evidence`], `EndReader::difference`);
+    /// null on an `agree` record, and on a `killed` one whose sides held no whole-term value.
+    /// Outside the key, inside the record digest; read only by the report.
+    pub difference: Value,
     /// The writing process's memory allowance in bytes (k-rust `Allowance::of_process`), for
     /// diagnosis only: outside the key and the record digest; `None` in a record without it.
     pub allowance_bytes: Option<u64>,
@@ -174,6 +197,7 @@ impl OutcomeRecord {
             self.outcome.as_str(),
             &self.slot_names(),
             &self.mutant_run_sha256,
+            &self.difference,
         )
     }
 
@@ -184,6 +208,7 @@ impl OutcomeRecord {
             "outcome": self.outcome.as_str(),
             "slots": self.slot_names(),
             "mutant_run_sha256": self.mutant_run_sha256,
+            "difference": self.difference,
             "allowance_bytes": self.allowance_bytes,
             "record_sha256": self
                 .digest(context_sha256, mutation_identity, program_digest)
@@ -192,10 +217,11 @@ impl OutcomeRecord {
     }
 }
 
-/// `record_sha256 = payload_digest("kink-flow/outcome-record/v1", canonical JSON of
+/// `record_sha256 = payload_digest("kink-flow/outcome-record/v2", canonical JSON of
 /// {context_sha256, mutation_identity, program_digest, baseline_run_sha256, outcome, slots,
-/// mutant_run_sha256})`. It detects corruption and a record moved under another key, not
-/// forgery (README 7.5.1).
+/// mutant_run_sha256, difference})`. It detects corruption and a record moved under another key,
+/// not forgery (README 7.5.1).
+#[allow(clippy::too_many_arguments)]
 pub fn record_sha256(
     context_sha256: &str,
     mutation_identity: &str,
@@ -204,6 +230,7 @@ pub fn record_sha256(
     outcome: &str,
     slots: &[&str],
     mutant_run_sha256: &str,
+    difference: &Value,
 ) -> Sha256Digest {
     payload_digest(
         RECORD_DOMAIN,
@@ -215,6 +242,7 @@ pub fn record_sha256(
             "outcome": outcome,
             "slots": slots,
             "mutant_run_sha256": mutant_run_sha256,
+            "difference": difference,
         }))
         .as_bytes(),
     )
@@ -312,6 +340,7 @@ impl OutcomeStore {
             outcome,
             slots,
             mutant_run_sha256: field("mutant_run_sha256")?,
+            difference: value.get("difference")?.clone(),
             allowance_bytes: value.get("allowance_bytes").and_then(Value::as_u64),
         };
         let digest = record.digest(&self.context_sha256, &identity.to_string(), program);

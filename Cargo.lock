@@ -1334,6 +1334,7 @@ dependencies = [
  "kink-native",
  "kink-patch",
  "kink-pattern",
+ "krs-unparse",
  "serde_json",
  "toml",
 ]

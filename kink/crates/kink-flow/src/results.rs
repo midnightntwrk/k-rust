@@ -35,6 +35,7 @@
 use crate::{
     admit::{AdmittedSpec, InputSession, admit_spec},
     digest::{program_digest, spec_digest},
+    evidence::EndReader,
     manifest::{Budget, FlowManifest, Program},
 };
 use k_rust::{
@@ -198,6 +199,11 @@ pub struct ProgramResult {
     /// The final configurations as KORE text, one per terminal (comparable), or the final
     /// state of each leaf of the diagnostic run (unknown and error runs that have leaves).
     pub final_configuration: Option<Vec<String>>,
+    /// Each end's summary, `{head, class}`, in the order of `final_configuration` (CF-16,
+    /// `evidence::EndReader::summary`): comparable only, `None` otherwise. Outside the key and
+    /// the run digest; a record names its writer's build, so every record this build reads has
+    /// it.
+    pub ends: Option<Value>,
     /// The run's rule coverage; `None` when no run produced any.
     pub coverage: Option<TestCoverage>,
     /// The wall time of the program's live baseline run in milliseconds (the campaign's run,
@@ -220,6 +226,7 @@ impl ProgramResult {
             cause: Some(cause),
             baseline: None,
             final_configuration: None,
+            ends: None,
             coverage: None,
             wall_ms: None,
             specification_diagnostics: json!([]),
@@ -252,6 +259,9 @@ pub struct BaselineRunner<'a> {
     /// The compiled ids of each authored rule a run can observe, for causes; computed on
     /// first use.
     observable: OnceCell<Vec<BTreeSet<String>>>,
+    /// What kill evidence and end summaries read from the compiled specification (CF-16), built
+    /// on first use.
+    ends: OnceCell<EndReader>,
 }
 
 impl<'a> BaselineRunner<'a> {
@@ -281,6 +291,7 @@ impl<'a> BaselineRunner<'a> {
             ),
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
+            ends: OnceCell::new(),
         })
     }
 
@@ -288,6 +299,12 @@ impl<'a> BaselineRunner<'a> {
     /// coverage, as the session recorded them (outside every evidence row, digest and key).
     pub fn last_call(&self) -> CallRecording {
         self.session.borrow().last_call().clone()
+    }
+
+    /// The command's reader of ends: the printer, cells and maps of the compiled specification
+    /// (CF-16).
+    pub fn end_reader(&self) -> &EndReader {
+        self.ends.get_or_init(|| EndReader::of(&self.spec.compiled))
     }
 
     /// The compiled ids of each authored rule of the specification a run can observe (a rule
@@ -310,7 +327,7 @@ impl<'a> BaselineRunner<'a> {
             validator: &self.spec.validator,
             module: &self.module,
             observation: &[],
-            classify: &all_normal,
+            classify: &classify,
             tests,
             budget: self.budget,
         };
@@ -378,6 +395,7 @@ impl<'a> BaselineRunner<'a> {
                     cause: None,
                     baseline: Some(row),
                     final_configuration: final_terms(&evidence.run),
+                    ends: final_ends(&evidence.run).map(|ends| self.end_reader().summaries(ends)),
                     coverage: run.baseline_coverage.first().cloned(),
                     wall_ms: None,
                     specification_diagnostics: crate::report::specification_diagnostics_value(
@@ -401,6 +419,7 @@ impl<'a> BaselineRunner<'a> {
                     )),
                     baseline: None,
                     final_configuration: None,
+                    ends: None,
                     coverage: live.coverage.clone(),
                     wall_ms: None,
                     specification_diagnostics: json!([]),
@@ -424,6 +443,7 @@ impl<'a> BaselineRunner<'a> {
             cause: Some(cause),
             baseline: None,
             final_configuration: None,
+            ends: None,
             coverage: None,
             wall_ms: None,
             specification_diagnostics: json!([]),
@@ -483,6 +503,7 @@ impl<'a> BaselineRunner<'a> {
                 )),
                 baseline: None,
                 final_configuration: None,
+                ends: None,
                 coverage,
                 wall_ms: None,
                 specification_diagnostics: json!([]),
@@ -546,6 +567,7 @@ impl<'a> BaselineRunner<'a> {
             )),
             baseline: None,
             final_configuration,
+            ends: None,
             coverage,
             wall_ms: None,
             specification_diagnostics: crate::report::specification_diagnostics_value(
@@ -885,15 +907,25 @@ pub(crate) fn kebab(name: &str) -> String {
     out
 }
 
+/// The flow's classifier: kink-corpus `all_normal`, digest `CLASSIFIER`. Every campaign call of
+/// the flow classifies terminals with it ([`BaselineRunner::call`]), and kill evidence reads an
+/// end's class from it (`evidence::class`), so the two cannot differ.
+pub(crate) fn classify(end: &Pattern) -> kink_pattern::ExecutionTerminalKind {
+    all_normal(end)
+}
+
 /// The whole-term side's terminal terms as KORE text.
 fn final_terms(run: &SideRun) -> Option<Vec<String>> {
+    final_ends(run).map(|terms| terms.iter().map(ToString::to_string).collect())
+}
+
+/// The whole-term value of a side's run, when it is one: its ends with the counter erased.
+fn final_ends(run: &SideRun) -> Option<&BTreeSet<Pattern>> {
     let SideRun::Sides { sides } = run else {
         return None;
     };
     sides.iter().find_map(|side| match side {
-        OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(terms))) => {
-            Some(terms.iter().map(ToString::to_string).collect())
-        }
+        OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(terms))) => Some(terms),
         _ => None,
     })
 }
@@ -945,6 +977,7 @@ pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &Program
         "baseline": result.baseline,
         "run_sha256": result.run_sha256().map(|d| d.to_string()),
         "final_configuration": result.final_configuration,
+        "ends": result.ends,
         "coverage": result.coverage.as_ref().map(|c| coverage_value(spec, c)),
         "wall_ms": result.wall_ms,
         "specification_diagnostics": result.specification_diagnostics,
@@ -1278,6 +1311,8 @@ fn program_row(
         row["wall_ms"] = record["wall_ms"].clone();
         row["specification_diagnostics"] = record["specification_diagnostics"].clone();
         row["smt_unknowns"] = record["smt_unknowns"].clone();
+        // CF-16: each end's computation head and class (null unless comparable).
+        row["ends"] = record.get("ends").cloned().unwrap_or(Value::Null);
         row
     };
     let refused = |digest, refusal: kink_corpus::admission::AdmissionRefusal| {
@@ -1525,6 +1560,8 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 4 since CF-16: a program's row carries `ends`, each end's `{head, class}` (its
+        // computation head printed as K text, and the exit-stop class), null unless comparable.
         // 3 since KINK-R4: a rewrite rule's `fired_by` lists only programs some path of whose
         // run takes the rule's step (k-rust `committed`), no longer one whose candidate of it
         // was rolled back or whose step by it was undefined (k-rust `applied`); the shape is
@@ -1532,7 +1569,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 3,
+        "version": 4,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,

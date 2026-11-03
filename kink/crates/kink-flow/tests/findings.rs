@@ -378,6 +378,7 @@ mod kink_tier {
                     kink_campaign::OracleOutcome::Distinguish,
                 ],
                 mutant_run_sha256: "0".repeat(64),
+                difference: serde_json::Value::Null,
                 allowance_bytes: None,
             };
             store

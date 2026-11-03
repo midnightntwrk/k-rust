@@ -16,11 +16,14 @@
 //! lowering of a K pattern and its evaluation by k-rust's search ([`pattern`]), and the `query`
 //! command with its cache of definitive answers ([`query`]). fz26 P7-KINKFLOW T3a adds the
 //! `fuzz` command: a k-rust-fuzz campaign on kink's own sides that looks for hole values of a
-//! template that kill a mutation, printed as a `[[program]]` fragment ([`fuzz`]).
+//! template that kill a mutation, printed as a `[[program]]` fragment ([`fuzz`]). CF-16 adds the
+//! kill evidence: the first differing cell path of a kill's ends, both values as K text, and each
+//! end's computation head and class ([`evidence`]).
 
 pub mod admit;
 pub mod cli;
 pub mod digest;
+pub mod evidence;
 pub mod fuzz;
 pub mod fuzz_filter;
 pub mod hints;

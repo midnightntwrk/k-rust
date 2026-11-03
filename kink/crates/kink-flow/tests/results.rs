@@ -819,7 +819,7 @@ text = 'h(opaque(1), 2)'
         assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
         assert!(document["rules"][2]["reason"].is_null());
         // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed.
-        assert_eq!(document["version"], 3);
+        assert_eq!(document["version"], 4);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1175,7 +1175,9 @@ endmodule
         // solver answers, and k-rust's run-level lists exclude a baseline run. KINK-R4: v6,
         // because a record's coverage holds the fired sentences `fired_by` lists. kink27 R1-UNDEF: v7,
         // because an undefined step's pre-step configuration is no final configuration of a record.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v8");
+        // kink27 R3-UNDEF-BRIDGE: v8. CF-16: v9, because a comparable record holds its ends'
+        // summaries.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v9");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

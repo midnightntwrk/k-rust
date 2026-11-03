@@ -846,7 +846,7 @@ note = "requires and right-hand side"
         // `smt_unknowns`; fz26 KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's
         // `findings` and `unable_to_kill`; kink27 R5-WEAKENING: version 11 adds the status
         // `unkillable` and a row's `weakening`.
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["version"], 12);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

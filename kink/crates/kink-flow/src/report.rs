@@ -53,6 +53,15 @@
 //! edited equation (null on every other row); a mutant run's cause names the function whose
 //! application an indeterminate leaf holds unreduced ([`executed_cause`]).
 //!
+//! CF-16 (version 12): every executed entry of a compared program carries `difference`, the kill
+//! evidence of a distinguishing one (null otherwise; [`crate::evidence`]): the first differing
+//! cell path between an end of one side outside the other's set and its nearest end there, both
+//! values as K text (KORE as fallback), bounded, and each end's computation head and class. It is
+//! computed at kill time, live, and stored in the killing program's tier-1 record, so a cached
+//! kill shows it too, as does a one-sided kill (from the run's one-sided ends, which killed). A
+//! distinguishing slot's `sides` is no longer null for a cached or one-sided kill: it is read from
+//! the difference ([`slots_value`]). A program's row carries `ends`, each end's `{head, class}`.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -88,8 +97,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// since re-pin adoption A-1 added `specification_diagnostics` and `smt_unknowns` to program rows
 /// and to executed entries; 10 since fz26 KINK-BASELINE-FINDINGS added `data`, a row's
 /// `findings` and a program row's `unable_to_kill`; 11 since kink27 R5-WEAKENING added the status
-/// `unkillable` (reason `weakening`) and each row's `weakening`.
-pub const RUN_VERSION: u64 = 11;
+/// `unkillable` (reason `weakening`) and each row's `weakening`; 12 since CF-16 added each executed
+/// entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`.
+pub const RUN_VERSION: u64 = 12;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -325,14 +335,19 @@ pub const KORE_CAP: usize = 4000;
 /// `exit-stop` each side's exit-stop kinds (`{"baseline": ["stuck"], "mutant": []}`: an undefined
 /// step is no end and has no kind), for `whole-term` each side's number of final configurations and,
 /// when `killer_terms` (the killing program's entry), the mutant's final configurations as
-/// KORE text, each capped at [`KORE_CAP`] characters (`{"text", "truncated"}`). `sides` is
-/// null when the evidence is not at hand (a cached outcome), and for a one-sided kill, whose
-/// mutant side is `Unknown` (re-pin L1-2: the mutant's run reached its work budget).
+/// KORE text, each capped at [`KORE_CAP`] characters (`{"text", "truncated"}`). When the two
+/// sides' values are not at hand (a cached outcome, or a one-sided kill, whose mutant side is
+/// `Unknown`: re-pin L1-2, the mutant's run reached its work budget), the sides are read from the
+/// kill's `difference` (CF-16, [`crate::evidence`]): the same shape, each side's count and classes
+/// of the ends the difference compared, and for an incomplete mutant side (its run's one-sided
+/// ends) `complete: false` (whole-term) or `mutant_complete: false` (exit-stop); null when
+/// there is no difference either.
 pub fn slots_value(
     outcomes: &[OracleOutcome],
     baseline: Option<&SideRun>,
     mutant: Option<&SideRun>,
     killer_terms: bool,
+    difference: &Value,
 ) -> Value {
     let side = |run: Option<&SideRun>, slot: usize| match run {
         Some(SideRun::Sides { sides }) => sides.get(slot).cloned(),
@@ -343,7 +358,11 @@ pub fn slots_value(
         let name = ORACLE_SLOTS.get(slot).copied().unwrap_or("slot");
         let mut value = json!({"outcome": slot_name(*outcome)});
         if *outcome == OracleOutcome::Distinguish {
-            value["sides"] = slot_sides(side(baseline, slot), side(mutant, slot), killer_terms);
+            value["sides"] =
+                match slot_sides(side(baseline, slot), side(mutant, slot), killer_terms) {
+                    Value::Null => difference_sides(name, difference),
+                    sides => sides,
+                };
         }
         slots.insert(name.to_owned(), value);
     }
@@ -384,6 +403,35 @@ fn slot_sides(
             }
             json!({
                 "baseline": {"final_configurations": baseline.len()},
+                "mutant": mutant_side,
+            })
+        }
+        _ => Value::Null,
+    }
+}
+
+/// A distinguishing slot's sides read from a kill's `difference` ([`slots_value`]).
+fn difference_sides(slot: &str, difference: &Value) -> Value {
+    let (baseline, mutant) = (&difference["baseline"], &difference["mutant"]);
+    if !baseline.is_object() || !mutant.is_object() {
+        return Value::Null;
+    }
+    let complete = mutant["complete"] == true;
+    match slot {
+        "exit-stop" => {
+            let mut sides = json!({"baseline": baseline["classes"], "mutant": mutant["classes"]});
+            if !complete {
+                sides["mutant_complete"] = json!(false);
+            }
+            sides
+        }
+        "whole-term" => {
+            let mut mutant_side = json!({"final_configurations": mutant["final_configurations"]});
+            if !complete {
+                mutant_side["complete"] = json!(false);
+            }
+            json!({
+                "baseline": {"final_configurations": baseline["final_configurations"]},
                 "mutant": mutant_side,
             })
         }
