@@ -1400,6 +1400,24 @@ pub struct SentenceEntry<'s, C> {
     pub spelling: Option<&'s EntrySpelling>,
 }
 
+/// What a sentence does with the cells its entries name, which decides what the pairing step
+/// pairs them with.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rewrite {
+    /// A rule or a claim with a result: each entry is paired with the other side's entry of its
+    /// cell.
+    Result,
+    /// A single-body rule: its cells are rewritten in place, so there is no other side, and every
+    /// instance it names is kept.
+    InPlace,
+    /// A pattern the sentence matches and keeps as it matched it, with no rewrite of the cells it
+    /// names: a function context, which an equation reads, a context alias, the frame of every
+    /// context it makes, and a context's cells around its hole. Nothing is paired: there is no
+    /// other side, and no cell is changed or created, so its entries are judged by form and kind
+    /// (with the path) alone.
+    Kept,
+}
+
 /// A whole sentence's entries, in source order (the subject's, then the result's), judged by
 /// P4's steps over the sentence ([`Sentence::judge`]).
 #[derive(Clone, Copy, Debug)]
@@ -1408,9 +1426,8 @@ pub struct Sentence<'s, C> {
     pub form: EntryForm,
     /// The entries, in source order.
     pub entries: &'s [SentenceEntry<'s, C>],
-    /// Whether the sentence has a result: a single-body rule rewrites its cells in place and
-    /// has no other side to pair with.
-    pub result: bool,
+    /// What the sentence does with its cells.
+    pub rewrite: Rewrite,
     /// The names its parameters bind.
     pub parameters: &'s [String],
     /// The configuration's groups ([`collect_groups`]).
@@ -1451,7 +1468,8 @@ impl<C: PartialEq> Sentence<'_, C> {
     ///    refusal needs only the declaration, as the cell's own kind does);
     /// 3. the pairing, of every entry, where the sentence has a result; without one, a
     ///    single-body rule rewrites its cells in place, so only a List collection's ends are
-    ///    judged, every instance it names being kept ([`list_ends`]).
+    ///    judged, every instance it names being kept ([`list_ends`]), and a sentence that keeps
+    ///    its pattern as it matched it ([`Rewrite::Kept`]) pairs nothing.
     ///
     /// The sorts are the compiler's, after. Within a step the first refusal in source order is
     /// the sentence's: one diagnostic, at one entry.
@@ -1483,7 +1501,10 @@ impl<C: PartialEq> Sentence<'_, C> {
             .map_err(|refusal| (at, refusal))?;
         }
         let mut lints = Vec::new();
-        if !self.result {
+        if self.rewrite == Rewrite::Kept {
+            return Ok(lints);
+        }
+        if self.rewrite == Rewrite::InPlace {
             for (at, entry, spelling) in entries() {
                 list_ends(entry.side, &entry.kind.own.layers, spelling, None, false)
                     .map_err(|refusal| (at, refusal))?;
@@ -1550,8 +1571,8 @@ mod tests {
     use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order};
 
     use super::{
-        Bound, EntrySide, Lint, Refusal, Sentence, SentenceEntry, admit, collect_groups, inner,
-        pair,
+        Bound, EntrySide, Lint, Refusal, Rewrite, Sentence, SentenceEntry, admit, collect_groups,
+        inner, pair,
     };
     use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling, RecordTail};
 
@@ -3145,7 +3166,11 @@ mod tests {
             Sentence {
                 form,
                 entries: &entries,
-                result: written.iter().any(|(side, ..)| *side == EntrySide::Result),
+                rewrite: if written.iter().any(|(side, ..)| *side == EntrySide::Result) {
+                    Rewrite::Result
+                } else {
+                    Rewrite::InPlace
+                },
                 parameters: &["x".to_owned()],
                 groups: &groups(&[]),
             }
@@ -3195,6 +3220,58 @@ mod tests {
         );
     }
 
+    /// A pattern a sentence keeps as it matched it (a function context, a context alias) is
+    /// judged by form and kind with the path: S1 (b) refuses an entry below a `*` ancestor there
+    /// as in a rule, and nothing is paired, since no other side exists and no cell is written.
+    #[test]
+    fn a_kept_pattern_is_judged_by_form_and_kind_alone() {
+        let form = EntryForm::Cells;
+        let instances = vec![Layer::Instances(Order::Map)];
+        let below = super::EntryKind {
+            path: CellKind { layers: instances },
+            own: int(),
+        };
+        let plain = super::EntryKind {
+            path: CellKind { layers: vec![] },
+            own: int(),
+        };
+        let judge = |written: &[(&str, &super::EntryKind, &str)]| {
+            let spellings = written
+                .iter()
+                .map(|(.., text)| read(form, text))
+                .collect::<Vec<_>>();
+            let entries = written
+                .iter()
+                .zip(&spellings)
+                .map(|((cell, kind, _), spelling)| SentenceEntry {
+                    side: EntrySide::Subject,
+                    cell: *cell,
+                    kind,
+                    spelling: Some(spelling),
+                })
+                .collect::<Vec<_>>();
+            Sentence {
+                form,
+                entries: &entries,
+                rewrite: Rewrite::Kept,
+                parameters: &["x".to_owned()],
+                groups: &groups(&[]),
+            }
+            .judge()
+        };
+        assert_eq!(
+            judge(&[
+                ("pc", &plain, "k::configuration::Cell(x)"),
+                ("apc", &below, "k::configuration::Cell(x)"),
+            ]),
+            Err((1, Refusal::BelowCollectionAncestor))
+        );
+        assert_eq!(
+            judge(&[("pc", &plain, "k::configuration::Cell(_)")]),
+            Ok(Vec::new())
+        );
+    }
+
     /// A sentence over the List collection `job` (instances of `Job { payload }`) and the leaf
     /// `pc`, judged step by step.
     fn list_sentence(
@@ -3234,7 +3311,11 @@ mod tests {
         Sentence {
             form,
             entries: &entries,
-            result: written.iter().any(|(side, ..)| *side == EntrySide::Result),
+            rewrite: if written.iter().any(|(side, ..)| *side == EntrySide::Result) {
+                Rewrite::Result
+            } else {
+                Rewrite::InPlace
+            },
             parameters: &["v".to_owned(), "x".to_owned()],
             groups: &groups(&job.own.layers),
         }

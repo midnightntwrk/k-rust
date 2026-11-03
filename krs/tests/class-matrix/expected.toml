@@ -5434,6 +5434,14 @@ match = '{claim,readable}/deep-b/kinds/aa/x'
 class = "collection-without-instances"
 at = "entry"
 
+# G6 (S5.3 part 3): an equation's function context and a context alias keep their `cells!`
+# pattern as they matched it, and S1 (b) holds there as in a rule: an entry naming a cell below a
+# `*` ancestor is refused for the ancestor (`sentence_outcome`).
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/{apc,payload}/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
 [[refuse]]
 match = 'cells/path-a/kinds/key/k::configuration::Cell(x)'
 class = "collection-without-instances"
@@ -14110,6 +14118,44 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 [accept."cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 
 [accept."cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+
+[accept."cells/g6-context-alias/kinds/pc/k::configuration::Cell(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+<pc> V0:Int </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-context-alias/kinds/stack/k::configuration::Cell([x, ..])"]
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-function-context/kinds/pc/k::configuration::Cell(x)"]
+k = """
+rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
+<pc> V1:Int </pc> [label(krsRule_DIGEST)]
+
+syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-function-context/kinds/stack/k::configuration::Cell([x, ..])"]
+k = """
+rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
+<stack> ListItem(V1:KItem) ... </stack> [label(krsRule_DIGEST)]
+
+syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/lint/kinds/account/{ k::fragment![crate::Acct { .. }], .. }"]
 k = """

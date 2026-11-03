@@ -1484,6 +1484,7 @@ fn listed() -> Vec<Generated> {
         ));
     }
     out.extend(groups::cases());
+    out.extend(groups::context_cases());
     for (cell, text) in groups::INITIALIZERS {
         out.push(init_case(
             cell,

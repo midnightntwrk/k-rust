@@ -104,8 +104,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
             // marks, S5-F1's result fragment with a bare `..` (and its machine-base twin on the
             // one-child group), the 2-child group's fragment naming one child on each side, and
-            // item 3b's groups (44 entries: 2 lints are `cells!`-only).
-            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 44),
+            // item 3b's groups (44 entries: 2 lints are `cells!`-only), and G6's 4 entries in a
+            // function context and in a context alias (`cells!`-only).
+            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 44 + 4 * 2),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and

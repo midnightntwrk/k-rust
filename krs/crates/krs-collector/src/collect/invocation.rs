@@ -823,12 +823,20 @@ fn collect_fn_invocations(
         let anchors = alias
             .descriptor_provenance(&parsed)
             .map_err(source_syntax)?;
-        output.push(parsed_invocation(
+        let mut invocation = parsed_invocation(
             ProvenanceRole::ContextAliasDeclaration,
             item_fn.sig.ident.to_string(),
             anchors,
             ParsedInvocationPayload::Declaration,
-        )?);
+        )?;
+        invocation.cells = super::cell_entries::ParsedCells::of_pattern(
+            alias.pattern(),
+            alias
+                .bindings()
+                .iter()
+                .map(|binding| binding.name().to_string()),
+        );
+        output.push(invocation);
     }
     for attribute in item_fn
         .attrs
@@ -1000,12 +1008,14 @@ fn collect_fn_contexts(
         if let Ok(rule) = StateRuleItem::from_context_item(item_fn.clone()) {
             let descriptor = RuleDescriptor::state(&rule, RuleSentence::Context(&context))
                 .map_err(source_syntax)?;
-            output.push(parsed_invocation(
+            let mut invocation = parsed_invocation(
                 ProvenanceRole::RuleDeclaration,
                 item_fn.sig.ident.to_string(),
                 descriptor.anchors().to_vec(),
                 ParsedInvocationPayload::Declaration,
-            )?);
+            )?;
+            invocation.cells = super::cell_entries::ParsedCells::of_rule(&rule);
+            output.push(invocation);
             continue;
         }
         let rule = RuleItem::from_context_item(item_fn.clone()).map_err(source_syntax)?;
@@ -1613,7 +1623,7 @@ fn push_rule_equation_invocation(
     equation: &krs_syntax::EquationAttribute,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let bindings = rule
+    let bindings: Vec<String> = rule
         .parameter()
         .pattern
         .bindings()
@@ -1622,12 +1632,17 @@ fn push_rule_equation_invocation(
         .collect();
     let descriptor =
         RuleDescriptor::new(rule, RuleSentence::Equation(equation)).map_err(source_syntax)?;
-    output.push(parsed_invocation(
+    let cells = rule.function_context().and_then(|context| {
+        super::cell_entries::ParsedCells::of_pattern(context.pattern(), bindings.clone())
+    });
+    let mut invocation = parsed_invocation(
         ProvenanceRole::RuleDeclaration,
         item_fn.sig.ident.to_string(),
         descriptor.anchors().to_vec(),
         ParsedInvocationPayload::Rule { bindings },
-    )?);
+    )?;
+    invocation.cells = cells;
+    output.push(invocation);
     Ok(())
 }
 

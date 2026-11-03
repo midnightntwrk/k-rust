@@ -247,6 +247,11 @@ pub enum Sentence {
     Claim,
     /// An initializer.
     Initializer,
+    /// A one-sided `cells!` pattern the sentence keeps as it matched it: an equation's function
+    /// context, which the equation reads, and a context alias, the frame of every context it
+    /// makes. It writes no cell, by what it is: its entries are subject entries with no other
+    /// side, and no rule-level class but an overlap of its entries is about it.
+    Context,
 }
 
 /// One entry of a sentence: its cell, its side, its stacks and its spelling.
@@ -1851,7 +1856,7 @@ pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Opt
             }
             None
         }
-        Sentence::Claim => None,
+        Sentence::Claim | Sentence::Context => None,
         Sentence::Initializer => {
             let computation = |entry: &Entry| entry.stack.last() == Some(&Layer::Computation);
             let k = |entry: &Entry| entry.cell == "k" && computation(entry);

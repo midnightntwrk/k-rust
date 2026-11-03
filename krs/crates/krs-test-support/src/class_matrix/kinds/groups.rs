@@ -934,3 +934,122 @@ pub(super) const INITIALIZERS: [(&str, &str); 4] = [
     ("frame", "f @ G { a: 0, b: 0 }"),
     ("prog", "k::k![Cmd::Go(), r @ ..]"),
 ];
+
+/// G6: the sentences that keep a `cells!` pattern as they matched it, an equation's function
+/// context and a context alias, each written once per own entry (`cells!` only: neither has a
+/// readable form). The own entries are the S1 (b) path under a `*` ancestor (a Map collection's
+/// instance child, a List collection's instance child), which is refused for the ancestor
+/// whatever it spells, and a plain leaf and a List leaf beside them, admitted, which witness
+/// that the sentence's other entries are ones admitted alone. No own entry is a `?` cell's
+/// `None` or an entry that matches every content: a kept pattern is paired with no other side,
+/// so neither is asked here.
+pub(super) const CONTEXTS: &[(&str, &str)] = &[
+    ("apc", "k::configuration::Cell(x)"),
+    ("payload", "k::configuration::Cell(x)"),
+    ("pc", "k::configuration::Cell(x)"),
+    ("stack", "k::configuration::Cell([x, ..])"),
+];
+
+/// The sentence a G6 case stands in.
+#[derive(Clone, Copy)]
+enum Kept {
+    /// An `#[k::equation]` whose last parameter is a function context.
+    FunctionContext,
+    /// A `#[k::context_alias]`, whose pattern frames the computation's `here`.
+    ContextAlias,
+}
+
+/// The G6 case of `cell`'s entry `text` in the sentence `kept`.
+fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
+    let tag = match kept {
+        Kept::FunctionContext => "g6-function-context",
+        Kept::ContextAlias => "g6-context-alias",
+    };
+    let spec = CaseSpec {
+        family: Family::Cells,
+        base: Base::Kinds,
+        side: Side::Subject,
+        kind: None,
+        slot: vec![tag.to_owned(), "kinds".to_owned(), cell.to_owned()],
+        construct: text.to_owned(),
+    };
+    let spelling = read(Form::Cells, text);
+    let mut parameters = Vec::new();
+    binder_types(&spelling, &stack(cell), &mut parameters);
+    let case_tag = spec.tag();
+    let command = Command::for_case(&spec.id(), 0);
+    let mut item = ItemBuilder::new();
+    let mut bound = parameters
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<BTreeSet<_>>();
+    let mut entries = Vec::new();
+    match kept {
+        Kept::FunctionContext => {
+            // The equation defines a function of its own, so the function context makes no
+            // other function of the base one of the configuration.
+            item.push(&format!(
+                "#[k::function(partial, sort = Int, syntax = \"g6probe{case_tag}({{a}})\")]\n\
+                 pub struct G6Probe{case_tag} {{\n    pub a: k::Term<k::KItem>,\n}}\n\n\
+                 #[k::equation]\nfn case_{case_tag}(\n    a: k::Term<k::KItem>,\n"
+            ));
+            for (name, ty) in &parameters {
+                item.push(&format!("    {name}: {ty},\n"));
+            }
+            item.push(&format!(
+                "    k::term![G6Probe{case_tag}(a)]: k::Term<k::builtin::Int>,\n    k::cells! {{ "
+            ));
+            item.entry(&key(cell), text);
+            item.push(", .. }: crate::Machine,\n) -> k::Term<k::builtin::Int> {\n    0\n}\n");
+            bound.insert("a".to_owned());
+        }
+        Kept::ContextAlias => {
+            item.push(&format!(
+                "#[k::context_alias(name = case_{case_tag}, here = site)]\nfn case_{case_tag}(\n"
+            ));
+            for (name, ty) in &parameters {
+                item.push(&format!("    {name}: {ty},\n"));
+            }
+            item.push("    k::cells! { k: k::configuration::KCell(site, tail @ ..), ");
+            item.entry(&key(cell), text);
+            item.push(", state @ .. }: crate::Machine,\n) {\n}\n");
+            bound.extend(["site".to_owned(), "tail".to_owned()]);
+            entries.push(entry(
+                "k",
+                Side::Subject,
+                Spelling::KCell(seq(vec![bind("site")], named("tail"))),
+            ));
+        }
+    }
+    let case = spec.finish(Packaging::Alone(command), &item);
+    Generated {
+        case,
+        entry: EntryCase {
+            form: Form::Cells,
+            entry: entry(cell, Side::Subject, spelling),
+            context: Context {
+                bound: bound.into_iter().collect(),
+                records: Vec::new(),
+                other: None,
+                written: false,
+                groups: groups(),
+            },
+            template: Template {
+                sentence: TemplateSentence::Context,
+                entries,
+                guard: false,
+                variables: Vec::new(),
+            },
+        },
+    }
+}
+
+/// Every G6 case: each own entry in a function context and in a context alias.
+pub(super) fn context_cases() -> Vec<Generated> {
+    CONTEXTS
+        .iter()
+        .flat_map(|(cell, text)| {
+            [Kept::FunctionContext, Kept::ContextAlias].map(|kept| context_case(kept, cell, text))
+        })
+        .collect()
+}

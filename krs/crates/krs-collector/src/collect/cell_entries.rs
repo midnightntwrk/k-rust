@@ -14,10 +14,10 @@ use std::collections::BTreeMap;
 
 use krs_ir::cell_kind::{CellKind, DescriptorCell, EntryKind, GroupKind};
 use krs_ir::{
-    DescriptorBundle, DescriptorCellDeclaration, DescriptorCellIdentity, DescriptorIndex,
-    DescriptorPayload, ProtocolCellContent, SourceRange, StableItemId,
+    ConfigurationSentenceKind, DescriptorBundle, DescriptorCellDeclaration, DescriptorCellIdentity,
+    DescriptorIndex, DescriptorPayload, ProtocolCellContent, SourceRange, StableItemId,
 };
-use krs_syntax::cell_entries::{self, EntrySide, Refusal, Sentence, SentenceEntry};
+use krs_syntax::cell_entries::{self, EntrySide, Refusal, Rewrite, Sentence, SentenceEntry};
 use krs_syntax::cell_entry::{EntryForm, EntrySpelling};
 
 use super::provenance::Coordinates;
@@ -61,6 +61,20 @@ fn fields(expression: &krs_syntax::CellsExpression) -> Option<Vec<ParsedField<Co
 }
 
 impl ParsedCells<Coordinates> {
+    /// The fields of a one-sided `cells!` pattern the sentence keeps as it matched it (a
+    /// function context, a context alias, a context), with the names `parameters` bind; `None`
+    /// where the payload is no list of fields.
+    pub(super) fn of_pattern(
+        pattern: &krs_syntax::CellsExpression,
+        parameters: impl IntoIterator<Item = String>,
+    ) -> Option<Self> {
+        Some(Self {
+            subject: fields(pattern)?,
+            result: None,
+            parameters: parameters.into_iter().collect(),
+        })
+    }
+
     /// The fields of a `cells!` rule; `None` where a payload is no list of fields.
     pub(super) fn of_rule(rule: &krs_syntax::StateRuleItem) -> Option<Self> {
         Some(Self {
@@ -100,7 +114,10 @@ impl ParsedCells<Coordinates> {
     }
 }
 
-/// Judges every `cells!` rule's entries of `bundle` whose authored fields `cells` holds.
+/// Judges the `cells!` entries of every sentence of `bundle` whose authored fields `cells`
+/// holds: a `cells!` rule's or claim's, pairing a result's with its subject's, or a single-body
+/// rule's in place; and the one-sided pattern of a context, a context alias or an equation's
+/// function context, which the sentence keeps as it matched it ([`Rewrite::Kept`]).
 ///
 /// # Errors
 ///
@@ -114,54 +131,91 @@ pub(super) fn judge(
         let Some(descriptor) = index.get(id) else {
             continue;
         };
-        let DescriptorPayload::ConfigurationRule(rule) = descriptor.payload() else {
-            continue;
+        let (configuration, subject, result, rewrite) = match descriptor.payload() {
+            DescriptorPayload::ConfigurationRule(rule) => (
+                &rule.subject_configuration.configuration,
+                &rule.subject.cells,
+                rule.result.as_ref().map(|cells| cells.cells.as_slice()),
+                match (&rule.result, rule.sentence_kind) {
+                    (_, ConfigurationSentenceKind::Context) => Rewrite::Kept,
+                    (Some(_), _) => Rewrite::Result,
+                    (None, _) => Rewrite::InPlace,
+                },
+            ),
+            DescriptorPayload::ContextAlias(alias) => (
+                &alias.configuration.configuration,
+                &alias.pattern.cells,
+                None,
+                Rewrite::Kept,
+            ),
+            DescriptorPayload::StructuredRule(rule) => {
+                let Some(context) = &rule.function_context else {
+                    continue;
+                };
+                (
+                    &context.configuration.configuration,
+                    &context.cells.cells,
+                    None,
+                    Rewrite::Kept,
+                )
+            }
+            _ => continue,
         };
-        let Ok(configuration) = index.configuration(&rule.subject_configuration.configuration)
-        else {
-            continue;
-        };
-        let tree = Tree::new(
-            &rule.subject_configuration.configuration,
-            &configuration.declaration,
-            &index,
-        );
-        let subject = entries(&tree, &rule.subject.cells, &authored.subject);
-        let result = rule
-            .result
-            .as_ref()
-            .zip(authored.result.as_ref())
-            .map(|(cells, authored)| entries(&tree, &cells.cells, authored));
-        let (Some(subject), Some(result)) = (subject, result.unwrap_or(Some(Vec::new()))) else {
-            continue;
-        };
-        let sentence = subject
+        judge_sentence(&index, configuration, subject, result, rewrite, authored)?;
+    }
+    Ok(())
+}
+
+/// The cells of one side of a sentence, as the descriptor holds them.
+type DescriptorCells =
+    [krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, krs_ir::DescriptorTerm>];
+
+/// Judges one sentence's entries over the configuration `configuration`.
+fn judge_sentence(
+    index: &DescriptorIndex<'_>,
+    configuration: &StableItemId,
+    subject: &DescriptorCells,
+    result: Option<&DescriptorCells>,
+    rewrite: Rewrite,
+    authored: &LocatedCells,
+) -> Result<(), CollectionError> {
+    let Ok(declaration) = index.configuration(configuration) else {
+        return Ok(());
+    };
+    let tree = Tree::new(configuration, &declaration.declaration, index);
+    let subject = entries(&tree, subject, &authored.subject);
+    let result = result
+        .zip(authored.result.as_ref())
+        .map(|(cells, authored)| entries(&tree, cells, authored));
+    let (Some(subject), Some(result)) = (subject, result.unwrap_or(Some(Vec::new()))) else {
+        return Ok(());
+    };
+    let sentence = subject
+        .iter()
+        .map(|entry| (EntrySide::Subject, entry))
+        .chain(result.iter().map(|entry| (EntrySide::Result, entry)))
+        .map(|(side, entry)| SentenceEntry {
+            side,
+            cell: entry.cell,
+            kind: &entry.kind,
+            spelling: entry.field.spelling.as_ref(),
+        })
+        .collect::<Vec<_>>();
+    let judged = Sentence {
+        form: EntryForm::Cells,
+        entries: &sentence,
+        rewrite,
+        parameters: &authored.parameters,
+        groups: &tree.groups,
+    }
+    .judge();
+    if let Err((at, refusal)) = judged {
+        let entry = subject
             .iter()
-            .map(|entry| (EntrySide::Subject, entry))
-            .chain(result.iter().map(|entry| (EntrySide::Result, entry)))
-            .map(|(side, entry)| SentenceEntry {
-                side,
-                cell: entry.cell,
-                kind: &entry.kind,
-                spelling: entry.field.spelling.as_ref(),
-            })
-            .collect::<Vec<_>>();
-        let judged = Sentence {
-            form: EntryForm::Cells,
-            entries: &sentence,
-            result: rule.result.is_some(),
-            parameters: &authored.parameters,
-            groups: &tree.groups,
-        }
-        .judge();
-        if let Err((at, refusal)) = judged {
-            let entry = subject
-                .iter()
-                .chain(&result)
-                .nth(at)
-                .expect("the refused entry is the sentence's");
-            return Err(refused(entry, refusal));
-        }
+            .chain(&result)
+            .nth(at)
+            .expect("the refused entry is the sentence's");
+        return Err(refused(entry, refusal));
     }
     Ok(())
 }
@@ -177,10 +231,7 @@ struct Entry<'a> {
 /// they do not correspond one to one, or a cell has no place in the configuration.
 fn entries<'a>(
     tree: &Tree<'_, '_>,
-    cells: &'a [krs_ir::ProtocolRuleCell<
-        krs_ir::DescriptorCellReference,
-        krs_ir::DescriptorTerm,
-    >],
+    cells: &'a DescriptorCells,
     fields: &'a [ParsedField<SourceRange>],
 ) -> Option<Vec<Entry<'a>>> {
     if cells.len() != fields.len() {

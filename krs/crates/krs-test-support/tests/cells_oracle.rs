@@ -693,6 +693,23 @@ struct Rendered {
     variables: Vec<(String, bool)>,
 }
 
+/// What the rendered sentence does with its cells, as the product's judgement reads it: a
+/// sentence that keeps its pattern as it matched it pairs nothing, one with a result entry pairs
+/// each entry with the other side's, and one with none rewrites in place.
+fn product_rewrite(rendered: &Rendered) -> cell_entries::Rewrite {
+    if rendered.sentence == Some(class_matrix::cells_oracle::Sentence::Context) {
+        cell_entries::Rewrite::Kept
+    } else if rendered
+        .entries
+        .iter()
+        .any(|(_, side, _)| *side == Side::Result)
+    {
+        cell_entries::Rewrite::Result
+    } else {
+        cell_entries::Rewrite::InPlace
+    }
+}
+
 /// Skips one token tree.
 fn skip(input: syn::parse::ParseStream<'_>) -> syn::Result<()> {
     input.step(|cursor| {
@@ -788,14 +805,37 @@ fn rendered_readable(form: EntryForm, input: syn::parse::ParseStream<'_>) -> syn
     Ok(rendered)
 }
 
-/// A `cells!` rule: `#[k::rule(..)] pub fn f(x: T, .., k::cells! { .. }: M) -> M { k::cells! { .. } }`.
+/// A `cells!` rule: `#[k::rule(..)] pub fn f(x: T, .., k::cells! { .. }: M) -> M { k::cells! { .. } }`;
+/// or a sentence that keeps its `cells!` pattern as it matched it (G6): an equation whose last
+/// parameter is its function context, `#[k::equation] fn f(x: T, .., k::term![..]: S,
+/// k::cells! { .., .. }: M) -> S { .. }`, after the struct of the function it defines, and a
+/// context alias, `#[k::context_alias(..)] fn f(x: T, .., k::cells! { .. }: M) {}`.
 fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
+    use class_matrix::cells_oracle::Sentence;
     let mut rendered = Rendered {
-        sentence: Some(class_matrix::cells_oracle::Sentence::Rule),
+        sentence: Some(Sentence::Rule),
         ..Rendered::default()
     };
     let reading = EntryReading::new(EntryForm::Cells, &[]);
-    input.call(syn::Attribute::parse_outer)?;
+    let attributes = input.call(syn::Attribute::parse_outer)?;
+    let attributes = if input.fork().parse::<syn::ItemStruct>().is_ok() {
+        input.parse::<syn::ItemStruct>()?;
+        input.call(syn::Attribute::parse_outer)?
+    } else {
+        attributes
+    };
+    let marks = |name: &str| {
+        attributes.iter().any(|attribute| {
+            attribute
+                .path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == name)
+        })
+    };
+    if marks("equation") || marks("context_alias") {
+        rendered.sentence = Some(Sentence::Context);
+    }
     input.parse::<syn::Visibility>()?;
     input.parse::<syn::Token![fn]>()?;
     input.parse::<syn::Ident>()?;
@@ -803,11 +843,20 @@ fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
     syn::parenthesized!(parameters in input);
     while !parameters.is_empty() {
         if parameters.peek(syn::Ident) && parameters.peek2(syn::Token![::]) {
-            parameters.call(syn::Path::parse_mod_style)?;
+            let path = parameters.call(syn::Path::parse_mod_style)?;
             parameters.parse::<syn::Token![!]>()?;
-            let subject;
-            syn::braced!(subject in parameters);
-            rendered_fields(reading, &subject, Side::Subject, &mut rendered.entries)?;
+            if path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "cells")
+            {
+                let subject;
+                syn::braced!(subject in parameters);
+                rendered_fields(reading, &subject, Side::Subject, &mut rendered.entries)?;
+            } else {
+                // An equation's subject, `k::term![..]`, holds no cell entry.
+                skip(&parameters)?;
+            }
         } else {
             rendered
                 .parameters
@@ -819,10 +868,20 @@ fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
             parameters.parse::<syn::Token![,]>()?;
         }
     }
-    input.parse::<syn::Token![->]>()?;
-    input.parse::<syn::Type>()?;
+    if input.peek(syn::Token![->]) {
+        input.parse::<syn::Token![->]>()?;
+        input.parse::<syn::Type>()?;
+    }
     let body;
     syn::braced!(body in input);
+    if rendered.sentence == Some(Sentence::Context) {
+        // An equation's body is its result term, a context alias's is empty: neither writes a
+        // cell.
+        while !body.is_empty() {
+            skip(&body)?;
+        }
+        return Ok(rendered);
+    }
     body.call(syn::Path::parse_mod_style)?;
     body.parse::<syn::Token![!]>()?;
     let result;
@@ -1403,10 +1462,7 @@ fn check_2s_the_product_judges_a_sentence_as_the_table_says() {
         let got = cell_entries::Sentence {
             form: EntryForm::Cells,
             entries: &entries,
-            result: rendered
-                .entries
-                .iter()
-                .any(|(_, side, _)| *side == Side::Result),
+            rewrite: product_rewrite(&rendered),
             parameters: &parameters,
             groups: &groups,
         }
