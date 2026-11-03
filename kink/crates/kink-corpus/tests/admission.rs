@@ -402,7 +402,14 @@ fn corpus_v1_refuses_symbolic_kore_inputs_at_the_input_gate() {
         (&*refusal.stage, &*refusal.reason),
         ("inputs", "input-gate")
     );
-    assert!(refusal.detail.contains("concrete"));
+    // The detail names the free variable and no harness format version.
+    assert_eq!(
+        refusal.detail,
+        "the initial configuration is not concrete: it holds the variable \
+         X:SortGeneratedTopCell{}; kink runs programs from concrete configurations only, so give \
+         every input a value, or make the given state concrete"
+    );
+    assert!(!refusal.detail.contains("corpus") && !refusal.detail.contains("v1"));
     fs::remove_dir_all(dir).unwrap();
 }
 

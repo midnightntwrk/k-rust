@@ -551,16 +551,42 @@ pub fn input_refusal(e: crate::InputError) -> AdmissionRefusal {
     AdmissionRefusal::new("inputs", reason, e)
 }
 
+/// The most free variables a concrete-state refusal's detail names.
+const FREE_VARIABLE_DETAIL: usize = 8;
+
 /// The concrete-state check and the input gate of one initial state.
+///
+/// kink runs programs from concrete configurations only: a configuration with a free variable
+/// is a set of starts, not one, so it is refused, naming its free variables (in variable order,
+/// the first `FREE_VARIABLE_DETAIL` of them).
 pub fn check_initial_state(
     backend: &mut Backend,
     initial_state: &Pattern,
 ) -> Result<(), AdmissionRefusal> {
-    if !initial_state.free_variables().is_empty() {
+    let free = initial_state.free_variables();
+    if !free.is_empty() {
+        let mut names = free
+            .iter()
+            .take(FREE_VARIABLE_DETAIL)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        if free.len() > FREE_VARIABLE_DETAIL {
+            names.push_str(&format!(" and {} more", free.len() - FREE_VARIABLE_DETAIL));
+        }
+        let noun = if free.len() == 1 {
+            "variable"
+        } else {
+            "variables"
+        };
         return Err(AdmissionRefusal::new(
             "inputs",
             "input-gate",
-            "corpus v1 requires a concrete initial state",
+            format!(
+                "the initial configuration is not concrete: it holds the {noun} {names}; kink runs \
+                 programs from concrete configurations only, so give every input a value, or make \
+                 the given state concrete"
+            ),
         ));
     }
     validate_test_initial_state(backend, initial_state)

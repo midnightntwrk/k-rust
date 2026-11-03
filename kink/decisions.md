@@ -47,3 +47,27 @@ A proposal to change an entry must answer the entry's reasons and meet its reope
   Rejected: Rust edits built through `krs emit-k` (above); Rust edits re-collected in process (they still lower the whole definition, 2-14 s per mutant, and keep reason 4's staleness); edits of KRS's intermediate representation (it has no authored text form other than its K rendering, so an edit of it is a K patch or a Rust re-collection in another form).
   Reopen the canonical format only on a Rust route measured close to kink's own cost per mutant, such as lowering a single item in process or compiling all mutants in one build, that keeps staleness an exact comparison.
   Reopen the no-translation clause alone, leaving K patches the canonical format, on new accuracy evidence: agents writing K patches measurably less accurately than Rust edits on a larger specification justify a one-off translation of a Rust edit into a K patch, which is then stored and checked as any other K patch.
+
+## U. User surface
+
+- **U1 — kink has one user tool; kink-corpus's manifest, binary and summary are kink's harness.**
+  A user describes a corpus in kink-flow's `FLOW.toml` (directly, or through the krs front end, `krs kink`, for a KRS package) and reads kink-flow's statuses.
+  A capability of kink-corpus's harness manifest reaches users only as a form of `FLOW.toml` stated in the specification's own terms: its declared inputs, its cell names, K text edits of it.
+  kink-corpus stays the admission-and-input library both front ends build on, and its binary, manifest, store and summary stay kink's harness, used by kink's tests and its maintainers (`crates/kink-corpus/README.md` maps each harness capability to the user tool's form or states why users have none).
+  [settled from first principles, 2026-11-04]
+  1. *A second user format adds no verdict.*
+     Every user-facing verdict, cache and soundness argument is kink-flow's: its kill definition, its outcome cache and `--verify`, its documents.
+     A second manifest a user could write would double what a user must learn and keep consistent while deciding nothing kink-flow does not decide.
+  2. *The harness's KORE-state inputs and term paths name the compiled configuration, not the specification.*
+     A test is an input whose expected result is what the specification computes, and that computation starts at the configuration the specification's initializer builds from the inputs.
+     A KORE state bypasses the initializer: it can be a configuration no input produces, so a kill from it can be a difference only on configurations the specification never reaches, a fact about the rewrite relation rather than about the specification's behavior; and it names compiled symbols, so a corpus written that way breaks whenever the way the specification compiles changes.
+     A term path names a child-index position of the compiled configuration: it depends on the compiled cell layout, a path an end lacks makes the slot an error rather than a value, and a term-path slot gives no one-sided kill.
+     Typed inputs name the specification's declared configuration variables and the constructors of their declared types, so they are stable under compilation and every one is a start the initializer builds.
+     Cells named in the specification or in `[result] cells` are stable under compilation, a projection by them is defined on every configuration, and it is compatible with one-sided kills.
+  3. *The harness keeps forms that kink's own tests need and no user corpus does.*
+     Campaigns of generated mutants over many definitions, pinned sources, process isolation, a digest-checked store, resume and `replay-check` exercise engine paths that have no other end-to-end route; a user's corpus tests one specification, and kink-flow's caches are keyed by content digests and kink's build.
+
+  Accepted cost: kink-corpus's tally and score are not kink-flow's counts.
+  The statuses the two share are the campaign runner's, and each has one name in kink-campaign's reports (a mutant's `status` and its tally key), kink-corpus's summary and kink-flow's documents (kink-flow `tests/statuses.rs`); kink-flow's only other statuses, `unkillable` and `invalid-mutation`, are its own.
+  Rejected: exposing KORE-state inputs or term paths in `FLOW.toml` (reason 2); deleting the harness binary (it is the only end-to-end route for generated campaigns, process isolation and the replay of stored reports, which kink's tests exercise); splitting the crate into a library and a harness crate (no document and no verdict changes, while the library's import sites in kink-flow would all move).
+  Reopen on a user need that no form in the specification's own terms can serve.

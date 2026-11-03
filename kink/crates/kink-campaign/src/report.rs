@@ -240,7 +240,7 @@ pub fn campaign_report_multi(
         };
         let count = tally(generation, &partial).ok_or(ReportError::MutantCountMismatch)?;
         counts.rejected_origins += count.rejected_origins;
-        per_operator.push(json!({"operator":operator,"tally":tally_value(count),"score":score_value(partial.score)}));
+        per_operator.push(json!({"operator":operator,"tally":report_tally(count),"score":score_value(partial.score)}));
         offset = end;
     }
     let mut distinct_statuses = Vec::new();
@@ -373,7 +373,7 @@ pub fn campaign_report_multi(
                 .map(|(edit, canonical)| diff(baseline, edit, canonical))
                 .collect::<Result<Vec<_>, _>>()?;
             let tests = mutant_run.plan.tests.iter().map(|test| Ok(json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run)).transpose()?}))).collect::<Result<Vec<_>, ReportError>>()?;
-            mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal + origin_offset)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()},"inconsistent_pairs":mutant_run.plan.inconsistent_pairs.iter().map(kink_native::consistency::UnjoinedEquations::value).collect::<Vec<_>>()}));
+            mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal + origin_offset)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":report_status_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()},"inconsistent_pairs":mutant_run.plan.inconsistent_pairs.iter().map(kink_native::consistency::UnjoinedEquations::value).collect::<Vec<_>>()}));
         }
         offset += generation.candidates().len();
         origin_offset += generation.selected_origins().len();
@@ -393,14 +393,24 @@ pub fn campaign_report_multi(
         ),
     };
     let score = run.score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))}));
-    let value = json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score,"per_operator":per_operator}});
+    let value = json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":report_tally(counts),"score":score,"per_operator":per_operator}});
     // A report no reader could read back (kink-corpus `Store::read_json`, `replay`: deeper than
     // kink-patch MAX_JSON_DEPTH) is refused here, where it is written (re-pin L1-3-fix-2).
     kink_patch::check_json_depth(&value).map_err(encode)?;
     Ok(CampaignReport { value })
 }
 
-fn tally_value(counts: crate::Tally) -> Value {
+/// The name a campaign report gives a mutant status: its `status` field, and the key that counts
+/// it in [`report_tally`].
+#[must_use]
+pub fn report_status_name(status: crate::MutantStatus) -> String {
+    enum_name(status)
+}
+
+/// A campaign report's tally of `counts`, as its `summary.tally` and each operator's `tally` hold
+/// it: one key per mutant status, then `rejected_origins`.
+#[must_use]
+pub fn report_tally(counts: crate::Tally) -> Value {
     json!({"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins})
 }
 fn score_value(score: Option<crate::Score>) -> Value {

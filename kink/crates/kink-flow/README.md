@@ -186,7 +186,7 @@ and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused fo
 
 ## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`
 
-Admits the specification through kink-corpus's admission stages, with the same stage names and refusal reasons:
+Admits the specification through kink's admission stages (kink-corpus's `admission` module, the library kink-flow is built on):
 `manifest` (this crate: the manifest does not decode), `refused-case` (a below-floor conformance case), `load`, `semantic-input`, `compile`,
 `representation`, `declaration-census`, `result` (this crate: the compared cells, above under "Which cells are compared") and `inputs`, then `assume-joined` (this crate: the definition's full
 critical-pair check on the input backend, against `[spec] assume_joined`).

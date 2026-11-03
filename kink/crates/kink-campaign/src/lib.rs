@@ -31,6 +31,7 @@ pub use plan::{BudgetMutants, CampaignPlan, CampaignPlanError, campaign_plan};
 mod report;
 pub use report::{
     CAMPAIGN_REPORT_VERSION, CampaignReport, ReportError, campaign_report, campaign_report_multi,
+    report_status_name, report_tally,
 };
 mod replay;
 pub use replay::{

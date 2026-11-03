@@ -23,7 +23,10 @@ use std::{
     path::Path,
 };
 
-const TALLY_KEYS: [&str; 8] = [
+/// The keys of a campaign report's tally, in summary order: the runner's seven mutant statuses
+/// as every kink document names them, then `rejected_origins`, which counts generation origins,
+/// not mutants.
+pub const TALLY_KEYS: [&str; 8] = [
     "killed",
     "survived",
     "equivalent",

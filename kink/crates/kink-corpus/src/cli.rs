@@ -35,7 +35,9 @@ use std::{
 /// allowance explicit rather than relying on the platform's thread default.
 pub const DEFINITION_STACK_BYTES: usize = 256 << 20;
 
-const USAGE: &str = "usage: kink-corpus pin --workspace DIR MANIFEST | run --workspace DIR --store DIR MANIFEST | definition --workspace DIR --store DIR MANIFEST ID | summary --store DIR MANIFEST_SHA256 PROFILE | replay-check --workspace DIR --store DIR MANIFEST ID";
+/// Printed on every argument error: what the binary is, then its commands.
+const USAGE: &str = "kink's corpus harness (kink's own tests and campaign sweeps over many K \
+                     definitions; to test a specification use kink-flow). usage: kink-corpus pin --workspace DIR MANIFEST | run --workspace DIR --store DIR MANIFEST | definition --workspace DIR --store DIR MANIFEST ID | summary --store DIR MANIFEST_SHA256 PROFILE | replay-check --workspace DIR --store DIR MANIFEST ID";
 
 struct Arguments {
     command: String,
