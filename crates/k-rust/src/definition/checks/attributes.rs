@@ -343,6 +343,15 @@ fn check_production(
             production,
         ));
     }
+    // `unobservable` states that a cell holds state no use observes; on a production that
+    // declares no cell it states nothing, and accepting it would let an author believe
+    // something is marked.
+    if attributes.has(AttributeKey::Unobservable) && !attributes.has(AttributeKey::Cell) {
+        diagnostics.push(invalid_attribute(
+            "The attribute 'unobservable' cannot be applied to a production that does not declare a cell: it is a cell property, written in a configuration declaration (<w unobservable=\"\">).",
+            production,
+        ));
+    }
     if attributes.has(AttributeKey::Latex) {
         diagnostics.push(deprecated_attribute(
             "The attribute 'latex' has been deprecated and all of its functionality has been removed. Using it will be an error in the future.",

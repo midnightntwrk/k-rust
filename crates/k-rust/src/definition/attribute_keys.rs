@@ -6,8 +6,9 @@
 //! The definition model's `Attributes` map stays `String`-keyed: unrecognized user keys are
 //! data until `check_attribute_map` reports them, and KAST JSON round-trips them.
 //! This enum is the closed set of keys the compiler itself reads or writes: K's built-in keys
-//! (user-visible, with their parameter rule and sentence targets), K's internal keys (written by
-//! the compiler, an error in user source), and the markers krust mints.
+//! (user-visible, with their parameter rule and sentence targets), k-rust's own user-visible keys
+//! (classed like K's built-in keys; K's table has no such key), K's internal keys (written by the
+//! compiler, an error in user source), and the markers krust mints.
 //! The `emits` column is K's `KeyRange::WholePipeline`: the key reaches `definition.kore`.
 
 pub(crate) const MODULE: u16 = 1 << 0;
@@ -260,6 +261,12 @@ attribute_keys! {
     Total = "total" (builtin(Forbidden, PRODUCTION), true, Content),
     UnparseAvoid = "unparseAvoid" (builtin(Forbidden, PRODUCTION), false, Content),
     Unused = "unused" (builtin(Forbidden, PRODUCTION), false, Content),
+    // k-rust's own user-visible keys; K's table has no such key.
+    //
+    // `unobservable`, a cell property: the cell holds state no use of the definition may observe.
+    // Nothing the definition computes reads it and it is not emitted; a tool that compares runs
+    // leaves the cell's content out of the comparison (`configuration::declared_cells`).
+    Unobservable = "unobservable" (builtin(Forbidden, PRODUCTION), false, Content),
     // K internal keys.
     Anonymous = "anonymous" (Internal, false, Content),
     BracketLabel = "bracketLabel" (Internal, false, Content),

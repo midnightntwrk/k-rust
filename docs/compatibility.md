@@ -773,6 +773,20 @@ Expansion also rejects, at the production, a written `cell` production of anothe
 The pinned K frontend accepts a written `cell` production under the label of the cell's generated production (`symbol(<t>)` above), for an ordinary cell and for a `multiplicity="*"` cell, and rejects one under another label, as Rust does.
 It accepts a `cell` production of another sort with a declared cell's tags, and rejects each rule that writes the cell as ambiguous between the two productions.
 
+## Unobservable cells
+
+The cell property `unobservable`, written without a value (`<w unobservable=""> 0 </w>`), declares that the cell holds state no use of the definition may observe, such as a temporary the semantics needs between steps and no result of a run reports.
+It changes nothing the definition computes: no compilation pass reads it and it is not emitted, so a definition compiles to the same `definition.kore` with or without it, apart from the source locations its text moves.
+A tool that compares runs of the definition leaves the content of an unobservable cell, and of the cells inside it, out of the comparison; by default it compares every other cell.
+Which cells are unobservable is a fact about one definition, so it is stated where the cell is declared, and every tool reads the same statement: `k_rust::definition::declared_cells` gives each cell of a module's view with its multiplicity, whether it is unobservable, the KORE symbol of its production, the KORE sorts of that symbol's arguments, and the KORE sort of the argument of its parent that holds it.
+A value is refused (`cell property "unobservable" does not accept a value`), and so is the property on a cell whose content every run observes: on the exit cell (`cell <status> cannot be unobservable: its final value is the process exit status`), on a stream cell (`cell <out> cannot be unobservable: its content is console input or output`), and on a cell that holds either, declared inside it or as an external cell (`cell <io> cannot be unobservable: it holds the stream cell <out>, whose content is console input or output`).
+The property marks one cell, so it is refused as an attribute of the configuration declaration, which every cell production the declaration generates would carry (`` `unobservable` is a cell property: write it on the cell it marks ``), and on a production that declares no cell (`The attribute 'unobservable' cannot be applied to a production that does not declare a cell`).
+K's own `internal` cell property states something else: cell completion leaves a production marked `internal` out of the configuration's cells, while an unobservable cell is an ordinary cell of the configuration.
+(`crates/k-rust/tests/unobservable_cells.rs`.)
+
+`unobservable` is a k-rust key: K's attribute table has no such key, and the pinned K frontend refuses a configuration that writes it as an unrecognized cell property (`kompile --backend haskell` stops with `Unrecognized property: unobservable` at the property).
+A definition that must also compile with the pinned K frontend, such as a fixture of a differential test against it, therefore does not write it.
+
 ## Domain values
 
 A literal `#token("s", "S")`, emitted as `\dv{S}("s")`, denotes the element of `S` that `s` names in `S`'s literal domain, and the emitted definition declares that domain only by the attribute `hasDomainValues` on the declaration of `S`'s head.

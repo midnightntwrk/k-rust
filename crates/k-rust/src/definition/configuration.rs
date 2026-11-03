@@ -28,8 +28,8 @@ use serde_json::{Value, json};
 use super::checks::{LabelParameterError, reject_label_parameters};
 use super::configuration_value;
 use super::{
-    Attributes, Definition, EquivalentSentences, LabelHead, LabelResultSort, ProductionCatalog,
-    ProductionItem, ResolveError, ResolvedDefinition, Sentence,
+    Attributes, Definition, EquivalentSentences, LabelHead, LabelResultSort, ModuleId,
+    ProductionCatalog, ProductionItem, ResolveError, ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
     dedup_by_equivalence,
 };
@@ -38,6 +38,8 @@ use crate::definition::totality::TotalityWitness;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
 use crate::kast::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term};
+use crate::kompile::{encode_kore_label, encode_kore_sort};
+use crate::kore::ast::Sort as KoreSort;
 use crate::names::BuiltinSort;
 use crate::provenance::{GeneratingPass, record_generated_origins};
 
@@ -469,11 +471,27 @@ fn has_structured_configuration(definition: &Definition) -> bool {
     })
 }
 
+/// A cell's multiplicity, as its declaration states it (`multiplicity`, `1` when absent).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Multiplicity {
+pub enum CellMultiplicity {
+    /// Exactly one instance in every configuration (`1`, the default).
     One,
+    /// At most one instance (`?`).
     Optional,
+    /// Any number of instances, held in a collection (`*`).
     Star,
+}
+
+impl CellMultiplicity {
+    /// The multiplicity a `multiplicity` value states; `None` for a value that states none.
+    fn from_attribute(value: Option<&str>) -> Option<Self> {
+        match value {
+            None | Some("1") => Some(Self::One),
+            Some("?") => Some(Self::Optional),
+            Some("*") => Some(Self::Star),
+            Some(_) => None,
+        }
+    }
 }
 
 struct GeneratedNode {
@@ -484,6 +502,52 @@ struct GeneratedNode {
     /// Whether a leaf at or below the node holds a configuration or regular variable; a stream
     /// or external cell below it makes its initializer take `Init` without one.
     reads_variable: bool,
+    /// An exit or stream cell at or below the node, the first in declaration order: a cell whose
+    /// content every run observes, so no cell holding it can be unobservable.
+    observed: Option<ObservedCell>,
+}
+
+/// A cell whose content every run of the definition observes.
+#[derive(Clone, Debug)]
+struct ObservedCell {
+    name: String,
+    /// `true` for the exit cell (its final value is the process exit status), `false` for a
+    /// stream cell (its content is console input or output).
+    exit: bool,
+}
+
+impl ObservedCell {
+    /// The cell `properties` declares observed, if any; the exit cell when it is both.
+    fn of(name: &str, properties: &Attributes) -> Option<Self> {
+        let exit = properties.has(AttributeKey::Exit);
+        (exit || properties.has(AttributeKey::Stream)).then(|| Self {
+            name: name.to_owned(),
+            exit,
+        })
+    }
+
+    /// Why a cell that is or holds this one cannot be unobservable.
+    fn reason(&self) -> &'static str {
+        if self.exit {
+            "final value is the process exit status"
+        } else {
+            "content is console input or output"
+        }
+    }
+
+    /// The refusal of `unobservable` on the cell `<cell_name>`, which is or holds this one.
+    fn refusal(&self, cell_name: &str) -> String {
+        let reason = self.reason();
+        if self.name == cell_name {
+            format!("cell <{cell_name}> cannot be unobservable: its {reason}")
+        } else {
+            let kind = if self.exit { "exit" } else { "stream" };
+            format!(
+                "cell <{cell_name}> cannot be unobservable: it holds the {kind} cell <{}>, whose {reason}",
+                self.name
+            )
+        }
+    }
 }
 
 /// The sentences generated from one module's configurations, with what generating more asks
@@ -540,6 +604,14 @@ struct Generator<'a, 'catalog> {
 
 impl Generator<'_, '_> {
     fn generate_top(&mut self, body: &Term, ensures: &Term) -> Result<(), ConfigurationError> {
+        // The declaration's attributes are merged into every cell production it generates, so
+        // `unobservable` there would mark every cell, the top cell included, and bypass the
+        // refusals on exit and stream cells; it states something about one cell only.
+        if self.attributes.has(AttributeKey::Unobservable) {
+            return Err(self.error(
+                "`unobservable` is a cell property: write it on the cell it marks (`<w unobservable=\"\">`), not as an attribute of the configuration declaration",
+            ));
+        }
         self.generate(body, Some(ensures))?;
         Ok(())
     }
@@ -577,12 +649,14 @@ impl Generator<'_, '_> {
                 let mut initializers = Vec::new();
                 let mut initializer_takes_map = false;
                 let mut reads_variable = false;
+                let mut observed = None;
                 for cell in cells {
                     let generated = self.generate(cell, None)?;
                     child_sorts.extend(generated.child_sorts);
                     initializers.push(generated.initializer);
                     initializer_takes_map |= generated.initializer_takes_map;
                     reads_variable |= generated.reads_variable;
+                    observed = observed.or(generated.observed);
                 }
                 Ok(GeneratedNode {
                     child_sorts,
@@ -590,6 +664,7 @@ impl Generator<'_, '_> {
                     leaf: false,
                     initializer_takes_map,
                     reads_variable,
+                    observed,
                 })
             }
             Term::Token { sort, .. } => Ok(GeneratedNode {
@@ -598,6 +673,7 @@ impl Generator<'_, '_> {
                 leaf: true,
                 initializer_takes_map: has_configuration_or_regular_variable(term),
                 reads_variable: has_configuration_or_regular_variable(term),
+                observed: None,
             }),
             Term::Sequence(_) | Term::Variable { .. } | Term::InjectedLabel(_) => {
                 Ok(GeneratedNode {
@@ -606,6 +682,7 @@ impl Generator<'_, '_> {
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
                     reads_variable: has_configuration_or_regular_variable(term),
+                    observed: None,
                 })
             }
             Term::Apply { label, arguments } => {
@@ -653,6 +730,7 @@ impl Generator<'_, '_> {
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
                     reads_variable: has_configuration_or_regular_variable(term),
+                    observed: None,
                 })
             }
             Term::Rewrite { .. } | Term::As { .. } => {
@@ -738,7 +816,44 @@ impl Generator<'_, '_> {
             leaf: true,
             initializer_takes_map,
             reads_variable: false,
+            observed: self.observed_within(name),
         })
+    }
+
+    /// The first exit or stream cell at or below the declared cell `<name>`, read from the cell
+    /// productions this module sees and the ones generated so far: the content of an external
+    /// cell is declared by another configuration declaration.
+    fn observed_within(&self, name: &str) -> Option<ObservedCell> {
+        let cells = self
+            .catalog
+            .productions()
+            .map(|(_, sentence)| sentence)
+            .chain(self.generated.kept.sentences())
+            .filter_map(CellProduction::of)
+            .collect::<Vec<_>>();
+        // A parent holds a cell at its position sort; the external cell itself is named by its
+        // cell sort, which differs from the position sort for a `*` cell.
+        let mut by_sort = BTreeMap::new();
+        for cell in &cells {
+            by_sort.insert(cell.sort.clone(), cell);
+            by_sort.insert(cell.position_sort.clone(), cell);
+        }
+        let mut visited = BTreeSet::new();
+        let mut pending = vec![Sort::new(cell_sort_name(name))];
+        // Invariant: each sort is expanded once (`visited`), and the sorts are finitely many.
+        while let Some(sort) = pending.pop() {
+            if !visited.insert(sort.clone()) {
+                continue;
+            }
+            let Some(cell) = by_sort.get(&sort) else {
+                continue;
+            };
+            if let Some(observed) = ObservedCell::of(&cell.name, cell.attributes) {
+                return Some(observed);
+            }
+            pending.extend(cell.child_sorts.iter().rev().cloned());
+        }
+        None
     }
 
     fn generate_cell(
@@ -763,15 +878,12 @@ impl Generator<'_, '_> {
             return Err(self.error(format!("Cell name <{start}> is reserved by K.")));
         }
         let properties = self.parse_properties(properties, start)?;
-        let multiplicity = match properties.string(AttributeKey::Multiplicity) {
-            None | Some("1") => Multiplicity::One,
-            Some("?") => Multiplicity::Optional,
-            Some("*") => Multiplicity::Star,
-            Some(value) => {
-                return Err(self.error(format!(
-                    "invalid multiplicity found in cell <{start}>: {value}"
-                )));
-            }
+        let value = properties.string(AttributeKey::Multiplicity);
+        let Some(multiplicity) = CellMultiplicity::from_attribute(value) else {
+            let value = value.unwrap_or_default();
+            return Err(self.error(format!(
+                "invalid multiplicity found in cell <{start}>: {value}"
+            )));
         };
         let stream = properties.has(AttributeKey::Stream);
         let children = self.generate(contents, None)?;
@@ -795,12 +907,21 @@ impl Generator<'_, '_> {
         &mut self,
         cell_name: &str,
         properties: Attributes,
-        multiplicity: Multiplicity,
+        multiplicity: CellMultiplicity,
         stream: bool,
         mut children: GeneratedNode,
         ensures: Option<&Term>,
         has_variables: bool,
     ) -> Result<GeneratedNode, ConfigurationError> {
+        // Every run observes the exit cell's final value, the process status, and a stream
+        // cell's content, its console input or output; no use can leave either out, and so no
+        // use can leave out a cell that holds one, whose content includes it.
+        let observed = ObservedCell::of(cell_name, &properties).or(children.observed.take());
+        if properties.has(AttributeKey::Unobservable)
+            && let Some(observed) = &observed
+        {
+            return Err(self.error(observed.refusal(cell_name)));
+        }
         let sort = Sort::new(cell_sort_name(cell_name));
         if properties.has(AttributeKey::Maincell) {
             if !children.leaf || children.child_sorts.len() != 1 {
@@ -814,7 +935,7 @@ impl Generator<'_, '_> {
         let init_label = init_label(&sort);
         let collection_sort = properties
             .string(AttributeKey::Type)
-            .unwrap_or("Bag")
+            .unwrap_or(DEFAULT_COLLECTION_TYPE)
             .to_owned();
 
         self.reject_other_cell_production(cell_name, &sort, &label)?;
@@ -827,7 +948,7 @@ impl Generator<'_, '_> {
             );
         }
 
-        if multiplicity != Multiplicity::Optional && !self.label_exists(&label) {
+        if multiplicity != CellMultiplicity::Optional && !self.label_exists(&label) {
             self.push(production(
                 Some(label.clone()),
                 sort.clone(),
@@ -837,7 +958,7 @@ impl Generator<'_, '_> {
         }
 
         let initializer_takes_map = has_variables || stream;
-        if multiplicity != Multiplicity::One
+        if multiplicity != CellMultiplicity::One
             && has_variables
             && !properties.has(AttributeKey::Initial)
         {
@@ -858,8 +979,8 @@ impl Generator<'_, '_> {
                 self.attributes,
             ));
         }
-        let init_sort = if multiplicity == Multiplicity::Star {
-            Sort::new(format!("{}{collection_sort}", sort.name))
+        let init_sort = if multiplicity == CellMultiplicity::Star {
+            collection_sort_of(&sort, &collection_sort)
         } else {
             sort.clone()
         };
@@ -893,7 +1014,7 @@ impl Generator<'_, '_> {
         }
 
         let (parent_sort, initializer) = match multiplicity {
-            Multiplicity::Star => {
+            CellMultiplicity::Star => {
                 let collection = self.generate_collection(
                     cell_name,
                     &sort,
@@ -905,7 +1026,7 @@ impl Generator<'_, '_> {
                     optional_initializer(&init_label, has_variables, &properties),
                 )
             }
-            Multiplicity::Optional => {
+            CellMultiplicity::Optional => {
                 let unit_label = format!(".{}", sort.name);
                 self.push(production(
                     Some(unit_label.clone()),
@@ -928,7 +1049,7 @@ impl Generator<'_, '_> {
                     optional_initializer(&init_label, has_variables, &properties),
                 )
             }
-            Multiplicity::One => (
+            CellMultiplicity::One => (
                 sort.clone(),
                 Term::apply(
                     init_label,
@@ -950,6 +1071,7 @@ impl Generator<'_, '_> {
             leaf: false,
             initializer_takes_map,
             reads_variable: children.reads_variable,
+            observed,
         })
     }
 
@@ -1009,7 +1131,7 @@ impl Generator<'_, '_> {
                 "map cell <{cell_name}> expects at least one child cell as its key"
             )));
         }
-        let sort = Sort::new(format!("{}{collection_type}", cell_sort.name));
+        let sort = collection_sort_of(cell_sort, collection_type);
         let upper = collection_type.to_uppercase();
         self.push(Sentence::SyntaxSort {
             parameters: vec![],
@@ -1727,6 +1849,16 @@ fn truth() -> Term {
     }
 }
 
+/// The sort of the collection that holds the instances of a `multiplicity="*"` cell of sort
+/// `cell_sort` with collection type `collection_type` (`Bag`, `Set`, `List` or `Map`): the sort
+/// the cell's parent holds it at.
+fn collection_sort_of(cell_sort: &Sort, collection_type: &str) -> Sort {
+    Sort::new(format!("{}{collection_type}", cell_sort.name))
+}
+
+/// The collection type of a `multiplicity="*"` cell whose declaration writes none.
+const DEFAULT_COLLECTION_TYPE: &str = "Bag";
+
 fn init_label(sort: &Sort) -> String {
     format!("init{sort}")
 }
@@ -1746,6 +1878,140 @@ pub fn cell_sort_name(cell_name: &str) -> String {
     }
     output.push_str("Cell");
     output
+}
+
+/// A `cell` production read as one cell of a configuration.
+struct CellProduction<'a> {
+    name: String,
+    label: &'a Label,
+    /// The sort of the production, the cell sort.
+    sort: Sort,
+    multiplicity: CellMultiplicity,
+    /// The sort of the argument of the parent's production that holds the cell: the cell sort,
+    /// or for a `*` cell the collection sort.
+    position_sort: Sort,
+    /// The sorts of the production's non-terminals, in order.
+    child_sorts: Vec<Sort>,
+    attributes: &'a Attributes,
+}
+
+impl<'a> CellProduction<'a> {
+    /// `sentence` as a cell, unless it is no `cell` production, is marked `internal` (and so
+    /// left out of the cell model compilation builds), or states a multiplicity other than `1`,
+    /// `?` and `*`, which no configuration declaration generates.
+    fn of(sentence: &'a Sentence) -> Option<Self> {
+        let Sentence::Production {
+            label: Some(label),
+            sort,
+            items,
+            attributes,
+            ..
+        } = sentence
+        else {
+            return None;
+        };
+        if !attributes.has(AttributeKey::Cell) || attributes.has(AttributeKey::Internal) {
+            return None;
+        }
+        let multiplicity =
+            CellMultiplicity::from_attribute(attributes.string(AttributeKey::Multiplicity))?;
+        let name = attributes.string(AttributeKey::CellName).map_or_else(
+            || {
+                let name = label.name.as_str();
+                name.strip_prefix('<')
+                    .and_then(|name| name.strip_suffix('>'))
+                    .unwrap_or(name)
+                    .to_owned()
+            },
+            str::to_owned,
+        );
+        let position_sort = if multiplicity == CellMultiplicity::Star {
+            collection_sort_of(
+                sort,
+                attributes
+                    .string(AttributeKey::Type)
+                    .unwrap_or(DEFAULT_COLLECTION_TYPE),
+            )
+        } else {
+            sort.clone()
+        };
+        let child_sorts = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            })
+            .collect();
+        Some(Self {
+            name,
+            label,
+            sort: sort.clone(),
+            multiplicity,
+            position_sort,
+            child_sorts,
+            attributes,
+        })
+    }
+}
+
+/// One cell of a configuration, read from its `cell` production ([`declared_cells`]).
+///
+/// The KORE names are the ones compilation gives the production's symbol and sorts, so a
+/// configuration in a compiled definition's terms is read with them: the arguments of a cell's
+/// application are the production's non-terminals, in order, and a child cell sits at the
+/// argument of its [`position_kore_sort`](Self::position_kore_sort).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclaredCell {
+    /// The cell's name, `w` for `<w>`.
+    pub name: String,
+    /// The KORE symbol of the cell's production (`Lbl'-LT-'w'-GT-'`).
+    pub kore_symbol: String,
+    /// The KORE sort of the argument of the parent's application that holds this cell: the cell
+    /// sort (`SortWCell{}`) for multiplicity `1` and `?`, and the collection sort
+    /// (`SortThreadCellMap{}`) for `*`.
+    pub position_kore_sort: KoreSort,
+    pub multiplicity: CellMultiplicity,
+    /// Whether the declaration writes `unobservable`: the cell holds state no use of the
+    /// definition may observe.
+    pub unobservable: bool,
+    /// The KORE sorts of the production's non-terminals, in order: the argument sorts of
+    /// [`kore_symbol`](Self::kore_symbol), so a child's argument index is its index here.
+    pub child_kore_sorts: Vec<KoreSort>,
+}
+
+/// Every cell of `module`'s view, one per `cell` production in sentence order: what a
+/// configuration declaration states about each cell, for the tools that read configurations.
+///
+/// A production marked `internal` is left out, as it is of the cell model compilation builds,
+/// and so is one whose `multiplicity` states none of `1`, `?` and `*`, which no configuration
+/// declaration generates; a label seen before is read once. One pass over the view's sentences.
+///
+/// Expanding a configuration declares its top cell `<generatedTop>`, whose children are the
+/// configuration's top-level cells. Compilation then adds the counter cell `<generatedCounter>`
+/// as the top cell's last child, so in a loaded definition's view the top cell's
+/// [`child_kore_sorts`](DeclaredCell::child_kore_sorts) lack that last argument of its compiled
+/// symbol, and in the compiled execution definition's view they have it.
+pub fn declared_cells(definition: &ResolvedDefinition, module: ModuleId) -> Vec<DeclaredCell> {
+    let mut seen = BTreeSet::new();
+    let mut cells = Vec::new();
+    for cell in definition
+        .sentences(module)
+        .into_iter()
+        .filter_map(CellProduction::of)
+    {
+        if !seen.insert(cell.label.name.clone()) {
+            continue;
+        }
+        cells.push(DeclaredCell {
+            kore_symbol: encode_kore_label(cell.label).name,
+            position_kore_sort: encode_kore_sort(&cell.position_sort),
+            multiplicity: cell.multiplicity,
+            unobservable: cell.attributes.has(AttributeKey::Unobservable),
+            child_kore_sorts: cell.child_sorts.iter().map(encode_kore_sort).collect(),
+            name: cell.name,
+        });
+    }
+    cells
 }
 
 fn cell_name_token(name: &str) -> Term {
