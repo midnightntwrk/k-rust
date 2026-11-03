@@ -1061,7 +1061,16 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
     item.push(HEADER);
     initializer_fields(Some((cell_name, &mark.text)), &mut item);
     item.push(FOOTER);
-    let case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+    let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+    // An initializer needs no driver: K7 reads it before any step. What this base lacks is the
+    // plan, the value each cell's initializer denotes written as K7's grounds (the machine base's
+    // `machine_start`). Until S5.0g part (b) writes it, the case says so instead of borrowing the
+    // rule families' reason.
+    case.k7 = super::k7::K7::skip(
+        super::k7::SkipKind::Form,
+        "the kinds base's initializer cases have no K7 plan yet: the values its cells' \
+         initializers denote are not written as K7 grounds (S5.0g part (b))",
+    );
     let init_stack = |name: &str| {
         let mut stack = stack(name);
         if matches!(stack.first(), Some(Layer::Instances(_))) {

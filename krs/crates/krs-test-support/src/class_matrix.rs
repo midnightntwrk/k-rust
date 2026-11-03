@@ -1209,9 +1209,9 @@ impl CaseSpec {
             term: None,
             k7: k7::K7::skip(
                 k7::SkipKind::Form,
-                "the readable, claim and `cells!` families read cells the machine and typed bases \
-                 start at fixed values, and those bases have no driver commands to set them up \
-                 (a claim needs a prover besides)",
+                "the readable, claim and `cells!` families read cells the machine, typed and kinds \
+                 bases start at fixed values, and those bases have no driver commands to set them \
+                 up (a claim needs a prover besides)",
             ),
             k7_counters: Vec::new(),
             k7_inputs: Vec::new(),
