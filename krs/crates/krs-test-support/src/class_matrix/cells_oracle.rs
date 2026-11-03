@@ -737,6 +737,15 @@ fn child<'g>(group: &'g Group, name: &str) -> Option<&'g Vec<Layer>> {
         .map(|(_, stack)| stack)
 }
 
+/// L4 (P6: records follow Rust): a record of `group` at a configuration position, or the
+/// fragment it abbreviates (P7), names every child, or writes `..`.
+fn names_every_child(record: &Record, group: &Group, depth: usize) -> Result<(), Refusal> {
+    if record.rest == RecordRest::Exact && record.fields.len() != group.children.len() {
+        return refuse("record-missing-children", Step::Inside, depth);
+    }
+    Ok(())
+}
+
 /// One entry's judgement: what refused it, and whether a value's sort is the lattice's.
 struct Judge<'c> {
     form: Form,
@@ -825,32 +834,32 @@ impl Judge<'_> {
     }
 
     /// A value at a group's position: a record of the group names its children's entries (P1);
-    /// any other value, a fragment included, is a term the lattice judges.
+    /// a fragment of the group is a term the lattice judges, which names the children as the
+    /// record it abbreviates does (P7); any other value is a term.
     fn group_value(
         &mut self,
         group: &Group,
         spelling: &Spelling,
         depth: usize,
     ) -> Result<(), Refusal> {
-        let Spelling::Record(record) = spelling else {
-            self.value(spelling);
-            return Ok(());
+        let record = match spelling {
+            Spelling::Record(record) if record.head == group.name => record,
+            Spelling::Fragment(record) if record.head == group.name => {
+                self.value(spelling);
+                return names_every_child(record, group, depth);
+            }
+            _ => {
+                self.value(spelling);
+                return Ok(());
+            }
         };
-        if record.head != group.name {
-            self.value(spelling);
-            return Ok(());
-        }
         for (name, value) in &record.fields {
             let stack = child(group, name).unwrap_or_else(|| {
                 panic!("the record of `{}` names its child `{name}`", group.name)
             });
             self.judge(stack, value, depth + 1)?;
         }
-        // L4: a group record at a configuration position names every child, or writes `..`.
-        if record.rest == RecordRest::Exact && record.fields.len() != group.children.len() {
-            return refuse("record-missing-children", Step::Inside, depth);
-        }
-        Ok(())
+        names_every_child(record, group, depth)
     }
 
     /// Inside the outermost layer's mark.

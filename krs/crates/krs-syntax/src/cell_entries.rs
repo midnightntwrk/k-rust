@@ -301,6 +301,15 @@ fn map_entries(spelling: &EntrySpelling) -> Option<&EntryMap> {
     }
 }
 
+/// A record of `group` at a configuration position, or the fragment it abbreviates, names
+/// every child, or writes `..`: records follow Rust.
+fn names_every_child(record: &EntryRecord, group: &GroupKind) -> Result<(), Refusal> {
+    if matches!(record.tail, RecordTail::Exact) && record.fields.len() != group.children.len() {
+        return Err(Refusal::RecordMissingChildren);
+    }
+    Ok(())
+}
+
 /// The spellings directly inside `spelling`.
 fn inner(spelling: &EntrySpelling) -> Vec<&EntrySpelling> {
     match spelling {
@@ -524,25 +533,25 @@ impl Admission<'_> {
     }
 
     /// A value at a group's position: a record of the group names its children's entries;
-    /// any other value, a fragment included, is a term.
+    /// a fragment of the group is a term, which names the children as the record it
+    /// abbreviates does; any other value is a term.
     fn group(&mut self, group: &GroupKind, spelling: &EntrySpelling) -> Result<(), Refusal> {
-        let EntrySpelling::Record(record) = spelling else {
-            self.value(spelling);
-            return Ok(());
+        let record = match spelling {
+            EntrySpelling::Record(record) if record.head == group.name => record,
+            EntrySpelling::Fragment(record) if record.head == group.name => {
+                self.value(spelling);
+                return names_every_child(record, group);
+            }
+            _ => {
+                self.value(spelling);
+                return Ok(());
+            }
         };
-        if record.head != group.name {
-            self.value(spelling);
-            return Ok(());
-        }
         for (name, value) in &record.fields {
             let child = group.child(name).map_or(&[][..], |kind| &kind.layers[..]);
             self.kind(child, value, false)?;
         }
-        // A group record at a configuration position names every child, or writes `..`.
-        if record.tail == RecordTail::Exact && record.fields.len() != group.children.len() {
-            return Err(Refusal::RecordMissingChildren);
-        }
-        Ok(())
+        names_every_child(record, group)
     }
 
     fn entries(&mut self, map: &EntryMap) {
@@ -997,6 +1006,38 @@ mod tests {
             ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn a_group_fragment_names_every_child_or_writes_a_rest() {
+        let cells = EntryForm::Cells;
+        let list = [Layer::Instances(Order::List), frame()];
+        for side in [EntrySide::Subject, EntrySide::Result] {
+            assert_eq!(
+                judge(
+                    cells,
+                    side,
+                    &[frame()],
+                    "k::fragment![crate::Frame { ret: x }]"
+                ),
+                Err(Refusal::RecordMissingChildren)
+            );
+        }
+        assert_eq!(
+            judge(
+                cells,
+                EntrySide::Subject,
+                &list,
+                "[k::fragment![crate::Frame { ret: x }], ..]"
+            ),
+            Err(Refusal::RecordMissingChildren)
+        );
+        for text in [
+            "k::fragment![crate::Frame { ret: x, .. }]",
+            "k::fragment![crate::Frame { ret: x, aux: y }]",
+        ] {
+            assert_eq!(judge(cells, EntrySide::Subject, &[frame()], text), Ok(()));
+        }
     }
 
     #[test]

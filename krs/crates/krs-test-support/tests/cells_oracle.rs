@@ -2278,6 +2278,82 @@ fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() 
     ]);
 }
 
+/// D-4 (L4, P6, P7): a `cells!` fragment of the position's group without `..` names every child,
+/// as the readable record it abbreviates does: records follow Rust, in a pattern and in a built
+/// term alike, at a group's position and as a collection's instance.
+#[test]
+fn a_group_fragment_without_a_rest_names_every_child() {
+    let missing = Outcome::Refuse("record-missing-children");
+    let group = [group_g()];
+    let list = [Layer::Instances(Order::List), group_g()];
+    let set = [Layer::Instances(Order::Set), group_g()];
+    let probe = |side, stack, text, other| Probe {
+        form: Form::Cells,
+        side,
+        path: &[],
+        stack,
+        text,
+        other,
+        written: false,
+        bound: &["x", "y", "z"],
+    };
+    let (subject, result) = (Side::Subject, Side::Result);
+    let exact = "k::fragment![crate::G { a: x }]";
+    probes_agree(&[
+        (probe(subject, &group, exact, None), missing),
+        (probe(result, &group, exact, None), missing),
+        (
+            probe(
+                result,
+                &group,
+                exact,
+                Some("k::fragment![crate::G { a: y, .. }]"),
+            ),
+            missing,
+        ),
+        (
+            probe(
+                subject,
+                &list,
+                "[k::fragment![crate::G { a: x }], ..]",
+                None,
+            ),
+            missing,
+        ),
+        (
+            probe(
+                subject,
+                &set,
+                "{ k::fragment![crate::G { a: x }], .. }",
+                None,
+            ),
+            missing,
+        ),
+        (
+            probe(subject, &group, "k::fragment![crate::G { a: x, .. }]", None),
+            Outcome::After,
+        ),
+        (
+            probe(
+                result,
+                &group,
+                "k::fragment![crate::G { a: x, b: y }]",
+                None,
+            ),
+            Outcome::After,
+        ),
+        (
+            probe(
+                subject,
+                &list,
+                "[k::fragment![crate::G { a: x, b: y }], ..]",
+                None,
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
 /// D-1's thread collection, `* List of T { k: KSequence, n: Int }`, and group
 /// `H { l: List, b: Int }`, each with a child whose content has a root (P6).
 fn d1_stacks() -> (Vec<Layer>, Layer) {
@@ -2950,6 +3026,7 @@ const fn sweep_spellings(form: Form) -> &'static [&'static str] {
             "x",
             "_",
             "k::fragment![crate::G { a: x, .. }]",
+            "k::fragment![crate::G { a: x }]",
         ],
         Form::Init => &[
             "Some(0)",
