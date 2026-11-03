@@ -1297,6 +1297,10 @@ const LAYER_CLASSES: [&str; 3] = [
 /// instance is chosen by a written record). The advice the design states for such a cell is the
 /// instance record (§2.3's S1 (b) row, `{ Account { child: v, .. }, .. }`), which no wrapping of
 /// a value builds; check 4 first met an unordered collection with S5.0g's kinds base.
+/// Check 4's one exemption (ruled at S5.0g): a value on a Set or Map collection is refused
+/// `collection-without-instances`, and its wrapping in braces is Q2's value item, refused again
+/// as `instance-list-shape`. The advice for such a cell is the instance record (§2.3's S1 (b)
+/// row, `{ G { .. }, .. }`), a template no mechanical wrap of a value builds.
 const UNORDERED_ADVICE: &str = "a value wrapped in unordered braces is Q2's value item; the advice is an instance record, which wrapping cannot build";
 
 /// Check 4 (P3's reason): a refusal for a missing layer at the author's head has an advice, the
@@ -1340,6 +1344,7 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
             Ok(_) => "admitted".to_owned(),
             Err(again)
                 if again.depth == added
+                    && refusal.class == "collection-without-instances"
                     && again.class == "instance-list-shape"
                     && matches!(
                         stack.first(),
