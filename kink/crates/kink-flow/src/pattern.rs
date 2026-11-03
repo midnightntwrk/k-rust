@@ -1208,10 +1208,10 @@ fn witness(
         "bindings": bindings,
         "rules": rules,
         "rendering": "kore",
-        "note": "k-rust 501f18b9 has no unparser from KORE to the specification's K syntax, so the \
-                 state and the bindings are KORE text; rules name the rewrite steps of one path from the \
-                 initial state to the matching state, each by its label, else by the file and \
-                 line of the rule written for it, else by its compiled id",
+        "note": "the state and the bindings are KORE text (query does not print them through \
+                 krs-unparse, the K-text printer kill evidence uses); rules name the rewrite steps \
+                 of one path from the initial state to the matching state, each by its label, else \
+                 by the file and line of the rule written for it, else by its compiled id",
     })
 }
 
