@@ -412,6 +412,7 @@ fn bounded(
                     depth: Some(depth),
                     trace: false,
                     check_ends: check_ends(),
+                    ..RunOptions::default()
                 },
             )
             .map_err(|error| format!("failed: {}", first_line(&error.to_string())))

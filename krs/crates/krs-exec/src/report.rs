@@ -310,6 +310,85 @@ pub struct Step {
     pub origin: StepOrigin,
 }
 
+/// What kind of sentence a rule identity is, as the backend loaded it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleKind {
+    /// A rewrite rule: it takes a step.
+    Rule,
+    /// A function equation: it evaluates an application, which is not a step.
+    Equation,
+    /// A simplification.
+    Simplification,
+    /// A definedness (`#Ceil`) equation.
+    Definedness,
+}
+
+impl RuleKind {
+    /// The printed word.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rule => "rule",
+            Self::Equation => "equation",
+            Self::Simplification => "simplification",
+            Self::Definedness => "definedness",
+        }
+    }
+}
+
+/// One rule or equation a run's coverage names, with the predicates that hold of it.
+///
+/// The predicates are k-rust's (its `docs/compatibility.md`, "Run coverage"), each of which
+/// implies the one before it: `matched`, `applied`, `committed`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CoveredRule {
+    /// The backend's `UNIQUE_ID`.
+    pub rule_id: String,
+    /// K's label, as the definition carries it (for example `NAT.krsRule_3d70...`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The KRS item that wrote the sentence, as a Rust path below its crate root
+    /// (`interrupt::boundary_fetch`); absent for a sentence of K's builtin closure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
+    /// What kind of sentence it is; absent for an identity the backend's catalog lacks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<RuleKind>,
+    /// Where it came from.
+    pub origin: StepOrigin,
+    /// The run began to decide its condition for an instance its left-hand side matched,
+    /// whatever the verdict, or applied it. `false` only for a rule the run offered alone
+    /// ([`Coverage::offered`]).
+    pub matched: bool,
+    /// The run applied it: a step by the rule built a successor or found the step undefined, or
+    /// an instance of the equation gave a result.
+    pub applied: bool,
+    /// How many times the run applied it (0 when it did not); an evaluation served from a memo
+    /// of the run counts once.
+    pub applications: u64,
+    /// A path took a step by the rule: its successor was committed, its own normalization having
+    /// shown it defined. Only a rewrite rule is committed.
+    pub committed: bool,
+}
+
+/// The rules and equations one run used: k-rust's run coverage, by identity.
+///
+/// It covers every state the run explored, the steps it tried and did not take included, and
+/// every equation it applied to evaluate, wherever (a state, a condition, a right-hand side);
+/// a run a bound or a stop cut short reports what it covered before it ended. It never names a
+/// builtin hook, which is no sentence.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Coverage {
+    /// Whether rules the run only offered are listed: a rule or equation whose left-hand side
+    /// matched a subject the run selected it as a candidate for, tried there or not
+    /// ([`crate::CoverageOptions::offered`]). Without it every rule listed is `matched`.
+    pub offered: bool,
+    /// Every rule and equation the run matched (and, with `offered`, offered), in `rule_id`
+    /// order.
+    pub rules: Vec<CoveredRule>,
+}
+
 /// The result of `run`: one path, as krun follows it.
 #[derive(Clone, Debug, Serialize)]
 pub struct RunReport {
@@ -340,6 +419,11 @@ pub struct RunReport {
     /// condition built, where the rule did not apply; omitted when empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub valueless: Vec<Term>,
+    /// The run's coverage, when [`crate::RunOptions::coverage`] asked for it; omitted otherwise.
+    /// A run that ends before a step with no value is followed again to its last state with a
+    /// value, and its coverage is the first run's, the step that found no value included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Coverage>,
 }
 
 /// One final state of a search.

@@ -21,7 +21,7 @@ Usage:
   krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]
   krs parse  --package P --definition D [--sort SORT] [--output kast|program|json|kore] [FILE|-]
   krs run    --package P --definition D [FILE|-] [-c NAME=TEXT]... [--depth N] [--trace]
-             [--output pretty|kast|json|kore|none] [--color auto|always|never]
+             [--coverage] [--output pretty|kast|json|kore|none] [--color auto|always|never]
   krs search --package P --definition D [FILE|-] [-c NAME=TEXT]...
              [--mode final|all|one-step|one-or-more-steps] [--depth N] [--max-solutions N]
              [--trace] [--output pretty|kast|json|kore] [--color auto|always|never]
@@ -58,6 +58,9 @@ Options:
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
   --depth N                  At most N rewrite steps
   --trace                    Print each rewrite step with its rule and source
+  --coverage                 With run, list the rules and equations the run matched, applied
+                             and committed, with their sources (--output json: the report's
+                             `coverage`)
   --mode MODE                Search mode (default: final)
   --max-solutions N          Stop search after N solutions
   --spec-module NAME         Prove the claims of this author spec module (default: the generated <MAIN>-SPEC)
@@ -247,6 +250,7 @@ struct ExecOptions {
     variables: Vec<(String, String)>,
     depth: Option<u64>,
     trace: bool,
+    coverage: bool,
     mode: Option<SearchMode>,
     max_solutions: Option<usize>,
     claims: Vec<String>,
@@ -444,11 +448,12 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 }
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 8] = [
+const EXEC_LONG_OPTIONS: [&str; 9] = [
     "depth",
     "max-solutions",
     "mode",
     "trace",
+    "coverage",
     "claim",
     "spec-module",
     "sort",
@@ -504,6 +509,10 @@ fn exec_option(
             exec.note("--trace");
             exec.trace = true;
         }
+        "coverage" => {
+            exec.note("--coverage");
+            exec.coverage = true;
+        }
         "claim" => {
             exec.note("--claim");
             exec.claims.push(option_value(parser, "claim label")?);
@@ -538,7 +547,7 @@ fn exec_option(
 fn exec_options(kind: CommandKind) -> &'static [&'static str] {
     match kind {
         CommandKind::Parse => &["FILE", "--sort"],
-        CommandKind::Run => &["FILE", "-c", "--depth", "--trace", "--color"],
+        CommandKind::Run => &["FILE", "-c", "--depth", "--trace", "--coverage", "--color"],
         CommandKind::Search => &[
             "FILE",
             "-c",
@@ -615,6 +624,7 @@ fn exec_command(
             variables: exec.variables,
             depth: exec.depth,
             trace: exec.trace,
+            coverage: exec.coverage,
             output,
             color,
         }),
@@ -1309,6 +1319,7 @@ mod tests {
                     "--depth",
                     "3",
                     "--trace",
+                    "--coverage",
                     "--output",
                     "json"
                 ]
@@ -1321,6 +1332,7 @@ mod tests {
                 ],
                 depth: Some(3),
                 trace: true,
+                coverage: true,
                 output: TermOutput::Json,
                 color: ColorChoice::Auto,
             })

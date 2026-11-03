@@ -25,20 +25,21 @@ mod overloads;
 mod read_back;
 mod report;
 mod reversal;
+mod rules;
 mod stage;
 mod valueless;
 mod values;
 mod view;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
 use k_rust::{
     backend::{
         Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
-        ExecutionStrategy, HaltReasonOutput, PatternRequest, ProveRequest, SearchRequest,
-        SearchResponse, SearchTypeArg, TraceEntry,
+        ExecutionStrategy, HaltReasonOutput, PatternRequest, ProveRequest, RunCoverageOutput,
+        SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     kast::{
@@ -66,8 +67,9 @@ pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
-    Capabilities, ClaimInfo, ConfigVariable, Halt, Modality, ProofLeaf, ProofReport, REPORT_SCHEMA,
-    RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Term, Verdict,
+    Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Halt, Modality, ProofLeaf,
+    ProofReport, REPORT_SCHEMA, RuleKind, RunReport, SearchReport, Solution, SourceSpan, Step,
+    StepOrigin, Term, Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -92,6 +94,18 @@ pub struct RunOptions {
     /// Check that a run reported stuck ended where no rule applies, at a state that is its own
     /// value, as `KRS_CHECK_ENDS=1` asks of every run ([`check_final_state`]).
     pub check_ends: bool,
+    /// Report the run's coverage ([`RunReport::coverage`]): the rules and equations it matched,
+    /// applied and committed, with how many times it applied each.
+    pub coverage: Option<CoverageOptions>,
+}
+
+/// What a run's coverage also reports ([`RunOptions::coverage`]).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CoverageOptions {
+    /// Also list the rules and equations the run only offered ([`Coverage::offered`]). It costs
+    /// one left-hand-side match at every visit of a site for each candidate the site skipped,
+    /// so it grows with the visits (k-rust's `ExecuteRequest::collect_offered`).
+    pub offered: bool,
 }
 
 /// K's search modes.
@@ -553,6 +567,8 @@ pub struct Semantics {
     claims: Vec<ClaimInfo>,
     user_sorts: Vec<String>,
     origins: origin::Origins,
+    /// The rules and equations of `backend`'s definition, by `UNIQUE_ID`.
+    rules: rules::Rules,
     console: console::ConsoleCells,
     /// The author spec modules (KF-041), by name.
     spec_modules: Vec<String>,
@@ -673,6 +689,7 @@ impl Semantics {
             .collect::<Vec<_>>();
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         let main_cell = main_cell_name(definition);
+        let rules = rules::Rules::new(&backend)?;
         Ok(Self {
             backend,
             sort_hooks,
@@ -688,6 +705,7 @@ impl Semantics {
             claims,
             user_sorts,
             origins,
+            rules,
             console,
             spec_modules,
             spec_definition,
@@ -1183,6 +1201,7 @@ impl Semantics {
             leaves,
             implementation_chosen_values,
             unsupported_hooks,
+            coverage,
             ..
         } = self.backend.execute(run_request(state, &options))?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
@@ -1218,6 +1237,10 @@ impl Semantics {
         } else {
             Vec::new()
         };
+        let coverage = options
+            .coverage
+            .zip(coverage)
+            .map(|(asked, coverage)| self.coverage(coverage, asked.offered));
         let state = term(&leaf.state, &self.sort_hooks)?;
         let halt = Halt::from_backend(leaf.reason);
         let stdout = if self.console.stdout {
@@ -1240,7 +1263,58 @@ impl Semantics {
             log: log_lines(&leaf.effects),
             implementation_chosen_values,
             valueless,
+            coverage,
         })
+    }
+
+    /// A run's coverage by identity, from k-rust's lists ([`Coverage`]): each identity once, with
+    /// the predicates that hold of it, its label and kind from the definition's catalog, and its
+    /// KRS origin.
+    fn coverage(&mut self, coverage: RunCoverageOutput, offered: bool) -> Coverage {
+        let RunCoverageOutput {
+            applied,
+            matched,
+            offered: offered_ids,
+            applied_counts,
+            committed,
+            ..
+        } = coverage;
+        let applied = applied.into_iter().collect::<BTreeSet<_>>();
+        let matched = matched.into_iter().collect::<BTreeSet<_>>();
+        let committed = committed
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let counts = applied_counts.unwrap_or_default();
+        // Each list is included in the one before it (k-rust's "Run coverage"); the union is
+        // taken anyway, so an identity is listed whichever list names it.
+        let ids = offered_ids
+            .into_iter()
+            .flatten()
+            .chain(matched.iter().cloned())
+            .chain(applied.iter().cloned())
+            .chain(committed.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let rules = ids
+            .into_iter()
+            .map(|id| {
+                let catalog = self.rules.get(&id);
+                let provenance = self.provenance.get(&id);
+                let is_applied = applied.contains(&id) || committed.contains(&id);
+                CoveredRule {
+                    label: catalog.and_then(|rule| rule.label.clone()),
+                    kind: catalog.map(|rule| rule.kind),
+                    item: origin::item(provenance),
+                    origin: self.origins.step_origin(provenance),
+                    matched: is_applied || matched.contains(&id),
+                    applied: is_applied,
+                    applications: counts.get(&id).copied().unwrap_or_default(),
+                    committed: committed.contains(&id),
+                    rule_id: id,
+                }
+            })
+            .collect();
+        Coverage { offered, rules }
     }
 
     /// The heads a run's reading asks about ([`valueless::Heads`]): the definition's, or, where
@@ -1649,6 +1723,12 @@ fn run_request(state: &State, options: &RunOptions) -> ExecuteRequest {
     request.strategy = ExecutionStrategy::Any;
     request.max_depth = options.depth;
     request.trace = options.trace;
+    if let Some(coverage) = options.coverage {
+        request.collect_coverage = true;
+        request.collect_counts = true;
+        request.collect_committed = true;
+        request.collect_offered = coverage.offered;
+    }
     request
 }
 

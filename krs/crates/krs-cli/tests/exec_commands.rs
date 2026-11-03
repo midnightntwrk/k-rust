@@ -315,6 +315,145 @@ krs::rules! {
 }
 "#;
 
+/// The introduction's running example (docs-site's story, `plus`), whose rules are equations: a
+/// run takes no step, so only its coverage shows which of them it used.
+const PLUS: &str = r#"
+use krs::builtin::KSequence;
+use krs::{KItem, Term};
+
+krs::sorts! {
+    Nat: KItem;
+}
+
+#[krs::constructors(sort = Nat, result = KResult)]
+#[krs::precedence((Zero, Succ))]
+pub enum NatSyntax {
+    #[krs::syntax("zero")]
+    Zero(),
+    #[krs::syntax("s({n})")]
+    Succ { n: Nat },
+}
+
+#[krs::function(total, sort = Nat, syntax = "plus({lhs}, {rhs})")]
+pub struct Plus {
+    pub lhs: Term<Nat>,
+    pub rhs: Term<Nat>,
+}
+
+#[krs::equation]
+fn plus_zero(krs::term![Plus(NatSyntax::Zero(), n)]: Term<Nat>) -> Term<Nat> {
+    n
+}
+
+#[krs::equation]
+fn plus_succ(krs::term![Plus(NatSyntax::Succ(m), n)]: Term<Nat>) -> Term<Nat> {
+    NatSyntax::Succ(Plus(m, n))
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Nat) -> Self {
+        Self { k: krs::k![pgm] }
+    }
+}
+"#;
+
+/// `krs run --coverage` reports the equations a run applied, by KRS item and authored line,
+/// with how many times; `plus(s(zero), s(zero))` applies `plus_succ` once, then `plus_zero`
+/// once, and takes no step (CF-15).
+#[test]
+fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), PLUS);
+    let program = manifest.parent().unwrap().join("t3.nat");
+    fs::write(&program, "plus(s(zero), s(zero))\n").unwrap();
+    let program = program.to_str().unwrap();
+    let line_of = |item: &str| {
+        u64::try_from(
+            PLUS.lines()
+                .position(|line| line.starts_with(&format!("fn {item}(")))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+
+    let run = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program, "--coverage", "--output", "json"],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    let report = &json(&run)["run"];
+    assert_eq!(report["steps"], 0);
+    let coverage = &report["coverage"];
+    assert_eq!(coverage["offered"], false);
+    let rules = coverage["rules"].as_array().unwrap();
+    let mut positions = Vec::new();
+    for item in ["plus_succ", "plus_zero"] {
+        let rule = rules
+            .iter()
+            .find(|rule| rule["item"] == item)
+            .unwrap_or_else(|| panic!("{item} is not covered: {coverage:#}"));
+        assert_eq!(rule["kind"], "equation", "{rule:#}");
+        assert_eq!(rule["matched"], true, "{rule:#}");
+        assert_eq!(rule["applied"], true, "{rule:#}");
+        assert_eq!(rule["applications"], 1, "{rule:#}");
+        assert_eq!(rule["committed"], false, "{rule:#}");
+        assert!(
+            rule["label"].as_str().unwrap().contains("krsRule_"),
+            "{rule:#}"
+        );
+        assert_eq!(rule["origin"]["kind"], "authored", "{rule:#}");
+        assert_eq!(rule["origin"]["file"], "src/lib.rs", "{rule:#}");
+        // The origin is the item: its attribute or its `fn` line.
+        let line = rule["origin"]["line"].as_u64().unwrap();
+        assert!(
+            [line_of(item), line_of(item) + 1].contains(&line),
+            "{rule:#}"
+        );
+        positions.push(format!("src/lib.rs:{line}:{}", rule["origin"]["column"]));
+    }
+    // Every predicate implies the one before it.
+    for rule in rules {
+        assert!(
+            rule["matched"] == true
+                && (rule["applied"] == true || rule["committed"] == false)
+                && (rule["applied"] == true) == (rule["applications"].as_u64().unwrap() > 0),
+            "{rule:#}"
+        );
+    }
+
+    // Without --coverage the report has none.
+    let plain = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program, "--output", "json"],
+    );
+    assert_eq!(plain.status.code(), Some(0), "{}", stderr(&plain));
+    assert!(json(&plain)["run"].get("coverage").is_none());
+
+    let human = krs(target.path(), &manifest, "run", &[program, "--coverage"]);
+    assert_eq!(human.status.code(), Some(0), "{}", stderr(&human));
+    let text = stderr(&human);
+    for (item, position) in ["plus_succ", "plus_zero"].iter().zip(&positions) {
+        let line = format!("coverage  applied ×1  {item}  (equation)  {position}\n");
+        assert!(text.contains(&line), "{line:?} is not in\n{text}");
+    }
+    assert!(
+        text.ends_with("krs run: stuck after 0 steps; <k> starts with `s(s(zero))`\n"),
+        "{text}"
+    );
+}
+
 #[test]
 fn run_and_search_reports_list_the_open_values_the_run_read() {
     let target = shared_fixture_target();

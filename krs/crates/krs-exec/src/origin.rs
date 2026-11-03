@@ -95,6 +95,30 @@ impl Origins {
     }
 }
 
+/// The KRS item that wrote an emitted rule identity, as a Rust path below its crate root
+/// (`interrupt::boundary_fetch`): the item the first frame of its first KRS author's origin that
+/// names one names. `None` for a rule of K's builtin closure, or one whose origin names no item.
+pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
+    let Some(Author::Krs { origin, .. }) = provenance?.authors().first() else {
+        return None;
+    };
+    let item = origin
+        .origin()
+        .frames()
+        .iter()
+        .find_map(|frame| match frame {
+            OriginFrame::Ranged { item, .. } | OriginFrame::Transformation { item, .. } => {
+                item.as_ref()
+            }
+        })?;
+    let mut path = item.module_path().join("::");
+    if !path.is_empty() {
+        path.push_str("::");
+    }
+    path.push_str(item.item_name());
+    Some(path)
+}
+
 /// The pass that turns a non-rule input sentence into rules.
 const fn generating_kind(kind: InputSentenceKind) -> &'static str {
     match kind {
