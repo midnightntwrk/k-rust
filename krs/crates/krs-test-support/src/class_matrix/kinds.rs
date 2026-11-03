@@ -277,6 +277,48 @@ pub(super) fn find_in(
     search(tree, name, &mut Vec::new(), None)
 }
 
+/// The outermost `?` or `*` ancestor of the cell `name`, if any. A subject that matches a cell
+/// below one matches it through that ancestor: an entry naming the cell itself is refused for
+/// the ancestor whatever it spells (S1 (b)), so a result case's subject written there would be
+/// a second refused entry, and the sentence's answer would not be the case's own (P4 over a
+/// sentence).
+fn marked_ancestor(name: &str) -> Option<&'static Decl> {
+    fn search(decls: &'static [Decl], name: &str, ancestors: &mut Vec<&'static Decl>) -> bool {
+        for decl in decls {
+            if decl.name == name {
+                return true;
+            }
+            if let Content::Group(_, children) = &decl.content {
+                ancestors.push(decl);
+                if search(children, name, ancestors) {
+                    return true;
+                }
+                ancestors.pop();
+            }
+        }
+        false
+    }
+    let mut ancestors = Vec::new();
+    search(&CONFIGURATION, name, &mut ancestors)
+        .then(|| {
+            ancestors
+                .into_iter()
+                .find(|decl| !matches!(decl.mult, Mult::One))
+        })
+        .flatten()
+}
+
+/// A matched result's subject entry: the cell it names (the result's cell, or its outermost
+/// marked ancestor where it has one, [`marked_ancestor`], matched whole), what it writes, its
+/// entry, and the result's other side (the subject's entry of the result's own cell, if any).
+fn matched(form: Form, cell: &str) -> (&'static str, Written, Entry, Option<Spelling>) {
+    let matched = marked_ancestor(cell).unwrap_or_else(|| decl(cell));
+    let subject = other(form, matched);
+    let entry = entry(&matched.name, Side::Subject, subject.spelling.clone());
+    let own = (matched.name == cell).then(|| subject.spelling.clone());
+    (&matched.name, subject, entry, own)
+}
+
 fn decl(name: &str) -> &'static Decl {
     find(name)
         .unwrap_or_else(|| panic!("the kinds base has no cell `{name}`"))
@@ -940,10 +982,10 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
             entries.push(k_subject(vec![bind("x"), bind("y")]));
             context.bound = BOUND.map(str::to_owned).to_vec();
             if side == RuleSide::Result {
-                let subject = other(form, decl);
-                item.push(&format!("{cell_name}: {}, ", subject.text));
-                entries.push(entry(cell_name, Side::Subject, subject.spelling.clone()));
-                context.other = Some(subject.spelling);
+                let (name, subject, written, other) = matched(form, cell_name);
+                item.push(&format!("{name}: {}, ", subject.text));
+                entries.push(written);
+                context.other = other;
             }
             item.push("} => { k: [..], ")
                 .entry(cell_name, &mark.text)
@@ -969,7 +1011,6 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
 }
 
 fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
-    let decl = decl(cell_name);
     let entry_side = if side == RuleSide::Subject {
         Side::Subject
     } else {
@@ -996,8 +1037,8 @@ fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
         parameters.push(("y", INT.to_owned()));
     }
     parameters.extend(mark.binders.iter().cloned());
-    let subject = (side == RuleSide::Result).then(|| other(Form::Cells, decl));
-    if let Some(subject) = &subject {
+    let subject = (side == RuleSide::Result).then(|| matched(Form::Cells, cell_name));
+    if let Some((_, subject, ..)) = &subject {
         parameters.extend(subject.binders.iter().cloned());
     }
     let mut item = ItemBuilder::new();
@@ -1040,10 +1081,10 @@ fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
         ));
         context.bound = BOUND.map(str::to_owned).to_vec();
         context.bound.push("tail".to_owned());
-        if let Some(subject) = subject {
-            item.push(&format!("{key}: {}, ", subject.text));
-            entries.push(entry(cell_name, Side::Subject, subject.spelling.clone()));
-            context.other = Some(subject.spelling);
+        if let Some((name, subject, written, other)) = subject {
+            item.push(&format!("{}: {}, ", self::key(name), subject.text));
+            entries.push(written);
+            context.other = other;
         }
         item.push(
             "state @ .. }: crate::Machine,\n) -> crate::Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ",

@@ -54,22 +54,36 @@ const RS: Side = Side::Result;
 /// The groups, in the ticket's order (`tickets/S5-0g-b3b-listed-groups.md`).
 pub(super) const GROUPS: &[Group] = &[
     // Listed: a cell named below a List and a Set collection's instance, and the Map
-    // collection's key named through its path (S1 (b)).
+    // collection's key named through its path (S1 (b)). Each sentence tests one entry, so its
+    // other entries are ones admitted alone (P4 over a sentence: a second refused entry would be
+    // the sentence's answer as well): a result's subject matches the cell through its
+    // collection's instance, since an entry naming the cell is refused whatever it spells.
     Group {
         tag: "path-a",
         arguments: &[],
-        subject: &[
-            ("payload", ["x", "k::configuration::Cell(x)"]),
-            ("key", ["x", "k::configuration::Cell(x)"]),
-        ],
+        subject: &[("payload", ["x", "k::configuration::Cell(x)"])],
         result: &[],
-        cases: &[(S, "payload"), (S, "key")],
+        cases: &[(S, "payload")],
+        typed: &[],
+    },
+    Group {
+        tag: "path-a",
+        arguments: &[],
+        subject: &[("key", ["x", "k::configuration::Cell(x)"])],
+        result: &[],
+        cases: &[(S, "key")],
         typed: &[],
     },
     Group {
         tag: "path-b",
         arguments: &["x"],
-        subject: &[("payload", ["y", "k::configuration::Cell(y)"])],
+        subject: &[(
+            "job",
+            [
+                "[Job { payload: _, .. }, ..]",
+                "[k::fragment![crate::Job { payload: _, .. }], ..]",
+            ],
+        )],
         result: &[("payload", ["x", "k::configuration::Cell(x)"])],
         cases: &[(RS, "payload")],
         typed: &[],
@@ -77,7 +91,13 @@ pub(super) const GROUPS: &[Group] = &[
     Group {
         tag: "path-c",
         arguments: &["x"],
-        subject: &[("key", ["y", "k::configuration::Cell(y)"])],
+        subject: &[(
+            "bag",
+            [
+                "{ Obj { key: _, .. }, .. }",
+                "{ k::fragment![crate::Obj { key: _, .. }], .. }",
+            ],
+        )],
         result: &[("key", ["x", "k::configuration::Cell(x)"])],
         cases: &[(RS, "key")],
         typed: &[],
@@ -93,33 +113,49 @@ pub(super) const GROUPS: &[Group] = &[
     Group {
         tag: "path-e",
         arguments: &["x"],
-        subject: &[("id", ["y", "k::configuration::Cell(y)"])],
+        subject: &[(
+            "account",
+            [
+                "{ Acct { id: _, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: _, .. }], .. }",
+            ],
+        )],
         result: &[("id", ["x", "k::configuration::Cell(x)"])],
         cases: &[(RS, "id")],
         typed: &[],
     },
     // Listed: a key two levels deep (`crate::Ag::aa`, below the Map collection; `crate::Hjob::hpay`,
-    // below a `?` and a List collection).
+    // below a `?` and a List collection), one entry per sentence.
     Group {
         tag: "deep-a",
         arguments: &[],
-        subject: &[
-            ("aa", ["x", "k::configuration::Cell(x)"]),
-            ("hpay", ["y", "k::configuration::Cell(y)"]),
-        ],
+        subject: &[("aa", ["x", "k::configuration::Cell(x)"])],
         result: &[],
-        cases: &[(S, "aa"), (S, "hpay")],
+        cases: &[(S, "aa")],
+        typed: &[],
+    },
+    Group {
+        tag: "deep-a",
+        arguments: &[],
+        subject: &[("hpay", ["y", "k::configuration::Cell(y)"])],
+        result: &[],
+        cases: &[(S, "hpay")],
         typed: &[],
     },
     Group {
         tag: "deep-b",
         arguments: &["x"],
         subject: &[],
-        result: &[
-            ("aa", ["x", "k::configuration::Cell(x)"]),
-            ("hpay", ["x", "k::configuration::Cell(x)"]),
-        ],
-        cases: &[(RS, "aa"), (RS, "hpay")],
+        result: &[("aa", ["x", "k::configuration::Cell(x)"])],
+        cases: &[(RS, "aa")],
+        typed: &[],
+    },
+    Group {
+        tag: "deep-b",
+        arguments: &["x"],
+        subject: &[],
+        result: &[("hpay", ["x", "k::configuration::Cell(x)"])],
+        cases: &[(RS, "hpay")],
         typed: &[],
     },
     // Listed: the field shorthand in an instance record (S5.K).
@@ -227,28 +263,30 @@ pub(super) const GROUPS: &[Group] = &[
         cases: &[(S, "job")],
         typed: &[],
     },
-    // Listed: S5.0's ruling 3, an alias in a result, at a group and at a leaf.
+    // Listed: S5.0's ruling 3, an alias in a result, at a group and at a leaf, one per sentence.
     Group {
         tag: "alias",
         arguments: &["x", "y"],
-        subject: &[
-            (
-                "frame",
-                ["G { a: z, .. }", "k::fragment![crate::G { a: z, .. }]"],
-            ),
-            ("pc", ["w", "k::configuration::Cell(w)"]),
-        ],
-        result: &[
-            (
-                "frame",
-                [
-                    "f @ G { a: x, b: y }",
-                    "f @ k::fragment![crate::G { a: x, b: y }]",
-                ],
-            ),
-            ("pc", ["p @ x", "k::configuration::Cell(p @ x)"]),
-        ],
-        cases: &[(RS, "frame"), (RS, "pc")],
+        subject: &[(
+            "frame",
+            ["G { a: z, .. }", "k::fragment![crate::G { a: z, .. }]"],
+        )],
+        result: &[(
+            "frame",
+            [
+                "f @ G { a: x, b: y }",
+                "f @ k::fragment![crate::G { a: x, b: y }]",
+            ],
+        )],
+        cases: &[(RS, "frame")],
+        typed: &[],
+    },
+    Group {
+        tag: "alias",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[("pc", ["p @ x", "k::configuration::Cell(p @ x)"])],
+        cases: &[(RS, "pc")],
         typed: &[],
     },
     // G1 and F-7: an instance updated from a record of its constructor the sentence matches in

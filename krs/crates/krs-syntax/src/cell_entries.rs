@@ -32,6 +32,10 @@
 //! subject does not match (Q1's overwrite, where it means one configuration), an absence test
 //! at the entry's root and at each `?` child of the records it writes, and the lint of a subject entry that constrains nothing.
 //!
+//! [`Sentence::judge`] runs the steps over a whole sentence, each over every entry before the
+//! next (the form, then the kind with the path, then the pairing): a later step's question is
+//! not well posed while an earlier one is open anywhere in the sentence.
+//!
 //! An admitted entry whose value positions hold a term whose sort the lattice must check is
 //! [`Admitted::sorted`]; the compiler judges that sort.
 //!
@@ -1246,11 +1250,189 @@ pub fn pair(
     }
 }
 
+/// Step 1 alone for one entry: what its spelling and its side refuse, whatever its cell.
+///
+/// # Errors
+///
+/// The form's refusal.
+pub fn admit_form(
+    form: EntryForm,
+    side: EntrySide,
+    spelling: &EntrySpelling,
+) -> Result<(), Refusal> {
+    Admission {
+        form,
+        side,
+        bound: &|_| None,
+        groups: &[],
+        sorted: false,
+        in_instance: false,
+    }
+    .form(spelling)
+}
+
+/// One entry of a [`Sentence`]: its side, its cell (`C`, which pairs it with the other side's
+/// entry of the same cell), its cell's kind, and its spelling where the reader reads one (an
+/// entry it does not read, a term with an operator, is judged by no step here).
+#[derive(Clone, Debug)]
+pub struct SentenceEntry<'s, C> {
+    /// The side it stands on.
+    pub side: EntrySide,
+    /// Its cell.
+    pub cell: C,
+    /// Its cell's kind.
+    pub kind: &'s EntryKind,
+    /// Its spelling, where the reader reads one.
+    pub spelling: Option<&'s EntrySpelling>,
+}
+
+/// A whole sentence's entries, in source order (the subject's, then the result's), judged by
+/// P4's steps over the sentence ([`Sentence::judge`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Sentence<'s, C> {
+    /// The form.
+    pub form: EntryForm,
+    /// The entries, in source order.
+    pub entries: &'s [SentenceEntry<'s, C>],
+    /// Whether the sentence has a result: a single-body rule rewrites its cells in place and
+    /// has no other side to pair with.
+    pub result: bool,
+    /// The names its parameters bind.
+    pub parameters: &'s [String],
+    /// The configuration's groups ([`collect_groups`]).
+    pub groups: &'s [GroupKind],
+}
+
+impl<C: PartialEq> Sentence<'_, C> {
+    fn spellings(&self, side: EntrySide) -> impl Iterator<Item = &EntrySpelling> {
+        self.entries
+            .iter()
+            .filter(move |entry| entry.side == side)
+            .filter_map(|entry| entry.spelling)
+    }
+
+    /// What `name` binds outside an entry: a record where a subject alias labels one of a head,
+    /// a value where a parameter or a subject entry binds it.
+    #[must_use]
+    pub fn bound(&self, name: &str) -> Option<Bound> {
+        self.spellings(EntrySide::Subject)
+            .find_map(|spelling| record_alias(spelling, name))
+            .map(Bound::Record)
+            .or_else(|| {
+                (self.parameters.iter().any(|parameter| parameter == name)
+                    || self
+                        .spellings(EntrySide::Subject)
+                        .any(|spelling| binds_name(spelling, name)))
+                .then_some(Bound::Value)
+            })
+    }
+
+    /// P4's steps over the whole sentence: each step runs over every entry before the next
+    /// starts, since a later step's question is not well posed while an earlier one is open
+    /// anywhere in the sentence (a pairing assumes both sides have kinds), and a step that
+    /// refuses anything ends the judgement:
+    ///
+    /// 1. the form, of every entry;
+    /// 2. the kind, of every entry, and within an entry its own kind before its path (a path
+    ///    refusal needs only the declaration, as the cell's own kind does);
+    /// 3. the pairing, of every entry, where the sentence has a result.
+    ///
+    /// The sorts are the compiler's, after. Within a step the first refusal in source order is
+    /// the sentence's: one diagnostic, at one entry.
+    ///
+    /// # Errors
+    ///
+    /// The refused entry's index and its refusal.
+    pub fn judge(&self) -> Result<Vec<(usize, Lint)>, (usize, Refusal)> {
+        let bound = |name: &str| self.bound(name);
+        let entries = || {
+            self.entries
+                .iter()
+                .enumerate()
+                .filter_map(|(at, entry)| Some((at, entry, entry.spelling?)))
+        };
+        for (at, entry, spelling) in entries() {
+            admit_form(self.form, entry.side, spelling).map_err(|refusal| (at, refusal))?;
+        }
+        for (at, entry, spelling) in entries() {
+            admit(
+                self.form,
+                entry.side,
+                &entry.kind.path.layers,
+                &entry.kind.own.layers,
+                spelling,
+                &bound,
+                self.groups,
+            )
+            .map_err(|refusal| (at, refusal))?;
+        }
+        let mut lints = Vec::new();
+        if !self.result {
+            return Ok(lints);
+        }
+        for (at, entry, spelling) in entries() {
+            let other = self.entries.iter().find(|other| {
+                other.side != entry.side
+                    && matches!(other.side, EntrySide::Subject | EntrySide::Result)
+                    && other.cell == entry.cell
+            });
+            if other.is_some_and(|other| other.spelling.is_none()) {
+                continue;
+            }
+            let lint = pair(
+                self.form,
+                entry.side,
+                &entry.kind.own.layers,
+                spelling,
+                other.and_then(|other| other.spelling),
+                entry.side == EntrySide::Subject && other.is_some(),
+                &bound,
+            )
+            .map_err(|refusal| (at, refusal))?;
+            lints.extend(lint.map(|lint| (at, lint)));
+        }
+        Ok(lints)
+    }
+}
+
+/// The head of the record `name` labels in `spelling`, `name @ Head { .. }` or its fragment.
+fn record_alias(spelling: &EntrySpelling, name: &str) -> Option<String> {
+    match spelling {
+        EntrySpelling::Alias(alias, pattern) if alias == name => match &**pattern {
+            EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
+                Some(record.head.clone())
+            }
+            _ => None,
+        },
+        _ => inner(spelling)
+            .into_iter()
+            .find_map(|one| record_alias(one, name)),
+    }
+}
+
+/// Whether `spelling` binds `name`: as a binder, an alias's name, or a named rest.
+fn binds_name(spelling: &EntrySpelling, name: &str) -> bool {
+    match spelling {
+        EntrySpelling::Binder(binder) => binder == name,
+        EntrySpelling::Alias(alias, _) if alias == name => true,
+        _ => {
+            let rest = sequence(spelling)
+                .and_then(|seq| seq.rest.as_ref().map(|(rest, _)| rest))
+                .or_else(|| map_entries(spelling).and_then(|map| map.rest.as_ref()));
+            matches!(rest, Some(EntryRest::Named(rest)) if rest == name)
+                || inner(spelling).into_iter().any(|one| binds_name(one, name))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order};
 
-    use super::{Bound, EntrySide, Lint, Refusal, admit, collect_groups, inner, pair};
+    use super::{
+        Bound, EntrySide, Lint, Refusal, Sentence, SentenceEntry, admit, collect_groups, inner,
+        pair,
+    };
     use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling, RecordTail};
 
     /// The groups a test's configuration declares: those of the stack, and `Frame`.
@@ -2806,6 +2988,90 @@ mod tests {
         assert_eq!(
             judge(readable, EntrySide::Subject, &set, "x"),
             Err(Refusal::CollectionWithoutInstances)
+        );
+    }
+
+    /// P4 over a sentence: each step runs over every entry before the next, and within a step
+    /// the first refusal in source order is the sentence's. A path refusal is the kind step's.
+    #[test]
+    fn a_sentence_is_judged_step_by_step_over_every_entry() {
+        let form = EntryForm::Cells;
+        let leaf = |path: Vec<Layer>| super::EntryKind {
+            path: CellKind { layers: path },
+            own: int(),
+        };
+        let optional = super::EntryKind {
+            path: CellKind { layers: vec![] },
+            own: CellKind {
+                layers: vec![Layer::Optional, Layer::Leaf(Notation::Plain)],
+            },
+        };
+        let (plain, below) = (leaf(vec![]), leaf(vec![Layer::Optional]));
+        let judge = |written: &[(EntrySide, &str, &super::EntryKind, &str)]| {
+            let spellings = written
+                .iter()
+                .map(|(.., text)| read(form, text))
+                .collect::<Vec<_>>();
+            let entries = written
+                .iter()
+                .zip(&spellings)
+                .map(|((side, cell, kind, _), spelling)| SentenceEntry {
+                    side: *side,
+                    cell: *cell,
+                    kind,
+                    spelling: Some(spelling),
+                })
+                .collect::<Vec<_>>();
+            Sentence {
+                form,
+                entries: &entries,
+                result: written.iter().any(|(side, ..)| *side == EntrySide::Result),
+                parameters: &["x".to_owned()],
+                groups: &groups(&[]),
+            }
+            .judge()
+            .map(|_| ())
+        };
+        let (s, r) = (EntrySide::Subject, EntrySide::Result);
+        // The pairing's absence test waits for the path refusal, met later in source order.
+        assert_eq!(
+            judge(&[
+                (s, "c", &optional, "None"),
+                (s, "p", &below, "k::configuration::Cell(x)"),
+            ]),
+            Err((1, Refusal::BelowOptionalAncestor))
+        );
+        // A path refusal and a cell's own kind are one step: the first in source order.
+        assert_eq!(
+            judge(&[
+                (s, "p", &below, "k::configuration::Cell(x)"),
+                (r, "q", &plain, "x"),
+            ]),
+            Err((0, Refusal::BelowOptionalAncestor))
+        );
+        assert_eq!(
+            judge(&[
+                (s, "q", &plain, "x"),
+                (s, "p", &below, "k::configuration::Cell(x)"),
+            ]),
+            Err((0, Refusal::CellWrapper))
+        );
+        // The form of every entry comes before any kind.
+        assert_eq!(
+            judge(&[
+                (s, "p", &below, "k::configuration::Cell(x)"),
+                (r, "q", &plain, "_"),
+            ]),
+            Err((1, Refusal::WildcardOutsidePattern))
+        );
+        // Every entry's form and kind admitted: the pairing runs (a `?` result over a cell the
+        // subject does not match).
+        assert_eq!(
+            judge(&[
+                (s, "q", &plain, "k::configuration::Cell(_)"),
+                (r, "c", &optional, "Some(k::configuration::Cell(x))")
+            ]),
+            Err((1, Refusal::UnmatchedOptionalResult))
         );
     }
 }

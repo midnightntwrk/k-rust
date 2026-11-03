@@ -25,6 +25,7 @@ use krs_test_support::class_matrix::cells_oracle::{
     CODES, ENTRY_CLASSES, Entries, EntryCase, Form, Group, LINT_CLASSES, Layer, Mark, Notation,
     Order, Outcome, READABLE_ONLY, RULE_CLASSES, Record, RecordRest, Rest, RestAt, SORT_CLASSES,
     Seq, Spelling, Step, Template, abbreviate, advise, judge, mark, outcome, rule_outcome,
+    sentence_outcome,
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::pending::{self, Pending};
@@ -37,7 +38,7 @@ use krs_test_support::class_matrix::sweep::{
     more_spellings as sweep_more_spellings, nested_collection_stack, spellings as sweep_spellings,
     stack_name, stacks as sweep_stacks, subject as sweep_subject, untexted,
 };
-use krs_test_support::class_matrix::table::{Expected, Glob, TERM_ACCEPTS_FILE, Table, twin};
+use krs_test_support::class_matrix::table::{At, Expected, Glob, TERM_ACCEPTS_FILE, Table, twin};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Side, entry_cases};
 
 fn read_class_matrix(file: &str) -> String {
@@ -69,6 +70,21 @@ static ENTRIES: LazyLock<Vec<(&'static Case, EntryCase)>> = LazyLock::new(|| {
     CASES
         .iter()
         .filter_map(|case| Some((case, case.cell_entry()?)))
+        .collect()
+});
+
+/// Each case's answer by P4's steps over its whole sentence ([`sentence_outcome`], ruling 1 of
+/// S5.3 part 2): the sentence's answer, and whether it is about the case's own entry. A case's
+/// row is its sentence's answer (ruling 2).
+static ANSWERS: LazyLock<BTreeMap<String, (Outcome, bool)>> = LazyLock::new(|| {
+    ENTRIES
+        .iter()
+        .map(|(case, entry)| {
+            let (sentence, own) = ordered_sentence(case, entry)
+                .unwrap_or_else(|error| panic!("{}: the sentence is not read: {error}", case.id));
+            let (about, answer) = sentence_outcome(entry.form, &sentence, own);
+            (case.id.clone(), (answer, about == own))
+        })
         .collect()
 });
 
@@ -169,9 +185,20 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
     }
     let mut hits = BTreeMap::<&str, usize>::new();
     let mut disagreements = 0;
-    for (case, entry) in ENTRIES.iter() {
+    for (case, _) in ENTRIES.iter() {
         let expected = &EXPECTED[&case.id];
-        let got = entry.outcome();
+        let (got, own) = ANSWERS[&case.id];
+        // A refusal of another entry is met outside the case's own entry, in its item.
+        if !own
+            && let Expected::Refuse { at, .. } = expected
+            && *at != At::Item
+        {
+            failures.push(format!(
+                "{}: the sentence's answer {got:?} is another entry's, so the row's site is the \
+                 item, not the {at:?}",
+                case.id
+            ));
+        }
         if agrees(got, expected) {
             continue;
         }
@@ -217,7 +244,8 @@ fn check_1r_every_rule_level_row_agrees_with_the_rule() {
     let mut judged = 0;
     let mut rows = BTreeSet::new();
     for (case, entry) in ENTRIES.iter() {
-        let got = entry.outcome();
+        // The rule-level classes judge a sentence whose every entry is admitted.
+        let (got, _) = ANSWERS[&case.id];
         if !got.admits() {
             continue;
         }
@@ -890,6 +918,46 @@ fn rendered_sentence(case: &Case, entry: &EntryCase) -> Result<Rendered, String>
     Ok(sentence)
 }
 
+/// The case's sentence in source order, the rendered sentence's ([`rendered_sentence`]), each
+/// entry with its context ([`EntryCase::sentence`]), and the index of the case's own entry.
+fn ordered_sentence(
+    case: &Case,
+    entry: &EntryCase,
+) -> Result<
+    (
+        Vec<(
+            class_matrix::cells_oracle::Entry,
+            class_matrix::cells_oracle::Context,
+        )>,
+        usize,
+    ),
+    String,
+> {
+    let rendered = rendered_sentence(case, entry)?;
+    let mut sentence = entry
+        .sentence()
+        .into_iter()
+        .enumerate()
+        .map(|(index, judged)| {
+            rendered
+                .entries
+                .iter()
+                .position(|(cell, side, _)| *cell == judged.0.cell && *side == judged.0.side)
+                .map(|at| (at, index, judged))
+                .ok_or_else(|| "an entry the rendered sentence does not have".to_owned())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    sentence.sort_by_key(|(at, ..)| *at);
+    let own = sentence
+        .iter()
+        .position(|(_, index, _)| *index == 0)
+        .expect("the own entry is in the sentence");
+    Ok((
+        sentence.into_iter().map(|(.., judged)| judged).collect(),
+        own,
+    ))
+}
+
 /// The bases the updates of `spelling` name (`..me`), in first-occurrence order.
 fn update_bases(spelling: &Spelling, out: &mut Vec<String>) {
     if let Spelling::Record(record) | Spelling::Fragment(record) = spelling
@@ -1271,6 +1339,115 @@ fn check_2_the_product_admits_as_the_table_says() {
     );
 }
 
+/// Check 2s (S5.3 part 2): the product's judgement of a whole `cells!` sentence against the
+/// oracle's. For every generated `cells!` case, the product reads every entry of the rendered
+/// sentence (`krs_syntax::cell_entry`) and its cell's kind, and judges the sentence as the
+/// collector does ([`krs_syntax::cell_entries::Sentence::judge`]); its answer, the refused entry
+/// and its class or an admission, is [`sentence_outcome`]'s over the case's sentence. Check 2
+/// compares one entry at a time, so it does not see a template entry the product refuses, or the
+/// order the product meets the refusals of two entries in. A case an exception names is the
+/// table's on its own entry, which the oracle does not state; it is left to check 2.
+#[test]
+fn check_2s_the_product_judges_a_sentence_as_the_table_says() {
+    let exceptions = exceptions();
+    let configurations = configurations();
+    let mut failures = Vec::new();
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for (case, entry) in ENTRIES.iter() {
+        if entry.form != Form::Cells {
+            continue;
+        }
+        if !naming(&case.id, &exceptions).is_empty() {
+            *counts.entry("excepted").or_default() += 1;
+            continue;
+        }
+        let Some(configuration) = configurations.get(&case.base) else {
+            failures.push(format!(
+                "{}: no rendered source of its base parses",
+                case.id
+            ));
+            continue;
+        };
+        let rendered = match rendered_sentence(case, entry) {
+            Ok(rendered) => rendered,
+            Err(error) => {
+                failures.push(format!(
+                    "{}: the product does not read the sentence: {error}",
+                    case.id
+                ));
+                continue;
+            }
+        };
+        let kinds = rendered
+            .entries
+            .iter()
+            .map(|(cell, ..)| configuration.kind(cell))
+            .collect::<Vec<_>>();
+        let entries = rendered
+            .entries
+            .iter()
+            .zip(&kinds)
+            .map(
+                |((cell, side, spelling), kind)| cell_entries::SentenceEntry {
+                    side: product_side(*side),
+                    cell: cell.as_str(),
+                    kind,
+                    spelling: Some(spelling),
+                },
+            )
+            .collect::<Vec<_>>();
+        let parameters = rendered.parameters.iter().cloned().collect::<Vec<_>>();
+        let groups = configuration.groups();
+        let got = cell_entries::Sentence {
+            form: EntryForm::Cells,
+            entries: &entries,
+            result: rendered
+                .entries
+                .iter()
+                .any(|(_, side, _)| *side == Side::Result),
+            parameters: &parameters,
+            groups: &groups,
+        }
+        .judge()
+        .err()
+        .map(|(at, refusal)| {
+            let (cell, side, _) = &rendered.entries[at];
+            (cell.clone(), *side, refusal.class())
+        });
+        let (sentence, own) = match ordered_sentence(case, entry) {
+            Ok(sentence) => sentence,
+            Err(error) => {
+                failures.push(format!("{}: {error}", case.id));
+                continue;
+            }
+        };
+        let (about, answer) = sentence_outcome(entry.form, &sentence, own);
+        let want = match answer {
+            Outcome::Refuse(class) => Some((
+                sentence[about].0.cell.clone(),
+                sentence[about].0.side,
+                class,
+            )),
+            _ => None,
+        };
+        *counts
+            .entry(if got == want { "agree" } else { "disagree" })
+            .or_default() += 1;
+        if got != want {
+            failures.push(format!(
+                "{}: the product's sentence answers {got:?}, the principles {want:?}",
+                case.id
+            ));
+        }
+    }
+    println!("{counts:?}");
+    assert!(
+        failures.is_empty(),
+        "{} failures: {failures:#?}",
+        failures.len()
+    );
+}
+
 /// The template's entries abbreviated as `cells!` writes them.
 fn abbreviated(template: &Template) -> Template {
     let mut template = template.clone();
@@ -1638,7 +1815,19 @@ const SWEEP: &str = "judged by the sweep row's reviewed pattern in cells-outcome
 /// each part a value or `*` for every value. An entry with the [`SWEEP`] reason leaves its tuples
 /// to the sweep golden, which must print `outcome` at each; check 5 still requires every pair of
 /// the domain's dimensions to be some case's, unless an entry with another reason names it.
-const UNCOVERED: [(&str, &str, &str, &str, &str, &str); 1] = [("*", "*", "*", "*", "*", SWEEP)];
+const UNCOVERED: [(&str, &str, &str, &str, &str, &str); 3] = [
+    ("*", "*", "*", "*", "*", SWEEP),
+    ("*", "result", "below ?", "*", "*", MATCHED_BELOW),
+    ("*", "result", "below *", "*", "*", MATCHED_BELOW),
+];
+
+/// Why no case has a matched result on a cell below a marked ancestor: a subject entry naming
+/// the cell is refused for the ancestor whatever it spells (S1 (b)), at the kind step, so it
+/// would be the sentence's answer before the result's (P4 over a sentence); a case's subject
+/// matches the cell through the ancestor instead, which the context states as no subject entry
+/// of the cell. The two are one point there: a result entry below the ancestor is refused at the
+/// kind step too, before any pairing reads its other side.
+const MATCHED_BELOW: &str = "a result below a marked ancestor is refused before its pairing";
 
 /// The side as check 5 names it: a result over a cell its subject does not match is
 /// `result-unmatched`.
@@ -6688,8 +6877,10 @@ fn record_frames_agree(
     }
 }
 
-/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base and sweep case's ID, `outcome` and rule-level class
-/// to FILE (S5.0g's rows come from `outcome`, and the generated table diff is reviewed).
+/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base and sweep case's ID, its sentence's answer
+/// ([`ANSWERS`]), its rule-level class, and where the answer is met (`entry`: the case's own
+/// entry; `item`: another entry of the sentence) to FILE (S5.0g's rows come from the oracle, and
+/// the generated table diff is reviewed).
 #[test]
 fn the_kinds_cases_outcomes_print_on_request() {
     let Some(file) = std::env::var_os("KRS_CELLS_ROWS") else {
@@ -6700,7 +6891,7 @@ fn the_kinds_cases_outcomes_print_on_request() {
         if !matches!(case.base, Base::Kinds | Base::Sweep) {
             continue;
         }
-        let got = entry.outcome();
+        let (got, own) = ANSWERS[&case.id];
         let rule = if got.admits() {
             entry.rule_outcome(got)
         } else {
@@ -6708,10 +6899,11 @@ fn the_kinds_cases_outcomes_print_on_request() {
         };
         let _ = writeln!(
             out,
-            "{}\t{}\t{}",
+            "{}\t{}\t{}\t{}",
             case.id,
             sweep_name(got),
-            rule.unwrap_or("-")
+            rule.unwrap_or("-"),
+            if own { "entry" } else { "item" }
         );
     }
     std::fs::write(file, out).expect("the rows file is written");

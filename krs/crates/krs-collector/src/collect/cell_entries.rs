@@ -2,8 +2,8 @@
 //! each entry's spelling, read from the authored source as the shared reader reads it
 //! ([`krs_syntax::cell_entry::cells_fields`]), against its cell's kind
 //! ([`krs_ir::cell_kind::CellKind::entry`]: the layers of the cell's `?` and `*` ancestors and
-//! its own), then paired with the other side's entry of the same cell
-//! ([`krs_syntax::cell_entries::{admit, pair}`]).
+//! its own), then paired with the other side's entry of the same cell, each step over the whole
+//! sentence before the next ([`krs_syntax::cell_entries::Sentence::judge`]).
 //!
 //! The collector is where both are known: the spelling is the author's, which the descriptor
 //! no longer holds, and the kind is the collected declaration's. What the spelling alone
@@ -17,7 +17,7 @@ use krs_ir::{
     DescriptorBundle, DescriptorCellDeclaration, DescriptorCellIdentity, DescriptorIndex,
     DescriptorPayload, ProtocolCellContent, SourceRange, StableItemId,
 };
-use krs_syntax::cell_entries::{self, Bound, EntrySide, Refusal};
+use krs_syntax::cell_entries::{self, EntrySide, Refusal, Sentence, SentenceEntry};
 use krs_syntax::cell_entry::{EntryForm, EntrySpelling};
 
 use super::provenance::Coordinates;
@@ -135,13 +135,33 @@ pub(super) fn judge(
         let (Some(subject), Some(result)) = (subject, result.unwrap_or(Some(Vec::new()))) else {
             continue;
         };
-        Sentence {
-            subject: &subject,
-            result: rule.result.as_ref().map(|_| result.as_slice()),
+        let sentence = subject
+            .iter()
+            .map(|entry| (EntrySide::Subject, entry))
+            .chain(result.iter().map(|entry| (EntrySide::Result, entry)))
+            .map(|(side, entry)| SentenceEntry {
+                side,
+                cell: entry.cell,
+                kind: &entry.kind,
+                spelling: entry.field.spelling.as_ref(),
+            })
+            .collect::<Vec<_>>();
+        let judged = Sentence {
+            form: EntryForm::Cells,
+            entries: &sentence,
+            result: rule.result.is_some(),
             parameters: &authored.parameters,
             groups: &tree.groups,
         }
-        .judge()?;
+        .judge();
+        if let Err((at, refusal)) = judged {
+            let entry = subject
+                .iter()
+                .chain(&result)
+                .nth(at)
+                .expect("the refused entry is the sentence's");
+            return Err(refused(entry, refusal));
+        }
     }
     Ok(())
 }
@@ -251,103 +271,6 @@ impl<'i, 'a> Tree<'i, 'a> {
     }
 }
 
-/// One `cells!` sentence's entries.
-struct Sentence<'s, 'a> {
-    subject: &'s [Entry<'a>],
-    result: Option<&'s [Entry<'a>]>,
-    parameters: &'s [String],
-    groups: &'s [GroupKind],
-}
-
-impl Sentence<'_, '_> {
-    /// What `name` binds outside an entry: a record where a subject alias labels one of a
-    /// head, a value where a parameter binds it.
-    fn bound(&self, name: &str) -> Option<Bound> {
-        self.subject
-            .iter()
-            .filter_map(|entry| entry.field.spelling.as_ref())
-            .find_map(|spelling| record_alias(spelling, name))
-            .map(Bound::Record)
-            .or_else(|| {
-                (self.parameters.iter().any(|parameter| parameter == name)
-                    || self
-                        .subject
-                        .iter()
-                        .filter_map(|entry| entry.field.spelling.as_ref())
-                        .any(|spelling| binds(spelling, name)))
-                .then_some(Bound::Value)
-            })
-    }
-
-    /// The table's steps over the whole sentence, each over every entry, the subject's first:
-    /// the form and the kind, then the path, then the pairing. A step's refusal is the
-    /// sentence's before a later step's on any entry: an entry named below a `?` or `*`
-    /// ancestor is refused for the ancestor only once every entry's own marks are admitted,
-    /// since the ancestor's advice writes the entry inside the ancestor's mark, where an entry
-    /// its own cell refuses would be refused again.
-    fn judge(&self) -> Result<(), CollectionError> {
-        let bound = |name: &str| self.bound(name);
-        let entries = || {
-            self.subject
-                .iter()
-                .map(|entry| (EntrySide::Subject, entry))
-                .chain(
-                    self.result
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|entry| (EntrySide::Result, entry)),
-                )
-                .filter_map(|(side, entry)| Some((side, entry, entry.field.spelling.as_ref()?)))
-        };
-        for whole_path in [false, true] {
-            for (side, entry, spelling) in entries() {
-                if whole_path && entry.kind.path.layers.is_empty() {
-                    continue;
-                }
-                cell_entries::admit(
-                    EntryForm::Cells,
-                    side,
-                    if whole_path {
-                        &entry.kind.path.layers
-                    } else {
-                        &[]
-                    },
-                    &entry.kind.own.layers,
-                    spelling,
-                    &bound,
-                    self.groups,
-                )
-                .map_err(|refusal| refused(entry, refusal))?;
-            }
-        }
-        // A single-body rule rewrites its cells in place: there is no other side.
-        let Some(result) = self.result else {
-            return Ok(());
-        };
-        for (side, entry, spelling) in entries() {
-            let others = match side {
-                EntrySide::Subject => result,
-                _ => self.subject,
-            };
-            let other = others.iter().find(|other| other.cell == entry.cell);
-            if other.is_some_and(|other| other.field.spelling.is_none()) {
-                continue;
-            }
-            cell_entries::pair(
-                EntryForm::Cells,
-                side,
-                &entry.kind.own.layers,
-                spelling,
-                other.and_then(|other| other.field.spelling.as_ref()),
-                side == EntrySide::Subject && other.is_some(),
-                &bound,
-            )
-            .map_err(|refusal| refused(entry, refusal))?;
-        }
-        Ok(())
-    }
-}
-
 fn refused(entry: &Entry<'_>, refusal: Refusal) -> CollectionError {
     let error = CollectionError::new(
         CollectionErrorKind::CellEntry(refusal),
@@ -360,78 +283,5 @@ fn refused(entry: &Entry<'_>, refusal: Refusal) -> CollectionError {
     match &entry.field.range {
         Some(range) => error.with_source_range(range.clone()),
         None => error,
-    }
-}
-
-/// The head of the record `name` labels in `spelling`, `name @ Head { .. }` or its fragment.
-fn record_alias(spelling: &EntrySpelling, name: &str) -> Option<String> {
-    match spelling {
-        EntrySpelling::Alias(alias, inner) if alias == name => match &**inner {
-            EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
-                Some(record.head.clone())
-            }
-            _ => None,
-        },
-        _ => children(spelling).find_map(|child| record_alias(child, name)),
-    }
-}
-
-/// Whether `spelling` binds `name`.
-fn binds(spelling: &EntrySpelling, name: &str) -> bool {
-    match spelling {
-        EntrySpelling::Binder(binder) => binder == name,
-        EntrySpelling::Alias(alias, _) if alias == name => true,
-        _ => {
-            rests(spelling).any(|rest| rest == name)
-                || children(spelling).any(|child| binds(child, name))
-        }
-    }
-}
-
-/// The names of the rests `spelling` writes at its own level.
-fn rests(spelling: &EntrySpelling) -> impl Iterator<Item = &str> {
-    use krs_syntax::cell_entry::EntryRest;
-    let rest = match spelling {
-        EntrySpelling::Brackets(seq)
-        | EntrySpelling::Braces(seq)
-        | EntrySpelling::KCell(seq)
-        | EntrySpelling::InstanceList(seq)
-        | EntrySpelling::InstanceSet(seq)
-        | EntrySpelling::KMacro(seq) => seq.rest.as_ref().map(|(rest, _)| rest),
-        EntrySpelling::MapRead(map) | EntrySpelling::MapLiteral(map) => map.rest.as_ref(),
-        _ => None,
-    };
-    rest.and_then(|rest| match rest {
-        EntryRest::Named(name) => Some(name.as_str()),
-        EntryRest::Anonymous | EntryRest::Splice(_) => None,
-    })
-    .into_iter()
-}
-
-/// The spellings `spelling` holds directly.
-fn children(spelling: &EntrySpelling) -> Box<dyn Iterator<Item = &EntrySpelling> + '_> {
-    match spelling {
-        EntrySpelling::Call(items) => Box::new(items.iter()),
-        EntrySpelling::Present(inner)
-        | EntrySpelling::Absent(inner)
-        | EntrySpelling::Alias(_, inner)
-        | EntrySpelling::Cell(inner) => Box::new(std::iter::once(&**inner)),
-        EntrySpelling::Brackets(seq)
-        | EntrySpelling::Braces(seq)
-        | EntrySpelling::KCell(seq)
-        | EntrySpelling::InstanceList(seq)
-        | EntrySpelling::InstanceSet(seq)
-        | EntrySpelling::KMacro(seq) => Box::new(seq.items.iter()),
-        EntrySpelling::MapRead(map) | EntrySpelling::MapLiteral(map) => {
-            Box::new(map.entries.iter().flat_map(|(key, value)| [key, value]))
-        }
-        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
-            Box::new(record.fields.iter().map(|(_, value)| value))
-        }
-        EntrySpelling::Wild
-        | EntrySpelling::Binder(_)
-        | EntrySpelling::Literal(_)
-        | EntrySpelling::ConfigVar(_)
-        | EntrySpelling::Missing => Box::new(std::iter::empty()),
     }
 }

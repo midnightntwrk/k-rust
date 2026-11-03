@@ -5350,10 +5350,12 @@ match = 'cells/g3-b/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, acounte
 class = "absence-test-without-creation"
 at = "entry"
 
+# A sentence's answer is its first refusal by P4's steps over every entry (S5.3 part 2, ruling 1):
+# `hpc`'s path refusal is the kind step's, before `opt`'s absence test, the pairing's.
 [[refuse]]
 match = '{cells,claim,readable}/g5-d/kinds/opt/None'
-class = "absence-test-without-creation"
-at = "entry"
+class = "optional-without-presence"
+at = "item"
 
 [[refuse]]
 match = '{claim,readable}/alias/kinds/frame/f @ G \{ a: x\, b: y \}'
@@ -5480,14 +5482,16 @@ match = '{claim,readable}/path-e/kinds/id/x'
 class = "collection-without-instances"
 at = "entry"
 
+# The rule-level classes judge a sentence whose every entry is admitted (S5.3 part 2, ruling 1):
+# `hstack`'s path refusal, the kind step's, is the sentence's answer before `group-and-descendant`.
 [[refuse]]
 match = '{claim,readable}/g5-c/kinds/opt/Some(H \{ hpc: y\, .. \})'
-class = "group-and-descendant"
+class = "optional-without-presence"
 at = "item"
 
 [[refuse]]
 match = 'cells/g5-c/kinds/opt/Some(k::fragment![crate::H \{ hpc: y\, .. \}])'
-class = "group-and-descendant"
+class = "optional-without-presence"
 at = "item"
 
 [[refuse]]

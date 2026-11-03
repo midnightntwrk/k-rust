@@ -3706,14 +3706,6 @@ deviation = "krs::analysis::invalid-term @ item"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ item"
 
-["k8/claim/result/kinds/aprog/0"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
-
-["k8/claim/result/kinds/aprog/None"]
-finding = "S0-9"
-deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
-
 ["k8/claim/result/kinds/code/G { a: x, .. }"]
 finding = "S0-9"
 deviation = "open-record-outside-pattern advises none, and its refusal advises `rest @ ..`"
@@ -3721,14 +3713,6 @@ deviation = "open-record-outside-pattern advises none, and its refusal advises `
 ["k8/claim/result/kinds/code/x"]
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
-
-["k8/readable/result/kinds/aprog/0"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
-
-["k8/readable/result/kinds/aprog/None"]
-finding = "S0-9"
-deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
 ["k8/readable/result/kinds/code/G { a: x, .. }"]
 finding = "S0-9"
@@ -3958,10 +3942,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S5-S1"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["cells/result/kinds/aomap/None"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
 ["cells/result/kinds/aomap/_"]
 finding = "S5-S1"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -3973,10 +3953,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["cells/result/kinds/aseq/_"]
 finding = "S5-S1"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/result/kinds/hcounter/Some(k::configuration::Cell(x))"]
-finding = "S5-S1"
-deviation = "krs::analysis::optional-presence @ item"
 
 ["cells/subject/kinds/aacct/k::fragment![crate::Aacct { aid: x, .. }]"]
 finding = "S5-S1"
@@ -4120,23 +4096,23 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/abag/0"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/abag/None"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/abag/{ y -> x, .. }"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/aframe/0"]
 finding = "S5-S1"
-deviation = "krs::analysis::invalid-term @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aframe/None"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aframe/{ y -> x, .. }"]
 finding = "S5-S1"
@@ -4144,23 +4120,19 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/aomap/0"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aomap/None"]
 finding = "S5-S1"
-deviation = "accepted"
-
-["claim/result/kinds/aomap/{ y -> x, .. }"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aprog/0"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-list-notation @ entry"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aprog/None"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-list-notation @ entry"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aprog/{ y -> x, .. }"]
 finding = "S5-S1"
@@ -4168,11 +4140,11 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/aseq/0"]
 finding = "S5-S1"
-deviation = "krs::analysis::invalid-term @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aseq/None"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/aseq/{ y -> x, .. }"]
 finding = "S5-S1"
@@ -4180,31 +4152,31 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/hacct/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hacct/_"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hacct/{ Hacct { hid: x, .. }, .. }"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/hcounter/Some(x)"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hcounter/_"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hcounter/{ G { a: x, .. }, .. }"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/henv/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/henv/{ G { a: x, .. }, .. }"]
 finding = "S5-S1"
@@ -4212,19 +4184,19 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/hogroup/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hogroup/_"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hogroup/{ Ho { hoa: x, .. }, .. }"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["claim/result/kinds/hpc/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/result/kinds/hpc/{ G { a: x, .. }, .. }"]
 finding = "S5-S1"
@@ -4468,23 +4440,23 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/abag/0"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/abag/None"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/abag/{ y -> x, .. }"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/aframe/0"]
 finding = "S5-S1"
-deviation = "krs::analysis::invalid-term @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aframe/None"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aframe/{ y -> x, .. }"]
 finding = "S5-S1"
@@ -4492,23 +4464,19 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/aomap/0"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aomap/None"]
 finding = "S5-S1"
-deviation = "accepted"
-
-["readable/result/kinds/aomap/{ y -> x, .. }"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aprog/0"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-list-notation @ entry"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aprog/None"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-list-notation @ entry"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aprog/{ y -> x, .. }"]
 finding = "S5-S1"
@@ -4516,11 +4484,11 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/aseq/0"]
 finding = "S5-S1"
-deviation = "krs::analysis::invalid-term @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aseq/None"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/aseq/{ y -> x, .. }"]
 finding = "S5-S1"
@@ -4528,31 +4496,31 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/hacct/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hacct/_"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hacct/{ Hacct { hid: x, .. }, .. }"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/hcounter/Some(x)"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hcounter/_"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hcounter/{ G { a: x, .. }, .. }"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/henv/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/henv/{ G { a: x, .. }, .. }"]
 finding = "S5-S1"
@@ -4560,19 +4528,19 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/hogroup/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hogroup/_"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hogroup/{ Ho { hoa: x, .. }, .. }"]
 finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
+deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["readable/result/kinds/hpc/Some(x)"]
 finding = "S5-S1"
-deviation = "krs::expand::not-a-declaration @ spelling"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/result/kinds/hpc/{ G { a: x, .. }, .. }"]
 finding = "S5-S1"
@@ -4703,18 +4671,6 @@ deviation = "accepted"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["cells/alias/kinds/pc/k::configuration::Cell(p @ x)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ item"
-
-["cells/deep-a/kinds/hpay/k::configuration::Cell(y)"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
-["cells/deep-b/kinds/hpay/k::configuration::Cell(x)"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
 ["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
 finding = "S5-G1"
 deviation = "krs::analysis::invalid-record-update @ item"
@@ -4795,26 +4751,6 @@ deviation = "krs::analysis::collection-entry @ entry"
 finding = "S5-Q1"
 deviation = "accepted, without the lint no-effect-entry"
 
-["cells/path-a/kinds/key/k::configuration::Cell(x)"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
-["cells/path-b/kinds/payload/k::configuration::Cell(x)"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
-["cells/path-c/kinds/key/k::configuration::Cell(x)"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
-["cells/path-e/kinds/id/k::configuration::Cell(x)"]
-finding = "S5-S1"
-deviation = "krs::analysis::collection-entry @ item"
-
-["claim/alias/kinds/pc/p @ x"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-pattern-as @ item"
-
 ["claim/deep-a/kinds/aa/x"]
 finding = "S5-S1"
 deviation = "accepted"
@@ -4829,7 +4765,7 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/deep-b/kinds/hpay/x"]
 finding = "S5-S1"
-deviation = "krs::syntax::rust-syntax @ item"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
@@ -4917,11 +4853,11 @@ deviation = "accepted"
 
 ["claim/path-b/kinds/payload/x"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/path-c/kinds/key/x"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["claim/path-d/kinds/id/x"]
 finding = "S5-S1"
@@ -4929,7 +4865,7 @@ deviation = "accepted"
 
 ["claim/path-e/kinds/id/x"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
@@ -4979,10 +4915,6 @@ deviation = "refused where the table accepts, advising `rest`"
 finding = "S5-N1"
 deviation = "refused where the table accepts, advising `rest`"
 
-["readable/alias/kinds/pc/p @ x"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-pattern-as @ item"
-
 ["readable/deep-a/kinds/aa/x"]
 finding = "S5-S1"
 deviation = "accepted"
@@ -4997,7 +4929,7 @@ deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/deep-b/kinds/hpay/x"]
 finding = "S5-S1"
-deviation = "krs::syntax::rust-syntax @ item"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
@@ -5085,11 +5017,11 @@ deviation = "accepted"
 
 ["readable/path-b/kinds/payload/x"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/path-c/kinds/key/x"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
 
 ["readable/path-d/kinds/id/x"]
 finding = "S5-S1"
@@ -5097,7 +5029,51 @@ deviation = "accepted"
 
 ["readable/path-e/kinds/id/x"]
 finding = "S5-S1"
-deviation = "accepted"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+# S5.3 part 2: readable and claim reds the sentence-order rulings move (a readable route is S5.2's):
+# a result case on a cell below a marked ancestor whose subject now matches the cell through the ancestor
+# (readable refuses it as an unmatched cell before the path), and g5-c's sentence answer, `hstack`'s path
+# refusal, where readable answers `group-and-descendant`.
+["claim/g5-c/kinds/opt/Some(H { hpc: y, .. })"]
+finding = "S5-S1"
+deviation = "krs::analysis::group-and-descendant @ item"
+
+["claim/result/kinds/henv/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/result/kinds/hpc/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/g5-c/kinds/opt/Some(H { hpc: y, .. })"]
+finding = "S5-S1"
+deviation = "krs::analysis::group-and-descendant @ item"
+
+["readable/result/kinds/henv/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/result/kinds/hpc/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["k3/readable/deep-a/kinds/aa/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/deep-a/kinds/hpay/y"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::optional-presence @ item"
+
+["k3/readable/path-a/kinds/key/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/path-a/kinds/payload/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 
 # S5.0g item 3a: the compiled sweep's reds (shard `sweep`), each owned by the finding whose `what` covers its
 # pattern (the progress log's "Part (b), item 3a" lists the patterns and their kinds).

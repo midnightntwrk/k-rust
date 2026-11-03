@@ -1653,7 +1653,145 @@ pub fn outcome(
         .unwrap_or_else(|refusal| Outcome::Refuse(refusal.class))
 }
 
+/// Which step of P4's order over a sentence a refusal belongs to: the form (0), the kind (1),
+/// the pairing (2). A path refusal is the kind's: it needs only the declaration, as the cell's
+/// own kind does, and the cell's own kind comes before it within the entry (R3).
+const fn sentence_step(step: Step) -> u8 {
+    match step {
+        Step::Form => 0,
+        Step::MarkElsewhere | Step::MissingLayer | Step::Path | Step::Inside => 1,
+        Step::Pairing => 2,
+    }
+}
+
+/// Steps 1–3 over a whole sentence (P4 over a sentence): each step runs over every entry
+/// before the next starts, since a later step's question is not well posed while an earlier
+/// one is open anywhere in the sentence (a pairing assumes both sides have kinds), and a step
+/// that refuses anything ends the judgement. `entries` is the sentence's entries in source
+/// order, each with its own context; `own` the index of the entry whose admission is asked.
+///
+/// Answers the index of the entry the answer is about and the answer: the first refusal of the
+/// first step that refuses, in source order, or, where every entry is admitted, `own`'s
+/// outcome (its lint and its sort are its own).
+#[must_use]
+pub fn sentence_outcome(form: Form, entries: &[(Entry, Context)], own: usize) -> (usize, Outcome) {
+    let judged = entries
+        .iter()
+        .map(|(entry, context)| {
+            judge(
+                form,
+                entry.side,
+                &entry.path,
+                &entry.stack,
+                &entry.spelling,
+                context,
+            )
+        })
+        .collect::<Vec<_>>();
+    let first = judged
+        .iter()
+        .enumerate()
+        .filter_map(|(at, judged)| {
+            judged
+                .as_ref()
+                .err()
+                .map(|refusal| (sentence_step(refusal.step), at, refusal.class))
+        })
+        .min();
+    match first {
+        Some((_, at, class)) => (at, Outcome::Refuse(class)),
+        None => (
+            own,
+            judged[own]
+                .as_ref()
+                .copied()
+                .unwrap_or_else(|refusal| Outcome::Refuse(refusal.class)),
+        ),
+    }
+}
+
+/// The names `spelling` binds: its binders, its aliases' names and its named rests.
+fn bound_names(spelling: &Spelling, out: &mut Vec<String>) {
+    let mut push = |name: &str| {
+        if !out.iter().any(|known| known == name) {
+            out.push(name.to_owned());
+        }
+    };
+    match spelling {
+        Spelling::Binder(name) | Spelling::Alias(name, _) => push(name),
+        _ => {}
+    }
+    let rest = match spelling {
+        Spelling::MapRead(entries) | Spelling::MapLit(entries) => entries.rest.as_ref(),
+        _ => sequence(spelling).and_then(|(_, rest)| rest),
+    };
+    if let Some(Rest::Named(name)) = rest {
+        push(name);
+    }
+    for inner in children(spelling) {
+        bound_names(inner, out);
+    }
+}
+
+/// The record each alias of `spelling` labels, with its head (`me @ Acct { .. }`: `me`, `Acct`).
+fn record_aliases(spelling: &Spelling, out: &mut Vec<(String, String)>) {
+    if let Spelling::Alias(name, inner) = spelling
+        && let Spelling::Record(record) | Spelling::Fragment(record) = &**inner
+        && !out.iter().any(|(known, _)| known == name)
+    {
+        out.push((name.clone(), record.head.clone()));
+    }
+    for inner in children(spelling) {
+        record_aliases(inner, out);
+    }
+}
+
 impl EntryCase {
+    /// The case's whole sentence, its own entry first, then the template's, each with the
+    /// context it is judged in. The own entry keeps the case's context. Another entry's is read
+    /// from the sentence as the case's is: the names every other subject entry binds (an
+    /// initializer's: its configuration variables), the records their aliases label, the other
+    /// side's entry of the same cell, and, for a subject, whether the result writes the cell.
+    #[must_use]
+    pub fn sentence(&self) -> Vec<(Entry, Context)> {
+        let all = std::iter::once(&self.entry)
+            .chain(&self.template.entries)
+            .collect::<Vec<_>>();
+        let mut out = vec![(self.entry.clone(), self.context.clone())];
+        for (at, entry) in all.iter().enumerate().skip(1) {
+            let mut context = Context {
+                groups: self.context.groups.clone(),
+                ..Context::default()
+            };
+            if self.template.sentence == Sentence::Initializer {
+                context.bound.clone_from(&self.context.bound);
+            }
+            for (_, other) in all
+                .iter()
+                .enumerate()
+                .filter(|(other, subject)| *other != at && subject.side == Side::Subject)
+            {
+                bound_names(&other.spelling, &mut context.bound);
+                record_aliases(&other.spelling, &mut context.records);
+            }
+            let across = |side: Side| {
+                all.iter()
+                    .find(|other| other.side == side && other.cell == entry.cell)
+                    .map(|other| other.spelling.clone())
+            };
+            match entry.side {
+                Side::Subject => {
+                    context.other = across(Side::Result);
+                    context.written = context.other.is_some();
+                }
+                Side::Result => context.other = across(Side::Subject),
+                _ => {}
+            }
+            out.push(((*entry).clone(), context));
+        }
+        out
+    }
+
     /// The case's [`outcome`].
     #[must_use]
     pub fn outcome(&self) -> Outcome {
