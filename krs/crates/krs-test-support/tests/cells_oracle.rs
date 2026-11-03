@@ -2563,6 +2563,96 @@ fn a_group_records_children_pair_their_rests_at_their_own_content_roots() {
     ]);
 }
 
+/// R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): a
+/// readable rule does not drop the computation child's continuation it never matched (Q3), the
+/// `?` child's presence is unknown (P5), and the group child exists, so a bare `..` on it is
+/// Rust's default fields (P6). An update whose label no subject instance has changes an
+/// instance the subject does not show, whose children are unmatched alike.
+#[test]
+fn an_overwritten_records_children_are_unmatched_not_created() {
+    let (threads, _) = d1_stacks();
+    let int = || vec![Layer::Leaf(Notation::Plain)];
+    let group = |name: &str, children: Vec<(&str, Vec<Layer>)>| {
+        [Layer::Group(Group {
+            name: name.to_owned(),
+            children: children
+                .into_iter()
+                .map(|(child, stack)| (child.to_owned(), stack))
+                .collect(),
+        })]
+    };
+    let c = group("C", vec![("c", vec![Layer::Computation]), ("n", int())]);
+    let o = group(
+        "O",
+        vec![
+            ("o", vec![Layer::Optional, Layer::Leaf(Notation::Plain)]),
+            ("n", int()),
+        ],
+    );
+    let w = group("W", vec![("g", vec![group_g()]), ("n", int())]);
+    let uor = Outcome::Refuse("unmatched-optional-result");
+    let open = Outcome::Refuse("open-record-outside-pattern");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &c, "C { c: [x], n: 0 }", None),
+            Outcome::Refuse("continuation-in-readable"),
+        ),
+        (
+            child_probe(Form::Readable, &o, "O { o: Some(1), n: 0 }", None),
+            uor,
+        ),
+        (
+            child_probe(Form::Readable, &o, "O { o: None, n: 0 }", None),
+            uor,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &o,
+                "k::fragment![crate::O { o: Some(1), n: 0 }]",
+                None,
+            ),
+            uor,
+        ),
+        (
+            child_probe(Form::Readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
+            open,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &w,
+                "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
+                None,
+            ),
+            open,
+        ),
+        // A matched record that does not name `g`: `g` exists and is overwritten.
+        (
+            child_probe(
+                Form::Readable,
+                &w,
+                "W { g: G { a: x, .. }, n: 0 }",
+                Some("W { n: y, .. }"),
+            ),
+            open,
+        ),
+        (
+            child_probe(Form::Readable, &w, "W { g: G { a: x, b: y }, n: 0 }", None),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &threads,
+                "[T { k: [x, ..], ..me }, ..]",
+                Some("[..]"),
+            ),
+            Outcome::Refuse("continuation-in-readable"),
+        ),
+    ]);
+}
+
 /// D-2 (S5.0g), narrowed by ruling 2 (P0): an update (`..me`) changes the instance in place, and
 /// a Map collection's instance is keyed by its first child, its identity (design §2.3, §7). An
 /// update that writes the key as the binder its subject matched it with means the same instance,
@@ -3209,13 +3299,25 @@ fn children_stack(name: &str) -> Vec<Layer> {
             Layer::Instances(Order::Map),
             sweep_group("A", &[("id", int.clone()), ("l", list.clone())]),
         ],
+        "group C" => vec![sweep_group(
+            "C",
+            &[("c", Layer::Computation), ("n", int.clone())],
+        )],
+        "group O" => vec![Layer::Group(Group {
+            name: "O".to_owned(),
+            children: vec![
+                ("o".to_owned(), vec![Layer::Optional, int.clone()]),
+                ("n".to_owned(), vec![int.clone()]),
+            ],
+        })],
+        "group W" => vec![sweep_group("W", &[("g", group_g()), ("n", int.clone())])],
         other => panic!("no children-sweep stack {other}"),
     }
 }
 
 /// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
 /// not match it), and a result, each written in readable (claim alike) and in `cells!`.
-const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 25] = [
+const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 33] = [
     (
         "group H",
         [
@@ -3455,6 +3557,75 @@ const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 25] = [
             "[k::fragment![crate::T { n: 0, .. }], ..]",
         ],
     ),
+    // R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): its
+    // computation child (Q3), its `?` child (P5) and its group child (P6) each pair as an
+    // overwrite.
+    (
+        "group C",
+        ["-", "-"],
+        [
+            "C { c: [x], n: 0 }",
+            "k::fragment![crate::C { c: [x], n: 0 }]",
+        ],
+    ),
+    (
+        "group O",
+        ["-", "-"],
+        [
+            "O { o: Some(1), n: 0 }",
+            "k::fragment![crate::O { o: Some(1), n: 0 }]",
+        ],
+    ),
+    (
+        "group O",
+        ["-", "-"],
+        [
+            "O { o: None, n: 0 }",
+            "k::fragment![crate::O { o: None, n: 0 }]",
+        ],
+    ),
+    (
+        "group W",
+        ["-", "-"],
+        [
+            "W { g: G { a: x, .. }, n: 0 }",
+            "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
+        ],
+    ),
+    (
+        "group W",
+        ["-", "-"],
+        [
+            "W { g: G { a: x, b: y }, n: 0 }",
+            "k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]",
+        ],
+    ),
+    // R1: an update whose label no subject instance has changes an instance the subject does
+    // not show, so its children are unmatched too.
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x, ..], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x], ..me }], ..]",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { l: [x, ..], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
+        ],
+    ),
 ];
 
 /// The sweep of a result's children (P1: a group or instance record's children are entries of
@@ -3467,7 +3638,8 @@ fn children_sweep(out: &mut String) {
         "# Each row is a result over its cell; `other` is the subject's entry of the cell (`-`: the\n",
         "#   subject does not match it). Bound names: x, y, z, me. Groups: H (l: List, b: Int),\n",
         "#   T (k: a computation, n: Int), A (id: Int, l: List; a Map collection is keyed by its\n",
-        "#   first child, id). The `cells!` rows write each record as its fragment.\n",
+        "#   first child, id), C (c: a computation, n: Int), O (o: ? Int, n: Int), W (g: G, n: Int).\n",
+        "#   The `cells!` rows write each record as its fragment.\n",
         "form\tstack\tother\tresult\toutcome\n",
     ));
     for form in [Form::Readable, Form::Claim, Form::Cells] {

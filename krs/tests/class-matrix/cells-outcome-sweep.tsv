@@ -602,7 +602,8 @@ init	*	* Map of G	-	cwi	cwi	nii	cwi	ir	cwi	ir	cwi	cwi	cwi	cwi	cwi	cwi
 # Each row is a result over its cell; `other` is the subject's entry of the cell (`-`: the
 #   subject does not match it). Bound names: x, y, z, me. Groups: H (l: List, b: Int),
 #   T (k: a computation, n: Int), A (id: Int, l: List; a Map collection is keyed by its
-#   first child, id). The `cells!` rows write each record as its fragment.
+#   first child, id), C (c: a computation, n: Int), O (o: ? Int, n: Int), W (g: G, n: Int).
+#   The `cells!` rows write each record as its fragment.
 form	stack	other	result	outcome
 readable	group H	H { l: [y, ..], .. }	H { l: [x], b: 0 }	rm
 readable	group H	H { l: [y, ..], .. }	H { l: [x, ..], b: 0 }	sort
@@ -629,6 +630,14 @@ readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }	map-c
 readable	* Map of A	{ .. }	{ A { l: [x], .. }, .. }	map-collection-key
 readable	* Map of A	{ .. }	{ A { id: 5, .. }, .. }	sort
 readable	* List of T	[..]	[T { n: 0, .. }, ..]	sort
+readable	group C	-	C { c: [x], n: 0 }	cir
+readable	group O	-	O { o: Some(1), n: 0 }	uor
+readable	group O	-	O { o: None, n: 0 }	uor
+readable	group W	-	W { g: G { a: x, .. }, n: 0 }	open-record-outside-pattern
+readable	group W	-	W { g: G { a: x, b: y }, n: 0 }	sort
+readable	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	cir
+readable	* List of T	[..]	[T { k: [x], ..me }, ..]	cir
+readable	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }	rm
 claim	group H	H { l: [y, ..], .. }	H { l: [x], b: 0 }	rm
 claim	group H	H { l: [y, ..], .. }	H { l: [x, ..], b: 0 }	sort
 claim	group H	H { b: y, .. }	H { l: [x, ..], b: 0 }	rm
@@ -654,6 +663,14 @@ claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }	map-coll
 claim	* Map of A	{ .. }	{ A { l: [x], .. }, .. }	map-collection-key
 claim	* Map of A	{ .. }	{ A { id: 5, .. }, .. }	sort
 claim	* List of T	[..]	[T { n: 0, .. }, ..]	sort
+claim	group C	-	C { c: [x], n: 0 }	cir
+claim	group O	-	O { o: Some(1), n: 0 }	uor
+claim	group O	-	O { o: None, n: 0 }	uor
+claim	group W	-	W { g: G { a: x, .. }, n: 0 }	open-record-outside-pattern
+claim	group W	-	W { g: G { a: x, b: y }, n: 0 }	sort
+claim	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	cir
+claim	* List of T	[..]	[T { k: [x], ..me }, ..]	cir
+claim	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }	rm
 cells	group H	k::fragment![crate::H { l: [y, ..], .. }]	k::fragment![crate::H { l: [x], b: 0 }]	rm
 cells	group H	k::fragment![crate::H { l: [y, ..], .. }]	k::fragment![crate::H { l: [x, ..], b: 0 }]	sort
 cells	group H	k::fragment![crate::H { b: y, .. }]	k::fragment![crate::H { l: [x, ..], b: 0 }]	rm
@@ -679,6 +696,14 @@ cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x], .. }], .. }	map-collection-key
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { id: 5, .. }], .. }	sort
 cells	* List of T	[..]	[k::fragment![crate::T { n: 0, .. }], ..]	sort
+cells	group C	-	k::fragment![crate::C { c: [x], n: 0 }]	sort
+cells	group O	-	k::fragment![crate::O { o: Some(1), n: 0 }]	uor
+cells	group O	-	k::fragment![crate::O { o: None, n: 0 }]	uor
+cells	group W	-	k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]	open-record-outside-pattern
+cells	group W	-	k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]	sort
+cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], ..me }], ..]	rm
+cells	* List of T	[..]	[k::fragment![crate::T { k: [x], ..me }], ..]	sort
+cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	rm
 #
 ## children, init: a template record with a collection child (P5 at every depth)
 # Groups: Q (id: Int, js: * List of J), P (js: * List of J), J (p: Int). Bound: pgm.

@@ -1569,6 +1569,106 @@ mod tests {
     }
 
     #[test]
+    fn an_overwritten_records_children_are_unmatched_not_created() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let group = |name: &str, children: Vec<(&str, Vec<Layer>)>| {
+            [Layer::Group(GroupKind {
+                name: name.to_owned(),
+                children: children
+                    .into_iter()
+                    .map(|(child, layers)| (child.to_owned(), CellKind { layers }))
+                    .collect(),
+            })]
+        };
+        let plain = || vec![Layer::Leaf(Notation::Plain)];
+        let c = group("C", vec![("c", vec![Layer::Computation]), ("n", plain())]);
+        let o = group(
+            "O",
+            vec![
+                ("o", vec![Layer::Optional, Layer::Leaf(Notation::Plain)]),
+                ("n", plain()),
+            ],
+        );
+        let g = Layer::Group(GroupKind {
+            name: "G".to_owned(),
+            children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
+        });
+        let w = group("W", vec![("g", vec![g]), ("n", plain())]);
+        let threads = [
+            Layer::Instances(Order::List),
+            Layer::Group(GroupKind {
+                name: "T".to_owned(),
+                children: vec![
+                    (
+                        "k".to_owned(),
+                        CellKind {
+                            layers: vec![Layer::Computation],
+                        },
+                    ),
+                    ("n".to_owned(), int()),
+                ],
+            }),
+        ];
+        let uor = Err(Refusal::UnmatchedOptionalResult);
+        let open = Err(Refusal::OpenRecordOutsidePattern);
+        // An overwritten group's computation child: a readable rule does not drop the
+        // continuation it never matched.
+        assert_eq!(
+            result(readable, &c, "C { c: [x], n: 0 }", None),
+            Err(Refusal::ContinuationInReadable)
+        );
+        // Its `?` child, whose presence the rule does not know.
+        assert_eq!(result(readable, &o, "O { o: Some(1), n: 0 }", None), uor);
+        assert_eq!(result(readable, &o, "O { o: None, n: 0 }", None), uor);
+        assert_eq!(
+            result(
+                cells,
+                &o,
+                "k::fragment![crate::O { o: Some(1), n: 0 }]",
+                None
+            ),
+            uor
+        );
+        // Its group child exists, so a bare `..` on it is Rust's default fields.
+        assert_eq!(
+            result(readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
+            open
+        );
+        assert_eq!(
+            result(
+                cells,
+                &w,
+                "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
+                None
+            ),
+            open
+        );
+        assert_eq!(
+            result(
+                readable,
+                &w,
+                "W { g: G { a: x, .. }, n: 0 }",
+                Some("W { n: y, .. }")
+            ),
+            open
+        );
+        assert_eq!(
+            result(readable, &w, "W { g: G { a: x, b: y }, n: 0 }", None),
+            Ok(None)
+        );
+        // An update whose label no subject instance has: its children are unmatched too.
+        assert_eq!(
+            result(
+                readable,
+                &threads,
+                "[T { k: [x, ..], ..me }, ..]",
+                Some("[..]")
+            ),
+            Err(Refusal::ContinuationInReadable)
+        );
+    }
+
+    #[test]
     fn an_update_of_a_map_collections_instance_keeps_its_key() {
         let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
         let account = |order| {
