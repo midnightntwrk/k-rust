@@ -398,8 +398,12 @@ fn parse_readable_instance(
             // `balance` is `balance: balance`, Rust's field-init shorthand,
             // as at a record's top level: the value is the child name's own
             // token, a binder in a pattern and the bound variable in a
-            // result.
-            [TokenTree::Ident(name)] if name != "_" => (name, item.clone()),
+            // result. A keyword is no binder and no variable, so it is
+            // refused here as `cells!` refuses it.
+            [TokenTree::Ident(name)] if name != "_" => {
+                syn::parse2::<Ident>(item.clone()).map_err(crate::SyntaxError::from)?;
+                (name, item.clone())
+            }
             [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..]
                 if colon.as_char() == ':' && !value.is_empty() =>
             {

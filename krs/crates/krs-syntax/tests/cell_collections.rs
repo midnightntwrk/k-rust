@@ -448,6 +448,31 @@ fn a_lone_wildcard_is_no_shorthand_instance_child() {
     );
 }
 
+/// A keyword is no binder and no variable, so it is no shorthand instance
+/// child: readable refuses it as `cells!` does, with the same message (a raw
+/// identifier such as `r#type` is a name, above).
+#[test]
+fn a_keyword_is_no_shorthand_instance_child() {
+    for keyword in [
+        "self", "Self", "true", "false", "crate", "super", "match", "let", "fn", "async",
+    ] {
+        let expected = format!("expected identifier, found keyword `{keyword}`");
+        let readable = krs_syntax::RuleBlock::parse_source(&format!(
+            "for Machine; read: {{ k: [Go(), ..], account: {{ Account {{ {keyword}, .. }}, .. }} }} => {{ k: [..] }};"
+        ))
+        .unwrap_err();
+        assert!(readable.to_string().contains(&expected), "{readable}");
+        let cells = parse_cells_pattern(
+            krs_syntax::parse::tokens_from_source(&format!(
+                "Accounts::account: {{ Account {{ {keyword}, .. }}, rest @ .. }}, state @ .."
+            ))
+            .unwrap(),
+        )
+        .unwrap_err();
+        assert!(cells.to_string().contains(&expected), "{cells}");
+    }
+}
+
 /// A `cells!` instance child that is only a name is `name: name` in a
 /// pattern, a created instance and an update.
 #[test]
