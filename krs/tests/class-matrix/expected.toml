@@ -3423,6 +3423,108 @@ configuration
 [accept."init/k/[pgm]"]
 
 [accept."init/kinds/account/Acct { id: 0, aprog: k::k![], acode: k::k![], apc: 0, astack: list::empty(), aseq: IntList::IntsEmpty(), aenv: k::map![], aset: set::empty(), aframe: Ag { aa: 0 }, acounter: k::absent!(0), aolist: k::absent!(list::empty()), aomap: k::absent!(k::map![]), aogroup: k::absent!(Ao { aoa: 0 }), aqueue: Aqueue { ajob: Ajob { apay: 0 } }, ashelf: Ashelf { abag: Aobj { akey: 0 } }, abank: Abank { aacct: Aacct { aid: 0 } } }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/bag/Obj { key: 0 }"]
 k = """
