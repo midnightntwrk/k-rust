@@ -810,6 +810,11 @@ impl Judge<'_> {
             self.value(spelling);
             return Ok(());
         };
+        // P5: an initializer's value for a `*` cell, at any depth (a collection child of a
+        // template included), is one instance's template.
+        if self.side == Side::Initializer && matches!(outer, Layer::Instances(_)) {
+            return self.judge(&stack[1..], spelling, depth);
+        }
         let mark = mark(self.form, spelling, false);
         if mark != Mark::Value {
             if admits(self.form, outer, mark) {

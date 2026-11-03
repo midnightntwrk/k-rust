@@ -404,6 +404,10 @@ impl Admission<'_> {
             self.value(spelling);
             return Ok(());
         };
+        // An initializer's value for a collection, at any depth, is one instance's template.
+        if self.side == EntrySide::Initializer && matches!(outer, Layer::Instances(_)) {
+            return self.kind(below, spelling, head);
+        }
         let mark = mark(self.form, spelling);
         if mark == Mark::Value {
             if marked(self.form, outer) {
@@ -590,10 +594,6 @@ pub fn admit(
     spelling: &EntrySpelling,
     bound: &dyn Fn(&str) -> bool,
 ) -> Result<Admitted, Refusal> {
-    let stack = match stack.split_first() {
-        Some((Layer::Instances(_), template)) if side == EntrySide::Initializer => template,
-        _ => stack,
-    };
     let mut admission = Admission {
         form,
         side,
@@ -1038,6 +1038,45 @@ mod tests {
         ] {
             assert_eq!(judge(cells, EntrySide::Subject, &[frame()], text), Ok(()));
         }
+    }
+
+    #[test]
+    fn an_initializers_collection_child_takes_its_instance_template() {
+        let job = CellKind {
+            layers: vec![
+                Layer::Instances(Order::List),
+                Layer::Group(GroupKind {
+                    name: "Job".to_owned(),
+                    children: vec![("p".to_owned(), int())],
+                }),
+            ],
+        };
+        let acct = [
+            Layer::Instances(Order::Map),
+            Layer::Group(GroupKind {
+                name: "Acct".to_owned(),
+                children: vec![("id".to_owned(), int()), ("jobs".to_owned(), job)],
+            }),
+        ];
+        let init = EntryForm::Initializer;
+        assert_eq!(
+            judge(
+                init,
+                EntrySide::Initializer,
+                &acct,
+                "Acct { id: 0, jobs: Job { p: 0 } }"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            judge(
+                init,
+                EntrySide::Initializer,
+                &acct,
+                "Acct { id: 0, jobs: [Job { p: 0 }] }"
+            ),
+            Err(Refusal::BracketReading)
+        );
     }
 
     #[test]

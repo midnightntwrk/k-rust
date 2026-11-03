@@ -679,3 +679,13 @@ cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x], .. }], .. }	map-collection-key
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { id: 5, .. }], .. }	sort
 cells	* List of T	[..]	[k::fragment![crate::T { n: 0, .. }], ..]	sort
+#
+## children, init: a template record with a collection child (P5 at every depth)
+# Groups: Q (id: Int, js: * List of J), P (js: * List of J), J (p: Int). Bound: pgm.
+form	stack	other	value	outcome
+init	* Map of Q	-	Q { id: 0, js: J { p: 0 } }	sort
+init	* Map of Q	-	Q { id: 0, js: [J { p: 0 }] }	br
+init	* Map of Q	-	Q { id: 0, js: 0 }	sort
+init	group P	-	P { js: J { p: 0 } }	sort
+init	group P	-	P { js: Some(J { p: 0 }) }	pop
+init	group P	-	P { js: 0 }	sort

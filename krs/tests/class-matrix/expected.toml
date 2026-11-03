@@ -1227,11 +1227,6 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'init/kinds/account/Acct \{ id: 0\, aprog: k::k![]\, acode: k::k![]\, apc: 0\, astack: list::empty()\, aseq: IntList::IntsEmpty()\, aenv: k::map![]\, aset: set::empty()\, aframe: Ag \{ aa: 0 \}\, acounter: k::absent!(0)\, aolist: k::absent!(list::empty())\, aomap: k::absent!(k::map![])\, aogroup: k::absent!(Ao \{ aoa: 0 \})\, aqueue: Aqueue \{ ajob: Ajob \{ apay: 0 \} \}\, ashelf: Ashelf \{ abag: Aobj \{ akey: 0 \} \}\, abank: Abank \{ aacct: Aacct \{ aid: 0 \} \} \}'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
 match = '{claim,readable}/overwrite/kinds/account/0'
 class = "collection-without-instances"
 at = "entry"
@@ -3426,6 +3421,8 @@ configuration
 """
 
 [accept."init/k/[pgm]"]
+
+[accept."init/kinds/account/Acct { id: 0, aprog: k::k![], acode: k::k![], apc: 0, astack: list::empty(), aseq: IntList::IntsEmpty(), aenv: k::map![], aset: set::empty(), aframe: Ag { aa: 0 }, acounter: k::absent!(0), aolist: k::absent!(list::empty()), aomap: k::absent!(k::map![]), aogroup: k::absent!(Ao { aoa: 0 }), aqueue: Aqueue { ajob: Ajob { apay: 0 } }, ashelf: Ashelf { abag: Aobj { akey: 0 } }, abank: Abank { aacct: Aacct { aid: 0 } } }"]
 
 [accept."init/kinds/bag/Obj { key: 0 }"]
 k = """

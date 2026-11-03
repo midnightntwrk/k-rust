@@ -2359,6 +2359,39 @@ fn a_group_fragment_without_a_rest_names_every_child() {
     ]);
 }
 
+/// D-5 (P5): an initializer's value for a `*` cell is one instance's template at every depth, so a
+/// collection child of a template record, or of a plain group's record, takes its own instance's
+/// template; brackets there are no instance list.
+#[test]
+fn an_initializers_collection_child_takes_its_instance_template() {
+    let probe = |stack, text| Probe {
+        form: Form::Init,
+        side: Side::Initializer,
+        path: &[],
+        stack,
+        text,
+        other: None,
+        written: false,
+        bound: &["pgm"],
+    };
+    let (map, group) = (
+        nested_collection_stack("* Map of Q"),
+        nested_collection_stack("group P"),
+    );
+    probes_agree(&[
+        (probe(&map, "Q { id: 0, js: J { p: 0 } }"), Outcome::After),
+        (probe(&group, "P { js: J { p: 0 } }"), Outcome::After),
+        (
+            probe(&map, "Q { id: 0, js: [J { p: 0 }] }"),
+            Outcome::Refuse("bracket-reading"),
+        ),
+        (
+            probe(&group, "P { js: Some(J { p: 0 }) }"),
+            Outcome::Refuse("presence-on-plain-cell"),
+        ),
+    ]);
+}
+
 /// D-1's thread collection, `* List of T { k: KSequence, n: Int }`, and group
 /// `H { l: List, b: Int }`, each with a child whose content has a root (P6).
 fn d1_stacks() -> (Vec<Layer>, Layer) {
@@ -3466,6 +3499,71 @@ fn children_sweep(out: &mut String) {
             }
             out.push('\n');
         }
+    }
+    initializer_children_sweep(out);
+}
+
+/// D-5's stacks: a Map collection of `Q { id: Int, js: * List of J { p: Int } }`, and a plain
+/// group `P { js: * List of J }`, each with a collection child.
+fn nested_collection_stack(name: &str) -> Vec<Layer> {
+    let int = Layer::Leaf(Notation::Plain);
+    let js = vec![
+        Layer::Instances(Order::List),
+        sweep_group("J", &[("p", int.clone())]),
+    ];
+    let group = |head: &str, mut children: Vec<(String, Vec<Layer>)>| {
+        children.push(("js".to_owned(), js.clone()));
+        Layer::Group(Group {
+            name: head.to_owned(),
+            children,
+        })
+    };
+    match name {
+        "* Map of Q" => vec![
+            Layer::Instances(Order::Map),
+            group("Q", vec![("id".to_owned(), vec![int.clone()])]),
+        ],
+        "group P" => vec![group("P", Vec::new())],
+        other => panic!("no nested-collection stack {other}"),
+    }
+}
+
+/// The initializer rows of the children sweep (D-5, P5): a template record whose child is a
+/// collection, valued by that collection's own instance template, or otherwise.
+const INITIALIZER_CHILDREN_SWEEP: [(&str, &str); 6] = [
+    ("* Map of Q", "Q { id: 0, js: J { p: 0 } }"),
+    ("* Map of Q", "Q { id: 0, js: [J { p: 0 }] }"),
+    ("* Map of Q", "Q { id: 0, js: 0 }"),
+    ("group P", "P { js: J { p: 0 } }"),
+    ("group P", "P { js: Some(J { p: 0 }) }"),
+    ("group P", "P { js: 0 }"),
+];
+
+fn initializer_children_sweep(out: &mut String) {
+    out.push_str(concat!(
+        "#\n",
+        "## children, init: a template record with a collection child (P5 at every depth)\n",
+        "# Groups: Q (id: Int, js: * List of J), P (js: * List of J), J (p: Int). Bound: pgm.\n",
+        "form\tstack\tother\tvalue\toutcome\n",
+    ));
+    for (stack_name, text) in INITIALIZER_CHILDREN_SWEEP {
+        let stack = nested_collection_stack(stack_name);
+        let probe = Probe {
+            form: Form::Init,
+            side: Side::Initializer,
+            path: &[],
+            stack: &stack,
+            text,
+            other: None,
+            written: false,
+            bound: &["pgm"],
+        };
+        let (oracle, product) = (probe.oracle(), probe.product());
+        let _ = write!(out, "init\t{stack_name}\t-\t{text}\t{}", sweep_name(oracle));
+        if product != oracle {
+            let _ = write!(out, "|product:{}", sweep_name(product));
+        }
+        out.push('\n');
     }
 }
 
