@@ -1317,7 +1317,8 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
         | BridgeFailure::UndecodableState(_)
         | BridgeFailure::UndecidedStateSort
         | BridgeFailure::DuplicatePathIdentity(_)
-        | BridgeFailure::ClassifiedUndefinedStep => {}
+        | BridgeFailure::ClassifiedUndefinedStep
+        | BridgeFailure::HostStackRefused(_) => {}
     }
 }
 

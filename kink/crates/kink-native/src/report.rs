@@ -47,6 +47,7 @@ impl ReportError {
             BridgeFailure::UndecidedStateSort => "UndecidedStateSort",
             BridgeFailure::DuplicatePathIdentity(_) => "DuplicatePathIdentity",
             BridgeFailure::ClassifiedUndefinedStep => "ClassifiedUndefinedStep",
+            BridgeFailure::HostStackRefused(_) => "HostStackRefused",
         };
         Self {
             stage: "bridge",

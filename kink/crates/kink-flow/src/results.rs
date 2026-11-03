@@ -937,60 +937,66 @@ impl<'a> BaselineRunner<'a> {
                 )
                 .trusting_collections(trusted)
                 .judging_data(own, own);
-                let mut undecided = None;
-                for (leaf, term) in leaves.iter().zip(&terms) {
-                    let trivial = leaf.halt == HaltClass::Trivial;
-                    match term {
-                        Ok(LeafTerm::Term(term)) if trivial => {
-                            let feasible = matches!(
-                                leaf.feasibility,
-                                LeafFeasibility::Syntactic | LeafFeasibility::Solver
-                            );
-                            if !feasible
-                                && decider.terminal_value(term).is_none()
-                                && !decider.configuration_exists(term)
-                            {
-                                return Ok::<_, k_rust::backend::BackendError>(Some(format!(
-                                    "{UNDEFINED_STEP_LEAD}: in the {}, k-rust does not show it \
+                // A host's refusal of a stack a judgement needed names the host, not a leaf.
+                let cause = decider.host_refusal_during(|| {
+                    let mut undecided = None;
+                    for (leaf, term) in leaves.iter().zip(&terms) {
+                        let trivial = leaf.halt == HaltClass::Trivial;
+                        match term {
+                            Ok(LeafTerm::Term(term)) if trivial => {
+                                let feasible = matches!(
+                                    leaf.feasibility,
+                                    LeafFeasibility::Syntactic | LeafFeasibility::Solver
+                                );
+                                if !feasible
+                                    && decider.terminal_value(term).is_none()
+                                    && !decider.configuration_exists(term)
+                                {
+                                    return Some(format!(
+                                        "{UNDEFINED_STEP_LEAD}: in the {}, k-rust does not show it \
                                      defined on this definition, or kink cannot read it back \
                                      exactly (it may hold an application of a function not \
                                      declared total that no equation reduced, map keys or set \
                                      elements not shown apart, a collection term of a definition \
                                      with an axiom rooted at a collection role symbol, or a \
                                      domain value without an injective codec)",
-                                    leaf_name(leaf)
-                                )));
+                                        leaf_name(leaf)
+                                    ));
+                                }
                             }
-                        }
-                        Ok(LeafTerm::Term(term)) => {
-                            if let Some(failure) = decider.first_non_value(term) {
-                                return Ok(Some(format!(
-                                    "{NON_VALUE_LEAD}: in the {}, {}",
-                                    leaf_name(leaf),
-                                    non_value_text(&failure)
-                                )));
+                            Ok(LeafTerm::Term(term)) => {
+                                if let Some(failure) = decider.first_non_value(term) {
+                                    return Some(format!(
+                                        "{NON_VALUE_LEAD}: in the {}, {}",
+                                        leaf_name(leaf),
+                                        non_value_text(&failure)
+                                    ));
+                                }
                             }
-                        }
-                        Ok(LeafTerm::Undecided) if undecided.is_none() => {
-                            undecided = Some(if trivial {
-                                format!(
-                                    "{UNDEFINED_STEP_LEAD}: the state of the {} is not one \
+                            Ok(LeafTerm::Undecided) if undecided.is_none() => {
+                                undecided = Some(if trivial {
+                                    format!(
+                                        "{UNDEFINED_STEP_LEAD}: the state of the {} is not one \
                                      ground term without a path condition, and kink did not \
                                      show it feasible",
-                                    leaf_name(leaf)
-                                )
-                            } else {
-                                format!(
-                                    "{NON_VALUE_LEAD}: the state of the {} is not one ground \
+                                        leaf_name(leaf)
+                                    )
+                                } else {
+                                    format!(
+                                        "{NON_VALUE_LEAD}: the state of the {} is not one ground \
                                      term without a path condition",
-                                    leaf_name(leaf)
-                                )
-                            });
+                                        leaf_name(leaf)
+                                    )
+                                });
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
-                }
-                Ok(undecided)
+                    undecided
+                });
+                Ok::<_, k_rust::backend::BackendError>(cause.unwrap_or_else(|refused| {
+                    Some(format!("kink could not judge the leaves: {refused}"))
+                }))
             })
             .ok()
             .flatten()

@@ -553,6 +553,10 @@ impl DataEnds<'_> {
     /// subterm, so the walk calls it once, at the outermost such application, and walks its
     /// arguments for the rest of TV-01 (identity-safe domain values, normal-form injections). A
     /// term with a variable, a symbol `definition` lacks, or any failure is not data.
+    ///
+    /// The internalization and `is_data` descend once per level of `application` on the caller's
+    /// stack; a caller judging a term as deep as a leaf gives it the stack k-rust sizes for an
+    /// operation over it, as `step_events::ObservationDecider` does.
     #[must_use]
     pub fn overload_application_is_data(
         &self,

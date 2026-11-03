@@ -382,6 +382,10 @@ pub enum BridgeFailure {
     /// `classify` answered [`ExecutionTerminalKind::UndefinedStep`] for a stuck term. Only a
     /// `Trivial` halt shows an undefined step.
     ClassifiedUndefinedStep,
+    /// The host refused to map the stack that a judgement of a leaf, or of a subterm of it,
+    /// needed ([`ObservationDecider::host_refusal_during`]): a fact about the host, not about the
+    /// run, so the run has no paths here.
+    HostStackRefused(k_rust_backend::nesting::SegmentRefused),
 }
 
 /// How one execution leaf becomes a path.
@@ -1102,8 +1106,20 @@ pub fn work_bound_stuck_terminals(
         .collect()
 }
 
-/// Turns a stepped run into declaration events using one baseline-owned decider.
+/// Turns a stepped run into declaration events using one baseline-owned decider; a host's
+/// refusal of a stack the decider's judgements needed is [`BridgeFailure::HostStackRefused`].
 pub fn paths_from_steps(
+    context: &BridgeContext<'_>,
+    execution: &SteppedExecution,
+    observation: &StepObservation,
+    decider: &ObservationDecider<'_>,
+) -> Result<BridgedPaths, BridgeFailure> {
+    decider
+        .host_refusal_during(|| paths_from_judged_steps(context, execution, observation, decider))
+        .unwrap_or_else(|refused| Err(BridgeFailure::HostStackRefused(refused)))
+}
+
+fn paths_from_judged_steps(
     context: &BridgeContext<'_>,
     execution: &SteppedExecution,
     observation: &StepObservation,
@@ -1306,8 +1322,21 @@ impl StepPathKey {
 
 /// Builds shared prefixes while retaining `paths_from_steps`' canonical inputs exactly.
 /// The structural phase is memoized by declaration and the exact pre/post terms; every
-/// deferred relation and feasibility decision still runs under its own raw leaf predicate.
+/// deferred relation and feasibility decision still runs under its own raw leaf predicate. A
+/// host's refusal of a stack the decider's judgements needed is
+/// [`BridgeFailure::HostStackRefused`].
 pub fn tree_from_steps(
+    context: &BridgeContext<'_>,
+    execution: &SteppedExecution,
+    observation: &StepObservation,
+    decider: &ObservationDecider<'_>,
+) -> Result<BridgedTree, BridgeFailure> {
+    decider
+        .host_refusal_during(|| tree_from_judged_steps(context, execution, observation, decider))
+        .unwrap_or_else(|refused| Err(BridgeFailure::HostStackRefused(refused)))
+}
+
+fn tree_from_judged_steps(
     context: &BridgeContext<'_>,
     execution: &SteppedExecution,
     observation: &StepObservation,

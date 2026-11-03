@@ -270,7 +270,8 @@ impl FilterSide {
                     ObservationDecider::new(definition, solver, TestInitialState::of_test(initial))
                         .trusting_collections(trusted)
                         .judging_data(own, own);
-                Ok::<_, BackendError>(
+                // A host's refusal of a stack a judgement needed is no answer about the terms.
+                Ok::<_, BackendError>(decider.host_refusal_during(|| {
                     terms
                         .iter()
                         .map(|term| match decider.terminal_value(term) {
@@ -289,10 +290,14 @@ impl FilterSide {
                                     })
                             }
                         })
-                        .collect(),
-                )
+                        .collect::<Vec<_>>()
+                }))
             });
-        self.guarded(result)
+        match self.guarded(result) {
+            Guarded::Done(Ok(judged)) => Guarded::Done(judged),
+            Guarded::Done(Err(_)) | Guarded::Unreached => Guarded::Unreached,
+            Guarded::TooDeep => Guarded::TooDeep,
+        }
     }
 }
 

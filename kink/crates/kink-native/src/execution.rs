@@ -796,13 +796,14 @@ impl ExecutionAdapter {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
             backend.with_solver(None, |definition, solver| {
-                Ok::<_, ExecutionAdapterFailure>(
-                    result
-                        .leaves
-                        .iter()
-                        .map(|leaf| leaf_feasibility(definition, solver, inhabitation, &leaf.state))
-                        .collect(),
-                )
+                result
+                    .leaves
+                    .iter()
+                    .map(|leaf| {
+                        leaf_feasibility(definition, solver, inhabitation, &leaf.state)
+                            .map_err(host_stack_refused)
+                    })
+                    .collect::<Result<Vec<_>, _>>()
             })?
         };
         Self::adapt(
@@ -880,13 +881,14 @@ impl ExecutionAdapter {
             Err(failure) => return Ok(Err(failure)),
         };
         let feasibility = backend.with_solver(None, |definition, solver| {
-            Ok::<_, ExecutionAdapterFailure>(
-                result
-                    .leaves
-                    .iter()
-                    .map(|leaf| leaf_feasibility(definition, solver, &inhabitation, &leaf.state))
-                    .collect(),
-            )
+            result
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    leaf_feasibility(definition, solver, &inhabitation, &leaf.state)
+                        .map_err(host_stack_refused)
+                })
+                .collect::<Result<Vec<_>, _>>()
         })?;
         // Step observations are consumed only by the configuration sequence.
         let mut result = result;
@@ -1284,6 +1286,13 @@ impl From<StopCause> for ExecutionAdapterFailure {
     fn from(value: StopCause) -> Self {
         Self::Backend(value.to_string())
     }
+}
+
+/// The host's refusal to map the stack a leaf's feasibility needs is a backend failure, as the
+/// facade's own refusal of a request's stack is: it is a fact about the host, never an answer
+/// about the leaf, so the adapter returns no execution.
+fn host_stack_refused(refused: k_rust_backend::nesting::SegmentRefused) -> ExecutionAdapterFailure {
+    ExecutionAdapterFailure::Backend(format!("leaf feasibility: {refused}"))
 }
 
 #[cfg(test)]

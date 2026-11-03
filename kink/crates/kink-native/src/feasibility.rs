@@ -80,12 +80,14 @@
 //! UndecidedCondition diagnostic (`docs/compatibility.md:792-815`); the bridge maps a
 //! diagnosed leaf to BackendLimit, never a complete path.
 
+use std::cell::Cell;
 use std::collections::BTreeSet;
 
 use k_rust::kore::ast::{Pattern, Sort as KoreSort, Variable as KoreVariable};
 use k_rust::names::BuiltinSort;
-use k_rust_backend::definition::BackendDefinition;
+use k_rust_backend::definition::{BackendDefinition, DefinitionError};
 use k_rust_backend::externalize;
+use k_rust_backend::nesting::SegmentRefused;
 use k_rust_backend::rule::Predicate;
 use k_rust_backend::smt::{Exactness, Satisfiability, SmtSolver, translation_exactness};
 use k_rust_backend::substitution::{Substitution, substitute};
@@ -299,109 +301,160 @@ pub(crate) fn translates_exactly(query: &[Predicate]) -> bool {
 
 /// Whether `term` is built only from free constructors, injections, domain values and element
 /// variables of inhabited sorts, so that it has a value under every valuation.
+///
+/// A leaf's term is as deep as the run made it, so the walk keeps the subterms still to check on
+/// a work list instead of the native stack.
 fn constructor_term(term: &Term, inhabitation: &Inhabitation) -> bool {
-    match term.kind() {
-        TermKind::Variable(variable) => {
-            variable.kind == VariableKind::Element && inhabitation.contains(&variable.sort)
+    let mut pending = vec![term];
+    // Invariant: every subterm checked so far passed, and `pending` holds the subterms still to
+    // check; each subterm is pushed once, so the loop ends.
+    while let Some(term) = pending.pop() {
+        match term.kind() {
+            TermKind::Variable(variable) => {
+                if variable.kind != VariableKind::Element || !inhabitation.contains(&variable.sort)
+                {
+                    return false;
+                }
+            }
+            TermKind::DomainValue { .. } => {}
+            TermKind::Injection { term, .. } => pending.push(term),
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                if !free_constructor(symbol) {
+                    return false;
+                }
+                pending.extend(arguments.iter());
+            }
+            TermKind::And(..)
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. } => return false,
         }
-        TermKind::DomainValue { .. } => true,
-        TermKind::Injection { term, .. } => constructor_term(term, inhabitation),
-        TermKind::Application {
-            symbol, arguments, ..
-        } => {
-            free_constructor(symbol)
-                && arguments
-                    .iter()
-                    .all(|argument| constructor_term(argument, inhabitation))
-        }
-        TermKind::And(..) | TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
-            false
-        }
+    }
+    true
+}
+
+/// `work`, run on the stack k-rust gives an operation over `patterns` on `definition`
+/// (`BackendDefinition::with_stack_for`): `Ok(Some(_))` with its result, `Ok(None)` when the
+/// patterns are too deep for the largest stack k-rust provides (`InsufficientStack`, a function
+/// of the patterns and the build, refused before `work` runs), or the host's refusal to map the
+/// stack (`StackSegmentRefused`, a fact about the host and never about the patterns, also before
+/// `work` runs).
+pub(crate) fn on_stack_for<R>(
+    definition: &BackendDefinition,
+    patterns: &[&Pattern],
+    work: impl FnOnce() -> R,
+) -> Result<Option<R>, SegmentRefused> {
+    match definition.with_stack_for(patterns, work) {
+        Ok(result) => Ok(Some(result)),
+        Err(DefinitionError::StackSegmentRefused { refused, .. }) => Err(refused),
+        // `InsufficientStack`, the one other refusal `with_stack_for` makes.
+        Err(_) => Ok(None),
     }
 }
 
 /// The feasibility of a leaf state (KORE JSON) per the module documentation. Only the solver's
 /// `Sat` and `Unsat` are used, and `Sat` only when the query translates exactly; `NoSolver`
-/// contributes nothing.
+/// contributes nothing. `Err` is the host's refusal of the stack the leaf needs
+/// ([`admitted_leaf_feasibility`]), which is no answer about the leaf.
 pub(crate) fn leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
     state: &serde_json::Value,
-) -> LeafFeasibility {
+) -> Result<LeafFeasibility, SegmentRefused> {
     let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
-        return LeafFeasibility::Unknown;
+        return Ok(LeafFeasibility::Unknown);
     };
-    let Ok(internal) = definition
-        .admit_unverified(&pattern, &[])
-        .internalize_pattern()
-    else {
-        return LeafFeasibility::Unknown;
-    };
-    let instances = constructor_term(&internal.term, inhabitation);
-    if internal.constraints.is_empty() {
-        return if instances {
-            LeafFeasibility::Syntactic
-        } else {
-            LeafFeasibility::Unknown
-        };
-    }
-    match solver_answer(solver, &internal.constraints) {
-        Some(Satisfiability::Unsat) => LeafFeasibility::Unsat,
-        Some(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
-            LeafFeasibility::Solver
-        }
-        Some(Satisfiability::Sat | Satisfiability::Unknown(_)) | None => LeafFeasibility::Unknown,
-    }
+    admitted_leaf_feasibility(definition, solver, inhabitation, &pattern, |_| true)
 }
 
 /// Leaf feasibility under the observation decider's definition-independent query policy, on
 /// `definition`, the definition whose run produced the leaf, and its solver: since k-rust
 /// 501f18b9 admission restates the admitted predicate's definedness from the admitting
 /// definition, so a mutant leaf is admitted under the mutant's definition, never the baseline's
-/// (re-pin finding A-12; [`crate::step_events::ObservationDecider::for_leaves_of`]).
+/// (re-pin finding A-12; [`crate::step_events::ObservationDecider::for_leaves_of`]). `Err` as
+/// for [`leaf_feasibility`].
 pub(crate) fn shared_leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
     state: &serde_json::Value,
-) -> LeafFeasibility {
+) -> Result<LeafFeasibility, SegmentRefused> {
     let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
-        return LeafFeasibility::Unknown;
+        return Ok(LeafFeasibility::Unknown);
     };
     if contains_non_strict_injection(definition, &pattern)
         || contains_untrusted_domain_value(definition, &pattern)
     {
-        return LeafFeasibility::Unknown;
+        return Ok(LeafFeasibility::Unknown);
     }
-    let Ok(internal) = definition
-        .admit_unverified(&pattern, &[])
-        .internalize_pattern()
-    else {
-        return LeafFeasibility::Unknown;
-    };
-    let instances = constructor_term(&internal.term, inhabitation);
-    if internal.constraints.is_empty() {
-        return if instances {
-            LeafFeasibility::Syntactic
-        } else {
-            LeafFeasibility::Unknown
+    admitted_leaf_feasibility(definition, solver, inhabitation, &pattern, |constraints| {
+        constraints
+            .iter()
+            .all(|predicate| shared_predicate_interpreted(definition, predicate))
+    })
+}
+
+/// The feasibility of the leaf state `pattern` once admitted to `definition`, where the solver is
+/// asked only about constraints that `askable` accepts (otherwise the answer is `Unknown`).
+///
+/// The leaf is as deep as the run made it (a list a step appends to is one level deeper per
+/// step), while the operation it is decoded in was given the stack the definition needs, not the
+/// leaf. So the admission and everything done over the internal terms built from it, the walk of
+/// [`constructor_term`], the solver's translation and the drops of those terms, run on the stack
+/// k-rust gives an operation over the leaf ([`on_stack_for`]). A leaf too deep for the largest
+/// stack k-rust provides is refused there, before any of that work, and is `Unknown`, a function
+/// of the leaf; a stack the host refuses to map is `Err`, so that it never becomes an answer
+/// about the leaf.
+///
+/// The term is admitted even when it holds a collection, whose internal term is never a
+/// [`constructor_term`], so that only the solver's `Unsat` could decide such a leaf. Skipping its
+/// admission there would change answers, for three reasons. Admission conjoins a predicate
+/// written in an `\and` below the root of the term, or in an alias body the term applies, to the
+/// leaf's constraints (k-rust-backend `internalize_term_with` floats it), and a collection does
+/// not exclude one, since its elements are terms like any other. A collection symbol in the KORE
+/// term does not make the internal term hold a collection: a concatenation with a unit
+/// internalizes to its other argument, so `_List_(.List, L)` is the variable `L` and may be a
+/// constructor term. And a term that admission refuses (an open literal, a set variable, a sort
+/// mismatch) makes the leaf `Unknown`, where the constraints alone could be `Unsat`.
+fn admitted_leaf_feasibility(
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    inhabitation: &Inhabitation,
+    pattern: &Pattern,
+    askable: impl FnOnce(&[Predicate]) -> bool,
+) -> Result<LeafFeasibility, SegmentRefused> {
+    on_stack_for(definition, &[pattern], || {
+        let Ok(internal) = definition
+            .admit_unverified(pattern, &[])
+            .internalize_pattern()
+        else {
+            return LeafFeasibility::Unknown;
         };
-    }
-    if !internal
-        .constraints
-        .iter()
-        .all(|predicate| shared_predicate_interpreted(definition, predicate))
-    {
-        return LeafFeasibility::Unknown;
-    }
-    match solver_answer(solver, &internal.constraints) {
-        Some(Satisfiability::Unsat) => LeafFeasibility::Unsat,
-        Some(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
-            LeafFeasibility::Solver
+        let instances = constructor_term(&internal.term, inhabitation);
+        if internal.constraints.is_empty() {
+            return if instances {
+                LeafFeasibility::Syntactic
+            } else {
+                LeafFeasibility::Unknown
+            };
         }
-        Some(Satisfiability::Sat | Satisfiability::Unknown(_)) | None => LeafFeasibility::Unknown,
-    }
+        if !askable(&internal.constraints) {
+            return LeafFeasibility::Unknown;
+        }
+        match solver_answer(solver, &internal.constraints) {
+            Some(Satisfiability::Unsat) => LeafFeasibility::Unsat,
+            Some(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
+                LeafFeasibility::Solver
+            }
+            Some(Satisfiability::Sat | Satisfiability::Unknown(_)) | None => {
+                LeafFeasibility::Unknown
+            }
+        }
+    })
+    .map(|feasibility| feasibility.unwrap_or(LeafFeasibility::Unknown))
 }
 
 /// Only a proper subsort injection has the free decomposition used by step observations.
@@ -708,12 +761,24 @@ fn pairs_decompose_freely<'t>(pairs: impl IntoIterator<Item = &'t (Term, Term)>)
 /// different requests, and those are the only variables the requests share. Under the
 /// variable-identity contract each of them means one value along every path, whatever rules
 /// the definitions have, because no variable a request mints has a request variable's name.
+///
+/// A payload or a bound value is a subterm of a step configuration, so it can be as deep as a
+/// leaf; each decision runs, with its admissions and everything done over the internal terms they
+/// build, on the stack k-rust gives an operation over the terms it reads ([`on_stack_for`]).
+/// Terms too deep for the largest stack k-rust provides are `Indeterminate` and `Unknown`, a
+/// function of the terms. A stack the host refuses to map gives the same answers, and the refusal
+/// is recorded ([`Self::host_refusal_during`]), since it is a fact about the host and must not
+/// become an answer that a result could carry.
 pub struct BackendRelations<'a> {
     definition: &'a BackendDefinition,
     solver: &'a dyn SmtSolver,
     inhabitation: Inhabitation,
     /// The test's initial variables, when all of them are inhabited element variables.
     variables: Option<BTreeSet<Variable>>,
+    /// The first refusal by the host of a stack a decision (or, for an
+    /// [`crate::step_events::ObservationDecider`], one of its judgements) needed, not yet handed
+    /// to a caller ([`Self::host_refusal_during`]).
+    host_refusal: Cell<Option<SegmentRefused>>,
 }
 
 impl<'a> BackendRelations<'a> {
@@ -733,6 +798,45 @@ impl<'a> BackendRelations<'a> {
             solver,
             inhabitation,
             variables,
+            host_refusal: Cell::new(None),
+        }
+    }
+
+    /// `work`'s result, or the first refusal by the host to map a stack that one of the decisions
+    /// made while `work` ran needed. A caller that turns the decisions into a run's evidence runs
+    /// them in `work` and reports a refusal as a failure of the run that names the host.
+    pub fn host_refusal_during<R>(&self, work: impl FnOnce() -> R) -> Result<R, SegmentRefused> {
+        let outer = self.host_refusal.take();
+        let result = work();
+        let inner = self.host_refusal.get();
+        self.host_refusal.set(outer.or(inner));
+        inner.map_or(Ok(result), Err)
+    }
+
+    /// Records `host` unless a refusal is already recorded ([`Self::host_refusal_during`]).
+    pub(crate) fn record_host_refusal(&self, host: SegmentRefused) {
+        if self.host_refusal.get().is_none() {
+            self.host_refusal.set(Some(host));
+        }
+    }
+
+    /// `work` on the stack k-rust gives an operation over `patterns` on this definition, or
+    /// `refused` when that stack is not provided, the host's refusal recorded
+    /// ([`Self::host_refusal_during`]).
+    pub(crate) fn on_stack_for<R>(
+        &self,
+        definition: &BackendDefinition,
+        patterns: &[&Pattern],
+        work: impl FnOnce() -> R,
+        refused: R,
+    ) -> R {
+        match on_stack_for(definition, patterns, work) {
+            Ok(Some(result)) => result,
+            Ok(None) => refused,
+            Err(host) => {
+                self.record_host_refusal(host);
+                refused
+            }
         }
     }
 
@@ -863,6 +967,51 @@ impl RelationDecider for BackendRelations<'_> {
         left: &Pattern,
         right: &Pattern,
     ) -> RelationDecision {
+        let read = [left, right, &path.path_predicate]
+            .into_iter()
+            .chain(relation_patterns(assumed))
+            .collect::<Vec<_>>();
+        self.on_stack_for(
+            self.definition,
+            &read,
+            || self.relate_here(path, assumed, left, right),
+            RelationDecision::Indeterminate,
+        )
+    }
+
+    /// On a real-prefix path, for assumptions that decompose freely: `Unsat` on a proved
+    /// clash; otherwise the decision of the relation query of the path under their solved form
+    /// (see the module documentation): `Sat` for an empty query or an exact solver `Sat`,
+    /// `Unsat` for a solver `Unsat`, else `Unknown`.
+    fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+        let read = std::iter::once(&path.path_predicate)
+            .chain(relation_patterns(assumptions))
+            .collect::<Vec<_>>();
+        self.on_stack_for(
+            self.definition,
+            &read,
+            || self.feasible_here(path, assumptions),
+            Feasibility::Unknown,
+        )
+    }
+}
+
+/// Both sides of every relation in `relations`.
+fn relation_patterns(relations: &[TermRelation]) -> impl Iterator<Item = &Pattern> {
+    relations
+        .iter()
+        .flat_map(|relation| [&relation.left, &relation.right])
+}
+
+impl BackendRelations<'_> {
+    /// [`RelationDecider::relate`], on a stack that holds its recursion over the terms it reads.
+    fn relate_here(
+        &self,
+        path: &PathInput,
+        assumed: &[TermRelation],
+        left: &Pattern,
+        right: &Pattern,
+    ) -> RelationDecision {
         if contains_non_strict_injection(self.definition, left)
             || contains_non_strict_injection(self.definition, right)
             || contains_non_strict_injection(self.definition, &path.path_predicate)
@@ -935,11 +1084,9 @@ impl RelationDecider for BackendRelations<'_> {
         }
     }
 
-    /// On a real-prefix path, for assumptions that decompose freely: `Unsat` on a proved
-    /// clash; otherwise the decision of the relation query of the path under their solved form
-    /// (see the module documentation): `Sat` for an empty query or an exact solver `Sat`,
-    /// `Unsat` for a solver `Unsat`, else `Unknown`.
-    fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+    /// [`RelationDecider::feasible`], on a stack that holds its recursion over the terms it
+    /// reads.
+    fn feasible_here(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
         if contains_non_strict_injection(self.definition, &path.path_predicate)
             || contains_untrusted_domain_value(self.definition, &path.path_predicate)
             || assumptions.iter().any(|relation| {
@@ -1119,6 +1266,7 @@ mod tests {
                         &inhabitation,
                         &codec::to_value(pattern).expect("state JSON"),
                     )
+                    .expect("the host maps the stack")
                 };
                 Ok::<_, BackendError>((
                     feasibility(&state),
@@ -1166,12 +1314,15 @@ mod tests {
                     ),
                     "SortProg",
                 );
-                Ok::<_, BackendError>(leaf_feasibility(
-                    definition,
-                    solver,
-                    &Inhabitation::of(definition),
-                    &codec::to_value(&state).expect("state JSON"),
-                ))
+                Ok::<_, BackendError>(
+                    leaf_feasibility(
+                        definition,
+                        solver,
+                        &Inhabitation::of(definition),
+                        &codec::to_value(&state).expect("state JSON"),
+                    )
+                    .expect("the host maps the stack"),
+                )
             })
             .expect("definition");
         assert_eq!(function, LeafFeasibility::Unknown, "function symbol");
@@ -1218,7 +1369,7 @@ mod tests {
                 &inhabitation,
                 &codec::to_value(&state).expect("state JSON")
             ),
-            LeafFeasibility::Unknown
+            Ok(LeafFeasibility::Unknown)
         );
     }
 
@@ -1857,7 +2008,7 @@ mod tests {
         ];
         assert_eq!(answers.len(), expected.len());
         for ((id, answer), expected) in answers.into_iter().zip(expected) {
-            assert_eq!(answer, expected, "{id}");
+            assert_eq!(answer, Ok(expected), "{id}");
         }
     }
 
@@ -2338,7 +2489,7 @@ mod tests {
             } else {
                 LeafFeasibility::Unknown
             };
-            assert_eq!(row, expected);
+            assert_eq!(row, Ok(expected));
         }
 
         #[test]
@@ -2468,7 +2619,7 @@ mod tests {
             } else {
                 vec![LeafFeasibility::Unknown; 2]
             };
-            assert_eq!(rows, expected);
+            assert_eq!(rows, expected.into_iter().map(Ok).collect::<Vec<_>>());
         }
 
         #[test]
@@ -2638,7 +2789,7 @@ mod tests {
                             &Inhabitation::of(definition),
                             &codec::to_value(&invalid_state).expect("state JSON"),
                         ),
-                        LeafFeasibility::Unknown
+                        Ok(LeafFeasibility::Unknown)
                     );
                     Ok::<_, BackendError>(())
                 })

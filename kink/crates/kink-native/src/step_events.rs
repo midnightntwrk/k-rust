@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use k_rust::backend::{Backend, BackendError};
 use k_rust::kore::ast::{Pattern, Sort, VariableKind};
 use k_rust_backend::definition::BackendDefinition;
+use k_rust_backend::nesting::SegmentRefused;
 use k_rust_backend::smt::SmtSolver;
 use k_rust_backend::term::Sort as InternalSort;
 use kink_pattern::{
@@ -472,6 +473,222 @@ impl NonValue {
     }
 }
 
+/// What [`ObservationDecider::value_at`] does next.
+enum ValueVisit<'t> {
+    /// Compute the value of a node at a sort, with the `judged` flag of
+    /// [`ObservationDecider::independent`].
+    Enter(&'t Pattern, Option<InternalSort>, bool),
+    /// The value of the node visited last, or its failure.
+    Done(Result<Pattern, Box<NonValue>>),
+    /// Visit the next child of the innermost frame, or finish it.
+    Continue,
+}
+
+/// A node holding a collection symbol whose value [`ObservationDecider::value_at`] computes from
+/// the values of its children, visited in order.
+enum ValueFrame<'t> {
+    /// A canonical injection or an application of a declared symbol: its arguments' values at
+    /// `sorts`, the first failure ending it.
+    Arguments {
+        symbol: &'t k_rust::kore::ast::Symbol,
+        arguments: &'t [Pattern],
+        sorts: Vec<InternalSort>,
+        judged: bool,
+        /// Whether the node lies inside a collection term whose own tests passed, and so is
+        /// ground ([`ValueFrame::ground`]).
+        ground: bool,
+        values: Vec<Pattern>,
+        failure: Option<Box<NonValue>>,
+    },
+    /// A collection term whose own tests passed.
+    Entries(Box<EntriesFrame<'t>>),
+}
+
+/// The collection kind of an [`EntriesFrame`].
+#[derive(Clone, Copy)]
+enum CollectionRole {
+    Map,
+    Set,
+    List,
+}
+
+/// A collection term whose own tests passed: the arguments of its element applications, in the
+/// term's order, and the value or failure of each argument visited so far. Every argument is
+/// visited, a failing one included, since distinct Map keys and Set elements are checked among
+/// the entries that have values before the first failing entry is reported.
+struct EntriesFrame<'t> {
+    term: &'t Pattern,
+    role: CollectionRole,
+    collection: String,
+    unit: String,
+    element: String,
+    concat: String,
+    items: Vec<&'t [Pattern]>,
+    sorts: Vec<InternalSort>,
+    judged: bool,
+    results: Vec<Vec<Result<Pattern, Box<NonValue>>>>,
+}
+
+impl<'t> ValueFrame<'t> {
+    /// Whether the frame's children are known to be ground: they lie inside a collection term
+    /// whose own tests passed, and one of those tests is that the collection is ground, so every
+    /// subterm of it is.
+    const fn ground(&self) -> bool {
+        match self {
+            Self::Arguments { ground, .. } => *ground,
+            Self::Entries(_) => true,
+        }
+    }
+
+    /// Record the value or failure of the child visited last.
+    fn accept(&mut self, result: Result<Pattern, Box<NonValue>>) {
+        match self {
+            Self::Arguments {
+                symbol,
+                values,
+                failure,
+                ..
+            } => match result {
+                Ok(value) => values.push(value),
+                Err(below) => *failure = Some(below.below_argument(&symbol.name, values.len())),
+            },
+            Self::Entries(frame) => frame
+                .results
+                .last_mut()
+                .expect("an entry argument was visited")
+                .push(result),
+        }
+    }
+
+    /// The next child to visit, with its sort and `judged` flag, or `None` when the frame is
+    /// complete.
+    fn next_child(&mut self) -> Option<(&'t Pattern, InternalSort, bool)> {
+        match self {
+            Self::Arguments {
+                arguments,
+                sorts,
+                judged,
+                values,
+                failure,
+                ..
+            } => {
+                if failure.is_some() {
+                    return None;
+                }
+                let index = values.len();
+                arguments
+                    .get(index)
+                    .map(|argument| (argument, sorts[index], *judged))
+            }
+            Self::Entries(frame) => loop {
+                if let Some(row) = frame.results.last() {
+                    let entry = frame.results.len() - 1;
+                    let argument = row.len();
+                    if let Some(child) = frame.items[entry].get(argument) {
+                        return Some((child, frame.sorts[argument], frame.judged));
+                    }
+                }
+                if frame.results.len() == frame.items.len() {
+                    return None;
+                }
+                let arity = frame.items[frame.results.len()].len();
+                frame.results.push(Vec::with_capacity(arity));
+            },
+        }
+    }
+
+    /// The value of the frame's node, from its children's.
+    fn finish(self) -> Result<Pattern, Box<NonValue>> {
+        match self {
+            Self::Arguments {
+                symbol,
+                values,
+                failure,
+                ..
+            } => match failure {
+                Some(failure) => Err(failure),
+                None => Ok(Pattern::Application {
+                    symbol: symbol.clone(),
+                    arguments: values,
+                }),
+            },
+            Self::Entries(frame) => frame.finish(),
+        }
+    }
+}
+
+impl EntriesFrame<'_> {
+    /// The collection's value once every entry argument has its value or failure: distinct
+    /// Map keys or Set elements among the entries that have values, then the first entry
+    /// argument without a value, in the term's order, then the collection rebuilt as k-rust
+    /// externalizes collections, a right-nested concat of element applications (unit when
+    /// empty), Map entries sorted by key and Set elements sorted.
+    fn finish(self) -> Result<Pattern, Box<NonValue>> {
+        let mut compared = match self.role {
+            CollectionRole::Map => self
+                .results
+                .iter()
+                .filter_map(|entry| Some(vec![entry.first()?.as_ref().ok()?]))
+                .collect::<Vec<_>>(),
+            CollectionRole::Set => self
+                .results
+                .iter()
+                .filter_map(|entry| entry.iter().map(|value| value.as_ref().ok()).collect())
+                .collect::<Vec<_>>(),
+            CollectionRole::List => Vec::new(),
+        };
+        compared.sort();
+        if compared.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(NonValue::at(self.term, LocalTest::DistinctEntries));
+        }
+        drop(compared);
+        let mut values = Vec::with_capacity(self.results.len());
+        for (entry, arguments) in self.results.into_iter().enumerate() {
+            let mut row = Vec::with_capacity(arguments.len());
+            for (argument, value) in arguments.into_iter().enumerate() {
+                row.push(value.map_err(|failure| {
+                    failure.below(NonValueStep::Entry {
+                        collection: self.collection.clone(),
+                        entry,
+                        role: match (self.role, argument) {
+                            (CollectionRole::Map, 0) => EntryRole::Key,
+                            (CollectionRole::Map, _) => EntryRole::Value,
+                            _ => EntryRole::Element,
+                        },
+                        argument,
+                    })
+                })?);
+            }
+            values.push(row);
+        }
+        match self.role {
+            // Keys (Set elements) are distinct, checked above.
+            CollectionRole::Map => values.sort_by(|left, right| left[0].cmp(&right[0])),
+            CollectionRole::Set => values.sort(),
+            CollectionRole::List => {}
+        }
+        let application = |name: &str, arguments| Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments,
+        };
+        let mut elements = values
+            .into_iter()
+            .map(|arguments| application(&self.element, arguments))
+            .collect::<Vec<_>>();
+        let Some(mut result) = elements.pop() else {
+            return Ok(application(&self.unit, Vec::new()));
+        };
+        // Invariant: `result` is the right-nested concat of the elements popped so far.
+        while let Some(element) = elements.pop() {
+            result = application(&self.concat, vec![element, result]);
+        }
+        Ok(result)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StepPresence {
     Certain(Vec<Pattern>),
@@ -542,6 +759,42 @@ impl<'a> ObservationDecider<'a> {
         }
     }
 
+    /// `work`'s result, or the first refusal by the host to map a stack that one of this
+    /// decider's judgements needed while `work` ran.
+    ///
+    /// A judgement over a leaf, or over a subterm of it, runs on the stack k-rust sizes for an
+    /// operation over that term ([`crate::feasibility::on_stack_for`]). When the term is too deep
+    /// for the largest stack k-rust provides, the judgement is its one-sided answer (unknown
+    /// feasibility, not shown to exist, not data), a function of the term. When the host refuses
+    /// to map the stack (an address-space limit such as `ulimit -v`), the judgement answers the
+    /// same way, so that its caller goes on as before, and the refusal is recorded here instead,
+    /// since it is a fact about the host and must not become an answer about the term: a caller
+    /// that turns the judgements into a run's evidence runs them in `work` and reports a refusal
+    /// as a failure of the run that names the host. The decisions of [`Self::relations`] are
+    /// among these judgements.
+    pub fn host_refusal_during<R>(&self, work: impl FnOnce() -> R) -> Result<R, SegmentRefused> {
+        self.relations.host_refusal_during(work)
+    }
+
+    /// `work` on the stack k-rust gives an operation over `patterns` on `definition`, or
+    /// `refused` when that stack is not provided, the host's refusal recorded
+    /// ([`Self::host_refusal_during`]).
+    fn on_stack_for<R>(
+        &self,
+        definition: &BackendDefinition,
+        patterns: &[&Pattern],
+        work: impl FnOnce() -> R,
+        refused: R,
+    ) -> R {
+        self.relations
+            .on_stack_for(definition, patterns, work, refused)
+    }
+
+    /// Records `host` unless a refusal is already recorded ([`Self::host_refusal_during`]).
+    fn record_host_refusal(&self, host: SegmentRefused) {
+        self.relations.record_host_refusal(host);
+    }
+
     /// This decider, admitting in terms the instance-normal applications of the overload data
     /// heads that `shared` (the shared definition's [`crate::data::data_ends`]) gives, where
     /// k-rust's data judgement holds on the outermost one ([`DataEnds::overload_application_is_data`]),
@@ -582,15 +835,45 @@ impl<'a> ObservationDecider<'a> {
     /// [`Self::definition_independent`] of `term`, or the first node, in pre-order, that fails
     /// its own test ([`Self::node_test`]); `judged` when an enclosing data-head application was
     /// already judged data as a whole, so a nested one needs no judgement of its own.
+    ///
+    /// A leaf is as deep as the run made it, so the walk keeps the applications it is inside on a
+    /// work list instead of the native stack.
     fn independent(&self, term: &Pattern, judged: bool) -> Result<(), Box<NonValue>> {
-        let judged = self.node_test(term, judged)?;
-        if let Pattern::Application { symbol, arguments } = term {
-            for (index, argument) in arguments.iter().enumerate() {
-                self.independent(argument, judged)
-                    .map_err(|failure| failure.below_argument(&symbol.name, index))?;
+        // The applications whose own test passed and whose arguments are being walked: each with
+        // the `judged` flag of its arguments and the index of the argument walked next.
+        let mut open: Vec<(&k_rust::kore::ast::Symbol, &[Pattern], bool, usize)> = Vec::new();
+        let mut next = Some((term, judged));
+        // Invariant: every node before `next` in pre-order passed its own test, and `open` holds
+        // the applications on the path from `term` to `next`, outermost first; each node is
+        // tested once, so the loop ends after visiting every node or at the first failure.
+        loop {
+            if let Some((node, judged)) = next.take() {
+                match self.node_test(node, judged) {
+                    Err(failure) => {
+                        return Err(open.iter().rev().fold(
+                            failure,
+                            |failure, (symbol, _, _, following)| {
+                                failure.below_argument(&symbol.name, following - 1)
+                            },
+                        ));
+                    }
+                    Ok(judged) => {
+                        if let Pattern::Application { symbol, arguments } = node {
+                            open.push((symbol, arguments, judged, 0));
+                        }
+                    }
+                }
+            }
+            let Some((_, arguments, judged, following)) = open.last_mut() else {
+                return Ok(());
+            };
+            if let Some(argument) = arguments.get(*following) {
+                *following += 1;
+                next = Some((argument, *judged));
+            } else {
+                open.pop();
             }
         }
-        Ok(())
     }
 
     /// The own test of one node that is not a collection term, its children ignored, shared by
@@ -643,13 +926,23 @@ impl<'a> ObservationDecider<'a> {
     /// for leaves of another definition, under the leaf definition with its facts too
     /// ([`DataEnds::overload_application_is_data`], k-rust's `is_data`, once for the whole
     /// subterm; review N4). Its arguments are walked for the rest of TV-01 by the caller.
+    ///
+    /// The application may be as deep as the leaf it is in, so each judgement, which internalizes
+    /// it and walks the internal term, runs on the stack k-rust gives an operation over it
+    /// ([`Self::on_stack_for`]); without that stack the application is not data, which refuses
+    /// closed.
     fn overload_data(&self, application: &Pattern) -> bool {
-        self.data
-            .overload_application_is_data(self.definition, application)
+        let data = |definition: &BackendDefinition, ends: &DataEnds<'_>| {
+            self.on_stack_for(
+                definition,
+                &[application],
+                || ends.overload_application_is_data(definition, application),
+                false,
+            )
+        };
+        data(self.definition, &self.data)
             && (std::ptr::eq(self.definition, self.leaf_definition)
-                || self
-                    .leaf_data
-                    .overload_application_is_data(self.leaf_definition, application))
+                || data(self.leaf_definition, &self.leaf_data))
     }
     /// The canonical value of a terminal term, or `None` when it is not
     /// definition-independent. A term without collection symbols is itself exactly when
@@ -693,10 +986,12 @@ impl<'a> ObservationDecider<'a> {
     /// rests on that answer. It runs in proof mode, so it never reads an implementation-chosen
     /// value.
     ///
-    /// The term is internalized without a stack sized for it and without catching a panic, unlike
-    /// kink-flow's `defined_state`: the adapter's feasibility (`leaf_feasibility`) already
-    /// internalized the same leaf state on the same definition, so this adds no stack or
-    /// verification hazard of its own.
+    /// The term is internalized, and `ground_defined` walks it, on the stack k-rust gives an
+    /// operation over the term ([`Self::on_stack_for`]), since a leaf is as deep as the run made
+    /// it; a term without that stack is not shown to exist (a host's refusal of it recorded,
+    /// [`Self::host_refusal_during`]). No panic is caught, unlike kink-flow's `defined_state`: the adapter's feasibility
+    /// (`leaf_feasibility`) already admitted the same leaf state on the same definition, so this
+    /// adds no verification hazard of its own.
     pub fn configuration_exists(&self, term: &Pattern) -> bool {
         let definition = self.leaf_definition;
         if !term.free_variables().is_empty() {
@@ -715,10 +1010,17 @@ impl<'a> ObservationDecider<'a> {
         !conjunction
             && !contains_untrusted_domain_value(definition, term)
             && !contains_non_strict_injection(definition, term)
-            && definition
-                .admit_unverified(term, &[])
-                .internalize_term()
-                .is_ok_and(|internal| definition.ground_defined(&internal))
+            && self.on_stack_for(
+                definition,
+                &[term],
+                || {
+                    definition
+                        .admit_unverified(term, &[])
+                        .internalize_term()
+                        .is_ok_and(|internal| definition.ground_defined(&internal))
+                },
+                false,
+            )
     }
 
     /// Why `term` has no [`Self::terminal_value`]: the first node, in pre-order, that fails its
@@ -781,21 +1083,132 @@ impl<'a> ObservationDecider<'a> {
         Some(failure)
     }
 
-    fn has_collection_symbol(&self, term: &Pattern) -> bool {
-        holds_collection_symbol(self.definition, term)
+    /// Whether `term` holds an application of a collection symbol of the shared definition,
+    /// remembered in `holders` for every subterm found to hold one.
+    ///
+    /// The walk does not enter a collection application, which holds one, and records only the
+    /// subterms that hold one, so a subterm that holds none may be walked again: [`Self::value_at`]
+    /// asks once for each subterm it reaches and descends only into a subterm that holds one, so
+    /// a subterm holding none is walked here at most twice, and every subterm holding one is
+    /// walked once, whatever the depth of the term.
+    fn holds_collection(
+        &self,
+        term: &Pattern,
+        holders: &mut std::collections::HashSet<*const Pattern>,
+    ) -> bool {
+        enum Visit<'t> {
+            Enter(&'t Pattern),
+            Exit(&'t Pattern, usize),
+        }
+        if holders.contains(&std::ptr::from_ref(term)) {
+            return true;
+        }
+        let collection = |node: &Pattern| {
+            matches!(node, Pattern::Application { symbol, .. }
+                if self
+                    .definition
+                    .symbols()
+                    .get(symbol.name.as_str())
+                    .is_some_and(|head| head.attributes.collection.is_some()))
+        };
+        // Invariant: after the `Exit` of a node, `found` ends with whether it holds a collection
+        // symbol, in place of its children's entries; each node is entered and left once.
+        let mut found: Vec<bool> = Vec::new();
+        let mut pending = vec![Visit::Enter(term)];
+        while let Some(visit) = pending.pop() {
+            match visit {
+                Visit::Enter(node) => {
+                    if holders.contains(&std::ptr::from_ref(node)) || collection(node) {
+                        holders.insert(std::ptr::from_ref(node));
+                        found.push(true);
+                        continue;
+                    }
+                    let children = k_rust::kore::walk::children(node);
+                    pending.push(Visit::Exit(node, children.len()));
+                    pending.extend(children.into_iter().rev().map(Visit::Enter));
+                }
+                Visit::Exit(node, count) => {
+                    let start = found.len() - count;
+                    let holds = found[start..].iter().any(|holds| *holds);
+                    found.truncate(start);
+                    if holds {
+                        holders.insert(std::ptr::from_ref(node));
+                    }
+                    found.push(holds);
+                }
+            }
+        }
+        found.pop().unwrap_or(false)
     }
 
     /// The value of `term` at the sort `expected`, or the first node, in pre-order, that fails
     /// its own test (its path innermost first); `judged` as in [`Self::independent`].
+    ///
+    /// A subterm without a collection symbol is its own value when it is
+    /// [`Self::definition_independent`]. A collection term's value is computed by
+    /// [`Self::enter_collection`] and [`ValueFrame::finish`]; any other node holding a collection
+    /// symbol passes [`Self::node_test`], is a canonical injection or an application of a declared
+    /// symbol with its arity, and its value is the node over its arguments' values at its
+    /// argument sorts, the first failing argument failing it.
+    ///
+    /// A leaf is as deep as the run made it (a list one level deeper per step that appends to
+    /// it), so the walk keeps the nodes whose children it is computing on a work list
+    /// ([`ValueFrame`]) instead of the native stack.
     fn value_at(
         &self,
         term: &Pattern,
         expected: Option<&InternalSort>,
         judged: bool,
     ) -> Result<Pattern, Box<NonValue>> {
-        if !self.has_collection_symbol(term) {
-            return self.independent(term, judged).map(|()| term.clone());
+        let mut holders = std::collections::HashSet::new();
+        let mut frames: Vec<ValueFrame<'_>> = Vec::new();
+        let mut visit = ValueVisit::Enter(term, expected.copied(), judged);
+        // Invariant: `frames` holds the nodes on the path from `term` to the node being visited,
+        // outermost first, each with the values (or failures) of its children visited so far; a
+        // `Done` result is that of the child its innermost frame visited last. Each node is
+        // entered once and each frame is finished once, so the loop ends.
+        loop {
+            visit = match visit {
+                ValueVisit::Enter(node, expected, judged) => {
+                    self.enter_value(node, expected, judged, &mut frames, &mut holders)
+                }
+                ValueVisit::Done(result) => match frames.last_mut() {
+                    None => return result,
+                    Some(frame) => {
+                        frame.accept(result);
+                        ValueVisit::Continue
+                    }
+                },
+                ValueVisit::Continue => {
+                    let frame = frames.last_mut().expect("a frame continues");
+                    match frame.next_child() {
+                        Some((child, expected, judged)) => {
+                            ValueVisit::Enter(child, Some(expected), judged)
+                        }
+                        None => {
+                            let frame = frames.pop().expect("the frame is on the work list");
+                            ValueVisit::Done(frame.finish())
+                        }
+                    }
+                }
+            };
         }
+    }
+
+    /// The first step of [`Self::value_at`] at `term`: its value or failure when it needs no
+    /// value of a child, or a frame for its children pushed onto `frames`.
+    fn enter_value<'t>(
+        &self,
+        term: &'t Pattern,
+        expected: Option<InternalSort>,
+        judged: bool,
+        frames: &mut Vec<ValueFrame<'t>>,
+        holders: &mut std::collections::HashSet<*const Pattern>,
+    ) -> ValueVisit<'t> {
+        if !self.holds_collection(term, holders) {
+            return ValueVisit::Done(self.independent(term, judged).map(|()| term.clone()));
+        }
+        let ground = frames.last().is_some_and(ValueFrame::ground);
         if let Pattern::Application { symbol, .. } = term
             && !is_injection(term)
             && self
@@ -804,60 +1217,71 @@ impl<'a> ObservationDecider<'a> {
                 .get(symbol.name.as_str())
                 .is_some_and(|head| head.attributes.collection.is_some())
         {
-            return self.collection_value(term, expected, judged);
+            return match self.enter_collection(term, expected.as_ref(), judged, ground) {
+                Ok(frame) => {
+                    frames.push(ValueFrame::Entries(Box::new(frame)));
+                    ValueVisit::Continue
+                }
+                Err(failure) => ValueVisit::Done(Err(failure)),
+            };
         }
-        let judged = self.node_test(term, judged)?;
-        let fails = |test| Err(NonValue::at(term, test));
+        let fails = |test| ValueVisit::Done(Err(NonValue::at(term, test)));
+        let judged = match self.node_test(term, judged) {
+            Ok(judged) => judged,
+            Err(failure) => return ValueVisit::Done(Err(failure)),
+        };
         let Pattern::Application { symbol, arguments } = term else {
             // A variable or a domain value holds no collection symbol.
             return fails(LocalTest::TermKind);
         };
-        if is_injection(term) {
+        let sorts = if is_injection(term) {
             // A canonical injection has one argument and a source sort.
-            let (Some(source), [argument]) = (
+            let (Some(source), [_]) = (
                 symbol.sort_parameters.first().and_then(internal_sort),
                 arguments.as_slice(),
             ) else {
                 return fails(LocalTest::CanonicalInjection);
             };
-            return Ok(Pattern::Application {
-                symbol: symbol.clone(),
-                arguments: vec![
-                    self.value_at(argument, Some(&source), judged)
-                        .map_err(|failure| failure.below_argument(&symbol.name, 0))?,
-                ],
-            });
-        }
-        let Some(backend) = self.definition.symbols().get(symbol.name.as_str()) else {
-            return fails(LocalTest::DeclaredSymbol);
+            vec![source]
+        } else {
+            let Some(backend) = self.definition.symbols().get(symbol.name.as_str()) else {
+                return fails(LocalTest::DeclaredSymbol);
+            };
+            if arguments.len() != backend.argument_sorts.len() {
+                return fails(LocalTest::Arity);
+            }
+            backend.argument_sorts.clone()
         };
-        if arguments.len() != backend.argument_sorts.len() {
-            return fails(LocalTest::Arity);
-        }
-        let mut values = Vec::with_capacity(arguments.len());
-        for (index, (argument, sort)) in arguments.iter().zip(&backend.argument_sorts).enumerate() {
-            values.push(
-                self.value_at(argument, Some(sort), judged)
-                    .map_err(|failure| failure.below_argument(&symbol.name, index))?,
-            );
-        }
-        Ok(Pattern::Application {
-            symbol: symbol.clone(),
-            arguments: values,
-        })
+        frames.push(ValueFrame::Arguments {
+            symbol,
+            arguments,
+            sorts,
+            judged,
+            ground,
+            values: Vec::with_capacity(arguments.len()),
+            failure: None,
+        });
+        ValueVisit::Continue
     }
 
-    /// The value of a collection term at `expected`, or the first node, in pre-order, that fails
-    /// its own test: the collection node's own tests come first (trusted, at its collection sort,
-    /// ground, natural components with the element's arity, distinct Map keys or Set elements
-    /// among the entries whose keys or elements have values), then its entries in the term's
-    /// order, each key before its value.
-    fn collection_value(
+    /// The own tests of a collection term at `expected`, in order: trusted, at its collection
+    /// sort, ground, built of natural unit, element and concat applications of its metadata, and
+    /// of elements with the element symbol's arity; on a pass, the frame that computes the values
+    /// of its entries, in the term's order, each key before its value, and then
+    /// ([`ValueFrame::finish`]) checks that its Map keys or Set elements are distinct among the
+    /// entries whose keys or elements have values, fails at its first entry argument without a
+    /// value, and rebuilds it as k-rust externalizes collections.
+    ///
+    /// `ground` when the term lies inside a collection whose own tests passed, so that it is known
+    /// to be ground: its variables are not looked for again, which would take time quadratic in
+    /// the depth of collections nested in each other.
+    fn enter_collection<'t>(
         &self,
-        term: &Pattern,
+        term: &'t Pattern,
         expected: Option<&InternalSort>,
         judged: bool,
-    ) -> Result<Pattern, Box<NonValue>> {
+        ground: bool,
+    ) -> Result<EntriesFrame<'t>, Box<NonValue>> {
         use k_rust_backend::term::CollectionMetadata;
         let fails = |test| Err(NonValue::at(term, test));
         if !self.collections_trusted {
@@ -883,16 +1307,12 @@ impl<'a> ObservationDecider<'a> {
         if expected != Some(&InternalSort::simple(collection_sort.clone())) {
             return fails(LocalTest::CollectionSort);
         }
-        if !term.free_variables().is_empty() {
+        if !ground && !term.free_variables().is_empty() {
             return fails(LocalTest::Ground);
         }
-        let mut items = Vec::new();
-        if self
-            .collection_entries(term, &metadata, &mut items)
-            .is_none()
-        {
+        let Some(items) = self.collection_entries(term, &metadata) else {
             return fails(LocalTest::NaturalCollection);
-        }
+        };
         let Some(element) = self.definition.symbols().get(&*symbols.element) else {
             return fails(LocalTest::NaturalCollection);
         };
@@ -902,119 +1322,73 @@ impl<'a> ObservationDecider<'a> {
         {
             return fails(LocalTest::Arity);
         }
-        let results = items
-            .iter()
-            .map(|arguments| {
-                arguments
-                    .iter()
-                    .zip(&element.argument_sorts)
-                    .map(|(argument, sort)| self.value_at(argument, Some(sort), judged))
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        let mut compared = match &metadata {
-            CollectionMetadata::Map(_) => results
-                .iter()
-                .filter_map(|entry| Some(vec![entry.first()?.as_ref().ok()?]))
-                .collect::<Vec<_>>(),
-            CollectionMetadata::Set(_) => results
-                .iter()
-                .filter_map(|entry| entry.iter().map(|value| value.as_ref().ok()).collect())
-                .collect::<Vec<_>>(),
-            CollectionMetadata::List(_) => Vec::new(),
-        };
-        compared.sort();
-        if compared.windows(2).any(|pair| pair[0] == pair[1]) {
-            return fails(LocalTest::DistinctEntries);
-        }
-        let collection = collection_sort.to_string();
-        let mut values = Vec::with_capacity(results.len());
-        for (entry, arguments) in results.into_iter().enumerate() {
-            let arity = arguments.len();
-            let mut row = Vec::with_capacity(arity);
-            for (argument, value) in arguments.into_iter().enumerate() {
-                row.push(value.map_err(|failure| {
-                    failure.below(NonValueStep::Entry {
-                        collection: collection.clone(),
-                        entry,
-                        role: match (&metadata, argument) {
-                            (CollectionMetadata::Map(_), 0) => EntryRole::Key,
-                            (CollectionMetadata::Map(_), _) => EntryRole::Value,
-                            _ => EntryRole::Element,
-                        },
-                        argument,
-                    })
-                })?);
-            }
-            values.push(row);
-        }
-        match &metadata {
-            // Keys (Set elements) are distinct, checked above.
-            CollectionMetadata::Map(_) => values.sort_by(|left, right| left[0].cmp(&right[0])),
-            CollectionMetadata::Set(_) => values.sort(),
-            CollectionMetadata::List(_) => {}
-        }
-        let application = |name: &str, arguments| Pattern::Application {
-            symbol: k_rust::kore::ast::Symbol {
-                name: name.to_owned(),
-                sort_parameters: Vec::new(),
+        Ok(EntriesFrame {
+            term,
+            role: match &metadata {
+                CollectionMetadata::Map(_) => CollectionRole::Map,
+                CollectionMetadata::Set(_) => CollectionRole::Set,
+                CollectionMetadata::List(_) => CollectionRole::List,
             },
-            arguments,
-        };
-        let mut elements = values
-            .into_iter()
-            .map(|arguments| application(&symbols.element, arguments))
-            .collect::<Vec<_>>();
-        let Some(mut result) = elements.pop() else {
-            return Ok(application(&symbols.unit, Vec::new()));
-        };
-        while let Some(element) = elements.pop() {
-            result = application(&symbols.concat, vec![element, result]);
-        }
-        Ok(result)
+            collection: collection_sort.to_string(),
+            unit: symbols.unit.to_string(),
+            element: symbols.element.to_string(),
+            concat: symbols.concat.to_string(),
+            sorts: element.argument_sorts.clone(),
+            judged,
+            results: Vec::with_capacity(items.len()),
+            items,
+        })
     }
 
-    /// The argument lists of the element applications of a collection term, or `None` when a
-    /// component is not a natural unit, element or concat of `metadata`.
-    fn collection_entries(
+    /// The argument lists of the element applications of a collection term, in the term's
+    /// order, or `None` when a component is not a natural unit, element or concat of `metadata`.
+    ///
+    /// A collection is a chain of concatenations as long as it has elements, so the walk keeps
+    /// the components still to read on a work list instead of the native stack.
+    fn collection_entries<'t>(
         &self,
-        term: &Pattern,
+        term: &'t Pattern,
         metadata: &k_rust_backend::term::CollectionMetadata,
-        out: &mut Vec<Vec<Pattern>>,
-    ) -> Option<()> {
+    ) -> Option<Vec<&'t [Pattern]>> {
         use k_rust_backend::term::CollectionMetadata;
-        let Pattern::Application { symbol, arguments } = term else {
-            return None;
-        };
-        if !symbol.sort_parameters.is_empty() {
-            return None;
-        }
-        let backend = self.definition.symbols().get(symbol.name.as_str())?;
-        if backend.attributes.collection.as_ref() != Some(metadata)
-            || !crate::census::natural_collection_symbol(backend, self.definition)
-        {
-            return None;
-        }
         let symbols = match metadata {
             CollectionMetadata::Map(d) => &d.symbols,
             CollectionMetadata::List(d) | CollectionMetadata::Set(d) => &d.symbols,
         };
-        let name = symbol.name.as_str();
-        if name == &*symbols.unit && arguments.is_empty() {
-            Some(())
-        } else if name == &*symbols.concat && arguments.len() == 2 {
-            self.collection_entries(&arguments[0], metadata, out)?;
-            self.collection_entries(&arguments[1], metadata, out)
-        } else if name == &*symbols.element {
-            out.push(arguments.clone());
-            Some(())
-        } else {
-            None
+        let mut out = Vec::new();
+        let mut pending = vec![term];
+        // Invariant: `out` holds the element arguments of the components before the ones on
+        // `pending`, which holds the components still to read, the next one last; each component
+        // is read once.
+        while let Some(component) = pending.pop() {
+            let Pattern::Application { symbol, arguments } = component else {
+                return None;
+            };
+            if !symbol.sort_parameters.is_empty() {
+                return None;
+            }
+            let backend = self.definition.symbols().get(symbol.name.as_str())?;
+            if backend.attributes.collection.as_ref() != Some(metadata)
+                || !crate::census::natural_collection_symbol(backend, self.definition)
+            {
+                return None;
+            }
+            let name = symbol.name.as_str();
+            if name == &*symbols.concat && arguments.len() == 2 {
+                pending.push(&arguments[1]);
+                pending.push(&arguments[0]);
+            } else if name == &*symbols.element {
+                out.push(arguments.as_slice());
+            } else if name != &*symbols.unit || !arguments.is_empty() {
+                return None;
+            }
         }
+        Some(out)
     }
 
     /// The feasibility of a leaf state (KORE JSON) of the leaf definition's run, decided on the
-    /// leaf definition and its solver (re-pin finding A-12).
+    /// leaf definition and its solver (re-pin finding A-12); `Unknown` when the host refuses the
+    /// stack the leaf needs, the refusal recorded ([`Self::host_refusal_during`]).
     pub fn shared_leaf_feasibility(
         &self,
         state: &serde_json::Value,
@@ -1025,6 +1399,10 @@ impl<'a> ObservationDecider<'a> {
             &self.leaf_inhabitation,
             state,
         )
+        .unwrap_or_else(|host| {
+            self.record_host_refusal(host);
+            crate::feasibility::LeafFeasibility::Unknown
+        })
     }
     /// Classifies one declaration; the reference bridge deliberately runs both phases per leaf.
     pub fn classify_step(

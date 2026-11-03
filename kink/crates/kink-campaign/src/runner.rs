@@ -145,6 +145,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use k_rust::backend::{Backend, BackendOptions, counter_erased};
+use k_rust::k_rust_backend::nesting::SegmentRefused;
 use k_rust::kore::{
     ast::{Pattern, Sort},
     parser::parse_definition,
@@ -1410,7 +1411,7 @@ pub fn run_campaign_multi_with(
                 let patterns = facts.as_ref().ok().map(|_| {
                     runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref(), None)
                 });
-                replace_patterns(test, evidence, patterns.as_deref());
+                replace_patterns(test, evidence, patterns.as_ref());
             }
         }
         let admission = admit(campaign.tests, &baseline_evidence);
@@ -2462,7 +2463,8 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
 /// the empty set ([`TestEvidence::undefined_steps`], kink27 R1-UNDEF).
 ///
 /// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
-/// end judged under it not data. A failure to reach a definition does too.
+/// end judged under it not data. A failure to reach a definition does too. A host's refusal of a
+/// stack one of these judgements needed fails the mutant run as infrastructure instead.
 ///
 /// Each slot made unknown is recorded in the mutant's evidence ([`RunNotes::across`]), with whose
 /// end it is and why (fz26 KINK-CAUSE-SUBTERM), for the reader's cause; nothing compares it.
@@ -2534,6 +2536,17 @@ fn judge_across(
             .collect::<Vec<_>>(),
         &payloads(mutant),
     );
+    // A host's refusal of a stack a judgement under either definition needed is no answer about
+    // the ends: the pair's mutant run fails as infrastructure, which kink-flow's outcome cache
+    // never stores. Both judgements run first, so that both backends' solver state evolves as
+    // without the refusal.
+    let (Ok(under_mutant), Ok(under_baseline)) = (under_mutant, under_baseline) else {
+        mutant.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
+        mutant.payloads.clear();
+        mutant.notes.across = Vec::new();
+        one_sided.clear();
+        return;
+    };
     let (mutant_data, one_sided_data) = under_baseline.terminals.split_at(terminals);
     let mut one_sided_data = one_sided_data.iter().copied();
     one_sided.retain(|_| one_sided_data.next().unwrap_or(false));
@@ -2687,11 +2700,25 @@ pub enum CrossCause {
 /// read ([`TestEvidence::payloads`]).
 type PatternSide = (OracleSide, BTreeSet<Pattern>);
 
-fn replace_patterns(
-    test: &TestCase,
-    evidence: &mut TestEvidence,
-    patterns: Option<&[PatternSide]>,
-) {
+/// The pattern-slot sides of one run ([`Runtime::step_sides`]), or the host's refusal of a stack
+/// that judging them needed.
+type StepSides = Result<Vec<PatternSide>, SegmentRefused>;
+
+/// `evidence` with its pattern slots replaced by `patterns`, or each made `Unknown` without them
+/// (`None`). A host's refusal of a stack the judgement of the pattern slots needed is a fact about
+/// the host, not about the run, so it fails the run as infrastructure instead of becoming a side.
+fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Option<&StepSides>) {
+    let patterns = match patterns {
+        Some(Err(_)) => {
+            if matches!(evidence.run, SideRun::Sides { .. }) {
+                evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
+                evidence.payloads.clear();
+            }
+            return;
+        }
+        Some(Ok(patterns)) => Some(patterns.as_slice()),
+        None => None,
+    };
     if let SideRun::Sides { sides } = &mut evidence.run {
         for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
             if matches!(declaration.projection(), Projection::Pattern { .. }) {
@@ -3133,14 +3160,24 @@ impl Runtime {
                 };
                 let value = |term: &Pattern| decider.terminal_value(term);
                 let exists = |term: &Pattern| decider.configuration_exists(term);
-                let bridged = paths_from_execution_existing(execution, &context, &value, &exists);
+                // A host's refusal of a stack the decider's judgements needed fails the run as
+                // infrastructure, never as an answer about its leaves.
+                let (bridged, one_sided) = decider
+                    .host_refusal_during(|| {
+                        let bridged =
+                            paths_from_execution_existing(execution, &context, &value, &exists);
+                        // Re-pin L1-2: kept below only when the run is judged into sides.
+                        let one_sided = if one_sided {
+                            work_bound_stuck_terminals(execution, &context, &value, &exists)
+                        } else {
+                            Vec::new()
+                        };
+                        (bridged, one_sided)
+                    })
+                    .unwrap_or_else(|refused| {
+                        (Err(BridgeFailure::HostStackRefused(refused)), Vec::new())
+                    });
                 let state_exclusion = exclusions.state_exclusion(definition, &test.initial_state);
-                // Re-pin L1-2: kept below only when the run is judged into sides.
-                let one_sided = if one_sided {
-                    work_bound_stuck_terminals(execution, &context, &value, &exists)
-                } else {
-                    Vec::new()
-                };
                 Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion, one_sided))
             }) {
                 // No decider: every slot is unknown, unless the run is excluded, which is read
@@ -3224,6 +3261,9 @@ impl Runtime {
     /// values and the event walk. The definition that produced the leaves decides every
     /// feasibility and relation query about them (re-pin finding A-12): this runtime's own for
     /// its own run (`leaves` `None`), the mutant's `leaves` runtime for a mutant run.
+    ///
+    /// The host's refusal of a stack one of those judgements needed is `Err`
+    /// ([`ObservationDecider::host_refusal_during`]), never a side.
     fn step_sides(
         &mut self,
         campaign: &Campaign<'_>,
@@ -3231,65 +3271,68 @@ impl Runtime {
         observation: &StepObservation,
         execution: Option<&SteppedExecution>,
         leaves: Option<&mut Runtime>,
-    ) -> Vec<PatternSide> {
+    ) -> StepSides {
         let mut context = self.context.clone();
         context.test_id.clone_from(&test.id);
         let trusted = self.exclusions.collections_trusted()
             && leaves
                 .as_ref()
                 .is_none_or(|leaves| leaves.exclusions.collections_trusted());
+        // A host refusal anywhere below, the bridge's `BridgeFailure::HostStackRefused` included,
+        // is the refusal `host_refusal_during` returns.
         let evaluate = |decider: &ObservationDecider<'_>| {
-            let bridged = execution.and_then(|execution| {
-                tree_from_steps(
-                    &BridgeContext {
-                        test_id: &test.id,
-                        classify: campaign.classify,
-                        sorts: &context.symbol_sorts,
-                    },
-                    execution,
-                    observation,
-                    decider,
-                )
-                .ok()
-            });
-            test.oracles
-                .iter()
-                .map(|declaration| {
-                    let Projection::Pattern {
-                        plan,
-                        with_bindings,
-                    } = declaration.projection()
-                    else {
-                        return (OracleSide::Unknown, BTreeSet::new());
-                    };
-                    let Some(bridged) = &bridged else {
-                        return (OracleSide::Unknown, BTreeSet::new());
-                    };
-                    let relations = ReadTerms::new(decider.relations());
-                    let evaluation = slot_evaluation(
-                        &context,
-                        plan,
-                        &bridged.tree,
-                        &bridged.collection,
-                        observation.vocabulary(),
-                        &relations,
-                    );
-                    let side = if *with_bindings
-                        && evaluation.as_ref().is_ok_and(|evaluation| {
-                            evaluation.witnesses.iter().any(|witness| {
-                                witness
-                                    .bindings
-                                    .iter()
-                                    .any(|binding| !decider.definition_independent(&binding.term))
-                            })
-                        }) {
-                        OracleSide::Unknown
-                    } else {
-                        pattern_side(&evaluation, *with_bindings)
-                    };
-                    (side, relations.read())
-                })
-                .collect::<Vec<_>>()
+            decider.host_refusal_during(|| {
+                let bridged = execution.and_then(|execution| {
+                    tree_from_steps(
+                        &BridgeContext {
+                            test_id: &test.id,
+                            classify: campaign.classify,
+                            sorts: &context.symbol_sorts,
+                        },
+                        execution,
+                        observation,
+                        decider,
+                    )
+                    .ok()
+                });
+                test.oracles
+                    .iter()
+                    .map(|declaration| {
+                        let Projection::Pattern {
+                            plan,
+                            with_bindings,
+                        } = declaration.projection()
+                        else {
+                            return (OracleSide::Unknown, BTreeSet::new());
+                        };
+                        let Some(bridged) = &bridged else {
+                            return (OracleSide::Unknown, BTreeSet::new());
+                        };
+                        let relations = ReadTerms::new(decider.relations());
+                        let evaluation = slot_evaluation(
+                            &context,
+                            plan,
+                            &bridged.tree,
+                            &bridged.collection,
+                            observation.vocabulary(),
+                            &relations,
+                        );
+                        let side = if *with_bindings
+                            && evaluation.as_ref().is_ok_and(|evaluation| {
+                                evaluation.witnesses.iter().any(|witness| {
+                                    witness.bindings.iter().any(|binding| {
+                                        !decider.definition_independent(&binding.term)
+                                    })
+                                })
+                            }) {
+                            OracleSide::Unknown
+                        } else {
+                            pattern_side(&evaluation, *with_bindings)
+                        };
+                        (side, relations.read())
+                    })
+                    .collect::<Vec<_>>()
+            })
         };
         let initial = || TestInitialState::of_test(&test.initial_state);
         let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
@@ -3319,20 +3362,26 @@ impl Runtime {
                 })
             }
         };
-        sides.unwrap_or_else(|_| vec![(OracleSide::Unknown, BTreeSet::new()); test.oracles.len()])
+        sides.unwrap_or_else(|_| {
+            Ok(vec![
+                (OracleSide::Unknown, BTreeSet::new());
+                test.oracles.len()
+            ])
+        })
     }
 
     /// Whether each of `terminals`, ends of the other side of a pair, is data under this side's
     /// definition (its own terminal value there, read with this side's collection trust and
     /// [`data_ends`] of its facts), and which of `bindings` are definition-independent there
     /// ([`judge_across`]). Without facts, with a finding left, or when no definition can be
-    /// reached, nothing is.
+    /// reached, nothing is. The host's refusal of a stack one of these judgements needed is `Err`
+    /// ([`ObservationDecider::host_refusal_during`]), never an answer about the ends.
     fn judge_ends(
         &mut self,
         test: &TestCase,
         terminals: &[Pattern],
         bindings: &[Pattern],
-    ) -> EndJudgement {
+    ) -> Result<EndJudgement, SegmentRefused> {
         let refused = || EndJudgement {
             terminals: vec![false; terminals.len()],
             independent: Vec::new(),
@@ -3343,11 +3392,11 @@ impl Runtime {
                 .collect(),
         };
         if terminals.is_empty() && bindings.is_empty() {
-            return refused();
+            return Ok(refused());
         }
         let ends = self.data.as_ref().map_or(DataEnds::None, data_ends);
         if ends == DataEnds::None {
-            return refused();
+            return Ok(refused());
         }
         let trusted = self.exclusions.collections_trusted();
         self.backend
@@ -3359,38 +3408,42 @@ impl Runtime {
                 )
                 .trusting_collections(trusted)
                 .judging_data(ends, ends);
-                let terminals = terminals
-                    .iter()
-                    .map(|end| decider.terminal_value(end).as_ref() == Some(end))
-                    .zip(terminals)
-                    .collect::<Vec<_>>();
-                let (independent, dependent): (Vec<_>, Vec<_>) = bindings
-                    .iter()
-                    .partition(|term| decider.definition_independent(term));
-                // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
-                Ok::<_, k_rust::backend::BackendError>(EndJudgement {
-                    terminal_causes: terminals
+                Ok::<_, k_rust::backend::BackendError>(decider.host_refusal_during(|| {
+                    let terminals = terminals
                         .iter()
-                        .map(|(data, end)| {
-                            (!data).then(|| {
-                                CrossCause::NotData(decider.first_non_value(end).map(Box::new))
+                        .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                        .zip(terminals)
+                        .collect::<Vec<_>>();
+                    let (independent, dependent): (Vec<_>, Vec<_>) = bindings
+                        .iter()
+                        .partition(|term| decider.definition_independent(term));
+                    // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
+                    EndJudgement {
+                        terminal_causes: terminals
+                            .iter()
+                            .map(|(data, end)| {
+                                (!data).then(|| {
+                                    CrossCause::NotData(decider.first_non_value(end).map(Box::new))
+                                })
                             })
-                        })
-                        .collect(),
-                    terminals: terminals.iter().map(|(data, _)| *data).collect(),
-                    binding_causes: dependent
-                        .into_iter()
-                        .map(|term| {
-                            (
-                                term.clone(),
-                                CrossCause::NotData(decider.first_dependent(term).map(Box::new)),
-                            )
-                        })
-                        .collect(),
-                    independent: independent.into_iter().cloned().collect(),
-                })
+                            .collect(),
+                        terminals: terminals.iter().map(|(data, _)| *data).collect(),
+                        binding_causes: dependent
+                            .into_iter()
+                            .map(|term| {
+                                (
+                                    term.clone(),
+                                    CrossCause::NotData(
+                                        decider.first_dependent(term).map(Box::new),
+                                    ),
+                                )
+                            })
+                            .collect(),
+                        independent: independent.into_iter().cloned().collect(),
+                    }
+                }))
             })
-            .unwrap_or_else(|_| refused())
+            .unwrap_or_else(|_| Ok(refused()))
     }
 }
 
@@ -3782,7 +3835,8 @@ impl From<&BridgeFailure> for ExecutionFailureKind {
             | BridgeFailure::UndecodableState(_)
             | BridgeFailure::UndecidedStateSort
             | BridgeFailure::DuplicatePathIdentity(_)
-            | BridgeFailure::ClassifiedUndefinedStep => Self::Infrastructure,
+            | BridgeFailure::ClassifiedUndefinedStep
+            | BridgeFailure::HostStackRefused(_) => Self::Infrastructure,
         }
     }
 }
@@ -4764,6 +4818,7 @@ mod tests {
                                 mutant_cache.stepped.as_ref(),
                                 None,
                             )
+                            .expect("the host maps the stacks the leaves need")
                             .into_iter()
                             .map(|(side, _)| side)
                             .collect::<Vec<_>>(),
