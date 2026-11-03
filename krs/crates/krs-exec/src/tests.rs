@@ -11,9 +11,9 @@ use k_rust::{
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, OnePath, PathError, SearchMode, SearchOptions,
-    check_final_state, config_variables, log_lines, one_path, result_sort_hooks, search_backend,
-    term, valueless,
+    ConfigVariable, ExecError, Halt, OnePath, PathError, RunOptions, SearchMode, SearchOptions,
+    State, check_final_state, config_variables, log_lines, one_path, result_sort_hooks,
+    run_request, search_backend, term, valueless,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -144,6 +144,31 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
             && message.contains("after 1 step(s)"),
         "{message}"
     );
+}
+
+/// A run asks the backend for its trace only when it reports one: k-rust keeps a trace entry
+/// for every rewrite and simplification of the path unless asked not to (CF-32).
+#[test]
+fn a_run_requests_the_backend_trace_only_when_it_reports_one() {
+    let state = State(parse_pattern("initial{}()").unwrap());
+    let untraced = run_request(&state, &RunOptions::default());
+    assert!(!untraced.trace);
+    assert!(matches!(untraced.strategy, ExecutionStrategy::Any));
+    let traced = run_request(
+        &state,
+        &RunOptions {
+            trace: true,
+            depth: Some(3),
+            ..RunOptions::default()
+        },
+    );
+    assert!(traced.trace);
+    assert_eq!(traced.max_depth, Some(3));
+    let mut backend = branching_backend();
+    let leaves = backend.execute(untraced).unwrap().leaves;
+    assert!(leaves.iter().all(|leaf| leaf.trace.is_empty()));
+    let leaves = backend.execute(traced).unwrap().leaves;
+    assert!(leaves.iter().any(|leaf| !leaf.trace.is_empty()));
 }
 
 #[test]

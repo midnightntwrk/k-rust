@@ -83,7 +83,11 @@ pub type SourceText = Box<dyn Fn(&SourceFileId) -> Option<String>>;
 pub struct RunOptions {
     /// At most this many rewrite steps; equation evaluation is not a step.
     pub depth: Option<u64>,
-    /// Record each rewrite step.
+    /// Record each rewrite step ([`RunReport::trace`]).
+    ///
+    /// Only then does the backend keep its trace of the path (k-rust's `ExecuteRequest::trace`),
+    /// which holds an entry for every rewrite and simplification the run makes, so a run without
+    /// it holds nothing that grows with its length on that account.
     pub trace: bool,
     /// Check that a run reported stuck ended where no rule applies, at a state that is its own
     /// value, as `KRS_CHECK_ENDS=1` asks of every run ([`check_final_state`]).
@@ -1175,15 +1179,12 @@ impl Semantics {
     /// reaches several states under conditions it cannot decide, or [`ExecError::Result`] when the
     /// backend returns several states under no condition, or none.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
-        let mut request = ExecuteRequest::new(state.0.clone());
-        request.strategy = ExecutionStrategy::Any;
-        request.max_depth = options.depth;
         let ExecutionResult {
             leaves,
             implementation_chosen_values,
             unsupported_hooks,
             ..
-        } = self.backend.execute(request)?;
+        } = self.backend.execute(run_request(state, &options))?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
         // application is decided to have no value ([`decided`]).
         let decides = unsupported_hooks.is_empty();
@@ -1197,7 +1198,7 @@ impl Semantics {
             Err(error) => return Err(self.path_error(error)),
         };
         if held && leaf.depth > 0 {
-            leaf = self.before_valueless(state, leaf, decides)?;
+            leaf = self.before_valueless(state, leaf, decides, options.trace)?;
         }
         if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
             // The definition's heads, borrowed beside the backend ([`Self::heads`]).
@@ -1256,19 +1257,26 @@ impl Semantics {
     /// ([`one_path`]): the step into it reached no state, so the run is undefined after the
     /// steps before it, at the last state with a value, as where the backend finds a step's
     /// result undefined. The run is followed again to each earlier depth until a state with a
-    /// value is found, or the first state, which then has none.
+    /// value is found, or the first state, which then has none. Each run keeps its trace only
+    /// when `trace` asks for the report's.
     fn before_valueless(
         &mut self,
         state: &State,
         mut leaf: ExecutionLeaf,
         decides: bool,
+        trace: bool,
     ) -> Result<ExecutionLeaf, ExecError> {
         let mut depth = leaf.depth;
         while depth > 0 {
             depth -= 1;
-            let mut request = ExecuteRequest::new(state.0.clone());
-            request.strategy = ExecutionStrategy::Any;
-            request.max_depth = Some(depth);
+            let request = run_request(
+                state,
+                &RunOptions {
+                    depth: Some(depth),
+                    trace,
+                    ..RunOptions::default()
+                },
+            );
             let leaves = self.backend.execute(request)?.leaves;
             let earlier = match one_path(leaves, self.heads(decides)) {
                 Ok(earlier) => earlier,
@@ -1633,6 +1641,17 @@ impl Semantics {
     }
 }
 
+/// The backend request of a run from `state` under `options`: strategy `any`, as krun follows one
+/// path, with the backend's trace kept only for a run that reports one (k-rust keeps it unless
+/// asked not to, an entry per rewrite and simplification of the path).
+fn run_request(state: &State, options: &RunOptions) -> ExecuteRequest {
+    let mut request = ExecuteRequest::new(state.0.clone());
+    request.strategy = ExecutionStrategy::Any;
+    request.max_depth = options.depth;
+    request.trace = options.trace;
+    request
+}
+
 /// The K name of the main cell of the definition's configuration, the cell both backends mark
 /// (`krs_ir_levels::k_surface::main_cell`); `None` where the configuration has none. A
 /// definition without a configuration has K's, whose computation cell is `k`.
@@ -1806,6 +1825,7 @@ fn check_final_state(
     let mut request = ExecuteRequest::new(pattern);
     request.strategy = ExecutionStrategy::All;
     request.max_depth = Some(1);
+    request.trace = false;
     let again = backend.execute(request)?.leaves;
     let mut states = Vec::new();
     for end in &again {
