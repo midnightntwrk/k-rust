@@ -18,8 +18,8 @@
 //! the files' bytes, so a comment or layout edit changes them.
 //!
 //! **The resolution memo** holds, per mutation, the facts of its resolution that a row decided by
-//! tier 1 reads: the patch digest, the edited rules (texts, lines, labels, whether the
-//! `requires` changed), the tier-1 mutation identity, the edited rules' typing diagnostics and
+//! tier 1 reads: the patch digest, the edited rules (texts, lines, labels), the tier-1
+//! mutation identity, the edited rules' typing diagnostics and
 //! the claims the edit leaves unbacked ([`Facts`]). It never holds the patch, and a memo hit is
 //! used only for a mutation that tier 1 decides with no call under the run's schedule (a valid
 //! killed record, under the first-kill search only, or a valid record for every program of O;
@@ -105,8 +105,9 @@ use std::{fs, path::Path};
 
 /// The format and meaning of a resolution memo record (its key's `version` and its digest's
 /// domain).
-/// v2 since kink27 R5-WEAKENING added the facts' `weakening`.
-pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v2";
+/// v2 since kink27 R5-WEAKENING added the facts' `weakening`; v3 since the edited rules lost
+/// `requires_edited` (the kill search reads the edit from the compiled mutant).
+pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v3";
 /// The format and meaning of a census memo record (its key's `version` and its digest's domain).
 pub const CENSUS_MEMO_VERSION: &str = "kink-flow/census-memo/v1";
 /// The memos' directory in the cache directory: `memo/resolutions/<spec digest>/<entry
@@ -161,7 +162,6 @@ impl Facts {
                     end_line,
                     before,
                     after,
-                    requires_edited,
                 } = rule;
                 json!({
                     "module": at.module,
@@ -173,7 +173,6 @@ impl Facts {
                     "end_line": end_line,
                     "before": before,
                     "after": after,
-                    "requires_edited": requires_edited,
                 })
             }).collect::<Vec<_>>(),
             "identity": self.identity.map(|identity| identity.to_string()),
@@ -214,7 +213,6 @@ impl Facts {
                     } else {
                         Some(text(&rule["after"])?)
                     },
-                    requires_edited: rule["requires_edited"].as_bool()?,
                 })
             })
             .collect::<Option<Vec<_>>>()?;

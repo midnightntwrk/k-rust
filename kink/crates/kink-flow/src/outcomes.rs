@@ -26,15 +26,30 @@
 //! (`search::tier1_refusal`).
 //!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
-//! `{schema: "kink-flow-outcomes", version: 2, context, context_sha256, mutation_identity,
-//! mutation_id, removed_claims, records: {<program digest>: {program_id, baseline_run_sha256,
-//! outcome, slots, mutant_run_sha256, difference, allowance_bytes, record_sha256}}}`.
+//! `{schema: "kink-flow-outcomes", version: 3, context, context_sha256, mutation_identity,
+//! mutation_id, removed_claims, witness, records: {<program digest>: {program_id,
+//! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, allowance_bytes,
+//! record_sha256}}}`.
 //!
 //! `removed_claims` is the row's (`report::claims_value`):
 //! the claims the mutant every record ran on does not carry (re-pin R0c-fix-2).
 //! It is informational, a function of the specification, the mutation
 //! and the `claim_removal` version of the context's kink identity,
 //! and is neither read back nor in a record digest.
+//!
+//! `witness` (version 3) is the mutant's compiled edit read through the baseline's rule authors
+//! (`search::EditWitness`: `{global, matched, applied}`, the baseline sentences whose coverage
+//! witnesses the edit by k-rust `matched` and by `applied`), from the live call that wrote the
+//! records, or null.
+//! It is a function of the key: the claim-free mutant is compiled from the mutation's patch under
+//! the context's kink identity, and the baseline's rule authors from the definition the
+//! execution digest names, so it rests on the compile determinism every record rests on.
+//! A row tier 1 decides with no compile reads it for its `reaching` and for which of several
+//! cached killers it names; it decides no status and orders no call (a live call orders its
+//! programs by its own compiled edit), so it is outside every record digest, and a file whose
+//! `witness` does not decode gives no `reaching` and names the first cached killer in O.
+//! `run --verify` compares it with the cold call's compiled edit and reports a difference in the
+//! run document's `mismatches`.
 //!
 //! `allowance_bytes` is k-rust's `Allowance::of_process().bytes()`
 //! of the process that wrote the record, for diagnosis only:
@@ -71,9 +86,9 @@ use std::{
 
 /// The `schema` field of an outcome file.
 pub const OUTCOMES_SCHEMA: &str = "kink-flow-outcomes";
-/// The outcome file's version.
-/// The outcome file's version: 2 since CF-16 added each record's `difference`.
-pub const OUTCOMES_VERSION: u64 = 2;
+/// The outcome file's version: 2 since CF-16 added each record's `difference`; 3 since the file
+/// keeps the mutant's compiled edit (`witness`, module doc).
+pub const OUTCOMES_VERSION: u64 = 3;
 /// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest.
 pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v2";
 /// The tier-1 directory's name in the cache directory.
@@ -287,19 +302,31 @@ impl OutcomeStore {
     /// record's digest recomputes, and its outcome agrees with its slots. A missing or
     /// unreadable file has none.
     pub fn read(&self, identity: Sha256Digest) -> BTreeMap<String, OutcomeRecord> {
-        self.file(identity)
-            .map(|records| {
-                records
-                    .iter()
-                    .filter_map(|(program, value)| {
-                        Some((program.clone(), self.record(identity, program, value)?))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.read_with_witness(identity).0
     }
 
-    /// The `records` object of the mutation's file when the file's own fields are current.
+    /// [`Self::read`]'s records and the file's `witness` (module doc), null when the file is
+    /// missing, not current or has none.
+    pub fn read_with_witness(
+        &self,
+        identity: Sha256Digest,
+    ) -> (BTreeMap<String, OutcomeRecord>, Value) {
+        let Some(mut file) = self.file(identity) else {
+            return (BTreeMap::new(), Value::Null);
+        };
+        let records = file
+            .get("records")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(program, value)| {
+                Some((program.clone(), self.record(identity, program, value)?))
+            })
+            .collect();
+        (records, file.remove("witness").unwrap_or(Value::Null))
+    }
+
+    /// The mutation's file when its own fields are current.
     fn file(&self, identity: Sha256Digest) -> Option<Map<String, Value>> {
         let text = fs::read_to_string(self.path(identity)).ok()?;
         let value = kink_patch::parse_json(&text).ok()?;
@@ -311,7 +338,10 @@ impl OutcomeStore {
         if !current {
             return None;
         }
-        value.get("records")?.as_object().cloned()
+        match value {
+            Value::Object(file) => Some(file),
+            _ => None,
+        }
     }
 
     /// One stored record, if it passes the integrity checks.
@@ -352,17 +382,24 @@ impl OutcomeStore {
     /// Add `records` (by program digest) to the mutation's file: read, keep the stored records
     /// that pass the integrity checks (records of programs absent from the corpus are kept),
     /// replace or add the new ones (the last of several with one program digest), and write
-    /// the file atomically (kink-corpus `Store`). Returns the number of records written: the
-    /// number of distinct programs in `records` (flow F-16).
+    /// the file atomically (kink-corpus `Store`). The file's `witness` is `witness` when it is not
+    /// null, else the stored one. Returns the number of records written: the number of distinct
+    /// programs in `records` (flow F-16).
     pub fn write(
         &self,
         store: &Store,
         identity: Sha256Digest,
         mutation_id: &str,
         removed_claims: &Value,
+        witness: &Value,
         records: &[(String, OutcomeRecord)],
     ) -> Result<usize, StoreError> {
-        let mut all = self.read(identity);
+        let (mut all, stored_witness) = self.read_with_witness(identity);
+        let witness = if witness.is_null() {
+            &stored_witness
+        } else {
+            witness
+        };
         for (program, record) in records {
             all.insert(program.clone(), record.clone());
         }
@@ -391,6 +428,7 @@ impl OutcomeStore {
                 "mutation_identity": identity_text,
                 "mutation_id": mutation_id,
                 "removed_claims": removed_claims,
+                "witness": witness,
                 "records": values,
             }),
         )?;

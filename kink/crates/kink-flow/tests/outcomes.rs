@@ -523,13 +523,13 @@ fn an_outcome_written_under_another_identity_is_ignored() {
         stale.push((component.key, changed));
     }
     for (name, stale) in stale {
-        here.write(&store, identity, "m", &json!(null), &records)
+        here.write(&store, identity, "m", &json!(null), &json!(null), &records)
             .unwrap();
         assert_eq!(here.read(identity).len(), 1, "{name}: control");
         let there = OutcomeStore::new(&cache, stale);
         assert_ne!(there.context_sha256(), here.context_sha256(), "{name}");
         there
-            .write(&store, identity, "m", &json!(null), &records)
+            .write(&store, identity, "m", &json!(null), &json!(null), &records)
             .unwrap();
         assert_eq!(
             there.read(identity).len(),
@@ -539,6 +539,84 @@ fn an_outcome_written_under_another_identity_is_ignored() {
         fs::copy(there.path(identity), here.path(identity)).unwrap();
         assert!(here.read(identity).is_empty(), "{name}");
     }
+}
+
+/// The outcome file keeps the mutant's compiled edit (`witness`, version 3) beside its records:
+/// a write with none keeps the stored one, a write with one replaces it, and a version 2 file,
+/// which has none, is not current.
+#[test]
+fn the_outcome_file_keeps_the_compiled_edit() {
+    use kink_flow::outcomes::{CachedOutcome, OUTCOMES_VERSION, OutcomeRecord, OutcomeStore};
+    let cache = scratch("witness");
+    let store = kink_corpus::Store::new(&cache);
+    let outcomes = OutcomeStore::new(&cache, json!({"test": "witness"}));
+    let identity = kink_patch::sha256(b"mutation");
+    let record = |program: &str| {
+        (
+            kink_patch::sha256(program.as_bytes()).to_string(),
+            OutcomeRecord {
+                program_id: program.into(),
+                baseline_run_sha256: "0".repeat(64),
+                outcome: CachedOutcome::Agree,
+                slots: vec![
+                    kink_campaign::OracleOutcome::Agree,
+                    kink_campaign::OracleOutcome::Agree,
+                ],
+                mutant_run_sha256: "1".repeat(64),
+                difference: Value::Null,
+                allowance_bytes: None,
+            },
+        )
+    };
+    let witness = json!({
+        "global": false,
+        "matched": [],
+        "applied": [{"module": "DIVIDE", "index": 3}],
+    });
+    outcomes
+        .write(
+            &store,
+            identity,
+            "m",
+            &json!(null),
+            &witness,
+            &[record("one")],
+        )
+        .unwrap();
+    let (records, read) = outcomes.read_with_witness(identity);
+    assert_eq!((records.len(), &read), (1, &witness));
+    // A later write with no compiled edit keeps the stored one and adds its records.
+    outcomes
+        .write(
+            &store,
+            identity,
+            "m",
+            &json!(null),
+            &json!(null),
+            &[record("two")],
+        )
+        .unwrap();
+    let (records, read) = outcomes.read_with_witness(identity);
+    assert_eq!((records.len(), &read), (2, &witness));
+    let global = json!({"global": true, "matched": [], "applied": []});
+    outcomes
+        .write(
+            &store,
+            identity,
+            "m",
+            &json!(null),
+            &global,
+            &[record("two")],
+        )
+        .unwrap();
+    assert_eq!(outcomes.read_with_witness(identity).1, global);
+    let path = outcomes.path(identity);
+    let mut file: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(file["version"], OUTCOMES_VERSION);
+    file["version"] = json!(2);
+    fs::write(&path, file.to_string()).unwrap();
+    let (records, read) = outcomes.read_with_witness(identity);
+    assert!(records.is_empty() && read.is_null());
 }
 
 /// Stop rule 1 (README 7.5.3 step 6): every mutation of the list run with a cache that a run

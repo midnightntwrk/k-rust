@@ -704,11 +704,6 @@ pub struct EditedRule {
     pub before: String,
     /// The edited rule's source text; `None` for a deleted rule.
     pub after: Option<String>,
-    /// Whether the edit changes the rule's `requires` (compared without positions). It decides
-    /// which coverage witnesses the edit in the kill search's order and the row's `reaching`
-    /// (re-pin L2-1-tail): a program that reached the rule (k-rust `matched`) when it does, one
-    /// that fired it (`applied`) otherwise, as kink-campaign `selection` reads a site-local edit.
-    pub requires_edited: bool,
 }
 
 impl ResolvedMutation {
@@ -1374,7 +1369,6 @@ pub fn resolve(
         let before = view.text
             [view_span(original, &view.text, &site.describe()).map_err(no_span)?]
         .to_owned();
-        let mut requires_edited = false;
         let after = match edited_rules.get(at) {
             None => {
                 edits.push(Edit::DeleteSentence { at: at.clone() });
@@ -1382,7 +1376,6 @@ pub fn resolve(
             }
             Some(edited_sentence) => {
                 let replacement = with_baseline_positions(edited_sentence, original);
-                requires_edited = edits_requires(original, &replacement);
                 if fingerprint_equal(&replacement, original) {
                     return Err(InvalidMutation {
                         edit: Some(group.edits[0]),
@@ -1415,7 +1408,6 @@ pub fn resolve(
             end_line: location.end_line,
             before,
             after,
-            requires_edited,
         });
     }
     let rejected = |detail: String| InvalidMutation {
@@ -2312,15 +2304,6 @@ fn fingerprint_equal(left: &Sentence, right: &Sentence) -> bool {
             };
             strip(left) == strip(right)
         }
-    }
-}
-
-/// Whether `replacement` has another `requires` than the rule `original` ([`EditedRule`]'s
-/// `requires_edited`). Term equality ignores annotations, so a moved condition is not a change.
-fn edits_requires(original: &Sentence, replacement: &Sentence) -> bool {
-    match (original, replacement) {
-        (Sentence::Rule { requires: old, .. }, Sentence::Rule { requires: new, .. }) => old != new,
-        _ => false,
     }
 }
 

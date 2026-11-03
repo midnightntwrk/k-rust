@@ -1267,6 +1267,47 @@ pub fn run_campaign_multi_with(
     options: &CampaignOptions,
     session: &mut BaselineSession<'_>,
 ) -> Result<CampaignRun, CampaignFailure> {
+    run_campaign_session(campaign, generations, options, session, None)
+}
+
+/// A caller's order of a mutant's tests, chosen once the mutant's claim-free side, the definition
+/// every test of the mutant runs on, has compiled ([`run_campaign_multi_ordered`]): given that
+/// side's [`CompiledEdit`] against the compiled baseline, the ids of the tests that run first.
+pub type FirstTests<'f> = dyn FnMut(&CompiledEdit) -> BTreeSet<String> + 'f;
+
+/// [`run_campaign_multi_with`] with each mutant's tests ordered by the caller once the mutant
+/// compiles: the tests `first` names run first, then the rest, each group in the campaign's test
+/// order (kink-flow's kill search, which keeps its programs' coverage by baseline sentence and
+/// reads the edit through [`CompiledEdit::witness`]). A mutant refused before its claim-free side
+/// compiles runs no test and is never given to `first`. Each mutant's plan lists its tests in the
+/// order they ran, and its report is derived against the manifest in that order; the plan records
+/// no [`MutantSelection`], since no policy chose the order. The order changes no status in the
+/// no-Z3 profile while no wall-clock bound fires, as for [`SelectionPolicy::Prioritize`] (module
+/// [`crate::selection`]). A campaign that also asks for a selection policy is refused before
+/// anything runs: the two would be two orders of one mutant's tests.
+pub fn run_campaign_multi_ordered(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
+    first: &mut FirstTests<'_>,
+) -> Result<CampaignRun, CampaignFailure> {
+    if options.selection != SelectionPolicy::None {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            "a caller's test order and a selection policy would be two orders of a mutant's tests",
+        ));
+    }
+    run_campaign_session(campaign, generations, options, session, Some(first))
+}
+
+fn run_campaign_session(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
+    mut first: Option<&mut FirstTests<'_>>,
+) -> Result<CampaignRun, CampaignFailure> {
     session.last_call = CallRecording::default();
     session.admit(campaign)?;
     let memoise = BaselineSession::memoises(campaign);
@@ -1510,11 +1551,31 @@ pub fn run_campaign_multi_with(
             options,
             &admission,
             &mut observations,
+            first.as_deref_mut(),
         );
         session
             .last_call
             .mutants
             .push((MutantId(index), execution.recordings));
+        // A caller's order (`run_campaign_multi_ordered`): the manifest lists the tests in the
+        // order they ran, which the plan records no selection for.
+        let ordered;
+        let manifest = match &execution.caller_order {
+            None => &manifest,
+            Some(order) => {
+                ordered = order
+                    .iter()
+                    .map(|id| {
+                        manifest
+                            .iter()
+                            .find(|test| test.test_id == *id)
+                            .expect("a caller's order lists the campaign's tests")
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                &ordered
+            }
+        };
         let plan = MutantPlan {
             mutant_id: MutantId(index),
             tests: execution.tests,
@@ -1523,7 +1584,7 @@ pub fn run_campaign_multi_with(
             inconsistent_pairs: execution.inconsistent_pairs,
             selection: execution.selection,
         };
-        let report = derive_mutant_report(&plan, &manifest, schedule)?;
+        let report = derive_mutant_report(&plan, manifest, schedule)?;
         if let Some(earlier) = same_as {
             assert_eq!(
                 report.status, runs[earlier.0].report.status,
@@ -1749,6 +1810,8 @@ struct MutantExecution {
     claims: Withdrawal,
     inconsistent_pairs: Vec<UnjoinedEquations>,
     selection: Option<MutantSelection>,
+    /// The order the tests ran in when the caller chose it ([`run_campaign_multi_ordered`]).
+    caller_order: Option<Vec<String>>,
     /// The session's recordings of the live mutant runs (recording only).
     recordings: Vec<RunRecording>,
 }
@@ -1765,6 +1828,7 @@ struct MutantExecution {
 /// one. A later mutant-scope failure must end the mutant's tests under both schedules alike,
 /// or make `FirstKill` run every test. No test outcome overrides a kill: a contradicted claim
 /// (re-pin decision 2) makes only its own test unknown ([`derive_mutant_report`]).
+#[allow(clippy::too_many_arguments)]
 fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
@@ -1773,6 +1837,7 @@ fn run_mutant(
     options: &CampaignOptions,
     admission: &MutantAdmission,
     observations: &mut BaselineObservations<'_>,
+    first: Option<&mut FirstTests<'_>>,
 ) -> MutantExecution {
     // fz26 KINK-BASELINE-FINDINGS: no end of a baseline with a finding left is data, so no
     // comparison on it can kill, and the mutant is unknown before it compiles.
@@ -1797,6 +1862,7 @@ fn run_mutant(
                 claims,
                 inconsistent_pairs,
                 selection: None,
+                caller_order: None,
                 recordings: Vec::new(),
             }
         }
@@ -1811,10 +1877,25 @@ fn run_mutant(
                 options.selection,
                 observations,
             );
-            let order = selection.as_ref().map_or_else(
-                || campaign.tests.iter().map(|test| test.id.clone()).collect(),
-                |selection| selection.order.clone(),
-            );
+            let caller_order = first.map(|first| {
+                let first = first(&sides.edit);
+                let mut order = Vec::with_capacity(campaign.tests.len());
+                for runs_first in [true, false] {
+                    order.extend(
+                        campaign
+                            .tests
+                            .iter()
+                            .filter(|test| first.contains(&test.id) == runs_first)
+                            .map(|test| test.id.clone()),
+                    );
+                }
+                order
+            });
+            let order = match (&selection, &caller_order) {
+                (Some(selection), _) => selection.order.clone(),
+                (None, Some(order)) => order.clone(),
+                (None, None) => campaign.tests.iter().map(|test| test.id.clone()).collect(),
+            };
             let (tests, evidence, recordings) = run_tests(
                 campaign,
                 &mut sides,
@@ -1830,6 +1911,7 @@ fn run_mutant(
                 claims,
                 inconsistent_pairs: Vec::new(),
                 selection,
+                caller_order,
                 recordings,
             }
         }

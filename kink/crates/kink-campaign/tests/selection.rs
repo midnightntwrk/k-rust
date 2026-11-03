@@ -470,6 +470,68 @@ fn plan_accepts_only_the_recorded_prioritize_permutation_and_keeps_skip_guards()
 mod kink_tier {
     use super::*;
 
+    /// A caller's order (`run_campaign_multi_ordered`, kink-flow's kill search): once the mutant
+    /// compiles, the caller gets the compiled edit of the side the tests run on and names the
+    /// tests that run first; the plan lists the tests in that order, records no selection, and
+    /// the report is derived against that order. Naming none keeps the campaign's order. A
+    /// selection policy beside it is refused before anything runs.
+    #[test]
+    #[ignore = "kink"]
+    fn a_callers_order_runs_the_named_tests_first_and_records_no_selection() {
+        with_stack(|| {
+            let validator =
+                NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+            let tests = two_tests();
+            let campaign = counter_campaign(&validator, &[], &tests, BUDGET);
+            let generation = branch_generation(validator.baseline());
+            let ordered = |first: &[&str], options: &CampaignOptions| {
+                let mut seen = Vec::new();
+                let run = kink_campaign::run_campaign_multi_ordered(
+                    &campaign,
+                    std::slice::from_ref(&generation),
+                    options,
+                    &mut kink_campaign::BaselineSession::new(&validator),
+                    &mut |edit: &CompiledEdit| {
+                        seen.push(edit.clone());
+                        first.iter().map(|id| (*id).to_owned()).collect()
+                    },
+                );
+                (run, seen)
+            };
+            let none = CampaignOptions {
+                selection: SelectionPolicy::None,
+                ..options(ScheduleMode::FirstKill)
+            };
+            let baseline = validator.compile_baseline().expect("baseline compile");
+            let side = validator
+                .validate(&generation.candidates()[0].patch)
+                .expect("mutant compile");
+            for (first, order) in [(&["t2"][..], ["t2", "t1"]), (&[][..], ["t1", "t2"])] {
+                let (run, seen) = ordered(first, &none);
+                let run = run.expect("campaign");
+                let m = &run.mutants[0];
+                assert_eq!(seen, [CompiledEdit::between(&baseline, &side)], "{first:?}");
+                assert_eq!(m.plan.selection, None);
+                assert_eq!(
+                    m.plan
+                        .tests
+                        .iter()
+                        .map(|t| t.test_id.as_str())
+                        .collect::<Vec<_>>(),
+                    order
+                );
+                assert_eq!(m.report.status, MutantStatus::Survived);
+                assert_eq!(m.report.executed_test_ids, order);
+            }
+            let (refused, seen) = ordered(&["t2"], &options(ScheduleMode::FirstKill));
+            assert_eq!(
+                refused.expect_err("two orders").kind(),
+                CampaignFailureKind::InvalidDeclaration
+            );
+            assert!(seen.is_empty());
+        });
+    }
+
     /// H1: the two baseline final terms differ; reversing the runs must preserve the pairing.
     #[test]
     #[ignore = "kink"]

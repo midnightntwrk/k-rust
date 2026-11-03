@@ -72,9 +72,9 @@ use k_rust::{
 };
 use kink_campaign::{
     BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
-    CampaignOptions, CampaignReport, CampaignRun, CrashPolicy, FinalResult, OracleDeclaration,
-    OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun, StateProjection, TestCase,
-    run_campaign_multi_with,
+    CampaignOptions, CampaignReport, CampaignRun, CrashPolicy, FinalResult, FirstTests,
+    OracleDeclaration, OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun,
+    StateProjection, TestCase, run_campaign_multi_ordered, run_campaign_multi_with,
 };
 use kink_corpus::{Store, admission::AdmissionRecord, runner::all_normal};
 use kink_native::{
@@ -594,6 +594,40 @@ impl<'a> BaselineRunner<'a> {
             options,
             &mut self.session.borrow_mut(),
         )
+    }
+
+    /// [`Self::call`] with each mutant's programs ordered once it compiles: `first` gets the
+    /// compiled edit of the side the programs run on and names the programs that run first
+    /// (kink-campaign `run_campaign_multi_ordered`; the kill search's witness order).
+    pub fn call_ordered(
+        &self,
+        tests: &[TestCase],
+        generations: &[CandidateGeneration<'_>],
+        options: &CampaignOptions,
+        first: &mut FirstTests<'_>,
+    ) -> Result<CampaignRun, CampaignFailure> {
+        let mut options = options.clone();
+        options.run.baseline_max_work = self.baseline_max_work;
+        let campaign = Campaign {
+            validator: &self.spec.validator,
+            module: &self.module,
+            observation: &[],
+            classify: &classify,
+            tests,
+            budget: self.budget,
+        };
+        run_campaign_multi_ordered(
+            &campaign,
+            generations,
+            &options,
+            &mut self.session.borrow_mut(),
+            first,
+        )
+    }
+
+    /// The compiled baseline's rule authors: the baseline sentences behind each compiled id.
+    pub const fn authors(&self) -> &RuleAuthors {
+        &self.authors
     }
 
     /// `{live, reused, diagnostic}`: the baseline runs this command made live, the baseline

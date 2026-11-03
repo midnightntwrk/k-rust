@@ -541,6 +541,20 @@ note = "requires and right-hand side"
                 ("both", "killed", Some("quotient"), false),
             ])
         );
+        // The witnesses are read from the compiled mutant, which the outcome file keeps: a warm
+        // run decides every row from tier 1 with no compile and names the same witnesses. Tier 1
+        // is off under Z3.
+        if cfg!(feature = "z3") {
+            return;
+        }
+        let (warm, _) = search(&dir.join("FLOW.toml"), &mutations, &[]);
+        for id in ["guard-dropped", "operands-swapped", "both"] {
+            let row = mutation(&warm, id);
+            assert_eq!(row["status"], "killed", "{id}");
+            assert_eq!(row["killer_source"], "outcome-cache", "{id}");
+            assert_eq!(row["calls"], json!([]), "{id}");
+            assert_eq!(row["reaching"], mutation(&document, id)["reaching"], "{id}");
+        }
     }
 
     #[test]
@@ -727,6 +741,12 @@ note = "requires and right-hand side"
             mutation(&document, "countdown-escapes")["reason"],
             json!("no-comparable-program")
         );
+        // O is empty, so no program of it witnesses the edit, whatever the edit: `reaching` is
+        // exactly empty, not unknown.
+        assert_eq!(
+            mutation(&document, "countdown-escapes")["reaching"],
+            json!([])
+        );
         assert_eq!(
             calls(&document, "countdown-escapes"),
             Vec::<Vec<String>>::new()
@@ -861,8 +881,9 @@ note = "requires and right-hand side"
         // `unkillable` and a row's `weakening`; CF-16: version 12 adds `difference` and `ends`;
         // CF-02: version 13 adds `spec.exclusion`; version 14 adds `result`, the compared cells;
         // CF-03: version 15 adds `short_circuit_readings`, the step that excluded a run; CF-23:
-        // version 16 adds `schedule`, `matrix` and a row's `killed_by`.
-        assert_eq!(document["version"], 16);
+        // version 16 adds `schedule`, `matrix` and a row's `killed_by`; version 17 reads a row's
+        // `reaching` from the compiled mutant.
+        assert_eq!(document["version"], 17);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

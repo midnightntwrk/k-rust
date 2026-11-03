@@ -678,8 +678,9 @@ text = 'h(opaque(1), 2)'
         // CF-16: version 12 adds `difference` and `ends`; CF-02: version 13 adds `spec.exclusion`;
         // version 14 adds `result`, the compared cells; CF-03: version 15 adds
         // `short_circuit_readings`, the step that excluded a run; CF-23: version 16 adds
-        // `schedule`, `matrix` and a row's `killed_by`.
-        assert_eq!(document["version"], 16);
+        // `schedule`, `matrix` and a row's `killed_by`; version 17 reads a row's `reaching` from
+        // the compiled mutant.
+        assert_eq!(document["version"], 17);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

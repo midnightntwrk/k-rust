@@ -28,9 +28,11 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// `attempts[].fuzz`, and `template.holes`, k-rust-fuzz's `HoleDecl`, whose shape the witness
 /// version names (k-rust-fuzz `tests/formats.rs`; fix round S-D). Re-pinned within version 4 by
 /// FZ-ENGINE-R4, in the same wave: the `stopped` value `domain-exhausted` and the warning
-/// `witness-not-terminating`.
+/// `witness-not-terminating`. Version 5 adds the warning `reaching-not-computed` and lets
+/// `template.last_run.mutation.reaching` be null; the digest is unchanged, since the reader takes
+/// neither a warning kind passed to `warning(..)` nor a value computed by an expression.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    4,
+    5,
     10,
     2,
     "f0c2d1b81763949b79df1699671e8bdf1e2f62617acaf5efb6d207f198a80728",

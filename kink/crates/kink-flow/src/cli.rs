@@ -716,8 +716,8 @@ fn on_manifest(path: &Path, command: &FlowCommand) -> (Value, u8) {
 pub struct CheckOptions {
     /// A mutation list to resolve against the specification ([`crate::check`]).
     pub mutations: Option<PathBuf>,
-    /// The cache directory whose result records decide `unreached-rule`; default
-    /// `<directory of FLOW.toml>/.kink-flow`. Nothing is written to it.
+    /// The cache directory whose result records decide `unreached-rule` and `unapplied-rule`;
+    /// default `<directory of FLOW.toml>/.kink-flow`. Nothing is written to it.
     pub cache: Option<PathBuf>,
 }
 
@@ -1158,9 +1158,9 @@ pub fn check_with(manifest: &Path, options: &CheckOptions) -> (Value, u8) {
 
 /// `check --mutations` before it is rendered: the admission of the specification and the
 /// programs, the mutation list, and, when the specification is admitted and the list decodes, the
-/// check of every mutation ([`MutationCheck`]) and the coverage that decided `unreached-rule`.
-/// A front end adds its own findings to [`Self::mutations`] (the admitted specification is
-/// `admission.spec`) and renders with [`check_mutations_document`].
+/// check of every mutation ([`MutationCheck`]) and the coverage that decided `unreached-rule` and
+/// `unapplied-rule`. A front end adds its own findings to [`Self::mutations`] (the admitted
+/// specification is `admission.spec`) and renders with [`check_mutations_document`].
 #[derive(Debug)]
 pub struct CorpusMutationCheck {
     pub admission: FlowAdmission,
@@ -1281,8 +1281,13 @@ fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
 /// analysis flags, which are no longer a definition exclusion: each run of such a definition is
 /// judged by k-rust's list of that run, so no program is `excluded` for them before it runs; and
 /// a program whose initial configuration applies a reading-dependent function is `excluded` at
-/// stage `initial-state` only when its depth-0 run lists a reading that counts against it.
-pub const CHECK_VERSION: u64 = 6;
+/// stage `initial-state` only when its depth-0 run lists a reading that counts against it; 7
+/// gives `unreached-rule` for an edited rule no comparable program reached (k-rust `matched`),
+/// whatever the edit (before, an edit that left the `requires` alone was warned about when no
+/// program applied the rule), and adds `unapplied-rule` for one some program reached and none
+/// applied (`applied`), since `check` compiles no mutant and so cannot read `run`'s witness rule
+/// ([`crate::check`]).
+pub const CHECK_VERSION: u64 = 7;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({

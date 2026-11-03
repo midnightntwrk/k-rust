@@ -32,6 +32,10 @@
 //!   (findings D-03: a set-aside instance with an empty `requires` is not counted); a removed or
 //!   inserted equation; a changed declaration, claim, macro, syntax or rewrite order.
 //!
+//! kink-flow's kill search reads the same classification ([`CompiledEdit::witness`]) over the
+//! coverage its result records keep by baseline sentence, ordering each mutant's programs once it
+//! compiles (`run_campaign_multi_ordered`).
+//!
 //! k-rust's sets are no over-approximation of what can affect a result (a higher-priority rule
 //! that failed to match is absent, though its failure lets the owise rule fire), so a test that
 //! does not witness an edit may still kill it; it only runs later.
@@ -98,8 +102,9 @@ impl SelectionPolicy {
 pub struct CompiledEdit {
     pub removed_rule_ids: BTreeSet<String>,
     pub global: bool,
-    /// The removed ids whose edit changed only their condition: a run witnesses them by
-    /// `matched` ([`TestCoverage::rule_ids`]); every other removed id by `applied`
+    /// The removed ids whose edit changed their condition, alone or with their right-hand side
+    /// or `ensures` (and nothing else): a run witnesses them by `matched`
+    /// ([`TestCoverage::rule_ids`]); every other removed id by `applied`
     /// ([`TestCoverage::applied_ids`]). Empty when `global`.
     pub condition_ids: BTreeSet<String>,
 }
@@ -165,14 +170,38 @@ impl CompiledEdit {
         }
     }
 
-    /// Whether `coverage` witnesses the removed id `id` (module doc).
-    fn witnessed(&self, coverage: &TestCoverage, id: &str) -> bool {
+    /// Which coverage predicate witnesses the removed id `id` (module doc): `matched` for an id
+    /// whose edit changed its condition, alone or with its right-hand side or `ensures`
+    /// ([`Self::condition_ids`]), `applied` for every other removed id. Meaningful only when the edit is not [`Self::global`], which every run
+    /// witnesses.
+    #[must_use]
+    pub fn witness(&self, id: &str) -> Witness {
         if self.condition_ids.contains(id) {
-            coverage.rule_ids.contains(id)
+            Witness::Matched
         } else {
-            coverage.applied_ids.contains(id)
+            Witness::Applied
         }
     }
+
+    /// Whether `coverage` witnesses the removed id `id` (module doc).
+    fn witnessed(&self, coverage: &TestCoverage, id: &str) -> bool {
+        match self.witness(id) {
+            Witness::Matched => coverage.rule_ids.contains(id),
+            Witness::Applied => coverage.applied_ids.contains(id),
+        }
+    }
+}
+
+/// The k-rust coverage predicate by which a run witnesses one removed id of a [`CompiledEdit`]
+/// ([`CompiledEdit::witness`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Witness {
+    /// The run began to decide a matched instance's condition (k-rust `matched`,
+    /// [`TestCoverage::rule_ids`]).
+    Matched,
+    /// The run built a candidate of the axiom, defined or rolled back (k-rust `applied`,
+    /// [`TestCoverage::applied_ids`]).
+    Applied,
 }
 
 /// The regenerated per-mutant schedule. Prioritize has no deselected tests.

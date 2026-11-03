@@ -952,6 +952,7 @@ mod tests {
                 identity,
                 "m",
                 &Value::Null,
+                &Value::Null,
                 &[(program.clone(), record.clone())],
             )
             .unwrap();

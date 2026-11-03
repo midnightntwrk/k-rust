@@ -11,27 +11,41 @@
 //!    after the `baseline-findings` check (before tier 1, a baseline with a finding no
 //!    `[spec] assume_joined` name assumes makes every mutation with a program in O `unknown`),
 //!    since the argument reads the baseline's normal forms as a model (fix round 1).
-//! 2. Choose the programs O: the comparable programs of the up-to-date result cache, the ones
-//!    whose cached coverage witnesses an edited rule's edit first (reached for an edit of its
-//!    `requires`, applied, k-rust `applied`, for any other edit; re-pin L2-1-tail), then the
-//!    rest, each group cheapest first (the record's `wall_ms`, then corpus order;
-//!    [`ProgramOrder`], README 6.4). The order
-//!    changes which killing program is found first and the cost, never a status in the no-Z3
-//!    profile while no `budget.time_ms` bound fires (under Z3 a reused backend's cache of solver
-//!    answers can make it move one between killed, unknown and survived, never to a false kill;
-//!    review L2-1-tail-1 D1, D2).
+//! 2. Choose the programs O: the comparable programs of the up-to-date result cache, cheapest
+//!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). Every
+//!    live call then runs first the programs of the call whose cached coverage witnesses the
+//!    mutant's edit, then the rest, each group in O's order: once the mutant's claim-free side
+//!    compiles, the runner gives its compiled edit (kink-campaign `CompiledEdit::between`, the
+//!    rule its coverage selection reads; `run_campaign_multi_ordered`), and a program witnesses
+//!    it as [`witnesses`] says (reached, k-rust `matched`, for an axiom whose edit changed its
+//!    `requires`, alone or with its right-hand side or `ensures`; applied, k-rust `applied`,
+//!    otherwise; every program for an edit that is not site-local; re-pin L2-1-tail), and a
+//!    program whose cached coverage is not complete witnesses every edit, since it covers only
+//!    what its run explored before it stopped. The row's `reaching` lists the witnessing
+//!    programs of O, from a live call's compiled edit or, on a row tier 1 decides with no call,
+//!    from the one the mutation's outcome file keeps ([`EditWitness`]); it is empty on the
+//!    `no-comparable-program` row of an empty O, and otherwise null when there is neither. What is decided before any compile
+//!    (tier 1, the compiles ahead) depends only on the set of programs in O, not on their
+//!    order. The order changes which killing program is found first and the cost,
+//!    never a status in the no-Z3 profile while no `budget.time_ms` bound fires (under Z3 a
+//!    reused backend's cache of solver answers can make it move one between killed, unknown and
+//!    survived, never to a false kill; review L2-1-tail-1 D1, D2).
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
 //!    the program digest and the program's baseline run digest). A valid `killed` record makes
-//!    the status `killed` with no call (its killer the first such program in O); otherwise the
-//!    programs with a valid `agree` record form A, and L = O minus A. With L empty the status
+//!    the status `killed` with no call (its killer the first such program in the order a live
+//!    call would run O: first the programs that witness the compiled edit the outcome file
+//!    keeps, then the rest, each in O's order; so after `--full` cached every killer, the killer
+//!    is the one a cold first-kill call finds first, for the same order of O); otherwise the
+//!    programs with a valid `agree` record form A, in that order, and L = O minus A. With L empty the status
 //!    is the runner's fold over A's cached outcomes (survived), with no call.
 //! 4. Otherwise the mutant runs live on L. Tier 2 (README 7.5.5): when the killer hint names a
 //!    comparable program of L, one call runs that program alone; if it kills, that is the
-//!    verdict. Otherwise the cold call runs L in O's order (the hinted program included).
+//!    verdict. Otherwise the cold call runs L (the hinted program included), the programs that
+//!    witness the compiled edit first, then the rest, each in O's order.
 //! 5. Every status is `kink_campaign::derive_mutant_report` (schedule `FirstKill`) over the
-//!    assembled plan: A's cached outcomes in O's order, then the last live call's tests in
+//!    assembled plan: A's cached outcomes in step 3's order, then the last live call's tests in
 //!    their order, with that call's mutant-scope failure. kink-flow adds no fold and compares
 //!    no terms: a mutation is killed only by a proved `Distinguish`, live from
 //!    `run_campaign_multi` in this command or cached under an exactly matching key. A cached
@@ -45,7 +59,8 @@
 //!    status `error` with reason `baseline-mismatch:<program id>` (or
 //!    `baseline-count-mismatch`), nothing is written to tier 1 for it, and the run stops.
 //! 7. After a verdict, every live test whose outcome is cacheable (killed or agree) gets a
-//!    tier-1 record, unless its call's plan carries a mutant-scope failure. A `killed` status
+//!    tier-1 record, unless its call's plan carries a mutant-scope failure, and the mutation's
+//!    outcome file keeps the call's compiled edit ([`EditWitness`]). A `killed` status
 //!    makes its first killing program the mutation's hint; any other status removes it. The
 //!    hints file and the report are written after every mutation, corpus errors included.
 //!
@@ -53,8 +68,8 @@
 //! `run --full` ([`RunOptions::schedule`] [`ScheduleMode::Full`]) runs every comparable program on
 //! every selected mutation, so that each row holds every cell of the kill matrix:
 //!
-//! - O is every comparable program in corpus order (step 2; `reaching` still names the witnessing
-//!   programs, in that order).
+//! - O is every comparable program in corpus order, and a live call keeps that order (step 2;
+//!   `reaching` still names the programs that witness the compiled edit, in that order).
 //! - Tier 1 decides with no call only when every program of O has a valid record (step 3): a
 //!   `killed` record does not decide a full row, which needs every cell. The valid records,
 //!   killed and agreements alike, are the cached cells C, and L = O minus C.
@@ -112,7 +127,9 @@
 //! `run --verify` ([`RunMode::Verify`]) decides nothing from tier 1: it runs the cold call over
 //! O for every mutation, then one call per valid record whose program the cold call did not
 //! execute, and reports every record (and the cached path's status) that differs from the live
-//! runs as `outcome-mismatch:<program id>`. It writes no record and no hint.
+//! runs as `outcome-mismatch:<program id>`. A compiled edit the outcome file keeps that differs
+//! from the cold call's is reported in `mismatches` (`{cached: {witness}, live: {witness}}`)
+//! and leaves the row's status alone, since it decides none. It writes no record and no hint.
 //!
 //! Memos (re-pin L1-4, [`crate::memo`]): the declaration census of the admission and the facts
 //! of each mutation's resolution are memoised under keys that name every input they depend on,
@@ -147,13 +164,14 @@ use crate::{
 };
 use k_rust::definition::AttributeKey;
 use kink_campaign::{
-    CallRecording, CampaignFailure, CampaignOptions, CampaignReport, ManifestTest, MutantId,
-    MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
-    ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
+    CallRecording, CampaignFailure, CampaignOptions, CampaignReport, CompiledEdit, ManifestTest,
+    MutantId, MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
+    ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, Witness, derive_mutant_report,
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{
     DeclarationCensus,
+    coverage::{Authorship, RuleAuthors},
     data::{DataEnds, NamedFinding, data_ends},
     declaration_census,
     execution::SolverProfile,
@@ -293,8 +311,9 @@ pub const fn schedule_name(schedule: ScheduleMode) -> &'static str {
 /// ([`kink_native::NativeValidator::compile_workers`]).
 pub const DEFAULT_COMPILE_WORKERS: usize = 4;
 
-/// How the kill search orders the programs inside each tier of O (the programs whose coverage
-/// witnesses an edited rule's edit, then the rest; README 5.6 step 2 and 6.4).
+/// How the kill search orders the programs of O, and so inside each tier of a live call (the
+/// programs whose coverage witnesses the mutant's compiled edit, then the rest; README 5.6 step 2
+/// and 6.4).
 ///
 /// The order never changes a status in the no-Z3 profile while no wall-clock bound
 /// (`budget.time_ms`) fires (README 6.4; a run near the bound can time out in one order and
@@ -356,6 +375,9 @@ struct Candidate<'r> {
     run_sha256: Option<&'r str>,
     /// The cached record's `wall_ms`: the cost key of [`ProgramOrder::Cost`].
     wall_ms: Option<u64>,
+    /// The cached coverage's `complete`: a run that is not complete covers only what it explored
+    /// before it stopped, so it witnesses every edit (kink-campaign `coverage_selected`).
+    complete: bool,
     /// The `(module, index)` of every baseline sentence its cached coverage reaches (k-rust
     /// `matched`, the record's `coverage.sentences`).
     reaches: BTreeSet<(String, u64)>,
@@ -391,6 +413,7 @@ fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candi
         digest: row.digest?,
         run_sha256: record["run_sha256"].as_str(),
         wall_ms: record["wall_ms"].as_u64(),
+        complete: record["coverage"]["complete"].as_bool().unwrap_or(false),
         reaches: sentences("sentences"),
         applies: sentences("applied_sentences"),
     })
@@ -418,6 +441,13 @@ struct Stats {
 /// censuses) and the call's wall time.
 struct LiveCall {
     mutant: MutantRun,
+    /// The candidates in the order the call ran them ([`Search::call_untimed`]): the programs
+    /// whose coverage witnesses the mutant's compiled edit first, under the first-kill search.
+    order: Vec<usize>,
+    /// The compiled edit of the side the call's programs ran on (kink-campaign
+    /// [`CompiledEdit::between`]) read through the baseline's rule authors; `None` when the
+    /// mutant was refused before that side compiled.
+    witness: Option<EditWitness>,
     baseline: Vec<TestEvidence>,
     recording: CallRecording,
     /// The functions some of whose equations the mutation edits (kink-patch
@@ -537,18 +567,42 @@ impl Search<'_, '_> {
             // The command compiles ahead across mutations ([`run_with`]); a call holds one.
             compile_workers: 1,
         };
-        let mut run = self
-            .runner
-            .call(&tests, std::slice::from_ref(generation), &options)
-            .map_err(|failure| CorpusError {
-                reason: "campaign-refused".into(),
-                detail: format!(
-                    "the campaign runner refused the call over {:?}: {failure}; the cached \
+        // The witness order (README 5.6 step 2): once the mutant's claim-free side compiles, the
+        // runner asks which programs come first, from that side's compiled edit. The full
+        // schedule keeps corpus order and only records the edit, for the row's `reaching`.
+        let candidates = &self.candidates;
+        let authors = self.runner.authors();
+        let schedule = self.schedule;
+        let mut witness = None;
+        let mut first = |compiled: &CompiledEdit| {
+            let read = EditWitness::of(compiled, authors);
+            let first = match schedule {
+                ScheduleMode::FirstKill => order
+                    .iter()
+                    .map(|&c| &candidates[c])
+                    .filter(|candidate| witnesses(candidate, &read))
+                    .map(|candidate| candidate.id.to_owned())
+                    .collect(),
+                ScheduleMode::Full => BTreeSet::new(),
+            };
+            witness = Some(read);
+            first
+        };
+        let run = self.runner.call_ordered(
+            &tests,
+            std::slice::from_ref(generation),
+            &options,
+            &mut first,
+        );
+        let mut run = run.map_err(|failure| CorpusError {
+            reason: "campaign-refused".into(),
+            detail: format!(
+                "the campaign runner refused the call over {:?}: {failure}; the cached \
                          results no longer describe the baseline runs: run `{} --verify`",
-                    self.ids(order),
-                    self.spelling.verb(Verb::Results)
-                ),
-            })?;
+                self.ids(order),
+                self.spelling.verb(Verb::Results)
+            ),
+        })?;
         // The drift check (README 5.4): every program's baseline row of this call must have
         // its cached record's run digest. The reason names the program from the candidate,
         // never from a message (F-05 review 1 minor 2).
@@ -604,9 +658,23 @@ impl Search<'_, '_> {
             });
         }
         let mutant = run.mutants.remove(0);
+        // The plan lists every test in the order it ran (later ones skipped after a kill), or
+        // none when the mutant was refused before running any.
+        let ran = if mutant.plan.tests.is_empty() {
+            order.to_vec()
+        } else {
+            mutant
+                .plan
+                .tests
+                .iter()
+                .filter_map(|test| self.position(&test.test_id))
+                .collect()
+        };
         Ok(LiveCall {
             differences: kill_differences(&mutant, &run.baseline, self.runner.end_reader()),
             mutant,
+            order: ran,
+            witness,
             baseline: run.baseline,
             recording: self.runner.last_call(),
             edited: self.support.edited_equation_heads(
@@ -670,11 +738,17 @@ impl Search<'_, '_> {
         identity: Option<Sha256Digest>,
         order: &[usize],
         row: &mut Map<String, Value>,
-    ) -> Vec<(usize, OutcomeRecord)> {
+    ) -> (Vec<(usize, OutcomeRecord)>, Option<EditWitness>) {
         let (Some(store), Some(identity)) = (&self.tier1, identity) else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
-        let stored = store.read(identity);
+        let (stored, witness) = store.read_with_witness(identity);
+        // A row decided with no compile reads the compiled edit the file keeps; a live call
+        // replaces it with its own ([`Search::set_reaching`]).
+        let witness = EditWitness::from_value(&witness);
+        if let Some(witness) = &witness {
+            row.insert("reaching".into(), self.reaching(order, witness));
+        }
         for (program, record) in &stored {
             if record.outcome == CachedOutcome::Killed
                 && !self
@@ -685,7 +759,7 @@ impl Search<'_, '_> {
                 self.unusable(row, program, SOURCE_OUTCOME_CACHE);
             }
         }
-        order
+        let records = order
             .iter()
             .filter_map(|&c| {
                 let candidate = &self.candidates[c];
@@ -693,7 +767,8 @@ impl Search<'_, '_> {
                 (candidate.run_sha256 == Some(record.baseline_run_sha256.as_str()))
                     .then(|| (c, record.clone()))
             })
-            .collect()
+            .collect();
+        (records, witness)
     }
 
     /// Report, once per row, a killer that names a program of the corpus whose class is not
@@ -785,13 +860,45 @@ impl Search<'_, '_> {
         derive_mutant_report(&plan, &manifest, self.schedule)
     }
 
-    /// The programs O of a mutation editing `rules` (README 5.6 step 2), as candidate indices:
-    /// under [`ScheduleMode::Full`] every candidate in corpus order (the candidates are built in
-    /// manifest order), under [`ScheduleMode::FirstKill`] [`order`]'s search order.
-    fn program_order(&self, rules: &[EditedRule]) -> Vec<usize> {
+    /// The programs O of a mutation (README 5.6 step 2), as candidate indices, before its mutant
+    /// compiles: under [`ScheduleMode::Full`] every candidate in corpus order (the candidates are
+    /// built in manifest order), under [`ScheduleMode::FirstKill`] by [`ProgramOrder`]
+    /// ([`order`]). A live call then runs first the programs whose coverage witnesses the
+    /// mutant's compiled edit ([`Search::call_untimed`]); what is decided before any compile
+    /// (tier 1, the compiles ahead) depends only on the set of programs, not on their order.
+    fn program_order(&self) -> Vec<usize> {
         match self.schedule {
             ScheduleMode::Full => (0..self.candidates.len()).collect(),
-            ScheduleMode::FirstKill => order(&self.candidates, rules, self.order),
+            ScheduleMode::FirstKill => order(&self.candidates, self.order),
+        }
+    }
+
+    /// The row's `reaching`: the programs of `order` (O) whose coverage witnesses the compiled
+    /// edit ([`witnesses`]), in O's order, which is the order a live call tries them in.
+    fn reaching(&self, order: &[usize], witness: &EditWitness) -> Value {
+        json!(
+            order
+                .iter()
+                .map(|&c| &self.candidates[c])
+                .filter(|candidate| witnesses(candidate, witness))
+                .map(|candidate| candidate.id)
+                .collect::<Vec<_>>()
+        )
+    }
+
+    /// Set the row's `reaching` from a live call's compiled edit, and keep the edit for the
+    /// outcome file (`kept`). Every call of one mutation compiles the same mutant, so a later
+    /// call's edit is the earlier one's.
+    fn set_reaching(
+        &self,
+        row: &mut Map<String, Value>,
+        order: &[usize],
+        live: &LiveCall,
+        kept: &mut Option<EditWitness>,
+    ) {
+        if let Some(witness) = &live.witness {
+            row.insert("reaching".into(), self.reaching(order, witness));
+            *kept = Some(witness.clone());
         }
     }
 
@@ -829,6 +936,7 @@ impl Search<'_, '_> {
         mutation: &Mutation,
         row: &mut Map<String, Value>,
         records: &[(String, OutcomeRecord)],
+        witness: Option<&EditWitness>,
     ) {
         let (Some(store), Some(identity)) = (&self.tier1, identity) else {
             return;
@@ -841,6 +949,7 @@ impl Search<'_, '_> {
             identity,
             &mutation.id,
             &row["removed_claims"],
+            &witness.map_or(Value::Null, EditWitness::value),
             records,
         ) {
             Ok(written) => self.stats.records_written += written,
@@ -925,13 +1034,13 @@ impl Search<'_, '_> {
         let Ok(generation) = resolved.generation(baseline) else {
             return Vec::new();
         };
-        let order = self.program_order(&resolved.rules);
+        let order = self.program_order();
         if order.is_empty() || self.gated() {
             return Vec::new();
         }
         if self.mode == RunMode::Search {
             let identity = mutation_identity(&self.spec.loaded.baseline, &resolved.patch);
-            let records = self.valid_records(identity, &order, &mut Map::new());
+            let (records, _) = self.valid_records(identity, &order, &mut Map::new());
             if tier1_decides(&order, &records, self.schedule) {
                 return Vec::new();
             }
@@ -1066,11 +1175,11 @@ impl Search<'_, '_> {
         if !facts.weakening.is_null() {
             return true;
         }
-        let order = self.program_order(&facts.rules);
+        let order = self.program_order();
         if !order.is_empty() && self.gated() {
             return true;
         }
-        let records = self.valid_records(facts.identity, &order, &mut Map::new());
+        let (records, _) = self.valid_records(facts.identity, &order, &mut Map::new());
         tier1_decides(&order, &records, self.schedule)
     }
 
@@ -1108,13 +1217,10 @@ impl Search<'_, '_> {
             "typing_diagnostics".into(),
             facts.typing_diagnostics.clone(),
         );
-        let order = self.program_order(&facts.rules);
-        let reaching = order
-            .iter()
-            .filter(|&&c| reaches(&self.candidates[c], &facts.rules))
-            .map(|&c| self.candidates[c].id.to_owned())
-            .collect::<Vec<_>>();
-        row.insert("reaching".into(), json!(reaching));
+        let order = self.program_order();
+        // Null until the outcome file's compiled edit ([`Search::valid_records`]) or a live call's
+        // ([`Search::set_reaching`]) gives it, or an empty O makes it empty.
+        row.insert("reaching".into(), Value::Null);
         let identity = facts.identity;
         row.insert(
             "identity".into(),
@@ -1152,7 +1258,7 @@ impl Search<'_, '_> {
                 false,
             ));
         }
-        let records = self.valid_records(identity, &order, &mut row);
+        let (records, stored) = self.valid_records(identity, &order, &mut row);
         // A memo's facts carry no generation (re-pin L1-4): they are used only when tier 1
         // decides with no call. Otherwise the search stops here, on the records it decides from,
         // before the hint is read or removed and before anything is counted or written (re-pin
@@ -1185,6 +1291,9 @@ impl Search<'_, '_> {
         if order.is_empty() {
             row.insert("status".into(), json!("error"));
             row.insert("reason".into(), json!("no-comparable-program"));
+            // No program of an empty O witnesses any edit, so `reaching` is exactly empty,
+            // whatever the edit, with no compile.
+            row.insert("reaching".into(), json!([]));
             row.insert(
                 "detail".into(),
                 json!("no program of the corpus has a comparable result, so nothing can kill"),
@@ -1199,13 +1308,27 @@ impl Search<'_, '_> {
         }
         if self.mode == RunMode::Verify {
             let generation = generation.expect("run --verify resolves every mutation live");
-            return Some(self.verify_one(row, mutation, generation, &order, &records));
+            return Some(self.verify_one(
+                row,
+                mutation,
+                generation,
+                &order,
+                &records,
+                stored.as_ref(),
+            ));
         }
         if self.schedule == ScheduleMode::Full {
             return Some(self.search_full(mutation, row, facts, generation, &order, records));
         }
 
-        // Tier 1, step 2: a valid killed record decides, with no call.
+        // The valid records in the order a live call would run O: the programs the outcome file's
+        // compiled edit says witness it first, then the rest, each in O's order (O's order
+        // without one). It names the cached killer and orders the cached entries.
+        let mut records = records;
+        if let Some(witness) = &stored {
+            records.sort_by_key(|(c, _)| !witnesses(&self.candidates[*c], witness));
+        }
+        // Tier 1, step 2: a valid killed record decides, with no call, its killer the first.
         if let Some((c, record)) = records
             .iter()
             .find(|(_, record)| record.outcome == CachedOutcome::Killed)
@@ -1271,6 +1394,7 @@ impl Search<'_, '_> {
         // The kill evidence of the live calls, by program; a later call's replaces an earlier's,
         // as its record does (step 7).
         let mut differences = BTreeMap::<String, Value>::new();
+        let mut witness = None;
         let mut source = SOURCE_SEARCH;
         if let Some(h) = hint.filter(|h| live_order.contains(h)) {
             match self.call(generation, &[h]) {
@@ -1281,6 +1405,7 @@ impl Search<'_, '_> {
                 (wall_ms, Ok(live)) => {
                     let status = live.mutant.report.status;
                     calls.push((vec![h], json!(status_name(status)), wall_ms));
+                    self.set_reaching(&mut row, &order, &live, &mut witness);
                     executed.extend(executed_entries(
                         &live,
                         self.spec.result.slots(),
@@ -1303,10 +1428,11 @@ impl Search<'_, '_> {
                 }
                 (wall_ms, Ok(live)) => {
                     calls.push((
-                        live_order.clone(),
+                        live.order.clone(),
                         json!(status_name(live.mutant.report.status)),
                         wall_ms,
                     ));
+                    self.set_reaching(&mut row, &order, &live, &mut witness);
                     // Each program is listed once (F-14 review 1 m3, flow F-16): a hinted
                     // program this call ran again is listed with this call's run, the one the
                     // status is folded from.
@@ -1324,7 +1450,7 @@ impl Search<'_, '_> {
                     });
                     executed.extend(entries);
                     differences.extend(live.differences);
-                    runs.push((live_order.clone(), live.mutant));
+                    runs.push((live.order, live.mutant));
                 }
             }
         }
@@ -1372,7 +1498,7 @@ impl Search<'_, '_> {
             .iter()
             .flat_map(|(_, run)| self.live_records(run, &differences))
             .collect::<Vec<_>>();
-        self.write_records(identity, mutation, &mut row, &records);
+        self.write_records(identity, mutation, &mut row, &records, witness.as_ref());
         let killer = (report.status == MutantStatus::Killed)
             .then(|| report.killing_test_ids.first())
             .flatten()
@@ -1425,6 +1551,7 @@ impl Search<'_, '_> {
         };
         self.stats.programs_from_cache += cached.len();
         let mut calls = Calls::new();
+        let mut witness = None;
         let live = if live_order.is_empty() {
             self.stats.mutations_from_cache += 1;
             None
@@ -1439,10 +1566,11 @@ impl Search<'_, '_> {
                 }
                 (wall_ms, Ok(live)) => {
                     calls.push((
-                        live_order.clone(),
+                        live.order.clone(),
                         json!(status_name(live.mutant.report.status)),
                         wall_ms,
                     ));
+                    self.set_reaching(&mut row, order, &live, &mut witness);
                     Some(live)
                 }
             }
@@ -1451,7 +1579,7 @@ impl Search<'_, '_> {
             None => self
                 .assemble(&cached, None)
                 .expect("cached outcomes of executed tests form a valid plan"),
-            Some(live) => match self.assemble(&cached, Some((&live_order, &live.mutant.plan))) {
+            Some(live) => match self.assemble(&cached, Some((&live.order, &live.mutant.plan))) {
                 Ok(report) => report,
                 Err(failure) => {
                     let error = CorpusError {
@@ -1496,7 +1624,13 @@ impl Search<'_, '_> {
                 claims_value(self.spec.validator.baseline(), claims)
             });
             let records = self.live_records(&live.mutant, &live.differences);
-            self.write_records(facts.identity, mutation, &mut row, &records);
+            self.write_records(
+                facts.identity,
+                mutation,
+                &mut row,
+                &records,
+                witness.as_ref(),
+            );
         }
         let killed_by = self.killed_by(&report);
         let killer = killed_by
@@ -1565,9 +1699,11 @@ impl Search<'_, '_> {
         generation: &CandidateGeneration<'_>,
         order: &[usize],
         records: &[(usize, OutcomeRecord)],
+        stored: Option<&EditWitness>,
     ) -> (Value, bool) {
         let mut calls = Calls::new();
         let mut executed = Vec::new();
+        let mut witness = None;
         let cold = match self.call(generation, order) {
             (wall_ms, Err(error)) => {
                 calls.push((order.to_vec(), json!("error"), wall_ms));
@@ -1575,10 +1711,11 @@ impl Search<'_, '_> {
             }
             (wall_ms, Ok(live)) => {
                 calls.push((
-                    order.to_vec(),
+                    live.order.clone(),
                     json!(status_name(live.mutant.report.status)),
                     wall_ms,
                 ));
+                self.set_reaching(&mut row, order, &live, &mut witness);
                 executed.extend(executed_entries(
                     &live,
                     self.spec.result.slots(),
@@ -1636,6 +1773,19 @@ impl Search<'_, '_> {
                     "live": {"outcome": outcome, "mutant_run_sha256": mutant},
                 }));
             }
+        }
+        // The compiled edit the outcome file keeps, against the cold call's. It decides no status
+        // (it gives a row decided with no compile only its `reaching` and which cached killer it
+        // names), so the row keeps its status; the difference is reported and the run exits 1.
+        if let Some(stored) = stored
+            && Some(stored) != witness.as_ref()
+        {
+            self.mismatches.push(json!({
+                "mutation": mutation.id,
+                "program": null,
+                "cached": {"witness": stored.value()},
+                "live": {"witness": witness.as_ref().map(EditWitness::value)},
+            }));
         }
         // The status the cached path would have given, against the cold call's.
         let cached_status = self.cached_path_status(order, records, &cold);
@@ -1743,6 +1893,15 @@ impl Search<'_, '_> {
         let mut plan = cold.plan.clone();
         plan.tests
             .retain(|test| ids.contains(&test.test_id.as_str()));
+        // The cold call ran L in its own order (the witnessing programs first): the plan's.
+        let live_order = if plan.tests.is_empty() {
+            live_order
+        } else {
+            plan.tests
+                .iter()
+                .filter_map(|test| self.position(&test.test_id))
+                .collect()
+        };
         self.assemble(records, Some((&live_order, &plan)))
             .ok()
             .map(|r| r.status)
@@ -2545,7 +2704,7 @@ fn finish(
     executed: Vec<Value>,
 ) -> Value {
     row.entry("reason").or_insert(Value::Null);
-    row.entry("reaching").or_insert_with(|| json!([]));
+    row.entry("reaching").or_insert(Value::Null);
     row.entry("rules").or_insert(Value::Null);
     row.entry("identity").or_insert(Value::Null);
     row.entry("unusable_killer").or_insert(Value::Null);
@@ -2571,51 +2730,115 @@ fn finish(
     Value::Object(row)
 }
 
-/// Whether the candidate's cached coverage witnesses the edit of an edited rule (re-pin
-/// L2-1-tail, review L2-1-1 D2): an edit that changes the rule's `requires` is witnessed by a
-/// program that reached the rule (k-rust `matched`: it began to decide the condition), every
-/// other edit (a right-hand side, an `ensures`, a left-hand side, an attribute, a deletion) by
-/// one that applied it (`applied`: a candidate of it built, defined or rolled back, which an edit
-/// can make defined; not only the committed steps `fired_by` lists). A program that only matched
-/// a rule whose guard it refuted cannot witness a change of what the rule does once it applies.
-fn reaches(candidate: &Candidate<'_>, rules: &[EditedRule]) -> bool {
-    rules.iter().any(|rule| {
-        let witnesses = if rule.requires_edited {
-            &candidate.reaches
-        } else {
-            &candidate.applies
-        };
-        witnesses.contains(&(rule.at.module.clone(), u64::from(rule.at.index)))
-    })
+/// A mutant's compiled edit (kink-campaign [`CompiledEdit::between`] on the side the programs
+/// run on, the rule kink-campaign's coverage selection reads) read through the baseline's
+/// [`RuleAuthors`], since kink-flow's result records keep coverage by baseline sentence: the
+/// baseline sentences behind the removed compiled ids that a run witnesses by k-rust `matched`
+/// (an id whose edit changed its condition, alone or with its right-hand side or `ensures`;
+/// [`Witness::Matched`]) and those it witnesses by `applied` (every other removed id of a
+/// site-local edit). The outcome file keeps it (`witness`, [`crate::outcomes`]), so that a row
+/// tier 1 decides with no compile still has its `reaching`.
+///
+/// Reading by baseline sentence differs from kink-campaign's reading by compiled id in two ways,
+/// both in which programs come first only, never in a status: a removed id with no baseline
+/// sentence (a generated axiom, [`Authorship::Unmapped`]) is witnessed by no program, and a
+/// sentence behind several compiled ids is witnessed by a program that matched or applied any of
+/// them, not only the removed one.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct EditWitness {
+    /// The edit is not site-local: every program witnesses it.
+    global: bool,
+    matched: BTreeSet<(String, u64)>,
+    applied: BTreeSet<(String, u64)>,
 }
 
-/// The chosen order O (README 5.6 step 2, 6.4): the comparable programs whose cached coverage
-/// witnesses an edited rule's edit ([`reaches`]), then the rest; inside each tier by cost (the
-/// record's `wall_ms` ascending, then corpus order) or in corpus order ([`ProgramOrder`]). The
-/// order changes only which killing program is found first and the cost, never a status in the
-/// no-Z3 profile (README 6.4; under Z3 see README.md's coverage paragraph).
-fn order(
-    candidates: &[Candidate<'_>],
-    rules: &[EditedRule],
-    program_order: ProgramOrder,
-) -> Vec<usize> {
-    let mut order = Vec::with_capacity(candidates.len());
-    for first in [true, false] {
-        let mut tier = candidates
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| reaches(c, rules) == first)
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        if program_order == ProgramOrder::Cost {
-            tier.sort_by_key(|&c| {
-                (
-                    candidates[c].wall_ms.unwrap_or(u64::MAX),
-                    candidates[c].index,
-                )
-            });
+impl EditWitness {
+    fn of(edit: &CompiledEdit, authors: &RuleAuthors) -> Self {
+        let mut witness = Self {
+            global: edit.global,
+            ..Self::default()
+        };
+        if edit.global {
+            return witness;
         }
-        order.extend(tier);
+        for id in &edit.removed_rule_ids {
+            let Some(Authorship::Sentences(sentences)) = authors.get(id) else {
+                continue;
+            };
+            let into = match edit.witness(id) {
+                Witness::Matched => &mut witness.matched,
+                Witness::Applied => &mut witness.applied,
+            };
+            into.extend(
+                sentences
+                    .iter()
+                    .map(|at| (at.module.clone(), u64::from(at.index))),
+            );
+        }
+        witness
+    }
+
+    /// `{global, matched: [{module, index}], applied: [{module, index}]}`, each list sorted.
+    fn value(&self) -> Value {
+        let sentences = |set: &BTreeSet<(String, u64)>| {
+            set.iter()
+                .map(|(module, index)| json!({"module": module, "index": index}))
+                .collect::<Vec<_>>()
+        };
+        json!({
+            "global": self.global,
+            "matched": sentences(&self.matched),
+            "applied": sentences(&self.applied),
+        })
+    }
+
+    /// The inverse of [`Self::value`]; `None` for null or a value of another shape.
+    fn from_value(value: &Value) -> Option<Self> {
+        let sentences = |key: &str| {
+            value[key]
+                .as_array()?
+                .iter()
+                .map(|at| Some((at["module"].as_str()?.to_owned(), at["index"].as_u64()?)))
+                .collect::<Option<BTreeSet<_>>>()
+        };
+        Some(Self {
+            global: value["global"].as_bool()?,
+            matched: sentences("matched")?,
+            applied: sentences("applied")?,
+        })
+    }
+}
+
+/// Whether the candidate's cached coverage witnesses the mutant's compiled edit
+/// ([`EditWitness`]): every program witnesses an edit that is `global`, and a program whose
+/// coverage is not complete witnesses every edit; otherwise a program witnesses the edit when it
+/// reached (k-rust `matched`: began to decide the condition) a sentence of `matched`, or applied
+/// (`applied`: built a candidate, defined or rolled back) one of `applied`
+/// ([`CompiledEdit::witness`]). A program that only matched a rule whose guard it refuted cannot
+/// witness a change of what the rule does once it applies; one whose candidate was rolled back
+/// can, since an edit can make that candidate defined.
+fn witnesses(candidate: &Candidate<'_>, witness: &EditWitness) -> bool {
+    witness.global
+        || !candidate.complete
+        || !witness.matched.is_disjoint(&candidate.reaches)
+        || !witness.applied.is_disjoint(&candidate.applies)
+}
+
+/// The order of O before the mutant compiles (README 5.6 step 2, 6.4): by cost (the record's
+/// `wall_ms` ascending, then corpus order) or in corpus order ([`ProgramOrder`]). A live call
+/// keeps it inside each of its two tiers, the programs whose coverage witnesses the compiled
+/// edit and the rest ([`Search::call_untimed`]). The order changes only which killing program is
+/// found first and the cost, never a status in the no-Z3 profile (README 6.4; under Z3 see
+/// README.md's coverage paragraph).
+fn order(candidates: &[Candidate<'_>], program_order: ProgramOrder) -> Vec<usize> {
+    let mut order = (0..candidates.len()).collect::<Vec<_>>();
+    if program_order == ProgramOrder::Cost {
+        order.sort_by_key(|&c| {
+            (
+                candidates[c].wall_ms.unwrap_or(u64::MAX),
+                candidates[c].index,
+            )
+        });
     }
     order
 }

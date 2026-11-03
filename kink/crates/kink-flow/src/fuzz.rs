@@ -150,8 +150,11 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// the determinism contract, and every source location they name is relative to the main
 /// module's file; it also adds the `stopped` value `domain-exhausted` and the warning
 /// `witness-not-terminating` (FZ-ENGINE-R4), and the embedded totals' `domain`, `diverging` and
-/// `coverage-last-grew`. `tests/formats.rs` ties the version to the document's shape.
-pub const FUZZ_VERSION: u32 = 4;
+/// `coverage-last-grew`. Version 5 adds the warning `reaching-not-computed`: the last run's
+/// `reaching` is null for a mutation whose compiled edit it neither computed nor found in the
+/// outcome cache, and so is `template.last_run.mutation.reaching`. `tests/formats.rs` ties the version to the document's
+/// shape.
+pub const FUZZ_VERSION: u32 = 5;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -1192,6 +1195,9 @@ fn last_run(
             "mutation": null,
         });
     };
+    // Null when the last run had no compiled edit for the row (it compiled no mutant for it and
+    // the outcome cache kept none), so nothing says which programs witness it.
+    let known = !entry["reaching"].is_null();
     let reaching = entry["reaching"]
         .as_array()
         .into_iter()
@@ -1216,6 +1222,18 @@ fn last_run(
                 entry["killer"].as_str().unwrap_or("?")
             ),
         ));
+    } else if !known {
+        if crate::report::SURVIVOR_STATUSES.contains(&status) {
+            warnings.push(warning(
+                "reaching-not-computed",
+                format!(
+                    "the last run neither compiled this mutation's mutant nor found its compiled \
+                     edit in the outcome cache (reason {}), so it names no program whose coverage \
+                     witnesses the edit",
+                    entry["reason"].as_str().unwrap_or("none")
+                ),
+            ));
+        }
     } else if reaching.is_empty() {
         if crate::report::SURVIVOR_STATUSES.contains(&status) {
             warnings.push(warning(
@@ -1253,7 +1271,7 @@ fn last_run(
         "mutation": {
             "status": entry["status"],
             "reason": entry["reason"],
-            "reaching": reaching,
+            "reaching": if known { json!(reaching) } else { Value::Null },
         },
         "suggested_templates": suggested,
     })

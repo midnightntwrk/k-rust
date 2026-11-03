@@ -9,9 +9,12 @@
 //!   sliced from the file's K view by the sentence's span (F-04's [`EditedRule`], F-10's view),
 //!   so no K printer is involved and the text is exactly what the specification and the
 //!   mutation list say;
-//! - `reaching`: the comparable programs whose cached coverage witnesses an edited rule's edit:
-//!   programs that reached the rule (k-rust `matched`) for an edit of its `requires`, programs
-//!   that fired it (`applied`) for any other edit (re-pin L2-1-tail);
+//! - `reaching`: the comparable programs whose cached coverage witnesses the mutant's compiled
+//!   edit (kink-campaign `CompiledEdit`, [`crate::search`] step 2): programs that reached a
+//!   removed axiom's sentence (k-rust `matched`) when its edit changed its `requires`, alone or
+//!   with its right-hand side or `ensures`, programs that applied it (`applied`) otherwise, every
+//!   program for an edit that is not site-local; read from the command's live call, or from the
+//!   outcome file on a row tier 1 decided with no call, and `null` when there is neither;
 //! - `executed`: each program the mutant ran on, with its outcome and, when the outcome is
 //!   neither `agree` nor `distinguish`, a `cause` read from the runner's evidence for that run;
 //! - `action`: what the status asks of the LLM.
@@ -120,8 +123,13 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// short-circuit analysis flags a rule by its own list, taking the short-circuit reading out of
 /// `spec.exclusion` and adding each executed entry's and each program row's
 /// `short_circuit_readings`; 16 since CF-23 added `schedule`,
-/// `matrix` and each row's `killed_by` (`run --full`).
-pub const RUN_VERSION: u64 = 16;
+/// `matrix` and each row's `killed_by` (`run --full`); 17 since each row's `reaching` is read from
+/// the compiled mutant (or the outcome file's copy of its compiled edit), a program whose cached
+/// coverage is not complete witnessing every edit as kink-campaign's coverage selection counts
+/// it, `[]` on a `no-comparable-program` row (no program of an empty set witnesses an edit) and
+/// otherwise `null` on a row with neither, and each call's `programs` are listed in the order the
+/// call ran them.
+pub const RUN_VERSION: u64 = 17;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

@@ -40,7 +40,7 @@ pub use replay::{
 };
 mod runner;
 pub mod selection;
-pub use selection::{Coupled, MutantSelection, Sel, SelectionPolicy};
+pub use selection::{CompiledEdit, Coupled, MutantSelection, Sel, SelectionPolicy, Witness};
 
 pub use campaign::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, ExecutionFailureKind, ManifestTest,
@@ -53,10 +53,10 @@ pub use oracle::{
 };
 pub use runner::{
     AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
-    CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, LeafCensus, MutantAdmission,
-    MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, OneSided, OracleDeclaration,
-    Projection, RunNotes, RunOptions, RunRecording, RunStop, SideRun, StateProjection, Tally,
-    TestCase, TestEvidence, WorkBudget, claim_free_mutant, mutant_compiles, pattern_side,
-    run_campaign, run_campaign_multi, run_campaign_multi_with, run_campaign_with, slot_outcome,
-    state_side, tally,
+    CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, FirstTests, LeafCensus,
+    MutantAdmission, MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, OneSided,
+    OracleDeclaration, Projection, RunNotes, RunOptions, RunRecording, RunStop, SideRun,
+    StateProjection, Tally, TestCase, TestEvidence, WorkBudget, claim_free_mutant, mutant_compiles,
+    pattern_side, run_campaign, run_campaign_multi, run_campaign_multi_ordered,
+    run_campaign_multi_with, run_campaign_with, slot_outcome, state_side, tally,
 };

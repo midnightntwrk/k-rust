@@ -2308,6 +2308,38 @@ endmodule
             ["time-limit-scope", "unusable-template"],
             "{document:#}"
         );
+        // A row for which the last run had no compiled edit (it compiled no mutant for the row and
+        // the outcome file kept no `witness`, as for a `baseline-findings` row; a row tier 1
+        // decided keeps the outcome file's) has no `reaching`, doctored here: nothing is
+        // suggested, and the warning says why, with the row's reason.
+        for row in stored["mutations"].as_array_mut().unwrap() {
+            row["reaching"] = Value::Null;
+        }
+        fs::write(&path, serde_json::to_string(&stored).unwrap()).unwrap();
+        let (document, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            None,
+            "straight-holes",
+            "div-becomes-mul",
+            options(1),
+        );
+        let last_run = &document["template"]["last_run"];
+        assert_eq!(
+            last_run["mutation"]["reaching"],
+            Value::Null,
+            "{last_run:#}"
+        );
+        assert_eq!(
+            last_run["suggested_templates"],
+            serde_json::json!([]),
+            "{last_run:#}"
+        );
+        assert_eq!(
+            warning_kinds(&document),
+            ["reaching-not-computed"],
+            "{document:#}"
+        );
     }
 }
 

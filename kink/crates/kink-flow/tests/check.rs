@@ -106,7 +106,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 6);
+    assert_eq!(document["version"], 7);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -681,7 +681,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 6);
+    assert_eq!(document["version"], 7);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
@@ -940,7 +940,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
     assert_eq!(status, EXIT_OK, "{document:#}");
-    assert_eq!(document["version"], 6);
+    assert_eq!(document["version"], 7);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {
@@ -1857,7 +1857,14 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         let row = &run_document["mutations"][0];
         assert_eq!(row["id"], "unknown-op", "{row:#}");
         assert_eq!(row["status"], "survived", "{row:#}");
-        assert_eq!(row["reaching"], serde_json::json!([]), "{row:#}");
+        // The edit of an `owise` equation is not site-local (its condition is the negation of its
+        // competitors'), so every program witnesses the compiled edit, though none reaches the
+        // rule. Before the witness was read from the compiled mutant: `[]`, from the rule's text.
+        assert_eq!(
+            row["reaching"],
+            serde_json::json!(["fetch", "again"]),
+            "{row:#}"
+        );
 
         let classes = |flagged: bool| {
             let name = if flagged {
@@ -1956,8 +1963,8 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             assert_eq!(
                 document["coverage"]["detail"],
                 format!(
-                    "no unreached-rule warning is given: it needs a current result record of \
-                     every program, and {}",
+                    "no unreached-rule or unapplied-rule warning is given: it needs a current \
+                     result record of every program, and {}",
                     kink_flow::results::RESULT_CACHE_Z3
                 )
             );
@@ -2111,6 +2118,66 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             ["unreached-rule"],
             "{checked:#}"
         );
+    }
+
+    /// `unapplied-rule`: in a corpus whose one program, `1 / 0`, reaches the division rule and
+    /// refutes its guard, no program applies the rule, so no program can kill an edit of its
+    /// right-hand side alone. The warning is given for every edit of the rule (it reads the rule,
+    /// not the edit), and once a program applies the rule it is gone.
+    #[cfg(not(feature = "z3"))]
+    #[test]
+    #[ignore = "kink"]
+    fn check_warns_of_a_rule_every_program_refutes() {
+        use kink_flow::{cli::results, results::ResultsOptions};
+        let dir = scratch("check-unapplied");
+        fs::copy(flow("divide").join("divide.k"), dir.join("divide.k")).unwrap();
+        let header = "[spec]\nentry = \"divide.k\"\nmain_module = \"DIVIDE\"\n\
+                      syntax_module = \"DIVIDE-SYNTAX\"\n\n";
+        let by_zero = "[[program]]\nid = \"by-zero\"\ntext = \"1 / 0\"\n";
+        let manifest = dir.join("FLOW.toml");
+        write(&manifest, &format!("{header}{by_zero}"));
+        let list = dir.join("MUTATIONS.toml");
+        write(
+            &list,
+            &[
+                one_edit(
+                    "operands-swapped",
+                    "  rule = \"div\"\n  find = \"I1 /Int I2\"\n  replace = \"I2 /Int I1\"",
+                ),
+                one_edit(
+                    "guard-dropped",
+                    "  rule = \"div\"\n  find = \" requires I2 =/=Int 0\"\n  replace = \"\"",
+                ),
+            ]
+            .concat(),
+        );
+        let (document, status) = results(&manifest, &ResultsOptions::default());
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let (document, status) = check_list(&manifest, &list, None);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(document["coverage"]["decides"], true, "{document:#}");
+        for id in ["operands-swapped", "guard-dropped"] {
+            let warnings = &row(&document, id)["warnings"];
+            assert_eq!(reasons(warnings), ["unapplied-rule"], "{id}: {document:#}");
+            assert_eq!(warnings[0]["rule"]["module"], "DIVIDE", "{id}");
+        }
+        // With a program that applies the rule, neither edit is warned about.
+        write(
+            &manifest,
+            &format!("{header}{by_zero}\n[[program]]\nid = \"quotient\"\ntext = \"7 / 2\"\n"),
+        );
+        let (document, status) = results(&manifest, &ResultsOptions::default());
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let (document, status) = check_list(&manifest, &list, None);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(document["coverage"]["decides"], true, "{document:#}");
+        for id in ["operands-swapped", "guard-dropped"] {
+            assert_eq!(
+                row(&document, id)["warnings"],
+                serde_json::json!([]),
+                "{id}: {document:#}"
+            );
+        }
     }
 
     #[test]

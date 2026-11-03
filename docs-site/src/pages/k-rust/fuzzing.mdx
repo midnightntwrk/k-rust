@@ -378,11 +378,13 @@ In trials on IMP, SIMPLE, WebAssembly and KEVM, every mutation that was not equi
 - **A second event that never happens.** A mutant that keeps an exception handler too long shows only if the program throws twice.
 
 So when a survivor survives a template that reaches its rule, read the edited rule and write a short program, three to eight lines, in which its result flows straight to the output. Do not just raise `--cases`.
-Start from the programs the last `run` lists in the mutation's `reaching` (the document suggests templates built on them, `template.last_run.suggested_templates`), and avoid a template whose program kink cannot compare (`unusable-template`).
+Start from the programs the last `run` lists in the mutation's `reaching`: the programs whose coverage witnesses the edit, read from the compiled mutant or from the outcome cache's copy of it (the document suggests templates built on them, `template.last_run.suggested_templates`).
+A row with neither has no `reaching` (`null`), and the warning `reaching-not-computed` says so.
+Avoid a template whose program kink cannot compare (`unusable-template`).
 
 ## Reading the document
 
-`kink-flow fuzz` prints one document (version 4). The fields to read first:
+`kink-flow fuzz` prints one document (version 5). The fields to read first:
 
 - `stopped`: `null` when there is a witness; otherwise why not (table below).
 - `action`: the next step, in words. For a search that found nothing it quotes the campaign's statement.
@@ -437,6 +439,7 @@ The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `t
 **Warnings** are information, not refusals:
 
 - `template-not-reaching`, `no-reaching-program`: the last `run` did not see this template's program reach the edited rule, or saw no program reach it. Expected for a new program.
+- `reaching-not-computed`: the last `run` neither compiled the mutant nor found its compiled edit in the outcome cache (a `baseline-findings` row, say), so it names no program to start from and no template is suggested. The detail gives the row's reason.
 - `unusable-template`: the template's program is not comparable in the last `run`, or kink refuses its input. Choose another.
 - `already-killed`, `stale-run-document`: the last `run` killed the mutation already, or was made for another specification.
 - `client-refused`: kink's rules refused some candidates, counted per cause.
