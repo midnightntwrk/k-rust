@@ -345,9 +345,10 @@ fn a_two_step_chain_through_partial_functions_is_decided() {
             "{name}: {result:#}"
         );
         assert!(
-            listed.iter().all(|listed| *listed
-                == entry(None, "undefined", Some("dm"))
-                || *listed == entry(None, "undefined", None)),
+            listed
+                .iter()
+                .all(|listed| *listed == entry(None, "undefined", Some("dm"))
+                    || *listed == entry(None, "undefined", None)),
             "{name}: {result:#}"
         );
     }

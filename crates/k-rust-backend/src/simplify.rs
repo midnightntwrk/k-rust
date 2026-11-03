@@ -14812,7 +14812,11 @@ mod short_circuit_reading_tests {
         let half = format!("gtInt{{}}(divInt{{}}({X}, {}), {})", int(2), int(0));
         assert_eq!(
             simplified(&definition, &and(&symbolic, &half), &[]),
-            [reading(Some("BOOL.and"), ReadingOutcome::Undecided, "gtInt")]
+            [reading(
+                Some("BOOL.and"),
+                ReadingOutcome::Undecided,
+                "gtInt"
+            )]
         );
         let undefined = format!("gtInt{{}}(divInt{{}}({}, {}), {})", int(1), int(0), int(0));
         assert_eq!(
