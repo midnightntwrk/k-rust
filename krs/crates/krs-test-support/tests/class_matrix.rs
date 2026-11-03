@@ -1382,8 +1382,8 @@ fn a_reviewed_entry_matches_each_listed_form_alone() {
 /// reason.
 #[test]
 fn every_reviewed_unchecked_advice_names_a_class_its_shards_and_a_reason() {
-    const CASE_SHARDS: [&str; 8] = [
-        "attrs", "cells", "import", "init", "notation", "readable", "runs", "terms",
+    const CASE_SHARDS: [&str; 9] = [
+        "attrs", "cells", "import", "init", "notation", "readable", "runs", "sweep", "terms",
     ];
     let table = Table::parse_with_term_accepts(
         &read_class_matrix("expected.toml"),

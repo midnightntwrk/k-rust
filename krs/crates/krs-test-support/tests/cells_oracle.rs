@@ -152,14 +152,18 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
     let exceptions = exceptions();
     let mut failures = Vec::new();
     for (_, pattern, principle) in &exceptions {
-        let stated = principle == "E1"
-            || principle == "E3"
-            || principle
-                .strip_prefix("C-lim: ")
-                .is_some_and(|reason| !reason.trim().is_empty());
+        let stated = ["E1", "E3"].iter().any(|named| {
+            principle == named
+                || principle
+                    .strip_prefix(named)
+                    .and_then(|tail| tail.strip_prefix(": "))
+                    .is_some_and(|reason| !reason.trim().is_empty())
+        }) || principle
+            .strip_prefix("C-lim: ")
+            .is_some_and(|reason| !reason.trim().is_empty());
         if !stated {
             failures.push(format!(
-                "cell-exception {pattern:?}: the principle {principle:?} is not E1, E3 or `C-lim: REASON`"
+                "cell-exception {pattern:?}: the principle {principle:?} is not E1, E3 (each with an optional `: REASON`) or `C-lim: REASON`"
             ));
         }
     }
@@ -2255,7 +2259,8 @@ fn a_cells_result_map_with_a_rest_at_its_leaf_root_is_judged_by_kind_and_pairing
 /// record or a fragment at a configuration position is its child cell's content, a content root
 /// (P6) exactly as `Cell(..)`'s argument is: a fragment's Map child `m: k::map![y -> x, ..]` is
 /// judged by kind and pairing against the subject's same child, as the readable record it
-/// abbreviates is (P7), and the product's `arm` there is the stated M3 limitation. Below that,
+/// abbreviates is (P7), and the product's `arm` there is the stated M3 limitation, as its
+/// `map-read-in-result` is for the readable record's map read (S5.0g item 3a fixes, F-8). Below that,
 /// inside a term (a list's element, a constructor's argument), and at an entry's head without its
 /// leaf's `Cell(..)`, the literal stays `anonymous-rest-in-map-literal` (P6: below a root,
 /// notation is a term's).
@@ -2291,7 +2296,7 @@ fn a_cells_result_map_with_a_rest_at_a_records_child_is_judged_by_pairing() {
                 Some("B { m: { z -> y, .. }, .. }"),
             ),
             Outcome::After,
-            Outcome::After,
+            Outcome::Refuse("map-read-in-result"),
         ),
         (
             result_probe(
@@ -3617,6 +3622,83 @@ fn the_main_cell_rule_reads_the_entries_as_a_set() {
     // The program in `k` alone.
     assert_eq!(judged(&init(vec![prog_empty.clone()]), &k_pgm), None);
     assert_eq!(judged(&init(vec![k_pgm]), &prog_empty), None);
+}
+
+/// S5.0g item 3a fixes, ruling 2 (P5, D2 #8): a value's base `..name` uses the configuration
+/// variable `name` exactly as an item `name` would, so an initializer whose only use of a
+/// variable is a map's, list's, computation's or instance sequence's base, or a record update's,
+/// uses it; a base of another name does not.
+#[test]
+fn an_initializer_uses_a_configuration_variable_it_writes_as_a_base() {
+    use class_matrix::cells_oracle::build::{lit, seq};
+    use class_matrix::cells_oracle::{Entry, Sentence};
+    let entry = |cell: &str, stack: Vec<Layer>, spelling| Entry {
+        cell: cell.to_owned(),
+        side: Side::Initializer,
+        path: Vec::new(),
+        stack,
+        spelling,
+    };
+    let init = |variable: &str| Template {
+        sentence: Sentence::Initializer,
+        entries: Vec::new(),
+        guard: false,
+        variables: vec![(variable.to_owned(), false)],
+    };
+    let splice = |name: &str| Some((Rest::Splice(name.to_owned()), RestAt::Back));
+    let group = Layer::Group(Group {
+        name: "G".to_owned(),
+        children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
+    });
+    let bases = |name: &str| {
+        vec![
+            entry(
+                "env",
+                vec![Layer::Leaf(Notation::Map)],
+                Spelling::MapLit(Entries {
+                    entries: vec![(lit(), lit())],
+                    rest: Some(Rest::Splice(name.to_owned())),
+                }),
+            ),
+            entry(
+                "stack",
+                vec![Layer::Leaf(Notation::List)],
+                Spelling::Brackets(seq(vec![lit()], splice(name))),
+            ),
+            entry(
+                "k",
+                vec![Layer::Computation],
+                Spelling::KMacro(seq(vec![lit()], splice(name))),
+            ),
+            entry(
+                "jobs",
+                vec![Layer::Instances(Order::List), group.clone()],
+                Spelling::InstList(seq(Vec::new(), splice(name))),
+            ),
+            entry(
+                "frame",
+                vec![group.clone()],
+                Spelling::Record(Record {
+                    head: "G".to_owned(),
+                    fields: vec![("a".to_owned(), lit())],
+                    rest: RecordRest::Update(name.to_owned()),
+                }),
+            ),
+        ]
+    };
+    let admitted = Outcome::Admit { lint: None };
+    for (used, unused) in bases("base").into_iter().zip(bases("other")) {
+        assert_eq!(
+            rule_outcome(&init("base"), &used, admitted),
+            None,
+            "{used:?}"
+        );
+        assert_eq!(
+            rule_outcome(&init("base"), &unused, admitted),
+            Some("unused-configuration-variable"),
+            "{unused:?}"
+        );
+    }
 }
 
 #[test]
@@ -5386,6 +5468,13 @@ fn unwitnessed_cells() -> BTreeMap<sweep::Key, String> {
 /// (`no witness`) fails whatever the file says. `KRS_CELLS_WITNESSES_RECORD=1` rewrites the file.
 /// The generator's cells are the checked-in sweep's root cells, one for one.
 ///
+/// This test reads the table and `pending.toml`, never a compiled verdict: a case counts as a
+/// witness because its row says what the compiler must answer and no pending entry says it
+/// answers otherwise. It is sound together with a green full `sweep` shard
+/// (`scripts/krs-class.sh --shard sweep`), which compiles every case and fails on any verdict
+/// its row and pending entry do not state; neither alone shows that the compiler agrees with
+/// `outcome` (S5.0g item 3a fixes, F-7).
+///
 /// Path rows need no witness of their own: S5.0g:R3 and check 4's path step judge them from the
 /// root's answer.
 #[test]
@@ -5640,17 +5729,15 @@ fn k_cells<'k>(k: &'k str, cell: &str) -> Vec<&'k str> {
     found
 }
 
-/// The rest variables of a K cell content: a variable of a collection's or a computation's sort
-/// (`V3:Map`) standing at the content's top level beside other content (a variable alone is the
-/// whole content, and one inside an application's parentheses is an argument, no rest).
-fn rest_variables(content: &str) -> BTreeSet<&str> {
+/// The tokens of a K text at its own top level, outside every parenthesis: `ListItem(V0:KItem)
+/// V1:List` is `ListItem`, `V1:List`; a cons list `V0:Int : V1:Ints` is `V0:Int`, `:`, `V1:Ints`.
+fn top_tokens(content: &str) -> Vec<&str> {
     let content = content.trim();
     let mut depth = 0_usize;
     let mut top = Vec::new();
     let mut start = None;
     for (at, c) in content.char_indices() {
-        let separator = c.is_whitespace() || matches!(c, '(' | ')' | ',');
-        if separator {
+        if c.is_whitespace() || matches!(c, '(' | ')' | ',') {
             if let Some(from) = start.take()
                 && depth == 0
             {
@@ -5670,40 +5757,348 @@ fn rest_variables(content: &str) -> BTreeSet<&str> {
     {
         top.push(&content[from..]);
     }
-    top.into_iter()
-        .filter(|token| {
-            token.strip_prefix('V').is_some_and(|tail| {
-                tail.split_once(':').is_some_and(|(number, sort)| {
-                    !number.is_empty()
-                        && number.bytes().all(|byte| byte.is_ascii_digit())
-                        && matches!(sort, "List" | "Map" | "Set" | "K")
-                })
-            }) && *token != content
+    top
+}
+
+/// Every token of a K text, inside parentheses too.
+fn all_tokens(k: &str) -> impl Iterator<Item = &str> {
+    k.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | ','))
+        .filter(|token| !token.is_empty())
+}
+
+/// A K variable token's name: `V3` for `V3:Map` or `V3`.
+fn variable_name(token: &str) -> Option<&str> {
+    let name = token.split_once(':').map_or(token, |(name, _)| name);
+    let number = name.strip_prefix('V')?;
+    (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())).then_some(name)
+}
+
+/// The variables of a K cell content that can stand for its rest: one of a collection's or a
+/// computation's sort (`V3:Map`) at the content's top level, or a cons list's tail (the last
+/// item, after a `:`).
+fn rest_candidates(content: &str) -> Vec<&str> {
+    let top = top_tokens(content);
+    let last = top.len().saturating_sub(1);
+    top.iter()
+        .enumerate()
+        .filter_map(|(at, token)| {
+            let name = variable_name(token)?;
+            match token.split_once(':').map(|(_, sort)| sort) {
+                Some("List" | "Map" | "Set" | "K") => Some(name),
+                _ if at == last && at > 0 && top[at - 1] == ":" => Some(name),
+                _ => None,
+            }
         })
         .collect()
 }
 
-/// P6 read off one K cell content for an entry's content root on `side`: whether the K keeps a
-/// frame (`...`, or a rest variable) exactly where the root keeps the rest. A subject's `..` or
-/// `name @ ..` matches the unwritten rest, so its side has a frame; an exact subject has none. A
-/// result's `..` keeps the subject's rest (`...`, or the subject's rest variable written again),
-/// `..name` puts a rest back, an exact result keeps none. An initializer's value is complete.
+/// How often a variable occurs in a K sentence.
+fn occurrences(sentence: &str, name: &str) -> usize {
+    all_tokens(sentence)
+        .filter(|token| variable_name(token) == Some(name))
+        .count()
+}
+
+/// Ruling 1 (b), as F-9 widens it: a rest variable of `subject` that stands at the same content
+/// root in `result`, in any position (P6 makes a result's `..` the subject's rest of the same
+/// cell, wherever the result puts it), and occurs nowhere else in `sentence` than at those
+/// `places` (1 when the cell is not rewritten, so both sides are one text; 2 otherwise). A
+/// variable that occurs again, a condition included, constrains the rest: it is a use, not a
+/// frame.
+fn kept_rest(subject: &str, result: &str, sentence: &str, places: usize) -> bool {
+    rest_candidates(subject).into_iter().any(|name| {
+        top_tokens(result)
+            .iter()
+            .any(|token| variable_name(token) == Some(name))
+            && occurrences(sentence, name) == places
+    })
+}
+
+/// Ruling 1 (c) by its meaning (P0): a subject's rest variable that occurs nowhere else in the
+/// sentence matches the rest unconstrained, exactly as `_` there does.
+fn unused_rest(subject: &str, sentence: &str) -> bool {
+    rest_candidates(subject)
+        .into_iter()
+        .any(|name| occurrences(sentence, name) == 1)
+}
+
+/// A K text split at its own ` => `, outside every cell and parenthesis it holds; `None` where it
+/// writes no rewrite of its own.
+fn split_rewrite(text: &str) -> Option<(&str, &str)> {
+    let (mut cells, mut parens) = (0_isize, 0_isize);
+    let bytes = text.as_bytes();
+    for (at, c) in text.char_indices() {
+        match c {
+            '(' => parens += 1,
+            ')' => parens -= 1,
+            '<' if text[at + 1..].starts_with('/') => cells -= 1,
+            '<' if text[at + 1..].starts_with(|c: char| c.is_ascii_alphabetic()) => cells += 1,
+            '=' if cells == 0
+                && parens == 0
+                && bytes.get(at + 1) == Some(&b'>')
+                && at > 0
+                && bytes[at - 1] == b' ' =>
+            {
+                return Some((text[..at].trim(), text[at + 2..].trim()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A whole-cell rewrite of a K sentence (ruling 1 (d)), `(<c> L </c> => <c> R </c>)`: its span
+/// in the sentence, with both sides.
+struct CellRewrite<'k> {
+    span: std::ops::Range<usize>,
+    cell: &'k str,
+    subject: &'k str,
+    result: &'k str,
+}
+
+/// One side of a whole-cell rewrite.
+enum RewriteSide<'k> {
+    /// The cell itself, `<name> .. </name>`.
+    Cell(&'k str),
+    /// A whole cell written otherwise: `.Bag` (no cell, a `?` cell absent) or one variable or
+    /// `_` of its cell sort.
+    Whole,
+}
+
+/// The side of a whole-cell rewrite `text` is, if it is one.
+fn rewrite_side(text: &str) -> Option<RewriteSide<'_>> {
+    match text.strip_prefix('<') {
+        Some(tag) => {
+            let name = tag
+                .split(|c: char| c == '>' || c.is_whitespace())
+                .next()
+                .unwrap_or_default();
+            text.ends_with(&format!("</{name}>"))
+                .then_some(RewriteSide::Cell(name))
+        }
+        None => (!text.contains(char::is_whitespace)).then_some(RewriteSide::Whole),
+    }
+}
+
+/// Every whole-cell rewrite a K sentence writes.
+fn cell_rewrites(k: &str) -> Vec<CellRewrite<'_>> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(open) = k[at..].find('(').map(|open| open + at) {
+        let mut depth = 0_isize;
+        let mut close = None;
+        for (offset, c) in k[open..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(open + offset);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else { break };
+        let inner = &k[open + 1..close];
+        let rewrite = split_rewrite(inner).and_then(|(subject, result)| {
+            match (rewrite_side(subject)?, rewrite_side(result)?) {
+                (RewriteSide::Cell(left), RewriteSide::Cell(right)) if left != right => None,
+                (RewriteSide::Cell(cell), _) | (_, RewriteSide::Cell(cell)) => {
+                    Some((cell, subject, result))
+                }
+                (RewriteSide::Whole, RewriteSide::Whole) => None,
+            }
+        });
+        if let Some((cell, subject, result)) = rewrite {
+            found.push(CellRewrite {
+                span: open..close + 1,
+                cell,
+                subject,
+                result,
+            });
+            at = close + 1;
+        } else {
+            at = open + 1;
+        }
+    }
+    found
+}
+
+/// The K sentence as one side reads it: every whole-cell rewrite replaced by its subject's cell
+/// or its result's (ruling 1 (d)).
+fn side_view(k: &str, result: bool) -> String {
+    let mut view = String::new();
+    let mut at = 0;
+    for rewrite in cell_rewrites(k) {
+        view.push_str(&k[at..rewrite.span.start]);
+        view.push_str(if result {
+            rewrite.result
+        } else {
+            rewrite.subject
+        });
+        at = rewrite.span.end;
+    }
+    view.push_str(&k[at..]);
+    view
+}
+
+/// The names of the cells directly inside a K cell's content, in order.
+fn child_cells(content: &str) -> Vec<&str> {
+    let mut children = Vec::new();
+    let mut depth = 0_usize;
+    let mut rest = content;
+    while let Some(at) = rest.find('<') {
+        let tag = &rest[at + 1..];
+        if let Some(name) = tag.strip_prefix('/') {
+            depth = depth.saturating_sub(1);
+            rest = &name[name.find('>').map_or(name.len(), |end| end + 1)..];
+            continue;
+        }
+        if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            rest = tag;
+            continue;
+        }
+        let end = tag.find(['>', ' ']).unwrap_or(tag.len());
+        if depth == 0 {
+            children.push(&tag[..end]);
+        }
+        depth += 1;
+        rest = &tag[end..];
+    }
+    children
+}
+
+/// The results of every rewrite a K sentence writes: each whole-cell rewrite's result and each
+/// cell content's own ` => `'s right side.
+fn rewrite_results(k: &str) -> Vec<String> {
+    let mut results: Vec<String> = cell_rewrites(k)
+        .iter()
+        .map(|rewrite| rewrite.result.to_owned())
+        .collect();
+    let mut at = 0;
+    while let Some(open) = k[at..].find('<').map(|open| open + at) {
+        at = open + 1;
+        let tag = &k[open + 1..];
+        if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            continue;
+        }
+        let name = &tag[..tag.find(['>', ' ']).unwrap_or(tag.len())];
+        for content in k_cells(&k[open..], name).into_iter().take(1) {
+            if let Some((_, result)) = split_rewrite(content) {
+                results.push(result.to_owned());
+            }
+        }
+    }
+    results
+}
+
+/// Ruling 1's checks on a recorded K sentence as a whole: `_` never in a result (c), and a
+/// whole-cell rewrite (d) that keeps its cell's children, in order, and the subject's frame.
+fn sentence_frames(k: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for result in rewrite_results(k) {
+        if all_tokens(&result).any(|token| token == "_") {
+            found.push(format!("a `_` in the result `{result}`"));
+        }
+    }
+    for rewrite in cell_rewrites(k) {
+        let inside = |side: &str| {
+            k_cells(side, rewrite.cell)
+                .first()
+                .copied()
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let cell = format!("<{}", rewrite.cell);
+        if !rewrite.subject.starts_with(&cell) || !rewrite.result.starts_with(&cell) {
+            continue;
+        }
+        let (subject, result) = (inside(rewrite.subject), inside(rewrite.result));
+        if child_cells(&subject) != child_cells(&result) {
+            found.push(format!(
+                "a rewrite of `<{}>` whose result writes the children {:?}, its subject {:?}",
+                rewrite.cell,
+                child_cells(&result),
+                child_cells(&subject)
+            ));
+        }
+        if top_level_frame(&subject) && !top_level_frame(&result) {
+            found.push(format!(
+                "a rewrite of `<{}>` whose result drops its subject's frame",
+                rewrite.cell
+            ));
+        }
+    }
+    found
+}
+
+/// Whether a K text writes the cell `cell`: its tag, or a variable or `_` of its cell sort
+/// (`V0:OgroupCell`, `_:OgroupCell`).
+fn writes_cell(k: &str, cell: &str) -> bool {
+    let mut letters = cell.chars();
+    let sort = letters.next().map_or_else(String::new, |first| {
+        format!("{}{}Cell", first.to_uppercase(), letters.as_str())
+    });
+    k_cells(k, cell).len() + usize::from(container(k, cell).is_some()) > 0
+        || all_tokens(k).any(|token| token.split_once(':').is_some_and(|(_, of)| of == sort))
+}
+
+/// The presence half of check 6 (S5.0g item 3a fixes, ruling 5; P5, P0): a subject's `Some(..)`
+/// on a `?` cell tests that the cell is present, so its K writes the cell, or a variable or `_`
+/// of the cell's sort, on the subject side; a bare untyped `_` there names no cell and tests
+/// nothing. A subject's `None` tests that it is absent, so where the result writes the cell the
+/// K creates it: the subject side writes no such cell.
+fn presence_frame(entry: &EntryCase, subject: &str, result: &str) -> Option<String> {
+    let entry = &entry.entry;
+    if entry.side != Side::Subject || entry.stack.first() != Some(&Layer::Optional) {
+        return None;
+    }
+    let spelling = match &entry.spelling {
+        Spelling::Alias(_, inner) => inner,
+        other => other,
+    };
+    let cell = entry.cell.as_str();
+    match spelling {
+        Spelling::Present(_) if !writes_cell(subject, cell) => Some(format!(
+            "its subject `Some(..)` on the `?` cell `{cell}` writes no `<{cell}>` and no variable \
+             of its sort, so the rule tests no presence"
+        )),
+        Spelling::Missing if writes_cell(result, cell) && writes_cell(subject, cell) => {
+            Some(format!(
+                "its subject `None` on the `?` cell `{cell}` writes the cell on the subject side, \
+                 so the result does not create it"
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// P6 read off one K content root for an entry's root on `side` (ruling 1): whether the K keeps a
+/// frame exactly where the root keeps the rest. `content` is the cell's content as `side` reads
+/// it, `subject` and `result` the content of each side of its rewrite, `places` how many texts
+/// they are (1 for a cell no rewrite writes). A frame is `...` in the cell (a), which frames both
+/// sides of a rewrite inside it, a kept rest variable (b), or on the subject a `_` at the
+/// content's top level (c).
+/// A subject's `..` or `name @ ..` matches the unwritten rest, so its side has a frame; an exact
+/// subject has none. A result's `..` keeps the subject's rest, `..name` puts a rest back, an
+/// exact result keeps none. An initializer's value is complete.
 fn frame_agrees(
     side: Side,
     root: &class_matrix::cells_oracle::Root,
     content: &str,
+    (subject, result): (&str, &str),
+    sentence: &str,
+    places: usize,
 ) -> Result<(), String> {
     use class_matrix::cells_oracle::Root;
     let dots = content.split_whitespace().any(|token| token == "...");
-    let (subject, result) = content
-        .split_once(" => ")
-        .map_or((content, content), |(subject, result)| (subject, result));
-    let subject_rests = rest_variables(subject);
-    let kept = rest_variables(result)
-        .into_iter()
-        .any(|variable| subject_rests.contains(variable));
+    let kept = kept_rest(subject, result, sentence, places);
     let framed = match side {
-        Side::Subject => dots || !subject_rests.is_empty(),
+        Side::Subject => {
+            dots || kept || top_tokens(subject).contains(&"_") || unused_rest(subject, sentence)
+        }
         Side::Result => dots || kept,
         _ => dots,
     };
@@ -5736,6 +6131,13 @@ fn frame_agrees(
 /// K is the product's, recorded by `--record`; this judges it against the principle, so a
 /// lowering that keeps a rest an exact entry does not write (S5-D2's) or drops one a `..` keeps
 /// fails here, whatever the row's class.
+///
+/// An entry means the K it lowers to, so the frame is judged by that meaning, not its spelling
+/// (S5.0g item 3a fixes, ruling 1, P0): at a content root, `...` (a), a rest variable kept at the
+/// same place on both sides and used nowhere else (b), `_` in a subject (c), each read on the
+/// side of a whole-cell rewrite `(<c> L </c> => <c> R </c>)` the entry is on (d). `_` in a result
+/// and a whole-cell rewrite that drops a child or its subject's frame are refused
+/// ([`sentence_frames`]).
 #[test]
 fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
     use class_matrix::cells_oracle::root;
@@ -5752,6 +6154,20 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
         // The case's own sentence (or configuration) is the K text's first paragraph; the base's
         // sentences follow it.
         let k = k.trim_start().split("\n\n").next().unwrap_or_default();
+        for found in sentence_frames(k) {
+            failures.push(format!("{}: {found}", case.id));
+        }
+        let (subject_view, result_view) = (side_view(k, false), side_view(k, true));
+        if let Some(found) = presence_frame(entry, &subject_view, &result_view) {
+            failures.push(format!("{}: {found}", case.id));
+        }
+        let view = if entry.entry.side == Side::Result {
+            &result_view
+        } else {
+            &subject_view
+        };
+        // Records are judged on the whole text, as before the views: a created instance's
+        // `...` takes its template's defaults, which no side view reads.
         record_frames_agree(case, entry, k, &mut failures, &mut counts);
         let mut roots = Vec::new();
         content_roots(
@@ -5769,20 +6185,47 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
             cells.entry(cell.as_str()).or_default().push(spelling);
         }
         for (cell, spellings) in cells {
-            let contents = k_cells(k, cell);
+            let contents = k_cells(view, cell);
+            let (subjects, results) = (k_cells(&subject_view, cell), k_cells(&result_view, cell));
             if contents.len() != spellings.len() {
                 failures.push(format!(
                     "{}: the entry writes {} content roots of `{cell}`, its K has {} cells \
-                     `<{cell}>`",
+                     `<{cell}>` on its side",
                     case.id,
                     spellings.len(),
-                    contents.len()
+                    contents.len(),
                 ));
                 continue;
             }
-            for (spelling, content) in spellings.into_iter().zip(contents) {
+            // A cell a whole-cell rewrite creates (`.Bag => <c> .. </c>`) or deletes has one
+            // side only; the other has no content.
+            let paired = subjects.len() == results.len();
+            // A cell no whole-cell rewrite holds is one text on both sides.
+            let in_rewrite = k_cells(k, cell).len() != subjects.len();
+            for (at, (spelling, content)) in spellings.into_iter().zip(contents).enumerate() {
                 *counts.entry("content roots judged").or_default() += 1;
-                if let Err(found) = frame_agrees(entry.entry.side, &root(spelling), content) {
+                let (subject, result) = if paired {
+                    (subjects[at], results[at])
+                } else if entry.entry.side == Side::Result {
+                    ("", content)
+                } else {
+                    (content, "")
+                };
+                let subject = split_rewrite(subject).map_or(subject, |(left, _)| left);
+                let result = split_rewrite(result).map_or(result, |(_, right)| right);
+                let places = if in_rewrite || split_rewrite(content).is_some() {
+                    2
+                } else {
+                    1
+                };
+                if let Err(found) = frame_agrees(
+                    entry.entry.side,
+                    &root(spelling),
+                    content,
+                    (subject, result),
+                    k,
+                    places,
+                ) {
                     failures.push(format!(
                         "{}: `<{cell}> {content} </{cell}>` has {found}, where P6 says the \
                          content root {:?} on the {:?} side {}",
@@ -5809,8 +6252,13 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
 /// rest.
 #[derive(Debug)]
 enum RecordFrame {
-    /// A record of the group the cell holds (the cell's own group, or one instance's).
-    Record { cell: String, keeps: bool },
+    /// A record of the group the cell holds (the cell's own group, or one instance's), with the
+    /// children it does not name.
+    Record {
+        cell: String,
+        keeps: bool,
+        unnamed: Vec<String>,
+    },
     /// The instances of a collection, of which `records` are records.
     Instances {
         cell: String,
@@ -5856,6 +6304,14 @@ fn record_frames(
         }
         _ => None,
     };
+    let unnamed = |group: &Group, record: &Record| {
+        group
+            .children
+            .iter()
+            .filter(|(child, _)| !record.fields.iter().any(|(name, _)| name == child))
+            .map(|(child, _)| child.clone())
+            .collect()
+    };
     let fields = |group: &Group, record: &Record, out: &mut Vec<RecordFrame>| {
         for (name, value) in &record.fields {
             if let Some((_, child)) = group.children.iter().find(|(child, _)| child == name) {
@@ -5872,6 +6328,7 @@ fn record_frames(
                 out.push(RecordFrame::Record {
                     cell: cell.to_owned(),
                     keeps: record_keeps(group, &found),
+                    unnamed: unnamed(group, &found),
                 });
                 fields(group, &found, out);
             }
@@ -5890,6 +6347,7 @@ fn record_frames(
                     out.push(RecordFrame::Record {
                         cell: cell.to_owned(),
                         keeps: record_keeps(group, &found),
+                        unnamed: unnamed(group, &found),
                     });
                     fields(group, &found, out);
                 }
@@ -5986,11 +6444,18 @@ fn record_frames_agree(
         &entry.entry.spelling,
         &mut frames,
     );
-    let mut records = BTreeMap::<&str, Vec<bool>>::new();
+    let mut records = BTreeMap::<&str, Vec<(bool, &[String])>>::new();
     for frame in &frames {
         match frame {
-            RecordFrame::Record { cell, keeps } => {
-                records.entry(cell.as_str()).or_default().push(*keeps);
+            RecordFrame::Record {
+                cell,
+                keeps,
+                unnamed,
+            } => {
+                records
+                    .entry(cell.as_str())
+                    .or_default()
+                    .push((*keeps, unnamed.as_slice()));
             }
             RecordFrame::Instances {
                 cell,
@@ -6036,9 +6501,18 @@ fn record_frames_agree(
                 .or_default() += wanted.len();
             continue;
         }
-        for (keeps, content) in wanted.into_iter().zip(contents) {
+        for ((keeps, unnamed), content) in wanted.into_iter().zip(contents) {
             *counts.entry("record frames judged").or_default() += 1;
-            let has_frame = top_level_frame(content);
+            // Ruling 1 (c): on a subject, a child the record does not name written `_` as its
+            // whole content matches that child unconstrained; a record whose every unnamed child
+            // is so written (none, where it names every child) keeps the rest it does not name.
+            let has_frame = top_level_frame(content)
+                || (keeps
+                    && entry.entry.side == Side::Subject
+                    && unnamed.iter().all(|child| {
+                        let found = k_cells(content, child);
+                        found.len() == 1 && found[0] == "_"
+                    }));
             if has_frame != keeps {
                 failures.push(format!(
                     "{}: `<{cell}> {content} </{cell}>` has {} at its top level, where P6 says \

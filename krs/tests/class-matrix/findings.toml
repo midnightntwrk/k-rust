@@ -122,6 +122,11 @@ owner = "S5"
 kind = "bug"
 what = "a `cells!` group fragment is read as the reference notation that names every field: in a subject its `..` is refused (`k::fragment![crate::G { a: x, .. }]`, `invalid-record-update`, so a matched result whose subject entry writes it is refused for that entry), and a child's content written bare (`hl: [x, ..]`, `mm: k::map![..]`) is refused (`invalid-state-macro`), though readable `G { a: x, .. }` abbreviates to that fragment (P7, design §2.3 `abbreviate`) and a field's value is its child's entry (P1, P6; F-1); S5.3's"
 
+["S5-H1"]
+owner = "S5"
+kind = "feature"
+what = "a result on a Map leaf whose subject entry matched the map with a readable map read (`env: { z -> y, .. }`) is refused for that match (\"a preserved map-item cell is omitted from the machine-rule result\"): the subject's map read is a frame the result may not replace, the stated M3 limitation (design:M3), so the result entry's own answer is never reached (S5.0g item 3a fixes, F-6)"
+
 ["S5-I1"]
 owner = "S5"
 kind = "bug"
@@ -164,10 +169,35 @@ what = "`job: [x, ..]` on a List collection binds its front instance (decision Q
 owner = "S5"
 kind = "bug"
 what = "a result without `..` at a content root whose subject entry matched it with an anonymous rest is accepted, where it is `rest-mismatch` (P6: K reads keep and Rust reads drop, so the spelling must say which): a readable group record's child (`H { hl: [x], hb: 0 }` over `H { hl: [y, ..], .. }`, also below `Some`) and a `cells!` computation (`KCell(x)` over `KCell(y, ..)`); S5.2's and S5.5's"
-risk = "KRS writes the subject's `...` frame and the result's items over it (as S5-D2 does for a `cells!` map), so the rule keeps the rest of the list or computation, while the exact spelling reads in Rust as the whole new content: nothing tells the author the rest is kept"
+risk = "the one exact spelling gets a different meaning in each form, and nothing tells the author which (P7 makes the forms one notation): in a readable group record's child KRS rewrites the whole record cell, matching the subject's rest with `_` and writing the result's items alone, so the rest is dropped, the Rust reading; in a `cells!` computation (`KCell(x)` over `KCell(y, ..)`) it writes the result's items over the subject's `...` frame, so the rest of the computation is kept (as S5-D2 does for a `cells!` map)"
 
 ["S5-S1"]
 owner = "S5"
 kind = "bug"
 what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable `hpc: x`, a claim's, a `cells!` key such as `crate::Acct::apc`) is admitted, or refused with another code than its class: the cell's own kind first (P3, as at the record's level), then the ancestor's (`optional-without-presence`, `collection-without-instances`; S1 (b), design §2.3): S5.2's for readable records and claims, S5.3's for `cells!` keys. Residue for S5.3 once S5.2 fixes the path: `{readable,claim}/subject/kinds/aacct/[x, ..]` and `{readable,claim}/overwrite/kinds/hbag/[x, ..]` are `instance-list-shape` by their own stack (brackets on a Set or Map collection, the instance mark of the wrong order: S5.0g pattern review P-R4), where the compiler answers `bracket-reading` (`invalid-list-notation`) on `aacct` and a `rust-syntax` error on `hbag`; the cell's own class is then theirs to name, a `br`/`ils` disagreement this finding's cause does not cover"
 risk = "below `*`, KRS reads the named cell as a child of one implicit instance, so the rule silently needs exactly the instance it picks and matches or writes that one; below `?`, it silently requires the optional ancestor to be present (B8's reason). The entry names one cell's content, which no single cell has"
+
+["S5-U1"]
+owner = "S5"
+kind = "bug"
+what = "an initializer's record update on a group or a collection-of-group cell (`frame: G { a: 0, ..base }`, an instance template `Gl { la: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\"), though P5 reads `..base` as the base the record updates, so the record names its fields through it and uses the configuration variable (S5.0g item 3a fixes, ruling 2 and F-1); on a leaf stack the same refusal stands where the lattice's sort class is the answer"
+
+["S5-V1"]
+owner = "S5"
+kind = "bug"
+what = "a Map collection's instance record whose List child the subject matches with a binder used nowhere (`acc: { A { aid: k, al: [y, ..], .. }, .. }`) fails in lowering with the internal \"variable `y` has no expected sort\" (`krs::analysis::unsupported-shape`), whatever the result writes, though the binder has its child's item sort (P1, P5) and the `cells!` twin is accepted (P7); the result entry's own mistake, where it has one, is never reached"
+
+["S5-V2"]
+owner = "S5"
+kind = "bug"
+what = "a readable instance record's List child written with brackets (`acc: { A { aid: 5, al: [x] }, .. }`) is refused \"a `[..]` sequence occurs in a cell that is not the computation cell\": the compiler misreads the child's kind, reading the brackets of a List leaf as a K sequence, though P2 gives brackets inside a List leaf as its mark and the `cells!` twin is accepted with `<al> ListItem(V0:Int) </al>` (P7)"
+
+["S5-W1"]
+owner = "S5"
+kind = "bug"
+what = "a subject `Some(_)` on an optional group cell (`ogroup: Some(_)`) lowers to a bare untyped `_` in the rule's configuration, which names no `ogroup` cell, so the rule does not test the cell's presence, though P5 reads `Some` as the cell present (P0: an entry means its K; the principled K is `_:OgroupCell`, recorded by hand: rerecording writes the product's K back, which check 6 refuses). The rule fires whether `ogroup` is present or absent: an author who wrote `Some(_)` to require the cell gets a rule that also applies to configurations without it, and nothing reports it; `Some(x)` and the written `Some(_)` emit the cell's sort and are right. Its reds are other K, not under-refusals, so the registry holds no `risk` for it"
+
+["S5-X1"]
+owner = "S5"
+kind = "bug"
+what = "a result that creates an optional group cell with a record that leaves its other fields to their defaults (`ogroup: Some(Gp { pa: x, .. })` over `None`, and its `cells!` fragment) is refused \"the cell term must name every child field exactly once\", though P6 and R4 read a created record's bare `..` as the defaults of the fields it does not name"

@@ -372,6 +372,8 @@ struct Admission<'b> {
     bound: &'b dyn Fn(&str) -> bool,
     groups: &'b [GroupKind],
     sorted: bool,
+    /// Whether the entry being judged is inside a collection's instance record.
+    in_instance: bool,
 }
 
 impl Admission<'_> {
@@ -467,8 +469,12 @@ impl Admission<'_> {
             (Layer::Instances(order), _) => self.instances(*order, below, spelling),
             (Layer::Leaf(_), EntrySpelling::MapRead(map)) => {
                 // Both limitations are the readable record's top-level route's; inside an
-                // instance record a map read is the child's own entry, lowered by its route.
-                if head && self.form.is_readable() && self.side == EntrySide::Result {
+                // instance record a map read is the child's own entry, lowered by its route. A
+                // group record's child is a content root its record's route lowers (a field's
+                // value is its child's content), so a map read with a rest there has the M3
+                // limitation its `cells!` twin `k::map![k -> v, ..]` has.
+                let child = !head && !self.in_instance && map.rest.is_some();
+                if (head || child) && self.form.is_readable() && self.side == EntrySide::Result {
                     return Err(Refusal::MapReadInResult);
                 }
                 if head
@@ -569,7 +575,10 @@ impl Admission<'_> {
                     EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
                     Some(Layer::Group(group)),
                 ) => {
-                    self.group(group, item)?;
+                    let outer = std::mem::replace(&mut self.in_instance, true);
+                    let judged = self.group(group, item);
+                    self.in_instance = outer;
+                    judged?;
                 }
                 // One instance of an ordered collection is its front one.
                 _ if order == Order::List => self.value(item)?,
@@ -719,6 +728,7 @@ pub fn admit(
         bound,
         groups,
         sorted: false,
+        in_instance: false,
     };
     admission.form(spelling)?;
     admission.kind(stack, spelling, true)?;
@@ -2321,7 +2331,7 @@ mod tests {
     }
 
     #[test]
-    fn a_map_read_is_refused_in_a_result_at_the_records_top_level_only() {
+    fn a_map_read_is_refused_in_a_result_outside_an_instance_record() {
         let readable = EntryForm::Readable;
         let map = [Layer::Leaf(Notation::Map)];
         assert_eq!(
@@ -2348,6 +2358,29 @@ mod tests {
                 "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
             ),
             Ok(())
+        );
+        // A group record's child is lowered by the record's own route, which has no map read
+        // on a result's side either (the field's value is the child's content root).
+        let m = Layer::Group(GroupKind {
+            name: "M".to_owned(),
+            children: vec![
+                (
+                    "mm".to_owned(),
+                    CellKind {
+                        layers: vec![Layer::Leaf(Notation::Map)],
+                    },
+                ),
+                ("mn".to_owned(), int()),
+            ],
+        });
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Result,
+                &[m],
+                "M { mm: { y -> x, .. }, mn: 0 }"
+            ),
+            Err(Refusal::MapReadInResult)
         );
     }
 

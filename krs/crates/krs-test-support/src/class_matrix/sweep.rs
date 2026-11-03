@@ -1851,6 +1851,9 @@ fn position_type(stack: &[Layer]) -> String {
         [Layer::Leaf(Notation::List)] => "k::Term<k::builtin::List>".to_owned(),
         [Layer::Leaf(Notation::Map)] => "k::Term<k::builtin::Map>".to_owned(),
         [Layer::Leaf(Notation::Set)] => "k::Term<k::builtin::Set>".to_owned(),
+        // A cons leaf's whole content is a term of the cons list's sort (S5.0g item 3a review
+        // F-3 (a)); its items, read through `items_at`, are `Int`s.
+        [Layer::Leaf(Notation::Cons)] => "k::Term<crate::Ints>".to_owned(),
         [Layer::Group(group)] | [Layer::Instances(_), Layer::Group(group)] => {
             format!("crate::{}", group.name)
         }
@@ -1878,7 +1881,6 @@ fn binder_types(spelling: &Spelling, stack: &[Layer], out: &mut Vec<(String, Str
         // An alias names the instance it matches; `cells!` binds it there, as no parameter.
         (Spelling::Alias(_, inner), _) => binder_types(inner, stack, out),
         (Spelling::Present(inner), [Layer::Optional, rest @ ..]) => binder_types(inner, rest, out),
-        (Spelling::Cell(inner), [Layer::Leaf(Notation::Cons)]) => binder_types(inner, &[], out),
         (Spelling::Cell(inner) | Spelling::Present(inner) | Spelling::Absent(inner), _) => {
             binder_types(inner, stack, out);
         }
@@ -1975,9 +1977,12 @@ pub(super) enum Built {
 pub const NO_WRITTEN_RESULT: &str = "unbuilt: no result entry of the form writes this cell beside the subject's entry and is admitted (`outcome` admits none of the written candidates over it): the case would refuse its result, not its subject";
 
 /// Why a cell of the stack `* Map of Q` (D-5's: an instance `Q { id, js }` whose `js` is a List
-/// collection beside `id`) has no case: the stack cannot be declared, since K requires a `*`
-/// cell to be its parent's only child (the collector refuses the configuration).
-pub const UNDECLARABLE: &str = "unbuilt: the stack cannot be declared: K requires a `*` cell to be its parent's only child, and `js` stands beside `id` (the collector refuses the configuration, so no case of this stack compiles)";
+/// collection beside `id`) has no case: the stack cannot be declared. The rule is K's, not P1's:
+/// a `*` cell's instances are its parent's whole content, one collection term, so the `*` cell
+/// is its parent's only child (`krs::analysis::collection-siblings`). P1's stack admits the
+/// configuration (a group's child has a stack of its own), so these rows are about a
+/// configuration P1 describes and K cannot declare.
+pub const UNDECLARABLE: &str = "unbuilt: the stack cannot be declared, by K's declaration rule (not P1's stack, which admits it): a `*` cell's instances are its parent's whole content, one collection term, so the `*` cell is its parent's only child (`krs::analysis::collection-siblings`), and `js` stands beside `id`; no case of this stack compiles";
 
 /// Why a children row whose update `..me` reads a value the sentence matches elsewhere has no
 /// case of its own here.

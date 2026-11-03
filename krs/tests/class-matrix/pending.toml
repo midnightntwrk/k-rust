@@ -106,6 +106,14 @@ deviation = "0 pairs only coverage holds; 37 pairs only k-rust-disambiguation ho
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 37 pairs only k-rust-subsorts holds"
 
+["lattice/class-sweep/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 32 pairs only k-rust-disambiguation holds"
+
+["lattice/class-sweep/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 32 pairs only k-rust-subsorts holds"
+
 ["lattice/class-machine/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
@@ -5307,6 +5315,14 @@ deviation = "E0063 @ spelling; E0308 @ spelling"
 finding = "B2"
 deviation = "E0308 @ spelling"
 
+["sweep/init/init/ogroup/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["sweep/init/init/ogroup/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
 ["sweep/init/init/pc/G { a: 0 }"]
 finding = "B2"
 deviation = "E0063 @ spelling; E0308 @ spelling"
@@ -5499,6 +5515,18 @@ deviation = "printed surface refused: krs::analysis::optional-presence @ item"
 finding = "B8"
 deviation = "printed surface refused: krs::analysis::optional-presence @ item"
 
+["sweep/claim/subject/ogroup/Gp { pa: x, .. }"]
+finding = "B8"
+deviation = "accepted"
+
+["sweep/claim/subject/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "B8"
+deviation = "accepted"
+
+["sweep/claim/subject/ogroup/x"]
+finding = "B8"
+deviation = "accepted"
+
 ["sweep/claim/subject/olist/[.., x]"]
 finding = "B8"
 deviation = "accepted"
@@ -5528,6 +5556,18 @@ finding = "B8"
 deviation = "accepted"
 
 ["sweep/claim/subject/omap/{ y -> x, .. }"]
+finding = "B8"
+deviation = "accepted"
+
+["sweep/readable/subject/ogroup/Gp { pa: x, .. }"]
+finding = "B8"
+deviation = "accepted"
+
+["sweep/readable/subject/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "B8"
+deviation = "accepted"
+
+["sweep/readable/subject/ogroup/x"]
 finding = "B8"
 deviation = "accepted"
 
@@ -5587,6 +5627,18 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
+["k8/sweep/cells/result/c16-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
+finding = "S0-9"
+deviation = "map-collection-key advises none, and its refusal advises `aid: _`"
+
+["k8/sweep/cells/result/c17-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
+finding = "S0-9"
+deviation = "refused where the table accepts, advising `al: _`"
+
+["k8/sweep/cells/result/c22-acc/{ k::fragment![crate::A { al: [x], .. }], .. }"]
+finding = "S0-9"
+deviation = "map-collection-key advises none, and its refusal advises `aid: ..`"
+
 ["k8/sweep/cells/result/counter/k::fragment![crate::G { a: x, .. }]"]
 finding = "S0-9"
 deviation = "open-record-outside-pattern advises none, and its refusal advises `Some(..)`"
@@ -5631,6 +5683,42 @@ deviation = "bracket-reading advises none, and its refusal advises `Some(k::conf
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
+["k8/sweep/cells/subject/ogroup/Some(k::configuration::Cell(x))"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::Cell([.., x])"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::Cell([x, ..])"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::Cell(_)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::KCell(x)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::configuration::KCell(x, ..)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/subject/ogroup/k::fragment![crate::Gp { pa: x }]"]
+finding = "S0-9"
+deviation = "record-missing-children advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
 ["k8/sweep/cells/subject/olist/k::configuration::Cell(k::map![y -> x, ..])"]
 finding = "S0-9"
 deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
@@ -5654,14 +5742,6 @@ deviation = "bracket-reading advises none, and its refusal advises `Some(k::conf
 ["k8/sweep/cells/subject/omap/k::configuration::KCell(x)"]
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/seq/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "refused where the table accepts, advising `x`"
-
-["k8/sweep/cells/subject/seq/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "refused where the table accepts, advising `x`"
 
 ["k8/sweep/cells/written/acct/[k::fragment![crate::Gm { ma: x, .. }], ..]"]
 finding = "S0-9"
@@ -5775,6 +5855,42 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
+["k8/sweep/cells/written/ogroup/Some(k::configuration::Cell(x))"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::Cell([.., x])"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::Cell([x, ..])"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::Cell(_)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::KCell(x)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::configuration::KCell(x, ..)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/sweep/cells/written/ogroup/k::fragment![crate::Gp { pa: x }]"]
+finding = "S0-9"
+deviation = "record-missing-children advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
 ["k8/sweep/cells/written/olist/k::configuration::KCell(x)"]
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
@@ -5794,10 +5910,6 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 ["k8/sweep/cells/written/omap/k::configuration::KCell(x, ..)"]
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/seq/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "refused where the table accepts, advising `x`"
 
 ["k8/sweep/claim/result/acct/[..]"]
 finding = "S0-9"
@@ -6039,6 +6151,10 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
+["k8/sweep/claim/subject/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
 ["k8/sweep/claim/subject/olist/Some([..])"]
 finding = "S0-9"
 deviation = "refused where the table accepts, advising `_`"
@@ -6143,6 +6259,22 @@ deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
+["k8/sweep/claim/written/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/sweep/claim/written/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
+
+["k8/sweep/claim/written/ogroup/[..]"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `cell: rest`"
+
+["k8/sweep/claim/written/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
+
 ["k8/sweep/claim/written/olist/Some([..])"]
 finding = "S0-9"
 deviation = "refused where the table accepts, advising `_`"
@@ -6214,54 +6346,6 @@ deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
 ["k8/sweep/claim/written/stack/Some([..])"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
-
-["k8/sweep/init/init/acct/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/bag/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/counter/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/env/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/frame/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/job/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/olist/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/omap/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/pc/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/seq/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/set/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
-
-["k8/sweep/init/init/stack/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `k::k![Cmd::Go(), pgm]`"
 
 ["k8/sweep/readable/result/acct/[..]"]
 finding = "S0-9"
@@ -6503,6 +6587,10 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
+["k8/sweep/readable/subject/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
 ["k8/sweep/readable/subject/olist/Some([..])"]
 finding = "S0-9"
 deviation = "refused where the table accepts, advising `_`"
@@ -6607,6 +6695,22 @@ deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
+["k8/sweep/readable/written/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/sweep/readable/written/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
+
+["k8/sweep/readable/written/ogroup/[..]"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `cell: rest`"
+
+["k8/sweep/readable/written/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "bracket-reading advises none, and its refusal advises `rest @ ..`"
+
 ["k8/sweep/readable/written/olist/Some([..])"]
 finding = "S0-9"
 deviation = "refused where the table accepts, advising `_`"
@@ -6687,10 +6791,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/acct/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/acct/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6715,10 +6815,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/bag/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/bag/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6731,6 +6827,18 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
+["sweep/cells/overwrite/c04-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/overwrite/c26-ocell/k::fragment![crate::O { oo: Some(1), on: 0 }]"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["sweep/cells/overwrite/c27-ocell/k::fragment![crate::O { oo: None, on: 0 }]"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
 ["sweep/cells/overwrite/counter/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6738,10 +6846,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/overwrite/counter/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/overwrite/counter/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/overwrite/counter/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -6762,10 +6866,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/overwrite/env/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/overwrite/env/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/overwrite/env/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -6791,10 +6891,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/frame/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/frame/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6819,10 +6915,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/job/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/job/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6832,6 +6924,26 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/overwrite/job/k::configuration::KCell(x, .., y)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/overwrite/ogroup/k::configuration::Cell([.., x])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/cells/overwrite/ogroup/k::configuration::Cell([x, ..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/cells/overwrite/ogroup/k::configuration::KCell(.., x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/overwrite/ogroup/k::configuration::KCell(x, ..)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/overwrite/ogroup/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6846,10 +6958,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/overwrite/olist/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/overwrite/olist/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/overwrite/olist/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -6875,10 +6983,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/omap/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/omap/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6898,10 +7002,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/overwrite/pc/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/overwrite/pc/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/overwrite/pc/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -6927,10 +7027,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/prog/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/prog/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6950,10 +7046,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/overwrite/seq/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/overwrite/seq/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/overwrite/seq/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -6979,10 +7071,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/overwrite/set/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/overwrite/set/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6998,10 +7086,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/overwrite/stack/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/overwrite/stack/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/overwrite/stack/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7026,10 +7110,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/result/acct/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/acct/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/result/acct/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7059,10 +7139,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/bag/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/result/bag/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7079,6 +7155,26 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 
+["sweep/cells/result/c02-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/result/c07-ohcell/Some(k::fragment![crate::Ho { ohl: [x, ..], ohb: 0 }])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/result/c09-tjob/[k::fragment![crate::T { tk: [x], ..me }], ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["sweep/cells/result/c16-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ spelling"
+
+["sweep/cells/result/c38-ogroup/Some(k::fragment![crate::Gp { pa: x }])"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
 ["sweep/cells/result/counter/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7090,10 +7186,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/result/counter/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/counter/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/result/counter/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7143,6 +7235,10 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::analysis::cell-wrapper @ entry"
 
+["sweep/cells/result/f02-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], mn: 0 }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
 ["sweep/cells/result/f03-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], mn: 0 }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7183,10 +7279,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/frame/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/result/frame/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7211,10 +7303,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/job/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/result/job/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7231,6 +7319,30 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 
+["sweep/cells/result/ogroup/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/result/ogroup/k::configuration::Cell([.., x])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/cells/result/ogroup/k::configuration::Cell([x, ..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/cells/result/ogroup/k::configuration::KCell(.., x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/result/ogroup/k::configuration::KCell(x, ..)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/result/ogroup/k::configuration::KCell(x, .., y)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
 ["sweep/cells/result/olist/Some(k::configuration::Cell(x))"]
 finding = "S0-9"
 deviation = "krs::analysis::incompatible-binder @ item"
@@ -7246,10 +7358,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/result/olist/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/olist/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/result/olist/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7283,10 +7391,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/omap/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/result/omap/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7314,10 +7418,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/result/pc/k::configuration::Cell([x, ..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/pc/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/result/pc/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7347,10 +7447,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/prog/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/result/prog/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7370,10 +7466,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/seq/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/seq/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/result/seq/k::configuration::Cell(x)"]
 finding = "S0-9"
@@ -7407,10 +7499,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/set/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
-
 ["sweep/cells/result/set/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7426,10 +7514,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/stack/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/stack/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["sweep/cells/result/stack/k::configuration::Cell(x)"]
 finding = "S0-9"
@@ -7526,6 +7610,18 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/subject/job/k::fragment![crate::Gl { la: x }]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::KCell(.., x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/subject/ogroup/k::configuration::KCell(x, .., y)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/subject/ogroup/k::fragment![crate::Gp { pa: x }]"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/subject/olist/k::configuration::Cell(k::map![y -> x, ..])"]
 finding = "S0-9"
@@ -7695,6 +7791,18 @@ deviation = "krs::analysis::optional-presence @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
 
+["sweep/cells/written/ogroup/k::configuration::KCell(.., x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/written/ogroup/k::configuration::KCell(x, .., y)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/written/ogroup/k::fragment![crate::Gp { pa: x }]"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+
 ["sweep/cells/written/olist/[k::fragment![crate::G { a: x, .. }], ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ item"
@@ -7751,22 +7859,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/prog/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/cells/written/prog/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/cells/written/prog/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/cells/written/prog/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ item"
-
 ["sweep/cells/written/prog/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7775,37 +7867,13 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/prog/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/cells/written/seq/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/cells/written/seq/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/cells/written/seq/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
 ["sweep/cells/written/seq/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/seq/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
 ["sweep/cells/written/seq/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/written/seq/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
 
 ["sweep/cells/written/set/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7815,29 +7883,13 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/stack/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/cells/written/stack/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
 ["sweep/cells/written/stack/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/stack/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
-
 ["sweep/cells/written/stack/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/written/stack/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-list-notation @ item"
 
 ["sweep/claim/overwrite/acct/[.., x]"]
 finding = "S0-9"
@@ -7971,6 +8023,26 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["sweep/claim/overwrite/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/claim/overwrite/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/claim/overwrite/ogroup/{ Gp { pa: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/claim/overwrite/ogroup/{ Gp { pb: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/claim/overwrite/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
 ["sweep/claim/overwrite/olist/[.., x]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -8012,10 +8084,6 @@ finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["sweep/claim/overwrite/omap/{ x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["sweep/claim/overwrite/omap/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -8295,13 +8363,9 @@ deviation = "krs::analysis::invalid-list-notation @ item"
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ spelling"
 
-["sweep/claim/result/c16-acc/{ A { aid: 5, ..me }, .. }"]
+["sweep/claim/result/c38-ogroup/Some(Gp { pa: x })"]
 finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/result/c18-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
+deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/claim/result/counter/G { a: x }"]
 finding = "S0-9"
@@ -8359,85 +8423,17 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/claim/result/env/0"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/G { a: x }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/G { a: x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/G { a: x, b: y, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/None"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/Some(G { .. })"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/Some([..])"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/Some(_)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/Some(x)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
 ["sweep/claim/result/env/[.., x]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-
-["sweep/claim/result/env/[..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/[G { a: x, .. }, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/[x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
 
 ["sweep/claim/result/env/[x, r @ ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["sweep/claim/result/env/[x]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/_"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/env/x"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
 ["sweep/claim/result/env/{ G { a: x, .. }, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-
-["sweep/claim/result/env/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
 
 ["sweep/claim/result/env/{ G { b: x, .. }, .. }"]
 finding = "S0-9"
@@ -8447,6 +8443,10 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["sweep/claim/result/f02-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ item"
+
 ["sweep/claim/result/f03-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ item"
@@ -8454,10 +8454,6 @@ deviation = "krs::syntax::rust-syntax @ item"
 ["sweep/claim/result/f04-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/f06-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["sweep/claim/result/f18-ccell/C { cc: [x], cn: 0 }"]
 finding = "S0-9"
@@ -8563,6 +8559,10 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
+["sweep/claim/result/job/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
 ["sweep/claim/result/job/[x, r @ ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -8598,6 +8598,86 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["sweep/claim/result/job/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/claim/result/ogroup/0"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/Gp { pa: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/Gp { pa: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/Some(Gp { .. })"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/claim/result/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/claim/result/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/[x]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/map![y -> x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/{ Gp { pa: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/{ Gp { pa: x, pb: y } }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/{ Gp { pb: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/result/ogroup/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/claim/result/olist/0"]
 finding = "S0-9"
@@ -8678,94 +8758,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/claim/result/olist/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/claim/result/omap/0"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/G { a: x }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/G { a: x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/G { a: x, b: y, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/Some(G { .. })"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/Some([..])"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/Some(_)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/Some(x)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/[.., x]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/[..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/[G { a: x, .. }, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/[x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/[x, r @ ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/[x]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/_"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/x"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/{ x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/claim/result/omap/{ y -> x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
 
 ["sweep/claim/result/pc/G { a: x, .. }"]
 finding = "S0-9"
@@ -9167,18 +9159,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/claim/subject/counter/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/counter/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/counter/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/claim/subject/counter/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -9206,18 +9186,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/claim/subject/env/[x]"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/subject/env/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/env/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/env/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/subject/env/{ x, .. }"]
 finding = "S0-9"
@@ -9251,9 +9219,53 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
+["sweep/claim/subject/job/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
 ["sweep/claim/subject/job/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/subject/ogroup/0"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/claim/subject/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/claim/subject/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/claim/subject/ogroup/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["sweep/claim/subject/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/claim/subject/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/claim/subject/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/claim/subject/ogroup/[x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/claim/subject/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/subject/ogroup/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ entry"
 
 ["sweep/claim/subject/olist/0"]
 finding = "S0-9"
@@ -9274,18 +9286,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/claim/subject/olist/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/claim/subject/olist/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/olist/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/olist/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/subject/olist/{ x, .. }"]
 finding = "S0-9"
@@ -9339,14 +9339,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/claim/subject/omap/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/omap/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/claim/subject/omap/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -9374,18 +9366,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/claim/subject/pc/[x]"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/subject/pc/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/pc/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/pc/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/subject/pc/{ x, .. }"]
 finding = "S0-9"
@@ -9419,14 +9399,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/claim/subject/prog/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/prog/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/claim/subject/prog/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -9438,14 +9410,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/claim/subject/seq/Some([..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/subject/seq/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/seq/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/subject/seq/{ x, .. }"]
 finding = "S0-9"
@@ -9487,18 +9451,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/claim/subject/set/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/set/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/set/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/claim/subject/set/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -9514,18 +9466,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/claim/subject/stack/Some([..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/claim/subject/stack/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/stack/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/subject/stack/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/subject/stack/{ x, .. }"]
 finding = "S0-9"
@@ -9915,6 +9855,10 @@ deviation = "krs::syntax::invalid-state-macro @ item"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
 
+["sweep/claim/written/job/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
 ["sweep/claim/written/job/_"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ item"
@@ -9928,6 +9872,78 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/claim/written/job/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/written/ogroup/0"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/Gp { pa: x }"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/Gp { pa: x, .. }"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/claim/written/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/claim/written/ogroup/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/claim/written/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/claim/written/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/claim/written/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/[x]"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/_"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/x"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/claim/written/ogroup/{ Gp { pa: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/claim/written/ogroup/{ Gp { pa: x, pb: y } }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/claim/written/ogroup/{ Gp { pb: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/claim/written/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/claim/written/ogroup/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
 
@@ -10179,26 +10195,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/claim/written/prog/_"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/claim/written/prog/x"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/claim/written/prog/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/written/prog/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/written/prog/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/claim/written/prog/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -10226,18 +10222,6 @@ deviation = "krs::syntax::invalid-state-macro @ item"
 ["sweep/claim/written/seq/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/claim/written/seq/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/written/seq/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/written/seq/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/written/seq/{ x, .. }"]
 finding = "S0-9"
@@ -10331,18 +10315,6 @@ deviation = "krs::syntax::invalid-state-macro @ item"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
 
-["sweep/claim/written/stack/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/written/stack/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/claim/written/stack/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/claim/written/stack/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -10355,17 +10327,9 @@ deviation = "krs::syntax::rust-syntax @ entry"
 finding = "S0-9"
 deviation = "E0063 @ spelling"
 
-["sweep/init/init/acct/Gm { ma: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/acct/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/acct/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/acct/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
@@ -10375,17 +10339,9 @@ deviation = "E0308 @ spelling"
 finding = "S0-9"
 deviation = "E0063 @ spelling"
 
-["sweep/init/init/bag/Gs { sa: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/bag/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/bag/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/bag/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
@@ -10403,41 +10359,21 @@ deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/init/init/counter/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/counter/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
 deviation = "E0308 @ spelling"
-
-["sweep/init/init/env/G { a: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/env/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/init/init/env/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/frame/G { a: 0 }"]
 finding = "S0-9"
 deviation = "E0063 @ spelling"
 
-["sweep/init/init/frame/G { a: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/frame/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/frame/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/frame/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
@@ -10459,19 +10395,31 @@ deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 finding = "S0-9"
 deviation = "E0063 @ spelling"
 
-["sweep/init/init/job/Gl { la: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/job/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/init/init/job/k::k![Cmd::Go(), ..pgm]"]
+["sweep/init/init/job/k::map![0 -> 1, ..env]"]
+finding = "S0-9"
+deviation = "E0308 @ spelling"
+
+["sweep/init/init/ogroup/Gp { pa: 0 }"]
+finding = "S0-9"
+deviation = "E0063 @ spelling; E0308 @ spelling"
+
+["sweep/init/init/ogroup/Gp { pa: 0, ..base }"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
-["sweep/init/init/job/k::map![0 -> 1, ..env]"]
+["sweep/init/init/ogroup/Gp { pa: 0, pb: 0 }"]
+finding = "S0-9"
+deviation = "E0308 @ spelling"
+
+["sweep/init/init/ogroup/k::k![Cmd::Go(), ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/init/init/ogroup/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
 deviation = "E0308 @ spelling"
 
@@ -10486,10 +10434,6 @@ deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 ["sweep/init/init/olist/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/olist/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/olist/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
@@ -10507,25 +10451,13 @@ deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/init/init/omap/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/omap/k::map![0 -> 1, ..env]"]
 finding = "S0-9"
 deviation = "E0308 @ spelling"
 
-["sweep/init/init/pc/G { a: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/pc/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/pc/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/prog/G { a: 0 }"]
 finding = "S0-9"
@@ -10543,41 +10475,17 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "E0308 @ spelling"
 
-["sweep/init/init/seq/G { a: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/seq/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/seq/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["sweep/init/init/set/G { a: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/init/init/set/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/init/init/set/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["sweep/init/init/stack/G { a: 0, ..base }"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["sweep/init/init/stack/k::k![Cmd::Go(), ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/init/init/stack/k::k![Cmd::Go(), ..pgm]"]
-finding = "S0-9"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/readable/overwrite/acct/[.., x]"]
 finding = "S0-9"
@@ -10711,6 +10619,26 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["sweep/readable/overwrite/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/readable/overwrite/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/readable/overwrite/ogroup/{ Gp { pa: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/readable/overwrite/ogroup/{ Gp { pb: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/readable/overwrite/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
 ["sweep/readable/overwrite/olist/[.., x]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -10752,10 +10680,6 @@ finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["sweep/readable/overwrite/omap/{ x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["sweep/readable/overwrite/omap/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -11035,13 +10959,9 @@ deviation = "krs::analysis::invalid-list-notation @ item"
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ spelling"
 
-["sweep/readable/result/c16-acc/{ A { aid: 5, ..me }, .. }"]
+["sweep/readable/result/c38-ogroup/Some(Gp { pa: x })"]
 finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/result/c18-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
+deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/readable/result/counter/G { a: x }"]
 finding = "S0-9"
@@ -11099,85 +11019,17 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/readable/result/env/0"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/G { a: x }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/G { a: x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/G { a: x, b: y, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/None"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/Some(G { .. })"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/Some([..])"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/Some(_)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/Some(x)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
 ["sweep/readable/result/env/[.., x]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-
-["sweep/readable/result/env/[..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/[G { a: x, .. }, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/[x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
 
 ["sweep/readable/result/env/[x, r @ ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["sweep/readable/result/env/[x]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/_"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/env/x"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
 ["sweep/readable/result/env/{ G { a: x, .. }, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
-
-["sweep/readable/result/env/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
 
 ["sweep/readable/result/env/{ G { b: x, .. }, .. }"]
 finding = "S0-9"
@@ -11187,6 +11039,10 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["sweep/readable/result/f02-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ item"
+
 ["sweep/readable/result/f03-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ item"
@@ -11194,10 +11050,6 @@ deviation = "krs::syntax::rust-syntax @ item"
 ["sweep/readable/result/f04-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/f06-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["sweep/readable/result/f18-ccell/C { cc: [x], cn: 0 }"]
 finding = "S0-9"
@@ -11303,6 +11155,10 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
+["sweep/readable/result/job/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
 ["sweep/readable/result/job/[x, r @ ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -11338,6 +11194,86 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["sweep/readable/result/job/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/readable/result/ogroup/0"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/Gp { pa: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/Gp { pa: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/Some(Gp { .. })"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/readable/result/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/readable/result/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/[x]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/map![y -> x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/{ Gp { pa: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/{ Gp { pa: x, pb: y } }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/{ Gp { pb: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/result/ogroup/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/readable/result/olist/0"]
 finding = "S0-9"
@@ -11418,94 +11354,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/readable/result/olist/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/readable/result/omap/0"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/G { a: x }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/G { a: x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/G { a: x, b: y, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/Some(G { .. })"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/Some([..])"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/Some(_)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/Some(x)"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/[.., x]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/[..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/[G { a: x, .. }, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/[x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/[x, r @ ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/[x]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/_"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/x"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/{ x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
-
-["sweep/readable/result/omap/{ y -> x, .. }"]
-finding = "S0-9"
-deviation = "krs::syntax::rust-syntax @ item"
 
 ["sweep/readable/result/pc/G { a: x, .. }"]
 finding = "S0-9"
@@ -11907,18 +11755,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/readable/subject/counter/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/counter/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/counter/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/readable/subject/counter/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -11946,18 +11782,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/readable/subject/env/[x]"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/subject/env/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/env/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/env/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/subject/env/{ x, .. }"]
 finding = "S0-9"
@@ -11991,9 +11815,53 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
+["sweep/readable/subject/job/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
 ["sweep/readable/subject/job/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/subject/ogroup/0"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/readable/subject/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/readable/subject/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/subject/ogroup/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["sweep/readable/subject/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/subject/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/subject/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/subject/ogroup/[x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/readable/subject/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/subject/ogroup/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ entry"
 
 ["sweep/readable/subject/olist/0"]
 finding = "S0-9"
@@ -12014,18 +11882,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/readable/subject/olist/[..]"]
 finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/readable/subject/olist/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/olist/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/olist/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/subject/olist/{ x, .. }"]
 finding = "S0-9"
@@ -12079,14 +11935,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/readable/subject/omap/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/omap/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/readable/subject/omap/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -12114,18 +11962,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/readable/subject/pc/[x]"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/subject/pc/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/pc/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/pc/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/subject/pc/{ x, .. }"]
 finding = "S0-9"
@@ -12159,14 +11995,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/readable/subject/prog/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/prog/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/readable/subject/prog/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -12178,14 +12006,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/readable/subject/seq/Some([..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/subject/seq/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/seq/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/subject/seq/{ x, .. }"]
 finding = "S0-9"
@@ -12227,18 +12047,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/readable/subject/set/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/set/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/set/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/readable/subject/set/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -12254,18 +12062,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/readable/subject/stack/Some([..])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/readable/subject/stack/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/stack/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/subject/stack/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/subject/stack/{ x, .. }"]
 finding = "S0-9"
@@ -12655,6 +12451,10 @@ deviation = "krs::syntax::invalid-state-macro @ item"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
 
+["sweep/readable/written/job/[.., x]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
 ["sweep/readable/written/job/_"]
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ item"
@@ -12668,6 +12468,78 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/readable/written/job/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/written/ogroup/0"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/Gp { pa: x }"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/Gp { pa: x, .. }"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/Some([..])"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/readable/written/ogroup/[.., x]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/readable/written/ogroup/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/readable/written/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/readable/written/ogroup/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/readable/written/ogroup/[x, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/[x]"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/_"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/x"]
+finding = "S0-9"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["sweep/readable/written/ogroup/{ Gp { pa: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/readable/written/ogroup/{ Gp { pa: x, pb: y } }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/readable/written/ogroup/{ Gp { pb: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/readable/written/ogroup/{ x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/readable/written/ogroup/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
 
@@ -12919,26 +12791,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S0-9"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/readable/written/prog/_"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/readable/written/prog/x"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/readable/written/prog/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/written/prog/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/written/prog/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
 ["sweep/readable/written/prog/{ x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -12966,18 +12818,6 @@ deviation = "krs::syntax::invalid-state-macro @ item"
 ["sweep/readable/written/seq/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/readable/written/seq/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/written/seq/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/written/seq/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/written/seq/{ x, .. }"]
 finding = "S0-9"
@@ -13070,18 +12910,6 @@ deviation = "krs::syntax::invalid-state-macro @ item"
 ["sweep/readable/written/stack/Some(x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
-
-["sweep/readable/written/stack/{ G { a: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/written/stack/{ G { a: x, b: y } }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
-
-["sweep/readable/written/stack/{ G { b: x, .. }, .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/written/stack/{ x, .. }"]
 finding = "S0-9"
@@ -13187,6 +13015,38 @@ deviation = "krs::analysis::collection-entry @ entry"
 finding = "S5-A"
 deviation = "krs::analysis::collection-entry @ entry"
 
+["sweep/cells/subject/ogroup/Some(k::configuration::Cell(x))"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::Cell([.., x])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::Cell(_)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::Cell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::KCell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/subject/ogroup/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
 ["sweep/cells/subject/olist/k::configuration::KCell(x)"]
 finding = "S5-A"
 deviation = "krs::analysis::optional-presence @ entry"
@@ -13291,6 +13151,38 @@ deviation = "krs::analysis::optional-presence @ entry"
 finding = "S5-A"
 deviation = "krs::analysis::optional-presence @ entry"
 
+["sweep/cells/written/ogroup/Some(k::configuration::Cell(x))"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::Cell([.., x])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::Cell(_)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::Cell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::KCell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["sweep/cells/written/ogroup/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
 ["sweep/cells/written/olist/k::configuration::KCell(x)"]
 finding = "S5-A"
 deviation = "krs::analysis::optional-presence @ entry"
@@ -13303,15 +13195,99 @@ deviation = "krs::analysis::optional-presence @ entry"
 finding = "S5-A"
 deviation = "krs::analysis::optional-presence @ entry"
 
-["sweep/claim/result/f02-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
-finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ item"
-
 ["sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ item"
 
+["sweep/claim/result/omap/0"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/G { a: x }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/G { a: x, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/G { a: x, b: y, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
 ["sweep/claim/result/omap/None"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/Some(G { .. })"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/Some([..])"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/Some(_)"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/Some(x)"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/[.., x]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/[..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/[G { a: x, .. }, ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/[x, ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/[x, r @ ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/[x]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/_"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/map![y -> x, ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/x"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/{ G { a: x, .. }, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/{ G { a: x, b: y } }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/{ G { b: x, .. }, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/{ x, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/omap/{ y -> x, .. }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ item"
 
@@ -13323,15 +13299,99 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["sweep/readable/result/f02-mcell/M { mm: { y -> x, .. }, mn: 0 }"]
-finding = "S5-B1"
-deviation = "krs::syntax::rust-syntax @ item"
-
 ["sweep/readable/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ item"
 
+["sweep/readable/result/omap/0"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/G { a: x }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/G { a: x, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/G { a: x, b: y, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
 ["sweep/readable/result/omap/None"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/Some(G { .. })"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/Some([..])"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/Some(_)"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/Some(x)"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/[.., x]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/[..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/[G { a: x, .. }, ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/[x, ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/[x, r @ ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/[x]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/_"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/map![y -> x, ..]"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/x"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/{ G { a: x, .. }, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/{ G { a: x, b: y } }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/{ G { b: x, .. }, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/{ x, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/omap/{ y -> x, .. }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ item"
 
@@ -13342,6 +13402,10 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 ["sweep/readable/subject/f01-mcell/M { mm: { y -> x }, .. }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
+
+["sweep/cells/result/c12-tjob/[k::fragment![crate::T { tk: [x], tn: 0 }], ..]"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ spelling"
 
 ["sweep/claim/result/f19-ccell/C { cc: [x], cn: 0 }"]
 finding = "S5-C2"
@@ -13383,6 +13447,14 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
+["sweep/claim/written/prog/_"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["sweep/claim/written/prog/x"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
 ["sweep/readable/result/f19-ccell/C { cc: [x], cn: 0 }"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
@@ -13423,9 +13495,37 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/cells/result/f02-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], mn: 0 }]"]
+["sweep/readable/written/prog/_"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["sweep/readable/written/prog/x"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["sweep/cells/overwrite/c28-wcell/k::fragment![crate::W { wg: Gw { wa: x, .. }, wn: 0 }]"]
 finding = "S5-F2"
-deviation = "krs::syntax::invalid-state-macro @ item"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["sweep/cells/result/c00-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/c01-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
+finding = "S5-F2"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["sweep/cells/result/c03-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/c06-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }])"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
 
 ["sweep/cells/result/f05-mcell/k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }]"]
 finding = "S5-F2"
@@ -13492,6 +13592,46 @@ finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ item"
 
 ["sweep/cells/result/frame/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/None"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/Some(k::configuration::Cell(x))"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/[k::fragment![crate::Gp { pa: x, .. }], ..]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/k::configuration::Cell(x)"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/k::configuration::KCell(x)"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/k::fragment![crate::Gp { pa: x }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/k::fragment![crate::Gp { pa: x, .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/k::fragment![crate::Gp { pa: x, pb: y, .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/x"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["sweep/cells/result/ogroup/{ k::fragment![crate::Gp { pa: x, .. }], .. }"]
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ item"
 
@@ -13564,6 +13704,14 @@ finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["sweep/cells/subject/job/k::fragment![crate::Gl { la: x, lb: y, .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["sweep/cells/subject/ogroup/k::fragment![crate::Gp { pa: x, .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["sweep/cells/subject/ogroup/k::fragment![crate::Gp { pa: x, pb: y, .. }]"]
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
@@ -13671,6 +13819,14 @@ deviation = "krs::analysis::invalid-record-update @ spelling"
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
+["sweep/cells/written/ogroup/k::fragment![crate::Gp { pa: x, .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["sweep/cells/written/ogroup/k::fragment![crate::Gp { pa: x, pb: y, .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
 ["sweep/cells/written/olist/k::fragment![crate::G { a: x, .. }]"]
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
@@ -13727,13 +13883,421 @@ deviation = "krs::analysis::invalid-record-update @ spelling"
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
+["sweep/claim/result/env/0"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/G { a: x }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/G { a: x, .. }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/G { a: x, b: y, .. }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/None"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/Some(G { .. })"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/Some([..])"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/Some(_)"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/Some(x)"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/[..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/[G { a: x, .. }, ..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/[x, ..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/[x]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/_"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/map![y -> x, ..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/x"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/claim/result/env/{ G { a: x, b: y } }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/0"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/G { a: x }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/G { a: x, .. }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/G { a: x, b: y, .. }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/None"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/Some(G { .. })"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/Some([..])"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/Some(_)"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/Some(x)"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/[..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/[G { a: x, .. }, ..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/[x, ..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/[x]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/_"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/map![y -> x, ..]"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/x"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["sweep/readable/result/env/{ G { a: x, b: y } }"]
+finding = "S5-H1"
+deviation = "krs::syntax::rust-syntax @ item"
+
 ["sweep/claim/result/frame/{ G { a: x, b: y } }"]
 finding = "S5-I1"
 deviation = "accepted"
 
+["sweep/claim/subject/counter/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/counter/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/counter/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/env/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/env/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/env/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/olist/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/olist/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/olist/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/omap/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/omap/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/pc/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/pc/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/pc/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/prog/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/prog/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/seq/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/seq/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/set/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/set/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/set/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/stack/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/stack/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/subject/stack/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/prog/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/prog/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/prog/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/seq/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/seq/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/seq/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/stack/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/stack/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/written/stack/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
 ["sweep/readable/result/frame/{ G { a: x, b: y } }"]
 finding = "S5-I1"
 deviation = "accepted"
+
+["sweep/readable/subject/counter/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/counter/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/counter/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/env/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/env/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/env/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/olist/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/olist/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/olist/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/omap/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/omap/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/pc/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/pc/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/pc/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/prog/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/prog/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/seq/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/seq/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/set/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/set/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/set/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/stack/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/stack/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/subject/stack/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/prog/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/prog/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/prog/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/seq/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/seq/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/seq/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/stack/{ G { a: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/stack/{ G { a: x, b: y } }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/written/stack/{ G { b: x, .. }, .. }"]
+finding = "S5-I1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/cells/result/c10-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["sweep/cells/result/c19-acc/{ k::fragment![crate::A { al: [x, ..], ..me }], .. }"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
 
 ["sweep/cells/result/prog/k::configuration::KCell(x, ..)"]
 finding = "S5-K1"
@@ -13807,6 +14371,62 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S5-K1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
+["sweep/cells/written/prog/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/cells/written/prog/k::configuration::Cell([.., x])"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/cells/written/prog/k::configuration::Cell([x, ..])"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/cells/written/prog/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/cells/written/prog/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["sweep/cells/written/seq/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/seq/k::configuration::Cell([.., x])"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/seq/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/seq/k::configuration::KCell(x, ..)"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/seq/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/stack/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/stack/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/stack/k::configuration::KCell(x, ..)"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
+["sweep/cells/written/stack/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ item"
+
 ["k3/sweep/claim/subject/acct/Gm { ma: x }"]
 finding = "S5-L4"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
@@ -13843,6 +14463,10 @@ deviation = "accepted"
 finding = "S5-L4"
 deviation = "accepted"
 
+["sweep/claim/subject/ogroup/Gp { pa: x }"]
+finding = "S5-L4"
+deviation = "accepted"
+
 ["sweep/claim/written/frame/G { a: x }"]
 finding = "S5-L4"
 deviation = "accepted"
@@ -13856,6 +14480,10 @@ finding = "S5-L4"
 deviation = "accepted"
 
 ["sweep/readable/subject/job/Gl { la: x }"]
+finding = "S5-L4"
+deviation = "accepted"
+
+["sweep/readable/subject/ogroup/Gp { pa: x }"]
 finding = "S5-L4"
 deviation = "accepted"
 
@@ -13952,6 +14580,18 @@ finding = "S5-Q1"
 deviation = "krs::analysis::unsupported-shape @ item"
 
 ["sweep/cells/overwrite/bag/{ k::fragment![crate::Gs { sa: x, .. }], .. }"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/c05-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
 finding = "S5-Q1"
 deviation = "krs::analysis::unsupported-shape @ item"
 
@@ -14096,6 +14736,42 @@ finding = "S5-Q1"
 deviation = "krs::analysis::unsupported-shape @ item"
 
 ["sweep/cells/overwrite/job/{ k::fragment![crate::Gl { la: x, .. }], .. }"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/Some(k::configuration::Cell(x))"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/[k::fragment![crate::Gp { pa: x, .. }], ..]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/k::configuration::Cell(x)"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/k::configuration::KCell(x)"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/k::fragment![crate::Gp { pa: x }]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/k::fragment![crate::Gp { pa: x, .. }]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/k::fragment![crate::Gp { pa: x, pb: y, .. }]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/x"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/overwrite/ogroup/{ k::fragment![crate::Gp { pa: x, .. }], .. }"]
 finding = "S5-Q1"
 deviation = "krs::analysis::unsupported-shape @ item"
 
@@ -14370,6 +15046,10 @@ deviation = "krs::analysis::unsupported-shape @ item"
 ["sweep/cells/overwrite/stack/{ k::fragment![crate::G { a: x, .. }], .. }"]
 finding = "S5-Q1"
 deviation = "krs::analysis::unsupported-shape @ item"
+
+["sweep/cells/result/c17-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
+finding = "S5-Q1"
+deviation = "krs::analysis::collection-entry @ spelling"
 
 ["sweep/cells/subject/seq/k::configuration::Cell(_)"]
 finding = "S5-Q1"
@@ -14792,6 +15472,66 @@ finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
 ["sweep/claim/overwrite/job/{ Gl { la: x, lb: y } }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Gp { pa: x }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Gp { pa: x, .. }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Some(Gp { .. })"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Some([..])"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Some(_)"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/Some(x)"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/[..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/[x, ..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/[x]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/map![y -> x, ..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/x"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/claim/overwrite/ogroup/{ Gp { pa: x, pb: y } }"]
 finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
@@ -15271,6 +16011,10 @@ deviation = "krs::analysis::collection-entry @ spelling"
 finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
+["sweep/claim/subject/ogroup/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
 ["sweep/claim/subject/olist/Some([..])"]
 finding = "S5-Q1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -15720,6 +16464,66 @@ finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
 ["sweep/readable/overwrite/job/{ Gl { la: x, lb: y } }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Gp { pa: x }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Gp { pa: x, .. }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Gp { pa: x, pb: y, .. }"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Some(Gp { .. })"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Some([..])"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Some(_)"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/Some(x)"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/[..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/[Gp { pa: x, .. }, ..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/[x, ..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/[x]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/map![y -> x, ..]"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/x"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["sweep/readable/overwrite/ogroup/{ Gp { pa: x, pb: y } }"]
 finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
@@ -16199,6 +17003,10 @@ deviation = "krs::analysis::collection-entry @ spelling"
 finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
+["sweep/readable/subject/ogroup/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
 ["sweep/readable/subject/olist/Some([..])"]
 finding = "S5-Q1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -16235,27 +17043,15 @@ deviation = "krs::analysis::collection-entry @ entry"
 finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
-["sweep/claim/result/job/[.., x]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
 ["sweep/claim/result/job/[x, ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/claim/subject/job/[.., x]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/claim/subject/job/[x, r @ ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/claim/subject/job/[x]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/claim/written/job/[.., x]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
@@ -16271,27 +17067,15 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
-["sweep/readable/result/job/[.., x]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
 ["sweep/readable/result/job/[x, ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/readable/subject/job/[.., x]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/readable/subject/job/[x, r @ ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/readable/subject/job/[x]"]
-finding = "S5-Q2"
-deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/readable/written/job/[.., x]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
@@ -16306,6 +17090,10 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/readable/written/job/[x]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["sweep/cells/result/c18-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
+finding = "S5-R1"
+deviation = "accepted"
 
 ["sweep/cells/result/prog/k::configuration::KCell(x)"]
 finding = "S5-R1"
@@ -16335,3 +17123,90 @@ deviation = "accepted"
 finding = "S5-R1"
 deviation = "accepted"
 
+["sweep/init/init/acct/Gm { ma: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/bag/Gs { sa: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/env/G { a: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/frame/G { a: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/job/Gl { la: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/pc/G { a: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/seq/G { a: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/set/G { a: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/init/init/stack/G { a: 0, ..base }"]
+finding = "S5-U1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["sweep/claim/result/c16-acc/{ A { aid: 5, ..me }, .. }"]
+finding = "S5-V1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/result/c18-acc/{ A { al: [x], ..me }, .. }"]
+finding = "S5-V1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
+finding = "S5-V1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/result/c16-acc/{ A { aid: 5, ..me }, .. }"]
+finding = "S5-V1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/result/c18-acc/{ A { al: [x], ..me }, .. }"]
+finding = "S5-V1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/readable/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
+finding = "S5-V1"
+deviation = "krs::analysis::invalid-term @ item"
+
+["sweep/claim/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
+finding = "S5-V2"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/readable/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
+finding = "S5-V2"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/claim/subject/ogroup/Some(_)"]
+finding = "S5-W1"
+deviation = "accepted, with other K than recorded"
+
+["sweep/readable/subject/ogroup/Some(_)"]
+finding = "S5-W1"
+deviation = "accepted, with other K than recorded"
+
+["sweep/cells/result/c36-ogroup/Some(k::fragment![crate::Gp { pa: x, .. }])"]
+finding = "S5-X1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/claim/result/c36-ogroup/Some(Gp { pa: x, .. })"]
+finding = "S5-X1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["sweep/readable/result/c36-ogroup/Some(Gp { pa: x, .. })"]
+finding = "S5-X1"
+deviation = "krs::analysis::invalid-term @ spelling"

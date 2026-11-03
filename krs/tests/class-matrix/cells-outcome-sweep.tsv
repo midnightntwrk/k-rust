@@ -1424,11 +1424,11 @@ cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	reco
 form	side	stack	other	entry	outcome
 readable	subject	group M	-	M { m: { y -> x, .. }, .. }	ok
 readable	subject	group M	-	M { m: { y -> x }, .. }	ok
-readable	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x, .. }, n: 0 }	sort
-readable	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x, .. }, n: 0 }	rm
+readable	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x, .. }, n: 0 }	sort|product:mrr
+readable	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x, .. }, n: 0 }	rm|product:mrr
 readable	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x }, n: 0 }	rm
 readable	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x }, n: 0 }	sort
-readable	result	group M	M { n: z, .. }	M { m: { y -> x, .. }, n: 0 }	rm
+readable	result	group M	M { n: z, .. }	M { m: { y -> x, .. }, n: 0 }	rm|product:mrr
 readable	subject	group H	-	H { l: [y, ..], .. }	ok
 readable	subject	group H	-	H { l: [y], .. }	ok
 readable	result	group H	H { l: [z, ..], .. }	H { l: [x, ..], b: 0 }	sort
@@ -1445,11 +1445,11 @@ readable	result	group C	C { c: [z], .. }	C { c: [x], n: 0 }	sort
 readable	result	group C	C { n: z, .. }	C { c: [x, ..], n: 0 }	cir
 claim	subject	group M	-	M { m: { y -> x, .. }, .. }	ok
 claim	subject	group M	-	M { m: { y -> x }, .. }	ok
-claim	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x, .. }, n: 0 }	sort
-claim	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x, .. }, n: 0 }	rm
+claim	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x, .. }, n: 0 }	sort|product:mrr
+claim	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x, .. }, n: 0 }	rm|product:mrr
 claim	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x }, n: 0 }	rm
 claim	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x }, n: 0 }	sort
-claim	result	group M	M { n: z, .. }	M { m: { y -> x, .. }, n: 0 }	rm
+claim	result	group M	M { n: z, .. }	M { m: { y -> x, .. }, n: 0 }	rm|product:mrr
 claim	subject	group H	-	H { l: [y, ..], .. }	ok
 claim	subject	group H	-	H { l: [y], .. }	ok
 claim	result	group H	H { l: [z, ..], .. }	H { l: [x, ..], b: 0 }	sort
