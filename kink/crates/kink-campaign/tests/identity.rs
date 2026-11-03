@@ -479,6 +479,15 @@ fn the_identity_is_an_object_of_its_components() {
     let mut before = identity.clone();
     before.as_object_mut().unwrap().remove("one_sided");
     assert_eq!(identity_difference(&before).as_deref(), Some("one_sided"));
+    // v3: a slot projecting the configuration without its uncompared cells distinguishes
+    // one-sidedly too, so an identity written under v2 differs at the rule.
+    assert_eq!(
+        kink_campaign::ONE_SIDED_VERSION,
+        "kink-campaign/one-sided/v3"
+    );
+    let mut v2 = identity.clone();
+    v2["one_sided"] = "kink-campaign/one-sided/v2".into();
+    assert_eq!(identity_difference(&v2).as_deref(), Some("one_sided"));
     assert_eq!(identity_difference(&identity), None);
     // Re-pin L2-1: coverage v2 (equations, matched and applied) is another coverage reading, so
     // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and

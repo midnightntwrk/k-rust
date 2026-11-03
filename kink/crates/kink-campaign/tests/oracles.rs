@@ -12,13 +12,13 @@ mod support;
 
 use k_rust::kompile::CompileError;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
-use k_rust::kore::ast::Pattern;
+use k_rust::kore::ast::{Pattern, Variable, VariableKind};
 use kink_campaign::{
-    CrashPolicy, ExecutionFailureKind, ExitStop, FinalResult, ManifestTest, MutantId, MutantPlan,
-    MutantScopeFailure, MutantStatus, OracleDeclaration, OracleFailureKind, OracleKind,
-    OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, ScheduleMode,
-    StateProjection, TerminalClass, TestPlan, TestRun, compare_supplied, derive_mutant_report,
-    pattern_side, slot_outcome, state_side,
+    CellProjection, CrashPolicy, ExecutionFailureKind, ExitStop, FinalResult, ManifestTest,
+    MutantId, MutantPlan, MutantScopeFailure, MutantStatus, OracleDeclaration, OracleFailureKind,
+    OracleKind, OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, ScheduleMode,
+    StateProjection, TerminalClass, TestPlan, TestRun, UnobservedPosition, compare_supplied,
+    derive_mutant_report, pattern_side, slot_outcome, state_side,
 };
 use kink_native::MutantRejection;
 use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
@@ -424,6 +424,267 @@ fn e2_comparators_look_only_at_their_projection() {
     }
 }
 
+/// `top(k(program), regs(w(w), z(z)), counter(1))`: the cell `w` at path `[1, 0]`.
+fn registers(program: &str, w: &str, z: &str) -> Pattern {
+    app(
+        "top",
+        vec![
+            app("k", vec![constant(program)]),
+            app("regs", vec![app("w", vec![int(w)]), app("z", vec![int(z)])]),
+            app("counter", vec![int("1")]),
+        ],
+    )
+}
+
+fn position(cell: &str, path: Vec<u32>, symbols: &[&str], sort: &str) -> UnobservedPosition {
+    UnobservedPosition {
+        path,
+        symbols: symbols
+            .iter()
+            .map(|symbol| format!("Lbl{symbol}"))
+            .collect(),
+        cell: cell.to_owned(),
+        sort: kore_sort(sort),
+        heads: vec![format!("Lbl{cell}")],
+    }
+}
+
+/// The projection leaving out `<w>` of [`registers`].
+fn without_w() -> CellProjection {
+    CellProjection::new(vec![position(
+        "w",
+        vec![1, 0],
+        &["top", "regs"],
+        "SortWCell",
+    )])
+    .unwrap()
+}
+
+/// A cell projection compares the whole configuration except the uncompared cells' content: ends
+/// that differ only there agree under it and distinguish under the whole term; ends that differ
+/// in a compared cell distinguish under both. It is total: an end without the position projects
+/// unchanged and the slot is a value, never `Error`; so is an end whose subterm at the path has
+/// another sort (another cell put where `<w>` was), so a reshape there distinguishes. Its crash
+/// side leaves the cells out too. It replaces the position, not other applications of the cell's
+/// symbol, so a `w(_)` held as data inside `<k>` stays compared.
+#[test]
+fn a_cell_projection_compares_everything_but_its_uncompared_cells() {
+    let cells = || state(StateProjection::Cells(without_w()));
+    let whole = || state(StateProjection::WholeTerm);
+    assert_eq!(cells().kind(), OracleKind::FinalResult);
+    let side = |declaration: &OracleDeclaration, run: &BridgedPaths| match declaration.projection()
+    {
+        Projection::State(projection) => state_side(projection, run),
+        Projection::Pattern { .. } => panic!("a state declaration"),
+    };
+    let outcome = |declaration: OracleDeclaration, kind, baseline: Pattern, mutant: Pattern| {
+        slot_outcome(
+            &declaration,
+            &side(&declaration, &single(kind, baseline)),
+            &side(&declaration, &single(kind, mutant)),
+        )
+    };
+    let base = registers("done", "1", "2");
+    // No `<regs>` at all, and a `<regs>` reshaped to one argument: the walk finds no position.
+    let without_regs = app(
+        "top",
+        vec![
+            app("k", vec![constant("done")]),
+            app("counter", vec![int("1")]),
+        ],
+    );
+    let short_regs = app(
+        "top",
+        vec![
+            app("k", vec![constant("done")]),
+            app("regs", vec![]),
+            app("counter", vec![int("1")]),
+        ],
+    );
+    // `<x>` put where `<w>` was: the walk reaches the path, but `x(_)` is not of `SortWCell`.
+    let x_for_w = |x: &str| {
+        app(
+            "top",
+            vec![
+                app("k", vec![constant("done")]),
+                app(
+                    "regs",
+                    vec![app("x", vec![int(x)]), app("z", vec![int("2")])],
+                ),
+                app("counter", vec![int("1")]),
+            ],
+        )
+    };
+    let in_k = |w: &str| {
+        app(
+            "top",
+            vec![
+                app("k", vec![app("w", vec![int(w)])]),
+                app(
+                    "regs",
+                    vec![app("w", vec![int("1")]), app("z", vec![int("2")])],
+                ),
+                app("counter", vec![int("1")]),
+            ],
+        )
+    };
+    #[rustfmt::skip]
+    let rows: [(&str, Pattern, Pattern, OracleOutcome, OracleOutcome); 9] = [
+        ("only-w-differs", base.clone(), registers("done", "9", "2"), Agree, Distinguish),
+        ("z-differs", base.clone(), registers("done", "1", "9"), Distinguish, Distinguish),
+        ("k-differs", base.clone(), registers("other", "1", "2"), Distinguish, Distinguish),
+        ("equal", base.clone(), base.clone(), Agree, Agree),
+        ("no-position", base.clone(), without_regs.clone(), Distinguish, Distinguish),
+        ("reshaped-position", base.clone(), short_regs.clone(), Distinguish, Distinguish),
+        ("another-cell-at-the-position", base.clone(), x_for_w("1"), Distinguish, Distinguish),
+        ("inside-the-other-cell", x_for_w("1"), x_for_w("9"), Distinguish, Distinguish),
+        ("the-symbol-elsewhere", in_k("1"), in_k("9"), Distinguish, Distinguish),
+    ];
+    for (id, baseline, mutant, under_cells, under_whole) in rows {
+        assert_eq!(
+            outcome(cells(), Normal, baseline.clone(), mutant.clone()),
+            under_cells,
+            "{id}: cells"
+        );
+        assert_eq!(
+            outcome(whole(), Normal, baseline, mutant),
+            under_whole,
+            "{id}: whole term"
+        );
+    }
+
+    // Totality: an end without the position is a value, projected unchanged.
+    for end in [without_regs.clone(), short_regs.clone(), x_for_w("5")] {
+        assert_eq!(
+            side(&cells(), &single(Normal, end.clone())),
+            normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+                BTreeSet::from([end])
+            )))
+        );
+    }
+    // The placeholder is `\top` of the position's sort, and nothing else changes.
+    let placeholder = Pattern::Top {
+        sort: kore_sort("SortWCell"),
+    };
+    let expected = app(
+        "top",
+        vec![
+            app("k", vec![constant("done")]),
+            app("regs", vec![placeholder, app("z", vec![int("2")])]),
+            app("counter", vec![int("1")]),
+        ],
+    );
+    assert_eq!(*without_w().project(&base), expected);
+    assert_eq!(*without_w().project(&expected), expected, "idempotent");
+    // Every subterm of the position's sort is replaced: a variable of the sort and an injection
+    // into it as well as an application of one of its heads.
+    let with_w = |w: Pattern| {
+        app(
+            "top",
+            vec![
+                app("k", vec![constant("done")]),
+                app("regs", vec![w, app("z", vec![int("2")])]),
+                app("counter", vec![int("1")]),
+            ],
+        )
+    };
+    let variable = Pattern::Variable(Variable {
+        kind: VariableKind::Element,
+        name: "VarW".to_owned(),
+        sort: kore_sort("SortWCell"),
+    });
+    let injection = kore_application(
+        "inj",
+        vec![kore_sort("SortSubCell"), kore_sort("SortWCell")],
+        vec![constant("sub")],
+    );
+    for w in [variable, injection] {
+        assert_eq!(*without_w().project(&with_w(w)), expected);
+    }
+    // A subterm of another sort is not: a variable of another sort, an injection into another
+    // sort, and an application of a symbol that is not a head of the sort.
+    let elsewhere = [
+        Pattern::Variable(Variable {
+            kind: VariableKind::Element,
+            name: "VarX".to_owned(),
+            sort: kore_sort("SortXCell"),
+        }),
+        kore_application(
+            "inj",
+            vec![kore_sort("SortWCell"), kore_sort("SortKItem")],
+            vec![app("w", vec![int("1")])],
+        ),
+        app("x", vec![int("1")]),
+    ];
+    for w in elsewhere {
+        let end = with_w(w);
+        assert_eq!(*without_w().project(&end), end);
+    }
+
+    // Crash sides: compared by their term, without the uncompared cells' content.
+    for (mutant, under_cells, under_whole) in [
+        (registers("done", "9", "2"), Agree, Distinguish),
+        (registers("done", "1", "9"), Distinguish, Distinguish),
+    ] {
+        assert_eq!(
+            outcome(cells(), SemanticCrash, base.clone(), mutant.clone()),
+            under_cells
+        );
+        assert_eq!(
+            outcome(whole(), SemanticCrash, base.clone(), mutant),
+            under_whole
+        );
+    }
+}
+
+/// A cell projection's positions are below the top cell, name one symbol per step, and are sorted
+/// and prefix-free, as term paths are.
+#[test]
+fn cell_projection_positions_are_sorted_and_prefix_free() {
+    let w = || position("w", vec![1, 0], &["top", "regs"], "SortWCell");
+    let z = || position("z", vec![1, 1], &["top", "regs"], "SortZCell");
+    let regs = || position("regs", vec![1], &["top"], "SortRegsCell");
+    let rows: [(&str, Vec<UnobservedPosition>, bool); 8] = [
+        ("one", vec![w()], true),
+        ("siblings", vec![w(), z()], true),
+        ("none", Vec::new(), false),
+        (
+            "empty-path",
+            vec![position("top", Vec::new(), &[], "SortTopCell")],
+            false,
+        ),
+        (
+            "symbol-count",
+            vec![position("w", vec![1, 0], &["top"], "SortWCell")],
+            false,
+        ),
+        ("unsorted", vec![z(), w()], false),
+        ("duplicate", vec![w(), w()], false),
+        ("prefix", vec![regs(), w()], false),
+    ];
+    for (id, positions, valid) in rows {
+        match CellProjection::new(positions) {
+            Ok(projection) => {
+                assert!(valid, "{id}");
+                let declaration = OracleDeclaration::new(
+                    CompareIdentity,
+                    Projection::State(StateProjection::Cells(projection)),
+                )
+                .unwrap();
+                assert_eq!(declaration.kind(), OracleKind::FinalResult, "{id}");
+            }
+            Err(failure) => {
+                assert!(!valid, "{id}");
+                assert_eq!(
+                    failure.kind(),
+                    OracleFailureKind::InvalidDeclaration,
+                    "{id}"
+                );
+            }
+        }
+    }
+}
+
 /// E3: selected term paths are nonempty, sorted and prefix-free.
 #[test]
 fn e3_term_path_declarations_are_sorted_and_prefix_free() {
@@ -632,6 +893,9 @@ fn an_undefined_step_is_no_end_to_any_state_slot() {
             }
             StateProjection::TermPaths(_) => {
                 OracleValue::FinalResult(FinalResult::TermPaths(BTreeSet::new()))
+            }
+            StateProjection::Cells(_) => {
+                OracleValue::FinalResult(FinalResult::WholeTerm(BTreeSet::new()))
             }
         })
     };

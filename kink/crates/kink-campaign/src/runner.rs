@@ -37,6 +37,8 @@
 //!   built a candidate of such a rule is no evidence: k-rust notes it on the run's
 //!   `implementationChosenValues` list (class `fresh-association`), which excludes the run as any
 //!   other entry there does (kink-native [`Exclusion::ImplementationChosenValue`]).
+//!   A cell projection ([`StateProjection::Cells`]) compares the same erasure with the content of
+//!   each uncompared cell replaced by `\top` of its sort, and so does its crash side.
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
 //!   terminal, but no end (kink27 R1-UNDEF; the reading is stated once in kink's `README.md`, "What
 //!   a kill trusts"). Every state slot projects the run's ends only ([`project`]), and the
@@ -178,6 +180,7 @@ use kink_pattern::{
 };
 
 use crate::campaign::check_manifest;
+use crate::cells::CellProjection;
 use crate::oracle::OracleFailure;
 use crate::selection::{CompiledEdit, coverage_selected};
 use crate::{
@@ -207,6 +210,14 @@ pub enum StateProjection {
     /// The subterms at these child-index paths (`kore::walk::children`). The paths must be
     /// nonempty, sorted and prefix-free, and there must be at least one.
     TermPaths(Vec<Vec<u32>>),
+    /// Every terminal's whole configuration, with its `<generatedCounter>` content erased as in
+    /// [`Self::WholeTerm`] and the content of each uncompared cell replaced by `\top` of its sort
+    /// ([`CellProjection::project`]). Defined on every configuration, as the whole term is. Its
+    /// value is a [`FinalResult::WholeTerm`] set of projected configurations: which cells a value
+    /// leaves out is its slot's declaration, and two slots' values are never compared with each
+    /// other. [`crate::CellLayout::unobservable_projection`] builds the projection that leaves out the
+    /// cells a definition declares `unobservable`.
+    Cells(CellProjection),
 }
 
 /// What one oracle reads from a run.
@@ -252,9 +263,11 @@ impl OracleDeclaration {
     pub const fn kind(&self) -> OracleKind {
         match &self.projection {
             Projection::State(StateProjection::ExitStop { .. }) => OracleKind::ExitStop,
-            Projection::State(StateProjection::WholeTerm | StateProjection::TermPaths(_)) => {
-                OracleKind::FinalResult
-            }
+            Projection::State(
+                StateProjection::WholeTerm
+                | StateProjection::TermPaths(_)
+                | StateProjection::Cells(_),
+            ) => OracleKind::FinalResult,
             Projection::Pattern { .. } => OracleKind::ExecutionPattern,
         }
     }
@@ -457,8 +470,10 @@ impl RunOptions {
 /// baseline's complete set lacks, with contradicted claims read per path. v2 (kink27
 /// R3-UNDEF-BRIDGE): an undefined step's leaf of the mutant run completes when its pre-step
 /// configuration is shown to exist, not only by a terminal value, so `work_bound_stuck_terminals`
-/// admits runs with such a leaf that v1 refused.
-pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v2";
+/// admits runs with such a leaf that v1 refused. v3: a slot projecting the configuration without
+/// its uncompared cells ([`StateProjection::Cells`]), which is defined on every configuration,
+/// distinguishes one-sidedly as the whole term does.
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v3";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
@@ -478,9 +493,10 @@ pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v2";
 /// - a leaf of it is `Stuck`, clean, with a decided ground value (one term, no path predicate, no
 ///   free variable, definition-independent on the mutant's definition), and the slot's
 ///   projection of it is not in the baseline's projected set;
-/// - the slot projects the whole term or the exit stop without an exit-code cell, which are
-///   defined on every final configuration (a failed projection makes a two-sided slot `Error`,
-///   and the unexplored part cannot be read).
+/// - the slot projects the whole term, the configuration without its uncompared cells
+///   ([`StateProjection::Cells`]) or the exit stop without an exit-code cell, which are defined
+///   on every final configuration (a failed projection makes a two-sided slot `Error`, and the
+///   unexplored part cannot be read).
 ///
 /// Never from a cancelled or timed-out run, never on a pattern slot (stepped runs carry no work
 /// budget), never from a complete mutant run (its two-sided comparison already distinguishes when
@@ -3412,7 +3428,8 @@ pub fn slot_outcome(
 
 /// Whether a state slot that compared `Unknown` distinguishes one-sidedly (re-pin L1-2,
 /// [`OneSided`]): the baseline side is a value, the mutant side is `Unknown`, the slot projects
-/// the whole term or the exit stop without an exit-code cell, and the projection of one of the
+/// the whole term, the configuration without its uncompared cells or the exit stop without an
+/// exit-code cell (each defined on every configuration), and the projection of one of the
 /// mutant run's one-sided `terminals` ([`RunCache::one_sided`], empty unless the run qualifies) is
 /// not in the baseline's projected set. The projection is the slot's own ([`project`]) applied
 /// to that one terminal, and a projected set is the set of its terminals' projections, so the
@@ -3432,6 +3449,7 @@ fn one_sided_distinguishes(
     if !matches!(
         projection,
         StateProjection::WholeTerm
+            | StateProjection::Cells(_)
             | StateProjection::ExitStop {
                 exit_code_cell: None
             }
@@ -3540,9 +3558,18 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
     {
         // Mixed crash and normal terminal sets are not modelled. A crash is compared by its
         // terminal term, an end like any other, so without its counter content as in
-        // `StateProjection::WholeTerm`.
+        // `StateProjection::WholeTerm`, and under a cell projection without the content of its
+        // uncompared cells too: such a cell's content must not distinguish there either.
         return match ends.as_slice() {
-            [terminal] => OracleSide::SemanticCrash(counter_erased(&terminal.state).into_owned()),
+            [terminal] => OracleSide::SemanticCrash(
+                match projection {
+                    StateProjection::Cells(cells) => cells.project(&terminal.state),
+                    StateProjection::ExitStop { .. }
+                    | StateProjection::WholeTerm
+                    | StateProjection::TermPaths(_) => counter_erased(&terminal.state),
+                }
+                .into_owned(),
+            ),
             _ => OracleSide::Unknown,
         };
     }
@@ -3552,7 +3579,8 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
 /// Projects a run's ends: its complete terminals that are neither a crash nor an undefined step
 /// ([`state_side`] removes both); `None` is a projection failure. A whole term is the end's
 /// configuration with its `<generatedCounter>` content erased ([`StateProjection::WholeTerm`]),
-/// so two sets of ends that differ only in that cell agree. Every projection of no ends is the
+/// so two sets of ends that differ only in that cell agree; a cell projection also leaves out its
+/// uncompared cells' content ([`StateProjection::Cells`]). Every projection of no ends is the
 /// empty set.
 fn project(projection: &StateProjection, ends: &[&ExecutionTerminal]) -> Option<OracleValue> {
     Some(match projection {
@@ -3577,6 +3605,11 @@ fn project(projection: &StateProjection, ends: &[&ExecutionTerminal]) -> Option<
         StateProjection::WholeTerm => OracleValue::FinalResult(FinalResult::WholeTerm(
             ends.iter()
                 .map(|terminal| counter_erased(&terminal.state).into_owned())
+                .collect(),
+        )),
+        StateProjection::Cells(cells) => OracleValue::FinalResult(FinalResult::WholeTerm(
+            ends.iter()
+                .map(|terminal| cells.project(&terminal.state).into_owned())
                 .collect(),
         )),
         StateProjection::TermPaths(paths) => OracleValue::FinalResult(FinalResult::TermPaths(

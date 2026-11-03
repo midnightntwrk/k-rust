@@ -12,6 +12,8 @@
 //! campaign reports stay build-independent.
 
 mod campaign;
+mod cells;
+pub use cells::{CellLayout, CellLayoutRefusal, CellProjection, LaidOutCell, UnobservedPosition};
 pub mod identity;
 pub use identity::{
     KINK_IDENTITY, RESULT_SCHEMA_VERSION, identity_difference, kink_build, kink_identity,

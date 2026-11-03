@@ -375,6 +375,11 @@ fn projection(projection: &Projection) -> Value {
         }
         Projection::State(StateProjection::WholeTerm) => json!("whole-term"),
         Projection::State(StateProjection::TermPaths(paths)) => json!({"term-paths":paths}),
+        Projection::State(StateProjection::Cells(cells)) => json!({"cells":cells
+            .positions()
+            .iter()
+            .map(|position| json!({"cell":position.cell,"path":position.path,"symbols":position.symbols,"sort":position.sort.to_string(),"heads":position.heads}))
+            .collect::<Vec<_>>()}),
         Projection::Pattern {
             plan,
             with_bindings,
@@ -389,4 +394,38 @@ fn plan_value(plan: &PatternPlan) -> Value {
         })).collect::<Vec<_>>(),
         "side_condition":plan.side_condition.as_ref().map(|c| json!({"name":c.name,"input_variables":c.input_variables})),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::projection;
+    use crate::{CellProjection, Projection, StateProjection, UnobservedPosition};
+    use k_rust::kore::ast::Sort;
+    use kink_patch::canonical_json;
+
+    /// The encoding of a cell projection, which campaign manifests carry and which no reader
+    /// decodes yet: a change to it changes manifest digests, so it is pinned here.
+    #[test]
+    fn a_cell_projection_encodes_each_position() {
+        let position = UnobservedPosition {
+            path: vec![1, 0],
+            symbols: vec![
+                "Lbl'-LT-'generatedTop'-GT-'".to_owned(),
+                "Lbl'-LT-'regs'-GT-'".to_owned(),
+            ],
+            cell: "w".to_owned(),
+            sort: Sort::Application {
+                name: "SortWCell".to_owned(),
+                arguments: Vec::new(),
+            },
+            heads: vec!["LblinitWCell".to_owned(), "Lbl'-LT-'w'-GT-'".to_owned()],
+        };
+        let cells = CellProjection::new(vec![position]).unwrap();
+        assert_eq!(
+            canonical_json(&projection(&Projection::State(StateProjection::Cells(
+                cells
+            )))),
+            r#"{"cells":[{"cell":"w","heads":["LblinitWCell","Lbl'-LT-'w'-GT-'"],"path":[1,0],"sort":"SortWCell{}","symbols":["Lbl'-LT-'generatedTop'-GT-'","Lbl'-LT-'regs'-GT-'"]}]}"#
+        );
+    }
 }

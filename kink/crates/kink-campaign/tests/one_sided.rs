@@ -32,10 +32,10 @@ use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::{ast::Pattern, walk};
 use kink_campaign::{
-    BaselineSession, Campaign, CampaignOptions, CampaignRun, CrashPolicy, ExecutionFailureKind,
-    MutantId, MutantStatus, OneSided, OracleDeclaration, OracleOutcome, OracleSide, Projection,
-    RunOptions, ScheduleMode, SelectionPolicy as Sel, SideRun, StateProjection, TestCase, TestRun,
-    WorkBudget, run_campaign_multi_with,
+    BaselineSession, Campaign, CampaignOptions, CampaignRun, CellLayout, CellProjection,
+    CrashPolicy, ExecutionFailureKind, MutantId, MutantStatus, OneSided, OracleDeclaration,
+    OracleOutcome, OracleSide, Projection, RunOptions, ScheduleMode, SelectionPolicy as Sel,
+    SideRun, StateProjection, TestCase, TestRun, WorkBudget, run_campaign_multi_with,
 };
 use kink_native::execution::{ExecutionBudget, ResultModality};
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -493,6 +493,138 @@ fn one_sided_kills_beside_an_unclean_unbounded_run_are_explained(budgets: fn(u64
     });
 }
 
+/// The fixture `testdata/k/l1/onesidedcell.k`: `onesided.k` with the unobservable cell
+/// `<scratch>`, which the early branch writes.
+fn cell_validator() -> NativeValidator {
+    validator_of("onesidedcell", "ONESIDEDCELL")
+}
+
+/// The projection leaving out `onesidedcell.k`'s unobservable cells, read from the compiled
+/// baseline's configuration: `<scratch>`, the top cell's second argument.
+fn unobservable(validator: &NativeValidator) -> CellProjection {
+    let compiled = validator.compile_baseline().unwrap();
+    let projection = CellLayout::of(&compiled)
+        .unwrap()
+        .unobservable_projection()
+        .unwrap()
+        .expect("an unobservable cell");
+    let [position] = projection.positions() else {
+        panic!("one position: {projection:?}")
+    };
+    assert_eq!(
+        (position.cell.as_str(), position.path.as_slice()),
+        ("scratch", [1].as_slice())
+    );
+    assert_eq!(position.symbols, ["Lbl'-LT-'generatedTop'-GT-'"]);
+    projection
+}
+
+/// `start(START)` in `onesidedcell.k`'s configuration: `<k>`, `<scratch> 0 </scratch>`, the
+/// counter.
+fn cell_initial() -> Pattern {
+    let initial = initial(START);
+    let Pattern::Application { symbol, arguments } = &initial else {
+        panic!("an application")
+    };
+    let [k, counter] = arguments.as_slice() else {
+        panic!("<k> and the counter")
+    };
+    Pattern::Application {
+        symbol: symbol.clone(),
+        arguments: vec![
+            k.clone(),
+            support::app("Lbl'-LT-'scratch'-GT-'", vec![support::int(0)]),
+            counter.clone(),
+        ],
+    }
+}
+
+/// The test `t` of `onesidedcell.k`'s `start(START)` with the given state projections.
+fn cell_test(projections: Vec<StateProjection>) -> Vec<TestCase> {
+    vec![TestCase {
+        id: "t".into(),
+        initial_state: cell_initial(),
+        oracles: projections
+            .into_iter()
+            .map(|p| OracleDeclaration::new(CrashPolicy::Reject, Projection::State(p)).unwrap())
+            .collect(),
+    }]
+}
+
+/// The exit stop, the whole term, and the configuration without its unobservable cells.
+fn cell_slots(validator: &NativeValidator) -> Vec<TestCase> {
+    cell_test(vec![
+        StateProjection::ExitStop {
+            exit_code_cell: None,
+        },
+        StateProjection::WholeTerm,
+        StateProjection::Cells(unobservable(validator)),
+    ])
+}
+
+/// The mutations of `onesidedcell.k`: early's 7 becomes 8 (`<k>` differs), early's 1 becomes 2
+/// (only the unobservable `<scratch>` differs).
+const CELL_MUTANTS: [(&str, &str, &str); 2] = [
+    ("ONESIDEDCELL.early", "7", "8"),
+    ("ONESIDEDCELL.early", "1", "2"),
+];
+
+/// The fixture differential over the cell slot: for both mutants and every budget of
+/// `budgets(work)` (each below the mutant's work), each slot is the unbounded run's outcome or
+/// `Unknown`, and a slot distinguishes only where the unbounded run's does. Exactly: before
+/// budget 2 the early branch is not finished and every slot is `Unknown`; from budget 2 on, the
+/// early leaf kills the `<k>` mutant one-sidedly on the whole-term and the cell slots, and the
+/// `<scratch>` mutant on the whole-term slot only; the exit stop stays `Unknown` (the leaf's is the
+/// baseline's).
+fn cell_one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec<u64>) {
+    on_a_big_stack(move || {
+        let validator = cell_validator();
+        let tests = cell_slots(&validator);
+        let campaign = campaign_of("ONESIDEDCELL", &validator, &tests, &normal);
+        for ((rule, from, to), early_leaf) in CELL_MUTANTS.into_iter().zip([
+            [Unknown, Distinguish, Distinguish],
+            [Unknown, Distinguish, Unknown],
+        ]) {
+            let generation = replace(validator.baseline(), rule, from, to);
+            let (unbounded, work) = run(
+                &campaign,
+                &generation,
+                ScheduleMode::Full,
+                options(None, ON),
+            );
+            let TestRun::Compared(reference) = verdict(&unbounded).0 else {
+                panic!("{rule} {from}: the unbounded run compares")
+            };
+            let work = work.expect("the mutant's work");
+            for budget in budgets(work) {
+                assert!(budget < work, "{rule} {from}: budget {budget}");
+                let (on, _) = run(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(Some(budget), ON),
+                );
+                let TestRun::Compared(outcomes) = verdict(&on).0 else {
+                    panic!("{rule} {from} budget {budget}: compares")
+                };
+                for (slot, (outcome, expected)) in outcomes.iter().zip(&reference).enumerate() {
+                    assert!(
+                        outcome == expected || *outcome == Unknown,
+                        "{rule} {from} budget {budget} slot {slot}: {outcome:?} against \
+                         {expected:?}"
+                    );
+                }
+                let expected = if budget < 2 {
+                    vec![Unknown; 3]
+                } else {
+                    early_leaf.to_vec()
+                };
+                assert_eq!(outcomes, expected, "{rule} {from} budget {budget}");
+            }
+        }
+    });
+}
+
 /// Every budget below the mutant's work: the full sweep.
 fn every_budget(work: u64) -> Vec<u64> {
     (0..work).collect()
@@ -512,6 +644,117 @@ mod kink_tier {
     fn every_one_sided_kill_beside_an_unclean_unbounded_run_is_explained() {
         one_sided_kills_beside_an_unclean_unbounded_run_are_explained(|work| {
             vec![0, 2, 3, work - 1]
+        });
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn every_one_sided_kill_over_the_cell_slot_agrees_with_the_unbounded_verdict() {
+        cell_one_sided_kills_agree_with_the_unbounded_verdict(|work| vec![0, 1, 2, work - 1]);
+    }
+
+    /// A mutant that changes only an unobservable cell: early's 1 becomes 2, so the early final
+    /// configuration differs from the baseline's only in `<scratch>`. The whole-term slot kills
+    /// it, unbounded and, from the early leaf, one-sidedly under half its work; the slot that
+    /// leaves out the unobservable cells agrees unbounded and is `Unknown` under the budget, never
+    /// `Distinguish`. With kink-flow's two slots over the cells (the exit stop and the cell slot),
+    /// it survives. early's 7 becomes 8 changes `<k>`: the cell slot kills it, unbounded and
+    /// one-sidedly.
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_of_an_unobservable_cell_survives_the_cell_slot_and_dies_to_the_whole_term() {
+        on_a_big_stack(|| {
+            let validator = cell_validator();
+            let tests = cell_slots(&validator);
+            let campaign = campaign_of("ONESIDEDCELL", &validator, &tests, &normal);
+            let declared = cell_test(vec![
+                StateProjection::ExitStop {
+                    exit_code_cell: None,
+                },
+                StateProjection::Cells(unobservable(&validator)),
+            ]);
+            let declared = campaign_of("ONESIDEDCELL", &validator, &declared, &normal);
+            for ((rule, from, to), unbounded_expected, bounded_expected, declared_expected) in
+                CELL_MUTANTS
+                    .into_iter()
+                    .zip([
+                        (
+                            [Agree, Distinguish, Distinguish],
+                            [Unknown, Distinguish, Distinguish],
+                            (vec![Agree, Distinguish], MutantStatus::Killed),
+                        ),
+                        (
+                            [Agree, Distinguish, Agree],
+                            [Unknown, Distinguish, Unknown],
+                            (vec![Agree, Agree], MutantStatus::Survived),
+                        ),
+                    ])
+                    .map(|(mutant, (unbounded, bounded, declared))| {
+                        (mutant, unbounded, bounded, declared)
+                    })
+            {
+                let generation = replace(validator.baseline(), rule, from, to);
+                let (unbounded, work) = run(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(None, ON),
+                );
+                assert_eq!(
+                    verdict(&unbounded),
+                    (
+                        TestRun::Compared(unbounded_expected.to_vec()),
+                        MutantStatus::Killed
+                    ),
+                    "{rule} {from}"
+                );
+                let budget = work.map(|work| work / 2);
+                let (on, _) = run(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(budget, ON),
+                );
+                assert_eq!(
+                    verdict(&on),
+                    (
+                        TestRun::Compared(bounded_expected.to_vec()),
+                        MutantStatus::Killed
+                    ),
+                    "{rule} {from} budget {budget:?}"
+                );
+                let (declared_unbounded, _) = run(
+                    &declared,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(None, ON),
+                );
+                let (outcomes, status) = declared_expected;
+                assert_eq!(
+                    verdict(&declared_unbounded),
+                    (TestRun::Compared(outcomes.clone()), status),
+                    "{rule} {from}: the declared cells"
+                );
+                let (declared_bounded, _) = run(
+                    &declared,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(budget, ON),
+                );
+                let bounded = (
+                    TestRun::Compared(vec![Unknown, bounded_expected[2]]),
+                    if bounded_expected[2] == Distinguish {
+                        MutantStatus::Killed
+                    } else {
+                        MutantStatus::Unknown
+                    },
+                );
+                assert_eq!(
+                    verdict(&declared_bounded),
+                    bounded,
+                    "{rule} {from} budget {budget:?}: the declared cells"
+                );
+            }
         });
     }
 
@@ -925,5 +1168,11 @@ mod heavy {
     #[ignore = "heavy"]
     fn every_one_sided_kill_beside_an_unclean_unbounded_run_is_explained() {
         one_sided_kills_beside_an_unclean_unbounded_run_are_explained(every_budget);
+    }
+
+    #[test]
+    #[ignore = "heavy"]
+    fn every_one_sided_kill_over_the_cell_slot_agrees_with_the_unbounded_verdict() {
+        cell_one_sided_kills_agree_with_the_unbounded_verdict(every_budget);
     }
 }

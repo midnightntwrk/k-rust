@@ -51,7 +51,10 @@ pub struct ExitStop {
 /// A final-result projection over every end of the run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FinalResult {
-    /// The whole terminal terms.
+    /// The whole terminal terms, as the slot's projection writes them: with the counter content
+    /// erased, and under a cell projection (`StateProjection::Cells`) with each uncompared cell's
+    /// content replaced by `\top` of its sort. Which projection made a value is its slot's
+    /// declaration, and values of two slots are never compared with each other.
     WholeTerm(BTreeSet<Pattern>),
     /// Per terminal, the subterm at each declared child-index path, in path order.
     TermPaths(BTreeSet<Vec<(Vec<u32>, Pattern)>>),
