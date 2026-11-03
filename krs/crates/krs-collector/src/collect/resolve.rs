@@ -415,12 +415,8 @@ pub(super) fn check_cell_kinds(
     host: &HostCellKinds,
 ) -> Result<(), CollectionError> {
     let index = krs_ir::DescriptorIndex::new(bundle);
-    let disagreement = |detail: String| {
-        CollectionError::new(
-            CollectionErrorKind::CellKindDisagreement,
-            format!("internal error: {detail}"),
-        )
-    };
+    let disagreement =
+        |detail: String| CollectionError::new(CollectionErrorKind::CellKindDisagreement, detail);
     for (owner, fields) in host {
         let declaration = index.cell_owner(owner).map_err(|error| {
             disagreement(format!(
