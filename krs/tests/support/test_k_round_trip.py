@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from support.k_round_trip import differences, normalized, sentences
+from support.k_round_trip import computation_cells, differences, normalized, sentences
 
 
 class NormalizationTests(unittest.TestCase):
@@ -20,6 +20,58 @@ class NormalizationTests(unittest.TestCase):
             normalized("rule <k> f ( T:K ) ~> T:K => g ~> T:K </k>"),
             normalized("rule <k> f ( T:K ) => g ... </k>"),
         )
+
+    def test_a_named_continuation_in_any_computation_cell_is_the_anonymous_one(self) -> None:
+        cells = computation_cells([
+            "module M\n  configuration\n    <instrs maincell=\"\"> $PGM:K </instrs>\n"
+            "    <todo> .K </todo>\n    <valstack> $STACK:ValStack </valstack>\n"
+            "    <env> .Map </env>\n    <trace> .List </trace>\n\nendmodule\n",
+        ])
+        self.assertEqual(cells, {"instrs", "todo"})
+        for cell in ("instrs", "todo"):
+            self.assertEqual(
+                normalized(f"rule <{cell}> f ( X:Int ) ~> T:K => g ( X:Int ) ~> T:K </{cell}>", cells),
+                normalized(f"rule <{cell}> f ( Y:Int ) => g ( Y:Int ) ... </{cell}>", cells),
+            )
+        # `<k>` is a computation cell only when the configuration declares it one.
+        self.assertNotEqual(
+            normalized("rule <k> f ( X:Int ) ~> T:K => g ( X:Int ) ~> T:K </k>", cells),
+            normalized("rule <k> f ( Y:Int ) => g ( Y:Int ) ... </k>", cells),
+        )
+        # A definition that declares no configuration has K's default one, `<k> $PGM:K </k>`.
+        self.assertEqual(computation_cells(["module M\n  rule a => b\nendmodule\n"]), {"k"})
+
+    def test_a_cell_of_another_sort_gets_no_continuation_rule(self) -> None:
+        cells = computation_cells([
+            "configuration <k> $PGM:K </k> <env> .Map </env> <trace> .List </trace> <seen> $SEEN:Set </seen>"
+        ])
+        self.assertEqual(cells, {"k"})
+        for cell in ("env", "trace", "seen"):
+            self.assertNotEqual(
+                normalized(f"rule <{cell}> f ( X:Int ) ~> T:K => g ( X:Int ) ~> T:K </{cell}>", cells),
+                normalized(f"rule <{cell}> f ( Y:Int ) => g ( Y:Int ) ... </{cell}>", cells),
+            )
+        # Nor does a continuation whose two tails stand in different cells: it is read as written.
+        split = "rule <env> A ~> T:K => .Map </env> <k> B ~> T:K </k>"
+        self.assertEqual(normalized(split, cells), normalized(split, frozenset()))
+
+    def test_differences_read_the_computation_cells_from_the_authored_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            authored, printed = Path(temporary, "a"), Path(temporary, "b")
+            authored.mkdir()
+            printed.mkdir()
+            configuration = "module M\n  configuration\n    <instrs> $PGM:K </instrs>\n    <env> .Map </env>\n\n"
+            (authored / "definition.k").write_text(
+                configuration + "  rule <instrs> a => b ... </instrs>\nendmodule\n", encoding="utf-8",
+            )
+            (printed / "definition.k").write_text(
+                configuration + "  rule <instrs> a ~> T:K => b ~> T:K </instrs>\nendmodule\n", encoding="utf-8",
+            )
+            self.assertEqual(differences(authored, printed), [])
+            (printed / "definition.k").write_text(
+                configuration + "  rule <instrs> a ~> T:K => c ~> T:K </instrs>\nendmodule\n", encoding="utf-8",
+            )
+            self.assertTrue(differences(authored, printed))
 
     def test_a_rest_matched_once_in_a_cell_without_a_rewrite_is_the_anonymous_one(self) -> None:
         self.assertEqual(

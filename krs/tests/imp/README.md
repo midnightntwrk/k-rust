@@ -33,8 +33,9 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
   kompile tests; gate self-tests; `krs` and `krs-gate` builds; and
   diagnostic and readable IMP LSP evidence;
 - IMP.3 `deterministic-artifacts`: repeated KRS collection, byte-exact
-  layer-2 Rust expansion, `.k`, sidecar, IR, and native artifact
-  determinism;
+  layer-2 Rust expansion, the expansion's K round trip (the printed package
+  emits the authored K up to `support/k_round_trip.py`'s normalization),
+  `.k`, sidecar, IR, and native artifact determinism;
 - IMP.4 `source-definition`: fail-closed parsed and compiled
   source-definition comparison;
 - IMP.5 `native-kore`: native Definition/KORE comparison with reviewed
