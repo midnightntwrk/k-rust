@@ -190,6 +190,15 @@ pub(crate) fn denoted_call(expression: &Expr) -> Result<Option<ExprCall>, Syntax
 /// `a && b` is `bool::and_then(a, b)`, `a || b` is `bool::or_else(a, b)`,
 /// and `a + b` is the operator marker's call `__operator::add(a, b)`; the head
 /// spans the operator.
+///
+/// The strictness of `&&` and `||` is intended: each is exactly one call of a
+/// strict function, which keeps the definedness of the operand it does not
+/// evaluate, as every application does in matching logic, and Rust's laziness
+/// is had only by branching, whose bodies lower to separate equations. The
+/// language reference states this meaning
+/// (`docs-site/src/pages/reference/language.mdx`, sections "Operator and
+/// method notation", "Partial constructs in a condition" and "Branching
+/// bodies"); k-rust's own statement is `crates/k-rust-backend/src/deferred.rs`.
 fn binary_call(binary: &ExprBinary) -> Result<ExprCall, SyntaxError> {
     let (first, last) = token_spans(&binary.op);
     let head = match binary.op {
