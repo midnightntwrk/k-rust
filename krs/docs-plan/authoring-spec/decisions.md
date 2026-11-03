@@ -773,3 +773,12 @@ bug — report it, don't guess.
   still lexes block comments (for good error spans), so relaxing the
   ban later is purely additive. [formatter trivia-architecture
   investigation; user decision 2026-08-23, resolving open-questions §4]
+- **F8 — Mutations of KRS output are K patches; kink decides them.**
+  A mutation of a KRS specification is a text edit of the emitted K, addressed to a rule sentence by its label and resolved against the current K on every run; it is never a Rust edit.
+  The decision, its reasons and its measured evidence are kink's decision register, entry M1 ([`kink/decisions.md`](../../../kink/decisions.md)).
+  What KRS owes it:
+  1. every emitted rule sentence's label names the KRS item that produced it and is derived from the item's stable identity (F3), so it does not change when the sentence's text changes; branch equations of an if/else or match body are named by position unless they carry `#[k::label(..)]`;
+  2. the emitted K lets a reader map each sentence to the Rust item and file that produced it, without building;
+  3. the emitted K tells the nodes KRS inserted on its own (definedness tests, key guards, implicit frames, generated binders) from the text that renders authored syntax, which stays editable, so that an edit changing only inserted nodes, or one whose derived nodes are not what KRS derives from the edited authored node, can be refused;
+  4. emitting an unchanged specification again gives the same K bytes, and a sentence's text never depends on other items' positions, so a patch's anchor goes stale only when the sentence it edits changes or, for a branch equation named by position, when a branch before it is inserted or removed.
+  Rationale: kink checks a K patch for staleness by exact text comparison, which needs anchors that change only with the sentences they name. [kink `decisions.md` M1; Sebastien, 2026-11-03]

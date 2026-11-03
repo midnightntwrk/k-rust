@@ -7,6 +7,9 @@ The k-rust passages and sources cited below with line numbers are cited at k-rus
 The k-rust revision kink keys on and its corpus and campaign documents report (`kink_native::K_RUST_REVISION`, the `k_rust_revision` and `k_rust.revision` fields of those documents, and the semantics identity's `kink.k_rust_revision`) is the version of the in-repo k-rust package; kink-flow's documents and `kink-flow --version` report k-rust's build identity instead (`k_rust::build_identity`, the version and a digest of its sources; KINK-R4); every store honoured without re-deriving its verdicts also keys on the build itself (`kink_build`, below).
 kink writes `collect_offered: false` in its execution requests. It reads every run-level field of an execution result, fail-closed: the lists of open values read, contradicted claims, allowance refusals and unsupported hooks each exclude a run (below, "What a kill trusts"), and the count of undecided solver answers is reported only.
 
+kink's decision register, [`decisions.md`](decisions.md), collects settled design decisions with their reasons and evidence as they are recorded; a proposal to change one must answer the reasons stated there.
+Among them: mutations of a KRS specification are K patches of its emitted K, not Rust edits (M1).
+
 ## Crates
 
 | Crate | Purpose |
