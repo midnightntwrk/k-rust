@@ -3539,6 +3539,52 @@ expect.memoryUsed = "1"
 expect.statusCode = "EVMC_SUCCESS"
 
 [[behavior]]
+id = "staticcall-present-nonempty-revert-restores-account"
+program = 'b"\xfa\x00"'
+stack = "3000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "4000"
+account_id = "10"
+balance = "99"
+code = 'b"\x60\x0b\x31\x60\x00\x60\x00\xfd"'
+nonce = "3"
+storage = '5 |-> 9 .Map'
+original_storage = '5 |-> 7 .Map'
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates", "accounts"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "1291"
+expect.output = 'b""'
+expect.accounts = 'AccountCellMapItem(<acctID> 10 </acctID>, <account> <acctID> 10 </acctID> <balance> 99 </balance> <code> b"\x60\x0b\x31\x60\x00\x60\x00\xfd" </code> <nonce> 3 </nonce> <storage> 5 |-> 9 </storage> <origStorage> 5 |-> 7 </origStorage> </account>)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
+id = "staticcall-present-nonempty-exception-restores-account"
+program = 'b"\xfa\x00"'
+stack = "3000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
+pc = "0"
+gas = "4000"
+account_id = "10"
+balance = "99"
+code = 'b"\x60\x0b\x31\xfe"'
+nonce = "3"
+storage = '5 |-> 9 .Map'
+original_storage = '5 |-> 7 .Map'
+accessed_accounts = 'SetItem(10) .Set'
+expect.accessedAccounts = 'SetItem(10) .Set'
+observe = ["accessedAccounts", "callStack", "interimStates", "accounts"]
+expect.program = 'b"\xfa\x00"'
+expect.wordStack = "0 : .WordStack"
+expect.pc = "1"
+expect.gas = "900"
+expect.output = 'b""'
+expect.accounts = 'AccountCellMapItem(<acctID> 10 </acctID>, <account> <acctID> 10 </acctID> <balance> 99 </balance> <code> b"\x60\x0b\x31\xfe" </code> <nonce> 3 </nonce> <storage> 5 |-> 9 </storage> <origStorage> 5 |-> 7 </origStorage> </account>)'
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
 id = "staticcall-empty-memory-expansion"
 program = 'b"\xfa\x00"'
 stack = "1000 : 10 : 0 : 1 : 32 : 1 : .WordStack"

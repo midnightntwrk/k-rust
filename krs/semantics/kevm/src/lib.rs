@@ -2418,8 +2418,7 @@ k::rules! {
     begin_storage_load: {
         k: [StorageLoad(), ..],
         address: current_account,
-        account_id,
-        storage,
+        account: { Account { account_id, storage, .. }, .. },
         accessed_storage: accessed,
         word_stack: [index, ..],
         gas,
@@ -2440,9 +2439,7 @@ k::rules! {
     begin_storage_store: {
         k: [StorageStore(), ..],
         address: current_account,
-        account_id,
-        storage,
-        original_storage,
+        account: { Account { account_id, storage, original_storage, .. }, .. },
         accessed_storage: accessed,
         static_mode,
         word_stack: [index, new, ..],
@@ -3037,8 +3034,7 @@ k::rules! {
     #[k::rule(label = "balance-true")]
     exec_balance_present: {
         k: [EnoughGas(AccountBalance(), remaining), ..],
-        account_id: present_account,
-        balance,
+        account: { Account { account_id: present_account, balance, .. }, .. },
         accessed_accounts: accessed,
         word_stack: [account, ..],
         pc,
@@ -3207,8 +3203,7 @@ k::rules! {
     #[k::rule(label = "extcodesize-true")]
     exec_external_code_size_present: {
         k: [EnoughGas(ExternalCodeSize(), remaining), ..],
-        account_id: present_account,
-        code,
+        account: { Account { account_id: present_account, code, .. }, .. },
         accessed_accounts: accessed,
         word_stack: [account, ..],
         pc,
@@ -3240,8 +3235,7 @@ k::rules! {
     #[k::rule(label = "extcodecopy-true")]
     exec_external_code_copy_present: {
         k: [EnoughGas(ExternalCodeCopy(), remaining), ..],
-        account_id: present_account,
-        code,
+        account: { Account { account_id: present_account, code, .. }, .. },
         accessed_accounts: accessed,
         local_mem: memory,
         memory_used: used,
@@ -3295,10 +3289,7 @@ k::rules! {
     #[k::rule(label = "extcodehash-true")]
     exec_external_code_hash_nonempty: {
         k: [EnoughGas(ExternalCodeHash(), remaining), ..],
-        account_id: present_account,
-        balance,
-        code,
-        nonce,
+        account: { Account { account_id: present_account, balance, code, nonce, .. }, .. },
         accessed_accounts: accessed,
         word_stack: [account, ..],
         pc,
@@ -3480,8 +3471,7 @@ k::rules! {
     exec_self_balance: {
         k: [EnoughGas(SelfBalance(), remaining), ..],
         address: account,
-        account_id: present_account,
-        balance,
+        account: { Account { account_id: present_account, balance, .. }, .. },
         word_stack: stack,
         pc,
         gas: _,
@@ -3584,8 +3574,7 @@ k::rules! {
     exec_storage_load: {
         k: [EnoughGas(StorageLoad(), remaining), ..],
         address: current_account,
-        account_id,
-        storage,
+        account: { Account { account_id, storage, .. }, .. },
         accessed_storage: accessed,
         word_stack: [index, ..],
         pc,
@@ -3602,9 +3591,7 @@ k::rules! {
     exec_storage_store: {
         k: [EnoughGas(StorageStore(), remaining), ..],
         address: current_account,
-        account_id,
-        storage,
-        original_storage,
+        account: { me @ Account { account_id, storage, original_storage, .. }, .. },
         accessed_storage: accessed,
         refund,
         word_stack: [index, new, rest @ ..],
@@ -3612,7 +3599,7 @@ k::rules! {
         gas: _,
     } => {
         k: [Run(), ..],
-        storage: map::update(storage, index, new),
+        account: { Account { storage: map::update(storage, index, new), ..me }, .. },
         accessed_storage: MarkStorageAccess { accessed, account: current_account, index },
         refund: refund + StorageRefundDelta {
             original: StorageValue { storage: original_storage, index },
@@ -4720,12 +4707,18 @@ k::rules! {
         call_stack,
         interim_states,
         touched_accounts,
-        account_id: present_account,
-        balance,
-        code,
-        nonce,
-        storage,
-        original_storage,
+        account: {
+            Account {
+                account_id: present_account,
+                balance,
+                code,
+                nonce,
+                storage,
+                original_storage,
+                ..
+            },
+            ..
+        },
         output: _,
         status_code: _,
         self_destruct,
@@ -4887,12 +4880,7 @@ k::rules! {
             },
             remaining_interim_states @ ..,
         ],
-        account_id: _,
-        balance: _,
-        code: _,
-        nonce: _,
-        storage: _,
-        original_storage: _,
+        account: { Account { .. }, .. },
         substate: _,
         output: child_output,
         status_code: Status::Reverted(),
@@ -4901,12 +4889,7 @@ k::rules! {
         k: [Run(), ..],
         call_stack: remaining_call_stack,
         interim_states: remaining_interim_states,
-        account_id,
-        balance,
-        code,
-        nonce,
-        storage,
-        original_storage,
+        account: { Account { account_id, balance, code, nonce, storage, original_storage }, .. },
         substate: Substate {
             self_destruct,
             logs,
@@ -4966,12 +4949,7 @@ k::rules! {
             },
             remaining_interim_states @ ..,
         ],
-        account_id: _,
-        balance: _,
-        code: _,
-        nonce: _,
-        storage: _,
-        original_storage: _,
+        account: { Account { .. }, .. },
         substate: _,
         output: _,
         status_code: _,
@@ -4980,12 +4958,7 @@ k::rules! {
         k: [Run(), ..],
         call_stack: remaining_call_stack,
         interim_states: remaining_interim_states,
-        account_id,
-        balance,
-        code,
-        nonce,
-        storage,
-        original_storage,
+        account: { Account { account_id, balance, code, nonce, storage, original_storage }, .. },
         substate: Substate {
             self_destruct,
             logs,
@@ -5008,10 +4981,7 @@ k::rules! {
     #[k::rule(owise)]
     exec_static_call_empty_or_absent: {
         k: [EnoughGas(StaticCall(), remaining), ..],
-        account_id: present_account,
-        balance,
-        code,
-        nonce,
+        account: { Account { account_id: present_account, balance, code, nonce, .. }, .. },
         output: _,
         local_mem: memory,
         memory_used: used,
