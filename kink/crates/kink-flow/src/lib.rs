@@ -22,7 +22,10 @@
 //! mutation list, `check --mutations` ([`check`]), and CF-13 the mutations directory and anchors
 //! by a suffix of a label's components ([`mutation`]). CF-02 reads the definition exclusions at
 //! admission, prints why each holds with one formatter for every command ([`exclusion`]), and
-//! makes `check` fail when a program cannot be judged on the baseline.
+//! makes `check` fail when a program cannot be judged on the baseline. CF-11 lets a case bind every
+//! configuration variable by name, with no program text on a definition without `$PGM`, and
+//! from typed inputs a front end's [`InputDecoder`] reads; it refuses a case whose initial
+//! configuration has no value on the baseline ([`admit`]).
 
 pub mod admit;
 pub mod check;
@@ -44,13 +47,13 @@ pub mod results;
 pub mod search;
 
 pub use admit::{
-    AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, ProgramExclusion, ProgramInputs,
-    admit, admit_spec,
+    AdmittedSpec, CaseInputs, FlowAdmission, InputDecoder, InputFiles, InputSession,
+    ProgramAdmission, ProgramExclusion, ProgramInputs, admit, admit_spec,
 };
 pub use check::{
     CorpusCoverage, Finding, MutationCheck, MutationCheckRow, check_mutations, corpus_coverage,
 };
-pub use manifest::{Budget, FlowManifest, ManifestError, Program, SpecSection};
+pub use manifest::{Budget, Decoder, FlowManifest, ManifestError, Program, SpecSection};
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,
     MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_rule, label_match, resolve,

@@ -192,17 +192,20 @@ fn admit(
     for test in &d.tests {
         let initial_state = match &test.input {
             CorpusInput::Program(spec) => {
-                let text = match &spec.program {
-                    ProgramSource::File(file) => &input_texts[file],
-                    ProgramSource::Text(text) => text,
-                };
+                let text = spec.program.as_ref().map(|program| match program {
+                    ProgramSource::File(file) => input_texts[file].as_str(),
+                    ProgramSource::Text(text) => text.as_str(),
+                });
                 let grammar = grammar
                     .get_or_init(|| InputGrammar::prepare(&loaded, Some(&compiled)))
                     .as_ref()
                     .map_err(|e| input_refusal(e.clone()))?;
                 assembler
                     .get_or_insert_with(|| InputAssembler::new(grammar))
-                    .assemble(text, spec.start_sort.as_deref(), &spec.variables)
+                    .assemble(
+                        text.map(|text| (text, spec.start_sort.as_deref())),
+                        &spec.variables,
+                    )
                     .map_err(input_refusal)?
             }
             CorpusInput::KoreState { file, .. } => {
@@ -535,12 +538,14 @@ pub fn program_input(
 }
 
 /// The refusal of a program whose input assembly failed with `e`: reason `parse` for a parse
-/// failure, `stream-mode` for a binding of `$IO` on a definition with stream cells, `assemble`
-/// for any other failure.
+/// failure, `stream-mode` for a binding of `$IO` on a definition with stream cells,
+/// `stray-program` for a program text given to a definition without `$PGM`, `assemble` for any
+/// other failure.
 pub fn input_refusal(e: crate::InputError) -> AdmissionRefusal {
     let reason = match e {
         crate::InputError::Parse(_) => "parse",
         crate::InputError::StreamMode(_) => "stream-mode",
+        crate::InputError::StrayProgram(_) => "stray-program",
         _ => "assemble",
     };
     AdmissionRefusal::new("inputs", reason, e)
@@ -774,7 +779,7 @@ fn pinned_load(
         for test in &d.tests {
             let file = match &test.input {
                 CorpusInput::Program(s) => match &s.program {
-                    ProgramSource::File(f) => Some((f, None)),
+                    Some(ProgramSource::File(f)) => Some((f, None)),
                     _ => None,
                 },
                 CorpusInput::KoreState { file, sha256 } => Some((file, Some(*sha256))),

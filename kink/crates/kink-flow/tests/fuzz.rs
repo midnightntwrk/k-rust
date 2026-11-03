@@ -465,6 +465,105 @@ fn scratch_flow(name: &str, entry: &str, spec: &str, manifest: &str, mutations: 
     dir
 }
 
+/// A token sort of the syntax module (`Word`) and one of the main module (`Name`) whose regex the
+/// main module's scanner prefers for `word`: kink reads `$W` and the `K` variable `$V` with the
+/// syntax module's grammar first, so `word` is a `Word` there, while the main module's grammar
+/// reads `word` at `Word` not at all and at `K` as a `Name`.
+const READING_K: &str = "module READING-SYNTAX
+  syntax Word ::= r\"w[a-z]*\" [token]
+  syntax Pgm ::= \"run\" [symbol(run)]
+endmodule
+
+module READING
+  imports READING-SYNTAX
+  imports BASIC-K
+  syntax Name ::= r\"wor[a-z]*\" [token, prec(2)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <v> $V:K </v>
+  rule [go]: <k> run => .K </k>
+endmodule
+";
+
+/// The campaign assembles a case as krun does, reading every variable's text with the main
+/// module's grammar alone, while kink reads a variable of a program sort with the syntax
+/// module's grammar first: a template that the two readings read differently (a text the
+/// campaign's reading does not parse, or reads as another term) is refused before the campaign
+/// starts, since no candidate of it could be kink's input.
+#[test]
+fn a_template_the_campaign_reads_otherwise_than_kink_is_refused() {
+    let manifest = "[spec]\nentry = \"reading.k\"\nmain_module = \"READING\"\nsyntax_module = \
+                    \"READING-SYNTAX\"\n\n[[program]]\nid = \"word\"\ntext = \"run\"\n\
+                    variables = { W = \"word\", V = \"w\" }\n\n[[program]]\nid = \"item\"\n\
+                    text = \"run\"\nvariables = { W = \"w\", V = \"word\" }\n";
+    let dir = scratch_flow("variable-reading", "reading.k", READING_K, manifest, "");
+    let templates = "[[template]]\nid = \"word\"\nprogram = \"word\"\n\n[[template]]\nid = \
+                     \"item\"\nprogram = \"item\"\n";
+    for (template, difference) in [
+        ("word", "that reading of the template does not assemble it"),
+        (
+            "item",
+            "that reading of the template reads it as another initial configuration",
+        ),
+    ] {
+        let (document, ok) = run_job(
+            &dir,
+            templates,
+            template,
+            Job::Reach("go".into(), true),
+            FuzzOptions::default(),
+        );
+        assert!(!ok, "{template}: {document:#}");
+        let refusal = &document["job"]["refusal"];
+        assert_eq!(
+            (&refusal["stage"], &refusal["reason"]),
+            (
+                &Value::from("assembly"),
+                &Value::from("variable-reading-differs")
+            ),
+            "{template}: {document:#}"
+        );
+        let detail = refusal["detail"].as_str().unwrap();
+        assert!(
+            detail.starts_with(
+                "kink reads $V, $W with the syntax module's grammar first, as krs-exec reads a \
+                 variable's text, and the campaign assembles a case as krun does"
+            ) && detail.contains(difference),
+            "{template}: {detail}"
+        );
+    }
+}
+
+/// A template of a corpus program with typed inputs (`inputs`) is refused before any case: a
+/// fuzz campaign varies and replays K text only, so it could neither carry the typed inputs into
+/// its input nor write them back into a witness's fragment.
+#[test]
+fn a_template_with_typed_inputs_is_refused() {
+    let manifest = "[spec]\nentry = \"steps.k\"\nmain_module = \"STEPS\"\nsyntax_module = \
+                    \"STEPS-SYNTAX\"\n\n[[program]]\nid = \"typed\"\ntext = \"run(1)\"\n\
+                    inputs = { n = 1 }\n";
+    let dir = scratch_flow("typed-template", "steps.k", STEPS_K, manifest, "");
+    let (document, ok) = run_job(
+        &dir,
+        "[[template]]\nid = \"t\"\nprogram = \"typed\"\n",
+        "t",
+        Job::Reach("big".into(), true),
+        FuzzOptions::default(),
+    );
+    assert!(!ok, "{document:#}");
+    let refusal = &document["job"]["refusal"];
+    assert_eq!(
+        (&refusal["stage"], &refusal["reason"]),
+        (&Value::from("template"), &Value::from("template-refused")),
+        "{document:#}"
+    );
+    assert!(
+        refusal["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("program \"typed\" has typed inputs (`inputs`)"),
+        "{document:#}"
+    );
+}
+
 /// A hole inside a configuration variable's text decodes (KF-T3a refused it): the span is
 /// addressed in that binding, by `$NAME`.
 #[test]
@@ -1108,7 +1207,7 @@ mod kink_tier {
             .programs
             .pop()
             .unwrap();
-        let ProgramSource::Text(program_text) = program.source.clone() else {
+        let Some(ProgramSource::Text(program_text)) = program.source.clone() else {
             panic!("the fragment's program is inline");
         };
         let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
@@ -1117,7 +1216,7 @@ mod kink_tier {
             let (spec, mut inputs) = admitted.expect("the specification is admitted");
             let mut inputs = inputs.session(&spec);
             let mut check = |case: &k_rust_fuzz::report::WitnessCase, text: &str| {
-                check_assembly(&mut inputs, &program, text, case)
+                check_assembly(&mut inputs, &program, &text.into(), case)
             };
             let unchanged = check(&case, &program_text);
             // The mutant's input with `x = 5` read as `x = 6`.
@@ -1591,9 +1690,10 @@ endmodule
             on_stack(move || {
                 let program = kink_flow::Program {
                     id: "probe".to_owned(),
-                    source: ProgramSource::Text("run(1)".to_owned()),
+                    source: Some(ProgramSource::Text("run(1)".to_owned())),
                     start_sort: None,
                     variables: Vec::new(),
+                    inputs: toml::Table::new(),
                 };
                 confirm_program(
                     &manifest,

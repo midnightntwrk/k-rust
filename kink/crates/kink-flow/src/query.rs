@@ -403,18 +403,18 @@ fn ask(
 ) -> (Value, bool) {
     let program = &context.manifest.programs[index];
     let result: &ProgramRow = &context.update.rows[index];
-    let (Some(digest), Some(text)) = (result.digest, result.text.clone()) else {
+    let (Some(digest), Some(case)) = (result.digest, result.inputs.as_ref()) else {
         let answer = Answer::error(format!(
             "the program is not admitted: {}",
             result.row["cause"]
                 .as_str()
-                .unwrap_or("its text cannot be read")
+                .unwrap_or("its inputs cannot be read")
         ));
         return (finish_row(row, &answer, false, None, claimed), false);
     };
     let test = match &result.test {
         Some(test) => test.clone(),
-        None => match inputs.test_case(program, text) {
+        None => match inputs.test_case(program, case) {
             Ok(test) => test,
             Err(refusal) => {
                 let answer = Answer::error(format!(

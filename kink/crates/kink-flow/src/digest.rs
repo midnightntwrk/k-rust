@@ -11,6 +11,7 @@
 //! none: renaming a program keeps its cached result and outcomes.
 
 use crate::{
+    admit::CaseInputs,
     manifest::{Budget, FlowManifest, Program},
     mutation::{EditAction, EditedRule, Mutation, ResolvedMutation},
     results::{ORACLE_SLOTS, result_key},
@@ -71,25 +72,54 @@ pub fn spec_digest(manifest: &FlowManifest, files: &[SourceFile]) -> Sha256Diges
 }
 
 /// The payload of a program digest: the sha256 of the program's bytes (its file's bytes, or
-/// its inline text), its start sort and its configuration variables sorted by name.
-pub fn program_payload(program: &Program, text: &str) -> Value {
+/// its inline text) when it has a program text, its start sort, its configuration variables'
+/// texts sorted by name, and, when it has typed inputs, each one's decoded term.
+///
+/// A typed input enters by what it denotes, not by how it is written: `{name, kast_sha256}`,
+/// the variable's K name and the sha256 of the KAST JSON of its decoded term (k-rust
+/// `kast::json::to_string`, which writes a term's content without its annotations, so two equal
+/// terms give one text), sorted by name. Editing a value in a data or binary file an input reads
+/// changes the term and so the digest, and reformatting the file does not. A program with a
+/// program text and no typed inputs has exactly the payload it had before typed inputs existed,
+/// so its digest, and every result and outcome cached under it, is unchanged.
+pub fn program_payload(program: &Program, inputs: &CaseInputs) -> Value {
     let mut variables = program.variables.clone();
     variables.sort();
-    json!({
-        "program_sha256": sha256(text.as_bytes()).to_string(),
+    let mut payload = json!({
         "start_sort": program.start_sort,
         "variables": variables
             .into_iter()
             .map(|(name, text)| json!({"name": name, "text": text}))
             .collect::<Vec<_>>(),
-    })
+    });
+    if let Some(text) = &inputs.text {
+        payload["program_sha256"] = json!(sha256(text.as_bytes()).to_string());
+    }
+    if !inputs.typed.is_empty() {
+        let mut typed = inputs
+            .typed
+            .iter()
+            .map(|(name, term)| {
+                let kast = k_rust::kast::json::to_string(term)
+                    .expect("KAST JSON writes every term (`to_string` has no failing path)");
+                (name.clone(), sha256(kast.as_bytes()).to_string())
+            })
+            .collect::<Vec<_>>();
+        typed.sort();
+        payload["typed"] = typed
+            .into_iter()
+            .map(|(name, kast_sha256)| json!({"name": name, "kast_sha256": kast_sha256}))
+            .collect();
+    }
+    payload
 }
 
-/// The program digest of README 5.3; `text` is the program's text as read for admission.
-pub fn program_digest(program: &Program, text: &str) -> Sha256Digest {
+/// The program digest of README 5.3; `inputs` are the program's inputs as read for admission
+/// (`admit::ProgramInputs::read`).
+pub fn program_digest(program: &Program, inputs: &CaseInputs) -> Sha256Digest {
     payload_digest(
         PROGRAM_DOMAIN,
-        canonical_json(&program_payload(program, text)).as_bytes(),
+        canonical_json(&program_payload(program, inputs)).as_bytes(),
     )
 }
 

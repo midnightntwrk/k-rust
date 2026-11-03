@@ -47,9 +47,10 @@ fn a_minimal_manifest_takes_every_default() {
         manifest.programs,
         [Program {
             id: "one".into(),
-            source: ProgramSource::Text("1".into()),
+            source: Some(ProgramSource::Text("1".into())),
             start_sort: None,
             variables: vec![],
+            inputs: toml::Table::new(),
         }]
     );
     let empty = decode(SPEC).unwrap();
@@ -118,15 +119,17 @@ text = "1 + 2"
         [
             Program {
                 id: "from-file".into(),
-                source: ProgramSource::File("programs/a.lang".into()),
+                source: Some(ProgramSource::File("programs/a.lang".into())),
                 start_sort: Some("Stmt".into()),
                 variables: vec![("A".into(), "true".into()), ("Z".into(), "3".into())],
+                inputs: toml::Table::new(),
             },
             Program {
                 id: "inline".into(),
-                source: ProgramSource::Text("1 + 2".into()),
+                source: Some(ProgramSource::Text("1 + 2".into())),
                 start_sort: None,
                 variables: vec![],
+                inputs: toml::Table::new(),
             },
         ]
     );
@@ -200,22 +203,77 @@ fn program_ids_must_be_present_nonempty_and_unique() {
 }
 
 #[test]
-fn a_program_has_exactly_one_of_file_and_text() {
+fn a_program_has_at_most_one_of_file_and_text() {
     assert_error(
         &format!("{SPEC}[[program]]\nid = \"both\"\nfile = \"a\"\ntext = \"1\"\n"),
         "program \"both\"",
         "has both file and text",
     );
     assert_error(
-        &format!("{SPEC}[[program]]\nid = \"neither\"\n"),
-        "program \"neither\"",
-        "has neither file nor text",
-    );
-    assert_error(
         &format!("{SPEC}[[program]]\nid = \"num\"\ntext = 1\n"),
         "program \"num\".text",
         "expected a string",
     );
+}
+
+/// A case of a definition without `$PGM` has no program text: it binds every configuration
+/// variable by name. A start sort applies to a program text only, so it is refused without one.
+#[test]
+fn a_program_without_file_or_text_is_a_program_less_case() {
+    let manifest = decode(&format!(
+        "{SPEC}[[program]]\nid = \"bare\"\nvariables = {{ ENTRY = \"run\" }}\n"
+    ))
+    .unwrap();
+    assert_eq!(
+        manifest.programs,
+        [Program {
+            id: "bare".into(),
+            source: None,
+            start_sort: None,
+            variables: vec![("ENTRY".into(), "run".into())],
+            inputs: toml::Table::new(),
+        }]
+    );
+    assert_error(
+        &format!("{SPEC}[[program]]\nid = \"sorted\"\nstart_sort = \"Exp\"\n"),
+        "program \"sorted\".start_sort",
+        "start_sort applies to a program text; this program has none",
+    );
+}
+
+/// `inputs` is kept as written, documents by input name, for a front end's decoder; kink-flow
+/// does not read it. A value that is not a table is refused naming the key.
+#[test]
+fn typed_inputs_are_kept_as_written() {
+    let manifest = decode(&format!(
+        "{SPEC}[[program]]\nid = \"typed\"\n[program.inputs]\nrom = {{ \"$file\" = \"rom.bin\" }}\n\
+         memory = {{ \"0x0100\" = 0, \"0x0101\" = 195 }}\n"
+    ))
+    .unwrap();
+    let program = &manifest.programs[0];
+    assert_eq!(program.source, None);
+    assert_eq!(
+        program.inputs.keys().collect::<Vec<_>>(),
+        ["memory", "rom"],
+        "{program:?}"
+    );
+    assert_eq!(
+        program.inputs["rom"]["$file"].as_str(),
+        Some("rom.bin"),
+        "{program:?}"
+    );
+    assert_eq!(
+        program.inputs["memory"]["0x0101"].as_integer(),
+        Some(195),
+        "{program:?}"
+    );
+    assert_error(
+        &format!("{SPEC}[[program]]\nid = \"v\"\ninputs = [\"rom\"]\n"),
+        "program \"v\".inputs",
+        "expected a table of typed inputs by name",
+    );
+    // A decoded manifest has no decoder: kink reads K text only.
+    assert!(manifest.input_decoder.get().is_none());
 }
 
 #[test]

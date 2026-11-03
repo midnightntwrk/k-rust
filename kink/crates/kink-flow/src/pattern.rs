@@ -1522,8 +1522,8 @@ mod tests {
                     .unwrap();
                 let program = manifest.programs.iter().find(|p| p.id == "add").unwrap();
                 let mut inputs = inputs.session(&spec);
-                let text = inputs.text(program).unwrap();
-                let test = inputs.test_case(program, text).unwrap();
+                let case = inputs.read(program).unwrap();
+                let test = inputs.test_case(program, &case).unwrap();
                 let response = searcher
                     .backend
                     .search_pattern_json(SearchPatternRequest {
@@ -1747,8 +1747,8 @@ mod tests {
                 );
                 let program = manifest.programs.iter().find(|p| p.id == "add").unwrap();
                 let mut inputs = inputs.session(&spec);
-                let text = inputs.text(program).unwrap();
-                let test = inputs.test_case(program, text).unwrap();
+                let case = inputs.read(program).unwrap();
+                let test = inputs.test_case(program, &case).unwrap();
                 let (outcome, _) = searcher.search(&test.initial_state, &lowered);
                 assert!(
                     matches!(outcome, SearchOutcome::Hit(_)),

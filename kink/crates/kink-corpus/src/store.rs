@@ -231,7 +231,7 @@ impl Store {
                     CorpusInput::Program(spec) => {
                         let mut spec = spec.clone();
                         if let Some(text) = text {
-                            spec.program = ProgramSource::Text(text);
+                            spec.program = Some(ProgramSource::Text(text));
                         }
                         let side = compiled
                             .get_or_init(|| {
@@ -296,8 +296,8 @@ fn input_pin<'a>(
 ) -> Result<Option<(&'a str, Sha256Digest)>, StoreError> {
     match input {
         CorpusInput::Program(spec) => match &spec.program {
-            ProgramSource::Text(_) => Ok(None),
-            ProgramSource::File(file) => {
+            None | Some(ProgramSource::Text(_)) => Ok(None),
+            Some(ProgramSource::File(file)) => {
                 let normalized = input_name(file)?;
                 let pin = definition
                     .files

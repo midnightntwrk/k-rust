@@ -6,7 +6,7 @@ use kink_campaign::{
 use kink_corpus::ProgramSource;
 use kink_corpus::{load_source, runner::all_normal};
 use kink_flow::{
-    FlowManifest, Program, SpecSection, admit,
+    CaseInputs, FlowManifest, Program, SpecSection, admit,
     admit::{admit_spec, corpus_source},
     cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
     digest::{program_digest, spec_digest, spec_payload},
@@ -197,11 +197,11 @@ fn digests_ignore_formatting_and_program_ids() {
     );
     let digest = |manifest: &FlowManifest, id: &str| {
         let program = manifest.programs.iter().find(|p| p.id == id).unwrap();
-        let text = match &program.source {
+        let text = match program.source.as_ref().unwrap() {
             ProgramSource::Text(text) => text.clone(),
             ProgramSource::File(name) => fs::read_to_string(dir.join(name)).unwrap(),
         };
-        program_digest(program, &text)
+        program_digest(program, &CaseInputs::text(text))
     };
     for id in ["add", "nested", "sub", "inline"] {
         assert_eq!(digest(&original, id), digest(&reformatted, id), "{id}");
@@ -311,27 +311,49 @@ fn the_spec_digest_covers_every_required_file_and_nothing_else() {
 fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
     let program = |id: &str| Program {
         id: id.into(),
-        source: ProgramSource::Text(String::new()),
+        source: Some(ProgramSource::Text(String::new())),
         start_sort: None,
         variables: vec![("A".into(), "1".into()), ("B".into(), "2".into())],
+        inputs: toml::Table::new(),
     };
-    let base = program_digest(&program("p"), "1 + 2");
-    let other = program_digest(&program("q"), "3");
-    assert_eq!(program_digest(&program("renamed"), "1 + 2"), base);
-    assert_ne!(program_digest(&program("p"), "1 + 3"), base);
-    assert_eq!(program_digest(&program("q"), "3"), other);
+    let base = program_digest(&program("p"), &"1 + 2".into());
+    let other = program_digest(&program("q"), &"3".into());
+    assert_eq!(program_digest(&program("renamed"), &"1 + 2".into()), base);
+    assert_ne!(program_digest(&program("p"), &"1 + 3".into()), base);
+    assert_eq!(program_digest(&program("q"), &"3".into()), other);
     let mut sorted = program("p");
     sorted.start_sort = Some("Exp".into());
-    assert_ne!(program_digest(&sorted, "1 + 2"), base);
+    assert_ne!(program_digest(&sorted, &"1 + 2".into()), base);
     let mut variable = program("p");
     variable.variables[1].1 = "3".into();
-    assert_ne!(program_digest(&variable, "1 + 2"), base);
+    assert_ne!(program_digest(&variable, &"1 + 2".into()), base);
     let mut fewer = program("p");
     fewer.variables.pop();
-    assert_ne!(program_digest(&fewer, "1 + 2"), base);
+    assert_ne!(program_digest(&fewer, &"1 + 2".into()), base);
     let mut reversed = program("p");
     reversed.variables.reverse();
-    assert_eq!(program_digest(&reversed, "1 + 2"), base);
+    assert_eq!(program_digest(&reversed, &"1 + 2".into()), base);
+    // A program with a program text and no typed inputs keeps the digest it had before typed
+    // inputs existed: the v1 payload, byte for byte, so no cached result or outcome is lost.
+    let v1 = kink_patch::payload_digest(
+        kink_flow::digest::PROGRAM_DOMAIN,
+        kink_patch::canonical_json(&json!({
+            "program_sha256": sha256(b"1 + 2").to_string(),
+            "start_sort": null,
+            "variables": [{"name": "A", "text": "1"}, {"name": "B", "text": "2"}],
+        }))
+        .as_bytes(),
+    );
+    assert_eq!(base, v1);
+    // A program-less case is no program with an empty text.
+    let bare = CaseInputs {
+        text: None,
+        typed: Vec::new(),
+    };
+    assert_ne!(
+        program_digest(&program("p"), &bare),
+        program_digest(&program("p"), &"".into())
+    );
 }
 
 /// Re-pin R0c-fix-1 deliverable 1: the campaign runner now admits a baseline run that contradicts
@@ -923,8 +945,8 @@ text = 'h(opaque(1), 2)'
         // each program gives what `admit` gave in manifest order.
         for (program, expected) in manifest.programs.iter().zip(&whole.programs).rev() {
             let outcome = session
-                .text(program)
-                .and_then(|text| session.test_case(program, text));
+                .read(program)
+                .and_then(|case| session.test_case(program, &case));
             assert_eq!(outcome, expected.outcome, "{}", program.id);
         }
     }

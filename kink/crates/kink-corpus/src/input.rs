@@ -4,11 +4,12 @@ use std::{collections::BTreeMap, fmt};
 
 use k_rust::{
     definition::{AttributeKey, Definition, Sentence},
-    kast::Sort,
+    kast::{Sort, Term},
     kompile::{
         CompileOptions,
         initial_configuration::{
             ConfigurationAssembler, ConfigurationError, ProgramGrammar, program_start_position,
+            variable_reading_modules,
         },
     },
     kore::ast::Pattern,
@@ -23,11 +24,36 @@ pub enum ProgramSource {
     File(String),
 }
 
+/// One test's inputs: an assignment of a value to each configuration variable the definition
+/// declares. `$PGM` is bound by `program`, read at `start_sort`; a definition without `$PGM` takes
+/// no program, and its test binds every variable by name in `variables`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestInputSpec {
-    pub program: ProgramSource,
+    pub program: Option<ProgramSource>,
     pub start_sort: Option<String>,
-    pub variables: Vec<(String, String)>,
+    pub variables: Vec<(String, VariableInput)>,
+}
+
+/// The value of one configuration variable: K text, read at the variable's sort with the rule
+/// every tool reads a variable's text with (k-rust `variable_reading_modules`), or a KAST term a
+/// front end built without the parser, which is typed and macro-expanded as a parsed value is and
+/// must have a sort at most the variable's (k-rust `ConfigurationAssembler::bind_term`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VariableInput {
+    Text(String),
+    Term(Term),
+}
+
+impl From<&str> for VariableInput {
+    fn from(text: &str) -> Self {
+        Self::Text(text.to_owned())
+    }
+}
+
+impl From<String> for VariableInput {
+    fn from(text: String) -> Self {
+        Self::Text(text)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +65,9 @@ pub enum InputError {
     /// stream definitions with IO off only (see [`assemble_input_with`]).
     StreamMode(String),
     MissingVariable(String),
+    /// A program given to a definition that declares no `$PGM` (`stray-program`): the program
+    /// would bind nothing, so the test would not be the input its author wrote.
+    StrayProgram(String),
 }
 
 impl fmt::Display for InputError {
@@ -48,7 +77,8 @@ impl fmt::Display for InputError {
             | Self::Assemble(message)
             | Self::Streams(message)
             | Self::StreamMode(message)
-            | Self::MissingVariable(message) => f.write_str(message),
+            | Self::MissingVariable(message)
+            | Self::StrayProgram(message) => f.write_str(message),
         }
     }
 }
@@ -94,15 +124,20 @@ pub fn assemble_input_with(
     spec: &TestInputSpec,
 ) -> Result<Pattern, InputError> {
     let text = match &spec.program {
-        ProgramSource::Text(text) => text.clone(),
-        ProgramSource::File(name) => {
+        None => None,
+        Some(ProgramSource::Text(text)) => Some(text.clone()),
+        Some(ProgramSource::File(name)) => {
             let (_, bytes) = read_under_root(&loaded.root, name)
                 .map_err(|e| InputError::Parse(e.to_string()))?;
-            String::from_utf8(bytes).map_err(|e| InputError::Parse(e.to_string()))?
+            Some(String::from_utf8(bytes).map_err(|e| InputError::Parse(e.to_string()))?)
         }
     };
     let grammar = InputGrammar::prepare(loaded, compiled)?;
-    InputAssembler::new(&grammar).assemble(&text, spec.start_sort.as_deref(), &spec.variables)
+    InputAssembler::new(&grammar).assemble(
+        text.as_deref()
+            .map(|text| (text, spec.start_sort.as_deref())),
+        &spec.variables,
+    )
 }
 
 #[cfg(feature = "measure")]
@@ -119,13 +154,17 @@ pub fn input_grammar_builds() -> usize {
 }
 
 /// What assembling inputs of one compiled definition needs, built once per definition: the
-/// program grammar, the declared variables, the start sort and whether the definition has stream
-/// cells.
+/// program grammar, the declared variables, the grammar each variable's text is read with first,
+/// the start sort and whether the definition has stream cells.
 pub struct InputGrammar {
     grammar: ProgramGrammar,
     main_module: String,
     syntax_module: String,
     variables: BTreeMap<String, Sort>,
+    /// The variables whose text is read with the syntax module's grammar first, as a program is
+    /// (k-rust `variable_reading_modules`): the rule krs-exec reads them with, so one text denotes
+    /// one term in both tools.
+    reading_modules: BTreeMap<String, String>,
     default_start: Sort,
     stream_cells: bool,
 }
@@ -170,14 +209,25 @@ impl InputGrammar {
         let variables = compiled.artifacts().configuration_variables.clone();
         let default_start =
             program_start_position(variables.get("PGM").unwrap_or(&Sort::new("KItem")));
+        let syntax_module = loaded.syntax_module.to_string();
+        let reading_modules =
+            variable_reading_modules(&grammar, &syntax_module, &variables).map_err(input_error)?;
         Ok(Self {
             grammar,
             main_module: loaded.baseline.definition().main_module.to_string(),
-            syntax_module: loaded.syntax_module.to_string(),
+            syntax_module,
             variables,
+            reading_modules,
             default_start,
             stream_cells: has_stream_cells(&compiled.artifacts().execution_definition),
         })
+    }
+
+    /// The configuration variables, without `$`, whose text kink reads with the syntax module's
+    /// grammar first (k-rust `variable_reading_modules`), in name order. Only these can read
+    /// differently under [`InputAssembler::reading_with_main_module`].
+    pub fn syntax_read_variables(&self) -> impl Iterator<Item = &str> {
+        self.reading_modules.keys().map(String::as_str)
     }
 }
 
@@ -206,26 +256,56 @@ impl<'g> InputAssembler<'g> {
                 grammar.main_module.as_str(),
                 grammar.syntax_module.as_str(),
                 &grammar.variables,
+            )
+            .reading_variables_with(grammar.reading_modules.clone()),
+        }
+    }
+
+    /// An assembler that reads every configuration variable's text with the main module's
+    /// grammar alone (or the module its cell's `parser` attribute names), as krun reads `-c` and
+    /// a k-rust-fuzz campaign assembles a case. It differs from [`Self::new`] only on the
+    /// variables [`InputGrammar::syntax_read_variables`] names, and only on texts the two
+    /// grammars read as different terms (or that one of them does not parse): kink-flow's `fuzz`
+    /// uses it to recognize a case whose campaign input is not kink's.
+    pub fn reading_with_main_module(grammar: &'g InputGrammar) -> Self {
+        Self {
+            grammar,
+            assembler: ConfigurationAssembler::new(
+                &grammar.grammar,
+                grammar.main_module.as_str(),
+                grammar.syntax_module.as_str(),
+                &grammar.variables,
             ),
         }
     }
 
-    /// The initial configuration of the program `text` read at `start_sort` (the start position
-    /// of `$PGM`'s sort by default) with the variable texts `variables`, as
-    /// [`assemble_input_with`] assembles it.
+    /// The initial configuration of `program`, a program text read at its start sort (the
+    /// start position of `$PGM`'s sort by default), and the variable values `variables`, as
+    /// [`assemble_input_with`] assembles it. Without a program `$PGM` is left unbound, so a
+    /// definition that declares it refuses the configuration as missing `$PGM`, unless a term
+    /// binds it: a [`VariableInput::Term`] for `PGM` is bound as a program built without the
+    /// parser (k-rust `ConfigurationAssembler::program_term`), and with a program text as well it
+    /// is a second `$PGM`. A program given to a definition that declares no `$PGM` is refused
+    /// (`StrayProgram`), since it would bind nothing.
     ///
     /// The assembler is cleared first, so a configuration an earlier call abandoned on an error
     /// leaves nothing behind: each call gives what a fresh assembler gives.
     pub fn assemble(
         &mut self,
-        text: &str,
-        start_sort: Option<&str>,
-        variables: &[(String, String)],
+        program: Option<(&str, Option<&str>)>,
+        variables: &[(String, VariableInput)],
     ) -> Result<Pattern, InputError> {
         let assembler = &mut self.assembler;
         assembler.clear();
-        let start = start_sort.map_or_else(|| self.grammar.default_start.clone(), Sort::new);
-        assembler.program(&start, text).map_err(input_error)?;
+        if let Some((text, start_sort)) = program {
+            if !self.grammar.variables.contains_key("PGM") {
+                return Err(InputError::StrayProgram(stray_program(
+                    &self.grammar.variables,
+                )));
+            }
+            let start = start_sort.map_or_else(|| self.grammar.default_start.clone(), Sort::new);
+            assembler.program(&start, text).map_err(input_error)?;
+        }
         if let Some((name, _)) = variables.iter().find(|(name, _)| is_io(name))
             && self.grammar.stream_cells
         {
@@ -235,13 +315,40 @@ impl<'g> InputAssembler<'g> {
                  output and unread input"
             )));
         }
-        for (name, text) in variables {
-            assembler.bind(name, text).map_err(input_error)?;
+        for (name, value) in variables {
+            match value {
+                VariableInput::Text(text) => assembler.bind(name, text),
+                VariableInput::Term(term) if name.strip_prefix('$').unwrap_or(name) == "PGM" => {
+                    assembler.program_term(term.clone())
+                }
+                VariableInput::Term(term) => assembler.bind_term(name, term.clone()),
+            }
+            .map_err(input_error)?;
         }
         assembler
             .bind_stream_defaults::<ConfigurationError>(false, false, || Ok(Vec::new()))
             .map_err(input_error)?;
         assembler.finish().map_err(input_error)
+    }
+}
+
+/// Why a program text is refused on a definition without `$PGM`, naming every declared variable
+/// with its sort.
+fn stray_program(variables: &BTreeMap<String, Sort>) -> String {
+    let declared = variables
+        .iter()
+        .map(|(name, sort)| format!("${name}:{sort}"))
+        .collect::<Vec<_>>();
+    if declared.is_empty() {
+        "the definition declares no $PGM, so a program text binds nothing; it declares no \
+         configuration variable either, so its case binds none"
+            .to_owned()
+    } else {
+        format!(
+            "the definition declares no $PGM, so a program text binds nothing; bind its \
+             configuration variables by name: {}",
+            declared.join(", ")
+        )
     }
 }
 

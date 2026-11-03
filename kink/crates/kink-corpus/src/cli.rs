@@ -207,8 +207,8 @@ fn pin(workspace: &Path, manifest: &CorpusManifest, path: &Path) -> Result<(), S
         for test in &definition.tests {
             let file = match &test.input {
                 CorpusInput::Program(spec) => match &spec.program {
-                    ProgramSource::File(file) => Some(file),
-                    ProgramSource::Text(_) => None,
+                    Some(ProgramSource::File(file)) => Some(file),
+                    None | Some(ProgramSource::Text(_)) => None,
                 },
                 CorpusInput::KoreState { file, .. } => Some(file),
             };
@@ -530,7 +530,7 @@ fn verify_sources(
     for test in &definition.tests {
         let input = match &test.input {
             CorpusInput::Program(spec) => match &spec.program {
-                ProgramSource::File(file) => Some((
+                Some(ProgramSource::File(file)) => Some((
                     file,
                     definition
                         .files
@@ -539,7 +539,7 @@ fn verify_sources(
                         .ok_or_else(|| invalid("missing input pin"))?
                         .sha256,
                 )),
-                ProgramSource::Text(_) => None,
+                None | Some(ProgramSource::Text(_)) => None,
             },
             CorpusInput::KoreState { file, sha256 } => Some((file, *sha256)),
         };

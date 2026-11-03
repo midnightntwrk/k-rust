@@ -33,7 +33,7 @@
 //! record is read or written. Deleting the cache is always safe.
 
 use crate::{
-    admit::{AdmittedSpec, InputSession, admit_spec},
+    admit::{AdmittedSpec, CaseInputs, InputSession, admit_spec},
     digest::{program_digest, spec_digest},
     evidence::EndReader,
     manifest::{Budget, FlowManifest, Program},
@@ -1102,10 +1102,10 @@ pub struct ProgramRow {
     pub live: Option<Value>,
     /// The program was refused, its run failed or its record could not be written.
     pub failed: bool,
-    /// The program's digest, when its text could be read.
+    /// The program's digest, when its inputs could be read.
     pub digest: Option<Sha256Digest>,
-    /// The program's text exactly as its digest was computed from it.
-    pub text: Option<String>,
+    /// The program's inputs exactly as its digest was computed from them.
+    pub inputs: Option<CaseInputs>,
     /// The program's admitted test case (no oracles), when this command assembled it.
     pub test: Option<TestCase>,
 }
@@ -1380,15 +1380,15 @@ fn program_row(
             live: None,
             failed: true,
             digest,
-            text: None,
+            inputs: None,
             test: None,
         }
     };
-    let text = match inputs.text(program) {
-        Ok(text) => text,
+    let case = match inputs.read(program) {
+        Ok(case) => case,
         Err(refusal) => return refused(None, refusal),
     };
-    let digest = program_digest(program, &text);
+    let digest = program_digest(program, &case);
     let key = result_key(context.spec_digest, digest, manifest.budget, context.build);
     let path = context.directory.join(format!("{digest}.json"));
     // Without a build identity no record is honoured (packet CACHE-ID-fix-1).
@@ -1412,11 +1412,11 @@ fn program_row(
             record: stored,
             live: None,
             digest: Some(digest),
-            text: Some(text),
+            inputs: Some(case),
             test: None,
         };
     }
-    let test = match inputs.test_case(program, text.clone()) {
+    let test = match inputs.test_case(program, &case) {
         Ok(test) => test,
         Err(refusal) => return refused(Some(digest), refusal),
     };
@@ -1444,7 +1444,7 @@ fn program_row(
             record: stored,
             live: None,
             digest: Some(digest),
-            text: Some(text),
+            inputs: Some(case),
             test: Some(test),
         };
     }
@@ -1478,7 +1478,7 @@ fn program_row(
             record: Some(record),
             live: Some(record_value(spec, &key, &program.id, &result)),
             digest: Some(digest),
-            text: Some(text),
+            inputs: Some(case),
             test: Some(test),
         };
     }
@@ -1509,7 +1509,7 @@ fn program_row(
         live: None,
         failed,
         digest: Some(digest),
-        text: Some(text),
+        inputs: Some(case),
         test: Some(test),
     }
 }
@@ -1600,18 +1600,18 @@ pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static
         .collect()
 }
 
-/// The current result record of `program`, whose text is `text`, read from the cache `cache`
+/// The current result record of `program`, whose inputs are `inputs`, read from the cache `cache`
 /// without running anything: the record `results` would use, or `None` when there is none (no
 /// file, another key, or no build identity, under which no record is honoured).
 pub fn current_record(
     manifest: &FlowManifest,
     spec_digest: Sha256Digest,
     program: &Program,
-    text: &str,
+    inputs: &CaseInputs,
     cache: &Path,
 ) -> Option<Value> {
     let build = kink_campaign::kink_build().ok()?;
-    let digest = program_digest(program, text);
+    let digest = program_digest(program, inputs);
     let key = result_key(spec_digest, digest, manifest.budget, Some(build));
     let path = cache
         .join("results")

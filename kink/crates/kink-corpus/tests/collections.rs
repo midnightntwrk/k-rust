@@ -237,7 +237,7 @@ fn external(imp: bool) {
             let initial_state = assemble_input(
                 &loaded,
                 &TestInputSpec {
-                    program: ProgramSource::Text(text.into()),
+                    program: Some(ProgramSource::Text(text.into())),
                     start_sort: Some("Pgm".into()),
                     variables: vec![],
                 },

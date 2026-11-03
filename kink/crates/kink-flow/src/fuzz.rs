@@ -39,7 +39,13 @@
 //! from the baseline's grammar for both sides, so a run of no case first compares each side's
 //! initial configuration at the holes' anchors: a mutant that assembles the template otherwise
 //! (a `[macro]` edit) is refused before any case, and so is a baseline that assembles it otherwise
-//! than kink does. Each candidate's program is then assembled by kink exactly as a `[[program]]`
+//! than kink does. The campaign assembles a case as krun does, reading every configuration
+//! variable's text with the main module's grammar alone, while kink reads a variable of a program
+//! sort with the syntax module's grammar first (k-rust `variable_reading_modules`, the rule
+//! krs-exec reads it with): a template whose variable texts the two readings read as different
+//! terms is refused before the campaign starts (`variable-reading-differs`), and a candidate
+//! whose instantiated text does is an `assembly-mismatch` whose detail says so. Each
+//! candidate's program is then assembled by kink exactly as a `[[program]]`
 //! ([`check_assembly`]), and each side's initial configuration must be that configuration, or
 //! the candidate is not offered (`assembly-mismatch`). The last `run` document, only read, gives
 //! the template program's class and the mutation's `reaching` programs (suggested as
@@ -77,7 +83,7 @@
 
 use crate::fuzz_filter::{FilterJob, FilterSide, KinkJudgement};
 use crate::{
-    admit::{AdmittedSpec, InputSession, ProgramInputs, admit_spec},
+    admit::{AdmittedSpec, CaseInputs, InputSession, ProgramInputs, admit_spec},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
     mutation::{MutationList, RuleText, resolve, rule_texts},
@@ -589,10 +595,11 @@ fn side_value(side: &ValidatedDefinition, compiled: &CompiledDefinition) -> Valu
     })
 }
 
-/// A template made concrete against the flow: its text, start sort, variables, and where a file
-/// of the instantiated program could go.
+/// A template made concrete against the flow: its text (none for a program-less case of a
+/// definition without `$PGM`), start sort, variables, and where a file of the instantiated
+/// program could go.
 struct Instance {
-    text: String,
+    text: Option<String>,
     start_sort: String,
     start_sort_source: &'static str,
     /// The start sort a `[[program]]` of the witness writes (the template's or its program's).
@@ -625,12 +632,22 @@ fn instance(
                 .iter()
                 .find(|program| &program.id == id)
                 .ok_or_else(|| refused(format!("program {id:?}: FLOW.toml has no such program")))?;
+            // A fuzz campaign varies and replays K text only: a typed input would be neither
+            // carried into the campaign's input nor written back into a witness's fragment.
+            if !program.inputs.is_empty() {
+                return Err(refused(format!(
+                    "program {id:?} has typed inputs (`inputs`), which fuzz does not carry yet: \
+                     fuzz varies K text, so use a template that binds every input as K text \
+                     under `variables`"
+                )));
+            }
             let text = inputs
-                .text(program)
-                .map_err(|refusal| refused(format!("program {id:?}: {}", refusal.detail)))?;
+                .read(program)
+                .map_err(|refusal| refused(format!("program {id:?}: {}", refusal.detail)))?
+                .text;
             let file = match &program.source {
-                ProgramSource::File(name) => Some(name.clone()),
-                ProgramSource::Text(_) => None,
+                Some(ProgramSource::File(name)) => Some(name.clone()),
+                None | Some(ProgramSource::Text(_)) => None,
             };
             (
                 text,
@@ -640,13 +657,13 @@ fn instance(
             )
         }
         TemplateSource::File(name) => (
-            read_inside(&templates.directory, name).map_err(refused)?,
+            Some(read_inside(&templates.directory, name).map_err(refused)?),
             template.start_sort.clone(),
             template.variables.clone(),
             Some(name.clone()),
         ),
         TemplateSource::Text(text) => (
-            text.clone(),
+            Some(text.clone()),
             template.start_sort.clone(),
             template.variables.clone(),
             None,
@@ -810,8 +827,8 @@ struct Fragment {
     id: String,
     /// The program as kink's manifest decodes the fragment (its text inline).
     program: Program,
-    /// The instantiated program text.
-    text: String,
+    /// The instantiated program's inputs: its text (none for a program-less template).
+    inputs: CaseInputs,
 }
 
 /// The fragment of a witness case: the instantiated program text (the template's when the case
@@ -819,10 +836,7 @@ struct Fragment {
 /// bindings over them (a span hole inside a binding, or a configuration-variable hole's whole
 /// value).
 fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fragment {
-    let text = case
-        .program
-        .clone()
-        .unwrap_or_else(|| instance.text.clone());
+    let text = case.program.clone().or_else(|| instance.text.clone());
     let mut variables = instance
         .variables
         .iter()
@@ -844,11 +858,16 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
     let variables = variables.into_iter().collect::<Vec<_>>();
     let mut program = Program {
         id: String::new(),
-        source: ProgramSource::Text(text.clone()),
+        source: text.clone().map(ProgramSource::Text),
         start_sort: instance.written_start_sort.clone(),
         variables: variables.clone(),
+        inputs: Table::new(),
     };
-    let digest = program_digest(&program, &text).to_string();
+    let inputs = CaseInputs {
+        text,
+        typed: Vec::new(),
+    };
+    let digest = program_digest(&program, &inputs).to_string();
     let id = format!("{}-fz-{}", template.id, &digest[..8]);
     program.id.clone_from(&id);
     let file = instance.file.as_ref().map(|file| {
@@ -861,7 +880,9 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
     });
     let mut table = Table::new();
     table.insert("id".into(), Toml::String(id.clone()));
-    table.insert("text".into(), Toml::String(text.clone()));
+    if let Some(text) = &inputs.text {
+        table.insert("text".into(), Toml::String(text.clone()));
+    }
     if let Some(sort) = &instance.written_start_sort {
         table.insert("start_sort".into(), Toml::String(sort.clone()));
     }
@@ -884,7 +905,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         file,
         id,
         program,
-        text,
+        inputs,
     }
 }
 
@@ -971,10 +992,11 @@ impl AssemblyCheck {
     }
 }
 
-/// The per-candidate assembly check (design 3.2.5): kink assembles `program` (with `text`, its
-/// instantiated text) exactly as it assembles a `[[program]]` of the corpus, from the
-/// baseline's grammar for both sides of every test, with the program's start sort (kink's
-/// default when it has none) and variables, then its concrete-state check and input gate; each
+/// The per-candidate assembly check (design 3.2.5): kink assembles `program` (with
+/// `instantiated`, its instantiated inputs) exactly as it assembles a `[[program]]` of the
+/// corpus, from the baseline's grammar for both sides of every test, with the program's start
+/// sort (kink's default when it has none) and variables, then its concrete-state check, input
+/// gate and value check (`InputSession::test_case`); each
 /// side's `initial_configuration` in `case`, parsed as KORE, must equal that configuration.
 /// A difference means the campaign judged another input than the one kink would run, so the
 /// case is no witness for kink (`assembly-mismatch`). The hole values are covered, since the
@@ -982,10 +1004,10 @@ impl AssemblyCheck {
 pub fn check_assembly(
     inputs: &mut InputSession<'_>,
     program: &Program,
-    text: &str,
+    instantiated: &CaseInputs,
     case: &WitnessCase,
 ) -> AssemblyCheck {
-    let kink = match inputs.test_case(program, text.to_owned()) {
+    let kink = match inputs.test_case(program, instantiated) {
         Ok(test) => test.initial_state,
         Err(refusal) => {
             return AssemblyCheck::Refused {
@@ -997,15 +1019,31 @@ pub fn check_assembly(
     let kink_digest = digest_hex(kink.to_string().as_bytes());
     let mut sides = Vec::new();
     let mut details = Vec::new();
+    // The program as the campaign reads its variables (krun's `-c` reading), assembled only when
+    // a side differs from kink's assembly.
+    let mut main_module_reading = None;
     for side in &case.sides {
         let role = role_name(side.role);
         match parse_pattern(&side.initial_configuration) {
             Ok(pattern) if pattern == kink => {}
-            Ok(_) => {
+            Ok(pattern) => {
                 sides.push(role.to_owned());
+                let read = main_module_reading.get_or_insert_with(|| {
+                    inputs.assemble_reading_main_module(program, instantiated)
+                });
+                let cause = if read.as_ref().is_ok_and(|read| *read == pattern) {
+                    format!(
+                        ": it is the program with every variable's text read with the main \
+                         module's grammar alone, as the campaign reads it, where kink reads {} \
+                         with the syntax module's first",
+                        dollar_names(&inputs.syntax_read_variables())
+                    )
+                } else {
+                    String::new()
+                };
                 details.push(format!(
                     "the {role}'s initial configuration (sha256 {}) is not kink's assembly of \
-                     the program (sha256 {kink_digest})",
+                     the program (sha256 {kink_digest}){cause}",
                     digest_hex(side.initial_configuration.as_bytes())
                 ));
             }
@@ -1025,6 +1063,48 @@ pub fn check_assembly(
             detail: details.join("; "),
         }
     }
+}
+
+/// Why the campaign's reading of `program`'s variables (krun's `-c` reading, the main module's
+/// grammar alone) gives another input than kink's, whose assembly of the program is `kink`:
+/// `None` when it gives `kink`. Only the variables kink reads with the syntax module's grammar
+/// first can read differently; the detail names those the program binds.
+fn reading_differs(
+    inputs: &mut InputSession<'_>,
+    program: &Program,
+    case: &CaseInputs,
+    kink: &KorePattern,
+) -> Option<String> {
+    let read = inputs.assemble_reading_main_module(program, case);
+    if read.as_ref().is_ok_and(|read| read == kink) {
+        return None;
+    }
+    let syntax_read = inputs.syntax_read_variables();
+    let bound = program
+        .variables
+        .iter()
+        .map(|(name, _)| name.strip_prefix('$').unwrap_or(name).to_owned())
+        .filter(|name| syntax_read.contains(name))
+        .collect::<Vec<_>>();
+    let difference = match read {
+        Ok(_) => "reads it as another initial configuration".to_owned(),
+        Err(error) => format!("does not assemble it ({error})"),
+    };
+    Some(format!(
+        "kink reads {} with the syntax module's grammar first, as krs-exec reads a variable's \
+         text, and the campaign assembles a case as krun does, reading every variable's text \
+         with the main module's grammar alone; that reading of the template {difference}",
+        dollar_names(&bound)
+    ))
+}
+
+/// `names` (configuration variables without `$`) as a message lists them.
+fn dollar_names(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|name| format!("${name}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The stream defaults kink assembles a program with (kink-corpus `assemble_input_with`): `$IO`
@@ -1057,9 +1137,18 @@ fn campaign_variables(spec: &AdmittedSpec, instance: &Instance) -> Vec<(String, 
 fn template_program(template: &Template, instance: &Instance) -> Program {
     Program {
         id: template.id.clone(),
-        source: ProgramSource::Text(instance.text.clone()),
+        source: instance.text.clone().map(ProgramSource::Text),
         start_sort: instance.written_start_sort.clone(),
         variables: instance.variables.clone(),
+        inputs: Table::new(),
+    }
+}
+
+/// The inputs kink reads for the template's `[[program]]` ([`template_program`]).
+fn template_inputs(instance: &Instance) -> CaseInputs {
+    CaseInputs {
+        text: instance.text.clone(),
+        typed: Vec::new(),
     }
 }
 
@@ -1109,7 +1198,7 @@ fn last_run(
         return json!({"found": true, "current": false});
     }
     let program = template_program(template, instance);
-    let digest = program_digest(&program, &instance.text).to_string();
+    let digest = program_digest(&program, &template_inputs(instance)).to_string();
     let rows = document["programs"].as_array().cloned().unwrap_or_default();
     let row = rows.iter().find(|row| row["digest"] == json!(digest));
     let template_row = row.map(|row| {
@@ -1659,9 +1748,9 @@ pub fn fuzz_job(
             mutant: mutant_side.map(Arc::new),
         },
         program: ProgramInput::Source(FuzzProgram {
-            program: Some(ProgramText {
+            program: instance.text.clone().map(|text| ProgramText {
                 name: template.id.clone(),
-                text: instance.text.clone(),
+                text,
                 start_sort: instance.start_sort.clone(),
             }),
             config_vars: campaign_variables(&spec, &instance),
@@ -1689,6 +1778,30 @@ pub fn fuzz_job(
             thread_stack_size: Some(DEFINITION_STACK_BYTES as u64),
         },
     };
+    // kink's assembly of the template (`[[program]]`'s), and the variable reading the campaign
+    // shares with krun's `-c`: kink reads a variable of a program sort with the syntax module's
+    // grammar first (k-rust `variable_reading_modules`, the rule krs-exec reads it with), while
+    // the campaign assembles as krun does, with the main module's grammar alone. Where the two
+    // read the template as different terms, no candidate of the campaign could be kink's input.
+    let template_input = template_program(template, &instance);
+    let kink_template = inputs.test_case(&template_input, &template_inputs(&instance));
+    if let Ok(test) = &kink_template
+        && let Some(detail) = reading_differs(
+            &mut inputs,
+            &template_input,
+            &template_inputs(&instance),
+            &test.initial_state,
+        )
+    {
+        return refuse(
+            document,
+            Refusal::new("assembly", "variable-reading-differs", detail),
+            "no witness of this campaign could be kink's: write each variable's text so that the \
+             two grammars read it as one term (a text only the syntax module's grammar reads as \
+             the variable's value cannot be fuzzed until the campaign reads variables as kink \
+             does)",
+        );
+    }
     let mut campaign = match Campaign::new(campaign_spec) {
         Ok(campaign) => campaign,
         Err(error) => {
@@ -1717,8 +1830,6 @@ pub fn fuzz_job(
         anchor(k_rust_fuzz::report::DefinitionRole::Baseline),
         anchor(k_rust_fuzz::report::DefinitionRole::Mutant),
     );
-    let template_input = template_program(template, &instance);
-    let kink_template = inputs.test_case(&template_input, instance.text.clone());
     let kink_digest = kink_template
         .as_ref()
         .ok()
@@ -1948,7 +2059,8 @@ pub fn fuzz_job(
                 }
                 let mut candidate = serde_json::to_value(case).expect("a witness case encodes");
                 candidate["case"] = json!(which);
-                let assembly = check_assembly(&mut inputs, &fragment.program, &fragment.text, case);
+                let assembly =
+                    check_assembly(&mut inputs, &fragment.program, &fragment.inputs, case);
                 candidate["assembly"] = assembly.value();
                 if assembly != AssemblyCheck::Match {
                     if offered.is_none() && refused.is_empty() {

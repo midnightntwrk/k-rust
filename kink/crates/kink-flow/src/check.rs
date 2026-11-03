@@ -256,9 +256,9 @@ pub fn corpus_coverage(
     };
     for program in &manifest.programs {
         let record = inputs
-            .text(program)
+            .read(program)
             .ok()
-            .and_then(|text| current_record(manifest, digest, program, &text, cache));
+            .and_then(|case| current_record(manifest, digest, program, &case, cache));
         let Some(record) = record else {
             coverage.without_record.push(program.id.clone());
             continue;

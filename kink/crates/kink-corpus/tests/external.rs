@@ -119,7 +119,7 @@ impl Target {
 
     fn inputs(self) -> Vec<(&'static str, TestInputSpec)> {
         let spec = |program, sort: &str| TestInputSpec {
-            program,
+            program: Some(program),
             start_sort: Some(sort.to_owned()),
             variables: vec![],
         };

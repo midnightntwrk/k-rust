@@ -448,7 +448,7 @@ fn programs_share_one_input_grammar() {
     let before = builds();
     let idle = inputs.session(&spec);
     for program in programs {
-        idle.text(program).unwrap();
+        idle.read(program).unwrap();
     }
     drop(idle);
     assert_eq!(builds(), before, "a session that assembles no program");
@@ -457,8 +457,8 @@ fn programs_share_one_input_grammar() {
     let shared = programs
         .iter()
         .map(|program| {
-            let text = session.text(program).unwrap();
-            (session.test_case(program, text.clone()), text)
+            let case = session.read(program).unwrap();
+            (session.test_case(program, &case), case)
         })
         .collect::<Vec<_>>();
     assert_eq!(
@@ -468,15 +468,19 @@ fn programs_share_one_input_grammar() {
         programs.len()
     );
 
-    for (program, (test, text)) in programs.iter().zip(shared) {
+    for (program, (test, case)) in programs.iter().zip(shared) {
         let test = test.unwrap_or_else(|refusal| panic!("{}: {refusal:?}", program.id));
         let fresh = kink_corpus::assemble_input_with(
             &spec.loaded,
             Some(&spec.compiled),
             &kink_corpus::TestInputSpec {
-                program: kink_corpus::ProgramSource::Text(text),
+                program: case.text.map(kink_corpus::ProgramSource::Text),
                 start_sort: program.start_sort.clone(),
-                variables: program.variables.clone(),
+                variables: program
+                    .variables
+                    .iter()
+                    .map(|(name, text)| (name.clone(), text.as_str().into()))
+                    .collect(),
             },
         )
         .unwrap();
@@ -1066,8 +1070,631 @@ fn a_program_whose_initial_configuration_is_excluded_fails_check_alone() {
     assert_eq!(document["programs"][2]["outcome"], "ok");
 }
 
+/// A definition without `$PGM`: its cases bind `$ENTRY`, `$N` and `$ROM` by name. `inverse` has
+/// no value at 0 (`1 /Int 0` has none); `onlyZero` is a partial function whose only equation is
+/// at 0, so the definition does not say whether it has a value elsewhere.
+const CASES_K: &str = "module CASES
+  imports INT
+  imports BOOL
+  imports BYTES
+  imports BASIC-K
+  syntax KItem ::= \"go\" [symbol(go)]
+  syntax Int ::= onlyZero(Int) [function, symbol(onlyZero)]
+  rule onlyZero(0) => 0
+  syntax Int ::= inverse(Int) [function, symbol(inverse)]
+  rule inverse(X) => 1 /Int X
+  configuration <k> $ENTRY:K </k> <n> $N:Int </n> <rom> $ROM:Bytes </rom> <out> 0 </out>
+  rule [go]: <k> go => .K ... </k> <n> N </n> <rom> R </rom> <out> _ => N +Int lengthBytes(R) </out>
+endmodule
+";
+
+/// A test front end's decoder of typed inputs: an input's K name is its name in upper case; an
+/// integer is an Int, `{"$file" = path}` the file's bytes and `{"$hex" = digits}` the bytes the
+/// digits spell (both a Bytes token), and `{"$call" = {label, args}}` the application of the
+/// label to Int arguments; `{"$chain" = [first, second]}` is the bytes of the file `second`
+/// names relative to `first`. Any other document is refused.
+struct TestDecoder;
+
+fn bytes_token(bytes: &[u8]) -> k_rust::kast::Term {
+    let escaped = bytes
+        .iter()
+        .map(|b| format!("\\x{b:02x}"))
+        .collect::<String>();
+    k_rust::kast::Term::Token {
+        token: format!("b\"{escaped}\""),
+        sort: k_rust::kast::Sort::new("Bytes"),
+    }
+}
+
+fn int_token(value: i64) -> k_rust::kast::Term {
+    k_rust::kast::Term::Token {
+        token: value.to_string(),
+        sort: k_rust::kast::Sort::new("Int"),
+    }
+}
+
+impl kink_flow::InputDecoder for TestDecoder {
+    fn decode(
+        &self,
+        name: &str,
+        document: &toml::Value,
+        files: &mut dyn kink_flow::InputFiles,
+    ) -> Result<(String, k_rust::kast::Term), String> {
+        let term = match document {
+            toml::Value::Integer(value) => int_token(*value),
+            toml::Value::Table(form) if form.len() == 1 => {
+                let (tag, value) = form.iter().next().unwrap();
+                match (tag.as_str(), value) {
+                    ("$file", toml::Value::String(path)) => bytes_token(&files.read(None, path)?.1),
+                    // The second file, named relative to the first.
+                    ("$chain", toml::Value::Array(paths)) => {
+                        let (first, _) = files.read(None, paths[0].as_str().unwrap())?;
+                        bytes_token(&files.read(Some(&first), paths[1].as_str().unwrap())?.1)
+                    }
+                    ("$hex", toml::Value::String(digits)) => bytes_token(
+                        &(0..digits.len())
+                            .step_by(2)
+                            .map(|i| u8::from_str_radix(&digits[i..i + 2], 16).unwrap())
+                            .collect::<Vec<_>>(),
+                    ),
+                    ("$call", toml::Value::Table(call)) => k_rust::kast::Term::Apply {
+                        label: k_rust::kast::Label::new(call["label"].as_str().unwrap()),
+                        arguments: call["args"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|arg| int_token(arg.as_integer().unwrap()))
+                            .collect(),
+                    },
+                    _ => return Err(format!("no reading of the form {tag}")),
+                }
+            }
+            _ => return Err("the declared type does not decide this document".into()),
+        };
+        Ok((name.to_uppercase(), term))
+    }
+}
+
+/// The scratch flow of `CASES_K` with `programs` and the binary file `rom.bin` (bytes 00 ff).
+fn cases_flow(name: &str, programs: &str) -> PathBuf {
+    let dir = scratch(name);
+    write(&dir.join("cases.k"), CASES_K);
+    fs::write(dir.join("rom.bin"), [0x00, 0xff]).unwrap();
+    write(
+        &dir.join("FLOW.toml"),
+        &format!("[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n{programs}"),
+    );
+    dir
+}
+
+#[track_caller]
+fn refusal_detail(admission: &FlowAdmission, id: &str) -> String {
+    let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+    program.outcome.as_ref().unwrap_err().detail.clone()
+}
+
+/// A case of a definition without `$PGM` binds every configuration variable by name, with no
+/// program text. A program text there would bind nothing, so it is refused (`stray-program`),
+/// naming `$PGM` and every variable with its sort. A K-level manifest has no decoder of typed
+/// inputs, so a program with `inputs` is refused (`typed-inputs`). A case whose initial
+/// configuration has no value on the baseline is refused (`initial-undefined`): an input that
+/// divides by zero, directly or through a function. An input whose definedness the definition
+/// leaves open (`onlyZero(1)`, outside its only equation) is no such case: it is admitted, and
+/// its run reports what it finds.
+#[test]
+fn a_case_binds_every_variable_by_name_without_a_program() {
+    let dir = cases_flow(
+        "program-less",
+        r#"
+[[program]]
+id = "bare"
+variables = { ENTRY = "go", N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "stray"
+text = "go"
+variables = { N = "1", ROM = 'b""' }
+
+[[program]]
+id = "typed"
+variables = { ENTRY = "go", N = "1" }
+inputs = { rom = { "$file" = "rom.bin" } }
+
+[[program]]
+id = "undefined"
+variables = { ENTRY = "go", N = "1 /Int 0", ROM = 'b""' }
+
+[[program]]
+id = "inverse"
+variables = { ENTRY = "go", N = "inverse(0)", ROM = 'b""' }
+
+[[program]]
+id = "partial"
+variables = { ENTRY = "go", N = "onlyZero(1)", ROM = 'b""' }
+
+[[program]]
+id = "defined"
+variables = { ENTRY = "go", N = "onlyZero(0)", ROM = 'b""' }
+"#,
+    );
+    let manifest = dir.join("FLOW.toml");
+    let admission = on_stack(move || admit_manifest(&manifest));
+    assert!(
+        admission.record.refusal.is_none(),
+        "{}",
+        admission.record.text()
+    );
+    let refused = |stage: &str, reason: &str| Some((stage.to_owned(), reason.to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("bare".to_owned(), None),
+            ("stray".to_owned(), refused("inputs", "stray-program")),
+            ("typed".to_owned(), refused("inputs", "typed-inputs")),
+            (
+                "undefined".to_owned(),
+                refused("inputs", "initial-undefined")
+            ),
+            ("inverse".to_owned(), refused("inputs", "initial-undefined")),
+            ("partial".to_owned(), None),
+            ("defined".to_owned(), None),
+        ]
+    );
+    assert_eq!(
+        refusal_detail(&admission, "stray"),
+        "the definition declares no $PGM, so a program text binds nothing; bind its \
+         configuration variables by name: $ENTRY:K, $N:Int, $ROM:Bytes"
+    );
+    assert_eq!(
+        refusal_detail(&admission, "typed"),
+        "typed inputs are read by the front end that knows the inputs' declared types (the krs \
+         front end, `krs kink`); at the K level bind K text under `variables`"
+    );
+    assert_eq!(
+        refusal_detail(&admission, "undefined"),
+        "the initial configuration has no value on the baseline: some input's value is undefined \
+         (it applies an operator or a function outside its domain), so the specification \
+         computes no start from this case and the case has no expected result; its inputs: \
+         $ENTRY = `go`, $N = `1 /Int 0`, $ROM = `b\"\"`"
+    );
+}
+
+/// A definition whose rule `stepz` gives `$N` no value one step after a start that has one, and
+/// whose rule `spin` counts forever through distinct states.
+const LATER_K: &str = "module LATER
+  imports INT
+  imports BASIC-K
+  syntax KItem ::= \"stepz\" [symbol(stepz)] | \"spin\" [symbol(spin)]
+  configuration <k> $ENTRY:K </k> <n> $N:Int </n>
+  rule [stepz]: <k> stepz => .K ... </k> <n> N => N /Int 0 </n>
+  rule [spin]: <k> spin ... </k> <n> N => N +Int 1 </n>
+endmodule
+";
+
+/// The value check reads the start alone: it runs the baseline to depth 0 and no further. A
+/// case whose start has a value and whose first step has none is admitted, since that step is
+/// the program's behavior, which its run reports as an undefined step (`Trivial`, not the
+/// `Vacuous` leaf of a start with no value). A case whose start has no value is refused, naming
+/// its inputs. A program that never ends is admitted at once, under a `time_ms` far longer than
+/// the test takes, which a check that ran the program further would spend.
+#[test]
+fn the_value_check_reads_the_start_alone() {
+    let dir = scratch("later-undefined");
+    write(&dir.join("later.k"), LATER_K);
+    write(
+        &dir.join("FLOW.toml"),
+        r#"[spec]
+entry = "later.k"
+main_module = "LATER"
+
+[budget]
+time_ms = 600000
+
+[[program]]
+id = "later"
+variables = { ENTRY = "stepz", N = "1" }
+
+[[program]]
+id = "start"
+variables = { ENTRY = "stepz", N = "1 /Int 0" }
+
+[[program]]
+id = "spin"
+variables = { ENTRY = "spin", N = "0" }
+"#,
+    );
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let (admission, halts, elapsed) = on_stack(move || {
+        let started = std::time::Instant::now();
+        let admission = admit(&manifest);
+        let elapsed = started.elapsed();
+        let (_, admitted) = kink_flow::admit_spec(&manifest);
+        let (spec, _) = admitted.unwrap();
+        let kore =
+            k_rust::kore::parser::parse_definition(&spec.compiled.artifacts().definition_kore)
+                .unwrap();
+        let mut backend = k_rust::backend::Backend::from_definition(
+            kore,
+            k_rust::kast::identifier::encode("LATER"),
+            k_rust::backend::BackendOptions::default(),
+        )
+        .unwrap();
+        let initial = admission.programs[0]
+            .outcome
+            .as_ref()
+            .unwrap()
+            .initial_state
+            .clone();
+        let adapter = kink_native::execution::ExecutionAdapter::new(
+            kink_native::execution::SolverProfile::of(&backend),
+        );
+        let run = adapter
+            .execute(
+                &mut backend,
+                &initial,
+                kink_native::execution::ExecutionBudget {
+                    time: std::time::Duration::from_secs(10),
+                    max_simplification_iterations: kink_flow::results::SIMPLIFICATION_ITERATIONS,
+                    max_depth: None,
+                    max_breadth: None,
+                },
+            )
+            .unwrap();
+        let halts = run
+            .leaves()
+            .iter()
+            .map(|leaf| format!("{:?}", leaf.halt))
+            .collect::<Vec<_>>();
+        (admission, halts, elapsed)
+    });
+    let refused = |stage: &str, reason: &str| Some((stage.to_owned(), reason.to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("later".to_owned(), None),
+            ("start".to_owned(), refused("inputs", "initial-undefined")),
+            ("spin".to_owned(), None),
+        ]
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(300),
+        "admission took {elapsed:?}"
+    );
+    assert!(
+        refusal_detail(&admission, "start")
+            .ends_with("its inputs: $ENTRY = `stepz`, $N = `1 /Int 0`"),
+        "{}",
+        refusal_detail(&admission, "start")
+    );
+    // The run from the admitted start has no defined end: its first step is undefined.
+    assert_eq!(halts, ["Trivial"], "{halts:?}");
+}
+
+/// A program on `$PGM` from a typed input, which kink binds as a program built without the
+/// parser: it gives the configuration its text gives. A variable bound twice is refused before
+/// assembly (`input-value`): `$PGM` by an input and the program text, or one variable by two
+/// inputs (the test decoder names `n` and `N` both `$N`).
+const PGM_K: &str = "module PGMCASE
+  imports INT
+  imports BASIC-K
+  syntax Pgm ::= run(Int) [symbol(run)]
+  configuration <k> $PGM:Pgm </k> <n> $N:Int </n>
+  rule [go]: <k> run(X) => .K </k> <n> _ => X </n>
+endmodule
+";
+
+#[test]
+fn a_typed_input_binds_pgm_once() {
+    let dir = scratch("typed-pgm");
+    write(&dir.join("pgm.k"), PGM_K);
+    write(
+        &dir.join("FLOW.toml"),
+        r#"[spec]
+entry = "pgm.k"
+main_module = "PGMCASE"
+
+[[program]]
+id = "text"
+text = "run(1)"
+variables = { N = "0" }
+
+[[program]]
+id = "typed"
+variables = { N = "0" }
+inputs = { pgm = { "$call" = { label = "run", args = [1] } } }
+
+[[program]]
+id = "both"
+text = "run(1)"
+variables = { N = "0" }
+inputs = { pgm = { "$call" = { label = "run", args = [1] } } }
+
+[[program]]
+id = "two"
+text = "run(1)"
+inputs = { n = 1, N = 2 }
+"#,
+    );
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let admission = on_stack(move || admit(&manifest));
+    let refused = |stage: &str, reason: &str| Some((stage.to_owned(), reason.to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("text".to_owned(), None),
+            ("typed".to_owned(), None),
+            ("both".to_owned(), refused("inputs", "input-value")),
+            ("two".to_owned(), refused("inputs", "input-value")),
+        ]
+    );
+    let initial = |id: &str| {
+        let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+        program.outcome.as_ref().unwrap().initial_state.clone()
+    };
+    assert_eq!(initial("typed"), initial("text"));
+    assert_eq!(
+        refusal_detail(&admission, "both"),
+        "input `pgm` binds $PGM, which the program text binds too; bind it once"
+    );
+    // The inputs are named in the manifest table's order.
+    let two = refusal_detail(&admission, "two");
+    assert!(
+        [
+            "inputs `N` and `n` both bind $N; bind it once",
+            "inputs `n` and `N` both bind $N; bind it once"
+        ]
+        .contains(&two.as_str()),
+        "{two}"
+    );
+}
+
+/// A file a typed input names is read as a program file is: relative to the manifest's
+/// directory, or to the file it is named from; resolved by the operating system, so
+/// `deep/../b.bin` through the link `deep` (to `sub/inner`) is `sub/b.bin`; and refused when it
+/// is absolute or resolves outside the manifest's directory, by `..` or through a link.
+#[cfg(unix)]
+#[test]
+fn input_files_stay_inside_the_manifest_directory() {
+    let programs = |name: &str| -> String {
+        let program = |id: &str, rom: &str| {
+            format!(
+                "\n[[program]]\nid = \"{id}\"\nvariables = {{ ENTRY = \"go\", N = \"1\" }}\n\
+                 inputs = {{ rom = {rom} }}\n"
+            )
+        };
+        let outside = format!("{name}-outside.bin");
+        [
+            program("hex", r#"{ "$hex" = "02" }"#),
+            program("chain", r#"{ "$chain" = ["sub/a.bin", "b.bin"] }"#),
+            program("through-link", r#"{ "$file" = "deep/../b.bin" }"#),
+            program("absolute", "{ \"$file\" = \"/rom.bin\" }"),
+            program("parent", &format!("{{ \"$file\" = \"../{outside}\" }}")),
+            program(
+                "link-escape",
+                &format!("{{ \"$file\" = \"escape/{outside}\" }}"),
+            ),
+            program(
+                "chain-escape",
+                &format!("{{ \"$chain\" = [\"sub/a.bin\", \"../../{outside}\"] }}"),
+            ),
+        ]
+        .concat()
+    };
+    let name = "input-files";
+    let dir = cases_flow(name, &programs(name));
+    let parent = dir.parent().unwrap();
+    fs::write(parent.join(format!("{name}-outside.bin")), [0x03]).unwrap();
+    fs::create_dir_all(dir.join("sub/inner")).unwrap();
+    fs::write(dir.join("sub/a.bin"), [0x01]).unwrap();
+    fs::write(dir.join("sub/b.bin"), [0x02]).unwrap();
+    std::os::unix::fs::symlink(dir.join("sub/inner"), dir.join("deep")).unwrap();
+    std::os::unix::fs::symlink(parent, dir.join("escape")).unwrap();
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let admission = on_stack(move || admit(&manifest));
+    let refused = || Some(("inputs".to_owned(), "input-value".to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("hex".to_owned(), None),
+            ("chain".to_owned(), None),
+            ("through-link".to_owned(), None),
+            ("absolute".to_owned(), refused()),
+            ("parent".to_owned(), refused()),
+            ("link-escape".to_owned(), refused()),
+            ("chain-escape".to_owned(), refused()),
+        ]
+    );
+    let initial = |id: &str| {
+        let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+        program.outcome.as_ref().unwrap().initial_state.clone()
+    };
+    assert_eq!(initial("chain"), initial("hex"));
+    assert_eq!(initial("through-link"), initial("hex"));
+    assert_eq!(
+        refusal_detail(&admission, "absolute"),
+        "input `rom`: /rom.bin is absolute: name a file by its path relative to the manifest's \
+         directory"
+    );
+    for (id, shown) in [
+        ("parent", format!("../{name}-outside.bin")),
+        ("link-escape", format!("escape/{name}-outside.bin")),
+        ("chain-escape", format!("sub/../../{name}-outside.bin")),
+    ] {
+        assert_eq!(
+            refusal_detail(&admission, id),
+            format!("input `rom`: {shown} escapes the manifest's directory"),
+        );
+    }
+}
+
+/// A front end's decoder reads typed inputs; kink binds the terms it gives. A typed case's
+/// initial configuration is the one the same values written as K text give, and its program
+/// digest covers the decoded values: two documents of one value share a digest, and editing the
+/// binary file the input reads changes it. A document the decoder refuses, a variable bound by
+/// both `variables` and `inputs`, and a typed input with no value on the baseline are refused.
+#[test]
+fn typed_inputs_are_read_by_the_front_ends_decoder() {
+    let dir = cases_flow(
+        "typed-inputs",
+        r#"
+[[program]]
+id = "typed"
+variables = { ENTRY = "go" }
+inputs = { n = 1, rom = { "$file" = "rom.bin" } }
+
+[[program]]
+id = "hex"
+variables = { ENTRY = "go" }
+inputs = { n = 1, rom = { "$hex" = "00ff" } }
+
+[[program]]
+id = "text"
+variables = { ENTRY = "go", N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "bad"
+variables = { ENTRY = "go", N = "1" }
+inputs = { rom = "rom.bin" }
+
+[[program]]
+id = "twice"
+variables = { ENTRY = "go", N = "1" }
+inputs = { n = 1, rom = { "$hex" = "00" } }
+
+[[program]]
+id = "undefined"
+variables = { ENTRY = "go" }
+inputs = { n = { "$call" = { label = "inverse", args = [0] } }, rom = { "$hex" = "" } }
+"#,
+    );
+    let read = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let manifest = read
+        .clone()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let edited = dir.clone();
+    let (admission, digests, edited_digest) = on_stack(move || {
+        let admission = admit(&manifest);
+        let (_, admitted) = kink_flow::admit_spec(&manifest);
+        let (spec, mut inputs) = admitted.unwrap();
+        let session = inputs.session(&spec);
+        let digest = |id: &str| {
+            let program = manifest.programs.iter().find(|p| p.id == id).unwrap();
+            kink_flow::digest::program_digest(program, &session.read(program).unwrap())
+        };
+        let digests = [digest("typed"), digest("hex"), digest("text")];
+        fs::write(edited.join("rom.bin"), [0x00, 0xfe]).unwrap();
+        let edited_digest = digest("typed");
+        (admission, digests, edited_digest)
+    });
+    let refused = |stage: &str, reason: &str| Some((stage.to_owned(), reason.to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("typed".to_owned(), None),
+            ("hex".to_owned(), None),
+            ("text".to_owned(), None),
+            ("bad".to_owned(), refused("inputs", "input-value")),
+            ("twice".to_owned(), refused("inputs", "input-value")),
+            (
+                "undefined".to_owned(),
+                refused("inputs", "initial-undefined")
+            ),
+        ]
+    );
+    let initial = |id: &str| {
+        let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+        program.outcome.as_ref().unwrap().initial_state.clone()
+    };
+    assert_eq!(initial("typed"), initial("text"));
+    assert_eq!(initial("hex"), initial("text"));
+    assert_eq!(
+        refusal_detail(&admission, "bad"),
+        "input `rom`: the declared type does not decide this document"
+    );
+    assert_eq!(
+        refusal_detail(&admission, "twice"),
+        "input `n` binds $N, which `variables` binds too; bind it once"
+    );
+    // One value, two documents: one digest. The text program binds the same values as K text,
+    // which the digest covers by their text: another digest.
+    assert_eq!(digests[0], digests[1]);
+    assert_ne!(digests[0], digests[2]);
+    assert_ne!(edited_digest, digests[0]);
+    // The K-level manifest reads no typed input.
+    let k_level = on_stack(move || admit(&read));
+    assert_eq!(
+        outcomes(&k_level)[..2],
+        [
+            ("typed".to_owned(), refused("inputs", "typed-inputs")),
+            ("hex".to_owned(), refused("inputs", "typed-inputs")),
+        ]
+    );
+}
+
 mod kink_tier {
     use super::*;
+
+    /// A typed case runs as any other: `results` gives it a comparable baseline record, and `run`
+    /// kills a mutation that changes what the case's binary input contributes, with the typed
+    /// case as its killer.
+    #[test]
+    #[ignore = "kink"]
+    fn a_typed_case_runs_under_results_and_run() {
+        let dir = cases_flow(
+            "typed-run",
+            r#"
+[[program]]
+id = "typed"
+variables = { ENTRY = "go" }
+inputs = { n = 1, rom = { "$file" = "rom.bin" } }
+"#,
+        );
+        write(
+            &dir.join("MUTATIONS.toml"),
+            "[[mutation]]\nid = \"rom-ignored\"\nnote = \"the binary input's length is not \
+             counted\"\n\n  [[mutation.edit]]\n  rule = \"go\"\n  find = \"N +Int \
+             lengthBytes(R)\"\n  replace = \"N\"\n",
+        );
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+            .unwrap()
+            .with_input_decoder(std::sync::Arc::new(TestDecoder));
+        let list = kink_flow::MutationList::read(&dir.join("MUTATIONS.toml")).unwrap();
+        let ((results, results_ok), (run, run_ok)) = on_stack(move || {
+            let results = kink_flow::results::results(
+                &manifest,
+                &kink_flow::results::ResultsOptions {
+                    verify: false,
+                    cache: None,
+                    mutations: None,
+                },
+            );
+            let run = kink_flow::search::run(
+                &manifest,
+                &list,
+                &kink_flow::search::RunOptions {
+                    only: Vec::new(),
+                    cache: None,
+                    order: kink_flow::search::ProgramOrder::Corpus,
+                    compile_workers: Some(1),
+                    memo: kink_flow::memo::MemoUse::On,
+                },
+            );
+            (results, run)
+        });
+        assert!(results_ok, "{results:#}");
+        assert_eq!(results["programs"][0]["class"], "comparable", "{results:#}");
+        assert!(run_ok, "{run:#}");
+        let row = &run["mutations"][0];
+        assert_eq!(
+            (&row["status"], &row["killer"]),
+            (&Value::from("killed"), &Value::from("typed")),
+            "{run:#}"
+        );
+    }
 
     /// `results` and `run` print the definition exclusion as `check` prints it (one formatter),
     /// and each excluded program's cause says why every run of it is excluded, as `check` says it:

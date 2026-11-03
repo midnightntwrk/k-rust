@@ -413,11 +413,11 @@ impl Search<'_, '_> {
         let index = self.candidates[candidate].index;
         let program = &self.manifest.programs[index];
         let row = &self.rows[index];
-        let mut test = match (&row.test, &row.text) {
+        let mut test = match (&row.test, &row.inputs) {
             (Some(test), _) => test.clone(),
-            (None, Some(text)) => {
+            (None, Some(case)) => {
                 self.inputs
-                    .test_case(program, text.clone())
+                    .test_case(program, case)
                     .map_err(|refusal| CorpusError {
                         reason: format!("program-refused:{}", program.id),
                         detail: format!("{}/{}: {}", refusal.stage, refusal.reason, refusal.detail),
@@ -426,7 +426,7 @@ impl Search<'_, '_> {
             (None, None) => {
                 return Err(CorpusError {
                     reason: format!("program-refused:{}", program.id),
-                    detail: "the program has a comparable record but no text".into(),
+                    detail: "the program has a comparable record but no inputs".into(),
                 });
             }
         };

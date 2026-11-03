@@ -627,7 +627,7 @@ fn test(
             .iter()
             .map(|v| {
                 let p = object(v, &["name", "text"])?;
-                Ok((nonempty(&p["name"])?, string(&p["text"])?))
+                Ok((nonempty(&p["name"])?, string(&p["text"])?.into()))
             })
             .collect::<Result<Vec<_>, ManifestError>>()?;
         if variables
@@ -640,7 +640,7 @@ fn test(
             return Err(schema("variable names"));
         }
         CorpusInput::Program(TestInputSpec {
-            program,
+            program: Some(program),
             start_sort: optional(&i["start_sort"])?,
             variables,
         })

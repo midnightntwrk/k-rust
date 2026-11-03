@@ -1,15 +1,17 @@
 //! `FLOW.toml`, the corpus manifest an LLM writes (flow README section 5.2).
 //!
 //! Decoding is strict: an unknown key, a value of the wrong type, a duplicate program id,
-//! a program with both or neither of `file` and `text`, or a path that leaves the
-//! manifest's directory is an error naming the key or the program id, so that a typo is
-//! never silently ignored.
+//! a program with both `file` and `text`, a `start_sort` without a program text, or a path that
+//! leaves the manifest's directory is an error naming the key or the program id, so that a typo
+//! is never silently ignored.
 
+use crate::admit::InputDecoder;
 use kink_corpus::ProgramSource;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
     path::{Component, Path, PathBuf},
+    sync::Arc,
 };
 use toml::{Table, Value};
 
@@ -28,14 +30,54 @@ pub const DEFAULT_INCLUDE_DIRS: [&str; 1] = ["."];
 pub const DEFAULT_MD_SELECTOR: &str = "k";
 
 /// A decoded corpus manifest. Every path is relative to [`FlowManifest::directory`].
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FlowManifest {
     /// The directory holding the manifest; the root that every path stays inside.
     pub directory: PathBuf,
     pub spec: SpecSection,
     pub budget: Budget,
     pub programs: Vec<Program>,
+    /// The front end's reading of typed inputs (a program's `inputs`), which the front end that
+    /// knows the inputs' declared types sets ([`Self::with_input_decoder`]). A decoded `FLOW.toml`
+    /// has none: kink reads K text only, and admission refuses a program with `inputs` without
+    /// a decoder (`typed-inputs`).
+    pub input_decoder: Decoder,
 }
+
+/// A front end's [`InputDecoder`], or none. Two manifests' decoders are equal when both are
+/// absent or both are the same decoder value.
+#[derive(Clone, Default)]
+pub struct Decoder(pub Option<Arc<dyn InputDecoder + Send + Sync>>);
+
+impl Decoder {
+    /// The decoder, when a front end set one.
+    #[must_use]
+    pub fn get(&self) -> Option<&(dyn InputDecoder + Send + Sync)> {
+        self.0.as_deref()
+    }
+}
+
+impl fmt::Debug for Decoder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Decoder(Some(..))"
+        } else {
+            "Decoder(None)"
+        })
+    }
+}
+
+impl PartialEq for Decoder {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Decoder {}
 
 /// `[spec]`: how to load the K specification.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,15 +133,23 @@ impl Budget {
     }
 }
 
-/// One `[[program]]`: a concrete corpus program.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// One `[[program]]`: a concrete corpus case, an assignment of a value to each configuration
+/// variable of the definition.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Program {
     pub id: String,
-    /// `file` (relative to the manifest's directory) or inline `text`.
-    pub source: ProgramSource,
+    /// The program text bound to `$PGM`: `file` (relative to the manifest's directory) or inline
+    /// `text`; `None` for a case of a definition without `$PGM`, which binds every variable by
+    /// name.
+    pub source: Option<ProgramSource>,
+    /// The sort the program text is read at; only with a program text.
     pub start_sort: Option<String>,
-    /// Configuration variables, name (without `$`) to text, sorted by name.
+    /// Configuration variables, name (without `$`) to K text, sorted by name.
     pub variables: Vec<(String, String)>,
+    /// `inputs`: typed inputs by input name, each a document of the front end's encoding, kept
+    /// as written; kink-flow never reads them itself. Only a front end's [`InputDecoder`] reads
+    /// them (`FlowManifest::input_decoder`); without one admission refuses the program.
+    pub inputs: Table,
 }
 
 /// A manifest that cannot be read or decoded. `key` names the offending key (for example
@@ -176,7 +226,16 @@ impl FlowManifest {
             spec,
             budget,
             programs,
+            input_decoder: Decoder::default(),
         })
+    }
+
+    /// This manifest with `decoder` reading its programs' typed inputs: a front end that knows
+    /// the inputs' declared types (the krs front end) sets it on the manifest it decoded.
+    #[must_use]
+    pub fn with_input_decoder(mut self, decoder: Arc<dyn InputDecoder + Send + Sync>) -> Self {
+        self.input_decoder = Decoder(Some(decoder));
+        self
     }
 }
 
@@ -355,24 +414,49 @@ fn program(index: usize, value: &Value) -> Result<Program, ManifestError> {
     known_keys(
         entry,
         &key,
-        &["id", "file", "text", "start_sort", "variables"],
+        &["id", "file", "text", "start_sort", "variables", "inputs"],
     )?;
+    // Neither `file` nor `text`: a case of a definition without `$PGM`, whose variables are all
+    // bound by name; admission refuses it on a definition that declares `$PGM`.
     let source = match (entry.get("file"), entry.get("text")) {
-        (Some(file), None) => ProgramSource::File(relative_path(file, &join(&key, "file"))?),
-        (None, Some(Value::String(text))) => ProgramSource::Text(text.clone()),
+        (Some(file), None) => Some(ProgramSource::File(relative_path(
+            file,
+            &join(&key, "file"),
+        )?)),
+        (None, Some(Value::String(text))) => Some(ProgramSource::Text(text.clone())),
         (None, Some(_)) => {
             return Err(ManifestError::new(join(&key, "text"), "expected a string"));
         }
         (Some(_), Some(_)) => {
             return Err(ManifestError::new(
                 key,
-                "has both file and text; give exactly one",
+                "has both file and text; give at most one",
             ));
         }
-        (None, None) => {
+        (None, None) => None,
+    };
+    let start_sort = optional_string(entry, &key, "start_sort")?;
+    if source.is_none() && start_sort.is_some() {
+        return Err(ManifestError::new(
+            join(&key, "start_sort"),
+            "start_sort applies to a program text; this program has none",
+        ));
+    }
+    let inputs = match entry.get("inputs") {
+        None => Table::new(),
+        Some(Value::Table(inputs)) => {
+            if let Some(name) = inputs.keys().find(|name| name.is_empty()) {
+                return Err(ManifestError::new(
+                    join(&join(&key, "inputs"), name),
+                    "empty input name",
+                ));
+            }
+            inputs.clone()
+        }
+        Some(_) => {
             return Err(ManifestError::new(
-                key,
-                "has neither file nor text; give exactly one",
+                join(&key, "inputs"),
+                "expected a table of typed inputs by name",
             ));
         }
     };
@@ -403,7 +487,8 @@ fn program(index: usize, value: &Value) -> Result<Program, ManifestError> {
     Ok(Program {
         id,
         source,
-        start_sort: optional_string(entry, &key, "start_sort")?,
+        start_sort,
         variables,
+        inputs,
     })
 }
