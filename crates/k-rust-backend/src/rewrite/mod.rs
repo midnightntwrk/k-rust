@@ -1072,6 +1072,16 @@ pub struct ExecutionResult {
     /// of the work that met it (the `UnsupportedHookUnevaluated` reports and the unsupported-hook
     /// failures, kept or dropped).
     pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct place where the run, or the load of its definition, used the strict
+    /// definedness of an operand that a short-circuiting reading skips and did not find it
+    /// defined ([`crate::path_facts::ShortCircuitReading`]), in first-observed order, whatever
+    /// became of the work: a fact of the run only, on no leaf. The load's are the undefined
+    /// readings it noted (`BackendDefinition::load_record`). When it is empty and the run
+    /// completed, a reading that evaluates the deciding operand of `#if`, `andThenBool`,
+    /// `orElseBool`, `andBool`, `orBool` and `impliesBool` and skips the operand after it once
+    /// that operand decides gives the run the same states, leaves and lists as k-rust's strict
+    /// reading (docs/compatibility.md, "Short-circuit readings").
+    pub short_circuit_readings: Vec<crate::path_facts::ShortCircuitReading>,
     /// The summary of the run's state matches when [`ExecutionOptions::match_states`] asked for
     /// them, `None` otherwise. A run that a stop, a bound or the work budget cut short reports
     /// the states it matched before it ended.

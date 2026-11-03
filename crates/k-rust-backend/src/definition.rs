@@ -3185,9 +3185,17 @@ impl BackendDefinition {
         });
         // Chosen values are withheld at load (the analyses run in `Proof`); none is kept. What
         // is kept is a fact about the definition, tagged so (`path_facts::ObservedIn::Load`).
+        //
+        // Of the short-circuit readings only the undefined ones are kept. An undecided one is an
+        // obligation an analysis could not discharge: the analysis then withholds what it would
+        // have concluded (a value claim, a rule's discharged definedness), which leaves every run
+        // to decide that definedness itself, where the run notes its own reading. An undefined
+        // one can be a conclusion the analysis reached through the strict reading (a critical
+        // pair joined because one side is `\bottom` by an operand the reading skips), which every
+        // run then rests on, so it stays on every run's list.
         result.load_record = record
             .into_iter()
-            .filter(|fact| fact.chosen_value().is_none())
+            .filter(|fact| fact.chosen_value().is_none() && !fact.is_undecided_reading())
             .map(crate::path_facts::PathFact::observed_at_load)
             .collect();
         Ok(result)

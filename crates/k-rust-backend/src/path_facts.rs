@@ -13,7 +13,10 @@
 //!   with the claim;
 //! - a `Bytes` result the memory allowance refused ([`PathFact::AllowanceRefusal`]) and an
 //!   application left unevaluated as an unsupported hook ([`PathFact::UnsupportedHook`]): facts
-//!   of the run only (`PathFact::on_paths`), which reach the run record and no path.
+//!   of the run only (`PathFact::on_paths`), which reach the run record and no path;
+//! - an evaluation that used the strict definedness of an operand a short-circuiting reading of
+//!   the Boolean connectives and `#if` skips, and found it not to hold or left it open
+//!   ([`PathFact::ShortCircuitReading`]): a fact of the run only.
 //!
 //! Such a fact is a fact about the decisions a path rests on, not about the result the work
 //! contributed to, so it is never withdrawn with that work. The diagnostic channel
@@ -27,7 +30,8 @@
 //!   is kept apart from the enclosing phase's own facts (`Facts::owned`), so that the phase can
 //!   attribute it to the candidate alone. A fact of the run only reaches no collection.
 //! - A structure that lets a later step skip an evaluation stores the facts its evaluation noted
-//!   (`marker`, `since`) and notes them again where it is served (`replay`).
+//!   (`marker`, `since`) and notes them again where it is served (`replay`), a short-circuit
+//!   reading as observed by the rule whose work it is served to.
 //! - An evaluation whose value only decides a definedness that is the same in every model runs
 //!   with the notes of chosen values suspended (`suspend`): they reach no collection and no
 //!   run record, and a memo filled there still learns them, so it replays them where they count.
@@ -77,6 +81,9 @@ pub enum PathFact {
     /// An application was left unevaluated as an unsupported hook, the report a
     /// `BackendDiagnostic::UnsupportedHookUnevaluated` or an unsupported-hook failure makes.
     UnsupportedHook(UnevaluatedHook),
+    /// An evaluation used the strict definedness of an operand that a short-circuiting reading
+    /// skips, and that definedness was not established ([`ShortCircuitReading`]).
+    ShortCircuitReading(Box<ShortCircuitReading>),
 }
 
 impl PathFact {
@@ -86,7 +93,9 @@ impl PathFact {
     pub(crate) fn on_paths(&self) -> bool {
         match self {
             Self::ChosenValue(_) | Self::ContradictedClaim(_) => true,
-            Self::AllowanceRefusal(_) | Self::UnsupportedHook(_) => false,
+            Self::AllowanceRefusal(_) | Self::UnsupportedHook(_) | Self::ShortCircuitReading(_) => {
+                false
+            }
         }
     }
 
@@ -114,6 +123,10 @@ impl PathFact {
                 observed_in: ObservedIn::Load,
                 ..hook
             }),
+            Self::ShortCircuitReading(mut reading) => {
+                reading.observed_in = ObservedIn::Load;
+                Self::ShortCircuitReading(reading)
+            }
         }
     }
 
@@ -128,7 +141,9 @@ impl PathFact {
             Self::ContradictedClaim(claim) => {
                 Some(BackendDiagnostic::ContradictedClaim(claim.clone()))
             }
-            Self::AllowanceRefusal(_) | Self::UnsupportedHook(_) => None,
+            Self::AllowanceRefusal(_) | Self::UnsupportedHook(_) | Self::ShortCircuitReading(_) => {
+                None
+            }
         }
     }
 
@@ -152,6 +167,21 @@ impl PathFact {
         matches!(self, Self::ContradictedClaim(claim) if claim.ground)
     }
 
+    /// Whether work that noted the fact depended on something that may differ between models of
+    /// the definition ([`State::depends_since`]): every fact but a ground record and a
+    /// short-circuit reading. A short-circuit reading records which definedness a backend that
+    /// evaluates in another order would not use, a question about evaluation, not a value the
+    /// definition leaves open between its models: the strict value of the six symbols is the
+    /// same in every model (an application to an empty argument is empty), and noting that the
+    /// work used it changes nothing the work concluded. Where the definedness itself may differ
+    /// between models (an `undecided` reading's open atom, such as `p(5)`'s for a partial `p`
+    /// without equations), that dependence is carried where it acts: the open atom stays a
+    /// condition of the work, and a `\bottom` found only under it assumed a condition other than
+    /// `\top`, which [`ground`]'s `unassumed` test reads.
+    fn makes_dependent(&self) -> bool {
+        !self.is_ground_record() && !matches!(self, Self::ShortCircuitReading(_))
+    }
+
     /// Whether the fact is a record of the `total` claim contradicted at `application`.
     pub(crate) fn is_total_record_of(&self, application: &Term) -> bool {
         matches!(
@@ -159,6 +189,11 @@ impl PathFact {
             Self::ContradictedClaim(claim)
                 if claim.total().is_some_and(|total| total.application == *application)
         )
+    }
+
+    /// Whether the fact is a short-circuit reading left undecided ([`ReadingOutcome::Undecided`]).
+    pub(crate) fn is_undecided_reading(&self) -> bool {
+        matches!(self, Self::ShortCircuitReading(reading) if reading.outcome == ReadingOutcome::Undecided)
     }
 
     /// The chosen value, when the fact is one.
@@ -527,6 +562,116 @@ pub struct UnevaluatedHook {
     pub observed_in: ObservedIn,
 }
 
+/// What k-rust found of the definedness of an operand a short-circuiting reading skips
+/// ([`ShortCircuitReading::outcome`]).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ReadingOutcome {
+    /// The operand is `\bottom`, so the strict application is: a reading that skips the
+    /// operand gives the value the deciding operand determines.
+    Undefined,
+    /// k-rust kept the operand's definedness as an open condition (an open deferred atom, a
+    /// `\ceil` obligation, or an application left as written while its deciding operand is not a
+    /// literal): on an instance where it fails the strict application is `\bottom`.
+    Undecided,
+}
+
+/// A place where an evaluation used the strict definedness of an operand that a
+/// short-circuiting reading skips, and that definedness was not established: a fact of the run
+/// only ([`PathFact::on_paths`]).
+///
+/// The strict reading is k-rust's: every application is strict, so `#if`, `andThenBool`,
+/// `orElseBool`, `andBool`, `orBool` and `impliesBool` are `\bottom` wherever an operand is.
+/// A short-circuiting reading evaluates the deciding (left) operand and, once it decides the
+/// value, skips the operand after it: the branch a decided `#if` does not select, and the right
+/// operand of `andThenBool` and `andBool` after `false`, of `orElseBool` and `orBool` after
+/// `true`, and of `impliesBool` after `false`. Both readings evaluate the deciding operand, so
+/// they differ at an application only where the skipped operand is undefined; an evaluation
+/// notes the reading at every place where k-rust decides such an operand's definedness and does
+/// not find it defined (`note_short_circuit_reading`). The record's guarantee is stated in
+/// docs/compatibility.md, "Short-circuit readings".
+///
+/// Two readings are one record when they agree on every field but `operand`, an example of the
+/// operand, so the record is bounded by the operators, heads and rules of the definition, not by
+/// the instances a run meets.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ShortCircuitReading {
+    /// The hook of the application whose operand it is (`KEQUAL.ite`, `BOOL.andThen`,
+    /// `BOOL.orElse`, `BOOL.and`, `BOOL.or`, `BOOL.implies`); `None` where the reading is the
+    /// decision of a deferred atom, which does not know its operator.
+    pub operator: Option<Arc<str>>,
+    pub outcome: ReadingOutcome,
+    /// The symbol at the root of `operand`; `None` for a variable, a domain value, a collection,
+    /// an injection or a term-level conjunction.
+    pub head: Option<Arc<str>>,
+    /// One instance of the operand found undefined or left undecided: the operand itself, or,
+    /// for a deferred atom's decision, the subterm of it whose definedness k-rust decided (the
+    /// atom's subject). Not part of the record's identity.
+    pub operand: Term,
+    /// The rewrite rule whose work used the definedness: its attempt or its successor's
+    /// normalization ([`observed_by`]), and, for an evaluation a memo served, the rule whose work
+    /// it was served to ([`replay`]). `None` for work outside every rule's scope (an initial
+    /// state's normalization, the parts of a step no one rule's attempt or successor owns, such
+    /// as a remainder's or a leaf's constraints, the load), which no one rule is answerable for.
+    ///
+    /// A term the work put in a state is not always simplified again where later work reads it:
+    /// a ground term the simplifier marked `evaluated` (no equation applies to it) is skipped.
+    /// The reading its simplification noted then stays under the rule whose work put it in the
+    /// state (its successor's normalization), or under none for the initial state, and is not
+    /// listed again under the rule whose work reads it; that later work rests on the state the
+    /// earlier work produced.
+    pub rule: Option<ObservingRule>,
+    /// Whether the definition's load or the run that reports it noted it.
+    pub observed_in: ObservedIn,
+}
+
+/// What tells two readings apart: every field but the operand.
+type ReadingKey<'a> = (
+    Option<&'a str>,
+    ReadingOutcome,
+    Option<&'a str>,
+    &'a Option<ObservingRule>,
+    ObservedIn,
+);
+
+impl ShortCircuitReading {
+    fn key(&self) -> ReadingKey<'_> {
+        (
+            self.operator.as_deref(),
+            self.outcome,
+            self.head.as_deref(),
+            &self.rule,
+            self.observed_in,
+        )
+    }
+}
+
+impl PartialEq for ShortCircuitReading {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for ShortCircuitReading {}
+
+impl PartialOrd for ShortCircuitReading {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ShortCircuitReading {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key().cmp(&other.key())
+    }
+}
+
+impl Hash for ShortCircuitReading {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.key().hash(state);
+    }
+}
+
 /// The run-level lists a result reports of the facts of the run that are not chosen values:
 /// each distinct one once, in first-observed order, with an unsupported hook that is also an
 /// allowance refusal listed as the refusal only. A result builds them from its definition's load
@@ -537,6 +682,7 @@ pub(crate) struct RunRecord {
     pub(crate) contradicted_claims: Vec<ContradictedClaim>,
     pub(crate) allowance_refusals: Vec<UnevaluatedHook>,
     pub(crate) unsupported_hooks: Vec<UnevaluatedHook>,
+    pub(crate) short_circuit_readings: Vec<ShortCircuitReading>,
 }
 
 impl RunRecord {
@@ -561,6 +707,13 @@ impl RunRecord {
                 PathFact::UnsupportedHook(hook) => {
                     if !unsupported.contains(hook) {
                         unsupported.push(hook.clone());
+                    }
+                }
+                PathFact::ShortCircuitReading(reading) => {
+                    if !record.short_circuit_readings.contains(reading) {
+                        record
+                            .short_circuit_readings
+                            .push(ShortCircuitReading::clone(reading));
                     }
                 }
             }
@@ -653,12 +806,20 @@ impl State {
         !self.sinks.is_empty() || self.run.is_some()
     }
 
-    /// Whether a fact other than a ground record was noted since `marker`, suspended or aside
-    /// included ([`State::depends_since`]).
+    /// Whether a fact that makes work dependent ([`PathFact::makes_dependent`]) was noted since
+    /// `marker`, suspended or aside included.
     fn depends_since(&self, marker: Marker) -> bool {
         self.stamps
             .iter()
-            .any(|(fact, stamp)| *stamp > marker.0 && !fact.is_ground_record())
+            .any(|(fact, stamp)| *stamp > marker.0 && fact.makes_dependent())
+    }
+
+    /// The innermost rule whose work is under way, as a record names it; `None` when no rule's
+    /// work is ([`observed_by`]).
+    fn innermost_rule(&self) -> Option<ObservingRule> {
+        self.rules
+            .last()
+            .and_then(|scope| scope.rule.as_ref().map(ObservingRule::named))
     }
 
     /// Whether the work of the innermost rule under way depended on something that may differ
@@ -820,7 +981,7 @@ pub(crate) fn note(fact: PathFact) {
 /// [`ground`](ContradictedClaim::ground): the application is variable-free, the work that found
 /// it `\bottom` assumed nothing but `\top` (`unassumed`), and that work depended on nothing that
 /// may differ between models of the definition (`depends` is false: it noted no path fact of any
-/// kind but ground records, [`State::depends_since`]). Every dependence on a model, a value the
+/// kind but ground records and short-circuit readings, [`PathFact::makes_dependent`]). Every dependence on a model, a value the
 /// definition leaves open or anything else, is a path fact where it arises (this module's
 /// guarantee), so this one test covers them all. A ground record the work observed is no such
 /// dependence: the work that found it depended on nothing, and anything else the enclosing work
@@ -844,15 +1005,8 @@ pub(crate) fn note_contradicted_total(
     if !checking_claims() {
         return;
     }
-    let (rule, depends) = STATE.with_borrow(|state| {
-        (
-            state
-                .rules
-                .last()
-                .and_then(|scope| scope.rule.as_ref().map(ObservingRule::named)),
-            state.depends_since(from),
-        )
-    });
+    let (rule, depends) =
+        STATE.with_borrow(|state| (state.innermost_rule(), state.depends_since(from)));
     note(PathFact::ContradictedClaim(Box::new(ContradictedClaim {
         ground: ground(&total.application, unconditional, depends),
         claim: Claim::Total(total.clone()),
@@ -955,6 +1109,35 @@ pub(crate) fn note_unevaluated_hook(hook: &str, reason: &UnsupportedHookReason, 
     });
 }
 
+/// Note that an evaluation used the strict definedness of `operand`, an operand of an
+/// application of `operator` (`None` for a deferred atom's subject) that a short-circuiting
+/// reading skips, and found it `outcome` ([`ShortCircuitReading`]): observed by the innermost
+/// rule whose work is under way ([`observed_by`]).
+pub(crate) fn note_short_circuit_reading(
+    operator: Option<&str>,
+    outcome: ReadingOutcome,
+    operand: &Term,
+) {
+    if !OPEN.get() {
+        return;
+    }
+    let head = match operand.kind() {
+        crate::term::TermKind::Application { symbol, .. } => Some(symbol.name.clone()),
+        _ => None,
+    };
+    let rule = STATE.with_borrow(State::innermost_rule);
+    note(PathFact::ShortCircuitReading(Box::new(
+        ShortCircuitReading {
+            operator: operator.map(Arc::from),
+            outcome,
+            head,
+            operand: operand.clone(),
+            rule,
+            observed_in: ObservedIn::Run,
+        },
+    )));
+}
+
 /// Run `action`, the work of one rewrite rule (an attempt, or the normalization of a successor
 /// it produced), so that each contradicted claim noted in it names the rule ([`rule`], built only
 /// when something is open). `None` names no rule, for work of no rule's inside such work.
@@ -1020,14 +1203,34 @@ fn report_stray(stray: Option<PathFact>) {
 }
 
 /// Note each of `facts` again, where a stored evaluation that noted them is reused.
+///
+/// A short-circuit reading is noted as observed by the innermost rule whose work the evaluation
+/// is now served to (none when no rule's work is), whichever rule's work first computed it: the
+/// served evaluation is that rule's work, as an evaluation done anew there would be, so a client
+/// that clears the readings of some rules' work (whose outcome it shows to be the same in both
+/// readings) still sees every reading another rule's evaluations rest on. This is about stored
+/// evaluations; a term carried in a state and not simplified again keeps its readings under the
+/// rule whose work put it there ([`ShortCircuitReading::rule`]). A contradicted claim keeps the
+/// rule that observed it: it is a fact about the definition at that application.
 pub(crate) fn replay<'a>(facts: impl IntoIterator<Item = &'a PathFact>) {
     if !OPEN.get() {
         return;
     }
     let stray = with_state(|state| {
         let mut stray = None;
+        let mut served_to = None;
         for fact in facts {
-            stray = stray.or(state.note(fact.clone()));
+            let fact = match fact {
+                PathFact::ShortCircuitReading(reading) => {
+                    let rule = served_to.get_or_insert_with(|| state.innermost_rule());
+                    PathFact::ShortCircuitReading(Box::new(ShortCircuitReading {
+                        rule: rule.clone(),
+                        ..ShortCircuitReading::clone(reading)
+                    }))
+                }
+                fact => fact.clone(),
+            };
+            stray = stray.or(state.note(fact));
         }
         stray
     });
@@ -1444,6 +1647,77 @@ mod tests {
                 assert!(STATE.with_borrow(|state| state.rules.is_empty()));
             });
         });
+    }
+
+    /// A short-circuit reading names the innermost rule whose work noted it, and is one entry per
+    /// operator, outcome, head and rule whatever its operand; replayed where a memo serves the
+    /// evaluation that noted it, it names the rule whose work it is served to (none outside every
+    /// rule's work), while a contradicted claim keeps the rule that observed it. Neither a
+    /// reading nor its replay makes the work that noted it dependent on a model.
+    #[test]
+    fn a_replayed_reading_names_the_rule_it_is_served_to() {
+        let rule = |id: &str| {
+            Some(ObservingRule::with(
+                Arc::new(RuleIdentity {
+                    unique_id: id.to_owned(),
+                    label: None,
+                    origin: None,
+                    claims_defined_result: false,
+                }),
+                Dependence::default(),
+            ))
+        };
+        let operand = |value: i64| Term::int(value);
+        let ((), run) = run(|| {
+            let marker = marker();
+            observed_by(
+                || rule("a"),
+                || {
+                    note_short_circuit_reading(
+                        Some("KEQUAL.ite"),
+                        ReadingOutcome::Undefined,
+                        &operand(1),
+                    );
+                    // Another instance of the same reading is the same entry.
+                    note_short_circuit_reading(
+                        Some("KEQUAL.ite"),
+                        ReadingOutcome::Undefined,
+                        &operand(2),
+                    );
+                },
+            );
+            let memo = since(marker);
+            assert_eq!(memo.len(), 1, "{memo:?}");
+            STATE.with_borrow(|state| assert!(!state.depends_since(marker)));
+            observed_by(|| rule("b"), || replay(&memo));
+            replay(&memo);
+        });
+        let record = RunRecord::of(&run);
+        let rules = record
+            .short_circuit_readings
+            .iter()
+            .map(|reading| reading.rule.as_ref().map(|rule| rule.unique_id.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rules,
+            [Some("a".to_owned()), Some("b".to_owned()), None],
+            "{record:?}"
+        );
+        assert!(
+            record.contradicted_claims.is_empty()
+                && record.allowance_refusals.is_empty()
+                && record.unsupported_hooks.is_empty()
+        );
+        // A fact of the run only: no collection receives it.
+        let ((), facts) = collect(|| {
+            note_short_circuit_reading(None, ReadingOutcome::Undecided, &operand(3));
+        });
+        assert!(facts.is_empty(), "{facts:?}");
+        // The load keeps it, as observed there.
+        let at_load = run[0].clone().observed_at_load();
+        assert!(
+            matches!(&at_load, PathFact::ShortCircuitReading(reading) if reading.observed_in == ObservedIn::Load)
+        );
     }
 
     /// A note of a run outside every phase of it fails the debug assertion as an ordinary

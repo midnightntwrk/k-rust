@@ -380,6 +380,10 @@ pub struct BackendCapabilities {
     /// as an unsupported hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the
     /// work that met it.
     pub unsupported_hooks: bool,
+    /// `execute`, `execute_observed` and every search list every place where the run used the
+    /// strict definedness of an operand a short-circuiting reading skips and did not find it
+    /// defined ([`ExecutionResult::short_circuit_readings`]), whatever became of the work.
+    pub short_circuit_readings: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -698,6 +702,20 @@ pub struct ExecutionResult<K = Value> {
     /// in first-met order, whatever became of the work that met it; absent when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported_hooks: Vec<UnevaluatedHookOutput>,
+    /// Every distinct place where the run, or the load of its definition, used the strict
+    /// definedness of an operand that a short-circuiting reading skips and did not find it
+    /// defined (wire `shortCircuitReadings`), in first-observed order, whatever became of the
+    /// work; absent when empty (docs/compatibility.md, "Short-circuit readings"). A fact of the
+    /// run only, on no leaf; the load lists its undefined readings only. When it is absent and
+    /// the run completed, a backend that evaluates the deciding operand of `#if`, `andThenBool`,
+    /// `orElseBool`, `andBool`, `orBool` and `impliesBool` and skips the operand after it once
+    /// that operand decides the value gives the run the same states, leaves and lists; an entry
+    /// is no evidence that it does not. A result recorded by a backend without the capability
+    /// ([`BackendCapabilities::short_circuit_readings`]) has no field either, and reads back as
+    /// an empty list: a reader of stored results must tell the two apart by the capability of
+    /// the backend that recorded them, since the absence is only then a run that listed nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub short_circuit_readings: Vec<wire::ShortCircuitReadingOutput<K>>,
     /// The summary of the run's state matches, present exactly when the request set
     /// [`ExecuteRequest::match_states`] (wire `stateMatches`; docs/compatibility.md, "State
     /// matches").
@@ -1964,6 +1982,7 @@ impl Backend {
             contradicted_claims: true,
             allowance_refusals: true,
             unsupported_hooks: true,
+            short_circuit_readings: true,
         }
     }
 
@@ -3763,13 +3782,27 @@ mod tests {
             assert_typescript_member(result, "contradictedClaims?: ContradictedClaim[]");
             assert_typescript_member(result, "allowanceRefusals?: UnevaluatedHook[]");
             assert_typescript_member(result, "unsupportedHooks?: UnevaluatedHook[]");
+            assert_typescript_member(result, "shortCircuitReadings?: ShortCircuitReading[]");
         }
         for capability in [
             "contradictedClaims",
             "allowanceRefusals",
             "unsupportedHooks",
+            "shortCircuitReadings",
         ] {
             assert_typescript_member("BackendCapabilities", &format!("{capability}: boolean"));
+        }
+        for member in [
+            "operator?: string",
+            "outcome: 'undefined' | 'undecided'",
+            "head?: string",
+            "operand: Kore",
+            "rewriteRuleId?: string",
+            "rewriteRuleLabel?: string",
+            "rewriteRuleOrigin?: RuleOrigin",
+            "observedIn: ObservedIn",
+        ] {
+            assert_typescript_member("ShortCircuitReading", member);
         }
         for member in [
             "ruleId: string",
@@ -3799,12 +3832,33 @@ mod tests {
             "contradictedClaims",
             "allowanceRefusals",
             "unsupportedHooks",
+            "shortCircuitReadings",
         ] {
             assert_eq!(capabilities[capability], true, "{capability}");
         }
         let value = serde_json::json!({"hook": "BYTES.padRight", "reason": "too long", "observedIn": "load"});
         let output: UnevaluatedHookOutput = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(&output).unwrap(), value);
+        // A reading round-trips, its optional fields absent when unset.
+        for value in [
+            serde_json::json!({
+                "operator": "BOOL.andThen",
+                "outcome": "undefined",
+                "head": "Lbl'Unds'divInt'Unds'",
+                "operand": {"tag": "EVar", "name": "X", "sort": {"tag": "SortApp", "name": "SortInt", "args": []}},
+                "rewriteRuleId": "r",
+                "rewriteRuleLabel": "MAIN.r",
+                "observedIn": "run",
+            }),
+            serde_json::json!({
+                "outcome": "undecided",
+                "operand": {"tag": "EVar", "name": "X", "sort": {"tag": "SortApp", "name": "SortInt", "args": []}},
+                "observedIn": "load",
+            }),
+        ] {
+            let output: ShortCircuitReadingOutput = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&output).unwrap(), value);
+        }
     }
 
     /// The marks of open values are declared where the facade writes them: the result's optional

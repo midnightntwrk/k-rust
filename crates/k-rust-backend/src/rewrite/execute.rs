@@ -207,6 +207,7 @@ fn execute_counted(
         result.contradicted_claims = record.contradicted_claims;
         result.allowance_refusals = record.allowance_refusals;
         result.unsupported_hooks = record.unsupported_hooks;
+        result.short_circuit_readings = record.short_circuit_readings;
         // `max_work` and `max_breadth` count the states of every path: whether either bound
         // fires, and where, rests on exploration off a leaf's path, so in another model a leaf
         // may be cut elsewhere or not at all. Every leaf of such a run carries every mark the
@@ -450,6 +451,7 @@ impl<'a> Execution<'a> {
                 contradicted_claims: Vec::new(),
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
+                short_circuit_readings: Vec::new(),
                 state_matches: self.matcher.map(StateMatcher::finish),
             },
             InitialSimplificationStatus {
@@ -2519,6 +2521,7 @@ impl<'a> Execution<'a> {
                 contradicted_claims: Vec::new(),
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
+                short_circuit_readings: Vec::new(),
                 state_matches: self.matcher.map(StateMatcher::finish),
             },
             InitialSimplificationStatus {

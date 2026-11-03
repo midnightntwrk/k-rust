@@ -285,6 +285,78 @@ pub(super) fn contradicted_claim_output<K: WireKore>(
     })
 }
 
+/// What k-rust found of the definedness of an operand a short-circuiting reading skips
+/// (`k_rust_backend::path_facts::ReadingOutcome`).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReadingOutcomeOutput {
+    /// The operand is `\bottom` in k-rust's run, so the strict application is.
+    Undefined,
+    /// k-rust kept the operand's definedness as an open condition.
+    Undecided,
+}
+
+/// A place where the run used the strict definedness of an operand that a short-circuiting
+/// reading skips, and did not find it defined (`k_rust_backend::path_facts::ShortCircuitReading`;
+/// docs/compatibility.md, "Short-circuit readings"): an entry of the result's
+/// `shortCircuitReadings`, a fact of the run only.
+///
+/// `operator` is the hook of the application whose operand it is (`KEQUAL.ite`, `BOOL.andThen`,
+/// `BOOL.orElse`, `BOOL.and`, `BOOL.or`, `BOOL.implies`), absent where the reading is the
+/// decision of a deferred definedness atom, which does not know its operator. `head` is the KORE
+/// symbol at the root of `operand`, absent for a variable, a domain value, a collection, an
+/// injection or a conjunction. `operand` is one instance of the operand (for a deferred atom's
+/// decision, of its subject), an example: two readings that differ only in it are one entry.
+/// `rewriteRule*` name the rewrite rule whose work used the definedness (its attempt or its
+/// successor's normalization, or the work a memo served the evaluation to), absent for work
+/// outside every rule's scope (an initial state's normalization, a step's remainder or a leaf's
+/// constraints, the load). `observedIn` says whether the
+/// definition's load or this run noted it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ShortCircuitReadingOutput<K = Value> {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
+    pub outcome: ReadingOutcomeOutput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    pub operand: K,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_origin: Option<CompiledRuleOriginOutput>,
+    pub observed_in: ObservedInOutput,
+}
+
+pub(super) fn short_circuit_reading_output<K: WireKore>(
+    reading: &k_rust_backend::path_facts::ShortCircuitReading,
+) -> Result<ShortCircuitReadingOutput<K>, BackendError> {
+    Ok(ShortCircuitReadingOutput {
+        operator: reading.operator.as_deref().map(str::to_owned),
+        outcome: match reading.outcome {
+            k_rust_backend::path_facts::ReadingOutcome::Undefined => {
+                ReadingOutcomeOutput::Undefined
+            }
+            k_rust_backend::path_facts::ReadingOutcome::Undecided => {
+                ReadingOutcomeOutput::Undecided
+            }
+        },
+        head: reading.head.as_deref().map(str::to_owned),
+        operand: encode_term(&reading.operand)?,
+        rewrite_rule_id: reading.rule.as_ref().map(|rule| rule.unique_id.clone()),
+        rewrite_rule_label: reading.rule.as_ref().and_then(|rule| rule.label.clone()),
+        rewrite_rule_origin: reading
+            .rule
+            .as_ref()
+            .and_then(|rule| rule.origin.as_ref())
+            .map(Into::into),
+        observed_in: reading.observed_in.into(),
+    })
+}
+
 /// One compiled rule, after equivalent written axioms have been collapsed.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -1067,6 +1139,11 @@ pub struct SearchResponse<K = Value> {
     /// [`ExecutionResult::unsupported_hooks`](super::ExecutionResult); absent when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
+    /// Every distinct short-circuit reading the search, and the load of its definition, noted,
+    /// as for [`ExecutionResult::short_circuit_readings`](super::ExecutionResult); absent when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub short_circuit_readings: Vec<ShortCircuitReadingOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1093,6 +1170,9 @@ pub struct PathSearchResponse<K = Value> {
     /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::short_circuit_readings`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub short_circuit_readings: Vec<ShortCircuitReadingOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1135,6 +1215,9 @@ pub struct PatternSearchResponse<K = Value> {
     /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::short_circuit_readings`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub short_circuit_readings: Vec<ShortCircuitReadingOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1177,6 +1260,9 @@ pub struct PathPatternSearchResponse<K = Value> {
     /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::short_circuit_readings`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub short_circuit_readings: Vec<ShortCircuitReadingOutput<K>>,
 }
 
 pub(super) trait WireKore: Sized {
@@ -2101,6 +2187,11 @@ pub(super) fn execution_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+        short_circuit_readings: result
+            .short_circuit_readings
+            .iter()
+            .map(short_circuit_reading_output)
+            .collect::<Result<_, _>>()?,
         state_matches: result.state_matches.map(state_matches_output).transpose()?,
     })
 }
@@ -2304,6 +2395,11 @@ pub(super) fn search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+        short_circuit_readings: result
+            .short_circuit_readings
+            .iter()
+            .map(short_circuit_reading_output)
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -2334,6 +2430,11 @@ pub(super) fn path_search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+        short_circuit_readings: result
+            .short_circuit_readings
+            .iter()
+            .map(short_circuit_reading_output)
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -2372,6 +2473,11 @@ pub(super) fn pattern_search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+        short_circuit_readings: result
+            .short_circuit_readings
+            .iter()
+            .map(short_circuit_reading_output)
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -2410,6 +2516,11 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+        short_circuit_readings: result
+            .short_circuit_readings
+            .iter()
+            .map(short_circuit_reading_output)
+            .collect::<Result<_, _>>()?,
     })
 }
 

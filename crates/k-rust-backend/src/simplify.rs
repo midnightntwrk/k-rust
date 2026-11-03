@@ -151,7 +151,7 @@ use crate::{
         MatchResult, UndecidedReason, match_collection_remainders_all_in_definition,
         match_equation_in_definition, match_injection_equality, match_term_pairs_in_definition,
     },
-    path_facts::FactSet,
+    path_facts::{FactSet, ReadingOutcome},
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicate_root_truth,
         predicate_truth, predicates_truth, retain_substitution_predicates,
@@ -3677,7 +3677,18 @@ fn simplify_predicate_on_stack(
     }
     match assumptions.truth(predicate) {
         Some(true) => return Ok(Predicate::True),
-        Some(false) => return Ok(Predicate::False),
+        Some(false) => {
+            // A deferred atom states the definedness of (part of) an operand a short-circuiting
+            // reading skips (`crate::deferred`); a known fact refutes it.
+            if let Predicate::Defined(subject) = predicate {
+                crate::path_facts::note_short_circuit_reading(
+                    None,
+                    ReadingOutcome::Undefined,
+                    subject,
+                );
+            }
+            return Ok(Predicate::False);
+        }
         None => {}
     }
     // Each arm ends the simplification out of line, the predicate theories included, so that
@@ -4377,11 +4388,21 @@ fn defined_arm(
     if assumptions.contains(&Predicate::Ceil(term.clone())) {
         return Ok(Predicate::True);
     }
+    // Every deferred atom states the definedness of (part of) an operand a short-circuiting
+    // reading skips (`crate::deferred`), and this arm is where one is decided: a refuted atom is
+    // an undefined reading, an open one an undecided reading; an established one is none, and a
+    // replaced one's atoms are decided here in turn.
     match crate::deferred::decide_defined(definition, term)? {
         Err(outcome) => Err(SimplificationError::from(outcome).into()),
         Ok(DeferredDecision::Established) => Ok(Predicate::True),
-        Ok(DeferredDecision::Refuted) => Ok(Predicate::False),
-        Ok(DeferredDecision::Open) => Ok(predicate.clone()),
+        Ok(DeferredDecision::Refuted) => {
+            crate::path_facts::note_short_circuit_reading(None, ReadingOutcome::Undefined, term);
+            Ok(Predicate::False)
+        }
+        Ok(DeferredDecision::Open) => {
+            crate::path_facts::note_short_circuit_reading(None, ReadingOutcome::Undecided, term);
+            Ok(predicate.clone())
+        }
         Ok(DeferredDecision::Replaced(atoms)) => {
             let conjunction = Predicate::And(atoms.into());
             if *remaining == 0 {
@@ -6341,6 +6362,20 @@ fn normalize_hooked_boolean_predicate(
             else {
                 return None;
             };
+            // On the disjunct where `first` decides the value, the strict connective still
+            // requires `second` defined, which a short-circuiting reading skips there: its
+            // obligations that neither the context nor `first`'s own (which both readings owe,
+            // since both evaluate `first`) state are left open.
+            if second_obligations
+                .iter()
+                .any(|obligation| !known(obligation) && !obligations.contains(obligation))
+            {
+                crate::path_facts::note_short_circuit_reading(
+                    symbol.attributes.hook.as_deref(),
+                    ReadingOutcome::Undecided,
+                    second,
+                );
+            }
             obligations.extend(second_obligations);
             let disjunct = |term: &Term| without_conjuncts(bool_operand(term, value), &obligations);
             let disjunction = Predicate::Or(vec![disjunct(first), disjunct(second)].into());
@@ -7972,11 +8007,27 @@ fn simplify_children(
     }
 }
 
+/// What the simplification of one child found of the child's definedness, as its result shows
+/// it (`simplify_child`): read by the arms whose operands a short-circuiting reading may skip
+/// (`note_short_circuit_reading`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ChildDefinedness {
+    /// The result is `\bottom`: it reported an undefined term or a found `\bottom`, or its
+    /// conditions conjoin `\bottom`.
+    Bottom,
+    /// The result conjoins conditions to its term.
+    Conditioned,
+    /// The result conjoins nothing: the child is its term, whose own definedness is that of its
+    /// applications (`ceil_term`).
+    Plain,
+}
+
 /// Simplify `term`, one child of a children step, as a lineage of its own, with a copy of the
 /// step's budget `remaining`, and fold its result's conditions and reports into the step's
 /// `accumulated`. `unchanged` is cleared if the child changed; `moved_console` says whether its
 /// simplification changed the console as a process observes it (for the effect order of
-/// `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
+/// `andBool`, `orBool` and `impliesBool`, `note_effect_order`); `definedness`, where the caller
+/// reads it, is set to what its result shows of its definedness.
 #[allow(clippy::too_many_arguments)]
 fn simplify_child(
     definition: &BackendDefinition,
@@ -7990,8 +8041,15 @@ fn simplify_child(
     accumulated: &mut Accumulated,
     unchanged: &Cell<bool>,
     moved_console: &Cell<bool>,
+    definedness: Option<&Cell<ChildDefinedness>>,
 ) -> SimplifyResult<Term> {
     moved_console.set(false);
+    let definedness = |found: ChildDefinedness| {
+        if let Some(cell) = definedness {
+            cell.set(found);
+        }
+    };
+    definedness(ChildDefinedness::Plain);
     if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
         measure::bump(Counter::SimplifyNodesSkippedEvaluated);
         return Ok(term.clone());
@@ -8020,7 +8078,17 @@ fn simplify_child(
             .map(ExecutionEvaluationContext::observable_position)
             != console_before,
     );
-    let result = accumulated.absorb(result?);
+    let result = result?;
+    definedness(
+        if result.undefined_term.is_some() || result.bottom.is_some() || result.conjoins_bottom() {
+            ChildDefinedness::Bottom
+        } else if result.is_unconditional() {
+            ChildDefinedness::Plain
+        } else {
+            ChildDefinedness::Conditioned
+        },
+    );
+    let result = accumulated.absorb(result);
     if accumulated.undefined_term.is_none() {
         accumulated.undefined_term = result.undefined_term;
         accumulated.contradicted_total = result.contradicted_total;
@@ -8061,6 +8129,7 @@ fn simplify_plain_children(
             &mut accumulated,
             &unchanged,
             &moved_console,
+            None,
         )
     };
     let rebuilt = match term.kind() {
@@ -8113,6 +8182,9 @@ fn simplify_other_children(
     // Whether the latest `child` call changed the console as a process observes it (for the
     // effect order of `andBool`, `orBool` and `impliesBool`, `note_effect_order`).
     let child_moved_console = Cell::new(false);
+    // What the latest `child` call's result shows of that child's definedness (for the
+    // short-circuit readings, `crate::path_facts::ShortCircuitReading`).
+    let child_definedness = Cell::new(ChildDefinedness::Plain);
     let mut child = |term: &Term| {
         simplify_child(
             definition,
@@ -8126,6 +8198,7 @@ fn simplify_other_children(
             &mut accumulated,
             &children_unchanged,
             &child_moved_console,
+            Some(&child_definedness),
         )
     };
     let rebuilt = match term.kind() {
@@ -8182,6 +8255,8 @@ fn simplify_other_children(
             arguments,
         } if let Some((kind, _)) = ShortCircuit::of(term) => {
             let deciding = child(&arguments[0])?;
+            let deciding_bottom = child_definedness.get() == ChildDefinedness::Bottom;
+            let operator = symbol.attributes.hook.as_deref();
             let mut operands = Vec::with_capacity(arguments.len());
             operands.push(deciding.clone());
             match bool_literal(&deciding) {
@@ -8212,6 +8287,13 @@ fn simplify_other_children(
                                     operands.push(folded);
                                 }
                                 Folded::Bottom(undefined) => {
+                                    // The strict application is `\bottom` by this operand alone,
+                                    // which a short-circuiting reading skips.
+                                    crate::path_facts::note_short_circuit_reading(
+                                        operator,
+                                        ReadingOutcome::Undefined,
+                                        operand,
+                                    );
                                     discarded_bottom = Some(undefined);
                                     operands.push(operand.clone());
                                 }
@@ -8224,9 +8306,22 @@ fn simplify_other_children(
                 None => {
                     // The operands stay unsimplified. One whose definedness depends on an impure
                     // application is the outcome now, before any state holds it.
+                    //
+                    // The application stays as written, strict in every operand: on an instance
+                    // where the deciding operand decides, the operand it discards is one a
+                    // short-circuiting reading skips, and its definedness, unless its atoms are
+                    // all known, is left open by the application itself. A deciding operand that
+                    // is `\bottom` makes the application `\bottom` in both readings.
                     for operand in &arguments[1..] {
-                        deferred_obligations(definition, operand)
+                        let atoms = deferred_obligations(definition, operand)
                             .map_err(SimplificationError::from)?;
+                        if !deciding_bottom && !atoms_known(&atoms, assumptions.predicates) {
+                            crate::path_facts::note_short_circuit_reading(
+                                operator,
+                                ReadingOutcome::Undecided,
+                                operand,
+                            );
+                        }
                         operands.push(operand.clone());
                     }
                 }
@@ -8250,7 +8345,9 @@ fn simplify_other_children(
                 symbol.attributes.hook.as_deref() =>
         {
             let left = child(&arguments[0])?;
+            let left_definedness = child_definedness.get();
             let right = child(&arguments[1]);
+            let right_definedness = child_definedness.get();
             // A right operand whose simplification failed, as a console hook does where this
             // simplification has no console, performed nothing; the solver may still decide the
             // connective from the left operand alone.
@@ -8265,6 +8362,13 @@ fn simplify_other_children(
                 note_effect_order(hook);
             }
             let right = right?;
+            note_strict_connective_reading(
+                definition,
+                hook,
+                (&left, left_definedness),
+                (&right, right_definedness),
+                assumptions.predicates,
+            );
             Term::application(symbol.clone(), *sort_arguments, vec![left, right])
         }
         TermKind::Application { .. } | TermKind::Injection { .. } => {
@@ -8444,6 +8548,68 @@ fn simplify_other_children(
         rebuilt
     };
     Ok(accumulated.finish(term))
+}
+
+/// Note the short-circuit reading of a simplified `andBool`, `orBool` or `impliesBool`
+/// application (`hook`), whose children's results were `left` and `right` with what each
+/// showed of its definedness.
+///
+/// A short-circuiting reading evaluates the left operand and skips the right one once the left
+/// one is the absorbing value (`false` for `andBool` and `impliesBool`, `true` for `orBool`).
+/// k-rust evaluates both, strictly, so the readings can differ only where the left operand can be
+/// absorbing and the right one is not defined. So nothing is noted where the left operand is the
+/// other literal (both readings evaluate the right one) or is `\bottom` (both readings give
+/// `\bottom`). Otherwise, where the left operand is the absorbing literal or a term that may be
+/// absorbing on some instance, the right operand is `undefined` when its result is `\bottom`,
+/// and `undecided` when its result conjoins conditions or its term holds a partial application
+/// whose definedness `known` does not state ([`atoms_known`]): the hook's value then carries that
+/// obligation (`hook_argument_definedness`), or the application left as written does.
+///
+/// The test is a walk of the term ([`deferred_obligations`]), not `ceil_term` or a deferred
+/// atom's decision: those apply ceil and function equations, which a run collecting coverage
+/// reports, and fold hooks, which can mark the path, so a check made only to note a reading would
+/// change the run's outputs. An operand defined on every instance whose definedness only such a
+/// step shows (`X /Int 2` beside a symbolic left operand) is so listed `undecided`.
+fn note_strict_connective_reading(
+    definition: &BackendDefinition,
+    hook: &str,
+    (left, left_definedness): (&Term, ChildDefinedness),
+    (right, right_definedness): (&Term, ChildDefinedness),
+    known: &[Predicate],
+) {
+    if !crate::path_facts::is_open() {
+        return;
+    }
+    let absorbing = hook == "BOOL.or";
+    if left_definedness == ChildDefinedness::Bottom || bool_literal(left) == Some(!absorbing) {
+        return;
+    }
+    let outcome = match right_definedness {
+        ChildDefinedness::Bottom => ReadingOutcome::Undefined,
+        ChildDefinedness::Conditioned => ReadingOutcome::Undecided,
+        ChildDefinedness::Plain => {
+            if right.attributes().ceil_free()
+                || deferred_obligations(definition, right)
+                    .is_ok_and(|atoms| atoms_known(&atoms, known))
+            {
+                return;
+            }
+            ReadingOutcome::Undecided
+        }
+    };
+    crate::path_facts::note_short_circuit_reading(Some(hook), outcome, right);
+}
+
+/// Whether `known` states every one of `atoms`, the [`deferred_obligations`] of an operand: each
+/// atom `Defined(t)` as itself or as `\ceil(t)`, which states the same definedness. Nothing is
+/// decided here; a short-circuit reading is noted where this does not hold
+/// (`crate::path_facts::ShortCircuitReading`).
+fn atoms_known(atoms: &[Predicate], known: &[Predicate]) -> bool {
+    atoms.iter().all(|atom| {
+        known.contains(atom)
+            || matches!(atom, Predicate::Defined(subject)
+                if known.contains(&Predicate::Ceil(subject.clone())))
+    })
 }
 
 /// What produced the result of `simplify_root`, as far as the iteration budget is concerned.
@@ -10042,6 +10208,14 @@ impl Drop for UnspecifiedValues {
     }
 }
 
+/// The hook of `application`, when it is an application of a hooked symbol.
+pub(crate) fn application_hook(application: &Term) -> Option<&str> {
+    match application.kind() {
+        TermKind::Application { symbol, .. } => symbol.attributes.hook.as_deref(),
+        _ => None,
+    }
+}
+
 /// The definedness of the arguments of a hooked application the hook has evaluated: the
 /// `ceil_term` obligations of every argument, without duplicates and without those already among
 /// `known_predicates`, which the caller's result is taken under.
@@ -10080,7 +10254,7 @@ pub(crate) fn hook_argument_definedness(
             continue;
         }
         let stated = if deferred.contains(&position) {
-            match before_children {
+            let stated = match before_children {
                 Some(before) => evaluated_facts
                     .get_or_insert_with(|| {
                         crate::deferred::EvaluatedOperands::of(
@@ -10092,7 +10266,17 @@ pub(crate) fn hook_argument_definedness(
                     })
                     .discarded_obligations(definition, argument)?,
                 None => deferred_obligations(definition, argument)?,
+            };
+            // A fold by hooks showed the discarded operand undefined without stating an atom: the
+            // strict application is `\bottom` by an operand a short-circuiting reading skips.
+            if stated.contains(&Predicate::False) {
+                crate::path_facts::note_short_circuit_reading(
+                    application_hook(application),
+                    ReadingOutcome::Undefined,
+                    argument,
+                );
             }
+            stated
         } else {
             ceil_term(definition, argument)?
         };
@@ -13866,7 +14050,8 @@ mod condition_memo_tests {
 
     /// `f(X) = X` only under `X >Int 0`, a condition the solver decides; `g(X) = X` only under
     /// `missing(X)`, a partial hook without an evaluator, which a simplification leaves
-    /// unevaluated as an unsupported hook.
+    /// unevaluated as an unsupported hook; `k(X) = X` only under `X >Int 0 andThenBool p(X)`,
+    /// whose discarded operand `p(X)` (a partial function without equations) stays undecided.
     fn definition() -> BackendDefinition {
         let equation = |symbol: &str, requires: &str| {
             format!(
@@ -13893,11 +14078,20 @@ mod condition_memo_tests {
                     [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
                 hooked-symbol missing{{}}(SortInt{{}}) : SortBool{{}}
                     [function{{}}(), hook{{}}("TEST.missing")]
+                symbol k{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                symbol p{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+                hooked-symbol andThenBool{{}}(SortBool{{}}, SortBool{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("BOOL.andThen")]
+                {}
                 {}
                 {}
             endmodule []"#,
             equation("f", r#"gtInt{}(X0:SortInt{}, \dv{SortInt{}}("0"))"#),
             equation("g", "missing{}(X0:SortInt{})"),
+            equation(
+                "k",
+                r#"andThenBool{}(gtInt{}(X0:SortInt{}, \dv{SortInt{}}("0")), p{}(X0:SortInt{}))"#,
+            ),
         );
         let syntax = parse_definition(&source).expect("the definition parses");
         BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
@@ -14197,5 +14391,398 @@ mod condition_memo_tests {
         let again = simplified(&definition, F, &solver, &scope, true);
         assert!(again.served > 0 && again.checks == 0, "{again:?}");
         assert_eq!(again.diagnostics, collected.diagnostics);
+    }
+
+    /// A verdict served to another rule's work lists its short-circuit readings under that rule,
+    /// as the decision done anew there would: `k`'s condition `X >Int 0 andThenBool p(X)` leaves
+    /// `p(X)` undecided, the verdict (undecided by a reproducible solver) is kept under rule `a`'s
+    /// work and served under rule `b`'s, and the run lists the reading once for each rule.
+    #[test]
+    fn a_served_verdict_lists_its_readings_under_the_rule_it_is_served_to() {
+        use crate::path_facts::{
+            Dependence, ObservingRule, ReadingOutcome, RuleIdentity, RunRecord, observed_by,
+        };
+        let definition = definition();
+        let solver = Scripted {
+            reproducible: true,
+            ..Scripted::new(Validity::Unknown("scripted".into()))
+        };
+        let scope = condition_memo_scope(&solver);
+        let rule = |id: &str| {
+            Some(ObservingRule::with(
+                Arc::new(RuleIdentity {
+                    unique_id: id.to_owned(),
+                    label: None,
+                    origin: None,
+                    claims_defined_result: false,
+                }),
+                Dependence::default(),
+            ))
+        };
+        const K: &str = "k{}(X:SortInt{})";
+        let ((first, again), facts) = crate::path_facts::run(|| {
+            (
+                observed_by(
+                    || rule("a"),
+                    || simplified(&definition, K, &solver, &scope, false),
+                ),
+                observed_by(
+                    || rule("b"),
+                    || simplified(&definition, K, &solver, &scope, false),
+                ),
+            )
+        });
+        assert_eq!(first.served, 0, "{first:?}");
+        assert!(again.served > 0, "{again:?}");
+        // The decision states `p(X)`'s definedness as a deferred atom, which it leaves open.
+        let readings = RunRecord::of(&facts)
+            .short_circuit_readings
+            .into_iter()
+            .map(|reading| {
+                (
+                    reading.outcome,
+                    reading.head.as_deref().map(str::to_owned),
+                    reading.rule.map(|rule| rule.unique_id.clone()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let reading = |rule: &str| {
+            (
+                ReadingOutcome::Undecided,
+                Some("p".to_owned()),
+                Some(rule.to_owned()),
+            )
+        };
+        assert!(readings.contains(&reading("a")), "{readings:?}");
+        assert!(readings.contains(&reading("b")), "{readings:?}");
+        assert!(
+            readings.iter().all(|(_, _, rule)| rule.is_some()),
+            "{readings:?}"
+        );
+    }
+}
+
+/// The sites that note a short-circuit reading (`crate::path_facts::ShortCircuitReading`), each
+/// on the smallest term that reaches it: a reading is noted exactly where k-rust decides the
+/// definedness of an operand a short-circuiting reading skips (the operand after a deciding left
+/// operand) and does not find it defined.
+#[cfg(test)]
+mod short_circuit_reading_tests {
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use super::*;
+    use crate::path_facts::{ReadingOutcome, RunRecord};
+
+    /// `p` is a partial function without equations; `divInt` is undefined at a zero divisor.
+    fn definition() -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol p{}(SortInt{}) : SortBool{} [function{}()]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                hooked-symbol andThenBool{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.andThen")]
+                hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.and"), smt-hook{}("and")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    fn term(definition: &BackendDefinition, source: &str) -> Term {
+        definition
+            .internalize_term(&parse_pattern(source).expect("the term parses"), &[])
+            .expect("the term internalizes")
+    }
+
+    /// `(operator, outcome, head)` of each reading `action` noted, in order.
+    type Reading = (Option<String>, ReadingOutcome, Option<String>);
+
+    fn readings<T>(action: impl FnOnce() -> T) -> Vec<Reading> {
+        let (_, facts) = crate::path_facts::run(action);
+        RunRecord::of(&facts)
+            .short_circuit_readings
+            .into_iter()
+            .map(|reading| {
+                (
+                    reading.operator.as_deref().map(str::to_owned),
+                    reading.outcome,
+                    reading.head.as_deref().map(str::to_owned),
+                )
+            })
+            .collect()
+    }
+
+    fn reading(operator: Option<&str>, outcome: ReadingOutcome, head: &str) -> Reading {
+        (operator.map(str::to_owned), outcome, Some(head.to_owned()))
+    }
+
+    fn simplified(
+        definition: &BackendDefinition,
+        source: &str,
+        known: &[Predicate],
+    ) -> Vec<Reading> {
+        let input = term(definition, source);
+        readings(|| {
+            simplify_with_solver(
+                definition,
+                &input,
+                known,
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .map_err(stop::Stop::into_cause)
+            .expect("no stop is armed")
+            .expect("the simplification succeeds")
+        })
+    }
+
+    const X: &str = "X:SortInt{}";
+
+    fn int(value: i64) -> String {
+        format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
+    }
+
+    fn boolean(value: bool) -> String {
+        format!(r#"\dv{{SortBool{{}}}}("{value}")"#)
+    }
+
+    /// Site A: the discarded operand of a decided `andThenBool` folds to `\bottom` by builtin
+    /// hooks; the entry names the operand.
+    #[test]
+    fn a_discarded_operand_folded_to_bottom_is_undefined() {
+        let definition = definition();
+        let undefined = format!("gtInt{{}}(divInt{{}}({}, {}), {})", int(1), int(0), int(0));
+        assert_eq!(
+            simplified(
+                &definition,
+                &format!("andThenBool{{}}({}, {undefined})", boolean(false)),
+                &[]
+            ),
+            [reading(
+                Some("BOOL.andThen"),
+                ReadingOutcome::Undefined,
+                "gtInt"
+            )]
+        );
+        // The deciding operand selects it: both readings evaluate it.
+        assert_eq!(
+            simplified(
+                &definition,
+                &format!("andThenBool{{}}({}, {undefined})", boolean(true)),
+                &[]
+            ),
+            []
+        );
+    }
+
+    /// Site B: the definedness walk of an unsimplified decided `andThenBool` whose discarded
+    /// operand builtin hooks show undefined states `\bottom` without an atom.
+    #[test]
+    fn a_fold_shortcut_of_the_definedness_walk_is_undefined() {
+        let definition = definition();
+        let input = term(
+            &definition,
+            &format!(
+                "andThenBool{{}}({}, gtInt{{}}(divInt{{}}({}, {}), {}))",
+                boolean(false),
+                int(1),
+                int(0),
+                int(0)
+            ),
+        );
+        let mut obligations = Vec::new();
+        let noted = readings(|| {
+            obligations = ceil_term(&definition, &input).expect("the walk is pure");
+        });
+        assert!(obligations.contains(&Predicate::False), "{obligations:?}");
+        assert_eq!(
+            noted,
+            [reading(
+                Some("BOOL.andThen"),
+                ReadingOutcome::Undefined,
+                "gtInt"
+            )]
+        );
+    }
+
+    /// Site C: a deferred atom refuted by builtin hooks is undefined, one left open is undecided,
+    /// one a known fact refutes is undefined, one a known fact establishes is nothing; none knows
+    /// its operator.
+    #[test]
+    fn a_deferred_atom_decision_is_noted() {
+        let definition = definition();
+        let decided = |subject: &str, known: &[Predicate]| {
+            let atom = Predicate::Defined(term(&definition, subject));
+            readings(|| {
+                simplify_predicate_with_solver(
+                    &definition,
+                    &atom,
+                    known,
+                    SimplificationOptions::default(),
+                    &NoSolver,
+                )
+                .map_err(stop::Stop::into_cause)
+                .expect("no stop is armed")
+                .expect("the simplification succeeds")
+            })
+        };
+        let division = format!("divInt{{}}({}, {})", int(1), int(0));
+        assert_eq!(
+            decided(&division, &[]),
+            [reading(None, ReadingOutcome::Undefined, "divInt")]
+        );
+        let open = format!("p{{}}({X})");
+        assert_eq!(
+            decided(&open, &[]),
+            [reading(None, ReadingOutcome::Undecided, "p")]
+        );
+        let atom = Predicate::Defined(term(&definition, &open));
+        assert_eq!(
+            decided(&open, &[Predicate::Not(Arc::new(atom.clone()))]),
+            [reading(None, ReadingOutcome::Undefined, "p")]
+        );
+        assert_eq!(decided(&open, &[atom]), []);
+        assert_eq!(
+            decided(&format!("divInt{{}}({}, {})", int(4), int(2)), &[]),
+            []
+        );
+    }
+
+    /// Site D: `andBool` evaluates both operands. Where the left one is the absorbing `false`,
+    /// or symbolic and so absorbing on some instance, a right one that is not known defined is
+    /// noted; where the left one is `true`, or the right one is defined or known defined,
+    /// nothing is. A left operand that may be undefined is evaluated by both readings and is
+    /// never noted.
+    #[test]
+    fn a_strict_connective_notes_the_operand_an_absorbing_left_one_skips() {
+        let definition = definition();
+        let partial = format!("p{{}}({X})");
+        let symbolic = format!("gtInt{{}}({X}, {})", int(0));
+        let and = |left: &str, right: &str| format!("andBool{{}}({left}, {right})");
+        let undecided = [reading(Some("BOOL.and"), ReadingOutcome::Undecided, "p")];
+        assert_eq!(
+            simplified(&definition, &and(&boolean(false), &partial), &[]),
+            undecided
+        );
+        assert_eq!(
+            simplified(&definition, &and(&symbolic, &partial), &[]),
+            undecided
+        );
+        assert_eq!(
+            simplified(&definition, &and(&boolean(true), &partial), &[]),
+            []
+        );
+        assert_eq!(
+            simplified(
+                &definition,
+                &and(&symbolic, &format!("gtInt{{}}({X}, {})", int(1))),
+                &[]
+            ),
+            []
+        );
+        let known = Predicate::Ceil(term(&definition, &partial));
+        assert_eq!(
+            simplified(&definition, &and(&boolean(false), &partial), &[known]),
+            []
+        );
+        assert_eq!(
+            simplified(&definition, &and(&partial, &boolean(false)), &[]),
+            []
+        );
+        // The right operand's definedness is tested by a walk of its partial applications,
+        // which applies no equation: `X /Int 2` beside a symbolic left operand is listed.
+        let half = format!("gtInt{{}}(divInt{{}}({X}, {}), {})", int(2), int(0));
+        assert_eq!(
+            simplified(&definition, &and(&symbolic, &half), &[]),
+            [reading(Some("BOOL.and"), ReadingOutcome::Undecided, "gtInt")]
+        );
+        let undefined = format!("gtInt{{}}(divInt{{}}({}, {}), {})", int(1), int(0), int(0));
+        assert_eq!(
+            simplified(&definition, &and(&boolean(false), &undefined), &[]),
+            [reading(
+                Some("BOOL.and"),
+                ReadingOutcome::Undefined,
+                "gtInt"
+            )]
+        );
+    }
+
+    /// Site G: while the deciding operand of `andThenBool` is not a literal, the application
+    /// stays as written, strict in its other operand, which is noted unless its atoms are known.
+    #[test]
+    fn a_short_circuit_left_as_written_notes_its_other_operands() {
+        let definition = definition();
+        let partial = format!("p{{}}({X})");
+        let then = |left: &str, right: &str| format!("andThenBool{{}}({left}, {right})");
+        let symbolic = format!("gtInt{{}}({X}, {})", int(0));
+        assert_eq!(
+            simplified(&definition, &then(&symbolic, &partial), &[]),
+            [reading(
+                Some("BOOL.andThen"),
+                ReadingOutcome::Undecided,
+                "p"
+            )]
+        );
+        let known = Predicate::Defined(term(&definition, &partial));
+        assert_eq!(
+            simplified(&definition, &then(&symbolic, &partial), &[known]),
+            []
+        );
+        assert_eq!(
+            simplified(
+                &definition,
+                &then(&symbolic, &format!("gtInt{{}}({X}, {})", int(1))),
+                &[]
+            ),
+            []
+        );
+        // A known `\ceil` states the same definedness as the atom.
+        let ceil = Predicate::Ceil(term(&definition, &partial));
+        assert_eq!(
+            simplified(&definition, &then(&symbolic, &partial), &[ceil]),
+            []
+        );
+        // Nothing is decided to list less: an operand defined on every instance whose
+        // definedness only a ceil equation or a step shows is listed (an over-report
+        // docs/compatibility.md names).
+        let half = format!("gtInt{{}}(divInt{{}}({X}, {}), {})", int(2), int(0));
+        assert_eq!(
+            simplified(&definition, &then(&symbolic, &half), &[]),
+            [reading(
+                Some("BOOL.andThen"),
+                ReadingOutcome::Undecided,
+                "gtInt"
+            )]
+        );
+    }
+
+    /// Site F: `(a andBool b) = false` is rewritten into a disjunction conjoined with both
+    /// operands' definedness; `b`'s, on the disjunct `a = false`, is what a short-circuiting
+    /// reading skips. `a`'s is owed by both readings.
+    #[test]
+    fn a_connective_decided_by_one_operand_notes_the_right_operand() {
+        let definition = definition();
+        let partial = format!("p{{}}({X})");
+        let symbolic = format!("gtInt{{}}({X}, {})", int(0));
+        let normalized = |left: &str, right: &str| {
+            let application = term(&definition, &format!("andBool{{}}({left}, {right})"));
+            readings(|| {
+                normalize_hooked_boolean_predicate(
+                    &definition,
+                    Predicate::Equals(application, Term::bool(false)),
+                    &|_| false,
+                )
+            })
+        };
+        assert_eq!(
+            normalized(&symbolic, &partial),
+            [reading(Some("BOOL.and"), ReadingOutcome::Undecided, "p")]
+        );
+        assert_eq!(normalized(&partial, &symbolic), []);
     }
 }

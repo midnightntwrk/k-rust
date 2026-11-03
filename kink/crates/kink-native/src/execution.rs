@@ -1077,6 +1077,7 @@ fn settle(
                 contradicted_claims: Vec::new(),
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
+                short_circuit_readings: Vec::new(),
                 state_matches: None,
             },
             true,
@@ -1642,6 +1643,7 @@ mod tests {
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
             state_matches: None,
         };
         let one = NonZeroUsize::new(1).expect("nonzero");

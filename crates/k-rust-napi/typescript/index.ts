@@ -228,6 +228,8 @@ export interface BackendCapabilities {
   allowanceRefusals: boolean
   /** `execute`, `executeObserved` and every search report `unsupportedHooks`. */
   unsupportedHooks: boolean
+  /** `execute`, `executeObserved` and every search report `shortCircuitReadings`. */
+  shortCircuitReadings: boolean
 }
 
 export interface CreateBackendOptions {
@@ -530,6 +532,17 @@ export interface ExecutionResult {
    * the work that met it; absent when none.
    */
   unsupportedHooks?: UnevaluatedHook[]
+  /**
+   * Every distinct place where the run, or the load of its definition, used the strict
+   * definedness of an operand that a short-circuiting reading skips and did not find it defined,
+   * in first-observed order, whatever became of the work; absent when none
+   * (docs/compatibility.md, "Short-circuit readings"). A fact of the run only, on no leaf; the
+   * load lists its undefined readings only. When it is absent and the run completed, a backend
+   * that evaluates the deciding operand of `#if`, `andThenBool`, `orElseBool`, `andBool`,
+   * `orBool` and `impliesBool` and skips the operand after it once that operand decides the value
+   * gives the run the same states, leaves and lists; an entry is no evidence that it does not.
+   */
+  shortCircuitReadings?: ShortCircuitReading[]
   /** Present exactly when the request set `matchStates` (docs/compatibility.md, "State matches"). */
   stateMatches?: StateMatches
 }
@@ -543,6 +556,30 @@ export interface UnevaluatedHook {
 
 /** Who observed a run-level record: the load of the definition (a fact about the definition, on the result's lists only) or the run that reports it. */
 export type ObservedIn = 'load' | 'run'
+
+/**
+ * A place where a run used the strict definedness of an operand that a short-circuiting reading
+ * skips, and did not find it defined (docs/compatibility.md, "Short-circuit readings").
+ * `operator`: the hook of the application whose operand it is ('KEQUAL.ite', 'BOOL.andThen',
+ * 'BOOL.orElse', 'BOOL.and', 'BOOL.or', 'BOOL.implies'), absent where the reading is the decision
+ * of a deferred definedness atom. `outcome`: 'undefined' when the operand is bottom in k-rust's
+ * run (so the strict application is), 'undecided' when k-rust kept its definedness as an open
+ * condition. `head`: the KORE symbol at the root of `operand`, absent for a variable, a domain
+ * value, a collection, an injection or a conjunction. `operand`: one instance, an example that is
+ * no part of the entry's identity. `rewriteRule*`: the rewrite rule whose work used the
+ * definedness (a memo's reuse included), absent for work outside every rule's scope. `observedIn`: whether the
+ * definition's load or this run noted it.
+ */
+export interface ShortCircuitReading {
+  operator?: string
+  outcome: 'undefined' | 'undecided'
+  head?: string
+  operand: Kore
+  rewriteRuleId?: string
+  rewriteRuleLabel?: string
+  rewriteRuleOrigin?: RuleOrigin
+  observedIn: ObservedIn
+}
 
 /**
  * A claim of the definition an evaluation found contradicted by the definition's own equations,
@@ -1031,6 +1068,8 @@ export interface SearchResult {
   allowanceRefusals?: UnevaluatedHook[]
   /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
   unsupportedHooks?: UnevaluatedHook[]
+  /** Every distinct short-circuit reading the search and its definition's load noted, as for `ExecutionResult.shortCircuitReadings`; absent when none. */
+  shortCircuitReadings?: ShortCircuitReading[]
 }
 
 export interface PathSearchResult {
@@ -1053,6 +1092,8 @@ export interface PathSearchResult {
   allowanceRefusals?: UnevaluatedHook[]
   /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
   unsupportedHooks?: UnevaluatedHook[]
+  /** Every distinct short-circuit reading the search and its definition's load noted, as for `ExecutionResult.shortCircuitReadings`; absent when none. */
+  shortCircuitReadings?: ShortCircuitReading[]
 }
 
 export interface SearchMatch {
@@ -1083,6 +1124,8 @@ export interface PatternSearchResult {
   allowanceRefusals?: UnevaluatedHook[]
   /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
   unsupportedHooks?: UnevaluatedHook[]
+  /** Every distinct short-circuit reading the search and its definition's load noted, as for `ExecutionResult.shortCircuitReadings`; absent when none. */
+  shortCircuitReadings?: ShortCircuitReading[]
 }
 
 export interface PathSearchMatch {
@@ -1113,6 +1156,8 @@ export interface PathPatternSearchResult {
   allowanceRefusals?: UnevaluatedHook[]
   /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
   unsupportedHooks?: UnevaluatedHook[]
+  /** Every distinct short-circuit reading the search and its definition's load noted, as for `ExecutionResult.shortCircuitReadings`; absent when none. */
+  shortCircuitReadings?: ShortCircuitReading[]
 }
 
 export interface PatternOptions {

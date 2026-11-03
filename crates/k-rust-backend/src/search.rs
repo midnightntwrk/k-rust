@@ -421,7 +421,8 @@ pub enum SearchEnd<E> {
 ///
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![],
 /// initial_bottom: false, implementation_chosen_values: vec![], contradicted_claims: vec![],
-/// allowance_refusals: vec![], unsupported_hooks: vec![] };
+/// allowance_refusals: vec![], unsupported_hooks: vec![],
+/// short_circuit_readings: vec![] };
 /// ```
 ///
 /// ```
@@ -430,7 +431,7 @@ pub enum SearchEnd<E> {
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end:
 /// SearchEnd::Stopped(StopCause::Cancelled), initial_bottom: false,
 /// implementation_chosen_values: vec![], contradicted_claims: vec![], allowance_refusals: vec![],
-/// unsupported_hooks: vec![] };
+/// unsupported_hooks: vec![], short_circuit_readings: vec![] };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
@@ -471,6 +472,11 @@ pub struct SearchResult {
     /// an unsupported hook other than an allowance refusal, whatever became of the work that met
     /// it, as for [`crate::rewrite::ExecutionResult::unsupported_hooks`].
     pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct place where the search, or the load of its definition (its undefined
+    /// readings only), used the strict definedness of an operand a short-circuiting reading
+    /// skips and did not find it defined, as for
+    /// [`crate::rewrite::ExecutionResult::short_circuit_readings`].
+    pub short_circuit_readings: Vec<crate::path_facts::ShortCircuitReading>,
 }
 
 impl SearchResult {
@@ -522,6 +528,8 @@ pub struct PathSearchResult {
     pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
     /// As for [`SearchResult::unsupported_hooks`].
     pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::short_circuit_readings`].
+    pub short_circuit_readings: Vec<crate::path_facts::ShortCircuitReading>,
 }
 
 impl PathSearchResult {
@@ -590,6 +598,8 @@ pub struct PatternSearchResult {
     pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
     /// As for [`SearchResult::unsupported_hooks`].
     pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::short_circuit_readings`].
+    pub short_circuit_readings: Vec<crate::path_facts::ShortCircuitReading>,
 }
 
 impl PatternSearchResult {
@@ -632,6 +642,8 @@ pub struct PatternPathSearchResult {
     pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
     /// As for [`SearchResult::unsupported_hooks`].
     pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::short_circuit_readings`].
+    pub short_circuit_readings: Vec<crate::path_facts::ShortCircuitReading>,
 }
 
 impl PatternPathSearchResult {
@@ -813,6 +825,7 @@ fn search_graph_using(
     result.contradicted_claims = record.contradicted_claims;
     result.allowance_refusals = record.allowance_refusals;
     result.unsupported_hooks = record.unsupported_hooks;
+    result.short_circuit_readings = record.short_circuit_readings;
     result
 }
 
@@ -945,6 +958,7 @@ fn search_graph_collecting(
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
         };
     }
     if options.max_results == Some(0) {
@@ -958,6 +972,7 @@ fn search_graph_collecting(
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
         };
     }
 
@@ -1482,6 +1497,7 @@ fn search_graph_collecting(
         contradicted_claims: Vec::new(),
         allowance_refusals: Vec::new(),
         unsupported_hooks: Vec::new(),
+        short_circuit_readings: Vec::new(),
     }
 }
 
@@ -2075,6 +2091,7 @@ fn search_paths_using(
     result.contradicted_claims = record.contradicted_claims;
     result.allowance_refusals = record.allowance_refusals;
     result.unsupported_hooks = record.unsupported_hooks;
+    result.short_circuit_readings = record.short_circuit_readings;
     result
 }
 
@@ -2152,6 +2169,7 @@ fn search_paths_collecting(
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
         };
     }
     if options.max_results == Some(0) {
@@ -2165,6 +2183,7 @@ fn search_paths_collecting(
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
         };
     }
 
@@ -2550,6 +2569,7 @@ fn search_paths_collecting(
         contradicted_claims: Vec::new(),
         allowance_refusals: Vec::new(),
         unsupported_hooks: Vec::new(),
+        short_circuit_readings: Vec::new(),
     }
 }
 
@@ -2810,6 +2830,7 @@ fn search_pattern_using(
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
         };
     }
     let graph_options = SearchOptions {
@@ -2924,6 +2945,7 @@ fn search_pattern_using(
         contradicted_claims: record.contradicted_claims,
         allowance_refusals: record.allowance_refusals,
         unsupported_hooks: record.unsupported_hooks,
+        short_circuit_readings: record.short_circuit_readings,
     }
 }
 
@@ -3010,6 +3032,7 @@ fn search_pattern_paths_using(
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
         };
     }
     let graph_options = SearchOptions {
@@ -3084,6 +3107,7 @@ fn search_pattern_paths_using(
         contradicted_claims: record.contradicted_claims,
         allowance_refusals: record.allowance_refusals,
         unsupported_hooks: record.unsupported_hooks,
+        short_circuit_readings: record.short_circuit_readings,
     }
 }
 

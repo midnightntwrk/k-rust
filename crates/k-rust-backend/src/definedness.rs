@@ -651,7 +651,18 @@ fn ceil_term_node<'a>(
             } else {
                 for (position, argument) in arguments.iter().enumerate() {
                     if deferred.contains(&position) {
-                        before.extend(deferred_operand_obligations(definition, argument)?);
+                        let stated = deferred_operand_obligations(definition, argument)?;
+                        // Builtin hooks show the operand undefined without an atom: the strict
+                        // application is `\bottom` by an operand a short-circuiting reading
+                        // skips (`crate::path_facts::ShortCircuitReading`).
+                        if stated.contains(&Predicate::False) {
+                            crate::path_facts::note_short_circuit_reading(
+                                symbol.attributes.hook.as_deref(),
+                                crate::path_facts::ReadingOutcome::Undefined,
+                                argument,
+                            );
+                        }
+                        before.extend(stated);
                     } else {
                         children.push(argument);
                     }
