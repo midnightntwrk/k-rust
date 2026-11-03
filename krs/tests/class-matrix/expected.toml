@@ -500,7 +500,6 @@ advice = "init/counter/Some(0)"
 
 [class.record-missing-children]
 code = "krs::analysis::record-missing-children"
-proposed = true
 doc = "a group record at a configuration position that names some of its children and no `..`: write `..` to leave the others unconstrained (L4)"
 examples = ["readable ; subject ; - ; group G ; G { a: x } ; -", "cells ; subject ; - ; group G ; k::fragment![crate::G { a: x }] ; -", "init ; init ; - ; group G ; G { a: 0 } ; -"]
 advice = "none"

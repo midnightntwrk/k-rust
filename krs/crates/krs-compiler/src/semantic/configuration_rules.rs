@@ -577,6 +577,8 @@ pub(super) fn lower_configuration_rule_descriptor(
         "configuration rule",
         "configuration rules require a fixed configuration",
     )?;
+    let overwritten = with_overwritten_cells(rule, declarations)?;
+    let rule = overwritten.as_ref().unwrap_or(rule);
     let ConfigurationRuleBindings {
         subject_sorts,
         result_sorts,
@@ -751,6 +753,76 @@ pub(super) fn lower_configuration_rule_descriptor(
         descriptor,
         rule.evaluation.as_ref(),
     )?))
+}
+
+/// A rule whose result writes a cell its subject does not match, with that cell matched by any
+/// content in its subject: the result overwrites it (Q1), `<c> _ => v </c>`. That means one
+/// configuration where the cell exists once and the result keeps nothing of its content: a
+/// plain leaf, the computation written exactly, or a group. The entry-admission table refuses
+/// the rest first (an optional cell, whose presence the rule does not know; a rest kept from
+/// content the subject never matched), and an instance list, whose instances the subject does
+/// not say, is left to the refusal below. `None` where the result writes no such cell.
+fn with_overwritten_cells(
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorConfigurationRule>, DescriptorLoweringError> {
+    let Some(result) = &rule.result else {
+        return Ok(None);
+    };
+    let matched = rule
+        .subject
+        .cells
+        .iter()
+        .map(|cell| &cell.field.cell)
+        .collect::<BTreeSet<_>>();
+    let mut overwrites = Vec::new();
+    for cell in &result.cells {
+        if matched.contains(&cell.field.cell) {
+            continue;
+        }
+        let declared = require_cell_field(&cell.field.cell, declarations)?;
+        let kind = super::references::declared_kind(declared, declarations);
+        if kind.multiplicity() != Multiplicity::One {
+            return Ok(None);
+        }
+        let any = DescriptorTerm::Wildcard {
+            key: cell.field.key.clone(),
+        };
+        let value = match (&cell.value, &declared.content) {
+            (ProtocolRuleStateTerm::KSequence(sequence), _)
+                if sequence.tail == ProtocolRuleFrame::Exact =>
+            {
+                ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
+                    payload_key: cell.field.key.clone(),
+                    dot_k_key: None,
+                    notation: sequence.notation,
+                    items: Vec::new(),
+                    tail: ProtocolRuleFrame::Anonymous {
+                        key: cell.field.key.clone(),
+                    },
+                })
+            }
+            (ProtocolRuleStateTerm::Term(_), ProtocolCellContent::Leaf { .. }) => {
+                ProtocolRuleStateTerm::Term(any)
+            }
+            (ProtocolRuleStateTerm::Group(_), ProtocolCellContent::Nested { .. }) => {
+                ProtocolRuleStateTerm::Group(any)
+            }
+            _ => return Ok(None),
+        };
+        overwrites.push(DescriptorRuleCell {
+            field: cell.field.clone(),
+            wrapper_key: cell.wrapper_key.clone(),
+            wrapper: cell.wrapper,
+            value,
+        });
+    }
+    if overwrites.is_empty() {
+        return Ok(None);
+    }
+    let mut rule = rule.clone();
+    rule.subject.cells.extend(overwrites);
+    Ok(Some(rule))
 }
 
 /// Checks that the result selects only subject cells and that the remainder

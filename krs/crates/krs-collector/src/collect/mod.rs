@@ -20,6 +20,7 @@ pub use run::run_collector;
 use source::canonicalize_path;
 pub(crate) use source::{record_file, record_probe};
 
+mod cell_entries;
 mod invocation;
 mod provenance;
 mod resolve;
@@ -447,6 +448,10 @@ fn resolution_tables(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each descriptor's provenance and payload are resolved in one ordered pass, and the bundle is judged once whole."
+)]
 fn resolve_pending_descriptors(
     mut pending: Vec<PendingDescriptor>,
     contexts: &[PreparedContext],
@@ -465,6 +470,7 @@ fn resolve_pending_descriptors(
     let mut source_cache = BTreeMap::new();
     let mut resolved = Vec::with_capacity(pending.len());
     let mut declaration_metadata = Vec::with_capacity(pending.len());
+    let mut authored_cells = BTreeMap::new();
     // Provenance reparse and payload resolution interleave per descriptor, so
     // each is accumulated over the loop and recorded as one span.
     let mut provenance_seconds = 0.0;
@@ -481,7 +487,7 @@ fn resolve_pending_descriptors(
             &mut source_cache,
         );
         provenance_seconds += Timings::since(started);
-        let (provenance, visibility, explicit_symbol) = match provenance {
+        let (provenance, visibility, explicit_symbol, cells) = match provenance {
             Ok(value) => value,
             Err(error) => {
                 loop_failure = Some(("collector.resolve.provenance", error));
@@ -523,6 +529,7 @@ fn resolve_pending_descriptors(
             visibility,
             explicit_symbol,
         ));
+        authored_cells.extend(cells.map(|cells| (pending.id.clone(), cells)));
         resolved.push((pending.id, pending.host.cfg, provenance, payload, misreads));
     }
     timings.record("collector.resolve.provenance", provenance_seconds, 0);
@@ -555,6 +562,7 @@ fn resolve_pending_descriptors(
                 )
             })?;
         check_cell_kinds(&bundle, &cell_kinds)?;
+        cell_entries::judge(&bundle, &authored_cells)?;
         Ok(bundle)
     })
 }

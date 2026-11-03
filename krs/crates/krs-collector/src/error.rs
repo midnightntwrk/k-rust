@@ -84,6 +84,8 @@ pub enum CollectionErrorKind {
     /// The collector's host declaration of a cell and its collected declaration give the cell
     /// different kinds: a collector fault.
     CellKindDisagreement,
+    /// A `cells!` entry the entry-admission table refuses, with its class (design S5, §2.3).
+    CellEntry(krs_syntax::cell_entries::Refusal),
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -241,6 +243,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::MatchesInMatchedField => codes::expand::MATCHES_OUTSIDE_CONDITION,
             CollectionErrorKind::RecordUpdateInMatchedField => codes::syntax::INVALID_RECORD_UPDATE,
             CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
+            CollectionErrorKind::CellEntry(refusal) => refusal.code(),
         };
         let diagnostic = Diagnostic::error(
             code,

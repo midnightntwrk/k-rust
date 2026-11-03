@@ -1043,6 +1043,12 @@ pub struct CellsExpression {
 }
 
 impl CellsExpression {
+    /// The payload's tokens, as written.
+    #[must_use]
+    pub const fn tokens(&self) -> &TokenStream {
+        &self.tokens
+    }
+
     /// Pattern versus expression context used for frame validation.
     #[must_use]
     pub const fn context(&self) -> StateMacroContext {

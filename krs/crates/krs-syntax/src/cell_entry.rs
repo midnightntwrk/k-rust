@@ -483,3 +483,108 @@ impl<'a> EntryReading<'a> {
         Ok(EntryRecord { head, fields, tail })
     }
 }
+
+/// One field of a `cells!` payload as a `cells!` [`EntryReading`] reads it.
+#[derive(Clone, Debug)]
+pub struct CellsField {
+    /// The key path, `pc` or `crate::Queue::job`.
+    pub key: Path,
+    /// The value's spelling; `None` where the value is no entry the reading knows (a term
+    /// with an operator, a `k::rewrite!`), which no admission judges.
+    pub spelling: Option<EntrySpelling>,
+    /// The range of the value's tokens.
+    pub value: Option<crate::TokenRange>,
+}
+
+/// The fields of a `cells!` payload, each `key: value`, in authored order; the configuration's
+/// frame (`..`, `..name`, `name @ ..`) names no cell and is left out. `None` when a part of the
+/// payload is neither, so that no field's neighbours are guessed.
+#[must_use]
+pub fn cells_fields(tokens: &TokenStream) -> Option<Vec<CellsField>> {
+    use proc_macro2::{Spacing, TokenTree};
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let mut fields = Vec::new();
+    for part in
+        trees.split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ','))
+    {
+        if part.is_empty() {
+            continue;
+        }
+        let is_dot = |tree: Option<&TokenTree>| matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == '.');
+        let is_at = |tree: Option<&TokenTree>| matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == '@');
+        if is_dot(part.first())
+            || (matches!(part.first(), Some(TokenTree::Ident(_)))
+                && is_at(part.get(1))
+                && is_dot(part.get(2)))
+        {
+            continue;
+        }
+        // The key ends at the first `:` that is no path separator.
+        let mut colon = None;
+        let mut index = 0;
+        while index < part.len() {
+            if let TokenTree::Punct(punct) = &part[index]
+                && punct.as_char() == ':'
+            {
+                if punct.spacing() == Spacing::Joint
+                    && matches!(part.get(index + 1), Some(TokenTree::Punct(next)) if next.as_char() == ':')
+                {
+                    index += 2;
+                    continue;
+                }
+                colon = Some(index);
+                break;
+            }
+            index += 1;
+        }
+        let colon = colon?;
+        let key = (|input: ParseStream<'_>| input.call(Path::parse_mod_style))
+            .parse2(part[..colon].iter().cloned().collect())
+            .ok()?;
+        let value = part[colon + 1..].iter().cloned().collect::<TokenStream>();
+        fields.push(CellsField {
+            key,
+            spelling: EntryReading::new(EntryForm::Cells, &[])
+                .value(value.clone())
+                .ok(),
+            value: crate::TokenRange::for_tokens(&value).ok(),
+        });
+    }
+    Some(fields)
+}
+
+#[cfg(test)]
+mod cells_fields_tests {
+    use super::{EntrySpelling, cells_fields};
+
+    #[test]
+    fn a_payloads_fields_are_read_in_order_and_its_frame_names_no_cell() {
+        let tokens = "pc: k::configuration::Cell(x), crate::Frame::env: k::configuration::Cell(k::map![y -> x, ..]), k: k::configuration::KCell(x + 1, ..), rest @ .."
+            .parse()
+            .expect("lexes");
+        let fields = cells_fields(&tokens).expect("a list of fields");
+        let names = fields
+            .iter()
+            .map(|field| field.key.segments.last().expect("a name").ident.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["pc", "env", "k"]);
+        assert_eq!(
+            fields[0].spelling,
+            Some(EntrySpelling::Cell(Box::new(EntrySpelling::Binder(
+                "x".to_owned()
+            ))))
+        );
+        assert!(matches!(fields[1].spelling, Some(EntrySpelling::Cell(_))));
+        // A term with an operator is no entry the reading knows: nothing judges it.
+        assert_eq!(fields[2].spelling, None);
+        assert!(fields.iter().all(|field| field.value.is_some()));
+    }
+
+    #[test]
+    fn a_part_that_is_no_field_reads_no_payload() {
+        let tokens = "pc: k::configuration::Cell(x), Foo::<A, B>"
+            .parse()
+            .expect("lexes");
+        assert!(cells_fields(&tokens).is_none());
+    }
+}

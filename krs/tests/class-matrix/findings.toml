@@ -111,12 +111,6 @@ owner = "S5"
 kind = "bug"
 what = "a second computation cell (`code: [x, ..]` below a plain group) is refused bracket notation as `invalid-list-notation` (\"the cell `code` holds `K`, which is not a list\"), though brackets are a computation's mark wherever it is declared (P1: a cell's name and role play no part; P2); S5.2's"
 
-["S5-D2"]
-owner = "S5"
-kind = "bug"
-what = "a `cells!` map result without `..` after a subject's anonymous rest silently keeps the rest, where the spelling says the result is the whole map (decision D2, P6)"
-risk = "KRS writes K's `...` frame for the subject's anonymous rest and the result's entries over it, so the rule keeps every other entry of the map: the author's exact `k::map![5 -> old, x -> y]` reads as the whole new content in Rust, and nothing tells them the rest is kept"
-
 ["S5-E1"]
 owner = "S5"
 kind = "bug"

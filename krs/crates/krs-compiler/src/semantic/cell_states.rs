@@ -774,24 +774,21 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         result: Option<&ProtocolRuleInstance<DescriptorTerm>>,
     ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
         let descriptor = self.descriptor;
+        // A child the result writes and the pattern instance does not name is overwritten
+        // inside the matched instance (Q1): the pattern matches it by any content, `<c> _ => v
+        // </c>`. A Map collection's key is the instance's identity, so writing it is the key
+        // change refused below.
+        let overwritten;
+        let subject = match result.map(|result| overwritten_children(subject, result)) {
+            Some(Some(with_children)) => {
+                overwritten = with_children;
+                &overwritten
+            }
+            _ => subject,
+        };
         if let Some(result) = result {
             for field in &result.fields {
                 self.child(result, field)?;
-                if !subject
-                    .fields
-                    .iter()
-                    .any(|candidate| candidate.field == field.field)
-                {
-                    return Err(collection_error(
-                        descriptor,
-                        codes::analysis::COLLECTION_ENTRY,
-                        &field.key,
-                        format!(
-                            "the result rewrites `{}` of an instance its pattern does not name; write `{}: _` in the pattern instance",
-                            field.field, field.field
-                        ),
-                    ));
-                }
             }
             if self.map
                 && let Some(key) = self.declaration.fields.first()
@@ -1193,4 +1190,55 @@ fn collect_below(
         }
     }
     Ok(())
+}
+
+/// `subject` with each child `result` writes and `subject` does not name matched by any
+/// content: a leaf or group by `_`, a computation written exactly by its whole sequence. `None`
+/// where `result` writes no such child, or one written otherwise (a rest kept from content the
+/// pattern never matched), which the instance's lowering then refuses.
+fn overwritten_children(
+    subject: &ProtocolRuleInstance<DescriptorTerm>,
+    result: &ProtocolRuleInstance<DescriptorTerm>,
+) -> Option<ProtocolRuleInstance<DescriptorTerm>> {
+    let mut with_children = subject.clone();
+    for field in &result.fields {
+        if subject
+            .fields
+            .iter()
+            .any(|candidate| candidate.field == field.field)
+        {
+            continue;
+        }
+        let any = DescriptorTerm::Wildcard {
+            key: field.key.clone(),
+        };
+        let value = match &field.value {
+            ProtocolRuleStateTerm::KSequence(sequence)
+                if sequence.tail == ProtocolRuleFrame::Exact =>
+            {
+                ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
+                    payload_key: field.key.clone(),
+                    dot_k_key: None,
+                    notation: sequence.notation,
+                    items: Vec::new(),
+                    tail: ProtocolRuleFrame::Anonymous {
+                        key: field.key.clone(),
+                    },
+                })
+            }
+            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_) => {
+                ProtocolRuleStateTerm::Term(any)
+            }
+            ProtocolRuleStateTerm::Group(_) => ProtocolRuleStateTerm::Group(any),
+            _ => return None,
+        };
+        with_children
+            .fields
+            .push(krs_ir::ProtocolRuleInstanceField {
+                key: field.key.clone(),
+                field: field.field.clone(),
+                value,
+            });
+    }
+    (with_children.fields.len() > subject.fields.len()).then_some(with_children)
 }

@@ -201,6 +201,43 @@ impl Refusal {
     }
 }
 
+impl Refusal {
+    /// The diagnostic code an author meets for the refusal: its class's code.
+    #[must_use]
+    pub const fn code(self) -> krs_diagnostic::Code {
+        use krs_diagnostic::codes::{analysis, collect, syntax};
+        match self {
+            Self::WildcardOutsidePattern => syntax::UNSUPPORTED_TERM_EXPRESSION,
+            Self::AliasOutsidePattern => syntax::INVALID_PATTERN_AS,
+            Self::NoneInInitializer | Self::InitializerRemainder => {
+                syntax::UNSUPPORTED_INITIALIZER_BODY
+            }
+            Self::AnonymousRestInMapLiteral => syntax::INVALID_EXPRESSION_NOTATION,
+            Self::PresenceOnPlainCell
+            | Self::OptionalWithoutPresence
+            | Self::BelowOptionalAncestor
+            | Self::UnmatchedOptionalResult
+            | Self::AbsenceTestWithoutCreation => analysis::OPTIONAL_PRESENCE,
+            Self::BracketReading | Self::ConsListBackItem => analysis::INVALID_LIST_NOTATION,
+            Self::InstancesOnPlainCell
+            | Self::InstanceListShape
+            | Self::CollectionWithoutInstances
+            | Self::BelowCollectionAncestor => analysis::COLLECTION_ENTRY,
+            Self::MapNotationAtNonMap => analysis::INVALID_TERM,
+            Self::CellWrapper => analysis::CELL_WRAPPER,
+            Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
+            Self::ContinuationInReadable | Self::MapReadInResult | Self::MapReadValueBinder => {
+                syntax::RUST_SYNTAX
+            }
+            Self::RestMismatch => syntax::INVALID_LIST_NOTATION,
+            Self::OpenRecordOutsidePattern => syntax::INVALID_RECORD_UPDATE,
+            Self::ComputationBackItem => collect::INVALID_CONFIGURATION,
+            Self::RecordUpdateBase => analysis::INVALID_RECORD_UPDATE,
+            Self::MapCollectionKey => analysis::MAP_COLLECTION_KEY,
+        }
+    }
+}
+
 /// The lint an admitted entry owes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Lint {

@@ -36,11 +36,12 @@ pub(super) fn materialize_descriptor_provenance(
         DescriptorProvenance,
         RustVisibility,
         Option<krs_ir::ExplicitSymbol>,
+        Option<super::cell_entries::LocatedCells>,
     ),
     CollectionError,
 > {
     let primary = payload_primary_key(payload, id.item_kind())?;
-    let (parsed, origins) = materialize_invocation(&mut MaterializationContext {
+    let (parsed, origins, cells) = materialize_invocation(&mut MaterializationContext {
         provenance: &host.provenance,
         primary_key: &primary,
         expected_item_name: id.item_name(),
@@ -67,7 +68,7 @@ pub(super) fn materialize_descriptor_provenance(
             format!("invalid materialized provenance for `{id}`: {error}"),
         )
     })?;
-    Ok((provenance, parsed.visibility, parsed.explicit_symbol))
+    Ok((provenance, parsed.visibility, parsed.explicit_symbol, cells))
 }
 
 struct MaterializationContext<'a> {
@@ -105,7 +106,14 @@ fn document<'a>(
 
 fn materialize_invocation(
     context: &mut MaterializationContext<'_>,
-) -> Result<(ParsedInvocation, Vec<DescriptorNodeOrigin>), CollectionError> {
+) -> Result<
+    (
+        ParsedInvocation,
+        Vec<DescriptorNodeOrigin>,
+        Option<super::cell_entries::LocatedCells>,
+    ),
+    CollectionError,
+> {
     let loaded = context.load_sources()?;
     let (primary_invocation_index, invocation, primary_cache_key) = context
         .reparse_primary(&loaded)
@@ -127,13 +135,21 @@ fn materialize_invocation(
                 error.with_source_range(loaded.materialized[context.primary_key].clone())
             }
         })?;
+    let cells = invocation.cells.as_ref().map(|cells| {
+        cells.locate(
+            context
+                .source_cache
+                .get(primary_cache_key)
+                .expect("the primary authored document remains cached"),
+        )
+    });
     let origins = build_origins(
         loaded.materialized,
         &loaded.invocation_range,
         context.id,
         context.label,
     );
-    Ok((invocation.clone(), origins))
+    Ok((invocation.clone(), origins, cells))
 }
 
 impl MaterializationContext<'_> {
@@ -378,6 +394,21 @@ fn build_origins(
             DescriptorNodeOrigin::new(key, origin)
         })
         .collect()
+}
+
+impl Coordinates {
+    /// The range the coordinates name in `document`; `None` where they name no bytes of it.
+    pub(super) fn range_in(&self, document: &SourceDocument) -> Option<SourceRange> {
+        let byte = |line, column| {
+            document
+                .line_index
+                .position_to_byte(Position::new(line, column).ok()?)
+                .ok()
+        };
+        let start = byte(self.start_line, self.start_column)?;
+        let end = byte(self.end_line, self.end_column)?;
+        SourceRange::from_byte_range(document.file.clone(), ByteRange::new(start, end).ok()?).ok()
+    }
 }
 
 pub(super) fn token_coordinates(range: TokenRange) -> Result<Coordinates, CollectionError> {

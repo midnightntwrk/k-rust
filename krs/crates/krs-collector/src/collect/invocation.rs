@@ -32,6 +32,9 @@ pub(super) struct ParsedInvocation {
     payload: ParsedInvocationPayload,
     pub(super) visibility: RustVisibility,
     pub(super) explicit_symbol: Option<krs_ir::ExplicitSymbol>,
+    /// A `cells!` sentence's authored fields, which the entry-admission table judges once the
+    /// cells' kinds are collected ([`super::cell_entries`]).
+    pub(super) cells: Option<super::cell_entries::ParsedCells<Coordinates>>,
 }
 
 #[derive(Clone, Debug)]
@@ -950,12 +953,14 @@ fn collect_fn_rules(
             let descriptor =
                 RuleDescriptor::state(&rule, RuleSentence::Transition(&rule_attribute))
                     .map_err(source_syntax)?;
-            output.push(parsed_invocation(
+            let mut invocation = parsed_invocation(
                 ProvenanceRole::RuleDeclaration,
                 item_fn.sig.ident.to_string(),
                 descriptor.anchors().to_vec(),
                 ParsedInvocationPayload::Declaration,
-            )?);
+            )?;
+            invocation.cells = super::cell_entries::ParsedCells::of_rule(&rule);
+            output.push(invocation);
             continue;
         }
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
@@ -1311,6 +1316,7 @@ fn parsed_invocation(
         payload,
         visibility: RustVisibility::Inherited,
         explicit_symbol: None,
+        cells: None,
     })
 }
 
