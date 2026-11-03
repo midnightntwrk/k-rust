@@ -936,18 +936,40 @@ pub(super) const INITIALIZERS: [(&str, &str); 4] = [
 ];
 
 /// G6: the sentences that keep a `cells!` pattern as they matched it, an equation's function
-/// context and a context alias, each written once per own entry (`cells!` only: neither has a
-/// readable form). The own entries are the S1 (b) path under a `*` ancestor (a Map collection's
-/// instance child, a List collection's instance child), which is refused for the ancestor
-/// whatever it spells, and a plain leaf and a List leaf beside them, admitted, which witness
-/// that the sentence's other entries are ones admitted alone. No own entry is a `?` cell's
-/// `None` or an entry that matches every content: a kept pattern is paired with no other side,
-/// so neither is asked here.
+/// context, a context alias and a context, each written once per own entry (`cells!` only: none
+/// has a readable form). A kept pattern changes nothing, so it means what a rule with that
+/// pattern on both sides means (P0): each entry is a subject entry over a cell the sentence
+/// keeps, as a rule's result leaving the cell out keeps it.
+///
+/// The own entries are the S1 (b) path under a `*` ancestor (a Map collection's instance child,
+/// a List collection's instance child), which is refused for the ancestor whatever it spells; a
+/// plain leaf and a List leaf beside them, admitted, which witness that the sentence's other
+/// entries are ones admitted alone; and what a kept pattern's pairing asks (S5.3 part 3,
+/// ruling B): a `?` cell's `Some(..)`; its `None`, at the cell's root and below one (an
+/// instance record's `?` child), which creates nothing (P5); an entry that matches every content
+/// (S5.2's lint); a collection's instance record (a Set's, with an anonymous and a named rest,
+/// and a List's front one); and a List
+/// collection's back instance. A `?` child's `None` inside a `?` group's fragment is not one of
+/// them: the macro reads a group's fragment as a term, where `None` is a binder.
 pub(super) const CONTEXTS: &[(&str, &str)] = &[
     ("apc", "k::configuration::Cell(x)"),
     ("payload", "k::configuration::Cell(x)"),
     ("pc", "k::configuration::Cell(x)"),
     ("stack", "k::configuration::Cell([x, ..])"),
+    ("counter", "Some(k::configuration::Cell(x))"),
+    ("counter", "None"),
+    (
+        "account",
+        "{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }",
+    ),
+    ("pc", "k::configuration::Cell(_)"),
+    ("bag", "{ k::fragment![crate::Obj { key: x }], .. }"),
+    (
+        "bag",
+        "{ k::fragment![crate::Obj { key: x }], instances0 @ .. }",
+    ),
+    ("job", "[k::fragment![crate::Job { payload: x }], ..]"),
+    ("job", "[.., k::fragment![crate::Job { payload: x }]]"),
 ];
 
 /// The sentence a G6 case stands in.
@@ -957,6 +979,8 @@ enum Kept {
     FunctionContext,
     /// A `#[k::context_alias]`, whose pattern frames the computation's `here`.
     ContextAlias,
+    /// A `#[k::context]` over a `cells!` pattern, whose hole is the case's command's argument.
+    Context,
 }
 
 /// The G6 case of `cell`'s entry `text` in the sentence `kept`.
@@ -964,6 +988,7 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
     let tag = match kept {
         Kept::FunctionContext => "g6-function-context",
         Kept::ContextAlias => "g6-context-alias",
+        Kept::Context => "g6-context",
     };
     let spec = CaseSpec {
         family: Family::Cells,
@@ -977,7 +1002,7 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
     let mut parameters = Vec::new();
     binder_types(&spelling, &stack(cell), &mut parameters);
     let case_tag = spec.tag();
-    let command = Command::for_case(&spec.id(), 0);
+    let command = Command::for_case(&spec.id(), usize::from(matches!(kept, Kept::Context)));
     let mut item = ItemBuilder::new();
     let mut bound = parameters
         .iter()
@@ -1020,6 +1045,25 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
                 Spelling::KCell(seq(vec![bind("site")], named("tail"))),
             ));
         }
+        Kept::Context => {
+            // The hole is the command's own `Int` argument, a result, so the context heats
+            // nothing a program runs: it is judged for its pattern alone.
+            item.push(&format!(
+                "#[k::context(hole = h)]\nfn case_{case_tag}(\n    h: k::Term<k::builtin::Int>,\n"
+            ));
+            for (name, ty) in &parameters {
+                item.push(&format!("    {name}: {ty},\n"));
+            }
+            let k = format!(
+                "k::configuration::KCell(Cmd::{} {{ a: h }}, ..)",
+                command.name
+            );
+            item.push(&format!("    k::cells! {{ k: {k}, "));
+            item.entry(&key(cell), text);
+            item.push(", .. }: crate::Machine,\n) {\n}\n");
+            bound.insert("h".to_owned());
+            entries.push(entry("k", Side::Subject, read(Form::Cells, &k)));
+        }
     }
     let case = spec.finish(Packaging::Alone(command), &item);
     Generated {
@@ -1044,12 +1088,13 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
     }
 }
 
-/// Every G6 case: each own entry in a function context and in a context alias.
+/// Every G6 case: each own entry in a function context, in a context alias and in a context.
 pub(super) fn context_cases() -> Vec<Generated> {
     CONTEXTS
         .iter()
         .flat_map(|(cell, text)| {
-            [Kept::FunctionContext, Kept::ContextAlias].map(|kept| context_case(kept, cell, text))
+            [Kept::FunctionContext, Kept::ContextAlias, Kept::Context]
+                .map(|kept| context_case(kept, cell, text))
         })
         .collect()
 }

@@ -1369,6 +1369,44 @@ pub fn pair(
     }
 }
 
+/// Pairing for an entry of a pattern the sentence keeps as it matched it ([`Rewrite::Kept`]):
+/// the pattern changes nothing, so the entry is paired as a rule's subject entry over a cell the
+/// result leaves out, which the rule keeps (P0, P5). Its absence test creates nothing, at the
+/// cell's root and at each `?` child of the records it writes
+/// ([`Refusal::AbsenceTestWithoutCreation`]), and an entry that constrains nothing owes
+/// [`Lint::NoEffectEntry`]. A context (`as_rule`) is lowered as a rule's pattern is, so a List
+/// collection's back instance it keeps meets the rule lowering's limit ([`list_ends`]); the
+/// other kept patterns are lowered by lowerings of their own, which reach no List lowering, so
+/// no such limit refuses them here.
+///
+/// # Errors
+///
+/// [`Refusal::AbsenceTestWithoutCreation`], and for a context [`Refusal::ListBothEnds`] or
+/// [`Refusal::ListBackKept`].
+pub fn pair_kept(
+    form: EntryForm,
+    stack: &[Layer],
+    spelling: &EntrySpelling,
+    as_rule: bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+) -> Result<Option<Lint>, Refusal> {
+    if as_rule {
+        return pair(
+            form,
+            EntrySide::Subject,
+            stack,
+            spelling,
+            None,
+            false,
+            bound,
+        );
+    }
+    if *spelling == EntrySpelling::Missing || absence_uncreated(stack, spelling, None) {
+        return Err(Refusal::AbsenceTestWithoutCreation);
+    }
+    Ok((matches_all(spelling, stack) && !binds(spelling)).then_some(Lint::NoEffectEntry))
+}
+
 /// Step 1 alone for one entry: what its spelling and its side refuse, whatever its cell.
 ///
 /// # Errors
@@ -1417,10 +1455,16 @@ pub enum Rewrite {
     InPlace,
     /// A pattern the sentence matches and keeps as it matched it, with no rewrite of the cells it
     /// names: a function context, which an equation reads, a context alias, the frame of every
-    /// context it makes, and a context's cells around its hole. Nothing is paired: there is no
-    /// other side, and no cell is changed or created, so its entries are judged by form and kind
-    /// (with the path) alone.
-    Kept,
+    /// context it makes, and a context's cells around its hole. It changes nothing, so it means
+    /// what a rule with that pattern on both sides means (P0): each cell it names is kept as it
+    /// matched it, as a rule keeps a cell its result leaves out (P5), and its entries are paired
+    /// as such a rule's subject entries are ([`pair_kept`]).
+    Kept {
+        /// Whether the sentence is lowered as a rule's pattern is (a context), so the rule
+        /// lowering's limits on a List collection's ends apply to it ([`list_ends`]). A function
+        /// context and a context alias are lowered by lowerings of their own, which reach none.
+        as_rule: bool,
+    },
 }
 
 /// A whole sentence's entries, in source order (the subject's, then the result's), judged by
@@ -1474,7 +1518,8 @@ impl<C: PartialEq> Sentence<'_, C> {
     /// 3. the pairing, of every entry, where the sentence has a result; without one, a
     ///    single-body rule rewrites its cells in place, so only a List collection's ends are
     ///    judged, every instance it names being kept ([`list_ends`]), and a sentence that keeps
-    ///    its pattern as it matched it ([`Rewrite::Kept`]) pairs nothing.
+    ///    its pattern as it matched it ([`Rewrite::Kept`]) pairs each entry as a subject entry
+    ///    over a cell the sentence keeps ([`pair_kept`]).
     ///
     /// The sorts are the compiler's, after. Within a step the first refusal in source order is
     /// the sentence's: one diagnostic, at one entry.
@@ -1506,7 +1551,12 @@ impl<C: PartialEq> Sentence<'_, C> {
             .map_err(|refusal| (at, refusal))?;
         }
         let mut lints = Vec::new();
-        if self.rewrite == Rewrite::Kept {
+        if let Rewrite::Kept { as_rule } = self.rewrite {
+            for (at, entry, spelling) in entries() {
+                let lint = pair_kept(self.form, &entry.kind.own.layers, spelling, as_rule, &bound)
+                    .map_err(|refusal| (at, refusal))?;
+                lints.extend(lint.map(|lint| (at, lint)));
+            }
             return Ok(lints);
         }
         if self.rewrite == Rewrite::InPlace {
@@ -3230,56 +3280,117 @@ mod tests {
         );
     }
 
-    /// A pattern a sentence keeps as it matched it (a function context, a context alias) is
-    /// judged by form and kind with the path: S1 (b) refuses an entry below a `*` ancestor there
-    /// as in a rule, and nothing is paired, since no other side exists and no cell is written.
-    #[test]
-    fn a_kept_pattern_is_judged_by_form_and_kind_alone() {
+    /// A kept pattern's sentence ([`Rewrite::Kept`]) over the leaf `pc`, the leaf `apc` below a
+    /// Map collection, the `?` leaf `counter`, the Map collection `account` of `Acct { id, note }`
+    /// (`note` a `?` leaf) and the List collection `job`, judged step by step.
+    fn kept_sentence(
+        as_rule: bool,
+        written: &[(&str, &str)],
+    ) -> Result<Vec<(usize, Lint)>, (usize, Refusal)> {
         let form = EntryForm::Cells;
-        let instances = vec![Layer::Instances(Order::Map)];
-        let below = super::EntryKind {
-            path: CellKind { layers: instances },
-            own: int(),
+        let kind = |path: Vec<Layer>, own: Vec<Layer>| super::EntryKind {
+            path: CellKind { layers: path },
+            own: CellKind { layers: own },
         };
-        let plain = super::EntryKind {
-            path: CellKind { layers: vec![] },
-            own: int(),
-        };
-        let judge = |written: &[(&str, &super::EntryKind, &str)]| {
-            let spellings = written
-                .iter()
-                .map(|(.., text)| read(form, text))
-                .collect::<Vec<_>>();
-            let entries = written
-                .iter()
-                .zip(&spellings)
-                .map(|((cell, kind, _), spelling)| SentenceEntry {
-                    side: EntrySide::Subject,
-                    cell: *cell,
-                    kind,
-                    spelling: Some(spelling),
-                })
-                .collect::<Vec<_>>();
-            Sentence {
-                form,
-                entries: &entries,
-                rewrite: Rewrite::Kept,
-                parameters: &["x".to_owned()],
-                groups: &groups(&[]),
-            }
-            .judge()
-        };
-        assert_eq!(
-            judge(&[
-                ("pc", &plain, "k::configuration::Cell(x)"),
-                ("apc", &below, "k::configuration::Cell(x)"),
-            ]),
-            Err((1, Refusal::BelowCollectionAncestor))
-        );
-        assert_eq!(
-            judge(&[("pc", &plain, "k::configuration::Cell(_)")]),
-            Ok(Vec::new())
-        );
+        let optional = || vec![Layer::Optional, Layer::Leaf(Notation::Plain)];
+        let acct = Layer::Group(GroupKind {
+            name: "Acct".to_owned(),
+            children: vec![
+                ("id".to_owned(), int()),
+                ("note".to_owned(), CellKind { layers: optional() }),
+            ],
+        });
+        let job = Layer::Group(GroupKind {
+            name: "Job".to_owned(),
+            children: vec![("payload".to_owned(), int())],
+        });
+        let all = groups(&[acct.clone(), job.clone()]);
+        let kinds = [
+            ("pc", kind(vec![], int().layers)),
+            (
+                "apc",
+                kind(vec![Layer::Instances(Order::Map)], int().layers),
+            ),
+            ("counter", kind(vec![], optional())),
+            (
+                "account",
+                kind(vec![], vec![Layer::Instances(Order::Map), acct]),
+            ),
+            (
+                "job",
+                kind(vec![], vec![Layer::Instances(Order::List), job]),
+            ),
+        ];
+        let spellings = written
+            .iter()
+            .map(|(_, text)| read(form, text))
+            .collect::<Vec<_>>();
+        let entries = written
+            .iter()
+            .zip(&spellings)
+            .map(|((cell, _), spelling)| SentenceEntry {
+                side: EntrySide::Subject,
+                cell: *cell,
+                kind: &kinds
+                    .iter()
+                    .find(|(name, _)| name == cell)
+                    .expect("a declared cell")
+                    .1,
+                spelling: Some(spelling),
+            })
+            .collect::<Vec<_>>();
+        Sentence {
+            form,
+            entries: &entries,
+            rewrite: Rewrite::Kept { as_rule },
+            parameters: &["x".to_owned()],
+            groups: &all,
+        }
+        .judge()
+    }
+
+    /// A pattern a sentence keeps as it matched it (a function context, a context alias, a
+    /// context) is judged by form and kind with the path, then paired as a rule with that
+    /// pattern on both sides: S1 (b) refuses an entry below a `*` ancestor there as in a rule; a
+    /// `None` creates nothing, at the cell's root and below it (P5); an entry that constrains
+    /// nothing owes the lint; a List collection's back instance kept in place meets the rule
+    /// lowering's limit in a context only, the one kept pattern lowered as a rule's.
+    #[test]
+    fn a_kept_pattern_is_paired_as_a_rule_with_that_pattern_on_both_sides() {
+        let absent = Refusal::AbsenceTestWithoutCreation;
+        for as_rule in [false, true] {
+            let judge = |written: &[(&str, &str)]| kept_sentence(as_rule, written);
+            assert_eq!(
+                judge(&[
+                    ("pc", "k::configuration::Cell(x)"),
+                    ("apc", "k::configuration::Cell(x)"),
+                ]),
+                Err((1, Refusal::BelowCollectionAncestor))
+            );
+            assert_eq!(
+                judge(&[("pc", "k::configuration::Cell(_)")]),
+                Ok(vec![(0, Lint::NoEffectEntry)])
+            );
+            assert_eq!(
+                judge(&[("counter", "Some(k::configuration::Cell(x))")]),
+                Ok(Vec::new())
+            );
+            assert_eq!(judge(&[("counter", "None")]), Err((0, absent)));
+            assert_eq!(
+                judge(&[(
+                    "account",
+                    "{ k::fragment![crate::Acct { id: x, note: None }], .. }"
+                )]),
+                Err((0, absent))
+            );
+            assert_eq!(
+                judge(&[("job", "[k::fragment![crate::Job { payload: x }], ..]")]),
+                Ok(Vec::new())
+            );
+        }
+        let back = [("job", "[.., k::fragment![crate::Job { payload: x }]]")];
+        assert_eq!(kept_sentence(false, &back), Ok(Vec::new()));
+        assert_eq!(kept_sentence(true, &back), Err((0, Refusal::ListBackKept)));
     }
 
     /// A sentence over the List collection `job` (instances of `Job { payload }`) and the leaf

@@ -137,7 +137,7 @@ pub(super) fn judge(
                 &rule.subject.cells,
                 rule.result.as_ref().map(|cells| cells.cells.as_slice()),
                 match (&rule.result, rule.sentence_kind) {
-                    (_, ConfigurationSentenceKind::Context) => Rewrite::Kept,
+                    (_, ConfigurationSentenceKind::Context) => Rewrite::Kept { as_rule: true },
                     (Some(_), _) => Rewrite::Result,
                     (None, _) => Rewrite::InPlace,
                 },
@@ -146,7 +146,7 @@ pub(super) fn judge(
                 &alias.configuration.configuration,
                 &alias.pattern.cells,
                 None,
-                Rewrite::Kept,
+                Rewrite::Kept { as_rule: false },
             ),
             DescriptorPayload::StructuredRule(rule) => {
                 let Some(context) = &rule.function_context else {
@@ -156,7 +156,7 @@ pub(super) fn judge(
                     &context.configuration.configuration,
                     &context.cells.cells,
                     None,
-                    Rewrite::Kept,
+                    Rewrite::Kept { as_rule: false },
                 )
             }
             _ => continue,

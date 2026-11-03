@@ -248,9 +248,13 @@ pub enum Sentence {
     /// An initializer.
     Initializer,
     /// A one-sided `cells!` pattern the sentence keeps as it matched it: an equation's function
-    /// context, which the equation reads, and a context alias, the frame of every context it
-    /// makes. It writes no cell, by what it is: its entries are subject entries with no other
-    /// side, and no rule-level class but an overlap of its entries is about it.
+    /// context, which the equation reads, a context alias, the frame of every context it makes,
+    /// and a context's cells around its hole. It changes nothing, so it means what a rule with
+    /// that pattern on both sides means (P0): its entries are subject entries over cells the
+    /// sentence keeps, as a rule keeps a cell its result leaves out (P5), so each is paired with
+    /// no other side and the result not writing its cell ([`Context::other`] `None`,
+    /// [`Context::written`] false). No rule-level class but an overlap of its entries is about
+    /// it.
     Context,
 }
 

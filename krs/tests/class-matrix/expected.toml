@@ -5434,12 +5434,33 @@ match = '{claim,readable}/deep-b/kinds/aa/x'
 class = "collection-without-instances"
 at = "entry"
 
-# G6 (S5.3 part 3): an equation's function context and a context alias keep their `cells!`
-# pattern as they matched it, and S1 (b) holds there as in a rule: an entry naming a cell below a
-# `*` ancestor is refused for the ancestor (`sentence_outcome`).
+# G6 (S5.3 part 3): an equation's function context, a context alias and a context keep their
+# `cells!` pattern as they matched it, and S1 (b) holds there as in a rule: an entry naming a cell
+# below a `*` ancestor is refused for the ancestor (`sentence_outcome`).
 [[refuse]]
-match = 'cells/{g6-function-context,g6-context-alias}/kinds/{apc,payload}/k::configuration::Cell(x)'
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{apc,payload}/k::configuration::Cell(x)'
 class = "collection-without-instances"
+at = "entry"
+
+# A kept pattern changes nothing, so it means what a rule with that pattern on both sides means
+# (P0; S5.3 part 3, ruling B): a `?` cell's `None` there creates nothing, at the cell's root and
+# at an instance record's `?` child, so it tests absence without creating the cell (P5).
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/counter/None'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, acounter: None\, .. \}]\, .. \}'
+class = "absence-test-without-creation"
+at = "entry"
+
+# A context is lowered as a rule's pattern is, so a List collection's back instance it keeps meets
+# the rule lowering's limit (a `[cell-exception]`); a function context and a context alias are
+# lowered otherwise, and no such limit applies to them.
+[[refuse]]
+match = 'cells/g6-context/kinds/job/[..\, k::fragment![crate::Job \{ payload: x \}]]'
+class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
@@ -14127,6 +14148,47 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
+
+[accept."cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
+
+[accept."cells/g6-context-alias/kinds/counter/Some(k::configuration::Cell(x))"]
+
+[accept."cells/g6-context-alias/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
+
+[accept."cells/g6-context-alias/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
+
+[accept."cells/g6-context-alias/kinds/pc/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
+
+[accept."cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
+
+[accept."cells/g6-function-context/kinds/counter/Some(k::configuration::Cell(x))"]
+
+[accept."cells/g6-function-context/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
+
+[accept."cells/g6-function-context/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
+
+[accept."cells/g6-function-context/kinds/pc/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
+k = """
+rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
+<pc> _ </pc> [label(krsRule_DIGEST)]
+
+syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."cells/g6-context-alias/kinds/pc/k::configuration::Cell(x)"]
 k = """
 context alias [caseTAG]:
@@ -14143,6 +14205,79 @@ context alias [caseTAG]:
 <stack> ListItem(V0:KItem) ... </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<bag>
+<key> V1:Int </key>
+</bag>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<bag>
+<key> V1:Int </key>
+</bag>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/counter/Some(k::configuration::Cell(x))"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<counter> V1:Int </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<queue>
+<job>
+<payload> V1:Int </payload>
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/pc/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/pc/k::configuration::Cell(x)"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<pc> V1:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/stack/k::configuration::Cell([x, ..])"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<stack> ListItem(V1:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."cells/g6-function-context/kinds/pc/k::configuration::Cell(x)"]
@@ -14560,6 +14695,9 @@ principle = "C-lim: a List collection rule that changes instances at both ends i
 
 [cell-exception.'{claim,readable}/subject/job/[..\, Job \{ payload: 0\, .. \}]']
 principle = "C-lim: a List collection's back instance kept in place is not lowered (cell_states.rs lower_instances_clause): here the subject reads it and the result leaves the cell out, so it is kept; the product creates or removes instances at the back, and reads and updates them at the front"
+
+[cell-exception.'cells/g6-context/kinds/job/[..\, k::fragment![crate::Job \{ payload: x \}]]']
+principle = "C-lim: a List collection's back instance kept in place is not lowered (cell_states.rs lower_instances_clause): a context keeps every cell its pattern names and is lowered as a rule's pattern is, so the back instance it matches is kept, as a rule's subject keeps one its result leaves out; the product creates or removes instances at the back, and reads and updates them at the front. A function context and a context alias are lowered by lowerings of their own, which reach no List lowering"
 
 [cell-exception.'{claim,readable}/result/env/\{ y -> x\, .. \}']
 principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`"

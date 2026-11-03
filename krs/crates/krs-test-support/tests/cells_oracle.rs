@@ -687,6 +687,9 @@ fn parsed_entry(case: &Case, entry: &EntryCase) -> Result<EntrySpelling, String>
 #[derive(Debug, Default)]
 struct Rendered {
     sentence: Option<class_matrix::cells_oracle::Sentence>,
+    /// Whether a sentence that keeps its pattern is a context, which is lowered as a rule's
+    /// pattern is.
+    context: bool,
     entries: Vec<(String, Side, EntrySpelling)>,
     parameters: BTreeSet<String>,
     guard: bool,
@@ -694,11 +697,14 @@ struct Rendered {
 }
 
 /// What the rendered sentence does with its cells, as the product's judgement reads it: a
-/// sentence that keeps its pattern as it matched it pairs nothing, one with a result entry pairs
-/// each entry with the other side's, and one with none rewrites in place.
+/// sentence that keeps its pattern as it matched it keeps every cell it names (a context lowered
+/// as a rule's pattern is), one with a result entry pairs each entry with the other side's, and
+/// one with none rewrites in place.
 fn product_rewrite(rendered: &Rendered) -> cell_entries::Rewrite {
     if rendered.sentence == Some(class_matrix::cells_oracle::Sentence::Context) {
-        cell_entries::Rewrite::Kept
+        cell_entries::Rewrite::Kept {
+            as_rule: rendered.context,
+        }
     } else if rendered
         .entries
         .iter()
@@ -808,8 +814,9 @@ fn rendered_readable(form: EntryForm, input: syn::parse::ParseStream<'_>) -> syn
 /// A `cells!` rule: `#[k::rule(..)] pub fn f(x: T, .., k::cells! { .. }: M) -> M { k::cells! { .. } }`;
 /// or a sentence that keeps its `cells!` pattern as it matched it (G6): an equation whose last
 /// parameter is its function context, `#[k::equation] fn f(x: T, .., k::term![..]: S,
-/// k::cells! { .., .. }: M) -> S { .. }`, after the struct of the function it defines, and a
-/// context alias, `#[k::context_alias(..)] fn f(x: T, .., k::cells! { .. }: M) {}`.
+/// k::cells! { .., .. }: M) -> S { .. }`, after the struct of the function it defines, a
+/// context alias, `#[k::context_alias(..)] fn f(x: T, .., k::cells! { .. }: M) {}`, and a
+/// context, `#[k::context(hole = h)] fn f(h: T, .., k::cells! { .. }: M) {}`.
 fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
     use class_matrix::cells_oracle::Sentence;
     let mut rendered = Rendered {
@@ -833,8 +840,9 @@ fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
                 .is_some_and(|segment| segment.ident == name)
         })
     };
-    if marks("equation") || marks("context_alias") {
+    if marks("equation") || marks("context_alias") || marks("context") {
         rendered.sentence = Some(Sentence::Context);
+        rendered.context = marks("context");
     }
     input.parse::<syn::Visibility>()?;
     input.parse::<syn::Token![fn]>()?;
@@ -875,8 +883,8 @@ fn rendered_cells(input: syn::parse::ParseStream<'_>) -> syn::Result<Rendered> {
     let body;
     syn::braced!(body in input);
     if rendered.sentence == Some(Sentence::Context) {
-        // An equation's body is its result term, a context alias's is empty: neither writes a
-        // cell.
+        // An equation's body is its result term, a context alias's and a context's are empty:
+        // none writes a cell.
         while !body.is_empty() {
             skip(&body)?;
         }
@@ -1249,13 +1257,20 @@ const fn product_side(side: Side) -> EntrySide {
     }
 }
 
-/// The product's judgement of a case's entry: `admit` (form, path and kind), then `pair`.
+/// The product's judgement of a case's entry: `admit` (form, path and kind), then `pair`, or
+/// `pair_kept` in a sentence that keeps its pattern as it matched it (the rendered sentence's
+/// [`product_rewrite`]).
 fn product_outcome(
+    case: &Case,
     entry: &EntryCase,
     kind: &cell_kind::EntryKind,
     spelling: &EntrySpelling,
     groups: &[cell_kind::GroupKind],
 ) -> Outcome {
+    let rewrite = rendered_sentence(case, entry)
+        .map_or(cell_entries::Rewrite::Result, |rendered| {
+            product_rewrite(&rendered)
+        });
     let (path, stack) = (&kind.path.layers[..], &kind.own.layers[..]);
     let form = match entry.form {
         Form::Readable => EntryForm::Readable,
@@ -1270,15 +1285,21 @@ fn product_outcome(
         Err(refusal) => return Outcome::Refuse(refusal.class()),
     };
     let other = entry.context.other.as_ref().map(product_of);
-    match cell_entries::pair(
-        form,
-        side,
-        stack,
-        spelling,
-        other.as_ref(),
-        entry.context.written,
-        &bound,
-    ) {
+    let paired = match rewrite {
+        cell_entries::Rewrite::Kept { as_rule } => {
+            cell_entries::pair_kept(form, stack, spelling, as_rule, &bound)
+        }
+        _ => cell_entries::pair(
+            form,
+            side,
+            stack,
+            spelling,
+            other.as_ref(),
+            entry.context.written,
+            &bound,
+        ),
+    };
+    match paired {
         Err(refusal) => Outcome::Refuse(refusal.class()),
         Ok(None) if admitted.sorted => Outcome::After,
         Ok(lint) => Outcome::Admit {
@@ -1363,7 +1384,7 @@ fn check_2_the_product_admits_as_the_table_says() {
             ));
             continue;
         }
-        let got = product_outcome(entry, &kind, &spelling, &groups[&case.base]);
+        let got = product_outcome(case, entry, &kind, &spelling, &groups[&case.base]);
         let excepted = !naming(&case.id, &exceptions).is_empty();
         let want = match &EXPECTED[&case.id] {
             Expected::Refuse { name, .. } if excepted => Outcome::Refuse(name),

@@ -4711,6 +4711,74 @@ deviation = "krs::analysis::invalid-record-update @ item"
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
+["cells/g6-context-alias/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }"]
+finding = "S5-G3"
+deviation = "krs::syntax::unsupported-rule-signature @ item"
+
+["cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
+finding = "S5-Z1"
+deviation = "krs::collect::invalid-configuration @ item"
+
+["cells/g6-context-alias/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
+finding = "S5-Z1"
+deviation = "krs::expand::cell-collection-placement @ spelling"
+
+["cells/g6-context-alias/kinds/counter/None"]
+finding = "S5-Z1"
+deviation = "krs::collect::invalid-configuration @ item"
+
+["cells/g6-context-alias/kinds/counter/Some(k::configuration::Cell(x))"]
+finding = "S5-Z1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["cells/g6-context-alias/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
+finding = "S5-Z1"
+deviation = "krs::collect::invalid-configuration @ item"
+
+["cells/g6-context-alias/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
+finding = "S5-Z1"
+deviation = "krs::collect::invalid-configuration @ item"
+
+["cells/g6-context-alias/kinds/pc/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells/g6-context/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }"]
+finding = "S5-G3"
+deviation = "krs::syntax::unsupported-rule-signature @ item"
+
+["cells/g6-context/kinds/pc/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells/g6-function-context/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }"]
+finding = "S5-G3"
+deviation = "krs::syntax::unsupported-rule-signature @ item"
+
+["cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
+finding = "S5-Z1"
+deviation = "krs::analysis::invalid-function-context @ entry"
+
+["cells/g6-function-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], instances0 @ .. }"]
+finding = "S5-Z1"
+deviation = "krs::expand::cell-collection-placement @ spelling"
+
+["cells/g6-function-context/kinds/counter/Some(k::configuration::Cell(x))"]
+finding = "S5-Z1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["cells/g6-function-context/kinds/job/[.., k::fragment![crate::Job { payload: x }]]"]
+finding = "S5-Z1"
+deviation = "krs::analysis::invalid-function-context @ entry"
+
+["cells/g6-function-context/kinds/job/[k::fragment![crate::Job { payload: x }], ..]"]
+finding = "S5-Z1"
+deviation = "krs::analysis::invalid-function-context @ entry"
+
+["cells/g6-function-context/kinds/pc/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
 ["cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
 finding = "S5-P1"
 deviation = "krs::syntax::rust-syntax @ spelling"

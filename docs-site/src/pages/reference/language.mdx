@@ -367,7 +367,9 @@ A bracketed value thus has up to four readings, the computation cell's head, a L
 A value that reads only one way is read that way: `[Push(), ..]` or `[x, ..]` reads as a head or as elements; a rule has one computation cell, so when one cell's value reads only as a head, every other bracketed value is a collection or a list.
 The reference spelling `krs expand` prints writes the entry with the collection path, `Threads::thread: { me @ k::fragment![crate::Thread { .. }], instances0 @ .. }`, and the result `..instances0`.
 A `?` or `*` cell whose template reads a configuration variable starts present, since the variable's input has to land in it, so the text must say so: a `*` cell says `initial`, and a `?` cell is written `Some(..)`, not `k::absent!(..)`; otherwise the cell is rejected (`krs::analysis::collection-config-var-without-initial`), and every such cell is reported.
-Optional and collection entries are not allowed in a context alias or an equation's function context, which read fixed cells only (`krs::expand::cell-collection-placement`).
+A context alias and an equation's function context read fixed cells only: a `?` cell's `Some(..)` is rejected there (`krs::analysis::invalid-term`), and so is a collection's instance list, as `krs::analysis::invalid-function-context` in a function context and `krs::collect::invalid-configuration` in a context alias, or as `krs::expand::cell-collection-placement` in either where it names its rest (`instances0 @ ..`).
+A pattern that a sentence keeps as it matched it changes nothing, so it means what a rule with that pattern on both sides means: a `None` there tests absence without creating the cell, which is rejected as in a rule (`krs::analysis::optional-presence`), except that a context alias rejects it as an optional entry first (`krs::collect::invalid-configuration`).
+A `#[k::context]` over a `k::cells!` pattern admits `Some(..)` and instance records, as a rule's subject does, and rejects a List collection's back instance, which it keeps in place (`krs::analysis::collection-entry`).
 
 ### Typed binders
 
